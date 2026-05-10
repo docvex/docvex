@@ -1,0 +1,129 @@
+.sidebar {
+  width: 60px;
+  min-width: 60px;
+  height: 100vh;
+  background: #141414;
+  border-right: 1px solid #2a2a2a;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 250ms ease, min-width 250ms ease;
+  flex-shrink: 0;
+}
+
+.sidebar:hover {
+  width: 220px;
+  min-width: 220px;
+}
+
+/* Labels are hidden by default and fade in after the sidebar opens */
+.sidebar .label {
+  opacity: 0;
+  white-space: nowrap;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+
+.sidebar:hover .label {
+  opacity: 1;
+  transition-delay: 100ms;
+}
+
+/* Brand row at the top */
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  height: 56px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.brand-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #e0e0e0;
+}
+
+.brand-icon {
+  color: #6366f1;
+}
+
+/* Nav list */
+.sidebar-nav {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+  flex: 1;
+}
+
+.sidebar-nav li {
+  padding: 2px 8px;
+}
+
+/* Shared styles for NavLink items and the sign-out button */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: 7px;
+  color: #888;
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
+}
+
+.nav-item:hover {
+  background: #1f1f1f;
+  color: #e0e0e0;
+}
+
+.nav-item.active {
+  background: #1f1f1f;
+  color: #fff;
+}
+
+/* Icon wrapper — fixed size so it stays centered when sidebar is narrow */
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  flex-shrink: 0;
+}
+
+/* Footer (sign out) */
+.sidebar-footer {
+  padding: 8px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.signout-btn {
+  color: #666;
+}
+
+.signout-btn:hover {
+  color: #f87171;
+  background: #1f1f1f;
+}
+
+/* Loading spinner used in ProtectedRoute */
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid #333;
+  border-top-color: #aaa;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
