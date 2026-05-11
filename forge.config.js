@@ -4,6 +4,14 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
+    // electron-packager picks the right extension for each target by
+    // appending it to this basename:
+    //   - Windows:  src/favicon.ico    ← committed
+    //   - macOS:    src/favicon.icns   ← optional; falls back when missing
+    //   - Linux:    src/favicon.png    ← optional; falls back when missing
+    // The .ico carries multi-resolution frames (16/32/48/.../256), so the
+    // .exe and Setup.exe both pick the right one.
+    icon: 'src/favicon',
     protocols: [
       {
         name: 'Docvex Auth',
@@ -28,7 +36,15 @@ module.exports = {
   makers: [
     {
       name: '@electron-forge/maker-squirrel',
-      config: {},
+      config: {
+        // setupIcon = the icon embedded in Setup.exe.
+        // iconUrl   = the icon Windows shows in Programs & Features after
+        //             install; must be a real HTTPS URL the user-facing
+        //             machine can fetch. Resolves once src/favicon.ico is
+        //             pushed to the repo (next release commits it).
+        setupIcon: 'src/favicon.ico',
+        iconUrl: 'https://raw.githubusercontent.com/petreluca1105-dotcom/docvex/main/src/favicon.ico',
+      },
     },
     {
       name: '@electron-forge/maker-zip',

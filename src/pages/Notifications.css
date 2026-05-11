@@ -158,6 +158,16 @@
   height: 20px;
   margin-top: 1px;
   color: #888;
+  /* Read rows have a dimmed icon so the eye scans straight to anything
+     still unread. The .n-row-unread override below brings unread icons back
+     to full opacity. This (plus the title weight differential) replaces the
+     orange unread dot we removed. */
+  opacity: 0.35;
+  transition: opacity 150ms ease;
+}
+
+.n-row-unread .n-row-icon {
+  opacity: 1;
 }
 
 .n-row-info    .n-row-icon { color: var(--toast-info,    #6366f1); }
@@ -243,17 +253,6 @@
   border-color: #7c7ff5;
 }
 
-.n-row-unread-dot {
-  position: absolute;
-  top: 14px;
-  right: 38px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #f97316;
-  flex-shrink: 0;
-}
-
 .n-row-remove {
   flex-shrink: 0;
   background: transparent;
@@ -266,7 +265,23 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /* One-line notifications: center the X vertically in the row. Override
+     the parent .n-row's `align-items: flex-start` so the negative-margin
+     click-target hack doesn't drag the X above the title's baseline. */
+  align-self: center;
   transition: color 120ms, background 120ms;
+}
+
+/* Multi-line notifications (have a body message and/or action buttons):
+   pin the X to the top of the row so it aligns with the title rather than
+   floating in the middle of the card. :has() detects descendants under the
+   .n-row — supported by Chromium ≥ 105 (Electron's renderer). */
+.n-row:has(.n-row-message) .n-row-remove,
+.n-row:has(.n-row-actions) .n-row-remove {
+  align-self: flex-start;
+  /* Small downward nudge so the X visually lines up with the title's
+     baseline rather than the title's top metric. */
+  margin-top: 0;
 }
 
 .n-row-remove:hover {

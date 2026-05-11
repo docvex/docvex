@@ -42,10 +42,15 @@ export default function Account() {
   const user = session.user;
   const provider = user.app_metadata?.provider || 'email';
   const avatarUrl = user.user_metadata?.avatar_url;
+  // Mirrors getDisplayName() in Sidebar.jsx — kept in sync per the
+  // CLAUDE.md convention. Strips the @domain when falling back to email so
+  // the name reads cleanly ("petreluca1105" instead of "petreluca1105@gmail.com").
+  // The full email still appears elsewhere on this page in the identity panel.
   const displayName =
-    user.user_metadata?.full_name ||
-    user.user_metadata?.name ||
-    user.email;
+    user.user_metadata?.full_name
+    || user.user_metadata?.name
+    || (user.email ? user.email.split('@')[0] : null)
+    || 'Account';
   const initials = (user.email || '?').charAt(0).toUpperCase();
 
   const handleCopyId = async () => {

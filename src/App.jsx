@@ -11,6 +11,8 @@ import Notifications from './pages/Notifications';
 import ProjectList from './pages/Projects/ProjectList';
 import ProjectCreate from './pages/Projects/ProjectCreate';
 import ProjectDashboard from './pages/Projects/ProjectDashboard';
+import ProjectFiles from './pages/Projects/ProjectFiles';
+import ProjectTodos from './pages/Projects/ProjectTodos';
 
 function ProtectedRoute() {
   const { session, loading } = useAuth();
@@ -56,6 +58,12 @@ export default function App() {
             <Route index element={<ProjectDashboard />} />
             {/* Members / Settings routes are added in step 3. */}
           </Route>
+          {/* Project-scoped tools — pull data from SelectedProjectContext.
+              The ProjectBanner in AppShell tells the user which project is
+              active. If no project is selected, these pages prompt the user
+              to pick one from /projects. */}
+          <Route path="files" element={<ProjectFiles />} />
+          <Route path="todos" element={<ProjectTodos />} />
         </Route>
       </Route>
     </Routes>

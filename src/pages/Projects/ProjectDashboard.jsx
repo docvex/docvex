@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
+import { useSelectedProject } from '../../context/SelectedProjectContext';
 import './ProjectDashboard.css';
 
 // Placeholder for step 2 of the build. Step 3 will fill in the full
@@ -9,6 +10,17 @@ import './ProjectDashboard.css';
 // ProjectContext is wired correctly so the create flow has a landing page.
 export default function ProjectDashboard() {
   const { project, role, members, loading, error } = useProject();
+  const { selectedProjectId, selectProject } = useSelectedProject();
+
+  // Deep-linking to /projects/:id (back button, bookmark, OAuth resume)
+  // should make this project the user's working project — otherwise the
+  // sidebar's Projects section would stay empty even though the user is
+  // clearly inside a project.
+  useEffect(() => {
+    if (project?.id && project.id !== selectedProjectId) {
+      selectProject(project.id);
+    }
+  }, [project?.id, selectedProjectId, selectProject]);
 
   if (loading) {
     return (

@@ -7,7 +7,7 @@ export default function Dashboard() {
   return (
     <div>
       <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.5rem', fontWeight: 600, color: '#e0e0e0' }}>
-        Dashboard
+        Activity
       </h1>
       <p style={{ color: '#666', fontSize: '0.9rem', margin: 0 }}>
         Signed in as {session?.user?.email}

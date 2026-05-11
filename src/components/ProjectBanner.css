@@ -1,0 +1,78 @@
+/* "Working in <project>" pill — gold accent (#c9974a) matching the brand
+   icon and the project-selection accents elsewhere in the app
+   (.project-picker-trigger.has-selection, .project-picker-panel-row.is-current,
+   .lock-btn.is-locked). Fixed-position so it stays centered on the
+   viewport regardless of the sidebar's width — collapsed (60px), locked
+   (220px), or picker-open (220px) all leave the pill in the same place.
+   This avoids the visual jitter the previous absolute-position-inside-
+   main-content variant had, where the pill shifted right when the sidebar
+   collapsed because main-content's center moved. */
+
+.project-banner-pill {
+  /* position:absolute inside .main-content (which has position:relative
+     in AppShell.css) so the pill centers on the visible page area —
+     NOT on the full viewport. When the sidebar collapses (60px) the
+     content area widens and the pill slides left toward the new center;
+     when the sidebar expands (220px) it slides right. Centering on the
+     viewport made the pill look off-center against a wider sidebar
+     because half of the viewport was hidden behind the sidebar.
+     The pill is rendered inside <main className="main-content"> by
+     AppShell, so its containing block follows wherever main-content
+     lives in the flex row. */
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  /* Semi-transparent gold so the dark page background bleeds through
+     slightly — softer than the solid #c9974a and lets the pill feel
+     like an "indicator" rather than a hard chrome element. The 1px
+     border (full-opacity gold) keeps the edge crisp despite the
+     softer fill. */
+  background: rgba(201, 151, 74, 0.22);
+  color: #fff;
+  font-size: 0.85rem;
+  border-radius: 999px;
+  border: 1px solid #c9974a;
+  padding: 0.42rem 1.15rem;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  /* `left` transitions in lock-step with the sidebar's own 250ms width
+     transition — when the sidebar opens/closes, main-content's left
+     edge slides over the same beat, and the pill's centering point
+     (50% of main-content) slides with it. The animation reads as one
+     unified motion rather than a snap. */
+  transition: background 150ms, transform 80ms, left 250ms ease;
+  animation: project-banner-pill-in 200ms ease-out;
+}
+
+.project-banner-pill:hover {
+  /* Bump the fill toward more opaque on hover so the pill clearly
+     responds to the cursor without losing its translucent identity. */
+  background: rgba(201, 151, 74, 0.38);
+  border-color: #d6a55b;
+}
+
+.project-banner-pill:active {
+  transform: translateX(-50%) translateY(1px);
+}
+
+/* "working in" reads softer than the project name so the eye lands on the
+   name first. Same word weight as the body of the app's UI text. */
+.project-banner-pill-prefix {
+  opacity: 0.65;
+  font-weight: 500;
+}
+
+.project-banner-pill-name {
+  font-weight: 700;
+}
+
+@keyframes project-banner-pill-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

@@ -113,7 +113,6 @@ function NotificationRow({ notification, ctx, onMarkRead, onRemove }) {
           </div>
         )}
       </div>
-      {!read_at && <span className="n-row-unread-dot" aria-label="Unread" />}
       <button
         type="button"
         className="n-row-remove"

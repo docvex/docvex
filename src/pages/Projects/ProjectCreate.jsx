@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createProject } from '../../lib/projects';
 import { useNotifications } from '../../context/NotificationsContext';
+import { useSelectedProject } from '../../context/SelectedProjectContext';
 import './ProjectCreate.css';
 
 const ArrowLeftIcon = (
@@ -14,6 +15,7 @@ const ArrowLeftIcon = (
 export default function ProjectCreate() {
   const navigate = useNavigate();
   const { notify } = useNotifications();
+  const { selectProject } = useSelectedProject();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -52,6 +54,10 @@ export default function ProjectCreate() {
       title: `Project "${data.name}" created`,
       dedupeKey: `project-created-${data.id}`,
     });
+    // The just-created project becomes the user's working project — it'd
+    // be jarring to land on its dashboard and have the sidebar's project
+    // section still empty.
+    selectProject(data.id);
     navigate(`/projects/${data.id}`);
   };
 

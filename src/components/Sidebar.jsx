@@ -3,24 +3,34 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useUpdates } from '../context/UpdatesContext';
 import { useNotifications } from '../context/NotificationsContext';
+import { useSelectedProject } from '../context/SelectedProjectContext';
 import { PLAN } from '../lib/plan';
+// Vite imports the asset, hashes it, and emits an asset reference.
+// Chromium (Electron's renderer) renders .ico in <img> tags, so the same
+// favicon.ico the forge packager uses on Windows doubles as the in-app
+// brand mark — one canonical source for both surfaces.
+import brandIcon from '../favicon.ico';
 import './Sidebar.css';
 
 function getDisplayName(user) {
-  return (
-    user?.user_metadata?.full_name ||
-    user?.user_metadata?.name ||
-    user?.email ||
-    'Account'
-  );
+  const meta = user?.user_metadata;
+  if (meta?.full_name) return meta.full_name;
+  if (meta?.name)      return meta.name;
+  // Fall back to the email's local part — "petreluca1105@gmail.com" reads
+  // better as "petreluca1105" in the cramped sidebar than the full address.
+  // The Account page still displays the full email beneath this name.
+  if (user?.email) {
+    const at = user.email.indexOf('@');
+    return at > 0 ? user.email.slice(0, at) : user.email;
+  }
+  return 'Account';
 }
 
-const DashboardIcon = (
+// Pulse/heartbeat line — reads naturally as "activity feed", much more so
+// than the old 4-rectangle grid which suggested a dashboard layout instead.
+const ActivityIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="7" height="7"/>
-    <rect x="14" y="3" width="7" height="7"/>
-    <rect x="3" y="14" width="7" height="7"/>
-    <rect x="14" y="14" width="7" height="7"/>
+    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
   </svg>
 );
 
@@ -35,6 +45,42 @@ const BriefcaseIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
     <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+  </svg>
+);
+
+// Layout-dashboard glyph (Lucide-style) — four rectangles of unequal sizes
+// that read as "dashboard widgets". Picked specifically because the
+// equal-grid version of this icon now lives on the Activity row as the old
+// DashboardIcon was renamed/swapped to a pulse.
+const ProjectDashboardIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="9"/>
+    <rect x="14" y="3" width="7" height="5"/>
+    <rect x="14" y="12" width="7" height="9"/>
+    <rect x="3" y="16" width="7" height="5"/>
+  </svg>
+);
+
+const FilesIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+    <polyline points="14 2 14 8 20 8"/>
+  </svg>
+);
+
+const TodosIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="9 11 12 14 22 4"/>
+    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+  </svg>
+);
+
+const SwitchIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="17 1 21 5 17 9"/>
+    <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+    <polyline points="7 23 3 19 7 15"/>
+    <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
   </svg>
 );
 
@@ -85,6 +131,7 @@ export default function Sidebar() {
   const { session } = useAuth();
   const { hasUpdate, currentVersion } = useUpdates();
   const { unreadCount } = useNotifications();
+  const { selectedProject, pickerOpen, togglePicker, closePicker } = useSelectedProject();
   // Persist the lock preference so the layout doesn't snap closed on every reload
   const [locked, setLocked] = useState(() => {
     try { return localStorage.getItem(LOCK_STORAGE_KEY) === 'true'; } catch { return false; }
@@ -94,41 +141,44 @@ export default function Sidebar() {
     try { localStorage.setItem(LOCK_STORAGE_KEY, String(locked)); } catch { /* ignore */ }
   }, [locked]);
 
-  // Build the nav list. Notifications is signed-in-only; we filter out items
-  // whose `visible` predicate returns false so the sidebar is uncluttered
-  // when no session exists. The Updates page is reachable via the version
-  // link in the brand row, so it doesn't need its own nav tab.
-  const navItems = [
-    // Projects sits above Dashboard per the build plan — the workspace-y
-    // entry point. end:false so /projects/:id keeps the nav item highlighted
-    // (otherwise NavLink considers /projects an exact prefix match only).
-    {
-      to: '/projects',
-      label: 'Projects',
-      icon: BriefcaseIcon,
-      end: false,
-      visible: !!session,
-    },
-    { to: '/', label: 'Dashboard', icon: DashboardIcon, end: true },
-    {
-      to: '/notifications',
-      label: 'Notifications',
-      icon: BellIcon,
-      end: true,
-      visible: !!session,
-      badge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : String(unreadCount)) : null,
-    },
-  ].filter((item) => item.visible !== false);
+  // Project-picker state (open/close, fetching the project list, Esc to
+  // close) lives in ProjectPickerPanel.jsx now — the panel owns its own
+  // data + key handling so the sidebar doesn't have to know.
+  //
+  // Personal section is config-driven (link rows only).
+  const personalSection = {
+    label: 'Personal',
+    items: [
+      { kind: 'link', to: '/', label: 'Activity', icon: ActivityIcon, end: true },
+      // end:false so /projects/:id keeps the nav item highlighted when
+      // viewing a specific project's dashboard from the /projects browser.
+      {
+        kind: 'link',
+        to: '/projects',
+        label: 'Projects',
+        icon: BriefcaseIcon,
+        end: false,
+        visible: !!session,
+      },
+      {
+        kind: 'link',
+        to: '/notifications',
+        label: 'Notifications',
+        icon: BellIcon,
+        end: true,
+        visible: !!session,
+        badge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : String(unreadCount)) : null,
+      },
+    ].filter((i) => i.visible !== false),
+  };
+
 
   return (
-    <nav className={`sidebar${locked ? ' locked' : ''}`}>
+    <nav className={`sidebar${locked ? ' locked' : ''}${pickerOpen ? ' picker-open' : ''}`}>
       <div className="sidebar-brand">
         <div className="brand-left">
           <span className="icon brand-icon">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8" fill="none" stroke="currentColor" strokeWidth="2"/>
-            </svg>
+            <img src={brandIcon} alt="Docvex" className="brand-icon-img" />
           </span>
           <span className="label brand-text">
             <span className="brand-name">DOCVEX</span>
@@ -138,6 +188,7 @@ export default function Sidebar() {
                 end
                 className="brand-version"
                 title={hasUpdate ? 'Update available — open Updates' : 'Open Updates'}
+                onClick={closePicker}
               >
                 <span className="brand-version-num">v{currentVersion}</span>
                 {hasUpdate && (
@@ -160,12 +211,21 @@ export default function Sidebar() {
       </div>
 
       <ul className="sidebar-nav">
-        {navItems.map(({ to, label, icon, end, badge }) => (
+        {/* Personal section — config-driven (NavLink rows only). */}
+        <li className="sidebar-section-header" aria-hidden="true">
+          <span className="label sidebar-section-label">{personalSection.label}</span>
+        </li>
+        {personalSection.items.map(({ to, label, icon, end, badge }) => (
           <li key={to}>
             <NavLink
               to={to}
               end={end}
               className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+              /* Clicking any sidebar nav item closes the picker — if the
+                 user is navigating to another page, they don't want the
+                 picker panel still floating over the new view. No-op when
+                 the picker is already closed. */
+              onClick={closePicker}
             >
               <span className="icon">
                 {icon}
@@ -178,6 +238,101 @@ export default function Sidebar() {
             </NavLink>
           </li>
         ))}
+
+        {/* Projects section — static layout: trigger row + Files + To-dos.
+            Files / To-dos always render. With no project selected they're
+            buttons (`.is-disabled` dim) that open the picker on click; with
+            a project selected they're regular NavLinks at full contrast. */}
+        {session && (
+          <>
+            <li className="sidebar-section-header" aria-hidden="true">
+              <span className="label sidebar-section-label">Projects</span>
+            </li>
+            <li>
+              <button
+                type="button"
+                className={`project-picker-trigger${selectedProject ? ' has-selection' : ''}`}
+                onClick={togglePicker}
+                title={selectedProject ? 'Switch project' : 'Select a project'}
+              >
+                <span className="label">
+                  {selectedProject ? selectedProject.name : 'Select a project'}
+                </span>
+              </button>
+            </li>
+            {selectedProject ? (
+              <>
+                <li>
+                  <NavLink
+                    to={`/projects/${selectedProject.id}`}
+                    end
+                    className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+                    onClick={closePicker}
+                  >
+                    <span className="icon">{ProjectDashboardIcon}</span>
+                    <span className="label">Dashboard</span>
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/files"
+                    className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+                    onClick={closePicker}
+                  >
+                    <span className="icon">{FilesIcon}</span>
+                    <span className="label">Files</span>
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/todos"
+                    className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+                    onClick={closePicker}
+                  >
+                    <span className="icon">{TodosIcon}</span>
+                    <span className="label">To-dos</span>
+                  </NavLink>
+                </li>
+              </>
+            ) : (
+              <>
+                <li>
+                  <button
+                    type="button"
+                    className="nav-item is-disabled"
+                    onClick={togglePicker}
+                    title="Pick a project to see its dashboard"
+                  >
+                    <span className="icon">{ProjectDashboardIcon}</span>
+                    <span className="label">Dashboard</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="nav-item is-disabled"
+                    onClick={togglePicker}
+                    title="Pick a project to see its files"
+                  >
+                    <span className="icon">{FilesIcon}</span>
+                    <span className="label">Files</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="nav-item is-disabled"
+                    onClick={togglePicker}
+                    title="Pick a project to see its to-dos"
+                  >
+                    <span className="icon">{TodosIcon}</span>
+                    <span className="label">To-dos</span>
+                  </button>
+                </li>
+              </>
+            )}
+          </>
+        )}
       </ul>
 
       <div className="sidebar-footer">
@@ -189,6 +344,7 @@ export default function Sidebar() {
               end
               className={({ isActive }) => `nav-item account-btn${isActive ? ' active' : ''}`}
               title={`${displayName} · ${PLAN.tier}`}
+              onClick={closePicker}
             >
               <span className="icon">
                 <AccountAvatar user={session.user} />

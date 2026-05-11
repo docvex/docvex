@@ -1,0 +1,119 @@
+/* Shared layout for the project-scoped placeholder pages (Files, To-dos).
+   Same dark palette as ProjectList/ProjectDashboard for visual continuity.
+   This stylesheet is imported by both pages so they look identical above
+   the placeholder content; the actual feature pages will likely fork into
+   their own CSS once they grow real UI. */
+
+.project-scoped-page {
+  max-width: 820px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.project-scoped-loading,
+.project-scoped-empty {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 2rem 1.5rem;
+  color: #c4c4c4;
+  font-size: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.project-scoped-empty {
+  text-align: center;
+  align-items: center;
+  padding: 3rem 1.5rem;
+}
+
+.project-scoped-empty h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.project-scoped-empty p {
+  margin: 0 0 1.5rem;
+  color: #888;
+}
+
+.project-scoped-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #6366f1;
+  border: 1px solid #6366f1;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  text-decoration: none;
+  transition: background 150ms, border-color 150ms;
+}
+
+.project-scoped-cta:hover {
+  background: #7c7ff5;
+  border-color: #7c7ff5;
+}
+
+.project-scoped-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.project-scoped-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0;
+}
+
+.project-scoped-subtitle {
+  color: #888;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.project-scoped-subtitle strong {
+  color: #c4c4c4;
+  font-weight: 600;
+}
+
+.project-scoped-coming-soon {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.project-scoped-coming-soon h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.project-scoped-coming-soon p {
+  margin: 0;
+  color: #aaa;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.project-scoped-coming-soon code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.82em;
+  background: #111;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+  color: #e0e0e0;
+}

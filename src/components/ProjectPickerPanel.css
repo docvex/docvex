@@ -1,0 +1,188 @@
+/* Project picker panel — secondary nav column that slides out from
+   behind the sidebar.
+   Geometry:
+     - Sidebar (z-index 20): width 60px collapsed, 220px hover/locked/picker-open.
+     - Panel  (z-index 10): pinned to left:0, width 220px, height 100vh.
+     - Closed: transform translateX(-100%) — entirely off-screen left.
+     - Open:   transform translateX(60px)  — peeks out next to the
+               collapsed-sidebar's right edge.
+   Because the sidebar's z-index is higher, the panel in its closed
+   position is literally hidden behind the sidebar; the open animation
+   visibly slides it out from beneath. */
+
+.project-picker-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  /* Wider than the sidebar (220px) so project names have breathing room.
+     Tradeoff against horizontal real estate — 260px reads comfortably for
+     names up to ~28 chars before truncation kicks in. */
+  width: 260px;
+  /* Shared surface color with the sidebar's .project-picker-trigger
+     (#1d1d1d) — the two read as one continuous block once the panel
+     slides out beside the button. Slightly lighter than the sidebar
+     (#141414) for visible separation. */
+  background: #332B1F;
+  border-right: 1px solid #2a2a2a;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(-100%);
+  pointer-events: none;
+  box-shadow: 6px 0 20px rgba(0, 0, 0, 0);
+  /* No transition-delay — the panel slides at the same time the button
+     reshapes, so the open/close feels instant rather than staggered. */
+  transition:
+    transform 220ms ease,
+    box-shadow 220ms ease;
+}
+
+.project-picker-panel.is-open {
+  /* Slide to right after the expanded sidebar (220px). The sidebar's
+     .picker-open rule force-expands it to 220px whenever the panel opens,
+     so 220 is the correct anchor regardless of the user's lock state.
+     Z-index 10 (panel) < 20 (sidebar) means during the slide-in animation
+     the panel is hidden by the sidebar until it clears the 220px edge —
+     reads as "emerging from behind the sidebar". */
+  transform: translateX(220px);
+  pointer-events: auto;
+  box-shadow: 6px 0 20px rgba(0, 0, 0, 0.45);
+}
+
+/* Backdrop captures click-to-close over the page content. Below the
+   panel in z-order so the panel renders on top of it. */
+.project-picker-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 9;
+  animation: project-picker-panel-fade 180ms ease-out;
+}
+
+@keyframes project-picker-panel-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.project-picker-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 14px 14px 18px;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+}
+
+.project-picker-panel-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #777;
+  margin: 0;
+}
+
+/* Top-right close X — quiet by default (matches the muted title color),
+   brightens on hover. Same border-radius/padding scale as the rest of
+   the small icon-buttons in the app (e.g. ProjectBanner's close). */
+.project-picker-panel-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #777;
+  padding: 4px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+
+.project-picker-panel-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e0e0e0;
+}
+
+.project-picker-panel-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.project-picker-panel-state {
+  padding: 0.9rem 1.1rem;
+  color: #666;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.project-picker-panel-state-error { color: #f87171; }
+
+.project-picker-panel-row {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #c4c4c4;
+  font-family: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  padding: 0.55rem 1.1rem;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+
+.project-picker-panel-row:hover {
+  background: #1f1f1f;
+  color: #fff;
+}
+
+/* "this is the project you're currently in" within the panel — gold left
+   edge (same #c9974a as the brand icon and the trigger's has-selection
+   tint) plus lighter text so it's spottable without reading the whole
+   list. The accent color family stays consistent across surfaces. */
+.project-picker-panel-row.is-current {
+  color: #fff;
+  background: #1f1f1f;
+  box-shadow: inset 3px 0 0 #c9974a;
+}
+
+/* Footer hosts the "No project" / clear-selection button. Border-top
+   echoes the header's border-bottom so the body of the list is bracketed
+   on both ends. Rendered conditionally (only when there IS a selection
+   to clear) so the empty state isn't cluttered with a meaningless action. */
+.project-picker-panel-footer {
+  flex-shrink: 0;
+  padding: 8px 12px 12px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.project-picker-panel-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #aaa;
+  font-family: inherit;
+  font-size: 0.825rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+
+.project-picker-panel-clear:hover {
+  background: #1f1f1f;
+  border-color: #555;
+  color: #fff;
+}
+
+.project-picker-panel-clear svg {
+  flex-shrink: 0;
+  opacity: 0.8;
+}

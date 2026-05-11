@@ -35,6 +35,11 @@ function EmptyState() {
   );
 }
 
+// Clicking a card navigates to the per-project dashboard but no longer
+// auto-selects the project as "what I'm working in" — selection is an
+// explicit action via the inline picker in the sidebar's Projects section
+// (state machine driven by SelectedProjectContext.pickerOpen). Keeps the
+// browse-vs-switch distinction clean.
 function ProjectCard({ project }) {
   return (
     <Link to={`/projects/${project.id}`} className="project-card">

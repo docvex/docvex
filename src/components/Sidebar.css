@@ -1,4 +1,9 @@
 .sidebar {
+  position: relative;
+  /* Z-index above the ProjectPickerDrawer (z-index 10) so the drawer is
+     literally hidden behind the sidebar when closed — its open animation
+     then visibly slides it out from behind. */
+  z-index: 20;
   width: 60px;
   min-width: 60px;
   height: 100vh;
@@ -7,15 +12,47 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width 250ms ease, min-width 250ms ease;
+  /* Animate border-color too so the divider line fades into the picker
+     panel's color (.sidebar.picker-open rule below) over the same beat
+     as the picker's slide. */
+  transition:
+    width 250ms ease,
+    min-width 250ms ease,
+    border-color 220ms ease;
   flex-shrink: 0;
 }
 
-/* Either hovering or explicitly locked expands the sidebar to full width */
+/* Either hovering or explicitly locked expands the sidebar to full width.
+   .picker-open also force-expands while the inline project picker is open
+   so project names stay readable even from a collapsed sidebar. */
 .sidebar:hover,
-.sidebar.locked {
+.sidebar.locked,
+.sidebar.picker-open {
   width: 220px;
   min-width: 220px;
+}
+
+/* When the picker panel is open, fade the sidebar's right divider into
+   the panel's background color (#332B1F) so the two surfaces appear to
+   merge with no visible seam between them. Using border-color (not
+   border-width: 0) avoids a 1px layout shift — the global box-sizing is
+   border-box, so dropping the border width would grow the content area
+   and nudge every nav row 1px to the right. */
+.sidebar.picker-open {
+  border-right-color: #332B1F;
+}
+
+/* Labels stay visible while the picker is open (mirrors the .locked rule)
+   so the project list items don't render as opacity:0 ghosts when the
+   sidebar didn't have hover/lock state to bring them in. */
+.sidebar.picker-open .label {
+  opacity: 1;
+  pointer-events: auto;
+  /* Same 100ms delay the :hover / .locked rules use so labels don't pop
+     in before the sidebar has finished widening — matters for the
+     keyboard-activation edge case where the trigger is clicked without
+     a hover state ever firing. */
+  transition-delay: 100ms;
 }
 
 /* Labels are hidden by default and fade in after the sidebar opens */
@@ -58,7 +95,26 @@
 }
 
 .brand-icon {
-  color: #6366f1;
+  /* The PNG carries its own colors; the color rule below is left as a
+     fallback for any inline-SVG mark we might swap back to. */
+  color: #c9974a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-icon-img {
+  /* Locked at 36px in every sidebar state — the brand mark is the visual
+     anchor of the app, kept at one size so it doesn't dance on every
+     hover/lock. The brand row's 14px right padding is what gets
+     compromised when the sidebar collapses to 60px; that's a deliberate
+     tradeoff for keeping the logo presence consistent. */
+  width: 36px;
+  aspect-ratio: 1/1;
+  /* `contain` so the image isn't cropped if it has padding or non-square
+     subject; the brand mark stays centered in the sidebar's icon slot. */
+  object-fit: contain;
+  display: block;
 }
 
 .brand-text {
@@ -138,11 +194,16 @@
 }
 
 .lock-btn.is-locked {
-  color: #6366f1;
+  /* Gold — matches the .brand-icon and the project-selection accents
+     (.project-picker-trigger.has-selection, .project-picker-panel-row.is-current)
+     so the locked sidebar reads as the same brand-color family. */
+  color: #c9974a;
 }
 
 .lock-btn.is-locked:hover {
-  color: #818cf8;
+  /* Lighter gold for the active hover — same lightness shift the indigo
+     pair used (#6366f1 → #818cf8). */
+  color: #e1b673;
 }
 
 /* Nav list */
@@ -153,8 +214,78 @@
   flex: 1;
 }
 
-.sidebar-nav li {
+.sidebar-nav > li {
   padding: 2px 8px;
+}
+
+/* Section headers (Personal / Projects). Visible only when the sidebar is
+   expanded — collapsed they fade to opacity 0 (via .label) AND shrink to
+   zero height so the icons below don't get pushed down by empty space. The
+   max-height transition matches the sidebar's own 250ms width transition
+   so the whole expand/collapse motion lands in lock-step. */
+.sidebar-section-header {
+  /* 14px top + ~16px text + 4px bottom = ~34px. 40px gives the line a few
+     px of breathing room so descenders don't get clipped at the bottom. */
+  max-height: 40px;
+  padding: 14px 20px 4px !important;
+  overflow: hidden;
+  transition: max-height 250ms ease, padding 250ms ease;
+}
+
+.sidebar:not(:hover):not(.locked):not(.picker-open) .sidebar-section-header {
+  /* :not(.picker-open) added so that when the picker is open and the user
+     moves the mouse out of the sidebar (into the picker panel), the
+     PERSONAL / PROJECTS section headers don't collapse. The sidebar's
+     width and labels are already held open by .picker-open elsewhere;
+     this rule needed the same predicate to stay consistent. */
+  max-height: 0;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* The first section header doesn't need extra top spacing — the sidebar-nav
+   padding (8px) already separates it from the brand row's bottom border. */
+.sidebar-section-header:first-child {
+  padding-top: 4px !important;
+}
+
+.sidebar-section-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #555;
+}
+
+/* Button-shaped nav row (project picker trigger). Reuses .nav-item base
+   styles; this rule normalizes the native <button> resets so it matches
+   the NavLink visual perfectly. */
+.nav-item-button {
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* Placeholder row ("No project selected"). Not interactive: no hover state,
+   muted color, italic so it reads as informational rather than a missing
+   item. Inherits the .label opacity behavior for the collapse animation. */
+.sidebar-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  margin: 0 8px;
+  font-size: 0.825rem;
+  font-style: italic;
+  color: #555;
+}
+
+.sidebar-placeholder-text {
+  /* Inherits .label's fade-out via opacity. font-size override since the
+     placeholder reads slightly smaller than nav items. */
+  font-size: 0.8rem;
 }
 
 /* Shared styles for NavLink items */
@@ -210,9 +341,15 @@
 }
 
 .nav-label-row {
-  display: inline-flex;
+  /* Flex:1 so the label fills the remaining width of the .nav-item, and
+     space-between pushes any trailing badge (e.g. notifications count) to
+     the far-right edge of the sidebar. */
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  flex: 1;
+  min-width: 0;
 }
 
 .nav-badge-text {
@@ -238,11 +375,14 @@
   /* No extra rules — inherits .nav-item / .nav-item.active styles */
 }
 
-/* Name + tier pill share one row; name truncates if the user has a long name */
+/* Name stacks above the tier pill — gives the username its own line and
+   keeps the tier compact below it. Items align to the left edge so the
+   tier pill sits flush under the name's start, not centered. */
 .account-btn-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
   min-width: 0; /* lets the name actually shrink for ellipsis */
   flex: 1;
 }
@@ -252,7 +392,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
-  flex: 1;
+  width: 100%;
 }
 
 .account-btn-tier {
@@ -266,13 +406,20 @@
   border-radius: 999px;
   padding: 0.1rem 0.45rem;
   flex-shrink: 0;
+  line-height: 1.2;
 }
 
-/* Avatar used inside the Account nav-item's icon slot.
-   Sized to fill the 24px icon slot tightly without breaking row alignment. */
+/* Avatar used inside the Account nav-item's icon slot. 32px in the
+   expanded sidebar so the picture / initial fallback reads clearly;
+   shrinks back to 24px (matching every other icon) when the sidebar is
+   minimized so it stays perfectly centered in the 60px-wide collapsed
+   strip. The icon slot below tracks the same dimension.
+   Transitions match the sidebar's own 250ms width transition exactly —
+   previously they ran at 200ms, which finished 50ms ahead of the sidebar
+   and made the shrink read as out-of-sync / abrupt. */
 .sidebar-avatar {
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   object-fit: cover;
   display: flex;
@@ -280,15 +427,43 @@
   justify-content: center;
   flex-shrink: 0;
   background: #1f1f1f;
+  transition:
+    width 250ms ease,
+    height 250ms ease;
+}
+
+.account-btn .icon {
+  width: 32px;
+  transition: width 250ms ease;
+}
+
+/* Collapsed sidebar — shrink avatar and its slot back to 24px so they
+   align with the other nav-item icons and the row's geometry mirrors
+   exactly what Activity / Projects / Notifications show. Without this
+   override the 32px avatar overhangs the row's 23px content area and
+   the whole footer reads visually heavier on the right. */
+.sidebar:not(:hover):not(.locked):not(.picker-open) .sidebar-avatar {
+  width: 24px;
+  height: 24px;
+}
+
+.sidebar:not(:hover):not(.locked):not(.picker-open) .account-btn .icon {
+  width: 24px;
 }
 
 .sidebar-avatar-fallback {
   background: #6366f1;
   color: #fff;
-  font-size: 0.75rem;
+  font-size: 0.9rem;
   font-weight: 600;
   text-transform: uppercase;
   line-height: 1;
+  transition: font-size 250ms ease;
+}
+
+.sidebar:not(:hover):not(.locked):not(.picker-open) .sidebar-avatar-fallback {
+  /* Smaller letter to fit the shrunk circle without crowding the edge. */
+  font-size: 0.75rem;
 }
 
 /* Primary-style entry point shown when no session exists */
@@ -319,4 +494,113 @@
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+   Projects-section trigger row.
+   - Default ("Select a project"): neutral background matched to the
+     picker panel (.project-picker-panel) — when the panel slides out, the
+     trigger on the left and the panel on the right read as one continuous
+     surface (same #161616). The button stretches to the sidebar's right
+     edge (no right margin) so there's no gap between them.
+   - .has-selection: indigo-tinted active background (the same indigo used
+     by .nav-item.active palettes) so the selected project visually owns
+     the section's top row.
+   The picker list itself lives in ProjectPickerPanel.{jsx,css}.
+   ─────────────────────────────────────────────────────────────────────── */
+.project-picker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  /* Match the .nav-item geometry: width:100% fills the parent <li>'s
+     content box, no horizontal margin. The <li>'s 8px padding-left/right
+     provides the inset from the sidebar's outer edges, identical to the
+     Activity / Projects / Notifications rows. */
+  width: 100%;
+  margin: 2px 0;
+  padding: 9px 12px;
+  /* Shared surface color with the picker panel — see
+     .project-picker-panel below. The two read as one continuous block
+     once the panel slides out. */
+  background: #1d1d1d;
+  border: none;
+  border-radius: 7px;
+  color: #ddd;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  /* Text centered — same value used inside justify-content above so the
+     "Select a project" / project-name label sits in the middle of the
+     button rather than flush left. */
+  text-align: center;
+  cursor: pointer;
+  /* Width + border-radius interpolate over 220ms — same duration the
+     picker panel takes to slide — so the button reshape and the panel
+     slide run in lock-step and feel like one motion. */
+  transition:
+    background 150ms,
+    color 150ms,
+    width 220ms ease,
+    border-radius 220ms ease;
+}
+
+.project-picker-trigger:hover {
+  background: #262626;
+  color: #fff;
+}
+
+/* Picker-open state — the trigger's left edge stays aligned with the
+   nav-items (no margin shift), but its width grows by 8px to overflow the
+   parent <li>'s padding-right and land flush with the sidebar's outer
+   edge. Right corners square off so the trigger merges into the panel
+   (also #1d1d1d) sliding out beside it. */
+.sidebar.picker-open .project-picker-trigger {
+  width: calc(100% + 8px);
+  margin: 2px 0;
+  border-radius: 7px 0 0 7px;
+}
+
+/* When the picker is open the trigger is visually merged with the panel —
+   the seam between them disappears because both share #1d1d1d. A hover
+   background change on the trigger would re-introduce a visible boundary
+   right where we just removed one, so freeze the trigger at its
+   non-hover colors while the picker is open. */
+.sidebar.picker-open .project-picker-trigger:hover {
+  background: #1d1d1d;
+  color: #ddd;
+}
+
+.sidebar.picker-open .project-picker-trigger.has-selection:hover {
+  background: rgba(201, 151, 74, 0.18);
+}
+
+.project-picker-trigger.has-selection {
+  /* Gold tint — matches the .brand-icon color (#c9974a) so the
+     project-selection accent reads as the same brand color family as the
+     logo in the sidebar header. */
+  background: rgba(201, 151, 74, 0.18);
+  color: #fff;
+  font-weight: 600;
+}
+
+.project-picker-trigger.has-selection:hover {
+  background: rgba(201, 151, 74, 0.28);
+}
+
+/* Disabled nav-item — Files / To-dos when no project is selected.
+   Dimmed enough to read as "this isn't useful yet" but still clickable
+   (the JSX wires the click to open the picker, not to navigate). */
+.nav-item.is-disabled {
+  color: #555;
+  cursor: pointer;
+}
+
+.nav-item.is-disabled:hover {
+  background: #1a1a1a;
+  color: #777;
+}
+
+.nav-item.is-disabled .icon {
+  opacity: 0.5;
 }
