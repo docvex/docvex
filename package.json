@@ -10,6 +10,12 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
+    "preversion": "git diff-index --quiet HEAD -- || (echo Commit or stash changes before releasing && exit 1)",
+    "postversion": "git push --follow-tags && electron-forge publish",
+    "release:patch": "npm version patch -m \"chore(release): %s\"",
+    "release:minor": "npm version minor -m \"chore(release): %s\"",
+    "release:major": "npm version major -m \"chore(release): %s\"",
+    "release:status": "git status --short && git log -1 --oneline",
     "lint": "echo \"No linting configured\""
   },
   "keywords": [],
