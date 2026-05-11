@@ -1,13 +1,33 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
+import { updateElectronApp } from 'update-electron-app';
 
 if (started) {
   app.quit();
 }
 
-// Register custom URL scheme for OAuth callbacks
-app.setAsDefaultProtocolClient('docvex');
+// Auto-update via update.electronjs.org (free, public-repo hosted feed).
+// Polls every 10 min, downloads in the background, installs on next launch.
+// No-op in dev (`electron-forge start`) — only runs in packaged builds.
+if (app.isPackaged) {
+  updateElectronApp({
+    repo: 'petreluca1105-dotcom/docvex',
+    updateInterval: '10 minutes',
+  });
+}
+
+// Register custom URL scheme for OAuth callbacks.
+// In dev mode (`electron-forge start`), process.defaultApp is true and we must
+// pass the path to this app so Windows launches `electron.exe <app-path> docvex://...`
+// rather than `electron.exe docvex://...` (which tries to treat the URL as an app path).
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('docvex', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('docvex');
+}
 
 // Enforce single instance so second launch delivers the OAuth URL here
 const gotLock = app.requestSingleInstanceLock();
