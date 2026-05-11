@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { isNotificationsStorageKey } from '../lib/notifications';
+import { deleteAllForUser as deleteAllNotificationsForUser } from '../lib/notificationsRepo';
 
 const AuthContext = createContext(null);
 
@@ -71,8 +72,18 @@ export function AuthProvider({ children }) {
 
   // Revoke every refresh token for this user (all devices) and wipe any
   // supabase-persisted state from this machine. Distinct from signOut, which
-  // only ends the current device's session.
+  // only ends the current device's session. Also deletes the user's
+  // notifications from Supabase — "erase" means erase, not just sign out.
   const eraseData = async () => {
+    // Delete server-side rows BEFORE signOut while we still have a valid
+    // session (RLS would reject the delete otherwise). Non-fatal: if the
+    // network is down we still proceed with the local wipe so the user's
+    // device-side state matches their intent.
+    const uid = session?.user?.id;
+    if (uid) {
+      try { await deleteAllNotificationsForUser(uid); }
+      catch { /* non-fatal — local wipe still runs */ }
+    }
     const { error } = await supabase.auth.signOut({ scope: 'global' });
     try {
       Object.keys(localStorage)

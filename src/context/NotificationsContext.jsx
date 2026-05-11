@@ -17,6 +17,16 @@ import {
   storageKeyForUser,
   toPersistent,
 } from '../lib/notifications';
+import {
+  deleteByDedupeKey,
+  deleteOne as repoDeleteOne,
+  deleteAllForUser as repoDeleteAllForUser,
+  fetchRecent,
+  insertOne,
+  markAllRead as repoMarkAllRead,
+  markRead as repoMarkRead,
+  subscribeForUser,
+} from '../lib/notificationsRepo';
 import { useAuthNotificationSource } from '../notifications/sources/useAuthNotificationSource';
 import { useUpdateNotificationSource } from '../notifications/sources/useUpdateNotificationSource';
 import { useSocialNotificationSource } from '../notifications/sources/useSocialNotificationSource';
@@ -48,15 +58,18 @@ export function NotificationsProvider({ children }) {
   activeToastsRef.current = activeToastIds;
 
   // Bucket transitions (sign-in/out switches storage key). On change we
-  // persist the OLD bucket and hydrate the NEW one. Runs before the source
-  // hooks' effects since it's declared first inside this component.
+  // persist the OLD bucket and hydrate the NEW one — from localStorage when
+  // anonymous, from Supabase (with localStorage as instant-render cache) when
+  // signed in. The user's auth state ID is the bucket key.
   const previousBucketRef = useRef(null);
   useEffect(() => {
     if (authLoading) return;
     const bucket = storageKeyForUser(userId);
     if (previousBucketRef.current === bucket) return;
 
-    // Persist the soon-to-be-replaced state to the old bucket.
+    // Persist the soon-to-be-replaced state to the old bucket. This doubles
+    // as the offline cache for the user bucket and the sole store for the
+    // anonymous bucket.
     if (previousBucketRef.current) {
       try {
         const persisted = notificationsRef.current.map(toPersistent).slice(0, HISTORY_CAP);
@@ -64,7 +77,9 @@ export function NotificationsProvider({ children }) {
       } catch { /* quota / private mode — non-fatal */ }
     }
 
-    // Hydrate the new bucket.
+    // Hydrate the new bucket. Phase 1 is always synchronous: read localStorage
+    // so the UI renders instantly with the last known state (the cache layer).
+    // Phase 2 — only when signed in — replaces the cache from Supabase.
     let hydrated = [];
     try {
       const raw = localStorage.getItem(bucket);
@@ -82,9 +97,40 @@ export function NotificationsProvider({ children }) {
     setActiveToastIds([]); // toasts never survive across bucket switches
     previousBucketRef.current = bucket;
     setReady(true);
+
+    // Phase 2: reconcile from Supabase. The cache may be stale or empty (new
+    // device, recent erase from another machine). Replace state with server
+    // rows on success; on failure, silently fall back to the cache.
+    if (userId) {
+      let cancelled = false;
+      fetchRecent(userId, HISTORY_CAP)
+        .then(({ data, error }) => {
+          if (cancelled) return;
+          if (error) {
+            console.warn('[notifications] fetchRecent failed, using cache:', error.message);
+            return;
+          }
+          // Server rows arrive in DB shape — add the runtime-only fields back.
+          const rebuilt = data.map((row) => ({
+            ...row,
+            duration: 0,
+            persistent: false,
+            osLevel: false,
+            toastShown: true, // server-loaded rows never animate
+          }));
+          setNotifications(rebuilt);
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            console.warn('[notifications] fetchRecent threw, using cache:', err);
+          }
+        });
+      return () => { cancelled = true; };
+    }
   }, [authLoading, userId]);
 
   // Debounced persist on every state change (after the bucket is settled).
+  // Doubles as the offline cache when signed-in.
   useEffect(() => {
     if (!ready) return;
     const bucket = storageKeyForUser(userId);
@@ -117,6 +163,39 @@ export function NotificationsProvider({ children }) {
     };
     window.addEventListener('storage', handler);
     return () => window.removeEventListener('storage', handler);
+  }, [ready, userId]);
+
+  // Realtime subscription — only when signed in. Cross-device sync: an INSERT
+  // from another machine appears here as a new row (no toast, since the user
+  // already saw it where it was created). UPDATE syncs read_at; DELETE drops.
+  // We dedupe by id against current state so the echo of our own write is a
+  // no-op (we already optimistically applied it in notify()/markRead()/etc.).
+  useEffect(() => {
+    if (!ready || !userId) return;
+    const unsubscribe = subscribeForUser(userId, (payload) => {
+      const { eventType, new: newRow, old: oldRow } = payload;
+      if (eventType === 'INSERT' && newRow?.id) {
+        setNotifications((prev) => {
+          if (prev.some((n) => n.id === newRow.id)) return prev;
+          const rebuilt = {
+            ...newRow,
+            duration: 0,
+            persistent: false,
+            osLevel: false,
+            toastShown: true,
+          };
+          return [rebuilt, ...prev].slice(0, HISTORY_CAP);
+        });
+      } else if (eventType === 'UPDATE' && newRow?.id) {
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === newRow.id ? { ...n, read_at: newRow.read_at } : n))
+        );
+      } else if (eventType === 'DELETE' && oldRow?.id) {
+        setNotifications((prev) => prev.filter((n) => n.id !== oldRow.id));
+        setActiveToastIds((prev) => prev.filter((id) => id !== oldRow.id));
+      }
+    });
+    return unsubscribe;
   }, [ready, userId]);
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -171,6 +250,29 @@ export function NotificationsProvider({ children }) {
       setActiveToastIds((prev) => prev.filter((id) => !displacedActiveIds.includes(id)));
     }
 
+    // Mirror to Supabase when signed in. Anonymous bucket stays local-only
+    // (RLS would reject the insert anyway since user_id is required). The
+    // server write is fire-and-forget — local state is already authoritative
+    // for this device; the row eventually lands in the cloud (or doesn't, in
+    // which case the user still sees it locally).
+    if (userId) {
+      const mirror = async () => {
+        try {
+          if (strategy === 'replace' && dedupeKey) {
+            await deleteByDedupeKey(userId, dedupeKey);
+            await insertOne(fresh);
+          } else if (strategy === 'coalesce' && dedupeKey) {
+            await insertOne(fresh, { ignoreDuplicates: true });
+          } else {
+            await insertOne(fresh);
+          }
+        } catch (err) {
+          console.warn('[notifications] mirror insert failed:', err);
+        }
+      };
+      mirror();
+    }
+
     // OS-level escalation (v2 scaffolding). Only fires when window is hidden
     // and only via channels that already exist (no permission prompts here).
     if (fresh.osLevel && typeof document !== 'undefined' && document.hidden) {
@@ -193,22 +295,34 @@ export function NotificationsProvider({ children }) {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id && !n.read_at ? { ...n, read_at: new Date().toISOString() } : n))
     );
-  }, []);
+    if (userId) {
+      repoMarkRead(id).catch((err) => console.warn('[notifications] markRead mirror failed:', err));
+    }
+  }, [userId]);
 
   const markAllRead = useCallback(() => {
     const now = new Date().toISOString();
     setNotifications((prev) => prev.map((n) => (n.read_at ? n : { ...n, read_at: now })));
-  }, []);
+    if (userId) {
+      repoMarkAllRead(userId).catch((err) => console.warn('[notifications] markAllRead mirror failed:', err));
+    }
+  }, [userId]);
 
   const remove = useCallback((id) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     setActiveToastIds((prev) => prev.filter((x) => x !== id));
-  }, []);
+    if (userId) {
+      repoDeleteOne(id).catch((err) => console.warn('[notifications] remove mirror failed:', err));
+    }
+  }, [userId]);
 
   const clearAll = useCallback(() => {
     setNotifications([]);
     setActiveToastIds([]);
-  }, []);
+    if (userId) {
+      repoDeleteAllForUser(userId).catch((err) => console.warn('[notifications] clearAll mirror failed:', err));
+    }
+  }, [userId]);
 
   // ── Source hooks (compose once, gated on bootstrap) ───────────────────────
   // The provider's job ends here — adding a new source is literally one line.
