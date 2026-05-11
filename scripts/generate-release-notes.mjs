@@ -63,13 +63,22 @@ Output Markdown only — no preamble, no closing sign-off.
 Commits:
 ${commitLog}`;
 
-  // Claude CLI in non-interactive print mode.
+  // Claude CLI in non-interactive print mode. Two Windows-specific gotchas
+  // we have to dodge here:
+  //   1. shell: true is required for .cmd shims (Node 22 hardening,
+  //      CVE-2024-27980) — direct spawn of claude.cmd returns EINVAL.
+  //   2. cmd.exe mangles multi-line argument strings (newlines become
+  //      command separators), so the prompt CANNOT be a CLI arg.
+  // The fix: keep shell: true so the .cmd shim resolves, but pipe the
+  // prompt over stdin so it never hits the shell parser. Only short,
+  // safe args (-p, --output-format, text) go through the shell.
   const claude = spawnSync(
     'claude',
-    ['-p', prompt, '--output-format', 'text'],
+    ['-p', '--output-format', 'text'],
     {
       encoding: 'utf8',
-      shell: process.platform === 'win32', // resolves the .cmd shim on Windows
+      input: prompt,
+      shell: process.platform === 'win32',
     },
   );
 
@@ -115,7 +124,10 @@ ${commitLog}`;
     return;
   }
   const releases = await listRes.json();
-  const release = releases.find((r) => r.tag_name === tag);
+  // electron-forge's GitHub publisher creates the draft with name=v1.2.3 but
+  // leaves tag_name="untagged-..." until the user clicks Publish on github.com.
+  // Match on either so we patch the right draft pre- and post-publish.
+  const release = releases.find((r) => r.tag_name === tag || r.name === tag);
   if (!release) {
     warn(`No release found for tag ${tag}. Did electron-forge publish complete?`);
     return;
