@@ -21,6 +21,21 @@ function semverGT(a, b) {
   return false;
 }
 
+const SEMVER_TAG_RE = /^v?\d+\.\d+\.\d+/;
+
+// Resolve the user-meaningful version string for a GitHub release. Normally
+// this is `tag_name` (e.g. "v1.1.0"), but electron-forge's publisher creates
+// drafts with `tag_name="untagged-<sha>"`; if the user clicks "Publish release"
+// on GitHub without picking a real tag from the dropdown, that placeholder
+// sticks around forever. The real version is still available in `release.name`,
+// so we prefer tag_name when it parses as semver and fall back to name when
+// it doesn't. Exported so the Updates page renders the same string.
+export function versionTagFor(release) {
+  if (release?.tag_name && SEMVER_TAG_RE.test(release.tag_name)) return release.tag_name;
+  if (release?.name && SEMVER_TAG_RE.test(release.name)) return release.name;
+  return release?.tag_name || release?.name || '';
+}
+
 export function UpdatesProvider({ children }) {
   const [currentVersion, setCurrentVersion] = useState(null);
   const [isPackaged, setIsPackaged] = useState(false);
@@ -29,7 +44,7 @@ export function UpdatesProvider({ children }) {
   const [error, setError] = useState(null);
   const [installerState, setInstallerState] = useState({ state: 'idle' });
 
-  const latestVersion = releases[0]?.tag_name?.replace(/^v/, '') || null;
+  const latestVersion = releases[0] ? versionTagFor(releases[0]).replace(/^v/, '') : null;
   const hasUpdate = !!(currentVersion && latestVersion && semverGT(latestVersion, currentVersion));
 
   const fetchReleases = useCallback(async () => {
@@ -41,8 +56,24 @@ export function UpdatesProvider({ children }) {
       });
       if (!res.ok) throw new Error(`GitHub responded ${res.status}`);
       const data = await res.json();
-      // Filter out drafts; user only cares about published releases.
-      setReleases(data.filter((r) => !r.draft));
+      // Filter out drafts (user only cares about published releases) and
+      // sort by semver desc — version-based, not chronological. This is
+      // intentional: if a backport patch (say v1.0.5) is ever published
+      // AFTER a newer minor (v1.1.0), the chronological order would put
+      // v1.0.5 on top, which is misleading for release notes. Version
+      // ordering keeps "what's the latest" honest and also keeps the
+      // Updates page's color-coding correct, since releaseKind() assumes
+      // releases[idx+1] is the next-lower version.
+      const published = data
+        .filter((r) => !r.draft)
+        .sort((a, b) => {
+          const av = versionTagFor(a);
+          const bv = versionTagFor(b);
+          if (semverGT(av, bv)) return -1;
+          if (semverGT(bv, av)) return 1;
+          return 0;
+        });
+      setReleases(published);
     } catch (e) {
       setError(e.message || 'Failed to load releases');
     } finally {
@@ -85,14 +116,46 @@ export function UpdatesProvider({ children }) {
   }, [fetchReleases]);
 
   const checkNow = useCallback(async () => {
-    await fetchReleases();
-    if (window.electronAPI?.checkForUpdates) {
-      try {
+    // Show the user that *something* is happening: flip to 'checking' immediately
+    // so the bottom progress bar appears and the button label switches to
+    // "Checking…". Without this, dev-mode clicks were a silent no-op because
+    // update:check short-circuits to {state:'dev'} (which has no UI) and the
+    // GitHub fetch alone gives no signal.
+    setInstallerState({ state: 'checking' });
+    // Minimum visible duration so a fast GitHub fetch (sometimes <500ms)
+    // doesn't blink the spinner past too quickly to read. 2s is long enough
+    // for one full sweep of the progress-bar animation (1.4s cycle) plus a
+    // bit of dwell, short enough not to feel sluggish.
+    const MIN_VISIBLE_MS = 2000;
+    const start = Date.now();
+    const finishAfterMinDelay = async () => {
+      const elapsed = Date.now() - start;
+      const remaining = MIN_VISIBLE_MS - elapsed;
+      if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+    };
+    try {
+      await fetchReleases();
+      if (window.electronAPI?.checkForUpdates) {
         const s = await window.electronAPI.checkForUpdates();
-        if (s) setInstallerState(s);
-      } catch {
-        /* non-fatal */
+        await finishAfterMinDelay();
+        if (s?.state === 'dev') {
+          // No autoUpdater events will follow in dev — clear the spinner
+          // ourselves so the UI quiesces instead of getting stuck on 'checking'.
+          setInstallerState({ state: 'idle' });
+        }
+        // In packaged builds the subsequent autoUpdater events (checking →
+        // downloading/up-to-date/error) drive installerState via the
+        // update:status subscription, so we deliberately don't overwrite with
+        // the IPC return value here. If those events arrived during the
+        // min-delay wait, they've already updated installerState past
+        // 'checking'; if not, it stays on 'checking' until they do.
+      } else {
+        await finishAfterMinDelay();
+        setInstallerState({ state: 'idle' });
       }
+    } catch {
+      await finishAfterMinDelay();
+      setInstallerState({ state: 'idle' });
     }
   }, [fetchReleases]);
 

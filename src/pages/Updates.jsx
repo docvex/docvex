@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useUpdates } from '../context/UpdatesContext';
+import { useUpdates, versionTagFor } from '../context/UpdatesContext';
 import './Updates.css';
 
 function formatDate(iso) {
@@ -128,7 +128,7 @@ function StatusBanner() {
     // download — the bottom progress bar appears while that runs. In dev we
     // can't actually install, so the button explains itself instead.
     return (
-      <div className="updates-banner updates-banner-info">
+      <div className="updates-banner updates-banner-update">
         <div>
           <strong>New version available: v{latestVersion}</strong>
           <p>
@@ -151,10 +151,10 @@ function StatusBanner() {
   }
 
   return (
-    <div className="updates-banner updates-banner-neutral">
+    <div className="updates-banner updates-banner-uptodate">
       <div>
-        <strong>You're up to date</strong>
-        <p>Running v{currentVersion || '—'}{latestVersion ? ` · latest release v${latestVersion}` : ''}</p>
+        <strong >You're up to date</strong>
+        <p>Running v{currentVersion || '—'}</p>
       </div>
       <button className="updates-btn" onClick={checkNow} disabled={checking}>
         {RefreshIcon} {checking ? 'Checking…' : 'Check now'}
@@ -185,10 +185,13 @@ export default function Updates() {
         )}
 
         {releases.map((release, idx) => {
-          const ver = release.tag_name?.replace(/^v/, '');
+          // Use the resolved version tag (falls back to release.name when
+          // tag_name is the electron-forge `untagged-<sha>` placeholder).
+          const tag = versionTagFor(release);
+          const ver = tag.replace(/^v/, '');
           const isCurrent = ver === currentVersion;
           // List is newest-first → the previous (older) release is the next index.
-          const kind = releaseKind(release.tag_name, releases[idx + 1]?.tag_name);
+          const kind = releaseKind(tag, releases[idx + 1] ? versionTagFor(releases[idx + 1]) : null);
           const cardClass = [
             'release-card',
             isCurrent && 'is-current',
@@ -198,7 +201,7 @@ export default function Updates() {
             <article key={release.id} className={cardClass}>
               <header className="release-header">
                 <div className="release-version-line">
-                  <h2 className="release-version">{release.tag_name}</h2>
+                  <h2 className="release-version">{tag}</h2>
                   {kind && (
                     <span className={`release-tag release-tag-${kind}`}>{kind}</span>
                   )}
@@ -217,7 +220,7 @@ export default function Updates() {
                 </div>
               </header>
 
-              {release.name && release.name !== release.tag_name && (
+              {release.name && release.name !== tag && (
                 <h3 className="release-name">{release.name}</h3>
               )}
 
