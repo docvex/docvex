@@ -1,0 +1,60 @@
+/* Fixed strip pinned to the bottom of the viewport. Spans the whole window
+   (over the sidebar too) so the user can see progress from any route. */
+.update-progress {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: rgba(15, 15, 15, 0.92);
+  backdrop-filter: blur(6px);
+  border-top: 1px solid #2a2a2a;
+  font-size: 0.78rem;
+  color: #c0c0c0;
+  /* Slide-up entrance so the bar doesn't pop in jarringly */
+  animation: update-progress-in 180ms ease-out;
+}
+
+@keyframes update-progress-in {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* The track is the muted background; the bar is the moving indigo segment. */
+.update-progress-track {
+  position: relative;
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: #2a2a2a;
+  overflow: hidden;
+}
+
+.update-progress-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 35%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #6366f1 0%, #818cf8 50%, #6366f1 100%);
+  /* Sweep across the track and back — indeterminate progress because the
+     Squirrel autoUpdater doesn't expose byte-progress events. */
+  animation: update-progress-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes update-progress-sweep {
+  0%   { left: -35%; }
+  50%  { left: 100%; }
+  100% { left: -35%; }
+}
+
+.update-progress-label {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}

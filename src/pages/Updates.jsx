@@ -96,6 +96,10 @@ function StatusBanner() {
   }
 
   if (hasUpdate) {
+    // Primary action when an update is available. In packaged builds, clicking
+    // kicks autoUpdater.checkForUpdates() which begins Squirrel's background
+    // download — the bottom progress bar appears while that runs. In dev we
+    // can't actually install, so the button explains itself instead.
     return (
       <div className="updates-banner updates-banner-info">
         <div>
@@ -103,12 +107,17 @@ function StatusBanner() {
           <p>
             You're on v{currentVersion}.{' '}
             {isPackaged
-              ? 'It downloads in the background and installs on next launch.'
+              ? 'Click below to download the installer; the app will restart to apply it once ready.'
               : 'Auto-update is only active in packaged builds.'}
           </p>
         </div>
-        <button className="updates-btn" onClick={checkNow} disabled={checking}>
-          {RefreshIcon} {checking ? 'Checking…' : 'Check again'}
+        <button
+          className="updates-btn updates-btn-primary"
+          onClick={checkNow}
+          disabled={checking || !isPackaged}
+          title={!isPackaged ? 'Available in packaged builds only' : undefined}
+        >
+          {DownloadIcon} {checking ? 'Downloading…' : 'Install update'}
         </button>
       </div>
     );
