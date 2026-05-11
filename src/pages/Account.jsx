@@ -148,7 +148,7 @@ export default function Account() {
             <p className="account-danger-desc">End your current session on this device.</p>
           </div>
           <button
-            className="account-danger-btn"
+            className="account-danger-btn destructive"
             onClick={() => setConfirm('signout')}
           >
             Sign out

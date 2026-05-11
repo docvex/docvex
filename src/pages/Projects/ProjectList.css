@@ -1,0 +1,208 @@
+/* Projects list & cards — matches the dark theme used elsewhere
+   (bg #0f0f0f, card #1a1a1a, border #2a2a2a, accent #6366f1). */
+
+.projects-page {
+  max-width: 920px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.projects-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.projects-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0 0 0.25rem;
+}
+
+.projects-subtitle {
+  color: #888;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+/* Primary CTA — reused by the header and the empty-state. Matches the
+   .updates-btn-primary style from Updates.css (indigo fill, white text). */
+.projects-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: #6366f1;
+  border: 1px solid #6366f1;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  text-decoration: none;
+  transition: background 150ms, border-color 150ms;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.projects-cta:hover {
+  background: #7c7ff5;
+  border-color: #7c7ff5;
+}
+
+/* Loading / error / empty banners */
+.projects-loading,
+.projects-error,
+.projects-empty {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 1.5rem;
+  color: #c4c4c4;
+  font-size: 0.9rem;
+}
+
+.projects-error {
+  border-color: rgba(220, 38, 38, 0.4);
+  background: rgba(220, 38, 38, 0.07);
+  color: #f87171;
+}
+
+.projects-empty {
+  text-align: center;
+  padding: 3rem 1.5rem;
+}
+
+.projects-empty h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.projects-empty p {
+  margin: 0 0 1.5rem;
+  color: #888;
+}
+
+/* Card grid — auto-fit so it stays usable from ~600px to wide windows. */
+.projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 1.1rem 1.25rem;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 150ms, background 150ms, transform 80ms;
+}
+
+.project-card:hover {
+  border-color: #3a3a3a;
+  background: #1f1f1f;
+}
+
+.project-card:active {
+  transform: translateY(1px);
+}
+
+.project-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.project-card-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0;
+  /* Long names ellipsize so the role pill stays visible. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-card-description {
+  margin: 0;
+  color: #aaa;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  /* Limit to 2 lines so cards stay similar height. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.project-card-description-empty {
+  color: #666;
+  font-style: italic;
+}
+
+.project-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.78rem;
+  color: #888;
+  margin-top: auto;
+}
+
+.project-card-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Role pills — same shape language as Updates page's release-tag pills.
+   Reusing palettes from existing CSS:
+     owner  → wood-ish amber (the "this is mine" emphasis)
+     admin  → indigo (matches brand accent)
+     member → muted neutral
+     viewer → softer muted */
+.project-card-role {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid transparent;
+}
+
+.role-owner {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.role-admin {
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+.role-member {
+  color: #c4c4c4;
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.role-viewer {
+  color: #888;
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.1);
+}
