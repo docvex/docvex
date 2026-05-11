@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import './AuthPage.css';
 
 export default function AuthPage() {
-  const { signInWithEmail, signUpWithEmail, signInWithGoogle } = useAuth();
+  const { session, signInWithEmail, signUpWithEmail, signInWithGoogle } = useAuth();
   const [mode, setMode] = useState('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -41,6 +42,12 @@ export default function AuthPage() {
       setError(err.message);
     }
   };
+
+  // Once AuthContext has a session (email sign-in resolves, or OAuth callback
+  // completes exchangeCodeForSession), bounce out of /auth into the app.
+  if (session) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="auth-page">

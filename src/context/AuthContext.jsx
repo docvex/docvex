@@ -1,11 +1,17 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { isNotificationsStorageKey } from '../lib/notifications';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Latest (event, session) tuple from onAuthStateChange. Consumers like the
+  // notifications source-hook read this instead of subscribing to Supabase a
+  // second time — one stream, one source of truth.
+  // event ∈ INITIAL_SESSION | SIGNED_IN | SIGNED_OUT | TOKEN_REFRESHED | USER_UPDATED | …
+  const [lastAuthEvent, setLastAuthEvent] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -13,8 +19,12 @@ export function AuthProvider({ children }) {
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
+      // Tag with `at` so a downstream effect can detect repeated events of the
+      // same name (e.g. two TOKEN_REFRESHED in a row would otherwise look like
+      // a no-op via reference equality).
+      setLastAuthEvent({ event, session, at: Date.now() });
     });
 
     const handleOAuthCallback = async (url) => {
@@ -59,8 +69,23 @@ export function AuthProvider({ children }) {
 
   const signOut = () => supabase.auth.signOut();
 
+  // Revoke every refresh token for this user (all devices) and wipe any
+  // supabase-persisted state from this machine. Distinct from signOut, which
+  // only ends the current device's session.
+  const eraseData = async () => {
+    const { error } = await supabase.auth.signOut({ scope: 'global' });
+    try {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith('sb-') || k.startsWith('supabase.') || isNotificationsStorageKey(k))
+        .forEach((k) => localStorage.removeItem(k));
+    } catch {
+      /* localStorage may be unavailable in some contexts; non-fatal */
+    }
+    return { error };
+  };
+
   return (
-    <AuthContext.Provider value={{ session, loading, signInWithEmail, signUpWithEmail, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ session, loading, lastAuthEvent, signInWithEmail, signUpWithEmail, signInWithGoogle, signOut, eraseData }}>
       {children}
     </AuthContext.Provider>
   );

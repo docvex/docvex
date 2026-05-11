@@ -11,7 +11,9 @@
   flex-shrink: 0;
 }
 
-.sidebar:hover {
+/* Either hovering or explicitly locked expands the sidebar to full width */
+.sidebar:hover,
+.sidebar.locked {
   width: 220px;
   min-width: 220px;
 }
@@ -24,30 +26,123 @@
   pointer-events: none;
 }
 
-.sidebar:hover .label {
+.sidebar:hover .label,
+.sidebar.locked .label {
   opacity: 1;
   transition-delay: 100ms;
 }
 
-/* Brand row at the top */
+/* Interactive labels (lock button) need clicks to register when expanded */
+.sidebar:hover .lock-btn,
+.sidebar.locked .lock-btn {
+  pointer-events: auto;
+}
+
+/* Brand row at the top — original small inline icon on the left, stacked
+   app name + clickable version on the right (revealed when expanded). */
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px 18px;
-  height: 56px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 12px 18px;
+  height: 64px;
   border-bottom: 1px solid #2a2a2a;
 }
 
-.brand-label {
-  font-size: 0.85rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: #e0e0e0;
+.brand-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
 .brand-icon {
   color: #6366f1;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.brand-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #e0e0e0;
+}
+
+/* Version is a NavLink to /updates — muted by default, lights up on hover.
+   Inherits .label's pointer-events: none in the collapsed state, so it only
+   becomes clickable once the sidebar is expanded. */
+.brand-version {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: #777;
+  transition: color 150ms;
+  width: fit-content;
+}
+
+.sidebar:hover .brand-version,
+.sidebar.locked .brand-version {
+  pointer-events: auto;
+}
+
+.brand-version:hover .brand-version-num {
+  color: #e0e0e0;
+}
+
+/* Same orange treatment as the Updates nav row's "Available" pill so the
+   two badges read as the same status. */
+.brand-version-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #f97316;
+  background: rgba(249, 115, 22, 0.12);
+  border: 1px solid rgba(249, 115, 22, 0.35);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  white-space: nowrap;
+}
+
+/* Lock toggle — fades in/out with the rest of the labels */
+.lock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: color 150ms, background 150ms, opacity 120ms ease;
+}
+
+.lock-btn:hover {
+  color: #aaa;
+  background: #1f1f1f;
+}
+
+.lock-btn.is-locked {
+  color: #6366f1;
+}
+
+.lock-btn.is-locked:hover {
+  color: #818cf8;
 }
 
 /* Nav list */
@@ -62,7 +157,7 @@
   padding: 2px 8px;
 }
 
-/* Shared styles for NavLink items and the sign-out button */
+/* Shared styles for NavLink items */
 .nav-item {
   display: flex;
   align-items: center;
@@ -97,21 +192,119 @@
   justify-content: center;
   width: 24px;
   flex-shrink: 0;
+  position: relative;
 }
 
-/* Footer (sign out) */
+/* Update indicator: small dot on the icon (visible even when collapsed) +
+   a "New" pill on the label row when the sidebar is expanded. */
+.nav-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f97316;
+  border: 2px solid #141414;
+  box-sizing: content-box;
+}
+
+.nav-label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-badge-text {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #f97316;
+  background: rgba(249, 115, 22, 0.12);
+  border: 1px solid rgba(249, 115, 22, 0.35);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+}
+
+/* Footer */
 .sidebar-footer {
   padding: 8px;
   border-top: 1px solid #2a2a2a;
 }
 
-.signout-btn {
-  color: #666;
+/* Account quick-access in footer when signed in (uses default nav-item look) */
+.account-btn {
+  /* No extra rules — inherits .nav-item / .nav-item.active styles */
 }
 
-.signout-btn:hover {
-  color: #f87171;
+/* Name + tier pill share one row; name truncates if the user has a long name */
+.account-btn-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0; /* lets the name actually shrink for ellipsis */
+  flex: 1;
+}
+
+.account-btn-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.account-btn-tier {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  flex-shrink: 0;
+}
+
+/* Avatar used inside the Account nav-item's icon slot.
+   Sized to fill the 24px icon slot tightly without breaking row alignment. */
+.sidebar-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   background: #1f1f1f;
+}
+
+.sidebar-avatar-fallback {
+  background: #6366f1;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+/* Primary-style entry point shown when no session exists */
+.signin-btn {
+  background: #6366f1;
+  color: #fff;
+}
+
+.signin-btn:hover {
+  background: #7c7ff5;
+  color: #fff;
+}
+
+.signin-btn.active {
+  background: #6366f1;
+  color: #fff;
 }
 
 /* Loading spinner used in ProtectedRoute */

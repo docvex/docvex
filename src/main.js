@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, autoUpdater } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { updateElectronApp } from 'update-electron-app';
@@ -36,6 +36,30 @@ if (!gotLock) {
 }
 
 let mainWindow = null;
+// Latest known update status. Kept here so renderers that mount after an
+// event has already fired can still recover the current state on request.
+let updateStatus = { state: 'idle' };
+
+const sendUpdateStatus = (payload) => {
+  updateStatus = payload;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update:status', payload);
+  }
+};
+
+// Wire autoUpdater events → renderer. update-electron-app drives the actual
+// checkForUpdates / setFeedURL calls; we just observe.
+if (app.isPackaged) {
+  autoUpdater.on('checking-for-update', () => sendUpdateStatus({ state: 'checking' }));
+  autoUpdater.on('update-available', () => sendUpdateStatus({ state: 'downloading' }));
+  autoUpdater.on('update-not-available', () => sendUpdateStatus({ state: 'up-to-date' }));
+  autoUpdater.on('update-downloaded', (_event, releaseNotes, releaseName) => {
+    sendUpdateStatus({ state: 'downloaded', releaseName, releaseNotes });
+  });
+  autoUpdater.on('error', (err) => {
+    sendUpdateStatus({ state: 'error', message: String(err?.message || err) });
+  });
+}
 
 const createWindow = () => {
   mainWindow = new BrowserWindow({
@@ -75,10 +99,41 @@ app.on('open-url', (event, url) => {
   }
 });
 
-// Let the renderer open URLs in the system browser (needed for OAuth)
+// Let the renderer open URLs in the system browser (needed for OAuth + release links)
 ipcMain.on('oauth:open-external', (_, url) => {
   shell.openExternal(url);
 });
+
+// Generic external-URL opener (release links, GitHub, etc.). Only allow
+// http(s) so a compromised renderer can't trigger arbitrary protocol handlers.
+ipcMain.on('app:open-external', (_, url) => {
+  if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+    shell.openExternal(url);
+  }
+});
+
+// Update IPC ---------------------------------------------------------------
+ipcMain.handle('app:get-version', () => app.getVersion());
+ipcMain.handle('app:is-packaged', () => app.isPackaged);
+
+ipcMain.handle('update:check', async () => {
+  // Return last-known status synchronously; autoUpdater.checkForUpdates is
+  // a no-op in dev (Squirrel can't update an unpackaged app).
+  if (!app.isPackaged) return { state: 'dev' };
+  try {
+    autoUpdater.checkForUpdates();
+  } catch (err) {
+    sendUpdateStatus({ state: 'error', message: String(err?.message || err) });
+  }
+  return updateStatus;
+});
+
+ipcMain.on('update:install', () => {
+  if (app.isPackaged && updateStatus.state === 'downloaded') {
+    autoUpdater.quitAndInstall();
+  }
+});
+// --------------------------------------------------------------------------
 
 app.whenReady().then(() => {
   createWindow();
