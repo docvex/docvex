@@ -184,6 +184,33 @@
   border: 1px solid rgba(245, 158, 11, 0.35);
 }
 
+/* Semver bump pills — orthogonal to "Installed"/"Pre-release". Major reuses
+   the error-banner red palette, patch reuses the success-banner green, and
+   minor uses sky blue so it stays distinct from indigo (current) and amber
+   (pre-release). The card also gets a tinted left edge so users can scan
+   the list by bump type without reading the pills. */
+.release-tag-major {
+  color: #f87171;
+  background: rgba(220, 38, 38, 0.12);
+  border: 1px solid rgba(220, 38, 38, 0.35);
+}
+
+.release-tag-minor {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.release-tag-patch {
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.release-card.is-major { border-left: 3px solid rgba(220, 38, 38, 0.55); }
+.release-card.is-minor { border-left: 3px solid rgba(56, 189, 248, 0.55); }
+.release-card.is-patch { border-left: 3px solid rgba(34, 197, 94, 0.55); }
+
 .release-meta {
   display: flex;
   align-items: center;

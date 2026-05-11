@@ -13,6 +13,33 @@ function formatDate(iso) {
   });
 }
 
+// Parse a GitHub tag_name into a {major, minor, patch} triple. Strips a
+// leading `v` and any pre-release suffix (`-beta.1` etc.). Returns null for
+// non-semver tags so callers can opt out cleanly (e.g. electron-forge's
+// draft `untagged-...` tags).
+function parseVersion(tag) {
+  if (!tag) return null;
+  const cleaned = tag.replace(/^v/, '').split('-')[0];
+  const m = cleaned.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!m) return null;
+  return { major: +m[1], minor: +m[2], patch: +m[3] };
+}
+
+// Classify a release relative to the version that preceded it (the next
+// older entry in the newest-first list). The oldest visible release has no
+// predecessor — we tag it as 'major' since that's how the project began.
+function releaseKind(currentTag, previousTag) {
+  const c = parseVersion(currentTag);
+  if (!c) return null;
+  if (!previousTag) return 'major';
+  const p = parseVersion(previousTag);
+  if (!p) return null;
+  if (c.major !== p.major) return 'major';
+  if (c.minor !== p.minor) return 'minor';
+  if (c.patch !== p.patch) return 'patch';
+  return null;
+}
+
 const RefreshIcon = (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="23 4 23 10 17 10"/>
@@ -157,14 +184,24 @@ export default function Updates() {
           <div className="updates-empty">No releases published yet.</div>
         )}
 
-        {releases.map((release) => {
+        {releases.map((release, idx) => {
           const ver = release.tag_name?.replace(/^v/, '');
           const isCurrent = ver === currentVersion;
+          // List is newest-first → the previous (older) release is the next index.
+          const kind = releaseKind(release.tag_name, releases[idx + 1]?.tag_name);
+          const cardClass = [
+            'release-card',
+            isCurrent && 'is-current',
+            kind && `is-${kind}`,
+          ].filter(Boolean).join(' ');
           return (
-            <article key={release.id} className={`release-card${isCurrent ? ' is-current' : ''}`}>
+            <article key={release.id} className={cardClass}>
               <header className="release-header">
                 <div className="release-version-line">
                   <h2 className="release-version">{release.tag_name}</h2>
+                  {kind && (
+                    <span className={`release-tag release-tag-${kind}`}>{kind}</span>
+                  )}
                   {isCurrent && <span className="release-tag release-tag-current">Installed</span>}
                   {release.prerelease && <span className="release-tag release-tag-pre">Pre-release</span>}
                 </div>
