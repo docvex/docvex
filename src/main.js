@@ -62,12 +62,36 @@ if (app.isPackaged) {
 }
 
 const createWindow = () => {
+  // Launch-mode suffix shown in the window title bar. `app.isPackaged` is
+  // false under `electron-forge start` (npm start) and true once the app
+  // has been built and installed via Squirrel.
+  const launchMode = app.isPackaged ? 'standalone' : 'npm start';
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 750,
+    // Initial title for the brief flash before the renderer mounts. The
+    // page-title-updated handler below keeps it pinned after load.
+    title: `Docvex - ${launchMode}`,
+    // Resolved relative to the bundled main.js location (vite.main.config.mjs
+    // copies src/favicon.ico into .vite/build/ so this works in dev *and*
+    // packaged). On Windows, the .exe's embedded icon (set via
+    // packagerConfig.icon in forge.config.js) takes priority in packaged
+    // builds — this line is what gives the dev window the right icon and
+    // what macOS/Linux WMs read.
+    icon: path.join(__dirname, 'favicon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
+  });
+
+  // By default, Electron syncs window.title ← document.title every time
+  // the renderer's <title> changes — that would overwrite our launch-mode
+  // suffix as soon as index.html loads. preventDefault() blocks the sync;
+  // we then own the title and re-apply it so it survives a Vite HMR reload.
+  mainWindow.on('page-title-updated', (event) => {
+    event.preventDefault();
+    mainWindow.setTitle(`Docvex - ${launchMode}`);
   });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

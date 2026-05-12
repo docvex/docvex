@@ -11,6 +11,7 @@
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "preversion": "git diff-index --quiet HEAD -- || (echo Commit or stash changes before releasing && exit 1)",
+    "version": "node scripts/sync-readme-version.mjs",
     "postversion": "git push --follow-tags && electron-forge publish && node scripts/generate-release-notes.mjs",
     "release:patch": "npm version patch -m \"chore(release): %s\"",
     "release:minor": "npm version minor -m \"chore(release): %s\"",
