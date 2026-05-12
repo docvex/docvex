@@ -40,6 +40,21 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 
+// HTTPS bouncer URL that Gmail (and every other email client) WILL
+// linkify, unlike the bare docvex:// scheme. The page at this URL reads
+// the ?token=… query string and immediately runs
+// `location.replace('docvex://invite?token=…')` to hand off to the
+// desktop app. Source lives in this repo at docs/invite.html.
+//
+// Default is docvex.ro — the canonical custom domain configured via
+// docs/CNAME on the GitHub Pages site. If DNS isn't propagated yet,
+// override via the INVITE_BOUNCER_URL env var in Supabase Edge Function
+// secrets (e.g. https://petreluca1105-dotcom.github.io/docvex/invite.html
+// while waiting on registrar) — emails will use whichever the env var
+// returns. Remove the override once docvex.ro resolves.
+const INVITE_BOUNCER_URL = Deno.env.get("INVITE_BOUNCER_URL")
+  ?? "https://docvex.ro/invite.html";
+
 // RFC-5322-ish basic check — anything that passes here goes to Resend for
 // the real validation. We deliberately don't try to be perfect; we just
 // want to reject obvious junk before consuming an RPC.
@@ -138,24 +153,52 @@ Deno.serve(async (req: Request) => {
     ?? (user.user_metadata as Record<string, unknown> | null)?.name as string
     ?? inviterEmail;
 
-  const inviteLink = `docvex://invite?token=${token}`;
+  // Two URLs:
+  //   bouncerLink — https://… (clickable in Gmail/Outlook). Loads a
+  //     static page that immediately redirects to deepLink. THE PRIMARY
+  //     CTA in the email.
+  //   deepLink   — docvex://… (custom scheme; Gmail won't linkify it
+  //     and may even strip the href). Included only as plain-text
+  //     fallback for the rare client that does honor custom protocols.
+  const deepLink = `docvex://invite?token=${token}`;
+  const bouncerLink = `${INVITE_BOUNCER_URL}?token=${token}`;
   const subject = `${inviterName} invited you to ${projectName}`;
   const text =
     `${inviterName} (${inviterEmail}) invited you to join "${projectName}" on Docvex as a ${inviteRole}.\n\n` +
-    `Open this link in the Docvex desktop app to accept:\n${inviteLink}\n\n` +
-    `If you don't have Docvex installed yet, download it first from docvex.ro.\n\n` +
+    `Accept the invitation:\n${bouncerLink}\n\n` +
+    `If the link above doesn't open Docvex, paste this directly into the app's address bar:\n${deepLink}\n\n` +
+    `Don't have Docvex installed yet? Get it from https://docvex.ro\n\n` +
     `This invitation expires in 7 days.`;
   const html =
     `<p><strong>${inviterName}</strong> (${inviterEmail}) invited you to join ` +
     `<strong>${projectName}</strong> on Docvex as a <code>${inviteRole}</code>.</p>` +
-    `<p>Open this link in the Docvex desktop app to accept:</p>` +
-    `<p><a href="${inviteLink}">${inviteLink}</a></p>` +
-    `<p style="color:#888;font-size:0.9em">If you don't have Docvex installed yet, download it first from <a href="https://docvex.ro">docvex.ro</a>. This invitation expires in 7 days.</p>`;
+    `<p style="margin:24px 0">` +
+      `<a href="${bouncerLink}" ` +
+        `style="display:inline-block;background:#6366f1;color:#fff;padding:10px 20px;` +
+        `border-radius:6px;text-decoration:none;font-weight:500;font-family:Arial,sans-serif">` +
+        `Accept invitation` +
+      `</a>` +
+    `</p>` +
+    `<p style="color:#666;font-size:0.85em">` +
+      `If the button above doesn't work, open ` +
+      `<a href="${bouncerLink}">${bouncerLink}</a> ` +
+      `in your browser — it'll hand off to the Docvex desktop app.` +
+    `</p>` +
+    `<p style="color:#888;font-size:0.8em;margin-top:24px;padding-top:16px;border-top:1px solid #eee">` +
+      `Don't have Docvex yet? <a href="https://docvex.ro">Download for Windows</a>. ` +
+      `This invitation expires in 7 days.` +
+    `</p>`;
 
-  // TODO: verify the docvex.ro domain in Resend before going public — until
-  // then Resend will 403 here and the email won't deliver. The invitation
-  // row still exists, so the admin can copy the link from the Members page
-  // and DM it. Production checklist: verify sender domain in Resend.
+  // Email-send result is reported back to the renderer alongside `ok: true`
+  // so the admin sees WHY a real email didn't arrive even though the row
+  // was created (Resend 403 on an unverified sender domain, missing API
+  // key, transient network failure, …). The invitation row itself is the
+  // source of truth — the admin can copy the link from the Pending list
+  // and DM it manually until Resend is configured.
+  let email_status: 'sent' | 'skipped_no_key' | 'rejected' | 'failed' = 'sent';
+  let email_error: string | null = null;
+  let resend_status: number | null = null;
+
   if (RESEND_API_KEY) {
     try {
       const resendResp = await fetch("https://api.resend.com/emails", {
@@ -165,23 +208,41 @@ Deno.serve(async (req: Request) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          from: "invites@docvex.ro",
+          // Friendly display name materially reduces spam-folder rate vs.
+          // a bare address. Gmail and Outlook both weight presence of a
+          // display name as a legitimacy signal.
+          from: "Docvex <invites@docvex.ro>",
           to: [email],
+          // Reply-To set to the inviter's address so a recipient asking
+          // "wait, who is this?" reaches a real human. Also a positive
+          // deliverability signal — robotic from/reply-to combos are
+          // disproportionately spammy. We only include it when we have an
+          // email (every Supabase auth user does; defensive ?? still).
+          reply_to: inviterEmail ?? undefined,
           subject,
           text,
           html,
         }),
       });
+      resend_status = resendResp.status;
       if (!resendResp.ok) {
-        const detail = await resendResp.text();
-        console.warn("[send-invite] resend rejected", resendResp.status, detail);
+        email_status = 'rejected';
+        // Resend returns JSON like { name: "...", message: "..." }; pass
+        // the raw body through so the dev sees the actual reason
+        // ("Domain not verified", "API key invalid", etc.).
+        email_error = (await resendResp.text()).slice(0, 500);
+        console.warn("[send-invite] resend rejected", resendResp.status, email_error);
       }
     } catch (err) {
+      email_status = 'failed';
+      email_error = String((err as Error)?.message ?? err).slice(0, 500);
       console.warn("[send-invite] resend fetch failed", err);
     }
   } else {
+    email_status = 'skipped_no_key';
+    email_error = 'RESEND_API_KEY not set in Edge Function secrets';
     console.warn("[send-invite] RESEND_API_KEY not set — skipping email send");
   }
 
-  return jsonResponse({ ok: true, invitation_id });
+  return jsonResponse({ ok: true, invitation_id, email_status, email_error, resend_status });
 });
