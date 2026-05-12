@@ -144,6 +144,19 @@
   background: #1f1f1f;
 }
 
+/* Read rows fade as a whole so the eye scans straight to anything still
+   unread. The icon used to dim on its own — that fade now rides on the row,
+   which also dims the title, message, and action buttons together. Hovering
+   a read row brings it back toward full opacity so it stays interactive. */
+.n-row:not(.n-row-unread) {
+  opacity: 0.55;
+  transition: opacity 150ms ease, background 120ms, border-color 120ms;
+}
+
+.n-row:not(.n-row-unread):hover {
+  opacity: 0.85;
+}
+
 .n-row-info    { border-left-color: var(--toast-info,    #6366f1); }
 .n-row-success { border-left-color: var(--toast-success, #4ade80); }
 .n-row-warning { border-left-color: var(--toast-warning, #f59e0b); }
@@ -158,16 +171,9 @@
   height: 20px;
   margin-top: 1px;
   color: #888;
-  /* Read rows have a dimmed icon so the eye scans straight to anything
-     still unread. The .n-row-unread override below brings unread icons back
-     to full opacity. This (plus the title weight differential) replaces the
-     orange unread dot we removed. */
-  opacity: 0.35;
-  transition: opacity 150ms ease;
-}
-
-.n-row-unread .n-row-icon {
-  opacity: 1;
+  /* Icon stays at full opacity inside the row. Read/unread differentiation
+     is now driven by the parent .n-row opacity rule above — fading the icon
+     separately would compound and make read icons nearly invisible. */
 }
 
 .n-row-info    .n-row-icon { color: var(--toast-info,    #6366f1); }
@@ -285,6 +291,6 @@
 }
 
 .n-row-remove:hover {
-  color: #ddd;
-  background: #222;
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
 }

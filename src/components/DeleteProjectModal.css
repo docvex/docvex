@@ -1,0 +1,67 @@
+/* Widens the shared .modal-card slightly so the project name + input have
+   breathing room — the default 380px feels cramped once you add an input. */
+.delete-project-modal {
+  max-width: 460px;
+}
+
+.delete-project-label {
+  display: block;
+  font-size: 0.85rem;
+  color: #c4c4c4;
+  margin: 0 0 0.4rem;
+  line-height: 1.5;
+}
+
+/* Project name rendered as inline mono so the user can see at a glance the
+   exact characters (incl. case, spaces) they need to reproduce. */
+.delete-project-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 600;
+  color: #fca5a5;
+  background: rgba(220, 38, 38, 0.08);
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  user-select: text;
+}
+
+.delete-project-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  padding: 0.55rem 0.7rem;
+  margin: 0 0 1.25rem;
+  font-family: inherit;
+  transition: border-color 150ms, background 150ms;
+}
+
+.delete-project-input:focus {
+  outline: none;
+  border-color: #dc2626;
+  background: #121212;
+}
+
+.delete-project-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Disabled destructive button — visually dim so the user understands typing
+   the name will enable it. */
+.delete-project-modal .modal-btn-destructive:disabled {
+  background: rgba(220, 38, 38, 0.35);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: not-allowed;
+}
+
+.delete-project-modal .modal-btn-destructive:disabled:hover {
+  background: rgba(220, 38, 38, 0.35);
+}
+
+.delete-project-modal .modal-btn-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

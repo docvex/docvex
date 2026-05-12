@@ -1,9 +1,11 @@
 .sidebar {
   position: relative;
-  /* Z-index above the ProjectPickerDrawer (z-index 10) so the drawer is
+  /* Z-index above the ProjectPickerDrawer (z-index 40) so the drawer is
      literally hidden behind the sidebar when closed — its open animation
-     then visibly slides it out from behind. */
-  z-index: 20;
+     then visibly slides it out from behind. Both sit above the project
+     banner (z-index 30) so opening the picker visually overlays the
+     "working in" bar instead of being clipped beneath it. */
+  z-index: 50;
   width: 60px;
   min-width: 60px;
   height: 100vh;

@@ -72,7 +72,7 @@ const createWindow = () => {
     height: 750,
     // Initial title for the brief flash before the renderer mounts. The
     // page-title-updated handler below keeps it pinned after load.
-    title: `Docvex - ${launchMode}`,
+    title: `DocVex - ${launchMode}`,
     // Resolved relative to the bundled main.js location (vite.main.config.mjs
     // copies src/favicon.ico into .vite/build/ so this works in dev *and*
     // packaged). On Windows, the .exe's embedded icon (set via
@@ -91,7 +91,7 @@ const createWindow = () => {
   // we then own the title and re-apply it so it survives a Vite HMR reload.
   mainWindow.on('page-title-updated', (event) => {
     event.preventDefault();
-    mainWindow.setTitle(`Docvex - ${launchMode}`);
+    mainWindow.setTitle(`DocVex - ${launchMode}`);
   });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

@@ -33,10 +33,20 @@
 .project-dashboard-back-link {
   display: inline-flex;
   align-items: center;
+  /* Spacing between the chevron icon and the text label ("Back" on the
+     Overview, the project name on the Dashboard). */
+  gap: 0.3rem;
   color: #888;
   font-size: 0.8rem;
   text-decoration: none;
   transition: color 150ms;
+  /* Pull the icon down a hair so its optical center sits on the text
+     baseline — the chevron polyline is geometric-centered, not visually. */
+}
+
+.project-dashboard-back svg,
+.project-dashboard-back-link svg {
+  flex-shrink: 0;
 }
 
 .project-dashboard-back:hover,
@@ -140,4 +150,211 @@
   border-top: 1px solid #2a2a2a;
   color: #c4c4c4 !important;
   font-size: 0.825rem !important;
+}
+
+/* Generic dashboard "card" — reused by Recent files and any future sections
+   (Members preview, Activity feed). Same visual shell as .coming-soon. */
+.project-dashboard-card {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.project-dashboard-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 0.4rem;
+}
+
+.project-dashboard-card-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+/* Small badge in the card header opposite the title (e.g. "5 people" on the
+   Members card). Lighter weight + smaller than the title so the title still
+   reads as the primary label. */
+.project-dashboard-card-count {
+  font-size: 0.8rem;
+  color: #888;
+  flex-shrink: 0;
+}
+
+.project-dashboard-card-subtitle {
+  margin: 0 0 1rem;
+  color: #888;
+  font-size: 0.825rem;
+  line-height: 1.5;
+}
+
+/* Empty-state body inside a dashboard card — dashed border + muted text so it
+   reads clearly as "nothing here yet, but something will be." */
+.project-dashboard-empty {
+  border: 1px dashed #2a2a2a;
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+  color: #888;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* Danger zone — mirrors .account-danger over in Account.css. Red-tinted card
+   border, red title, destructive button on the right. */
+.project-dashboard-danger {
+  background: #1a1a1a;
+  border: 1px solid rgba(220, 38, 38, 0.28);
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+}
+
+.project-dashboard-danger h2 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #f87171;
+}
+
+.project-dashboard-danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid #2a2a2a;
+}
+
+.project-dashboard-danger-text {
+  min-width: 0;
+}
+
+.project-dashboard-danger-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #e0e0e0;
+  margin: 0 0 0.2rem;
+}
+
+.project-dashboard-danger-desc {
+  font-size: 0.8rem;
+  color: #888;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.project-dashboard-danger-btn {
+  background: transparent;
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  border-radius: 6px;
+  color: #f87171;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.45rem 0.95rem;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.project-dashboard-danger-btn:hover {
+  background: rgba(220, 38, 38, 0.12);
+  border-color: #dc2626;
+  color: #fca5a5;
+}
+
+.project-dashboard-danger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Inline error displayed next to the Danger zone when a delete fails (most
+   commonly: RLS rejection because the row's role was demoted between page
+   load and the click). Same red-tint card as .project-dashboard-error. */
+.project-dashboard-danger-error {
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.85rem;
+  background: rgba(220, 38, 38, 0.07);
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  border-radius: 6px;
+  color: #f87171;
+  font-size: 0.825rem;
+}
+
+/* ── Members list (Project Overview page) ─────────────────────────────── */
+
+.member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid #222;
+}
+
+.member-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.member-row:last-child {
+  padding-bottom: 0;
+}
+
+.member-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+  background: #2a2a2a;
+}
+
+/* Initial-letter fallback when the profile has no avatar_url — mirrors the
+   sidebar's avatar fallback (indigo circle with white initial). */
+.member-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #6366f1;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.member-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.member-name {
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-email {
+  color: #888;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

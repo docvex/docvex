@@ -1,14 +1,19 @@
 /* Project picker panel — secondary nav column that slides out from
    behind the sidebar.
    Geometry:
-     - Sidebar (z-index 20): width 60px collapsed, 220px hover/locked/picker-open.
-     - Panel  (z-index 10): pinned to left:0, width 220px, height 100vh.
+     - Sidebar (z-index 50): width 60px collapsed, 220px hover/locked/picker-open.
+     - Panel  (z-index 40): pinned to left:0, width 220px, height 100vh.
+     - Banner (z-index 30): full-width "working in" bar at top of main-content.
+     - Backdrop (z-index 35): below panel, above banner — covers banner too
+       so a click on the banner area dismisses the picker.
      - Closed: transform translateX(-100%) — entirely off-screen left.
      - Open:   transform translateX(60px)  — peeks out next to the
                collapsed-sidebar's right edge.
-   Because the sidebar's z-index is higher, the panel in its closed
-   position is literally hidden behind the sidebar; the open animation
-   visibly slides it out from beneath. */
+   Because the sidebar's z-index is higher than the panel's, the panel in
+   its closed position is literally hidden behind the sidebar; the open
+   animation visibly slides it out from beneath. The whole stack
+   (sidebar/panel/backdrop) sits above the banner so opening the picker
+   overlays the bar rather than being clipped underneath it. */
 
 .project-picker-panel {
   position: fixed;
@@ -25,7 +30,7 @@
      (#141414) for visible separation. */
   background: #332B1F;
   border-right: 1px solid #2a2a2a;
-  z-index: 10;
+  z-index: 40;
   display: flex;
   flex-direction: column;
   transform: translateX(-100%);
@@ -42,7 +47,7 @@
   /* Slide to right after the expanded sidebar (220px). The sidebar's
      .picker-open rule force-expands it to 220px whenever the panel opens,
      so 220 is the correct anchor regardless of the user's lock state.
-     Z-index 10 (panel) < 20 (sidebar) means during the slide-in animation
+     Z-index 40 (panel) < 50 (sidebar) means during the slide-in animation
      the panel is hidden by the sidebar until it clears the 220px edge —
      reads as "emerging from behind the sidebar". */
   transform: translateX(220px);
@@ -51,12 +56,13 @@
 }
 
 /* Backdrop captures click-to-close over the page content. Below the
-   panel in z-order so the panel renders on top of it. */
+   panel in z-order so the panel renders on top of it; above the project
+   banner (z-index 30) so clicking the bar dismisses the picker too. */
 .project-picker-panel-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.35);
-  z-index: 9;
+  z-index: 35;
   animation: project-picker-panel-fade 180ms ease-out;
 }
 

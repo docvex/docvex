@@ -1,26 +1,22 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
-import { useSelectedProject } from '../../context/SelectedProjectContext';
 import './ProjectDashboard.css';
 
-// Placeholder for step 2 of the build. Step 3 will fill in the full
-// dashboard: editable description, member-count badge, recent activity, and
-// sub-nav to Files / Members / Settings. For now it just confirms the
-// ProjectContext is wired correctly so the create flow has a landing page.
+// Project Dashboard — the "working surface" for /projects/:id/dashboard.
+// Reached from the Projects sidebar's Dashboard sub-item. Focus: the user's
+// recent activity inside this project (currently just files; will grow to
+// include todos, activity feed, etc.).
+//
+// Project metadata + member management live on the Overview page
+// (/projects/:id) — reached by clicking a card in the Projects list. The
+// split keeps each page focused on one job; this one is for getting work
+// done, the overview is for managing who's on the project.
+//
+// Auto-selecting the project into SelectedProjectContext happens at the
+// ProjectShell level — see <ProjectAutoSelect/> in App.jsx.
 export default function ProjectDashboard() {
-  const { project, role, members, loading, error } = useProject();
-  const { selectedProjectId, selectProject } = useSelectedProject();
-
-  // Deep-linking to /projects/:id (back button, bookmark, OAuth resume)
-  // should make this project the user's working project — otherwise the
-  // sidebar's Projects section would stay empty even though the user is
-  // clearly inside a project.
-  useEffect(() => {
-    if (project?.id && project.id !== selectedProjectId) {
-      selectProject(project.id);
-    }
-  }, [project?.id, selectedProjectId, selectProject]);
+  const { project, role, loading, error } = useProject();
 
   if (loading) {
     return (
@@ -55,26 +51,26 @@ export default function ProjectDashboard() {
   return (
     <div className="project-dashboard">
       <header className="project-dashboard-header">
-        <Link to="/projects" className="project-dashboard-back">← All projects</Link>
+        {/* No back link here — the "working in" banner above already names
+            the project and clicking it opens the picker, and the sidebar
+            still shows which project we're in. The Overview is one click
+            away via the Projects sidebar or the banner. */}
         <div className="project-dashboard-title-row">
-          <h1 className="project-dashboard-title">{project.name}</h1>
+          <h1 className="project-dashboard-title">Dashboard</h1>
           <span className={`project-dashboard-role role-${role}`}>{role}</span>
         </div>
-        {project.description && (
-          <p className="project-dashboard-description">{project.description}</p>
-        )}
       </header>
 
-      <section className="project-dashboard-coming-soon">
-        <h2>Members, Files, Settings — coming next</h2>
-        <p>
-          The full dashboard (member list, invites, file uploads, project
-          settings) ships in step 3 of the build.
+      <section className="project-dashboard-card">
+        <div className="project-dashboard-card-header">
+          <h2 className="project-dashboard-card-title">Recent files</h2>
+        </div>
+        <p className="project-dashboard-card-subtitle">
+          Latest uploads in this project.
         </p>
-        <p className="project-dashboard-stats">
-          You're a {role} on this project. There {members.length === 1 ? 'is' : 'are'}{' '}
-          {members.length} member{members.length === 1 ? '' : 's'}.
-        </p>
+        <div className="project-dashboard-empty">
+          No files yet. Uploads will appear here once the file UI ships.
+        </div>
       </section>
     </div>
   );

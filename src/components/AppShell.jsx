@@ -9,14 +9,24 @@ import './AppShell.css';
 // Routes that operate on the currently-selected project. The banner shows on
 // these so the user always sees which project they're working in. /projects
 // (the browser list) and /projects/new are intentionally excluded — they're
-// project-picker surfaces, not project-scoped views.
+// project-picker surfaces, not project-scoped views. The Project Overview
+// (/projects/:id exact) is also excluded: that page already shows the
+// project name as its <h1>, so a redundant "working in <name>" pill above it
+// reads as noise. Sub-routes like /projects/:id/dashboard still get the pill
+// because their <h1> is generic ("Dashboard") — the pill anchors which
+// project the generic page is about.
 function isProjectScopedRoute(pathname) {
   if (pathname === '/files' || pathname.startsWith('/files/')) return true;
   if (pathname === '/todos' || pathname.startsWith('/todos/')) return true;
-  // /projects/<id>/... but not /projects, /projects/, /projects/new
   if (pathname === '/projects' || pathname === '/projects/') return false;
   if (pathname === '/projects/new') return false;
-  if (pathname.startsWith('/projects/')) return true;
+  if (pathname.startsWith('/projects/')) {
+    // Strip trailing slash, then check whether there's anything past the id.
+    const rest = pathname.slice('/projects/'.length).replace(/\/$/, '');
+    // Exact /projects/:id (no further segment) → Overview → no pill.
+    if (rest && !rest.includes('/')) return false;
+    return true;
+  }
   return false;
 }
 

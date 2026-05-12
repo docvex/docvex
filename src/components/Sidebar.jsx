@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useUpdates } from '../context/UpdatesContext';
 import { useNotifications } from '../context/NotificationsContext';
@@ -132,6 +132,21 @@ export default function Sidebar() {
   const { hasUpdate, currentVersion } = useUpdates();
   const { unreadCount } = useNotifications();
   const { selectedProject, pickerOpen, togglePicker, closePicker } = useSelectedProject();
+  const { pathname } = useLocation();
+  // Personal-section "Projects" item lights up on the project browser pages:
+  //   /projects               — the list
+  //   /projects/new           — the create form
+  //   /projects/:id           — the Overview (reached by clicking a card)
+  // but NOT on /projects/:id/dashboard (or any other sub-route), because
+  // those are reached via the Projects sidebar section's own sub-items.
+  // Built manually because NavLink's `end` is binary and can't express
+  // "exact, plus this one specific deeper pattern".
+  const personalProjectsActive = (() => {
+    if (pathname === '/projects' || pathname === '/projects/') return true;
+    if (pathname === '/projects/new') return true;
+    // /projects/:id exactly — no further segment after the id.
+    return /^\/projects\/[^/]+\/?$/.test(pathname);
+  })();
   // Persist the lock preference so the layout doesn't snap closed on every reload
   const [locked, setLocked] = useState(() => {
     try { return localStorage.getItem(LOCK_STORAGE_KEY) === 'true'; } catch { return false; }
@@ -150,14 +165,17 @@ export default function Sidebar() {
     label: 'Personal',
     items: [
       { kind: 'link', to: '/', label: 'Activity', icon: ActivityIcon, end: true },
-      // end:false so /projects/:id keeps the nav item highlighted when
-      // viewing a specific project's dashboard from the /projects browser.
+      // Active state is driven by `personalProjectsActive` (computed above)
+      // instead of NavLink's `end` flag — `end` can only express "exact" or
+      // "any descendant", but we want a custom set: the list, the create
+      // form, and the project Overview (but NOT the project Dashboard, which
+      // is owned by the Projects sidebar section's own sub-item).
       {
         kind: 'link',
         to: '/projects',
         label: 'Projects',
         icon: BriefcaseIcon,
-        end: false,
+        forcedActive: personalProjectsActive,
         visible: !!session,
       },
       {
@@ -215,12 +233,16 @@ export default function Sidebar() {
         <li className="sidebar-section-header" aria-hidden="true">
           <span className="label sidebar-section-label">{personalSection.label}</span>
         </li>
-        {personalSection.items.map(({ to, label, icon, end, badge }) => (
+        {personalSection.items.map(({ to, label, icon, end, badge, forcedActive }) => (
           <li key={to}>
             <NavLink
               to={to}
               end={end}
-              className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+              /* `forcedActive` overrides NavLink's own match when the item
+                 has a non-standard active rule (see Projects above). */
+              className={({ isActive }) =>
+                `nav-item${(forcedActive ?? isActive) ? ' active' : ''}`
+              }
               /* Clicking any sidebar nav item closes the picker — if the
                  user is navigating to another page, they don't want the
                  picker panel still floating over the new view. No-op when
@@ -264,7 +286,11 @@ export default function Sidebar() {
               <>
                 <li>
                   <NavLink
-                    to={`/projects/${selectedProject.id}`}
+                    /* /dashboard is the project's "working surface" (recent
+                       files). The plain /projects/:id route is the project
+                       Overview (members + admin) reached from the Projects
+                       list — different mental model, different destination. */
+                    to={`/projects/${selectedProject.id}/dashboard`}
                     end
                     className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
                     onClick={closePicker}
