@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { useNotifications } from '../../context/NotificationsContext';
-import { deleteProject, listInvitations, revokeInvite, sendInvite } from '../../lib/projects';
+import { useAuth } from '../../context/AuthContext';
+import { deleteProject, listInvitations, revokeInvite, sendInvite, updateProject } from '../../lib/projects';
 import DeleteProjectModal from '../../components/DeleteProjectModal';
 import InviteMemberModal from '../../components/InviteMemberModal';
+import RoleLocked from '../../components/RoleLocked';
 import './ProjectDashboard.css';
 
 // Chevron-left icon for the "< Back" link — inline SVG so we don't pull in an
@@ -14,6 +16,17 @@ import './ProjectDashboard.css';
 const ChevronLeftIcon = (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <polyline points="15 18 9 12 15 6" />
+  </svg>
+);
+
+// Matches the UsersIcon used on Project cards in ProjectList.jsx so the
+// "N members" affordance reads consistently across the two surfaces.
+const UsersIcon = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
   </svg>
 );
 
@@ -68,7 +81,25 @@ export default function ProjectOverview() {
   const { project, role, members, loading, error } = useProject();
   const { clearSelection } = useSelectedProject();
   const { notify } = useNotifications();
+  const { session } = useAuth();
   const navigate = useNavigate();
+
+  // The caller's auth id, used to flag their row in the Members list with a
+  // "You" pill. Read off the session because useProject() returns members
+  // joined with profile data only — no flag for self.
+  const currentUserId = session?.user?.id ?? null;
+
+  // Stable "you first, then everyone else in their existing order" ordering.
+  // useMemo so we don't re-allocate the array on every unrelated re-render
+  // (notifications, etc.) — members itself is referentially stable across
+  // those because ProjectContext only swaps it when the Realtime channel
+  // fires.
+  const orderedMembers = useMemo(() => {
+    if (!currentUserId) return members;
+    const selfIdx = members.findIndex((m) => m.user_id === currentUserId);
+    if (selfIdx <= 0) return members;
+    return [members[selfIdx], ...members.slice(0, selfIdx), ...members.slice(selfIdx + 1)];
+  }, [members, currentUserId]);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -78,6 +109,76 @@ export default function ProjectOverview() {
   // Inline comparison avoids the extra hook call since we only need it once.
   const isAdmin = role === 'owner' || role === 'admin';
   const isOwner = role === 'owner';
+
+  // Top-level tab. Local state is fine: the value isn't deep-linkable (no
+  // need to share "I was on Members" via URL — both tabs live at the same
+  // route) and resetting to "project" on remount is the right default for
+  // someone arriving on the page fresh.
+  //
+  // Every role sees every tab now: the role-gating contract is "render the
+  // feature for everyone, lay a RoleLocked overlay over it for non-matching
+  // viewers." So no auto-switch on role — even a viewer can browse to the
+  // Project tab and see the locked details/danger zone.
+  const [activeTab, setActiveTab] = useState('project');
+
+  // ── Project (name + description) edit form ──────────────────────────────
+  // Local form state mirrors the server's project row, synced from useProject()
+  // via the effect below. We keep it separate from project.{name,description}
+  // so the user can type freely without optimistically writing into the
+  // shared context — only Save commits.
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [savingProject, setSavingProject] = useState(false);
+  const [projectFormError, setProjectFormError] = useState(null);
+
+  // Sync the form from the server whenever the project row changes (initial
+  // load + any Realtime UPDATE from ProjectContext's postgres_changes
+  // subscription). This means a rename committed elsewhere — another admin,
+  // another window — appears in the form immediately rather than the user
+  // staring at stale text.
+  useEffect(() => {
+    setEditName(project?.name ?? '');
+    setEditDescription(project?.description ?? '');
+    setProjectFormError(null);
+  }, [project?.id, project?.name, project?.description]);
+
+  const projectFormDirty =
+    (editName.trim() !== (project?.name ?? '')) ||
+    ((editDescription.trim() || null) !== (project?.description ?? null));
+
+  const handleSaveProject = async (e) => {
+    e.preventDefault();
+    setProjectFormError(null);
+    const trimmedName = editName.trim();
+    if (trimmedName.length === 0) {
+      setProjectFormError('Name is required.');
+      return;
+    }
+    if (trimmedName.length > 80) {
+      setProjectFormError('Name is too long (max 80 characters).');
+      return;
+    }
+    setSavingProject(true);
+    const { error: updErr } = await updateProject(project.id, {
+      name: trimmedName,
+      description: editDescription,
+    });
+    setSavingProject(false);
+    if (updErr) {
+      setProjectFormError(updErr.message || 'Could not save the project.');
+      return;
+    }
+    // Don't manually patch project state here — ProjectContext's Realtime
+    // subscription fires the UPDATE event and the sync effect above resets
+    // the form to the new server values. (If Realtime is dropped for any
+    // reason, the next refresh() call brings everything in line.)
+    notify({
+      category: 'system',
+      variant: 'success',
+      title: 'Project updated',
+      dedupeKey: `project-updated-${project.id}`,
+    });
+  };
 
   // Pending invitations state. Only fetched + rendered for admins (RLS would
   // return an empty list to non-admins anyway, but the fetch is wasted work
@@ -270,6 +371,19 @@ export default function ProjectOverview() {
     navigate('/projects', { replace: true });
   };
 
+  // Tab definitions are an array so the bar renders via .map() and adding
+  // a third tab later (Files, Activity) is a one-line change. Count badge on
+  // Members is the same data the Members card header used to surface.
+  //
+  // Every tab is visible to every role; role-gated content inside a tab is
+  // wrapped in RoleLocked so it's previewable-but-uninteractive for users
+  // who don't meet the role requirement.
+  const tabs = [
+    { id: 'project', label: 'Project' },
+    { id: 'members', label: 'Members', count: members.length },
+    { id: 'ai', label: 'AI' },
+  ];
+
   return (
     <div className="project-dashboard">
       <header className="project-dashboard-header">
@@ -281,135 +395,264 @@ export default function ProjectOverview() {
           <h1 className="project-dashboard-title">{project.name}</h1>
           <span className={`project-dashboard-role role-${role}`}>{role}</span>
         </div>
-        {project.description && (
-          <p className="project-dashboard-description">{project.description}</p>
-        )}
       </header>
 
-      <section className="project-dashboard-card">
-        <div className="project-dashboard-card-header">
-          <h2 className="project-dashboard-card-title">Members</h2>
-          <div className="project-dashboard-card-actions">
-            <span className="project-dashboard-card-count">
-              {members.length} {members.length === 1 ? 'person' : 'people'}
-            </span>
-            {isAdmin && (
-              <button
-                type="button"
-                className="project-dashboard-card-btn"
-                onClick={() => setInviteOpen(true)}
-              >
-                + Invite member
-              </button>
+      {/* Tab bar — visual nav between the two panels. role="tablist" so
+          screen readers announce the relationship; each button is a tab
+          whose pressed state mirrors activeTab. */}
+      <div className="project-tabs" role="tablist" aria-label="Project sections">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === t.id}
+            className={`project-tab ${activeTab === t.id ? 'is-active' : ''}`}
+            onClick={() => setActiveTab(t.id)}
+          >
+            <span>{t.label}</span>
+            {typeof t.count === 'number' && (
+              <span className="project-tab-count">{t.count}</span>
             )}
-          </div>
-        </div>
-        <p className="project-dashboard-card-subtitle">
-          Everyone with access to this project.
-        </p>
+          </button>
+        ))}
+      </div>
 
-        {members.length === 0 ? (
-          <div className="project-dashboard-empty">No members yet.</div>
-        ) : (
-          <ul className="member-list">
-            {members.map((m) => (
-              <li key={m.user_id} className="member-row">
-                <MemberAvatar profile={m.profile} />
-                <div className="member-text">
-                  <div className="member-name">{getMemberName(m.profile)}</div>
-                  {m.profile?.email && (
-                    <div className="member-email">{m.profile.email}</div>
-                  )}
-                </div>
-                <span className={`project-dashboard-role role-${m.role}`}>{m.role}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {/* Project tab — both children are owner-only features, so each is
+          wrapped in a RoleLocked overlay for non-owners. Wrapping the
+          individual cards (rather than the whole tab) keeps the radius +
+          backdrop fitted to each card's edge instead of one giant overlay
+          covering both. */}
+      {activeTab === 'project' && (
+        <>
+          <RoleLocked locked={!isOwner} requiredRole="owner">
+            <section className="project-dashboard-card">
+              <div className="project-dashboard-card-header">
+                <h2 className="project-dashboard-card-title">Project details</h2>
+              </div>
+              <p className="project-dashboard-card-subtitle">
+                Change the project name and description. Visible to every member.
+              </p>
 
-      {/* Pending invitations — admin-only AND hidden when there are none, so
-          the page stays uncluttered for projects without active invites.
-          Auto-populated on send (handleInviteSent) and auto-removed on revoke
-          via the local state patches; no manual refresh required. */}
-      {isAdmin && invLoaded && invitations.length > 0 && (
-        <section className="project-dashboard-card">
-          <div className="project-dashboard-card-header">
-            <h2 className="project-dashboard-card-title">Pending invitations</h2>
-            <span className="project-dashboard-card-count">
-              {invitations.length} pending
-            </span>
-          </div>
-          <p className="project-dashboard-card-subtitle">
-            Waiting on the invitee to click the link in their email.
-          </p>
-          <ul className="invitation-list">
-            {invitations.map((inv) => (
-              <li key={inv.id || inv.email} className="invitation-row">
-                <div className="invitation-text">
-                  <div className="invitation-email">{inv.email}</div>
-                  <div className="invitation-meta">
-                    {formatExpiry(inv.expires_at)}
-                  </div>
+              <form className="project-edit-form" onSubmit={handleSaveProject} noValidate>
+                <label className="project-edit-field">
+                  <span className="project-edit-label">
+                    Name <span className="project-edit-required">*</span>
+                  </span>
+                  <input
+                    type="text"
+                    className="project-edit-input"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    maxLength={80}
+                    disabled={savingProject}
+                    required
+                  />
+                </label>
+
+                <label className="project-edit-field">
+                  <span className="project-edit-label">Description</span>
+                  <textarea
+                    className="project-edit-textarea"
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    placeholder="What is this project about? (optional)"
+                    rows={4}
+                    maxLength={500}
+                    disabled={savingProject}
+                  />
+                </label>
+
+                {projectFormError && (
+                  <div className="project-edit-error">{projectFormError}</div>
+                )}
+
+                <div className="project-edit-actions">
+                  <button
+                    type="button"
+                    className="project-edit-cancel"
+                    onClick={() => {
+                      // Snap the form back to the server's current values so
+                      // the user can abandon edits without reloading.
+                      setEditName(project.name ?? '');
+                      setEditDescription(project.description ?? '');
+                      setProjectFormError(null);
+                    }}
+                    disabled={savingProject || !projectFormDirty}
+                  >
+                    Discard
+                  </button>
+                  <button
+                    type="submit"
+                    className="project-edit-submit"
+                    disabled={savingProject || !projectFormDirty || editName.trim().length === 0}
+                  >
+                    {savingProject ? 'Saving…' : 'Save changes'}
+                  </button>
                 </div>
-                <span className={`project-dashboard-role role-${inv.role}`}>{inv.role}</span>
+              </form>
+            </section>
+          </RoleLocked>
+
+          <RoleLocked locked={!isOwner} requiredRole="owner">
+            <section className="project-dashboard-danger">
+              <h2>Danger zone</h2>
+              <div className="project-dashboard-danger-row">
+                <div className="project-dashboard-danger-text">
+                  <p className="project-dashboard-danger-title">Delete this project</p>
+                  <p className="project-dashboard-danger-desc">
+                    Once deleted, you can't recover it. All members, pending
+                    invites, and uploaded files will be removed.
+                  </p>
+                </div>
                 <button
                   type="button"
-                  className="invitation-copy-btn"
-                  onClick={() => handleCopyLink(inv)}
-                  title="Copy docvex:// invite link (useful when the email didn't deliver)"
+                  className="project-dashboard-danger-btn"
+                  onClick={() => { setDeleteError(null); setDeleteOpen(true); }}
+                  disabled={deleting}
                 >
-                  {copiedInviteId === inv.id ? 'Copied!' : 'Copy link'}
+                  Delete project
                 </button>
-                <button
-                  type="button"
-                  className="invitation-copy-btn"
-                  onClick={() => handleResend(inv)}
-                  disabled={resendingId === inv.id}
-                  title="Resend the invitation email (re-uses the same token, no new row)"
-                >
-                  {resendingId === inv.id ? 'Resending…' : 'Resend email'}
-                </button>
-                <button
-                  type="button"
-                  className="invitation-revoke-btn"
-                  onClick={() => handleRevoke(inv.id)}
-                  disabled={revokingId === inv.id}
-                  title="Revoke this invitation"
-                >
-                  {revokingId === inv.id ? 'Revoking…' : 'Revoke'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
+              </div>
+              {deleteError && (
+                <div className="project-dashboard-danger-error" role="alert">
+                  {deleteError}
+                </div>
+              )}
+            </section>
+          </RoleLocked>
+        </>
       )}
 
-      {isOwner && (
-        <section className="project-dashboard-danger">
-          <h2>Danger zone</h2>
-          <div className="project-dashboard-danger-row">
-            <div className="project-dashboard-danger-text">
-              <p className="project-dashboard-danger-title">Delete this project</p>
-              <p className="project-dashboard-danger-desc">
-                Once deleted, you can't recover it. All members, pending
-                invites, and uploaded files will be removed.
+      {activeTab === 'members' && (
+        <>
+          <section className="project-dashboard-card">
+            <div className="project-dashboard-card-header">
+              <h2 className="project-dashboard-card-title">Members</h2>
+              <div className="project-dashboard-card-actions">
+                <span className="project-dashboard-card-count">
+                  {UsersIcon}
+                  {members.length} {members.length === 1 ? 'member' : 'members'}
+                </span>
+                {/* Invite-member button is admin-only and opted out of the
+                    overlay pattern (per user direction): non-admins don't
+                    see the button at all. A blurred button in the card
+                    header looked off-balance against the count badge, and
+                    the invite affordance is already discoverable from the
+                    Members card itself. */}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="project-dashboard-card-btn"
+                    onClick={() => setInviteOpen(true)}
+                  >
+                    + Invite member
+                  </button>
+                )}
+              </div>
+            </div>
+            <p className="project-dashboard-card-subtitle">
+              Everyone with access to this project.
+            </p>
+
+            {members.length === 0 ? (
+              <div className="project-dashboard-empty">No members yet.</div>
+            ) : (
+              <ul className="member-list">
+                {orderedMembers.map((m) => {
+                  const isSelf = m.user_id === currentUserId;
+                  return (
+                    <li key={m.user_id} className="member-row">
+                      <MemberAvatar profile={m.profile} />
+                      <div className="member-text">
+                        <div className="member-name">{getMemberName(m.profile)}</div>
+                        {m.profile?.email && (
+                          <div className="member-email">{m.profile.email}</div>
+                        )}
+                      </div>
+                      {isSelf && <span className="member-self-pill">Me</span>}
+                      <span className={`project-dashboard-role role-${m.role}`}>{m.role}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+
+          {/* Pending invitations — admin-only, AND opted out of the overlay
+              pattern per explicit user direction: non-admins don't see the
+              card at all. (Rationale: pending invitee emails are sensitive
+              enough that even a placeholder card with a blur on top reads
+              as "info leak adjacent." Hiding entirely is unambiguous.)
+              Also hidden for admins when there's nothing pending, to keep
+              the page uncluttered. */}
+          {isAdmin && invLoaded && invitations.length > 0 && (
+            <section className="project-dashboard-card">
+              <div className="project-dashboard-card-header">
+                <h2 className="project-dashboard-card-title">Pending invitations</h2>
+                <span className="project-dashboard-card-count">
+                  {invitations.length} pending
+                </span>
+              </div>
+              <p className="project-dashboard-card-subtitle">
+                Waiting on the invitee to click the link in their email.
               </p>
-            </div>
-            <button
-              type="button"
-              className="project-dashboard-danger-btn"
-              onClick={() => { setDeleteError(null); setDeleteOpen(true); }}
-              disabled={deleting}
-            >
-              Delete project
-            </button>
-          </div>
-          {deleteError && (
-            <div className="project-dashboard-danger-error" role="alert">
-              {deleteError}
-            </div>
+              <ul className="invitation-list">
+                {invitations.map((inv) => (
+                  <li key={inv.id || inv.email} className="invitation-row">
+                    <div className="invitation-text">
+                      <div className="invitation-email">{inv.email}</div>
+                      <div className="invitation-meta">
+                        {formatExpiry(inv.expires_at)}
+                      </div>
+                    </div>
+                    <span className={`project-dashboard-role role-${inv.role}`}>{inv.role}</span>
+                    <button
+                      type="button"
+                      className="invitation-copy-btn"
+                      onClick={() => handleCopyLink(inv)}
+                      title="Copy docvex:// invite link (useful when the email didn't deliver)"
+                    >
+                      {copiedInviteId === inv.id ? 'Copied!' : 'Copy link'}
+                    </button>
+                    <button
+                      type="button"
+                      className="invitation-copy-btn"
+                      onClick={() => handleResend(inv)}
+                      disabled={resendingId === inv.id}
+                      title="Resend the invitation email (re-uses the same token, no new row)"
+                    >
+                      {resendingId === inv.id ? 'Resending…' : 'Resend email'}
+                    </button>
+                    <button
+                      type="button"
+                      className="invitation-revoke-btn"
+                      onClick={() => handleRevoke(inv.id)}
+                      disabled={revokingId === inv.id}
+                      title="Revoke this invitation"
+                    >
+                      {revokingId === inv.id ? 'Revoking…' : 'Revoke'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
+        </>
+      )}
+
+      {activeTab === 'ai' && (
+        <section className="project-dashboard-card">
+          <div className="project-dashboard-card-header">
+            <h2 className="project-dashboard-card-title">AI</h2>
+          </div>
+          {/* Placeholder copy — real AI surface (summaries, draft suggestions,
+              project Q&A, …) lands when the AI backend is wired up. Keeping
+              the tab live now so the IA reads "here's where AI will live"
+              instead of users guessing whether the feature exists at all. */}
+          <p className="project-dashboard-card-subtitle">
+            Here will be displayed all AI-related data for this project.
+          </p>
         </section>
       )}
 

@@ -14,23 +14,55 @@ import { supabase } from './supabaseClient';
 // ── Projects ──────────────────────────────────────────────────────────────
 
 // All projects the caller is a member of, newest-active first, with their
-// role joined in. We query project_members as the base (RLS scopes it to
-// just the caller's rows via the "members read members" policy that consults
-// has_project_role(project_id, 'viewer')) and embed the project relation.
+// role + total member count joined in. We query project_members as the base
+// and embed the project relation; the project relation then re-embeds
+// project_members as a `count` aggregate so the card grid can render
+// "5 members" without an N+1.
+//
+// MUST filter by user_id = self on the outer query. The "members read members"
+// RLS policy lets any member SELECT every project_members row for projects
+// they belong to (so the Members card can render the full list). Without an
+// explicit user_id filter here, a project with N members would come back as
+// N rows — each embedding the same project — and the renderer would show
+// N duplicate project cards. The bug surfaces the moment someone accepts an
+// invite, because the project flips from "just me" to "me + inviter".
+//
+// The inner `member_count:project_members(count)` embed runs through RLS
+// independently and counts every row the caller can see for that project —
+// for a project the caller is a member of, that's the full membership, so
+// the number matches what the Project Overview's Members card would show.
 export async function listMyProjects() {
+  const userResult = await supabase.auth.getUser();
+  const userId = userResult.data.user?.id;
+  if (!userId) return { data: [], error: new Error('Not signed in') };
+
   const { data, error } = await supabase
     .from('project_members')
-    .select('role, added_at, project:projects(id, name, description, created_at, updated_at, created_by)')
+    .select(`
+      role,
+      added_at,
+      project:projects(
+        id, name, description, created_at, updated_at, created_by,
+        member_count:project_members(count)
+      )
+    `)
+    .eq('user_id', userId)
     .order('added_at', { ascending: false });
 
   if (error) return { data: [], error };
 
-  // Flatten { role, project: {...} } → { ...project, role }. The filter drops
-  // rows where the embedded project is null (would happen only mid-delete
-  // race; defensive).
+  // Flatten { role, project: {...} } → { ...project, role, member_count }.
+  // PostgREST returns the count aggregate as [{ count: N }] (it's an embedded
+  // resource, always an array even when aggregated) so we unwrap the first
+  // element. Default to 1 — the caller is at minimum a member of any project
+  // returned here, so 0 would be lying.
   const flat = (data || [])
     .filter((r) => r.project)
-    .map((r) => ({ ...r.project, role: r.role }));
+    .map((r) => ({
+      ...r.project,
+      role: r.role,
+      member_count: r.project.member_count?.[0]?.count ?? 1,
+    }));
   return { data: flat, error: null };
 }
 

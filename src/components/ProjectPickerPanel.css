@@ -28,7 +28,7 @@
      (#1d1d1d) — the two read as one continuous block once the panel
      slides out beside the button. Slightly lighter than the sidebar
      (#141414) for visible separation. */
-  background: #332B1F;
+  background: #735A34;
   border-right: 1px solid #2a2a2a;
   z-index: 40;
   display: flex;
@@ -86,8 +86,9 @@
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #777;
+  color: #ffffff;
   margin: 0;
+  padding: 10px 0px
 }
 
 /* Top-right close X — quiet by default (matches the muted title color),
@@ -99,11 +100,12 @@
   justify-content: center;
   background: transparent;
   border: none;
-  color: #777;
+  color: #ffffff;
   padding: 4px;
   border-radius: 5px;
   cursor: pointer;
   transition: background 120ms, color 120ms;
+  
 }
 
 .project-picker-panel-close:hover {
@@ -114,7 +116,7 @@
 .project-picker-panel-list {
   list-style: none;
   margin: 0;
-  padding: 6px 0;
+  padding: 0px 0;
   flex: 1;
   overflow-y: auto;
 }
@@ -167,28 +169,26 @@
 }
 
 .project-picker-panel-clear {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  /* Borderless centered single-line label — relies on the footer's
+     border-top alone to separate it from the list, no second border
+     around the button itself. Hover still gets the wash so the button
+     reads as interactive. */
+  display: block;
   width: 100%;
   background: transparent;
-  border: 1px solid #2a2a2a;
+  border: none;
   border-radius: 6px;
   color: #aaa;
   font-family: inherit;
   font-size: 0.825rem;
-  padding: 0.5rem 0.75rem;
+  text-align: center;
+  padding: 18px 0.75rem;
   cursor: pointer;
-  transition: background 120ms, border-color 120ms, color 120ms;
+  transition: background 120ms, color 120ms;
+  
 }
 
 .project-picker-panel-clear:hover {
   background: #1f1f1f;
-  border-color: #555;
   color: #fff;
-}
-
-.project-picker-panel-clear svg {
-  flex-shrink: 0;
-  opacity: 0.8;
 }

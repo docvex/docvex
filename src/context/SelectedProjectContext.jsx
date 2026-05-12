@@ -31,6 +31,12 @@ function storageKey(userId) {
   return STORAGE_KEY_PREFIX + (userId || '_anonymous');
 }
 
+// Minimum on-screen time for the switching-project loader. The actual
+// state/route swap usually completes well under this — the floor makes the
+// transition read as deliberate rather than flickery, regardless of how fast
+// the new project's fetch resolves.
+const SWITCH_LOADER_MIN_MS = 1000;
+
 export function SelectedProjectProvider({ children }) {
   const { session, loading: authLoading } = useAuth();
   const userId = session?.user?.id || null;
@@ -44,6 +50,17 @@ export function SelectedProjectProvider({ children }) {
   // Sidebar local state) so callers outside the sidebar — the ProjectBanner's
   // "Switch" button, e.g. — can also trigger it.
   const [pickerOpen, setPickerOpen] = useState(false);
+  // True while a project-switch is in progress — drives the full-screen
+  // SwitchProjectLoader overlay. Set by beginSwitch(), auto-cleared after
+  // SWITCH_LOADER_MIN_MS. The sidebar's z-index is higher than the loader's,
+  // so it stays visible/interactive (user can keep clicking around) while
+  // the rest of the page is masked.
+  const [switching, setSwitching] = useState(false);
+  // Target name for the loader subtitle ("Switching to <name>"). Null when
+  // the switch is a clear ("Select no project") — the loader falls back to
+  // its no-name copy in that case.
+  const [switchingToName, setSwitchingToName] = useState(null);
+  const switchingTimerRef = useRef(null);
 
   // Tracks the user-id we last hydrated for. Prevents a re-mount from
   // clobbering an in-flight selection when only the user_id reference is
@@ -114,6 +131,34 @@ export function SelectedProjectProvider({ children }) {
   // closes it instead of being a no-op (which previously felt unresponsive).
   const togglePicker = useCallback(() => setPickerOpen((v) => !v), []);
 
+  // Trigger the switching-project loader. Idempotent: a second call while
+  // the loader is already up extends the floor by another SWITCH_LOADER_MIN_MS
+  // (the old timer is cancelled), so rapid double-clicks don't yo-yo the
+  // overlay. Caller invokes this RIGHT BEFORE the state mutation + navigate
+  // so the overlay is up before any in-flight render flash.
+  //
+  // `name` is the target project name — surfaced as "Switching to <name>"
+  // in the overlay subtitle. Pass null for a clear-selection switch; the
+  // loader renders generic copy in that case.
+  const beginSwitch = useCallback((name = null) => {
+    setSwitching(true);
+    setSwitchingToName(name);
+    if (switchingTimerRef.current) clearTimeout(switchingTimerRef.current);
+    switchingTimerRef.current = setTimeout(() => {
+      setSwitching(false);
+      // Keep switchingToName until next beginSwitch so the label doesn't
+      // visibly blank-out as the overlay fades — the consumer hides itself
+      // on `switching === false` so the stale name never renders again.
+      switchingTimerRef.current = null;
+    }, SWITCH_LOADER_MIN_MS);
+  }, []);
+
+  // Cleanup on unmount so a pending timer doesn't fire against a torn-down
+  // tree (rare — the provider lives for the app's lifetime — but cheap).
+  useEffect(() => () => {
+    if (switchingTimerRef.current) clearTimeout(switchingTimerRef.current);
+  }, []);
+
   const value = useMemo(() => ({
     selectedProjectId,
     selectedProject,
@@ -124,7 +169,10 @@ export function SelectedProjectProvider({ children }) {
     openPicker,
     closePicker,
     togglePicker,
-  }), [selectedProjectId, selectedProject, loading, selectProject, clearSelection, pickerOpen, openPicker, closePicker, togglePicker]);
+    switching,
+    switchingToName,
+    beginSwitch,
+  }), [selectedProjectId, selectedProject, loading, selectProject, clearSelection, pickerOpen, openPicker, closePicker, togglePicker, switching, switchingToName, beginSwitch]);
 
   return (
     <SelectedProjectContext.Provider value={value}>

@@ -57,9 +57,15 @@ function ProjectCard({ project }) {
       <div className="project-card-meta">
         <span className="project-card-meta-item">
           {UsersIcon}
-          <span>—</span>
-          {/* Member count comes in step 3 when ProjectDashboard surfaces it;
-              keeping the slot here so the card height doesn't jump later. */}
+          {/* member_count comes from listMyProjects' PostgREST count embed.
+              Fallback to "—" only if the field is missing (e.g. a future
+              call site forgets to fetch it) — for any row that came through
+              listMyProjects the count is at least 1 (the caller themselves). */}
+          <span>
+            {typeof project.member_count === 'number'
+              ? `${project.member_count} ${project.member_count === 1 ? 'member' : 'members'}`
+              : '—'}
+          </span>
         </span>
       </div>
     </Link>

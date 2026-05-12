@@ -176,12 +176,22 @@
   color: #e0e0e0;
 }
 
-/* Small badge in the card header opposite the title (e.g. "5 people" on the
+/* Small badge in the card header opposite the title (e.g. "5 members" on the
    Members card). Lighter weight + smaller than the title so the title still
    reads as the primary label. */
 .project-dashboard-card-count {
   font-size: 0.8rem;
   color: #888;
+  flex-shrink: 0;
+  /* inline-flex so an optional leading icon (e.g. UsersIcon on the Members
+     card) sits flush with the text without baseline drift. Same gap used
+     by the project-card-meta-item on the cards grid for visual parity. */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.project-dashboard-card-count svg {
   flex-shrink: 0;
 }
 
@@ -390,6 +400,24 @@
   white-space: nowrap;
 }
 
+/* "You" pill — sits to the LEFT of the role pill in the current user's row
+   so a glance at the right edge of the Members list answers "which row is
+   me?". Vibrant emerald fill (distinct hue from any of the role pills:
+   amber owner, indigo admin, neutral member/viewer) so it pops without
+   getting confused for a role. */
+.member-self-pill {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+  background: #10b981;
+  border: 1px solid #34d399;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+}
+
 .member-email {
   color: #888;
   font-size: 0.78rem;
@@ -502,5 +530,188 @@
 
 .invitation-revoke-btn:disabled {
   opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Tab bar (Project Overview) ───────────────────────────────────────── */
+
+/* Underline-style tab bar sitting between the header and the panel content.
+   Same visual idiom as GitHub repo tabs / VS Code editor tabs: bottom-only
+   border on the active tab, no rounded corners on the bar itself. The 1px
+   neutral border at the bottom is the baseline every tab's active indicator
+   sits on, so an empty bar still feels structurally complete. */
+.project-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #2a2a2a;
+  /* Pull up against the header so the bar reads as an extension of it
+     rather than a floating control. */
+  margin-top: -0.25rem;
+}
+
+.project-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: none;
+  /* The -1px bottom margin pulls the active tab's bottom border down on top
+     of the bar's baseline border so the two visually merge into one indicator
+     instead of stacking. */
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: #888;
+  font-size: 0.88rem;
+  font-weight: 500;
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+  transition: color 150ms, border-color 150ms;
+  font-family: inherit;
+}
+
+.project-tab:hover:not(.is-active) {
+  color: #c4c4c4;
+}
+
+.project-tab.is-active {
+  color: #e0e0e0;
+  border-bottom-color: #6366f1;
+}
+
+.project-tab-count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: #2a2a2a;
+  color: #c4c4c4;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  min-width: 1.1rem;
+  text-align: center;
+}
+
+.project-tab.is-active .project-tab-count {
+  background: rgba(99, 102, 241, 0.18);
+  color: #c7c9ff;
+}
+
+/* ── Project-details edit form (Project tab) ──────────────────────────── */
+
+/* Mirrors the field stack from ProjectCreate.css but lives inside an
+   existing .project-dashboard-card, so it inherits the card's padding/border
+   and only needs the inner layout + the inputs themselves. */
+.project-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.project-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.project-edit-label {
+  color: #c4c4c4;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.project-edit-required {
+  color: #f87171;
+  margin-left: 0.15rem;
+}
+
+.project-edit-input,
+.project-edit-textarea {
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 7px;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  padding: 0.55rem 0.75rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 150ms;
+}
+
+.project-edit-input::placeholder,
+.project-edit-textarea::placeholder {
+  color: #555;
+}
+
+.project-edit-input:focus,
+.project-edit-textarea:focus {
+  border-color: #6366f1;
+}
+
+.project-edit-input:disabled,
+.project-edit-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.project-edit-textarea {
+  resize: vertical;
+  min-height: 90px;
+  line-height: 1.45;
+}
+
+.project-edit-error {
+  background: rgba(220, 38, 38, 0.07);
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  border-radius: 7px;
+  color: #f87171;
+  font-size: 0.85rem;
+  padding: 0.55rem 0.8rem;
+}
+
+.project-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.3rem;
+}
+
+.project-edit-cancel,
+.project-edit-submit {
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.project-edit-cancel {
+  color: #aaa;
+  background: transparent;
+  border-color: #333;
+}
+
+.project-edit-cancel:hover:not(:disabled) {
+  color: #fff;
+  border-color: #555;
+  background: #1f1f1f;
+}
+
+.project-edit-submit {
+  color: #fff;
+  background: #6366f1;
+  border-color: #6366f1;
+}
+
+.project-edit-submit:hover:not(:disabled) {
+  background: #7c7ff5;
+  border-color: #7c7ff5;
+}
+
+.project-edit-cancel:disabled,
+.project-edit-submit:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
 }

@@ -1,0 +1,104 @@
+/* Full-bleed overlay for project-switch transitions. Sits between the page
+   content (no z-index, default stacking) and the sidebar (z-index 50) — so
+   the sidebar remains on top, the loader covers everything else.
+
+   Stack reminders (from ProjectPickerPanel.css):
+     - Sidebar:  z-index 50 (above the loader on purpose)
+     - Loader:   z-index 45 (this file)
+     - Panel:    z-index 40
+     - Backdrop: z-index 35
+     - Banner:   z-index 30
+*/
+
+.switch-project-loader {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  /* Start at the sidebar's right edge so the spinner+label sit visually
+     centered in the MAIN content area rather than the entire viewport. The
+     CSS variable is set by .app-shell (60px default, 220px when the
+     sidebar is expanded) and animates between the two so the loader's left
+     edge follows the sidebar's expand/collapse motion in lock-step. */
+  left: var(--sidebar-width, 60px);
+  /* Fully opaque so the previous project's content is completely hidden
+     during the switch — reads as a hard cut rather than a translucent
+     intermediate state. backdrop-filter dropped along with the alpha
+     since the backdrop isn't visible anyway. */
+  background: #0f0f0f;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Match the sidebar's own width transition so the loader's left edge
+     glides along with it instead of snapping. */
+  transition: left 250ms ease;
+  /* Fade in just under one frame at 60fps so the overlay appears instantly
+     to the user but with enough easing to avoid a hard cut. */
+  animation: switch-project-loader-fade 120ms ease-out;
+}
+
+/* Fade-out applied when the loader's min-delay finishes and React is
+   about to unmount us. The component keeps us mounted for FADE_OUT_MS
+   (kept in sync with the 220ms here) so this animation can run before
+   the node disappears. `forwards` so opacity sticks at 0 at the end,
+   otherwise the very last frame would flash back to opacity 1. */
+.switch-project-loader.is-closing {
+  animation: switch-project-loader-fade-out 220ms ease-in forwards;
+}
+
+@keyframes switch-project-loader-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes switch-project-loader-fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+/* Stack spinner + label vertically with a small gap so the message reads
+   as a caption under the spinner instead of an unrelated overlay. */
+.switch-project-loader-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.switch-project-loader-spinner {
+  width: 38px;
+  height: 38px;
+  border: 3px solid #2a2a2a;
+  /* Gold accent matches the project-selection palette (.brand-icon,
+     .project-picker-trigger.has-selection) so the loader visually reads as
+     "project context is changing" rather than a generic app-wide spinner. */
+  border-top-color: #c9974a;
+  border-radius: 50%;
+  animation: switch-project-loader-spin 0.7s linear infinite;
+}
+
+.switch-project-loader-label {
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  /* Cap width so very long project names wrap to 2-3 lines instead of
+     stretching across the whole content area. text-align center because
+     the parent flex centers the stack horizontally anyway. */
+  max-width: 320px;
+  text-align: center;
+  /* Soft fade-in slightly delayed from the overlay so the label settles
+     after the backdrop is in place — reads as "loading … here's what" */
+  opacity: 0;
+  animation: switch-project-loader-label-fade 180ms ease-out 80ms forwards;
+}
+
+@keyframes switch-project-loader-label-fade {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes switch-project-loader-spin {
+  to { transform: rotate(360deg); }
+}

@@ -82,7 +82,7 @@ export default function App() {
           <Route path="projects/:projectId" element={<ProjectShell />}>
             {/* Two distinct project views with different mental models:
                 - index (Overview): reached by clicking a card in the Projects
-                  list. Shows the project's people + management actions.
+                  list. Shows the project's members + management actions.
                 - /dashboard: reached from the Projects sidebar's Dashboard
                   sub-item. The "working in this project" surface — files. */}
             <Route index element={<ProjectOverview />} />

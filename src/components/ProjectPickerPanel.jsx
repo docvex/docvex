@@ -1,21 +1,23 @@
 import React, { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { listMyProjects } from '../lib/projects';
 import './ProjectPickerPanel.css';
+
+// When the picker is opened from inside a /projects/:id route, the
+// <ProjectAutoSelect/> effect in App.jsx re-syncs selectedProjectId back to
+// whatever the URL points to whenever the selection changes. That used to
+// silently revert any picker-driven selection unless we also moved the URL.
+// This regex matches "any URL inside a specific project" so we know when to
+// nudge the URL alongside the state update.
+const PROJECT_URL_RE = /^\/projects\/([^/]+)(\/.*)?$/;
 
 // Inline icons (match the rest of the codebase's stroke-icon convention).
 const CloseIcon = (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <line x1="18" y1="6" x2="6" y2="18"/>
     <line x1="6" y1="6" x2="18" y2="18"/>
-  </svg>
-);
-
-const NoProjectIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10"/>
-    <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
   </svg>
 );
 
@@ -32,7 +34,10 @@ export default function ProjectPickerPanel() {
     selectProject,
     clearSelection,
     selectedProjectId,
+    beginSwitch,
   } = useSelectedProject();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const [projects, setProjects] = useState([]);
   const [loading, setLoading]   = useState(false);
@@ -64,9 +69,47 @@ export default function ProjectPickerPanel() {
     return () => window.removeEventListener('keydown', onKey);
   }, [pickerOpen, closePicker]);
 
-  const onPick = (id) => {
-    selectProject(id);
+  // Pick a project from the list. If we're currently inside any project's URL
+  // subtree (Overview, Dashboard, Files, …), nudge the URL to the new project
+  // so the URL-driven <ProjectAutoSelect/> doesn't immediately revert our
+  // state change. If we're somewhere unrelated (Activity, Notifications, …),
+  // leave the URL alone — the user's context is non-project and they
+  // probably just want to swap the sidebar's "working in" target without
+  // being teleported.
+  const onPick = (project) => {
+    // No-op when the row is already the active selection — clicking the
+    // current project shouldn't trigger a loader or a reroute.
+    if (project.id === selectedProjectId) {
+      closePicker();
+      return;
+    }
+    // beginSwitch BEFORE any state/route change so the overlay is in place
+    // before React renders the transition's intermediate frames. The name
+    // surfaces as "Switching to <name>" in the loader subtitle.
+    beginSwitch(project.name);
+    selectProject(project.id);
     closePicker();
+    // Always land on the new project's Dashboard — that's the "working
+    // surface" (recent files + activity) and is the most useful place to
+    // start. Previously we preserved the user's prior subroute, but that
+    // meant switching from /projects/foo (Overview) bounced to
+    // /projects/bar (Overview, a static info page) instead of bar's
+    // actual workbench. Dashboard is the right default landing for a
+    // freshly-picked project.
+    navigate(`/projects/${project.id}/dashboard`);
+  };
+
+  // Same idea for "Select no project": if the user is inside a project URL,
+  // step out of it — otherwise the URL still implies a project and the
+  // auto-select effect re-picks it on the next render. No name passed so
+  // the loader uses its generic "Clearing project" copy.
+  const onClear = () => {
+    beginSwitch(null);
+    clearSelection();
+    closePicker();
+    if (PROJECT_URL_RE.test(location.pathname)) {
+      navigate('/projects');
+    }
   };
 
   return (
@@ -115,7 +158,7 @@ export default function ProjectPickerPanel() {
               <button
                 type="button"
                 className={`project-picker-panel-row${p.id === selectedProjectId ? ' is-current' : ''}`}
-                onClick={() => onPick(p.id)}
+                onClick={() => onPick(p)}
                 title={p.id === selectedProjectId ? 'Currently selected' : `Switch to ${p.name}`}
               >
                 {p.name}
@@ -133,11 +176,10 @@ export default function ProjectPickerPanel() {
             <button
               type="button"
               className="project-picker-panel-clear"
-              onClick={() => { clearSelection(); closePicker(); }}
+              onClick={onClear}
               title="Work without a project selected"
             >
-              {NoProjectIcon}
-              <span>No project</span>
+              Select no project
             </button>
           </footer>
         )}

@@ -41,7 +41,12 @@
    border-box, so dropping the border width would grow the content area
    and nudge every nav row 1px to the right. */
 .sidebar.picker-open {
-  border-right-color: #332B1F;
+  /* Drop the 1px right border entirely while the picker is out so the
+     sidebar and the panel read as one continuous surface. Color-matching
+     the border to the panel (the old approach) only worked when the panel
+     had a static known bg; now that the panel uses its own accent we
+     can't pre-hardcode it, and zeroing the width is bulletproof. */
+  border-right-width: 0;
 }
 
 /* Labels stay visible while the picker is open (mirrors the .locked rule)
@@ -84,7 +89,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 12px 14px 12px 18px;
+  /* Matches .project-picker-panel-header so the DOCVEX title and the
+     "ALL PROJECTS" title sit on the same horizontal baseline when the
+     panel is open — both header rows share the same inset from their
+     respective surface edges. */
+  padding: 14px 14px 14px 18px;
   height: 64px;
   border-bottom: 1px solid #2a2a2a;
 }
@@ -561,33 +570,40 @@
   width: calc(100% + 8px);
   margin: 2px 0;
   border-radius: 7px 0 0 7px;
+  /* Pressed = sustained hover. While the picker is open, the trigger
+     commits to its hover background so the "I'm in the active interaction"
+     state is visible regardless of cursor position. Both selection
+     states get pinned to their own hover color (gold for has-selection,
+     neutral for no selection). */
+  background: #262626;
+  color: #fff;
 }
 
-/* When the picker is open the trigger is visually merged with the panel —
-   the seam between them disappears because both share #1d1d1d. A hover
-   background change on the trigger would re-introduce a visible boundary
-   right where we just removed one, so freeze the trigger at its
-   non-hover colors while the picker is open. */
+.sidebar.picker-open .project-picker-trigger.has-selection {
+  background: #735A34
+}
+
+/* Hover-while-open keeps the same value so moving the mouse over the
+   open trigger doesn't trigger a third color step. */
 .sidebar.picker-open .project-picker-trigger:hover {
-  background: #1d1d1d;
-  color: #ddd;
+  background: #262626;
 }
 
 .sidebar.picker-open .project-picker-trigger.has-selection:hover {
-  background: rgba(201, 151, 74, 0.18);
+  background: #735A34;
 }
 
 .project-picker-trigger.has-selection {
   /* Gold tint — matches the .brand-icon color (#c9974a) so the
      project-selection accent reads as the same brand color family as the
      logo in the sidebar header. */
-  background: rgba(201, 151, 74, 0.18);
+  background:  rgba(201, 151, 74, 0.25);
   color: #fff;
   font-weight: 600;
 }
 
 .project-picker-trigger.has-selection:hover {
-  background: rgba(201, 151, 74, 0.28);
+  background: rgba(201, 151, 74, 0.5);
 }
 
 /* Disabled nav-item — Files / To-dos when no project is selected.

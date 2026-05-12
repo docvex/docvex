@@ -4,6 +4,7 @@ import Sidebar from './Sidebar';
 import UpdateProgressBar from './UpdateProgressBar';
 import ProjectBanner from './ProjectBanner';
 import ProjectPickerPanel from './ProjectPickerPanel';
+import SwitchProjectLoader from './SwitchProjectLoader';
 import './AppShell.css';
 
 // Routes that operate on the currently-selected project. The banner shows on
@@ -46,6 +47,11 @@ export default function AppShell() {
           Sidebar.jsx's "Select a project" trigger, the dimmed Files/To-dos
           rows, and ProjectBanner's "Switch" button all call openPicker(). */}
       <ProjectPickerPanel />
+      {/* Full-screen project-switch overlay (z-index 45, below sidebar at 50)
+          — appears when SelectedProjectContext.beginSwitch() is called, stays
+          up for at least 500ms so the transition reads as deliberate even
+          when the new project loads almost instantly. */}
+      <SwitchProjectLoader />
       {/* Fixed-bottom indeterminate progress strip; renders only while an
           update is checking/downloading. Lives at the shell level so the
           user keeps the feedback even after navigating away from /updates. */}

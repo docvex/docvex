@@ -12,8 +12,12 @@
 //      inserts into project_members and sets accepted_at = now() in one
 //      transaction. The RPC raises sqlstate-coded errors that we map to
 //      distinct HTTP statuses.
+//   6. Read the project's name back (under service role, since RLS would
+//      now allow it via the just-inserted membership too — service role
+//      just sidesteps the race) so the client can render a friendly
+//      "Joined "Project name"" toast without a second round-trip.
 //
-// Body returns: { ok: true, project_id }.
+// Body returns: { ok: true, project_id, project_name }.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -99,5 +103,18 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "accept_failed", detail: msg }, 500);
   }
 
-  return jsonResponse({ ok: true, project_id });
+  // Fetch the project name so the client can render "Joined "Foo"" in the
+  // success toast without an extra round trip. Service-role bypasses RLS
+  // (the membership row was inserted in the same transaction as the accept,
+  // but a defensive belt-and-suspenders read avoids any RLS-snapshot edge
+  // case on PgBouncer connection reuse). Failures here don't fail the
+  // accept itself — we just return project_name as null and the client
+  // falls back to a generic toast copy.
+  const { data: projRow } = await admin
+    .from("projects")
+    .select("name")
+    .eq("id", project_id)
+    .maybeSingle();
+
+  return jsonResponse({ ok: true, project_id, project_name: projRow?.name ?? null });
 });

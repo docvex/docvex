@@ -3,6 +3,19 @@
   height: 100vh;
   overflow: hidden;
   background: #0f0f0f;
+  /* Published width of the sidebar, read by SwitchProjectLoader.css (and
+     anything else that needs to align with the main-content's left edge).
+     Default matches the .sidebar collapsed width; the :has() rules below
+     bump it to the expanded width whenever the sidebar is in any of its
+     expanded states. Requires :has() — Electron's Chromium is well past
+     105 so this is safe. */
+  --sidebar-width: 60px;
+}
+
+.app-shell:has(.sidebar:hover),
+.app-shell:has(.sidebar.locked),
+.app-shell:has(.sidebar.picker-open) {
+  --sidebar-width: 220px;
 }
 
 .main-content {

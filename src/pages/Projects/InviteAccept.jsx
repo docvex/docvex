@@ -193,11 +193,18 @@ export default function InviteAccept() {
       setResultErr(error);
       return;
     }
+    // Title carries the project name when the Edge Function surfaced it
+    // (current behavior — it reads the row right after the accept RPC).
+    // Generic fallback covers older deployments and the rare case the
+    // service-role read returned null.
+    const projectName = data?.project_name;
     notify({
       category: 'system',
       variant: 'success',
-      title: 'Joined project',
-      body: 'You now have access. Welcome aboard.',
+      title: projectName ? `Joined "${projectName}"` : 'Joined project',
+      body: projectName
+        ? 'Welcome aboard — you now have access.'
+        : 'You now have access. Welcome aboard.',
       dedupeKey: `invite-accepted-${data?.project_id ?? token}`,
     });
     navigate(`/projects/${data.project_id}`, { replace: true });

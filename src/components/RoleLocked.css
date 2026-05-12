@@ -1,0 +1,83 @@
+/* RoleLocked — overlay applied to features the caller's role doesn't permit.
+   See RoleLocked.jsx for the pattern + reasoning. */
+
+.role-locked {
+  position: relative;
+  /* Match the corner curvature of the cards this wraps (Project Overview
+     uses 12px) so the overlay fill follows the visual edge cleanly. */
+  border-radius: 12px;
+}
+
+/* Underlying content stays in the layout so the lock badge inherits the
+   right bounding box and the viewer sees the rough shape of what they're
+   missing. Blocked from interaction in every way that matters: no pointer
+   events, no text selection. inert would be cleaner but isn't on every
+   target version we care about yet, so we lean on pointer-events + opacity. */
+.role-locked-content {
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.4;
+  filter: blur(1.5px);
+  /* Keep the content interactive-looking enough to read but obviously
+     non-interactive. Transition for a soft fade if a role change ever
+     flips the lock live (e.g. an admin demotes the current user). */
+  transition: opacity 200ms, filter 200ms;
+}
+
+/* Full-bleed overlay sitting on top of the dimmed content. Backdrop-blur
+   reinforces the "this is locked" signal — the content underneath becomes
+   recognizable-but-unreachable. */
+.role-locked-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 15, 15, 0.45);
+  border-radius: inherit;
+  /* Light additional blur on top of the content's own blur so the badge
+     reads cleanly even when the underlying card is colorful (Danger zone,
+     for instance, has a red-tinted background). */
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  z-index: 1;
+  /* Padding so the badge has breathing room from the card edge on tiny
+     wrapped elements (e.g. a button-sized lock). */
+  padding: 0.5rem;
+}
+
+/* The badge itself — pill shape, dark surface, subtle border. Matches the
+   visual weight of the role pills on the page so it reads as a sibling of
+   them rather than a foreign element. */
+.role-locked-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  color: #c4c4c4;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  /* Tighten on truly tiny wrappers (e.g. a small button) so the badge
+     doesn't burst the parent's width. White-space:nowrap keeps the
+     "[role] only" phrase on one line — it's short enough that wrapping
+     would look worse than overflow. */
+  white-space: nowrap;
+}
+
+.role-locked-badge strong {
+  color: #e0e0e0;
+  font-weight: 600;
+  /* Uppercase + spacing mirror the role-pill typography for parity. */
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.78rem;
+}
+
+.role-locked-badge svg {
+  flex-shrink: 0;
+  color: #888;
+}
