@@ -3,14 +3,40 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import './AuthPage.css';
 
+// One-shot read of the prefill credentials written by AuthContext when the
+// user triggered the "Switch to <email>" menu item. Done eagerly during
+// the initial render (via useState's init fn) so we never miss them; the
+// storage keys are cleared immediately so a manual reload or a sign-out-
+// and-back-in doesn't replay stale values. `password` is null when the
+// menu item only carried an email.
+function consumePrefillCreds() {
+  try {
+    const email = sessionStorage.getItem('docvex.prefillEmail') || '';
+    const password = sessionStorage.getItem('docvex.prefillPassword') || '';
+    if (email) sessionStorage.removeItem('docvex.prefillEmail');
+    if (password) sessionStorage.removeItem('docvex.prefillPassword');
+    return { email, password };
+  } catch {
+    return { email: '', password: '' };
+  }
+}
+
 export default function AuthPage() {
   const { session, signInWithEmail, signUpWithEmail, signInWithGoogle } = useAuth();
+  // useState's init fn runs once on mount, so the storage read + clear
+  // happens in the same tick the page first renders.
+  const [prefilled] = useState(consumePrefillCreds);
   const [mode, setMode] = useState('signin');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(prefilled.email);
+  const [password, setPassword] = useState(prefilled.password);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // When the password came from the prefill we render it as type="text" so
+  // the dev can see what's about to be submitted. Once the user edits it,
+  // it switches back to the normal masked password input — the prefill
+  // visibility was a one-shot dev convenience, not a permanent mode.
+  const showPasswordPlain = !!prefilled.password && password === prefilled.password;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -65,7 +91,7 @@ export default function AuthPage() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               required
-              autoFocus
+              autoFocus={!email}
             />
           </div>
 
@@ -73,11 +99,12 @@ export default function AuthPage() {
             <label htmlFor="password">Password</label>
             <input
               id="password"
-              type="password"
+              type={showPasswordPlain ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               required
+              autoFocus={!!email}
             />
           </div>
 

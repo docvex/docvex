@@ -15,6 +15,7 @@ import ProjectOverview from './pages/Projects/ProjectOverview';
 import ProjectDashboard from './pages/Projects/ProjectDashboard';
 import ProjectFiles from './pages/Projects/ProjectFiles';
 import ProjectTodos from './pages/Projects/ProjectTodos';
+import InviteAccept from './pages/Projects/InviteAccept';
 
 function ProtectedRoute() {
   const { session, loading } = useAuth();
@@ -66,6 +67,11 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="updates" element={<Updates />} />
         <Route path="notifications" element={<Notifications />} />
+        {/* Invite-accept is intentionally PUBLIC (not behind ProtectedRoute) —
+            an invitee clicking the email link before signing in needs the
+            page to render so it can stash the token and walk them through
+            /auth. The page itself branches on session presence. */}
+        <Route path="invite/:token" element={<InviteAccept />} />
         <Route element={<ProtectedRoute />}>
           <Route path="account" element={<Account />} />
           {/* Projects routes — all require a session. ProjectShell wraps the

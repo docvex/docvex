@@ -185,6 +185,45 @@
   flex-shrink: 0;
 }
 
+/* Wrapper for the right side of a card header when it needs to host more
+   than just a count — e.g. count + "Invite member" button on the Members
+   card. Gap matches the parent header's gap so the visual rhythm is
+   consistent whether one or two children render. */
+.project-dashboard-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-shrink: 0;
+}
+
+/* Compact inline action button paired with a card header (e.g. "+ Invite
+   member"). Indigo accent matches the app's primary action vocabulary in
+   the Auth page and the invite-accept page so users recognise it as the
+   primary CTA on the card. */
+.project-dashboard-card-btn {
+  background: transparent;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: 6px;
+  color: #a5a8f5;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.project-dashboard-card-btn:hover {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: #6366f1;
+  color: #c7c9ff;
+}
+
+.project-dashboard-card-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .project-dashboard-card-subtitle {
   margin: 0 0 1rem;
   color: #888;
@@ -357,4 +396,111 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── Pending invitations list (Project Overview page) ─────────────────── */
+
+/* Mirrors .member-list shape so the two stacked cards on the Overview page
+   read as siblings rather than two unrelated lists. */
+.invitation-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.invitation-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid #222;
+}
+
+.invitation-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.invitation-row:last-child {
+  padding-bottom: 0;
+}
+
+.invitation-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.invitation-email {
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.invitation-meta {
+  color: #888;
+  font-size: 0.78rem;
+}
+
+/* Neutral ghost button paired with Revoke on each invitation row. Copies
+   the docvex://invite?token=… URL to the clipboard so the admin can DM
+   it manually when the auto-send email leg failed (Resend domain not
+   verified, etc.). Indigo hover tint matches the rest of the app's
+   primary-action vocabulary. */
+.invitation-copy-btn {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #c4c4c4;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.3rem 0.65rem;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.invitation-copy-btn:hover {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: #6366f1;
+  color: #fff;
+}
+
+/* Small destructive ghost button — quieter than the project-dashboard-danger
+   variant because revoking a pending invitation is a low-impact, reversible
+   action; the admin can re-invite immediately. Hover lifts to the same red
+   accent the rest of the destructive UI uses. */
+.invitation-revoke-btn {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #c4c4c4;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.3rem 0.65rem;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.invitation-revoke-btn:hover {
+  background: rgba(220, 38, 38, 0.12);
+  border-color: rgba(220, 38, 38, 0.4);
+  color: #f87171;
+}
+
+.invitation-revoke-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

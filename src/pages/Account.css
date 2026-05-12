@@ -48,8 +48,20 @@
   white-space: nowrap;
 }
 
+/* Row holding the primary-provider badge + the always-visible Google pill.
+   Lays them out horizontally with a small gap; wraps to a new line on
+   narrow widths so they never push the avatar around. */
+.account-provider-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .account-provider-badge {
   display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   align-self: flex-start;
   font-size: 0.7rem;
   font-weight: 500;
@@ -60,6 +72,50 @@
   border: 1px solid #2a2a2a;
   border-radius: 999px;
   padding: 0.2rem 0.6rem;
+}
+
+/* The Google pill renders as a <button> instead of a <span> so its hover/
+   active states feel like an actionable affordance when it's a link target.
+   When already linked it's `:disabled`, so the cursor + hover behavior fall
+   back to the static badge appearance. */
+.account-provider-google {
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+/* Unlinked state — the pill is a CTA, slightly brighter on hover so it
+   reads as clickable. Indigo border tint matches the rest of the app's
+   primary-action vocabulary (project-dashboard-card-btn etc.). */
+.account-provider-google.is-linkable {
+  color: #c4c4c4;
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.account-provider-google.is-linkable:hover {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: #6366f1;
+  color: #fff;
+}
+
+/* Linked state — same surface as the normal badge but with a brighter text
+   color and a checkmark via the inline svg child, so "linked" reads at a
+   glance without an extra label. Disabled to avoid an awkward hover state. */
+.account-provider-google.is-linked {
+  color: #e0e0e0;
+  border-color: #2a2a2a;
+  cursor: default;
+}
+
+.account-provider-google.is-linked svg:last-of-type {
+  color: #4ade80;
+}
+
+.account-provider-google:disabled {
+  /* Override the default opacity-reduce on disabled buttons so the linked
+     state keeps full visual weight. The cursor + non-clickability come
+     from the `is-linked` rule above and the React onClick guard. */
+  opacity: 1;
 }
 
 /* Card shared layout (mirrors .auth-card aesthetic) */

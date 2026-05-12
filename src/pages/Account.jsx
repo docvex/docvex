@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationsContext';
 import { PLAN } from '../lib/plan';
 import ConfirmModal from '../components/ConfirmModal';
+import DeleteAccountModal from '../components/DeleteAccountModal';
 import './Account.css';
 
 function titleCase(s = '') {
@@ -28,19 +30,49 @@ const CheckIcon = (
   </svg>
 );
 
+// The official Google "G" logo — same shape as AuthPage's "Continue with
+// Google" button so the link-Google pill reads as the same affordance.
+// Component form (not a const) so the colors aren't affected by parent
+// currentColor like the other stroke icons in this file.
+function GoogleGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+      <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
+      <path d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z" fill="#FBBC05"/>
+      <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+    </svg>
+  );
+}
+
 export default function Account() {
-  const { session, signOut, eraseData } = useAuth();
+  const { session, signOut, eraseData, deleteAccount, linkGoogle } = useAuth();
+  const { notify } = useNotifications();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [confirm, setConfirm] = useState(null); // 'signout' | 'erase' | null
   const [busy, setBusy] = useState(false);
+  // Separate state for the delete-account modal because (a) it has a
+  // distinct shape (type-to-confirm input, not just yes/no) and (b) it
+  // lives in its own modal component, not the shared ConfirmModal.
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [linkingGoogle, setLinkingGoogle] = useState(false);
 
   // ProtectedRoute should prevent us getting here without a session,
   // but guard anyway in case StrictMode renders during the redirect.
   if (!session) return null;
 
   const user = session.user;
+  // `app_metadata.provider` is the user's *primary* (most recent) sign-in
+  // method; we use it for the legacy "Email"/"Google" headline pill below.
+  // For the link-Google affordance we need the FULL list of linked identities,
+  // not just the primary — Supabase exposes it under `user.identities`.
   const provider = user.app_metadata?.provider || 'email';
+  const linkedProviders = new Set(
+    (user.identities || []).map((i) => i.provider),
+  );
+  const googleLinked = linkedProviders.has('google');
   const avatarUrl = user.user_metadata?.avatar_url;
   // Mirrors getDisplayName() in Sidebar.jsx — kept in sync per the
   // CLAUDE.md convention. Strips the @domain when falling back to email so
@@ -52,6 +84,34 @@ export default function Account() {
     || (user.email ? user.email.split('@')[0] : null)
     || 'Account';
   const initials = (user.email || '?').charAt(0).toUpperCase();
+
+  const handleLinkGoogle = async () => {
+    if (googleLinked || linkingGoogle) return;
+    setLinkingGoogle(true);
+    try {
+      // Fires the OAuth flow in the user's default browser. The callback
+      // returns via docvex://auth/callback → AuthContext's deep-link
+      // handler runs exchangeCodeForSession → Supabase records the new
+      // identity against the current session.
+      await linkGoogle();
+      // Don't reset linkingGoogle here — the OAuth round-trip happens in
+      // the browser. The next session update (from onAuthStateChange)
+      // will refresh `user.identities`, googleLinked flips true, and the
+      // pill switches to its connected state. If the user cancels in the
+      // browser, the pending state will stick until they reload the page;
+      // acceptable for a one-time-per-account action.
+    } catch (err) {
+      setLinkingGoogle(false);
+      notify({
+        category: 'system',
+        variant: 'error',
+        title: 'Could not link Google',
+        // Common cause: "Manual linking is disabled" — requires enabling
+        // the setting in Supabase Auth dashboard.
+        body: err?.message || 'Try again in a moment.',
+      });
+    }
+  };
 
   const handleCopyId = async () => {
     try {
@@ -83,6 +143,30 @@ export default function Account() {
     setConfirm(null);
   };
 
+  const handleDeleteAccount = async () => {
+    setDeleting(true);
+    const { error } = await deleteAccount();
+    setDeleting(false);
+    if (error) {
+      // Server-side failure (network down, function 500, expired token).
+      // Surface it via a toast and leave the modal open so the user can
+      // see what went wrong and retry. The account row is untouched on
+      // error per the function's contract.
+      notify({
+        category: 'system',
+        variant: 'error',
+        title: 'Could not delete account',
+        body: error.message || 'The server rejected the request.',
+      });
+      return;
+    }
+    // Delete succeeded → the session is invalid + signOut has already run.
+    // Close the modal and bounce to /auth so ProtectedRoute doesn't flash
+    // the spinner on this now-orphaned page.
+    setDeleteOpen(false);
+    navigate('/auth', { replace: true });
+  };
+
   return (
     <div className="account-page">
       <header className="account-header">
@@ -93,9 +177,39 @@ export default function Account() {
         )}
         <div className="account-identity">
           <h1 className="account-name">{displayName}</h1>
-          <span className="account-provider-badge">
-            {provider === 'google' ? 'Google' : 'Email'}
-          </span>
+          <div className="account-provider-row">
+            {/* Primary provider — same info as before, just no longer
+                the only pill in the header. */}
+            <span className="account-provider-badge">
+              {provider === 'google' ? 'Google' : 'Email'}
+            </span>
+            {/* Google pill always renders. When already linked it's a
+                static badge with a checkmark; when not, it becomes a
+                button that kicks off the OAuth link flow. */}
+            <button
+              type="button"
+              className={`account-provider-badge account-provider-google${googleLinked ? ' is-linked' : ' is-linkable'}`}
+              onClick={handleLinkGoogle}
+              disabled={googleLinked || linkingGoogle}
+              title={
+                googleLinked
+                  ? 'Google account is linked'
+                  : linkingGoogle
+                  ? 'Opening Google sign-in…'
+                  : 'Link this account with Google'
+              }
+            >
+              <GoogleGlyph />
+              <span>
+                {googleLinked
+                  ? 'Google'
+                  : linkingGoogle
+                  ? 'Linking…'
+                  : 'Link Google'}
+              </span>
+              {googleLinked && CheckIcon}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -174,6 +288,23 @@ export default function Account() {
             Erase data
           </button>
         </div>
+
+        <div className="account-danger-row">
+          <div className="account-danger-text">
+            <h3 className="account-danger-label">Delete account</h3>
+            <p className="account-danger-desc">
+              Permanently remove your account, project memberships, and notifications.
+              This cannot be undone.
+            </p>
+          </div>
+          <button
+            className="account-danger-btn destructive"
+            onClick={() => setDeleteOpen(true)}
+            disabled={deleting}
+          >
+            Delete account
+          </button>
+        </div>
       </section>
 
       <ConfirmModal
@@ -196,6 +327,14 @@ export default function Account() {
         destructive
         onConfirm={handleConfirm}
         onCancel={cancelConfirm}
+      />
+
+      <DeleteAccountModal
+        open={deleteOpen}
+        email={user.email}
+        pending={deleting}
+        onConfirm={handleDeleteAccount}
+        onCancel={() => { if (!deleting) setDeleteOpen(false); }}
       />
     </div>
   );

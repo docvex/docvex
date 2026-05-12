@@ -208,9 +208,14 @@ export default function Sidebar() {
                 title={hasUpdate ? 'Update available — open Updates' : 'Open Updates'}
                 onClick={closePicker}
               >
-                <span className="brand-version-num">v{currentVersion}</span>
-                {hasUpdate && (
+                {/* Once an update is pending the version number stops being
+                    the actionable info — the pill takes its slot rather than
+                    sitting next to it, so the brand block stays uncluttered
+                    and the eye lands on the call-to-action. */}
+                {hasUpdate ? (
                   <span className="brand-version-badge">Update available</span>
+                ) : (
+                  <span className="brand-version-num">v{currentVersion}</span>
                 )}
               </NavLink>
             )}

@@ -1,11 +1,37 @@
-import { app, BrowserWindow, ipcMain, shell, autoUpdater } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, shell, autoUpdater } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { updateElectronApp } from 'update-electron-app';
 
+// Known accounts for the dev-only "Account" menu. Clicking an item sends an
+// IPC to the renderer, which signs out of the current Supabase session,
+// stashes the target credentials for prefill, and reloads the page so the
+// auth screen comes up clean with the email (and optionally password)
+// already typed.
+//
+// Hardcoded because these are the developer's personal test accounts — the
+// menu is gated on !app.isPackaged below so distributed builds don't show
+// these emails (let alone the password) to other users. An account without
+// a `password` field just prefills the email and lets the user type the
+// rest manually.
+const ACCOUNTS = [
+  { email: 'petreluca25@stud.ase.ro', password: 'Hailamasa12345' },
+  { email: 'petreluca1105@gmail.com' },
+];
+
 if (started) {
   app.quit();
 }
+
+// Capture any docvex:// URL passed on the command line at COLD start. The
+// `second-instance` event below handles the subsequent-launch case (single-
+// instance lock has already routed the URL to us), but on the very first
+// launch — when the app wasn't running and the user clicked, say, an invite
+// link in their email — nobody else is listening, so we have to scan our
+// own argv. The renderer pulls this value via the `app:get-startup-deep-link`
+// IPC handle once it's mounted and ready to act on it.
+let pendingStartupDeepLink = (process.argv || [])
+  .find((arg) => typeof arg === 'string' && arg.startsWith('docvex://')) || null;
 
 // Auto-update via update.electronjs.org (free, public-repo hosted feed).
 // Polls every 10 min, downloads in the background, installs on next launch.
@@ -46,6 +72,42 @@ const sendUpdateStatus = (payload) => {
     mainWindow.webContents.send('update:status', payload);
   }
 };
+
+// Hand off the account switch to the renderer via IPC. The renderer owns
+// the Supabase client (the session lives in its localStorage) and the
+// React-Router state, so the actual signOut + page-refresh has to happen
+// there. Main's only job is to ferry the target credentials across the
+// bridge. Password is optional — accounts without one just prefill the
+// email and let the user type the password manually.
+function switchAccount(account) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('account:switch-to', {
+      email: account.email,
+      password: account.password || null,
+    });
+  }
+}
+
+// Build a custom application menu so we can insert our "Account" item next
+// to the standard File/Edit/View/Window submenus. Uses Electron's role
+// shortcuts so we don't have to hand-author the standard items. Dev-only —
+// packaged builds keep Electron's default menu untouched.
+function buildAppMenu() {
+  const template = [
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+    {
+      label: 'Account',
+      submenu: ACCOUNTS.map((acc) => ({
+        label: `Switch to ${acc.email}`,
+        click: () => switchAccount(acc),
+      })),
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 // Wire autoUpdater events → renderer. update-electron-app drives the actual
 // checkForUpdates / setFeedURL calls; we just observe.
@@ -140,6 +202,19 @@ ipcMain.on('app:open-external', (_, url) => {
 ipcMain.handle('app:get-version', () => app.getVersion());
 ipcMain.handle('app:is-packaged', () => app.isPackaged);
 
+// One-shot pull of a docvex:// URL captured at cold start (see argv scan
+// above). Renderer calls this once during AuthContext mount; we hand back
+// the URL and clear it so a remount (StrictMode double-effect in dev) or a
+// later refetch can't replay the deep-link. Returns null when nothing is
+// pending. The `second-instance` event continues to push subsequent URLs
+// via the `oauth:callback-url` channel — this handle is only for the
+// FIRST-launch race that the event misses.
+ipcMain.handle('app:get-startup-deep-link', () => {
+  const url = pendingStartupDeepLink;
+  pendingStartupDeepLink = null;
+  return url;
+});
+
 ipcMain.handle('update:check', async () => {
   // Return last-known status synchronously; autoUpdater.checkForUpdates is
   // a no-op in dev (Squirrel can't update an unpackaged app).
@@ -160,6 +235,13 @@ ipcMain.on('update:install', () => {
 // --------------------------------------------------------------------------
 
 app.whenReady().then(() => {
+  // Account-switcher menu is dev-only — the hardcoded ACCOUNTS list above is
+  // the developer's personal test emails, not something distributed users
+  // should see in their menu bar.
+  if (!app.isPackaged) {
+    buildAppMenu();
+  }
+
   createWindow();
 
   app.on('activate', () => {

@@ -1,0 +1,88 @@
+/* Slightly wider than the default 380px ConfirmModal card — the email field
+   + role picker want more horizontal room or the inputs end up cramped. */
+.invite-modal {
+  max-width: 460px;
+}
+
+.invite-modal-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #888;
+  margin: 0.85rem 0 0.35rem;
+}
+
+.invite-modal-label:first-of-type {
+  margin-top: 0;
+}
+
+.invite-modal-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  padding: 0.55rem 0.7rem;
+  font-family: inherit;
+  transition: border-color 150ms, background 150ms;
+}
+
+.invite-modal-input:focus {
+  outline: none;
+  border-color: #6366f1;
+  background: #121212;
+}
+
+.invite-modal-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Native <select> doesn't accept arbitrary padding the same way an <input>
+   does — these overrides make the two controls visually identical. */
+.invite-modal-select {
+  appearance: none;
+  /* Chevron-down rendered as an inline SVG via data-URL — keeps the picker
+     visually consistent with the rest of the app's icon-bearing controls
+     without pulling in an icon library. */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  padding-right: 2rem;
+}
+
+.invite-modal-role-hint {
+  margin: 0.35rem 0 0;
+  color: #888;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.invite-modal-error {
+  margin-top: 0.9rem;
+  padding: 0.55rem 0.75rem;
+  background: rgba(220, 38, 38, 0.07);
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  border-radius: 6px;
+  color: #f87171;
+  font-size: 0.825rem;
+}
+
+/* Spacer between the hint paragraph (or error) and the bottom action row. */
+.invite-modal form .modal-actions {
+  margin-top: 1.25rem;
+}
+
+.invite-modal .modal-btn-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.invite-modal .modal-btn-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
