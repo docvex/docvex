@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Open Docvex invitation</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <style>
+    /* Self-contained styles — kept inline because this page is meant to
+       be opened, do its job, and close itself. No external CSS to wait on
+       before triggering the redirect. Matches the desktop app's dark
+       palette so it doesn't read as a stranger's page. */
+    :root {
+      --bg: #0f0f0f;
+      --card: #1a1a1a;
+      --border: #2a2a2a;
+      --text: #e0e0e0;
+      --muted: #888;
+      --accent: #c9974a;
+      --indigo: #6366f1;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      min-height: 100vh;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      box-sizing: border-box;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      max-width: 460px;
+      width: 100%;
+    }
+    h1 {
+      font-size: 1.25rem;
+      margin: 0 0 0.5rem;
+    }
+    p {
+      color: var(--muted);
+      line-height: 1.5;
+      margin: 0 0 1rem;
+    }
+    .open-btn {
+      display: inline-block;
+      background: var(--indigo);
+      color: #fff;
+      padding: 0.6rem 1.1rem;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.95rem;
+      margin-bottom: 1.25rem;
+      transition: background 150ms;
+    }
+    .open-btn:hover {
+      background: #5558e0;
+    }
+    .copy-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: stretch;
+      margin: 0 0 1rem;
+    }
+    code {
+      flex: 1;
+      background: #0f0f0f;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 0.7rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.75rem;
+      color: #c4c4c4;
+      overflow-wrap: anywhere;
+      min-width: 0;
+    }
+    .copy-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 0 0.85rem;
+      font-family: inherit;
+      font-size: 0.825rem;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: border-color 150ms, color 150ms;
+    }
+    .copy-btn:hover {
+      border-color: var(--indigo);
+      color: #fff;
+    }
+    .download-line {
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.85rem;
+    }
+    a {
+      color: var(--accent);
+    }
+    .error {
+      color: #f87171;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Opening Docvex…</h1>
+    <p id="lede">If Docvex is installed, it should open automatically. If nothing happens after a couple of seconds, use the button below.</p>
+
+    <a id="open-link" class="open-btn" href="#" hidden>Open Docvex</a>
+
+    <p>Or paste this link into Docvex (Account → Open invite):</p>
+    <div class="copy-row">
+      <code id="link-text" aria-label="Invite link"></code>
+      <button id="copy-btn" class="copy-btn" type="button">Copy</button>
+    </div>
+
+    <p class="download-line">
+      Don't have Docvex yet?
+      <a href="https://github.com/petreluca1105-dotcom/docvex/releases/latest">Download for Windows</a>
+    </p>
+  </div>
+
+  <script>
+    // Read ?token=... — invite links from the email always include it.
+    // Falls back to a friendly error state if someone navigated here
+    // without a token (e.g. opened the bookmark by hand).
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token');
+    const lede = document.getElementById('lede');
+    const openLink = document.getElementById('open-link');
+    const linkText = document.getElementById('link-text');
+    const copyBtn = document.getElementById('copy-btn');
+
+    if (!token) {
+      lede.className = 'error';
+      lede.textContent = 'This link is missing the invitation token. Open the invite link from your email again, or ask the project admin to resend.';
+      openLink.remove();
+      document.querySelector('.copy-row').remove();
+    } else {
+      // Build the deep-link the desktop app's main process is listening for.
+      // encodeURIComponent guards against any weird characters in the token
+      // (the issued tokens are hex so it's a no-op, but cheap insurance).
+      const deepLink = 'docvex://invite?token=' + encodeURIComponent(token);
+
+      // Surface the deep-link in the manual-open button + the copy box so
+      // both fallbacks work without re-deriving it in user-facing code.
+      openLink.href = deepLink;
+      openLink.hidden = false;
+      linkText.textContent = deepLink;
+
+      // Auto-attempt the redirect as soon as the page renders. Most modern
+      // browsers honor custom-protocol navigation triggered immediately
+      // after the page load — the OS dispatches the URL to the registered
+      // handler (Docvex on Windows via setAsDefaultProtocolClient). If the
+      // app isn't installed, the browser silently fails and the user is
+      // left on this page, where they can install via the link below.
+      //
+      // setTimeout (0ms) gives the DOM a tick to paint, so users see the
+      // page momentarily before the OS dialog/handoff kicks in. Without
+      // this some browsers can't paint the fallback before navigating.
+      setTimeout(() => { location.replace(deepLink); }, 100);
+
+      // Copy-to-clipboard with a brief "Copied!" indicator. Async API is
+      // gated on a secure context (https://), which this page is, so it's
+      // safe to assume availability.
+      copyBtn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(deepLink);
+          const original = copyBtn.textContent;
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => { copyBtn.textContent = original; }, 1500);
+        } catch {
+          copyBtn.textContent = 'Failed';
+        }
+      });
+    }
+  </script>
+</body>
+</html>
