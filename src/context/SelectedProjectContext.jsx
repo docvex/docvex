@@ -67,6 +67,13 @@ export function SelectedProjectProvider({ children }) {
   // stable but auth-loading hasn't settled yet.
   const hydratedForUserRef = useRef(null);
 
+  // Optionally seeded by selectProject(id, prefetched) — when the caller
+  // already has the full project row (e.g. ProjectPickerPanel handing us the
+  // exact row the user just clicked), we skip the redundant getProject()
+  // round-trip and use the prefetched data directly. Consumed once, then
+  // cleared so a later id change can't accidentally reuse stale data.
+  const prefetchedProjectRef = useRef(null);
+
   // Hydrate selection from localStorage when the user changes.
   useEffect(() => {
     if (authLoading) return;
@@ -89,9 +96,21 @@ export function SelectedProjectProvider({ children }) {
   // Fetch project details whenever the id changes. Drops the selection if
   // the project no longer exists or the user lost access (getProject returns
   // an error or null) — keeps the sidebar/banner honest with reality.
+  //
+  // Fast path: when selectProject was called with a prefetched row (the
+  // picker already has it from listMyProjects), use it directly and skip the
+  // network. The ref is consumed once so a later mismatched id falls back to
+  // a real fetch.
   useEffect(() => {
     if (!selectedProjectId) {
       setSelectedProject(null);
+      return;
+    }
+    const cached = prefetchedProjectRef.current;
+    prefetchedProjectRef.current = null;
+    if (cached && cached.id === selectedProjectId) {
+      setSelectedProject(cached);
+      setLoading(false);
       return;
     }
     let cancelled = false;
@@ -113,7 +132,14 @@ export function SelectedProjectProvider({ children }) {
     return () => { cancelled = true; };
   }, [selectedProjectId, userId]);
 
-  const selectProject = useCallback((id) => {
+  // selectProject(id, prefetched?) — if the caller has the full project row,
+  // passing it as the second arg lets the fetch effect short-circuit. The
+  // ProjectAutoSelect in App.jsx passes only the id (it doesn't have the
+  // row) and falls through to the normal fetch path.
+  const selectProject = useCallback((id, prefetched = null) => {
+    if (prefetched && prefetched.id === id) {
+      prefetchedProjectRef.current = prefetched;
+    }
     _setSelectedProjectId(id || null);
     if (!userId) return;
     try {

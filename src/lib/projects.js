@@ -11,6 +11,22 @@
 
 import { supabase } from './supabaseClient';
 
+// Name of the window CustomEvent the picker (and any other consumer of the
+// caller's project list) listens for to invalidate cached project lists.
+// Dispatched after any mutation that changes which projects the caller is a
+// member of: createProject, deleteProject, leaveProject. Centralised here so
+// publishers and subscribers can't drift.
+export const PROJECTS_CHANGED_EVENT = 'docvex:projects-changed';
+
+// Convenience for publishers: fire-and-forget dispatch. Wrapped in a
+// try/catch because non-browser contexts (e.g. a unit test) may not have
+// `window` available, and a missing CustomEvent shouldn't break the caller.
+export function notifyProjectsChanged() {
+  try {
+    window.dispatchEvent(new CustomEvent(PROJECTS_CHANGED_EVENT));
+  } catch { /* non-browser context */ }
+}
+
 // ── Projects ──────────────────────────────────────────────────────────────
 
 // All projects the caller is a member of, newest-active first, with their
@@ -68,7 +84,9 @@ export async function listMyProjects() {
 
 // Create a new project. The projects_add_owner trigger automatically inserts
 // the creator into project_members as 'owner', so by the time this returns
-// the caller already has full access.
+// the caller already has full access. Fires PROJECTS_CHANGED_EVENT on success
+// so the picker's cached list invalidates without each caller having to
+// remember.
 export async function createProject({ name, description = null }) {
   const userResult = await supabase.auth.getUser();
   const userId = userResult.data.user?.id;
@@ -79,19 +97,26 @@ export async function createProject({ name, description = null }) {
     .insert({ name: name?.trim(), description: description?.trim() || null, created_by: userId })
     .select('*')
     .single();
+  if (!error) notifyProjectsChanged();
   return { data, error };
 }
 
 // Fetch a single project plus the caller's role on it. Two queries because
 // the role lives in project_members and PostgREST embedding for the "current
 // user's row" requires an awkward filter.
+//
+// Field list is intentionally narrow — only what any JSX consumer reads (id,
+// name, description). `created_at`, `updated_at`, `created_by` are stored on
+// the row but never displayed; adding them here just inflates payloads. If a
+// future page needs them, widen this select and the one in updateProject()
+// below in lockstep so the two return shapes stay aligned.
 export async function getProject(projectId) {
   const userResult = await supabase.auth.getUser();
   const userId = userResult.data.user?.id;
   if (!userId) return { data: null, error: new Error('Not signed in') };
 
   const [{ data: project, error: pErr }, { data: membership, error: mErr }] = await Promise.all([
-    supabase.from('projects').select('*').eq('id', projectId).maybeSingle(),
+    supabase.from('projects').select('id, name, description').eq('id', projectId).maybeSingle(),
     supabase.from('project_members').select('role').eq('project_id', projectId).eq('user_id', userId).maybeSingle(),
   ]);
   if (pErr) return { data: null, error: pErr };
@@ -109,18 +134,22 @@ export async function updateProject(projectId, patch) {
   if ('description' in patch) allowed.description = patch.description?.trim() || null;
   if (Object.keys(allowed).length === 0) return { data: null, error: new Error('No fields to update') };
 
+  // Match getProject's narrowed shape — keeps the two return values
+  // interchangeable for consumers that read back the updated row.
   const { data, error } = await supabase
     .from('projects')
     .update(allowed)
     .eq('id', projectId)
-    .select('*')
+    .select('id, name, description')
     .single();
   return { data, error };
 }
 
 // Owner-only via RLS. Cascade clears project_members + project_invitations.
+// Fires PROJECTS_CHANGED_EVENT on success so picker caches invalidate.
 export async function deleteProject(projectId) {
   const { error } = await supabase.from('projects').delete().eq('id', projectId);
+  if (!error) notifyProjectsChanged();
   return { data: null, error };
 }
 
@@ -188,12 +217,15 @@ export async function removeMember(projectId, userId) {
 
 // Self-removal. RLS allows it via the "delete members" policy's second branch
 // (user_id = auth.uid() and role <> 'owner') — owners must transfer ownership
-// or delete the project; they can't just leave.
+// or delete the project; they can't just leave. Fires PROJECTS_CHANGED_EVENT
+// on success so picker caches invalidate.
 export async function leaveProject(projectId) {
   const userResult = await supabase.auth.getUser();
   const userId = userResult.data.user?.id;
   if (!userId) return { data: null, error: new Error('Not signed in') };
-  return removeMember(projectId, userId);
+  const result = await removeMember(projectId, userId);
+  if (!result.error) notifyProjectsChanged();
+  return result;
 }
 
 // ── Invitations ───────────────────────────────────────────────────────────

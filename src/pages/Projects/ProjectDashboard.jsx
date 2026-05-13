@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
+import ProjectDashboardSkeleton from '../../components/ProjectDashboardSkeleton';
 import './ProjectDashboard.css';
 
 // Project Dashboard — the "working surface" for /projects/:id/dashboard.
@@ -19,11 +20,7 @@ export default function ProjectDashboard() {
   const { project, role, loading, error } = useProject();
 
   if (loading) {
-    return (
-      <div className="project-dashboard">
-        <div className="project-dashboard-loading">Loading project…</div>
-      </div>
-    );
+    return <ProjectDashboardSkeleton />;
   }
 
   if (error) {

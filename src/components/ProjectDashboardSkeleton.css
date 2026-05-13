@@ -1,0 +1,111 @@
+/* Skeleton for ProjectDashboard. The .skel-bar shimmer is duplicated from
+   ProjectScopedSkeleton.css — both files define it identically so each
+   component renders correctly when loaded alone (CSS files only load when
+   their JSX is imported). Same translate-based shimmer (GPU-only). */
+
+.project-dashboard-skeleton {
+  max-width: 820px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.project-dashboard-skel-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.project-dashboard-skel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.skel-dash-title {
+  width: 9rem;
+  height: 1.6rem;
+}
+
+.skel-dash-role {
+  width: 4.5rem;
+  height: 1.1rem;
+  border-radius: 999px;
+}
+
+.skel-dash-card {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.skel-dash-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 0.4rem;
+}
+
+.skel-dash-card-title {
+  width: 30%;
+  height: 1rem;
+}
+
+.skel-dash-card-subtitle {
+  width: 55%;
+  height: 0.825rem;
+  margin-bottom: 0.55rem;
+}
+
+/* Mimics .project-dashboard-empty — dashed-border box with a single
+   centered line of placeholder text. */
+.skel-dash-empty {
+  border: 1px dashed #2a2a2a;
+  border-radius: 8px;
+  padding: 1.5rem;
+  display: flex;
+  justify-content: center;
+}
+
+.skel-dash-empty-line {
+  width: 55%;
+  height: 0.875rem;
+}
+
+/* Shared shimmer bar — same definition as ProjectScopedSkeleton.css. */
+.skel-bar {
+  background: #1a1a1a;
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.skel-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.04),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes skel-shimmer {
+  to { transform: translateX(100%); }
+}
+
+/* Inner bars sit on a slightly darker background than the card panel. */
+.skel-dash-card .skel-bar {
+  background: #141414;
+}

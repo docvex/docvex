@@ -33,6 +33,11 @@
   /* Match the sidebar's own width transition so the loader's left edge
      glides along with it instead of snapping. */
   transition: left 250ms ease;
+  /* Hint the compositor that `left` is the animated property so the loader
+     gets its own layer for the duration of the transition. Cheap to declare
+     on a fixed-position element with no children whose size depends on its
+     position. */
+  will-change: left;
   /* Fade in just under one frame at 60fps so the overlay appears instantly
      to the user but with enough easing to avoid a hard cut. */
   animation: switch-project-loader-fade 120ms ease-out;

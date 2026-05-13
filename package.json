@@ -12,11 +12,12 @@
     "publish": "electron-forge publish",
     "preversion": "git diff-index --quiet HEAD -- || (echo Commit or stash changes before releasing && exit 1)",
     "version": "node scripts/sync-readme-version.mjs",
-    "postversion": "git push --follow-tags && electron-forge publish && node scripts/generate-release-notes.mjs",
+    "postversion": "node scripts/post-release.mjs",
     "release:patch": "npm version patch -m \"chore(release): %s\"",
     "release:minor": "npm version minor -m \"chore(release): %s\"",
     "release:major": "npm version major -m \"chore(release): %s\"",
     "release:status": "git status --short && git log -1 --oneline",
+    "release:notes": "node scripts/generate-release-notes.mjs",
     "lint": "echo \"No linting configured\""
   },
   "keywords": [],

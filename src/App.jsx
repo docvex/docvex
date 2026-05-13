@@ -1,31 +1,44 @@
-import React, { useEffect } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { useSelectedProject } from './context/SelectedProjectContext';
-import AuthPage from './components/AuthPage';
 import AppShell from './components/AppShell';
-import Dashboard from './pages/Dashboard';
-import Account from './pages/Account';
-import Updates from './pages/Updates';
-import Notifications from './pages/Notifications';
-import ProjectList from './pages/Projects/ProjectList';
-import ProjectCreate from './pages/Projects/ProjectCreate';
-import ProjectOverview from './pages/Projects/ProjectOverview';
-import ProjectDashboard from './pages/Projects/ProjectDashboard';
-import ProjectFiles from './pages/Projects/ProjectFiles';
-import ProjectTodos from './pages/Projects/ProjectTodos';
-import InviteAccept from './pages/Projects/InviteAccept';
+
+// All page modules are code-split — each becomes its own JS chunk that loads
+// only when the user navigates to that route. Keeps the cold-start bundle
+// small. The Suspense fallback below covers the brief network/parse pause
+// while a chunk loads. AppShell stays eager because it owns the layout that
+// surrounds every route and would itself appear "flashy" if lazy-loaded.
+const AuthPage = lazy(() => import('./components/AuthPage'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Account = lazy(() => import('./pages/Account'));
+const Updates = lazy(() => import('./pages/Updates'));
+const Notifications = lazy(() => import('./pages/Notifications'));
+const ProjectList = lazy(() => import('./pages/Projects/ProjectList'));
+const ProjectCreate = lazy(() => import('./pages/Projects/ProjectCreate'));
+const ProjectOverview = lazy(() => import('./pages/Projects/ProjectOverview'));
+const ProjectDashboard = lazy(() => import('./pages/Projects/ProjectDashboard'));
+const ProjectFiles = lazy(() => import('./pages/Projects/ProjectFiles'));
+const ProjectTodos = lazy(() => import('./pages/Projects/ProjectTodos'));
+const InviteAccept = lazy(() => import('./pages/Projects/InviteAccept'));
+
+// Shared full-screen spinner. Re-uses the `.spinner` class from Sidebar.css
+// so we don't bloat the bundle with a second loader style. Used by both
+// ProtectedRoute (auth gate) and the route-level Suspense boundary.
+function RouteFallback() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+      <div className="spinner" />
+    </div>
+  );
+}
 
 function ProtectedRoute() {
   const { session, loading } = useAuth();
 
   if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
-        <div className="spinner" />
-      </div>
-    );
+    return <RouteFallback />;
   }
 
   return session ? <Outlet /> : <Navigate to="/auth" replace />;
@@ -61,41 +74,43 @@ function ProjectShell() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/auth" element={<AuthPage />} />
-      <Route path="/" element={<AppShell />}>
-        <Route index element={<Dashboard />} />
-        <Route path="updates" element={<Updates />} />
-        <Route path="notifications" element={<Notifications />} />
-        {/* Invite-accept is intentionally PUBLIC (not behind ProtectedRoute) —
-            an invitee clicking the email link before signing in needs the
-            page to render so it can stash the token and walk them through
-            /auth. The page itself branches on session presence. */}
-        <Route path="invite/:token" element={<InviteAccept />} />
-        <Route element={<ProtectedRoute />}>
-          <Route path="account" element={<Account />} />
-          {/* Projects routes — all require a session. ProjectShell wraps the
-              :projectId subtree in ProjectProvider so nested routes consume
-              one shared context. */}
-          <Route path="projects" element={<ProjectList />} />
-          <Route path="projects/new" element={<ProjectCreate />} />
-          <Route path="projects/:projectId" element={<ProjectShell />}>
-            {/* Two distinct project views with different mental models:
-                - index (Overview): reached by clicking a card in the Projects
-                  list. Shows the project's members + management actions.
-                - /dashboard: reached from the Projects sidebar's Dashboard
-                  sub-item. The "working in this project" surface — files. */}
-            <Route index element={<ProjectOverview />} />
-            <Route path="dashboard" element={<ProjectDashboard />} />
+    <Suspense fallback={<RouteFallback />}>
+      <Routes>
+        <Route path="/auth" element={<AuthPage />} />
+        <Route path="/" element={<AppShell />}>
+          <Route index element={<Dashboard />} />
+          <Route path="updates" element={<Updates />} />
+          <Route path="notifications" element={<Notifications />} />
+          {/* Invite-accept is intentionally PUBLIC (not behind ProtectedRoute) —
+              an invitee clicking the email link before signing in needs the
+              page to render so it can stash the token and walk them through
+              /auth. The page itself branches on session presence. */}
+          <Route path="invite/:token" element={<InviteAccept />} />
+          <Route element={<ProtectedRoute />}>
+            <Route path="account" element={<Account />} />
+            {/* Projects routes — all require a session. ProjectShell wraps the
+                :projectId subtree in ProjectProvider so nested routes consume
+                one shared context. */}
+            <Route path="projects" element={<ProjectList />} />
+            <Route path="projects/new" element={<ProjectCreate />} />
+            <Route path="projects/:projectId" element={<ProjectShell />}>
+              {/* Two distinct project views with different mental models:
+                  - index (Overview): reached by clicking a card in the Projects
+                    list. Shows the project's members + management actions.
+                  - /dashboard: reached from the Projects sidebar's Dashboard
+                    sub-item. The "working in this project" surface — files. */}
+              <Route index element={<ProjectOverview />} />
+              <Route path="dashboard" element={<ProjectDashboard />} />
+            </Route>
+            {/* Project-scoped tools — pull data from SelectedProjectContext.
+                The ProjectBanner in AppShell tells the user which project is
+                active. If no project is selected, these pages prompt the user
+                to pick one from /projects. */}
+            <Route path="files" element={<ProjectFiles />} />
+            <Route path="todos" element={<ProjectTodos />} />
           </Route>
-          {/* Project-scoped tools — pull data from SelectedProjectContext.
-              The ProjectBanner in AppShell tells the user which project is
-              active. If no project is selected, these pages prompt the user
-              to pick one from /projects. */}
-          <Route path="files" element={<ProjectFiles />} />
-          <Route path="todos" element={<ProjectTodos />} />
         </Route>
-      </Route>
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 }

@@ -18,10 +18,14 @@ const TABLE = 'notifications';
 // to seed the provider's state. Caller has already gated on `userId` being
 // non-null — we still pass it as a filter for clarity (RLS would enforce it
 // anyway).
+//
+// Field list mirrors `toPersistent` in src/lib/notifications.js — that's the
+// canonical persisted shape. If a column is added to the table AND consumed
+// by the provider, update both `toPersistent` and this select together.
 export async function fetchRecent(userId, limit = HISTORY_CAP) {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('*')
+    .select('id, user_id, category, variant, title, body, payload, created_at, read_at, dedupe_key')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(limit);

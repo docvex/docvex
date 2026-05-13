@@ -1,0 +1,93 @@
+/* Skeleton for ProjectFiles / ProjectTodos placeholder pages. The .skel-bar
+   class is shared with ProjectDashboardSkeleton.css — both files define it
+   identically so each component renders correctly even if the sibling
+   stylesheet hasn't been loaded yet. The shimmer uses transform (GPU-only)
+   instead of background-position (paint cost) so it's cheap. */
+
+.project-scoped-skeleton {
+  /* The page width + gap inherit from .project-scoped-page in
+     ProjectScoped.css when that stylesheet is already loaded; if it isn't
+     (rare — only on cold-loading the route for the first time), the values
+     below keep the skeleton looking right on its own. */
+  max-width: 820px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.project-scoped-skel-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.skel-card {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.skel-title {
+  width: 38%;
+  height: 1.5rem;
+}
+
+.skel-subtitle {
+  width: 62%;
+  height: 0.9rem;
+}
+
+.skel-card-title {
+  width: 32%;
+  height: 1rem;
+  margin-bottom: 0.3rem;
+}
+
+.skel-card-line {
+  width: 100%;
+  height: 0.825rem;
+}
+
+.skel-card-line.short {
+  width: 75%;
+}
+
+/* Shared shimmer bar — matches the dashboard skeleton too. */
+.skel-bar {
+  background: #1a1a1a;
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.skel-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.04),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+  /* will-change hints the compositor that this layer animates a transform —
+     keeps the shimmer off the main thread's paint hot path. */
+  will-change: transform;
+}
+
+@keyframes skel-shimmer {
+  to { transform: translateX(100%); }
+}
+
+/* Bars inside cards sit on a slightly darker background than the card so
+   they read as content blocks rather than solid panels. Cards already use
+   #1a1a1a, so dim the inner bars one step. */
+.skel-card .skel-bar {
+  background: #141414;
+}

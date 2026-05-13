@@ -10,6 +10,7 @@ import React, {
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { getProject, listMembers } from '../lib/projects';
+import { useAuth } from './AuthContext';
 
 // Scoped to a single /projects/:projectId subtree. Mounted by App.jsx only
 // inside the project routes so unrelated pages (Dashboard, Account, Updates)
@@ -30,6 +31,8 @@ const ProjectContext = createContext(null);
 
 export function ProjectProvider({ children }) {
   const { projectId } = useParams();
+  const { session } = useAuth();
+  const selfUserId = session?.user?.id ?? null;
   const [project, setProject] = useState(null);
   const [role, setRole] = useState(null);
   const [members, setMembers] = useState([]);
@@ -40,6 +43,10 @@ export function ProjectProvider({ children }) {
   // it. The effect captures the ref and can check `cancelledRef.current` to
   // bail out cleanly when projectId changes mid-flight.
   const cancelledRef = useRef(false);
+  // Debounce handle for the Realtime member-changes refetch. A batch of N
+  // member events (e.g. an admin bulk-importing invitations that all accept
+  // around the same time) coalesces into one listMembers() call instead of N.
+  const memberRefetchTimerRef = useRef(null);
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -79,10 +86,26 @@ export function ProjectProvider({ children }) {
 
   // Realtime subscriptions — project row + membership list. Same pattern as
   // notificationsRepo.subscribeForUser, scoped to one channel per project.
-  // Updates the local state in-place rather than re-fetching; cheaper for the
-  // happy path of "another admin promoted someone".
+  //
+  // The `project_members` handler patches the local members array in place
+  // for UPDATE (role change) and DELETE (removal). INSERT can't be patched
+  // optimistically because the payload doesn't include the profile join —
+  // it falls through to the debounced refetch, which also serves as a
+  // catch-all reconcile to cover any patch-missed edge case (e.g. an UPDATE
+  // for a user we never had in the array yet). The debounce coalesces a
+  // batch of events into a single network call.
   useEffect(() => {
     if (!projectId) return;
+    const refreshMembersDebounced = () => {
+      if (memberRefetchTimerRef.current) clearTimeout(memberRefetchTimerRef.current);
+      memberRefetchTimerRef.current = setTimeout(async () => {
+        memberRefetchTimerRef.current = null;
+        const { data, error: memErr } = await listMembers(projectId);
+        if (cancelledRef.current) return;
+        if (!memErr) setMembers(data || []);
+      }, 200);
+    };
+
     const channel = supabase
       .channel(`project:${projectId}`)
       .on(
@@ -100,15 +123,40 @@ export function ProjectProvider({ children }) {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'project_members', filter: `project_id=eq.${projectId}` },
-        // Member changes can affect counts, roles, and the caller's own role.
-        // Easier and more correct to re-fetch the full member list than to
-        // patch by user_id (the payload doesn't include the profile join).
-        () => { load(); },
+        (payload) => {
+          // Optimistic local patches so the UI reflects role/removal changes
+          // immediately, without waiting for the debounced refetch. The
+          // refetch then reconciles to authoritative data — covers INSERTs
+          // and any UPDATE where the affected user isn't in our array yet.
+          if (payload.eventType === 'UPDATE' && payload.new?.user_id) {
+            const { user_id: changedId, role: newRole } = payload.new;
+            setMembers((prev) =>
+              prev.map((m) => (m.user_id === changedId ? { ...m, role: newRole } : m)),
+            );
+            // If the caller is the affected user, patch the provider's role
+            // state too — keeps "I just got promoted" UI in sync without
+            // waiting on the network.
+            if (selfUserId && changedId === selfUserId) {
+              setRole(newRole);
+              setProject((prev) => (prev ? { ...prev, role: newRole } : prev));
+            }
+          } else if (payload.eventType === 'DELETE' && payload.old?.user_id) {
+            const removedId = payload.old.user_id;
+            setMembers((prev) => prev.filter((m) => m.user_id !== removedId));
+          }
+          refreshMembersDebounced();
+        },
       )
       .subscribe();
 
-    return () => { try { supabase.removeChannel(channel); } catch { /* non-fatal */ } };
-  }, [projectId, load]);
+    return () => {
+      if (memberRefetchTimerRef.current) {
+        clearTimeout(memberRefetchTimerRef.current);
+        memberRefetchTimerRef.current = null;
+      }
+      try { supabase.removeChannel(channel); } catch { /* non-fatal */ }
+    };
+  }, [projectId, selfUserId]);
 
   // Public refresh — same as the effect's load(), but exposed so pages can
   // re-pull after a mutation (e.g. updateProject from the Settings page).

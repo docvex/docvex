@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
-import { listMyProjects } from '../lib/projects';
+import { listMyProjects, PROJECTS_CHANGED_EVENT } from '../lib/projects';
 import './ProjectPickerPanel.css';
 
 // Inline icons (match the rest of the codebase's stroke-icon convention).
@@ -34,11 +34,34 @@ export default function ProjectPickerPanel() {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState(null);
 
-  // Lazy-load on every open so a project created in another window/page
-  // shows up without a manual refresh. The list is small (≤ hundreds of
-  // rows in practice) so re-fetching is cheap.
+  // Cache the project list across panel opens — the panel opens often (every
+  // click on the trigger) and re-fetching on every open is wasteful. The
+  // hasFetchedRef flips back to false when:
+  //   - a window CustomEvent (PROJECTS_CHANGED_EVENT) fires from a mutation
+  //     site (create/delete/leave), so the next open refetches authoritatively
+  //   - the session changes (sign-out/sign-in) — different user, different list
+  //
+  // The panel is mounted unconditionally by AppShell (its lifetime equals the
+  // app's lifetime), so component-local state is sufficient — no need for a
+  // context.
+  const hasFetchedRef = useRef(false);
+
+  // Invalidate the cache when anyone mutates the user's projects list.
+  // Refetch is deferred to the NEXT open — invalidating doesn't force the
+  // panel to refetch while closed.
+  useEffect(() => {
+    const onChanged = () => { hasFetchedRef.current = false; };
+    window.addEventListener(PROJECTS_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(PROJECTS_CHANGED_EVENT, onChanged);
+  }, []);
+
+  // Reset on session change — switching users means the cached list belongs
+  // to the wrong account.
+  useEffect(() => { hasFetchedRef.current = false; }, [session?.user?.id]);
+
   useEffect(() => {
     if (!pickerOpen || !session) return;
+    if (hasFetchedRef.current) return; // cache hit — render existing `projects`
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -47,6 +70,7 @@ export default function ProjectPickerPanel() {
       setProjects(data || []);
       setError(error);
       setLoading(false);
+      if (!error) hasFetchedRef.current = true;
     });
     return () => { cancelled = true; };
   }, [pickerOpen, session]);
@@ -78,7 +102,11 @@ export default function ProjectPickerPanel() {
     // before React renders the transition's intermediate frames. The name
     // surfaces as "Switching to <name>" in the loader subtitle.
     beginSwitch(project.name);
-    selectProject(project.id);
+    // Hand the full row to SelectedProjectContext so it skips the redundant
+    // getProject() round-trip — we already have everything it needs. The
+    // SwitchProjectLoader's min-visible-time floor (preserved separately)
+    // still keeps the transition reading as deliberate.
+    selectProject(project.id, project);
     closePicker();
     // Always land on the new project's Dashboard — that's the "working
     // surface" (recent files + activity) and is the most useful place to

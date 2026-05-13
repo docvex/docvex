@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
+import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import './ProjectScoped.css';
 
 // Placeholder To-dos page. Same shape as ProjectFiles — relies on the
@@ -10,7 +11,7 @@ export default function ProjectTodos() {
   const { selectedProject, loading } = useSelectedProject();
 
   if (loading && !selectedProject) {
-    return <div className="project-scoped-loading">Loading project…</div>;
+    return <ProjectScopedSkeleton />;
   }
 
   if (!selectedProject) {

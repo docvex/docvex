@@ -77,9 +77,21 @@ export function NotificationsProvider({ children }) {
       } catch { /* quota / private mode — non-fatal */ }
     }
 
-    // Hydrate the new bucket. Phase 1 is always synchronous: read localStorage
-    // so the UI renders instantly with the last known state (the cache layer).
-    // Phase 2 — only when signed in — replaces the cache from Supabase.
+    // Hydrate the new bucket in two phases that run in parallel:
+    //
+    //   Phase 1 (sync, below): read localStorage so the UI renders instantly
+    //     with the last known state.
+    //   Phase 2 (async, below): fetch from Supabase and reconcile.
+    //
+    // Phase 2 is kicked off FIRST so its network roundtrip overlaps with the
+    // localStorage parse + React render. The local cache still hydrates
+    // synchronously — what changes is that the server response is already
+    // in flight by the time React commits the cached state.
+    let cancelled = false;
+    const serverPromise = userId
+      ? fetchRecent(userId, HISTORY_CAP).catch((err) => ({ data: null, error: err }))
+      : null;
+
     let hydrated = [];
     try {
       const raw = localStorage.getItem(bucket);
@@ -98,35 +110,33 @@ export function NotificationsProvider({ children }) {
     previousBucketRef.current = bucket;
     setReady(true);
 
-    // Phase 2: reconcile from Supabase. The cache may be stale or empty (new
-    // device, recent erase from another machine). Replace state with server
-    // rows on success; on failure, silently fall back to the cache.
-    if (userId) {
-      let cancelled = false;
-      fetchRecent(userId, HISTORY_CAP)
-        .then(({ data, error }) => {
-          if (cancelled) return;
-          if (error) {
-            console.warn('[notifications] fetchRecent failed, using cache:', error.message);
-            return;
-          }
-          // Server rows arrive in DB shape — add the runtime-only fields back.
-          const rebuilt = data.map((row) => ({
-            ...row,
-            duration: 0,
-            persistent: false,
-            osLevel: false,
-            toastShown: true, // server-loaded rows never animate
-          }));
-          setNotifications(rebuilt);
-        })
-        .catch((err) => {
-          if (!cancelled) {
-            console.warn('[notifications] fetchRecent threw, using cache:', err);
-          }
-        });
-      return () => { cancelled = true; };
+    // Reconcile when the server fetch resolves. Only overwrite when the
+    // server has rows — an empty server result is ambiguous (genuinely new
+    // user with no notifications, OR transient RLS hiccup) and replacing the
+    // local cache with [] in that ambiguous case would briefly blank out the
+    // bell for someone whose phone is offline. The cache wins ties; freshly
+    // arrived rows on the next event will reconcile.
+    if (serverPromise) {
+      serverPromise.then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.warn('[notifications] fetchRecent failed, using cache:', error.message ?? error);
+          return;
+        }
+        if (!data || data.length === 0) return; // keep the cache
+        // Server rows arrive in DB shape — add the runtime-only fields back.
+        const rebuilt = data.map((row) => ({
+          ...row,
+          duration: 0,
+          persistent: false,
+          osLevel: false,
+          toastShown: true, // server-loaded rows never animate
+        }));
+        setNotifications(rebuilt);
+      });
     }
+
+    return () => { cancelled = true; };
   }, [authLoading, userId]);
 
   // Debounced persist on every state change (after the bucket is settled).

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
+import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import './ProjectScoped.css';
 
 // Placeholder Files page. Step 2 wires the route + selection plumbing; the
@@ -11,7 +12,7 @@ export default function ProjectFiles() {
   const { selectedProject, loading } = useSelectedProject();
 
   if (loading && !selectedProject) {
-    return <div className="project-scoped-loading">Loading project…</div>;
+    return <ProjectScopedSkeleton />;
   }
 
   if (!selectedProject) {

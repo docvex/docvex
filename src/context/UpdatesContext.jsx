@@ -1,9 +1,40 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 const UpdatesContext = createContext(null);
 
 const REPO = 'petreluca1105-dotcom/docvex';
 const RELEASES_URL = `https://api.github.com/repos/${REPO}/releases`;
+
+// sessionStorage cache for the GitHub /releases response. Keyed by version so a
+// schema change to the cached shape is a free invalidation (bump :v1 → :v2).
+// sessionStorage (not localStorage) intentionally: cache survives in-window
+// navigation but evicts on app quit, which lines up with the auto-updater
+// possibly having installed a newer build by the next launch.
+const CACHE_KEY = 'docvex:releases-cache:v1';
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function readReleasesCache() {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.releases) || typeof parsed.fetchedAt !== 'number') return null;
+    if (Date.now() - parsed.fetchedAt > CACHE_TTL_MS) return null;
+    return parsed.releases;
+  } catch {
+    // Corrupt payload, quota error, or sessionStorage unavailable — ignore
+    // and let the caller refetch. Cache poison can't outlive one bad read.
+    return null;
+  }
+}
+
+function writeReleasesCache(releases) {
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ releases, fetchedAt: Date.now() }));
+  } catch {
+    /* quota / private-mode — non-fatal, just lose the cache for this session */
+  }
+}
 
 // Tiny semver comparator (major.minor.patch). Returns true if a > b.
 // Strips any leading "v" and ignores pre-release suffixes — sufficient for
@@ -44,41 +75,74 @@ export function UpdatesProvider({ children }) {
   const [error, setError] = useState(null);
   const [installerState, setInstallerState] = useState({ state: 'idle' });
 
+  // Tracks an in-flight fetch promise so concurrent callers (mount effect +
+  // a rapid "Check now" click) share one network request instead of stacking.
+  // Cleared in the finally block of the fetch.
+  const inFlightRef = useRef(null);
+
   const latestVersion = releases[0] ? versionTagFor(releases[0]).replace(/^v/, '') : null;
   const hasUpdate = !!(currentVersion && latestVersion && semverGT(latestVersion, currentVersion));
 
-  const fetchReleases = useCallback(async () => {
+  // fetchReleases({ force }) — when force is false (default) and a fresh
+  // sessionStorage cache exists, hydrate from cache and skip the network.
+  // Manual "Check now" passes force=true to bypass and always hit the API.
+  const fetchReleases = useCallback(async ({ force = false } = {}) => {
+    // Cache hit — hydrate synchronously and we're done.
+    if (!force) {
+      const cached = readReleasesCache();
+      if (cached) {
+        setReleases(cached);
+        setLoading(false);
+        setError(null);
+        return cached;
+      }
+    }
+
+    // Dedup concurrent callers — return the in-flight promise instead of
+    // stacking a second fetch.
+    if (inFlightRef.current) return inFlightRef.current;
+
     setLoading(true);
     setError(null);
-    try {
-      const res = await fetch(RELEASES_URL, {
-        headers: { Accept: 'application/vnd.github+json' },
-      });
-      if (!res.ok) throw new Error(`GitHub responded ${res.status}`);
-      const data = await res.json();
-      // Filter out drafts (user only cares about published releases) and
-      // sort by semver desc — version-based, not chronological. This is
-      // intentional: if a backport patch (say v1.0.5) is ever published
-      // AFTER a newer minor (v1.1.0), the chronological order would put
-      // v1.0.5 on top, which is misleading for release notes. Version
-      // ordering keeps "what's the latest" honest and also keeps the
-      // Updates page's color-coding correct, since releaseKind() assumes
-      // releases[idx+1] is the next-lower version.
-      const published = data
-        .filter((r) => !r.draft)
-        .sort((a, b) => {
-          const av = versionTagFor(a);
-          const bv = versionTagFor(b);
-          if (semverGT(av, bv)) return -1;
-          if (semverGT(bv, av)) return 1;
-          return 0;
+
+    const promise = (async () => {
+      try {
+        const res = await fetch(RELEASES_URL, {
+          headers: { Accept: 'application/vnd.github+json' },
         });
-      setReleases(published);
-    } catch (e) {
-      setError(e.message || 'Failed to load releases');
-    } finally {
-      setLoading(false);
-    }
+        if (!res.ok) throw new Error(`GitHub responded ${res.status}`);
+        const data = await res.json();
+        // Filter out drafts (user only cares about published releases) and
+        // sort by semver desc — version-based, not chronological. This is
+        // intentional: if a backport patch (say v1.0.5) is ever published
+        // AFTER a newer minor (v1.1.0), the chronological order would put
+        // v1.0.5 on top, which is misleading for release notes. Version
+        // ordering keeps "what's the latest" honest and also keeps the
+        // Updates page's color-coding correct, since releaseKind() assumes
+        // releases[idx+1] is the next-lower version.
+        const published = data
+          .filter((r) => !r.draft)
+          .sort((a, b) => {
+            const av = versionTagFor(a);
+            const bv = versionTagFor(b);
+            if (semverGT(av, bv)) return -1;
+            if (semverGT(bv, av)) return 1;
+            return 0;
+          });
+        setReleases(published);
+        writeReleasesCache(published);
+        return published;
+      } catch (e) {
+        setError(e.message || 'Failed to load releases');
+        return null;
+      } finally {
+        setLoading(false);
+        inFlightRef.current = null;
+      }
+    })();
+
+    inFlightRef.current = promise;
+    return promise;
   }, []);
 
   // One-time bootstrap: current version, packaged flag, release list, status sub.
@@ -134,7 +198,9 @@ export function UpdatesProvider({ children }) {
       if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
     };
     try {
-      await fetchReleases();
+      // Manual "Check now" — always hit GitHub. The MIN_VISIBLE_MS floor
+      // above still keeps the spinner up long enough to read.
+      await fetchReleases({ force: true });
       if (window.electronAPI?.checkForUpdates) {
         const s = await window.electronAPI.checkForUpdates();
         await finishAfterMinDelay();

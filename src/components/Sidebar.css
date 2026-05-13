@@ -22,6 +22,17 @@
     min-width 250ms ease,
     border-color 220ms ease;
   flex-shrink: 0;
+  /* `contain: layout style` isolates the sidebar's internal layout
+     invalidations from the rest of the page during the width transition.
+     `will-change: width` hints the compositor to promote the sidebar to
+     its own layer for the duration of the animation. Together they keep
+     the expand/collapse from triggering a full-page reflow every frame.
+     We keep `width` as the animated property (rather than `transform`)
+     because the sidebar's actual width drives `--sidebar-width` via the
+     `:has()` selector in AppShell.css, which positions the main content
+     and SwitchProjectLoader. */
+  contain: layout style;
+  will-change: width;
 }
 
 /* Either hovering or explicitly locked expands the sidebar to full width.

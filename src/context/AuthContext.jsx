@@ -18,10 +18,20 @@ export function AuthProvider({ children }) {
   const [lastAuthEvent, setLastAuthEvent] = useState(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
-    });
+    // Subscribe FIRST. supabase-js v2 fires an INITIAL_SESSION event on
+    // attach with the persisted (or null) session, which replaces the
+    // explicit getSession() bootstrap the older code used to await. The
+    // pre-refactor sequential pattern (getSession → subscribe) meant the
+    // subscription's INITIAL_SESSION fired with the same data the getSession
+    // had just returned — a redundant double set.
+    //
+    // We also fire a parallel getSession() as a belt-and-suspenders safety
+    // net (see bootstrappedRef below). If INITIAL_SESSION fires first (the
+    // documented behaviour), the parallel getSession's .then becomes a no-op.
+    // If it ever doesn't fire (StrictMode quirks, future SDK regression), the
+    // getSession path still clears the loading state so the app doesn't hang
+    // on a spinner.
+    const bootstrappedRef = { current: false };
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
@@ -29,6 +39,11 @@ export function AuthProvider({ children }) {
       // same name (e.g. two TOKEN_REFRESHED in a row would otherwise look like
       // a no-op via reference equality).
       setLastAuthEvent({ event, session, at: Date.now() });
+
+      if (event === 'INITIAL_SESSION') {
+        bootstrappedRef.current = true;
+        setLoading(false);
+      }
 
       // Auto-resume a pending invite-accept after the user signs in. The
       // token is stashed by InviteAccept's signed-out branch (or by the
@@ -44,6 +59,22 @@ export function AuthProvider({ children }) {
         } catch { /* sessionStorage may be unavailable; non-fatal */ }
       }
     });
+
+    // Safety net: if INITIAL_SESSION hasn't fired by the time getSession
+    // resolves, fall back to its result. Skipped entirely when the
+    // subscription already handled the bootstrap.
+    supabase.auth.getSession()
+      .then(({ data: { session: bootstrapSession } }) => {
+        if (bootstrappedRef.current) return;
+        bootstrappedRef.current = true;
+        setSession(bootstrapSession);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (bootstrappedRef.current) return;
+        bootstrappedRef.current = true;
+        setLoading(false);
+      });
 
     // The `oauth:callback-url` IPC channel was originally OAuth-only, but
     // main.js routes every docvex:// URL through it — so this is really an
