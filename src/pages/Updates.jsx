@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useUpdates, versionTagFor } from '../context/UpdatesContext';
+import ConfirmModal from '../components/ConfirmModal';
 import './Updates.css';
 
 function formatDate(iso) {
@@ -63,6 +64,25 @@ const ExternalLinkIcon = (
     <line x1="10" y1="14" x2="21" y2="3"/>
   </svg>
 );
+
+const RevertIcon = (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    {/* Curved arrow pointing back-left — same shape we use for the
+        Updates header's RefreshIcon family, just stopping at "back to
+        a previous state". */}
+    <polyline points="1 4 1 10 7 10"/>
+    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+  </svg>
+);
+
+// Pick the Squirrel installer asset out of a release's asset list. Skips
+// the RELEASES manifest and the per-version .nupkg deltas — those are part
+// of the auto-update protocol, not user-runnable installers. Returns null
+// if the release shipped without a Setup.exe (drafts, source-only tags).
+function setupAssetFor(release) {
+  if (!release?.assets) return null;
+  return release.assets.find((a) => /\.Setup\.exe$/i.test(a.name)) ?? null;
+}
 
 function openExternal(e, url) {
   e.preventDefault();
@@ -166,6 +186,26 @@ function StatusBanner() {
 export default function Updates() {
   const { releases, currentVersion, loading, error } = useUpdates();
 
+  // Revert-confirmation modal state. `pendingRevert` holds the release the
+  // user is about to roll back to (null when no modal). One state object
+  // for the whole page rather than per-card so only one modal can be open
+  // at a time and the confirm handler has direct access to the release.
+  const [pendingRevert, setPendingRevert] = useState(null);
+
+  const requestRevert = (release) => setPendingRevert(release);
+  const cancelRevert = () => setPendingRevert(null);
+  const confirmRevert = () => {
+    const setup = setupAssetFor(pendingRevert);
+    if (setup?.browser_download_url && window.electronAPI?.openExternal) {
+      window.electronAPI.openExternal(setup.browser_download_url);
+    } else if (setup?.browser_download_url) {
+      window.open(setup.browser_download_url, '_blank');
+    }
+    setPendingRevert(null);
+  };
+
+  const pendingVer = pendingRevert ? versionTagFor(pendingRevert).replace(/^v/, '') : '';
+
   return (
     <div className="updates-page">
       <header className="updates-header">
@@ -242,10 +282,63 @@ export default function Updates() {
                   <p className="release-empty">No notes provided.</p>
                 )}
               </div>
+
+              {/* Revert action lives at the bottom-right of the card so it
+                  doesn't compete with the release title/notes for attention.
+                  Only shown on OTHER versions (current = no-op). Disabled
+                  when the release didn't ship a Setup.exe asset (drafts,
+                  source-only tags). Click triggers a browser download of
+                  the Squirrel installer; the user runs it manually.
+                  Caveat surfaced via title attr: update-electron-app will
+                  re-pull the latest release on next launch — this is for
+                  ad-hoc testing of older builds, not a long-term pin. */}
+              {!isCurrent && (() => {
+                const setup = setupAssetFor(release);
+                // Button is position: absolute (see .release-revert-btn in
+                // Updates.css) so it floats over the card's bottom-right
+                // corner without consuming layout space — release notes
+                // flow as if the button weren't there.
+                return (
+                  <button
+                    type="button"
+                    className="release-revert-btn"
+                    onClick={() => setup && requestRevert(release)}
+                    disabled={!setup}
+                    title={
+                      setup
+                        ? `Download v${ver}'s installer to revert. Heads up: auto-update will pull the latest version again on next launch.`
+                        : 'No Setup.exe asset on this release.'
+                    }
+                  >
+                    {RevertIcon} Revert to this version
+                  </button>
+                );
+              })()}
             </article>
           );
         })}
       </section>
+
+      {/* Confirm before triggering a downgrade download. Two reasons:
+          (1) Reverting opens a system installer and replaces the running
+              app's files — not destructive, but it interrupts whatever
+              the user is doing, so a brief "are you sure" is warranted.
+          (2) The wording also surfaces the auto-update caveat (Squirrel
+              will re-pull the latest on next launch) where the user is
+              already paying attention. */}
+      <ConfirmModal
+        open={!!pendingRevert}
+        title={`Revert to v${pendingVer}?`}
+        message={
+          `Your browser will download the v${pendingVer} installer. Run it to roll back to that version. ` +
+          `Heads up: auto-update will re-install the latest release the next time you launch Docvex — ` +
+          `this is for ad-hoc testing of older builds, not a permanent pin.`
+        }
+        confirmLabel="Download installer"
+        cancelLabel="Cancel"
+        onConfirm={confirmRevert}
+        onCancel={cancelRevert}
+      />
     </div>
   );
 }

@@ -77,7 +77,11 @@
   justify-content: space-between;
   gap: 8px;
   padding: 14px 14px 14px 18px;
-  border-bottom: 1px solid #2a2a2a;
+  /* rgba white at 0.1 alpha gives the same visual lightness-shift the
+     sidebar's #2a2a2a border has against its #141414 bg — but adapts to
+     the panel's gold bg instead of stamping a dark #2a2a2a line that
+     reads as a foreign element. */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   flex-shrink: 0;
 }
 
@@ -165,14 +169,16 @@
 .project-picker-panel-footer {
   flex-shrink: 0;
   padding: 8px 12px 12px;
-  border-top: 1px solid #2a2a2a;
+  /* Same rgba-white approach as the header's border-bottom — see comment
+     there for rationale. */
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .project-picker-panel-clear {
   /* Borderless centered single-line label — relies on the footer's
      border-top alone to separate it from the list, no second border
-     around the button itself. Hover still gets the wash so the button
-     reads as interactive. */
+     around the button itself. Hover only brightens the text (no wash) so
+     the footer reads as a single solid surface with the panel. */
   display: block;
   width: 100%;
   background: transparent;
@@ -184,11 +190,9 @@
   text-align: center;
   padding: 18px 0.75rem;
   cursor: pointer;
-  transition: background 120ms, color 120ms;
-  
+  transition: color 120ms;
 }
 
 .project-picker-panel-clear:hover {
-  background: #1f1f1f;
   color: #fff;
 }

@@ -1,17 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { listMyProjects } from '../lib/projects';
 import './ProjectPickerPanel.css';
-
-// When the picker is opened from inside a /projects/:id route, the
-// <ProjectAutoSelect/> effect in App.jsx re-syncs selectedProjectId back to
-// whatever the URL points to whenever the selection changes. That used to
-// silently revert any picker-driven selection unless we also moved the URL.
-// This regex matches "any URL inside a specific project" so we know when to
-// nudge the URL alongside the state update.
-const PROJECT_URL_RE = /^\/projects\/([^/]+)(\/.*)?$/;
 
 // Inline icons (match the rest of the codebase's stroke-icon convention).
 const CloseIcon = (
@@ -36,7 +28,6 @@ export default function ProjectPickerPanel() {
     selectedProjectId,
     beginSwitch,
   } = useSelectedProject();
-  const location = useLocation();
   const navigate = useNavigate();
 
   const [projects, setProjects] = useState([]);
@@ -99,17 +90,18 @@ export default function ProjectPickerPanel() {
     navigate(`/projects/${project.id}/dashboard`);
   };
 
-  // Same idea for "Select no project": if the user is inside a project URL,
-  // step out of it — otherwise the URL still implies a project and the
-  // auto-select effect re-picks it on the next render. No name passed so
-  // the loader uses its generic "Clearing project" copy.
+  // "Select no project" always lands the user on Activity (/) — the
+  // canonical no-project home. This both (a) gives a deliberate
+  // destination instead of leaving the user staring at a page that no
+  // longer has a project context, and (b) sidesteps the URL-driven auto-
+  // select loop entirely: if we just cleared state but stayed at
+  // /projects/foo, <ProjectAutoSelect/> would re-pick foo on the next
+  // render. No name passed so the loader uses its generic copy.
   const onClear = () => {
     beginSwitch(null);
     clearSelection();
     closePicker();
-    if (PROJECT_URL_RE.test(location.pathname)) {
-      navigate('/projects');
-    }
+    navigate('/');
   };
 
   return (

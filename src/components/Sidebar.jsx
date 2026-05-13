@@ -131,7 +131,14 @@ export default function Sidebar() {
   const { session } = useAuth();
   const { hasUpdate, currentVersion } = useUpdates();
   const { unreadCount } = useNotifications();
-  const { selectedProject, pickerOpen, togglePicker, closePicker } = useSelectedProject();
+  const {
+    selectedProject,
+    pickerOpen,
+    togglePicker,
+    closePicker,
+    switching,
+    switchingToName,
+  } = useSelectedProject();
   const { pathname } = useLocation();
   // Personal-section "Projects" item lights up on the project browser pages:
   //   /projects               — the list
@@ -278,12 +285,25 @@ export default function Sidebar() {
             <li>
               <button
                 type="button"
-                className={`project-picker-trigger${selectedProject ? ' has-selection' : ''}`}
+                className={`project-picker-trigger${selectedProject ? ' has-selection' : ''}${switching ? ' is-switching' : ''}`}
                 onClick={togglePicker}
-                title={selectedProject ? 'Switch project' : 'Select a project'}
+                title={
+                  switching
+                    ? (switchingToName ? `Switching to ${switchingToName}…` : 'Switching project…')
+                    : (selectedProject ? 'Switch project' : 'Select a project')
+                }
               >
+                {/* While a switch is in progress, replace the project name
+                    with a small spinner so the trigger visibly tracks the
+                    SwitchProjectLoader overlay's lifecycle. The spinner
+                    sits where the name used to so the row height stays
+                    stable across the transition. */}
                 <span className="label">
-                  {selectedProject ? selectedProject.name : 'Select a project'}
+                  {switching ? (
+                    <span className="project-picker-trigger-spinner" aria-label="Switching project" />
+                  ) : (
+                    selectedProject ? selectedProject.name : 'Select a project'
+                  )}
                 </span>
               </button>
             </li>

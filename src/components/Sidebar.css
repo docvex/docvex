@@ -41,12 +41,16 @@
    border-box, so dropping the border width would grow the content area
    and nudge every nav row 1px to the right. */
 .sidebar.picker-open {
-  /* Drop the 1px right border entirely while the picker is out so the
-     sidebar and the panel read as one continuous surface. Color-matching
-     the border to the panel (the old approach) only worked when the panel
-     had a static known bg; now that the panel uses its own accent we
-     can't pre-hardcode it, and zeroing the width is bulletproof. */
-  border-right-width: 0;
+  /* Color-match the 1px right border to the panel's bg (#735A34) so the
+     seam between sidebar and panel disappears WITHOUT zeroing the border
+     width — zeroing reclaims 1px of content area inside the sidebar
+     (box-sizing: border-box) which makes every nav-item's background
+     grow 1px wider, reading as a visible right-shift of all nav buttons
+     when the picker opens. Keeping the width constant and just blending
+     the color keeps geometry stable. Border-color animates via the
+     transition declared on .sidebar above, so the open/close beat is
+     still smooth. */
+  border-right-color: #735A34;
 }
 
 /* Labels stay visible while the picker is open (mirrors the .locked rule)
@@ -87,15 +91,24 @@
 .sidebar-brand {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   /* Matches .project-picker-panel-header so the DOCVEX title and the
      "ALL PROJECTS" title sit on the same horizontal baseline when the
      panel is open — both header rows share the same inset from their
-     respective surface edges. */
-  padding: 14px 14px 14px 18px;
+     respective surface edges.
+     Right-padding reserves a 38px column for the absolutely-positioned
+     lock-btn (24px button + 14px from the right edge) so brand-left
+     content can never overflow into where the lock visually sits. */
+  padding: 14px 38px 14px 18px;
   height: 64px;
   border-bottom: 1px solid #2a2a2a;
+  /* Containing block for the absolutely-positioned .lock-btn below — by
+     pulling the lock out of flex flow it becomes immune to any width
+     fluctuation in .brand-left (NavLink .active toggles, version pill
+     swapping between v-num and "Update available" badge, route changes
+     repainting the row). Combined with the fixed 24x24 box on .lock-btn,
+     the button is now positionally pinned in pixel terms. */
+  position: relative;
 }
 
 .brand-left {
@@ -184,8 +197,18 @@
   white-space: nowrap;
 }
 
-/* Lock toggle — fades in/out with the rest of the labels */
+/* Lock toggle — absolutely positioned inside .sidebar-brand so its
+   coordinates are fixed in pixel terms regardless of what brand-left
+   does. Vertically centered via top:50% + translateY trick; horizontally
+   anchored 14px from the brand row's right padding edge (matches the
+   .sidebar-brand padding-right inset).
+   Still fades in/out with the rest of the .label children via opacity —
+   not removed from the DOM so the click target persists. */
 .lock-btn {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -195,7 +218,12 @@
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
-  flex-shrink: 0;
+  /* Pinned box so the icon-path swap between open/closed lock SVGs
+     can't cause sub-pixel intrinsic-size flicker (16px icon + 4px
+     padding × 2). */
+  width: 24px;
+  height: 24px;
+  box-sizing: border-box;
   transition: color 150ms, background 150ms, opacity 120ms ease;
 }
 
@@ -604,6 +632,52 @@
 
 .project-picker-trigger.has-selection:hover {
   background: rgba(201, 151, 74, 0.5);
+}
+
+/* Spinner shown inside the trigger while a project switch is in progress.
+   Same gold accent as the full-screen SwitchProjectLoader spinner so the
+   two visually rhyme — eye tracks both as the same "switching" cue.
+   Sized smaller (16px vs 38px) to fit inside the trigger row without
+   forcing a height change. */
+.project-picker-trigger-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: #c9974a;
+  border-radius: 50%;
+  animation: project-picker-trigger-spin 0.7s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes project-picker-trigger-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* While switching, dim the trigger slightly so it reads as "in flight"
+   rather than the static idle state. The has-selection gold bg already
+   provides a visible surface — no extra background needed. */
+.project-picker-trigger.is-switching {
+  cursor: progress;
+  /* Don't allow the click to retrigger another switch mid-animation. */
+  pointer-events: none;
+}
+
+/* Center the spinner inside the trigger's .label slot. .label is a span
+   (display: inline by default) which lays out its inline-block child by
+   text-baseline rules, so vertical-align: middle on the spinner is
+   approximate and slightly off-center against the row's geometric
+   middle. Flipping .label to flex-center while switching pins the
+   spinner to the exact center of its box. Width: 100% claims the trigger's
+   full inner width so the horizontal center matches the trigger's. */
+.project-picker-trigger.is-switching .label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  /* Reserve the same line-height the regular text occupied so the row
+     height doesn't change between idle and switching states. */
+  line-height: 1;
 }
 
 /* Disabled nav-item — Files / To-dos when no project is selected.

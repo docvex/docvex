@@ -73,10 +73,32 @@
 
 /* "You're up to date" — green like the success banner, conveying "all good,
    nothing to do". Same palette as updates-banner-success since both are
-   positive states; the heading text differentiates them. */
+   positive states; the heading text differentiates them.
+   The background is a slow-panning multi-stop green gradient — gives the
+   "all good" surface a gentle alive-but-calm motion (~8s loop) so the
+   user reads it as healthy/live rather than a static notice. Stays in
+   the same alpha range as the previous flat tint so it's just as readable. */
 .updates-banner-uptodate {
   border-color: rgba(34, 197, 94, 0.4);
-  background: rgba(34, 197, 94, 0.07);
+  background: linear-gradient(
+    120deg,
+    rgba(34, 197, 94, 0.05) 0%,
+    rgba(34, 197, 94, 0.16) 25%,
+    rgba(74, 222, 128, 0.18) 50%,
+    rgba(34, 197, 94, 0.16) 75%,
+    rgba(34, 197, 94, 0.05) 100%
+  );
+  /* 300% wide so there's enough off-screen runway for the
+     background-position pan to translate smoothly without ever showing
+     a hard edge or a repeat seam. */
+  background-size: 300% 100%;
+  animation: updates-banner-uptodate-pan 8s ease-in-out infinite;
+}
+
+@keyframes updates-banner-uptodate-pan {
+  0%   { background-position:   0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position:   0% 50%; }
 }
 
 .updates-banner-uptodate strong { color: #4ade80; }
@@ -153,13 +175,16 @@
   border: 1px solid #2a2a2a;
   border-radius: 12px;
   padding: 1.25rem 1.5rem;
+  /* Containing block for the absolutely-positioned .release-revert-btn —
+     the button floats in the card's bottom-right corner without taking
+     layout space. */
+  position: relative;
 }
 
-.release-card.is-current {
-  /* Same green palette as .updates-banner-uptodate so the "Installed"
-     visual treatment lines up with the "You're up to date" status. */
-  border-color: rgba(34, 197, 94, 0.4);
-}
+/* The currently-installed release card no longer gets a distinct border —
+   the "Installed" pill inside the header already identifies it, and the
+   extra green outline was redundant visual weight competing with the
+   release that actually needs attention (the latest). */
 
 .release-header {
   display: flex;
@@ -196,9 +221,21 @@
 
 .release-tag-current {
   /* Green to match .updates-banner-uptodate — the "Installed" pill and the
-     "You're up to date" banner now share one visual identity. */
+     "You're up to date" banner now share one visual identity, including
+     the same slow-panning gradient so the eye reads them as one cue.
+     Reuses the same keyframes (updates-banner-uptodate-pan) so any future
+     tweak to the motion only happens in one place. */
   color: #4ade80;
-  background: rgba(34, 197, 94, 0.12);
+  background: linear-gradient(
+    120deg,
+    rgba(34, 197, 94, 0.08) 0%,
+    rgba(34, 197, 94, 0.22) 25%,
+    rgba(74, 222, 128, 0.26) 50%,
+    rgba(34, 197, 94, 0.22) 75%,
+    rgba(34, 197, 94, 0.08) 100%
+  );
+  background-size: 300% 100%;
+  animation: updates-banner-uptodate-pan 8s ease-in-out infinite;
   border: 1px solid rgba(34, 197, 94, 0.35);
 }
 
@@ -254,6 +291,53 @@
 
 .release-link:hover {
   color: #fff;
+}
+
+/* Revert button — floats in the card's bottom-right corner via absolute
+   positioning so it doesn't consume layout space (release notes flow
+   under it). Outlined ghost style — matches the existing destructive-
+   adjacent button vocabulary but muted, since reverting is reversible.
+   Surface color is slightly darker than the card so the button stands
+   off the notes underneath without needing a heavier border. */
+.release-revert-btn {
+  position: absolute;
+  /* bottom/right 0 anchors to the card's padding-edge (= inside of the
+     border) regardless of .release-card's padding — absolutely positioned
+     children's containing block IS the padding box of their relative
+     ancestor, so the parent's padding has no effect on these offsets.
+     Result: the button sits flush in the bottom-right corner of the card. */
+  bottom: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #1a1a1a;
+  /* Only the top-left corner is rounded; the right + bottom edges share
+     the card's own border (the card's outer border becomes the button's
+     visible right/bottom side), so explicit right/bottom borders are
+     dropped to avoid a double-line stack. */
+  border: 1px solid #2a2a2a;
+  border-right: none;
+  border-bottom: none;
+  border-radius: 6px 0 0 0;
+  color: #aaa;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.release-revert-btn:hover:not(:disabled) {
+  background: #1f1f1f;
+  border-color: #555;
+  color: #fff;
+}
+
+.release-revert-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .release-name {

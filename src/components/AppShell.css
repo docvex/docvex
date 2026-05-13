@@ -21,10 +21,79 @@
 .main-content {
   /* position:relative makes this the containing block for absolute-positioned
      children — e.g. the ProjectBanner pill that centers itself horizontally
-     over the page content. */
+     over the page content. isolation:isolate creates a stacking context so
+     the two background pseudos can sit at z-index: -1 (below children) without
+     escaping to the parent layer. */
   position: relative;
+  isolation: isolate;
   flex: 1;
   overflow-y: auto;
   padding: 2rem;
   min-width: 0;
+  background-color: #0f0f0f;
+}
+
+/* Ambient dot grid + vignette — the base "always on" layer. Same look as
+   before, just moved out of `background-image` and onto a pseudo so we can
+   stack a second (cursor-following) layer above it.
+     Layer 1 (top): radial vignette mask — transparent at center, solid
+                    #0f0f0f near edges. Fades dots out toward the corners.
+     Layer 2 (bottom): the dot pattern itself. */
+.main-content::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background-image:
+    radial-gradient(
+      ellipse 80% 70% at center,
+      transparent 0%,
+      transparent 35%,
+      #0f0f0f 90%
+    ),
+    radial-gradient(
+      circle at center,
+      rgba(255, 255, 255, 0.09) 1.2px,
+      transparent 1.6px
+    );
+  background-size: 100% 100%, 24px 24px;
+  background-position: center, center;
+}
+
+/* Cursor spotlight — a SECOND dot layer at higher opacity, masked by a
+   radial-gradient centered at (--cursor-x, --cursor-y). Pixels outside the
+   200px spotlight radius get masked to transparent, so only the base layer
+   shows. Pixels inside the radius show both layers stacked, which reads as
+   "the dots near the cursor are brighter."
+     --cursor-x / --cursor-y are written each frame by useCursorSpotlight in
+     AppShell.jsx (rAF-throttled). Fallback to 50vw/50vh so the effect is
+     visible at center on first paint, before pointermove fires.
+     The mask uses #000 0% → #000 40% → transparent 100% so there's a soft
+     falloff rather than a hard circle edge. */
+.main-content::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background-image: radial-gradient(
+    circle at center,
+    rgba(255, 255, 255, 0.05) 1.4px,
+    transparent 1.8px
+  );
+  background-size: 24px 24px;
+  background-position: center;
+  mask-image: radial-gradient(
+    circle 200px at var(--cursor-x, 50vw) var(--cursor-y, 50vh),
+    #000 0%,
+    #000 40%,
+    transparent 100%
+  );
+  -webkit-mask-image: radial-gradient(
+    circle 200px at var(--cursor-x, 50vw) var(--cursor-y, 50vh),
+    #000 0%,
+    #000 40%,
+    transparent 100%
+  );
 }

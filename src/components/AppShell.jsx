@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import UpdateProgressBar from './UpdateProgressBar';
@@ -6,6 +6,44 @@ import ProjectBanner from './ProjectBanner';
 import ProjectPickerPanel from './ProjectPickerPanel';
 import SwitchProjectLoader from './SwitchProjectLoader';
 import './AppShell.css';
+
+// Track the cursor's viewport position and publish it as CSS variables on
+// :root. The main-content::after pseudo-element reads --cursor-x / --cursor-y
+// to center its spotlight mask, brightening the ambient dot grid in a fixed
+// radius around the cursor.
+//
+// Throttled with requestAnimationFrame so we hit at most ~60Hz even on
+// trackpads/mice that fire pointermove at 1kHz. The cost is a single
+// inline-style write per frame — cheap, but skipping intermediate frames
+// avoids stacking layout invalidations.
+function useCursorSpotlight() {
+  useEffect(() => {
+    const root = document.documentElement;
+    let pendingFrame = null;
+    let lastX = 0;
+    let lastY = 0;
+
+    const apply = () => {
+      root.style.setProperty('--cursor-x', `${lastX}px`);
+      root.style.setProperty('--cursor-y', `${lastY}px`);
+      pendingFrame = null;
+    };
+
+    const onMove = (e) => {
+      lastX = e.clientX;
+      lastY = e.clientY;
+      if (pendingFrame == null) {
+        pendingFrame = requestAnimationFrame(apply);
+      }
+    };
+
+    window.addEventListener('pointermove', onMove, { passive: true });
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      if (pendingFrame != null) cancelAnimationFrame(pendingFrame);
+    };
+  }, []);
+}
 
 // Routes that operate on the currently-selected project. The banner shows on
 // these so the user always sees which project they're working in. /projects
@@ -34,6 +72,7 @@ function isProjectScopedRoute(pathname) {
 export default function AppShell() {
   const { pathname } = useLocation();
   const showBanner = isProjectScopedRoute(pathname);
+  useCursorSpotlight();
   return (
     <div className="app-shell">
       <Sidebar />
