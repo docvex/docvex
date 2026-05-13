@@ -14,7 +14,7 @@
 // script needed — the SPA reads the actual URL from window.location.
 
 import { spawnSync } from 'node:child_process';
-import { readdir, rm, mkdir, cp, copyFile, stat } from 'node:fs/promises';
+import { readdir, readFile, writeFile, rm, mkdir, cp, copyFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 
@@ -72,15 +72,49 @@ async function main() {
     console.warn(`${PREFIX} no src/favicon.ico — favicon will 404 on the deployed site`);
   }
 
+  // Root-level GitHub Pages SPA fallback. Pages only serves `404.html`
+  // at the served-folder root (here: docs/404.html). A per-subdirectory
+  // 404.html like docs/app/404.html is NOT consulted, so deep links
+  // like /app/projects or /app/invite/<token> hit the default Pages
+  // 404 page unless we put a fallback at the root.
+  //
+  // The fallback IS the SPA shell, prepended with a tiny guard script:
+  //   - For /app/* URLs: fall through so the SPA loads. Assets resolve
+  //     via the existing `<base href="/app/">` + absolute /app/assets/…
+  //     URLs in the bundle, so they load correctly regardless of the
+  //     request path. React Router (basename="/app") reads the URL and
+  //     mounts the right route.
+  //   - For any other path: redirect to the marketing root. This avoids
+  //     serving the SPA shell for typos like /marketing-typo where it
+  //     would render no useful route.
+  const rootFallback = join(root, 'docs', '404.html');
+  if (await exists(indexHtml)) {
+    console.log(`${PREFIX} writing root SPA fallback ${rootFallback}`);
+    const shell = await readFile(indexHtml, 'utf8');
+    const guardScript =
+      '<script>(function(){if(!window.location.pathname.startsWith("/app/")){window.location.replace("/");}})();</script>';
+    // Insert the guard right after the opening <head> tag so it runs
+    // before any other script. Case-insensitive replace because
+    // Vite-emitted HTML may use either <head> or <HEAD> depending on
+    // the upstream HTML processor.
+    const patched = shell.replace(/<head>/i, (match) => `${match}${guardScript}`);
+    await writeFile(rootFallback, patched, 'utf8');
+  } else {
+    console.warn(`${PREFIX} no docs/app/index.html — root SPA fallback skipped`);
+  }
+
   // Stage in git so a subsequent `git commit` pulls in the build artifacts.
   // Non-fatal — if this is run in a non-git context (preview, CI), just log.
-  const addResult = spawnSync('git', ['add', 'docs/app'], {
+  // We stage docs/app (the SPA payload) AND docs/404.html (the root-level
+  // GitHub Pages SPA fallback that lets deep links like /app/projects
+  // resolve to the SPA shell instead of GitHub's default 404 page).
+  const addResult = spawnSync('git', ['add', 'docs/app', 'docs/404.html'], {
     cwd: root,
     stdio: 'inherit',
     shell: process.platform === 'win32',
   });
   if (addResult.status !== 0) {
-    console.warn(`${PREFIX} git add docs/app exited with code ${addResult.status} — stage manually if needed`);
+    console.warn(`${PREFIX} git add docs/app docs/404.html exited with code ${addResult.status} — stage manually if needed`);
   }
 
   // Sanity print — what we shipped.

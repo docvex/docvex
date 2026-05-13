@@ -17,9 +17,15 @@ import {
 // on whichever origin the page is served from (production: docvex.ro/app,
 // dev: localhost:5174/app). Kept as a function so it picks up the current
 // origin at the time of the OAuth click rather than module-eval time.
+//
+// Web: we redirect to `/app/` (the SPA's root, which is a real file:
+// docs/app/index.html). Avoids needing GitHub Pages SPA-fallback magic
+// just for OAuth — the page loads, supabase-js's detectSessionInUrl
+// auto-exchanges the `?code=…` query param, then strips it from the URL
+// via history.replaceState. React Router then routes `/` → Dashboard.
 function getOAuthRedirectUrl() {
   if (isElectron) return 'docvex://auth/callback';
-  return `${window.location.origin}/app/auth/callback`;
+  return `${window.location.origin}/app/`;
 }
 
 const AuthContext = createContext(null);
