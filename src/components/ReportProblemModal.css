@@ -1,0 +1,320 @@
+/* ReportProblemModal — full-screen overlay for filing a bug report.
+   Reuses the shared .modal-btn / .modal-btn-cancel / .modal-btn-confirm
+   classes from ConfirmModal.css (loaded transitively via any modal that
+   mounts those rules first; we don't re-declare them here so a single
+   color tweak in ConfirmModal.css propagates everywhere). The modal's
+   own rules below cover everything that's specific to this surface:
+   the dark full-bleed backdrop, the centered card with internal scroll,
+   the attachments grid, and the inline error / size readout. */
+
+.report-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  /* Above the sidebar (z-index 50) and the SwitchProjectLoader (45) so
+     the report modal genuinely covers everything when open. */
+  z-index: 60;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 2.5rem 1rem;
+  overflow-y: auto;
+  animation: report-modal-fade 140ms ease;
+}
+
+.report-modal-card {
+  background: #131313;
+  border: 1px solid #2a2a2a;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 720px;
+  /* Card height is content-driven up to viewport-1rem; internal scroll
+     kicks in past that so the action row stays visible. */
+  max-height: calc(100vh - 5rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: report-modal-rise 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+}
+
+.report-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 1.4rem;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+}
+
+.report-modal-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.report-modal-close {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.35rem;
+  color: #888;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 150ms, color 150ms, border-color 150ms;
+}
+
+.report-modal-close:hover:not(:disabled) {
+  background: #1f1f1f;
+  color: #fff;
+  border-color: #2a2a2a;
+}
+
+.report-modal-close:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Form column. overflow-y here (not the card) keeps the header pinned
+   at the top while the user scrolls a long description / many
+   attachments. */
+.report-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 1.4rem;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.report-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.report-modal-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #c4c4c4;
+}
+
+.report-modal-required {
+  color: #f87171;
+  margin-left: 0.15rem;
+}
+
+.report-modal-optional {
+  color: #666;
+  font-weight: 400;
+  font-size: 0.78rem;
+  margin-left: 0.25rem;
+}
+
+.report-modal-input,
+.report-modal-textarea {
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 7px;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  padding: 0.55rem 0.75rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 150ms;
+}
+
+.report-modal-input::placeholder,
+.report-modal-textarea::placeholder {
+  color: #555;
+}
+
+.report-modal-input:focus,
+.report-modal-textarea:focus {
+  border-color: #6366f1;
+}
+
+.report-modal-input:disabled,
+.report-modal-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.report-modal-textarea {
+  resize: vertical;
+  min-height: 140px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+
+/* Attachments grid — auto-fits at 140px columns so the layout adapts to
+   the modal width on narrow screens (though desktop-only, the
+   re-flowable grid is cheap). */
+.report-modal-attachments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.1rem;
+}
+
+.report-modal-attachment {
+  position: relative;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* Slight glow on the auto-captured screenshot so the user notices
+     "you're sending the page behind the modal" without it being
+     ambiguous. Indigo to match the rest of the app's accent. */
+}
+
+.report-modal-attachment.is-screenshot {
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.report-modal-thumb {
+  display: block;
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+  background: #0f0f0f;
+}
+
+.report-modal-attachment-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.4rem 0.5rem;
+  min-width: 0;
+}
+
+.report-modal-attachment-name {
+  font-size: 0.75rem;
+  color: #c4c4c4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.report-modal-attachment-size {
+  font-size: 0.68rem;
+  color: #777;
+}
+
+.report-modal-attachment-remove {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 15, 15, 0.78);
+  color: #c4c4c4;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+
+.report-modal-attachment-remove:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.18);
+  color: #fca5a5;
+  border-color: rgba(220, 38, 38, 0.4);
+}
+
+.report-modal-attachment-remove:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* "+ Add" tile — same footprint as an attachment but dashed so it
+   reads as an action target rather than content. */
+.report-modal-attachment-add {
+  background: transparent;
+  border: 1px dashed #333;
+  border-radius: 8px;
+  color: #888;
+  font-family: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  /* Match the attachment tile's height so the grid row is uniform.
+     100px thumb + ~38px meta + 2px border = ~140px. */
+  min-height: 140px;
+  padding: 0.5rem;
+  transition: border-color 150ms, color 150ms, background 150ms;
+}
+
+.report-modal-attachment-add:hover:not(:disabled) {
+  border-color: #6366f1;
+  color: #c7c9ff;
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.report-modal-attachment-add:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.report-modal-attachment-add-label {
+  text-align: center;
+}
+
+/* Size readout — turns red when the total goes past the 25 MB cap so
+   the user sees why the submit button just disabled itself. */
+.report-modal-size {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: #777;
+}
+
+.report-modal-size.is-over {
+  color: #f87171;
+}
+
+.report-modal-error {
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  border-radius: 7px;
+  color: #f87171;
+  font-size: 0.85rem;
+  padding: 0.55rem 0.8rem;
+}
+
+.report-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  padding-top: 0.3rem;
+  /* sticky bottom so even on a long form the action row stays visible.
+     The form's overflow-y handles the scroll. */
+}
+
+.report-modal-actions .modal-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@keyframes report-modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes report-modal-rise {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}

@@ -11,7 +11,7 @@
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "preversion": "git diff-index --quiet HEAD -- || (echo Commit or stash changes before releasing && exit 1)",
-    "version": "node scripts/sync-readme-version.mjs",
+    "version": "node scripts/sync-readme-version.mjs && npm run web:build",
     "postversion": "node scripts/post-release.mjs",
     "release:patch": "npm version patch -m \"chore(release): %s\"",
     "release:minor": "npm version minor -m \"chore(release): %s\"",
@@ -51,6 +51,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",
     "electron-squirrel-startup": "^1.0.1",
+    "html2canvas": "^1.4.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-markdown": "^10.1.0",

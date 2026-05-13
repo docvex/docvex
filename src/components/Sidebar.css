@@ -420,6 +420,36 @@
   border-top: 1px solid #2a2a2a;
 }
 
+/* "Report a problem" — sits BELOW the Account row in the footer.
+   Inherits .nav-item visuals; the only customization is the small
+   top margin so it visually separates from the Account button
+   directly above. While capturing, the button is disabled (greyed
+   via the :disabled pseudo on .nav-item — set up below). */
+.report-problem-btn {
+  margin-top: 4px;
+}
+
+.nav-item:disabled,
+.nav-item.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* `:disabled` rows (e.g. "Report a problem" while a screen capture is
+   in flight) need to stay visible on hover so the user sees their
+   feedback. No brightening, but no fading either. Color pinned to the
+   .nav-item base (#888) so .nav-item:hover's brighter color doesn't
+   leak in via the cascade. */
+.nav-item:disabled:hover {
+  background: none;
+  color: #888;
+}
+
+/* `.is-disabled` styling for the Projects section's Files / To-dos rows
+   is defined further down the file (search ".nav-item.is-disabled" near
+   the Projects-section rules) so it overrides only what's needed without
+   duplicating the cursor/opacity here. */
+
 /* Account quick-access in footer when signed in (uses default nav-item look) */
 .account-btn {
   /* No extra rules — inherits .nav-item / .nav-item.active styles */
@@ -614,7 +644,7 @@
      state is visible regardless of cursor position. Both selection
      states get pinned to their own hover color (gold for has-selection,
      neutral for no selection). */
-  background: #262626;
+  background: #735A34;
   color: #fff;
 }
 
@@ -625,7 +655,7 @@
 /* Hover-while-open keeps the same value so moving the mouse over the
    open trigger doesn't trigger a third color step. */
 .sidebar.picker-open .project-picker-trigger:hover {
-  background: #262626;
+  background: #735A34;
 }
 
 .sidebar.picker-open .project-picker-trigger.has-selection:hover {
@@ -691,19 +721,108 @@
   line-height: 1;
 }
 
-/* Disabled nav-item — Files / To-dos when no project is selected.
-   Dimmed enough to read as "this isn't useful yet" but still clickable
-   (the JSX wires the click to open the picker, not to navigate). */
+/* Disabled nav-item — Dashboard / Files / To-dos when no project is
+   selected. Dimmed enough to read as "this isn't useful yet". The
+   click handler still wires up to togglePicker (so a misclick fast-
+   tracks to the action that resolves the disabled state), but the
+   cursor reads `not-allowed` so the dominant signal is "this is
+   gated", not "this is clickable" — paired with the cursor-following
+   "Select a project to use these features" pill.
+   Hover is intentionally a no-op visually: idle and hover render
+   identically — same color, transparent background — so the dimmed
+   state doesn't read as responsive. */
 .nav-item.is-disabled {
   color: #555;
-  cursor: pointer;
+  cursor: not-allowed;
 }
 
 .nav-item.is-disabled:hover {
-  background: #1a1a1a;
-  color: #777;
+  background: transparent;
+  color: #555;
 }
 
 .nav-item.is-disabled .icon {
   opacity: 0.5;
+}
+
+/* Wrapper around the three locked Project rows. The user moves the
+   cursor between Dashboard / Files / To-dos and we want the pill to
+   stay pinned the whole time — when each row was its own <li>, the
+   transit across the 4px inter-row gap fired mouseleave on the row
+   being exited and the pill blinked off until mouseenter on the next
+   row hit. One <li> wrapping all three buttons makes the whole
+   region a single mouse target.
+
+   Geometry preserved: this <li> inherits `padding: 2px 8px` from
+   `.sidebar-nav > li`, then `gap: 4px` between the buttons replicates
+   the 2px-bottom + 2px-top spacing that consecutive <li>s used to
+   contribute. The picker trigger row above this is untouched, so the
+   gap between it and Dashboard is identical to before. `not-allowed`
+   on the wrapper itself ensures the X cursor shows even when the
+   pointer is in the gap rather than on a button. */
+.locked-projects-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: not-allowed;
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+   Locked-features cursor pill.
+   Shown while hovering Projects-section nav items (Dashboard / Files /
+   To-dos) with no project selected. Position is driven by an inline
+   `transform: translate(x, y)` updated on every mousemove — top:0/left:0
+   anchor it to the viewport origin so the transform values map 1:1 to
+   cursor coordinates (cleaner math than offsetting from any other
+   origin). `position: fixed` keeps it stable while the page scrolls.
+
+   Rendered via React portal at document.body level — see the createPortal
+   call in Sidebar.jsx for why (the sidebar's `contain: layout` would
+   otherwise clip a fixed-position descendant to the sidebar column).
+
+   `pointer-events: none` is critical: without it, the pill's box would
+   eat the very `mousemove`/`mouseleave` events it depends on — moving
+   the cursor over the pill itself would fire mouseleave on the row
+   below, the pill state would clear, the pill would disappear, the row
+   would receive mousemove again, the pill would re-appear in a slightly
+   different position, and the cycle would jitter.
+   ─────────────────────────────────────────────────────────────────────── */
+.locked-features-hint {
+  position: fixed;
+  top: 0;
+  left: 0;
+  /* Above the sidebar (z-index:50) and the ProjectPickerDrawer (z-index:40)
+     so the pill is never partially occluded by the surfaces it explains. */
+  z-index: 10000;
+  pointer-events: none;
+  /* Pill shape — fully rounded ends, padding tuned for a single-line
+     message at the body's font-size. white-space:nowrap so the text
+     doesn't wrap into two lines as the cursor traverses the viewport. */
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #1f1f1f;
+  border: 1px solid #2a2a2a;
+  color: #e0e0e0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-family: inherit;
+  white-space: nowrap;
+  line-height: 1.2;
+  /* Drop shadow lifts the pill off the page so it reads as a floating
+     overlay rather than part of the nearest panel — same shadow recipe
+     the modal cards use, scaled down. */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  /* Brief fade-in keeps the appearance from popping abruptly when the
+     cursor first enters a disabled row. No exit animation — the pill
+     unmounts on mouseleave, which is fine for a transient affordance. */
+  animation: locked-features-hint-in 120ms ease-out;
+  /* will-change hints the compositor to keep the pill on its own layer
+     so the per-mousemove transform update is a paint-free composite step
+     rather than a layout/paint cycle. */
+  will-change: transform;
+}
+
+@keyframes locked-features-hint-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }

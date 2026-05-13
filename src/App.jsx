@@ -1,5 +1,5 @@
-import React, { lazy, Suspense, useEffect } from 'react';
-import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import React, { lazy, Suspense, useEffect, useRef } from 'react';
+import { Routes, Route, Navigate, Outlet, useMatch } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { useSelectedProject } from './context/SelectedProjectContext';
@@ -20,6 +20,7 @@ const ProjectCreate = lazy(() => import('./pages/Projects/ProjectCreate'));
 const ProjectOverview = lazy(() => import('./pages/Projects/ProjectOverview'));
 const ProjectDashboard = lazy(() => import('./pages/Projects/ProjectDashboard'));
 const ProjectFiles = lazy(() => import('./pages/Projects/ProjectFiles'));
+const ProjectClients = lazy(() => import('./pages/Projects/ProjectClients'));
 const ProjectTodos = lazy(() => import('./pages/Projects/ProjectTodos'));
 const InviteAccept = lazy(() => import('./pages/Projects/InviteAccept'));
 
@@ -44,20 +45,44 @@ function ProtectedRoute() {
   return session ? <Outlet /> : <Navigate to="/auth" replace />;
 }
 
-// Mirrors `useProject().project.id` into SelectedProjectContext so that
-// landing on any /projects/:projectId route (Overview, Dashboard, …) makes
-// that project the user's working project — keeps the sidebar's Projects
-// picker in sync with whatever the user is viewing, including deep-links and
-// OAuth-resume navigations. Pulled out of the page components so both share
-// one effect at the shell level.
+// Mirrors `useProject().project.id` into SelectedProjectContext when the
+// user is on the /dashboard sub-route — the "working in this project"
+// surface. Browsing a project's Overview (/projects/:id) is intentionally
+// non-mutating: it's read-only management, so it shouldn't hijack the
+// sidebar's selection. The picker (ProjectPickerPanel) sets the selection
+// explicitly before navigating to /dashboard, so the picker → dashboard
+// flow still works without relying on the auto-select here. Deep-links
+// and refreshes directly to /dashboard still resolve correctly because
+// this effect fires on that route.
+//
+// Two timing races we defend against:
+//   1. "Select no project" → picker calls clearSelection() then navigate('/').
+//      The state change and URL change batch together, but the effect can
+//      re-run with the new selectedProjectId=null while useMatch / the
+//      ProjectShell unmount haven't caught up, which would re-select the
+//      project right after the user explicitly cleared it. prevSelectedRef
+//      below detects the "had-a-selection → null" transition and bails.
+//   2. Switching projects (abc → def) via the picker: ProjectProvider's
+//      `project` state doesn't reset on projectId change — it stays at the
+//      old abc-row until getProject(def) resolves. Acting on that stale
+//      project.id would briefly flip selectedProjectId back to 'abc'. We
+//      gate on projectLoading so the auto-select waits for the fetch to
+//      settle before reading project.id.
 function ProjectAutoSelect() {
-  const { project } = useProject();
+  const { project, loading: projectLoading } = useProject();
   const { selectedProjectId, selectProject } = useSelectedProject();
+  const onDashboard = useMatch('/projects/:projectId/dashboard');
+  const prevSelectedRef = useRef(selectedProjectId);
   useEffect(() => {
+    const prev = prevSelectedRef.current;
+    prevSelectedRef.current = selectedProjectId;
+    if (!onDashboard) return;
+    if (projectLoading) return;       // wait for the in-flight fetch (race 2)
+    if (prev && !selectedProjectId) return; // user just deselected (race 1)
     if (project?.id && project.id !== selectedProjectId) {
       selectProject(project.id);
     }
-  }, [project?.id, selectedProjectId, selectProject]);
+  }, [onDashboard, projectLoading, project?.id, selectedProjectId, selectProject]);
   return null;
 }
 
@@ -107,6 +132,7 @@ export default function App() {
                 active. If no project is selected, these pages prompt the user
                 to pick one from /projects. */}
             <Route path="files" element={<ProjectFiles />} />
+            <Route path="clients" element={<ProjectClients />} />
             <Route path="todos" element={<ProjectTodos />} />
           </Route>
         </Route>

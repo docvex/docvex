@@ -49,7 +49,11 @@ export default function RoleLocked({ locked, requiredRole, children }) {
         {children}
       </div>
       <div className="role-locked-overlay" role="note">
-        <span className="role-locked-badge">
+        {/* role-locked-badge-<role> variants tint the border + icon + role
+            name in the same colors used by the role pills on the
+            ProjectDashboard / Overview pages, so the badge reads as a
+            sibling of those pills rather than a generic gate. */}
+        <span className={`role-locked-badge role-locked-badge-${requiredRole}`}>
           {LockIcon}
           <span>
             This feature is <strong>{requiredRole}</strong> only

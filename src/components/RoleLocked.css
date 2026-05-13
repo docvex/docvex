@@ -81,3 +81,43 @@
   flex-shrink: 0;
   color: #888;
 }
+
+/* ── Per-role color variants ──────────────────────────────────────────────
+   Border + icon + role-name color match the role pills in
+   ProjectDashboard.css (`.project-dashboard-role.role-*`). Background stays
+   the solid dark base from .role-locked-badge above so the pill remains
+   legible over the blurred content + the dim overlay underneath — adding a
+   translucent tint there would either disappear into the overlay or wash
+   out the text. */
+
+.role-locked-badge-owner {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+.role-locked-badge-owner svg,
+.role-locked-badge-owner strong {
+  color: #f59e0b;
+}
+
+.role-locked-badge-admin {
+  border-color: rgba(99, 102, 241, 0.45);
+}
+.role-locked-badge-admin svg,
+.role-locked-badge-admin strong {
+  color: #6366f1;
+}
+
+.role-locked-badge-member {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.role-locked-badge-member svg,
+.role-locked-badge-member strong {
+  color: #c4c4c4;
+}
+
+.role-locked-badge-viewer {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.role-locked-badge-viewer svg,
+.role-locked-badge-viewer strong {
+  color: #888;
+}
