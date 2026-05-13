@@ -19,10 +19,38 @@ import { dirname, resolve } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8'));
 
+// Vite (with rollup) preserves the source HTML filename verbatim in the
+// output, regardless of whether you pass `input` as a string or as an
+// object map. We need the deployed file to be named `index.html` (the
+// only basename GitHub Pages auto-serves as a directory default — any
+// other name results in a 404 at /app/) so we rewrite the emitted asset
+// name in generateBundle. Mirrors the copyMainIcon pattern in
+// vite.main.config.mjs.
+function renameHtmlEntry() {
+  return {
+    name: 'docvex-rename-web-html',
+    enforce: 'post',
+    generateBundle(_options, bundle) {
+      const keys = Object.keys(bundle);
+      const htmlKey = keys.find((k) => k.endsWith('index.web.html'));
+      if (!htmlKey) {
+        console.warn(`[rename-web-html] no index.web.html in bundle; keys: ${keys.join(', ')}`);
+        return;
+      }
+      const asset = bundle[htmlKey];
+      const DEST = 'index.html';
+      asset.fileName = DEST;
+      bundle[DEST] = asset;
+      delete bundle[htmlKey];
+      console.log(`[rename-web-html] ${htmlKey} → ${DEST}`);
+    },
+  };
+}
+
 export default defineConfig({
   root: '.',
   base: '/app/',
-  plugins: [react()],
+  plugins: [react(), renameHtmlEntry()],
   build: {
     outDir: 'dist-web',
     emptyOutDir: true,

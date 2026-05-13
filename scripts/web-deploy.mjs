@@ -56,6 +56,22 @@ async function main() {
     console.warn(`${PREFIX} no index.html in dist-web — SPA fallback skipped`);
   }
 
+  // Copy the favicon. Electron's renderer build has its own Forge-side
+  // plugin (vite.main.config.mjs's copyMainIcon) that handles the icon
+  // for the main process; the web Vite config has no equivalent, so the
+  // built dist-web/ doesn't include favicon.ico. The HTML entry
+  // (index.web.html) references /app/favicon.ico — copying it here
+  // satisfies that reference so the deployed site shows the app icon
+  // in the browser tab instead of the host's default.
+  const faviconSrc = join(root, 'src', 'favicon.ico');
+  const faviconDest = join(DEST, 'favicon.ico');
+  if (await exists(faviconSrc)) {
+    console.log(`${PREFIX} copying favicon ${faviconSrc} → ${faviconDest}`);
+    await copyFile(faviconSrc, faviconDest);
+  } else {
+    console.warn(`${PREFIX} no src/favicon.ico — favicon will 404 on the deployed site`);
+  }
+
   // Stage in git so a subsequent `git commit` pulls in the build artifacts.
   // Non-fatal — if this is run in a non-git context (preview, CI), just log.
   const addResult = spawnSync('git', ['add', 'docs/app'], {
