@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import * as platform from '../lib/platform';
 
 const UpdatesContext = createContext(null);
 
@@ -148,34 +149,30 @@ export function UpdatesProvider({ children }) {
   // One-time bootstrap: current version, packaged flag, release list, status sub.
   useEffect(() => {
     let cancelled = false;
-    let unsubscribe = null;
 
     (async () => {
       try {
-        if (window.electronAPI?.getAppVersion) {
-          const v = await window.electronAPI.getAppVersion();
-          if (!cancelled) setCurrentVersion(v);
-        }
-        if (window.electronAPI?.isPackaged) {
-          const p = await window.electronAPI.isPackaged();
-          if (!cancelled) setIsPackaged(p);
-        }
+        const v = await platform.getAppVersion();
+        if (!cancelled) setCurrentVersion(v);
+        const p = await platform.isPackaged();
+        if (!cancelled) setIsPackaged(p);
       } catch {
-        /* preload missing — fall back to no version */
+        /* adapter / IPC missing — fall back to no version */
       }
     })();
 
-    if (window.electronAPI?.onUpdateStatus) {
-      unsubscribe = window.electronAPI.onUpdateStatus((payload) => {
-        setInstallerState(payload);
-      });
-    }
+    // Subscribe to autoUpdater lifecycle events. On web this is a no-op
+    // unsubscribe — installerState stays at 'idle' for the page's lifetime,
+    // which is what the web build wants (no installer surface).
+    const unsubscribe = platform.onUpdateStatus((payload) => {
+      setInstallerState(payload);
+    });
 
     fetchReleases();
 
     return () => {
       cancelled = true;
-      if (unsubscribe) unsubscribe();
+      unsubscribe();
     };
   }, [fetchReleases]);
 
@@ -201,22 +198,15 @@ export function UpdatesProvider({ children }) {
       // Manual "Check now" — always hit GitHub. The MIN_VISIBLE_MS floor
       // above still keeps the spinner up long enough to read.
       await fetchReleases({ force: true });
-      if (window.electronAPI?.checkForUpdates) {
-        const s = await window.electronAPI.checkForUpdates();
-        await finishAfterMinDelay();
-        if (s?.state === 'dev') {
-          // No autoUpdater events will follow in dev — clear the spinner
-          // ourselves so the UI quiesces instead of getting stuck on 'checking'.
-          setInstallerState({ state: 'idle' });
-        }
-        // In packaged builds the subsequent autoUpdater events (checking →
-        // downloading/up-to-date/error) drive installerState via the
-        // update:status subscription, so we deliberately don't overwrite with
-        // the IPC return value here. If those events arrived during the
-        // min-delay wait, they've already updated installerState past
-        // 'checking'; if not, it stays on 'checking' until they do.
-      } else {
-        await finishAfterMinDelay();
+      const s = await platform.checkForUpdates();
+      await finishAfterMinDelay();
+      // On Electron dev (state: 'dev') and on the web build (state: 'web')
+      // no autoUpdater events will follow — clear the spinner ourselves so
+      // the UI quiesces instead of getting stuck on 'checking'. Packaged
+      // Electron builds short-circuit on this branch: their checkForUpdates
+      // returns a different shape and the autoUpdater status subscription
+      // drives installerState past 'checking' via update:status events.
+      if (s?.state === 'dev' || s?.state === 'web') {
         setInstallerState({ state: 'idle' });
       }
     } catch {
@@ -226,7 +216,7 @@ export function UpdatesProvider({ children }) {
   }, [fetchReleases]);
 
   const installUpdate = useCallback(() => {
-    window.electronAPI?.installUpdate?.();
+    platform.installUpdate();
   }, []);
 
   const value = {

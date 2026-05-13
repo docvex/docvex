@@ -90,3 +90,7 @@ typings/
 
 # Electron-Forge
 out/
+
+# Web build intermediate output — the deploy script copies the final
+# artifacts into docs/app/ (committed), so the staging dir is ignored.
+dist-web/

@@ -3,7 +3,13 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useUpdates, versionTagFor } from '../context/UpdatesContext';
 import ConfirmModal from '../components/ConfirmModal';
+import { isElectron, openExternal as platformOpenExternal } from '../lib/platform';
 import './Updates.css';
+
+// URL shown to web users in the "Get the desktop app" CTA. Linking to the
+// marketing site (not directly to a release asset) so the user lands on
+// the install/download page that already exists.
+const DESKTOP_DOWNLOAD_URL = 'https://docvex.ro/';
 
 function formatDate(iso) {
   if (!iso) return '';
@@ -86,11 +92,32 @@ function setupAssetFor(release) {
 
 function openExternal(e, url) {
   e.preventDefault();
-  if (window.electronAPI?.openExternal) {
-    window.electronAPI.openExternal(url);
-  } else {
-    window.open(url, '_blank');
-  }
+  platformOpenExternal(url);
+}
+
+// Web-only banner. The Electron install/restart UI doesn't apply on the
+// web build — show release-notes context plus a CTA back to the desktop
+// download page. Doubles as cross-promotion.
+function DesktopAppBanner() {
+  const { latestVersion } = useUpdates();
+  return (
+    <div className="updates-banner updates-banner-update">
+      <div>
+        <strong>Get the desktop app{latestVersion ? ` — v${latestVersion}` : ''}</strong>
+        <p>
+          Docvex's desktop build for Windows installs locally, runs offline,
+          and auto-updates in the background. Release notes for the desktop
+          builds are below.
+        </p>
+      </div>
+      <button
+        className="updates-btn updates-btn-primary"
+        onClick={(e) => openExternal(e, DESKTOP_DOWNLOAD_URL)}
+      >
+        {DownloadIcon} Download for Windows
+      </button>
+    </div>
+  );
 }
 
 function StatusBanner() {
@@ -106,6 +133,14 @@ function StatusBanner() {
     checkNow,
     installUpdate,
   } = useUpdates();
+
+  // Web build: no installer state to manage. Render the cross-promotion
+  // CTA instead and let the release-notes section below handle the
+  // changelog. Errors and the initial-loading state still fall through to
+  // the desktop branch (they're useful signal on both targets).
+  if (!isElectron && !loading && !error) {
+    return <DesktopAppBanner />;
+  }
 
   if (loading && releases.length === 0) {
     return <div className="updates-banner updates-banner-info">Checking GitHub for releases…</div>;
@@ -196,10 +231,8 @@ export default function Updates() {
   const cancelRevert = () => setPendingRevert(null);
   const confirmRevert = () => {
     const setup = setupAssetFor(pendingRevert);
-    if (setup?.browser_download_url && window.electronAPI?.openExternal) {
-      window.electronAPI.openExternal(setup.browser_download_url);
-    } else if (setup?.browser_download_url) {
-      window.open(setup.browser_download_url, '_blank');
+    if (setup?.browser_download_url) {
+      platformOpenExternal(setup.browser_download_url);
     }
     setPendingRevert(null);
   };
@@ -291,8 +324,11 @@ export default function Updates() {
                   the Squirrel installer; the user runs it manually.
                   Caveat surfaced via title attr: update-electron-app will
                   re-pull the latest release on next launch — this is for
-                  ad-hoc testing of older builds, not a long-term pin. */}
-              {!isCurrent && (() => {
+                  ad-hoc testing of older builds, not a long-term pin.
+                  Hidden on web — web users have no local install to
+                  roll back; the top-of-page CTA already covers their
+                  "download the desktop app" path. */}
+              {isElectron && !isCurrent && (() => {
                 const setup = setupAssetFor(release);
                 // Button is position: absolute (see .release-revert-btn in
                 // Updates.css) so it floats over the card's bottom-right

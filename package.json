@@ -18,6 +18,9 @@
     "release:major": "npm version major -m \"chore(release): %s\"",
     "release:status": "git status --short && git log -1 --oneline",
     "release:notes": "node scripts/generate-release-notes.mjs",
+    "web:dev": "vite --config vite.web.config.mjs --mode web",
+    "web:build": "vite build --config vite.web.config.mjs --mode web && node scripts/web-deploy.mjs",
+    "web:preview": "vite preview --config vite.web.config.mjs --outDir dist-web",
     "lint": "echo \"No linting configured\""
   },
   "keywords": [],

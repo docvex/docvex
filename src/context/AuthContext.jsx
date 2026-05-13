@@ -4,6 +4,23 @@ import { supabase } from '../lib/supabaseClient';
 import { isNotificationsStorageKey } from '../lib/notifications';
 import { deleteAllForUser as deleteAllNotificationsForUser } from '../lib/notificationsRepo';
 import { PENDING_INVITE_TOKEN_KEY } from '../pages/Projects/InviteAccept';
+import {
+  isElectron,
+  onDeepLink,
+  getStartupDeepLink,
+  onAccountSwitch,
+  openOAuthUrl,
+} from '../lib/platform';
+
+// Pick the OAuth callback URL based on which build is running. Electron
+// uses the custom protocol the OS routes to main; web uses an HTTPS path
+// on whichever origin the page is served from (production: docvex.ro/app,
+// dev: localhost:5174/app). Kept as a function so it picks up the current
+// origin at the time of the OAuth click rather than module-eval time.
+function getOAuthRedirectUrl() {
+  if (isElectron) return 'docvex://auth/callback';
+  return `${window.location.origin}/app/auth/callback`;
+}
 
 const AuthContext = createContext(null);
 
@@ -110,58 +127,55 @@ export function AuthProvider({ children }) {
       }
     };
 
-    let unsubscribeAccountSwitch = null;
-    if (window.electronAPI) {
-      window.electronAPI.onOAuthCallback(handleDeepLinkUrl);
-      // Pull any docvex:// URL that arrived on the command line at COLD
-      // start — the `oauth:callback-url` event fires only on subsequent
-      // launches (via second-instance), so a fresh first launch with a URL
-      // in argv would otherwise drop it. Safe to call when nothing is
-      // pending: main returns null and this is a no-op. The handle is
-      // one-shot on the main side, so a StrictMode double-mount can't
-      // process the same URL twice.
-      if (typeof window.electronAPI.getStartupDeepLink === 'function') {
-        window.electronAPI.getStartupDeepLink().then((url) => {
-          if (url) handleDeepLinkUrl(url);
-        }).catch(() => { /* non-fatal — IPC may not be wired in older builds */ });
-      }
-      // Dev-only "Account" menu wiring. The menu item's click handler in
-      // main.js sends { email, password? } here; we sign out of the current
-      // session, stash the credentials so AuthPage can prefill them on the
-      // next render, and hard-reload so every in-memory context (project,
-      // notifications, selected project) drops its previous-user data
-      // instead of leaking it into the next session.
-      if (typeof window.electronAPI.onAccountSwitch === 'function') {
-        unsubscribeAccountSwitch = window.electronAPI.onAccountSwitch(async (payload) => {
-          // Tolerate the older string-only payload shape for forward-compat
-          // during dev: { email, password } today, or just an email string
-          // if someone hand-fires the IPC.
-          const email = typeof payload === 'string' ? payload : payload?.email;
-          const password = typeof payload === 'object' ? payload?.password : null;
-          if (!email) return;
-          try {
-            sessionStorage.setItem('docvex.prefillEmail', email);
-            if (password) {
-              sessionStorage.setItem('docvex.prefillPassword', password);
-            } else {
-              sessionStorage.removeItem('docvex.prefillPassword');
-            }
-          } catch { /* private mode */ }
-          // Best-effort sign-out before the reload — even if it errors
-          // (offline, expired token), the reload clears in-memory state
-          // and supabase-js will treat the next mount as signed-out.
-          try { await supabase.auth.signOut(); } catch { /* non-fatal */ }
-          window.location.reload();
-        });
-      }
-    }
+    // Subscribe to deep-link URLs the OS routes back to the app. On web
+    // the adapter returns a no-op unsubscribe — deep links on web arrive
+    // as browser navigations and are handled by BrowserRouter.
+    const unsubscribeDeepLink = onDeepLink(handleDeepLinkUrl);
+
+    // Pull any docvex:// URL that arrived on the command line at COLD
+    // start — the `oauth:callback-url` event fires only on subsequent
+    // launches (via second-instance), so a fresh first launch with a URL
+    // in argv would otherwise drop it. Safe to call when nothing is
+    // pending: the adapter returns null on web and main returns null on
+    // Electron when nothing is queued. The handle is one-shot on the main
+    // side, so a StrictMode double-mount can't process the same URL twice.
+    getStartupDeepLink().then((url) => {
+      if (url) handleDeepLinkUrl(url);
+    });
+
+    // Dev-only "Account" menu wiring. On web this is a no-op (no native
+    // menu). On Electron the menu item's click handler in main.js sends
+    // { email, password? } here; we sign out of the current session,
+    // stash the credentials so AuthPage can prefill them on the next
+    // render, and hard-reload so every in-memory context (project,
+    // notifications, selected project) drops its previous-user data
+    // instead of leaking it into the next session.
+    const unsubscribeAccountSwitch = onAccountSwitch(async (payload) => {
+      // Tolerate the older string-only payload shape for forward-compat
+      // during dev: { email, password } today, or just an email string
+      // if someone hand-fires the IPC.
+      const email = typeof payload === 'string' ? payload : payload?.email;
+      const password = typeof payload === 'object' ? payload?.password : null;
+      if (!email) return;
+      try {
+        sessionStorage.setItem('docvex.prefillEmail', email);
+        if (password) {
+          sessionStorage.setItem('docvex.prefillPassword', password);
+        } else {
+          sessionStorage.removeItem('docvex.prefillPassword');
+        }
+      } catch { /* private mode */ }
+      // Best-effort sign-out before the reload — even if it errors
+      // (offline, expired token), the reload clears in-memory state
+      // and supabase-js will treat the next mount as signed-out.
+      try { await supabase.auth.signOut(); } catch { /* non-fatal */ }
+      window.location.reload();
+    });
 
     return () => {
       subscription.unsubscribe();
-      if (window.electronAPI) {
-        window.electronAPI.removeOAuthListener();
-      }
-      if (unsubscribeAccountSwitch) unsubscribeAccountSwitch();
+      unsubscribeDeepLink();
+      unsubscribeAccountSwitch();
     };
   }, [navigate]);
 
@@ -175,13 +189,20 @@ export function AuthProvider({ children }) {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: 'docvex://auth/callback',
-        skipBrowserRedirect: true,
+        redirectTo: getOAuthRedirectUrl(),
+        // Electron: hand the URL off to the OS browser ourselves so the
+        // OAuth tab doesn't open inside the BrowserWindow.
+        // Web: let supabase-js do the full-page redirect — that's the
+        // standard browser OAuth flow and lets detectSessionInUrl pick
+        // up the response on /app/auth/callback.
+        skipBrowserRedirect: isElectron,
       },
     });
     if (error) throw error;
-    if (data?.url && window.electronAPI) {
-      window.electronAPI.openOAuthUrl(data.url);
+    // On Electron we get a URL back to open externally. On web supabase-js
+    // has already navigated by this point.
+    if (data?.url && isElectron) {
+      openOAuthUrl(data.url);
     }
   };
 
@@ -200,13 +221,13 @@ export function AuthProvider({ children }) {
     const { data, error } = await supabase.auth.linkIdentity({
       provider: 'google',
       options: {
-        redirectTo: 'docvex://auth/callback',
-        skipBrowserRedirect: true,
+        redirectTo: getOAuthRedirectUrl(),
+        skipBrowserRedirect: isElectron,
       },
     });
     if (error) throw error;
-    if (data?.url && window.electronAPI) {
-      window.electronAPI.openOAuthUrl(data.url);
+    if (data?.url && isElectron) {
+      openOAuthUrl(data.url);
     }
   };
 

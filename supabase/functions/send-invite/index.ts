@@ -153,20 +153,18 @@ Deno.serve(async (req: Request) => {
     ?? (user.user_metadata as Record<string, unknown> | null)?.name as string
     ?? inviterEmail;
 
-  // Two URLs:
-  //   bouncerLink — https://… (clickable in Gmail/Outlook). Loads a
-  //     static page that immediately redirects to deepLink. THE PRIMARY
-  //     CTA in the email.
-  //   deepLink   — docvex://… (custom scheme; Gmail won't linkify it
-  //     and may even strip the href). Included only as plain-text
-  //     fallback for the rare client that does honor custom protocols.
-  const deepLink = `docvex://invite?token=${token}`;
+  // Single URL in the email: the https bouncer page. The bouncer itself
+  // tries the docvex:// custom protocol first, falls back to the web app
+  // (docvex.ro/app/invite/<token>) if the OS doesn't dispatch within
+  // ~1.5s. This means one link works for desktop users (protocol
+  // handoff) AND web users (graceful fallback) without the email
+  // needing two CTAs.
   const bouncerLink = `${INVITE_BOUNCER_URL}?token=${token}`;
   const subject = `${inviterName} invited you to ${projectName}`;
   const text =
     `${inviterName} (${inviterEmail}) invited you to join "${projectName}" on Docvex as a ${inviteRole}.\n\n` +
     `Accept the invitation:\n${bouncerLink}\n\n` +
-    `If the link above doesn't open Docvex, paste this directly into the app's address bar:\n${deepLink}\n\n` +
+    `The link opens the Docvex desktop app if you have it installed, or the web app otherwise.\n\n` +
     `Don't have Docvex installed yet? Get it from https://docvex.ro\n\n` +
     `This invitation expires in 7 days.`;
   const html =
@@ -182,7 +180,7 @@ Deno.serve(async (req: Request) => {
     `<p style="color:#666;font-size:0.85em">` +
       `If the button above doesn't work, open ` +
       `<a href="${bouncerLink}">${bouncerLink}</a> ` +
-      `in your browser — it'll hand off to the Docvex desktop app.` +
+      `in your browser — it'll open the desktop app if you have it installed, or the web app otherwise.` +
     `</p>` +
     `<p style="color:#888;font-size:0.8em;margin-top:24px;padding-top:16px;border-top:1px solid #eee">` +
       `Don't have Docvex yet? <a href="https://docvex.ro">Download for Windows</a>. ` +

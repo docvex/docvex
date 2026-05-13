@@ -30,6 +30,7 @@ import {
 import { useAuthNotificationSource } from '../notifications/sources/useAuthNotificationSource';
 import { useUpdateNotificationSource } from '../notifications/sources/useUpdateNotificationSource';
 import { useSocialNotificationSource } from '../notifications/sources/useSocialNotificationSource';
+import * as platform from '../lib/platform';
 
 const NotificationsContext = createContext(null);
 
@@ -285,11 +286,12 @@ export function NotificationsProvider({ children }) {
 
     // OS-level escalation (v2 scaffolding). Only fires when window is hidden
     // and only via channels that already exist (no permission prompts here).
+    // Two layers: the platform adapter (Electron IPC if/when wired; web no-op)
+    // and a web-browser Notification API fallback when permission was already
+    // granted out-of-band. Neither path prompts the user.
     if (fresh.osLevel && typeof document !== 'undefined' && document.hidden) {
-      const showOS = window.electronAPI?.showOSNotification;
-      if (typeof showOS === 'function') {
-        try { showOS({ title: fresh.title, body: fresh.body || '' }); } catch { /* ignore */ }
-      } else if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try { platform.showOSNotification({ title: fresh.title, body: fresh.body || '' }); } catch { /* ignore */ }
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         try { new Notification(fresh.title, { body: fresh.body || '' }); } catch { /* ignore */ }
       }
     }
