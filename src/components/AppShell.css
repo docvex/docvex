@@ -33,6 +33,70 @@
   background-color: var(--bg-page);
 }
 
+/* Project-scoped routes drop the .main-content padding so the inner
+   .project-page-frame can carry it instead. Without this override the
+   frame would sit inside an extra 2rem ring of page-bg, breaking the
+   "sheet flush under the banner" look. */
+.main-content--has-banner {
+  padding: 0;
+}
+
+/* Inner sheet that wraps page content on project-scoped routes. Sits
+   ON TOP of the gold "working in" banner's padding-bottom strip with
+   rounded top corners â€” so the corner cut-aways reveal the gold band
+   behind, and the panel's transparent interior lets the page-bg dot
+   grid + cursor spotlight show through below the banner-bottom.
+
+   margin-top: 1.85rem lines the panel's top edge up with the bottom of
+   the banner's TEXT (banner text uses the original 0.25rem+1.35rem+0.25rem
+   stack â‰ˆ 1.85rem). The banner's extended padding-bottom (1.375rem) plus
+   that 1.85rem text band gives a ~3rem-tall gold backdrop â€” enough for
+   the 18px corner radius to land entirely within the gold strip, so the
+   cut-aways read as "gold visible through the rounded cut" rather than
+   bleeding into the dot grid below.
+
+   bg: transparent (was --bg-card) lets the dot grid + cursor spotlight
+   on .main-content::before/::after stay visible inside the panel. The
+   rounded top corners are still visible because the gold banner behind
+   contrasts cleanly with the dot-grid area below â€” the curve traces
+   the transition from gold (above) to dot-grid (below). */
+.project-page-frame {
+  position: relative;
+  z-index: 2;
+  /* 2.35rem = banner's padding-top (0.5rem) + banner's text height
+     (1.35rem at line-height:1.5) + 0.5rem of breathing room below the
+     text. The panel's top edge lines up just below the banner text, and
+     the banner's 1.625rem padding-bottom (= 0.5rem buffer + 1.125rem
+     corner-radius) extends the gold strip far enough for the panel's
+     rounded corners to cut into without overshooting into page-bg.
+     Net effect: text sits at the visual center of the FULL-WIDTH gold
+     band (y=0..2.35rem) rather than at the geometric center of the
+     entire banner box. */
+  margin-top: 2.35rem;
+  /* Two-stop linear gradient creates the rounded "lip" effect:
+       0 → 1.125rem (top 18px, corner-radius height): opaque --bg-page.
+                    The border-radius clips this fill to the rounded
+                    shape, so the cut-away wedges in the top-left/top-
+                    right corners reveal the gold banner behind.
+       1.125rem → bottom: transparent. Lets the page-bg dot grid and
+                    cursor spotlight (.main-content::before/::after) show
+                    through inside the panel.
+     A pure transparent bg wouldn't work — the rounded curve would be
+     invisible because both inside and outside the curve would render the
+     same banner gold. The opaque strip at the top is what gives the
+     curve a contrasting edge that traces the panel's corner shape. */
+  background: linear-gradient(
+    to bottom,
+    var(--bg-page) 0,
+    var(--bg-page) 1.125rem,
+    transparent 1.125rem
+  );
+  border-radius: 18px 18px 0 0;
+  padding: 2rem;
+  min-height: calc(100% - 2.35rem);
+  box-sizing: border-box;
+}
+
 /* Ambient dot grid + vignette â€” the base "always on" layer. Same look as
    before, just moved out of `background-image` and onto a pseudo so we can
    stack a second (cursor-following) layer above it.

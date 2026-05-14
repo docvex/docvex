@@ -139,12 +139,14 @@
 }
 
 .brand-icon-img {
-  /* Locked at 36px in every sidebar state â€” the brand mark is the visual
-     anchor of the app, kept at one size so it doesn't dance on every
-     hover/lock. The brand row's 14px right padding is what gets
-     compromised when the sidebar collapses to 60px; that's a deliberate
-     tradeoff for keeping the logo presence consistent. */
-  width: 36px;
+  /* 24px in every sidebar state â€” matches the .nav-item .icon column
+     width below (left 18px â†’ right 42px from the sidebar's outer edge),
+     so the logo's left and right edges align vertically with every nav
+     icon. The previous 36px overran the nav-icon column by 12px on the
+     right, which read as the logo "floating" against an offset column
+     in the collapsed sidebar. Locked at one size so it doesn't dance on
+     every hover/lock toggle. */
+  width: 24px;
   aspect-ratio: 1/1;
   /* `contain` so the image isn't cropped if it has padding or non-square
      subject; the brand mark stays centered in the sidebar's icon slot. */
@@ -251,9 +253,13 @@
 }
 
 .lock-btn.is-locked:hover {
-  /* Lighter gold for the active hover â€” same lightness shift the indigo
-     pair used (var(--accent) â†’ var(--accent-hover)). */
-  color: var(--accent-soft);
+  /* Same accent as idle (var(--accent)) just slightly darkened â€” the
+     previous var(--accent-soft) swap flipped to a different color
+     entirely (sand on Cream / cognac on Ink), which read as a hue
+     change rather than a press feedback. color-mix toward black keeps
+     the hue locked and only nudges the lightness down by ~18%, giving
+     the hover the "same color, pressed" feel the user asked for. */
+  color: color-mix(in srgb, var(--accent), black 18%);
 }
 
 /* Nav list */
@@ -282,16 +288,13 @@
   transition: max-height 250ms ease, padding 250ms ease;
 }
 
-.sidebar:not(:hover):not(.locked):not(.picker-open) .sidebar-section-header {
-  /* :not(.picker-open) added so that when the picker is open and the user
-     moves the mouse out of the sidebar (into the picker panel), the
-     PERSONAL / PROJECTS section headers don't collapse. The sidebar's
-     width and labels are already held open by .picker-open elsewhere;
-     this rule needed the same predicate to stay consistent. */
-  max-height: 0;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-}
+/* Section headers intentionally keep their full vertical footprint in the
+   minimized sidebar (max-height + padding inherited from the base rule
+   above). Only the label TEXT fades to opacity 0 via the global .sidebar
+   .label rule â€” the row itself still occupies its ~34px slot. That's
+   what keeps every nav-item icon below at the same Y-coordinate in both
+   minimized and maximized modes; collapsing the headers would pack the
+   icons together and break vertical alignment between the two states. */
 
 /* The first section header doesn't need extra top spacing â€” the sidebar-nav
    padding (8px) already separates it from the brand row's bottom border. */
@@ -600,13 +603,20 @@
   width: 100%;
   margin: 2px 0;
   padding: 9px 12px;
-  /* Shared surface color with the picker panel â€” see
-     .project-picker-panel below. The two read as one continuous block
-     once the panel slides out. */
-  background: var(--bg-elevated);
+  /* The visible surface is painted by the ::before pseudo â€” NOT by the
+     button itself â€” so a single rect can MORPH between two shapes:
+       â€¢ Maximized: ::before fills the button (full var(--border) rect).
+       â€¢ Minimized: ::before shrinks to a 2px centered line.
+     Animating top/right/bottom/left + border-radius on the ::before is
+     what gives the line and the button the appearance of being the same
+     element in two states, instead of cross-fading between an outer bg
+     and an inner line.
+     position:relative makes this the containing block for the ::before. */
+  background: transparent;
   border: none;
   border-radius: 7px;
   color: var(--text-secondary);
+  position: relative;
   font-size: 0.875rem;
   font-weight: 500;
   font-family: inherit;
@@ -615,19 +625,62 @@
      button rather than flush left. */
   text-align: center;
   cursor: pointer;
-  /* Width + border-radius interpolate over 220ms â€” same duration the
-     picker panel takes to slide â€” so the button reshape and the panel
-     slide run in lock-step and feel like one motion. */
+  /* The morph itself (line â†” full rect) is on the ::before below â€” the
+     button's own transition only covers width/color so the picker-open
+     reshape (+8px width, text color flip) animates smoothly. */
   transition:
-    background 150ms,
     color 150ms,
-    width 220ms ease,
-    border-radius 220ms ease;
+    width 220ms ease;
+}
+
+.project-picker-trigger::before {
+  content: '';
+  position: absolute;
+  /* Default = maximized: fill the button. Border-radius matches the
+     button's own 7px so the rect looks like a normal button surface. */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--border);
+  border-radius: 7px;
+  /* Sits behind the label (which is given an explicit z-index below) so
+     text/spinner paint on top of the surface. */
+  z-index: 0;
+  /* Morph: positional sides animate over 220ms (matches the sidebar's
+     own width transition), background swaps over 150ms (matches hover/
+     state-change feel of the other nav items). filter is animated for
+     the hover darkening (see :hover::before below). */
+  transition:
+    top 220ms ease,
+    right 220ms ease,
+    bottom 220ms ease,
+    left 220ms ease,
+    background 150ms,
+    border-radius 220ms ease,
+    filter 150ms;
+}
+
+/* Stack the label above ::before so the (animated) surface never paints
+   over the trigger text or the in-flight spinner. */
+.project-picker-trigger > .label {
+  position: relative;
+  z-index: 1;
 }
 
 .project-picker-trigger:hover {
-  background: var(--bg-elevated);
+  /* Only the text color hops on hover; the surface color lives on the
+     ::before below so the morph and the hover share the same painted layer. */
   color: var(--text-primary);
+}
+
+.project-picker-trigger:hover::before {
+  /* "Match idle color but slightly darker" â€” keep var(--border) from the
+     base ::before rule and darken via filter. Theme-agnostic (filter
+     multiplies the rendered output), so on Cream the hover reads as a
+     slightly-darker grey overlay and on Ink as the lighter overlay
+     pulled back toward the dark sidebar bg â€” both directions darken. */
+  filter: brightness(0.9);
 }
 
 /* Picker-open state â€” the trigger's left edge stays aligned with the
@@ -638,57 +691,109 @@
 .sidebar.picker-open .project-picker-trigger {
   width: calc(100% + 8px);
   margin: 2px 0;
-  border-radius: 7px 0 0 7px;
-  /* Pressed = sustained hover. While the picker is open, the trigger
-     commits to its hover background so the "I'm in the active interaction"
-     state is visible regardless of cursor position. Both selection
-     states get pinned to their own hover color (gold for has-selection,
-     neutral for no selection). */
-  background: var(--accent-hover);
+  /* Surface treatment (color + corner shape) lives on the ::before so
+     the open beat shares the same painted layer as the morph. Text
+     color flips here on the button itself since it's not a surface
+     property. "Pressed = sustained hover" â€” while the picker is open,
+     the ::before stays at var(--accent-hover) regardless of cursor
+     position so the "I'm in the active interaction" state is visible. */
   color: var(--text-on-accent);
 }
 
-.sidebar.picker-open .project-picker-trigger.has-selection {
-  background: var(--accent-hover)
+.sidebar.picker-open .project-picker-trigger::before {
+  background: var(--accent-hover);
+  /* Right corners square off so the trigger merges into the picker
+     panel sliding out beside it. */
+  border-radius: 7px 0 0 7px;
+  /* Cancel the :hover darkening filter â€” picker-open is "pressed/sustained
+     hover", and we want the solid accent-hover color, not a darkened
+     version of it. Cascade applies because this rule sits later in source
+     order than .project-picker-trigger:hover::before. */
+  filter: none;
+}
+
+.sidebar.picker-open .project-picker-trigger.has-selection::before {
+  background: var(--accent-hover);
 }
 
 /* Hover-while-open keeps the same value so moving the mouse over the
    open trigger doesn't trigger a third color step. */
-.sidebar.picker-open .project-picker-trigger:hover {
+.sidebar.picker-open .project-picker-trigger:hover::before {
   background: var(--accent-hover);
 }
 
-.sidebar.picker-open .project-picker-trigger.has-selection:hover {
+.sidebar.picker-open .project-picker-trigger.has-selection:hover::before {
   background: var(--accent-hover);
 }
 
 .project-picker-trigger.has-selection {
-  /* Gold tint â€” matches the .brand-icon color (var(--accent)) so the
-     project-selection accent reads as the same brand color family as the
-     logo in the sidebar header. */
-  background:  rgba(201, 151, 74, 0.25);
-  color: var(--text-primary);
+  /* Surface (gold accent fill) is painted by the ::before below so it
+     can morph with the rest of the divider. Text flips to
+     var(--text-on-accent) since solid accent is too dark for
+     var(--text-primary) on the cream theme and too bright on ink. */
+  color: var(--text-on-accent);
   font-weight: 600;
 }
 
-.project-picker-trigger.has-selection:hover {
-  background: rgba(201, 151, 74, 0.5);
+.project-picker-trigger.has-selection::before {
+  background: var(--accent);
+}
+
+/* has-selection:hover inherits the var(--accent) bg from above and the
+   filter: brightness(0.9) from .project-picker-trigger:hover::before, so
+   the gold fill darkens slightly on hover with no extra rule needed â€”
+   matches the no-selection hover behavior. */
+
+/* Minimized-sidebar form: morph the ::before from full-bleed rect into a
+   centered 2px line. Geometry is locked to the nav-icon column (left 18px
+   â†’ right 42px) so the divider sits in the exact column the icons above
+   and below occupy.
+   top/bottom: calc(50% - 1px) collapses the rect to 2px tall, centered.
+   left/right: 10px insets the line from the button edges by 10px, which
+   â€” combined with the 8px li padding outside â€” lands the line's outer
+   edges at 18px and 42px from the sidebar's outer edge.
+   border-radius eases from 7px (full button) to 1px (line).
+   Color states (hover, has-selection, has-selection:hover) inherit from
+   the base rules above â€” they paint the same ::before, so the divider
+   line tints gold for an active selection and brightens on hover with
+   no additional rules needed here. */
+.sidebar:not(:hover):not(.locked):not(.picker-open) .project-picker-trigger::before {
+  top: calc(50% - 1px);
+  bottom: calc(50% - 1px);
+  left: 10px;
+  right: 10px;
+  border-radius: 1px;
 }
 
 /* Spinner shown inside the trigger while a project switch is in progress.
-   Same gold accent as the full-screen SwitchProjectLoader spinner so the
-   two visually rhyme â€” eye tracks both as the same "switching" cue.
-   Sized smaller (16px vs 38px) to fit inside the trigger row without
-   forcing a height change. */
+   Sized smaller (16px vs 38px) than the full-screen SwitchProjectLoader
+   spinner to fit inside the trigger row without forcing a height change.
+   Default color uses var(--text-on-accent) (white on Cream, ink on Ink),
+   which contrasts cleanly against the has-selection bg (var(--accent),
+   cognac on Cream / sand on Ink) when the user is switching INTO a
+   project. The :not(.has-selection) override below switches to cream
+   for the "Select no project" / clearing flow, where the trigger bg is
+   the faint var(--border) divider color (text-on-accent's dark ink on
+   Ink theme would be near-invisible against that). */
 .project-picker-trigger-spinner {
   display: inline-block;
   width: 16px;
   height: 16px;
-  border: 2px solid color-mix(in srgb, var(--text-primary) 15%, transparent);
-  border-top-color: var(--accent);
+  border: 2px solid color-mix(in srgb, var(--text-on-accent) 30%, transparent);
+  border-top-color: var(--text-on-accent);
   border-radius: 50%;
   animation: project-picker-trigger-spin 0.7s linear infinite;
   vertical-align: middle;
+}
+
+/* No-selection clearing case â€” when the user clicks "Select no project",
+   the trigger drops .has-selection and shows the spinner over the faint
+   var(--border) bg. Cream (off-white from the brand palette) reads on
+   both themes against that low-contrast surface, while text-on-accent
+   would have been dark-on-dark on the Ink theme. */
+.project-picker-trigger.is-switching:not(.has-selection) .project-picker-trigger-spinner {
+  border-color: color-mix(in srgb, var(--color-cream) 30%, transparent);
+  border-top-color: var(--color-cream);
 }
 
 @keyframes project-picker-trigger-spin {

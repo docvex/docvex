@@ -143,9 +143,22 @@ export default function AppShell() {
     <ReportProblemProvider>
       <div className="app-shell">
         <Sidebar />
-        <main className="main-content">
+        <main className={`main-content${showBanner ? ' main-content--has-banner' : ''}`}>
           {showBanner && <ProjectBanner />}
-          <Outlet />
+          {/* On project-scoped routes the page content is wrapped in a
+              rounded "sheet" panel that sits just under the gold "working
+              in" banner. The panel uses the existing --bg-card token so
+              its top corners curve cleanly off the page-bg behind it. On
+              non-project routes the Outlet renders bare so the existing
+              pages (Dashboard, Account, Notifications, etc.) keep their
+              current layout untouched. */}
+          {showBanner ? (
+            <div className="project-page-frame">
+              <Outlet />
+            </div>
+          ) : (
+            <Outlet />
+          )}
         </main>
         {/* Secondary project-picker panel — slides out from behind the
             sidebar when SelectedProjectContext.pickerOpen flips. Mounted

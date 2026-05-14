@@ -15,28 +15,51 @@
   top: 0;
   left: 0;
   right: 0;
-  z-index: 30;
+  /* z-index 1 (was 30) so the .project-page-frame (z-index 2) can sit
+     ON TOP of the gold strip below the banner text. The panel's rounded
+     top corners cut into the gold, revealing it through the corner
+     cut-aways. The banner's text region above the panel is unaffected
+     â€” the panel only overlaps the padding-bottom strip. */
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  /* Solid gold (no transparency) â€” the bar reads as chrome, not a floating
-     indicator like the old translucent pill did. */
-  background: color-mix(in srgb, var(--accent) 53%, transparent);
-  /* Near-black on gold gives ~8:1 contrast â€” readable from across the room,
-     where the old var(--text-primary)-on-gold combo was ~2.5:1 and fought the eye. The
-     accent stays gold; only the text tone changes. */
-  color: var(--text-primary);
+  /* Matched to the picker-trigger button's has-selection bg (var(--accent),
+     via its ::before pseudo in Sidebar.css) so the sidebar's "current
+     project" indicator and the main-content's "working in <project>"
+     bar share one color identity â€” the user sees the same accent fill
+     in both places and reads them as one cohesive "you are working in
+     this project" signal. var(--accent) is theme-adaptive (cognac on
+     Cream, sand on Ink), which is fine here because text-on-accent
+     pairs with it correctly in both themes. */
+  background: var(--accent);
+  /* The semantic "readable on accent surfaces" pair â€” white on Cream
+     (good contrast on cognac), ink on Ink (good contrast on sand). */
+  color: var(--text-on-accent);
   font-size: 0.9rem;
   font-weight: 500;
   letter-spacing: 0.01em;
-  /* Flush full-width banner: no rounding, no border. Vertical padding gives
-     the bar enough height to read as deliberate chrome rather than a thin
-     accident; horizontal padding keeps the centered text off the edges on
-     narrow windows. */
+  /* Flush full-width banner: no rounding, no border.
+
+     Padding is ASYMMETRIC by design: 0.5rem top vs 1.625rem bottom. The
+     `padding-bottom - padding-top = 1.125rem` relationship is the exact
+     corner-radius of .project-page-frame â€” it compensates for the fact
+     that the panel covers the bottom 1.125rem of the banner. With
+     `align-items: center` and SYMMETRIC padding the text would land at
+     the geometric center of the FULL banner box, which visually reads
+     as "lower half" of the *visible* full-width gold (since the panel
+     hides the bottom 1.125rem from the middle of the screen). The
+     asymmetry shifts text up by exactly that 1.125rem/2, so its center
+     coincides with the visible full-width gold's center.
+
+     Explicit line-height (1.5) keeps text-height predictable across
+     browsers â€” without it, default line-height varies (1.2 vs 1.5)
+     and the panel margin-top math drifts. */
   border-radius: 0;
   border: none;
-  padding: 0.25rem 1rem;
+  line-height: 1.5;
+  padding: 0.5rem 1rem 1.625rem;
   cursor: pointer;
   white-space: nowrap;
   transition: background 150ms;
@@ -44,7 +67,10 @@
 }
 
 .project-banner-pill:hover {
-  background: color-mix(in srgb, var(--accent) 88%, transparent);
+  /* Same brightness-dial recipe the picker-trigger button uses on hover
+     (Sidebar.css), so the two surfaces darken identically on interaction
+     instead of diverging at the hover step. */
+  filter: brightness(0.9);
 }
 
 .project-banner-pill:active {

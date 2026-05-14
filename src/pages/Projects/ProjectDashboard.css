@@ -210,23 +210,32 @@
    member"). Indigo accent matches the app's primary action vocabulary in
    the Auth page and the invite-accept page so users recognise it as the
    primary CTA on the card. */
+/* Solid-accent primary button paired with a card header. Shares the visual
+   vocabulary of .projects-cta on the Projects list page so the two CTAs
+   read as siblings, but with tightened paddings — a card-header button
+   lives next to small meta text like "5 members" and a page-CTA's larger
+   paddings look stretchy in that context. */
 .project-dashboard-card-btn {
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--accent);
+  border: 1px solid var(--accent);
   border-radius: 6px;
-  color: var(--accent-soft);
-  font-size: 0.78rem;
+  color: var(--text-on-accent);
+  font-size: 0.82rem;
   font-weight: 500;
-  padding: 0.35rem 0.7rem;
+  padding: 0.4rem 0.7rem;
   cursor: pointer;
   font-family: inherit;
-  transition: background 150ms, border-color 150ms, color 150ms;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 150ms, border-color 150ms;
 }
 
 .project-dashboard-card-btn:hover {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border-color: var(--accent);
-  color: var(--accent-soft);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .project-dashboard-card-btn:disabled {
@@ -344,21 +353,27 @@
   flex-direction: column;
 }
 
+/* Member row is a vertical stack: the toggle (the visible row) on top, an
+   actions panel below it when expanded. Padding lives on the toggle so
+   the actions panel can sit flush below it. Rows separate via a small
+   margin instead of a border so each row's bounding box (what the hover
+   bg paints over) has truly symmetric vertical padding — a 1px border
+   on one side only would offset the hover highlight 1px above center,
+   which reads as uneven top vs bottom padding. */
 .member-row {
   display: flex;
-  align-items: center;
-  gap: 0.85rem;
-  padding: 0.7rem 0;
-  border-top: 1px solid var(--bg-elevated);
+  flex-direction: column;
+  border-radius: 8px;
+  transition: background 150ms;
 }
 
-.member-row:first-child {
-  border-top: none;
-  padding-top: 0;
+.member-row + .member-row {
+  margin-top: 2px;
 }
 
-.member-row:last-child {
-  padding-bottom: 0;
+.member-row:not(.is-static):hover,
+.member-row.is-expanded {
+  background: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
 }
 
 .member-avatar {
@@ -395,6 +410,7 @@
   color: var(--text-primary);
   font-size: 0.9rem;
   font-weight: 500;
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -421,42 +437,146 @@
 .member-email {
   color: var(--text-muted);
   font-size: 0.78rem;
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* Per-row destructive action. Quieter than .project-dashboard-danger-btn
-   because removing a member is reversible (re-invite is one click) and the
-   row already carries other content competing for attention â€” a louder
-   button on every actionable row would dominate the list visually. Sits
-   at the far right after the role pill so a row scans
-   avatar â†’ name/email â†’ self-pill â†’ role â†’ action. */
-.member-remove-btn {
-  flex-shrink: 0;
+/* The clickable row header. Tapping anywhere expands the actions panel
+   below. Implemented as a <button> so keyboard activation (Space/Enter)
+   works for free. The flex layout matches the old .member-row exactly
+   so the visual scan (avatar → name/email → pill → role → chevron) is
+   unchanged. Horizontal padding gives the whole row a comfortable inset
+   so the hover-bg highlight doesn't run all the way to the card edge. */
+.member-row-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.7rem 0.65rem;
+  width: 100%;
   background: transparent;
-  border: 1px solid transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 120ms;
+}
+
+.member-row-toggle:focus-visible:not(:disabled) {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -2px;
+}
+
+/* Rows with no available actions (e.g. the owner viewing their own row)
+   render as disabled toggles — same visual content, but no hover state
+   and a default cursor so the row doesn't lie about being interactive. */
+.member-row-toggle:disabled {
+  cursor: default;
+}
+
+/* Chevron on the far right of every actionable row. Rotates 180° when
+   the row is expanded so the same SVG renders both states. */
+.member-row-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  margin-left: 0.15rem;
+  transition: transform 220ms ease, color 120ms;
+}
+
+.member-row.is-expanded .member-row-chevron {
+  transform: rotate(180deg);
+  color: var(--text-primary);
+}
+
+/* Animated shell around the actions panel. The grid-template-rows trick
+   transitions from 0fr (collapsed) to 1fr (auto height) — one of the few
+   ways to animate to/from `height: auto` without measuring the content.
+   The inner row needs `min-height: 0` + `overflow: hidden` so the grid
+   can actually clip it during the transition. */
+.member-row-actions-shell {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 240ms ease;
+}
+
+.member-row.is-expanded .member-row-actions-shell {
+  grid-template-rows: 1fr;
+}
+
+.member-row-actions-shell > .member-row-actions {
+  overflow: hidden;
+  min-height: 0;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.member-row.is-expanded .member-row-actions-shell > .member-row-actions {
+  opacity: 1;
+}
+
+/* Action buttons sit at the bottom-right of the row when expanded —
+   visually anchors to the right edge near the chevron, matching the
+   visual gravity of the row's other right-aligned content (pill +
+   role badge). Horizontal padding matches the toggle's so the buttons
+   share a right edge with the chevron above them. */
+.member-row-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  padding: 0.2rem 0.65rem 0.75rem;
+}
+
+/* Action button inside the expanded panel. Compact outline style so two
+   side-by-side buttons don't overpower the row. Neutral variant uses
+   the muted/text-primary palette; the destructive variant (Remove)
+   swaps to the danger tones used elsewhere on this page. */
+.member-action-btn {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: var(--danger-soft);
+  color: var(--text-primary);
+  font-family: inherit;
   font-size: 0.8rem;
   font-weight: 500;
-  padding: 0.35rem 0.7rem;
+  padding: 0.4rem 0.85rem;
   cursor: pointer;
   transition: background 150ms, border-color 150ms, color 150ms;
 }
 
-.member-remove-btn:hover {
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-  color: var(--danger-text);
+.member-action-btn:hover:not(:disabled),
+.member-action-btn:focus-visible:not(:disabled) {
+  background: var(--bg-elevated);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  outline: none;
 }
 
-.member-remove-btn:disabled {
+.member-action-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* RoleBadge custom-role variant â€” slightly different visual treatment so a
+.member-action-btn-destructive {
+  color: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+}
+
+.member-action-btn-destructive:hover:not(:disabled),
+.member-action-btn-destructive:focus-visible:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  color: var(--danger-text);
+}
+
+/* RoleBadge custom-role variantâ€” slightly different visual treatment so a
    custom role doesn't get mistaken for a built-in tier at a glance. The
    base color still comes from .role-{tier} above; this rule layers a
    subtle dashed bottom edge to mark "I'm a custom variant of this tier". */
@@ -471,163 +591,11 @@
   text-transform: none;
 }
 
-/* â”€â”€ Roles tab (Project Overview page) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-
-.roles-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 0.85rem;
-  margin-top: 0.4rem;
-}
-
-.role-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.85rem 1rem;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-
-.role-card-built-in {
-  /* Subtle indicator that the card is a documentation row, not editable. */
-  background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-elevated) 100%);
-}
-
-.role-card-custom {
-  background: var(--bg-elevated);
-  border-color: var(--border);
-}
-
-.role-card-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.role-card-title {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  text-transform: capitalize;
-}
-
-.role-card-subtitle {
-  font-size: 0.7rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  text-transform: uppercase;
-}
-
-.role-card-desc {
-  margin: 0;
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  line-height: 1.45;
-}
-
-.role-card-caps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  font-size: 0.78rem;
-}
-
-.role-card-cap {
-  display: flex;
-  align-items: baseline;
-  gap: 0.45rem;
-  color: var(--text-muted);
-}
-
-.role-card-cap.is-granted {
-  color: var(--text-secondary);
-}
-
-.role-card-cap.is-revoked {
-  color: var(--border-strong);
-  text-decoration: line-through;
-}
-
-.role-card-cap-extra {
-  color: var(--warning-soft);  /* amber â€” matches the owner role pill */
-}
-
-.role-card-cap-dot {
-  font-size: 0.85rem;
-  width: 0.85rem;
-  flex-shrink: 0;
-  display: inline-flex;
-  justify-content: center;
-}
-
-.role-card-cap.is-granted .role-card-cap-dot {
-  color: var(--success-soft);  /* emerald â€” same color as the "On" pill in the editor */
-}
-
-/* Custom-role override line â€” small summary row between description and
-   action buttons. e.g. "+2 granted  âˆ’1 revoked". */
-.role-card-override-line {
-  display: flex;
-  gap: 0.6rem;
-  font-size: 0.75rem;
-  margin-top: 0.15rem;
-}
-
-.role-card-override-empty {
-  color: var(--text-muted);
-  font-style: italic;
-}
-
-.role-card-override-grant {
-  color: var(--success-soft);
-}
-
-.role-card-override-revoke {
-  color: var(--danger-soft);
-}
-
-.role-card-actions {
-  display: flex;
-  gap: 0.4rem;
-  margin-top: 0.5rem;
-}
-
-.role-card-action-btn {
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-  font-weight: 500;
-  padding: 0.3rem 0.65rem;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 150ms, border-color 150ms, color 150ms;
-}
-
-.role-card-action-btn:hover {
-  background: var(--bg-elevated);
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-
-.role-card-action-btn-destructive {
-  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-  color: var(--danger-soft);
-}
-
-.role-card-action-btn-destructive:hover {
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-  border-color: var(--danger-soft);
-  color: var(--danger-text);
-}
+/* Roles tab CSS (the old vertical-card-per-role layout: .roles-grid,
+   .role-card*, .role-card-cap*, .role-card-override-*, .role-card-actions,
+   .role-card-action-btn*) was removed when the Roles tab moved to the
+   matrix layout in src/components/RoleCapabilityMatrix.{jsx,css}. The
+   matrix is self-contained — no rules from this stylesheet feed into it. */
 
 /* â”€â”€ Pending invitations list (Project Overview page) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 

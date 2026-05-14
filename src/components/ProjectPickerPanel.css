@@ -138,7 +138,20 @@
   width: 100%;
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  /* Row divider matches the panel header's border-bottom (above) â€”
+     1px of var(--text-primary) at 10% alpha â€” so the whole panel reads
+     as one consistent set of dividers (header line + per-row lines) in
+     the same tone. The rgba-white-ish-at-10% formula reads as a subtle
+     lightness shift against the gold/cream panel bg instead of stamping
+     a hard brown line. The last row's border is cleared below so the
+     list doesn't bottom out with a floating line above the footer. */
+  border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
+  /* Text color is var(--text-on-accent) â€” the semantic "readable on
+     accent backgrounds" pair (white on Cream, ink on Ink) â€” because the
+     panel's bg is var(--accent-hover), the cognac/tan family. The
+     previous var(--text-secondary) read as dark-navy-on-dark-brown on
+     Cream (poor contrast). text-on-accent solves both themes uniformly. */
+  color: var(--text-on-accent);
   font-family: inherit;
   font-size: 0.9rem;
   text-align: left;
@@ -147,52 +160,76 @@
   transition: background 120ms, color 120ms;
 }
 
+.project-picker-panel-list > li:last-child .project-picker-panel-row {
+  border-bottom-color: transparent;
+}
+
 .project-picker-panel-row:hover {
   background: var(--bg-elevated);
   color: var(--text-primary);
 }
 
-/* "this is the project you're currently in" within the panel â€” gold left
-   edge (same var(--accent) as the brand icon and the trigger's has-selection
-   tint) plus lighter text so it's spottable without reading the whole
-   list. The accent color family stays consistent across surfaces. */
+/* "this is the project you're currently in" within the panel â€” the row's
+   fill stays at the neutral var(--bg-elevated) it had before; only the
+   3px left-edge stripe carries the brand brown so the marker reads as a
+   small accent flag rather than a full color wash on the row. Brand
+   constant var(--color-cognac) is used directly (not var(--accent))
+   because accent flips to sand on Ink â€” the user asked for THE brown,
+   not a theme-adaptive accent, so we pin the color literally and the
+   stripe stays cognac in both themes. The 1px row-separator border is
+   dropped on this row only so the inset stripe (which paints inside the
+   border-box, i.e. stops 1px short when a border-bottom exists) extends
+   the full height of the row â€” flush top to bottom. padding-bottom is
+   bumped by 1px to compensate for the removed border so the is-current
+   row stays the same total height as its non-current siblings, which
+   keeps the list rhythm unchanged. */
 .project-picker-panel-row.is-current {
   color: var(--text-primary);
   background: var(--bg-elevated);
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: inset 3px 0 0 var(--color-cognac);
+  border-bottom: none;
+  padding-bottom: calc(0.55rem + 1px);
 }
 
-/* Footer hosts the "No project" / clear-selection button. Border-top
-   echoes the header's border-bottom so the body of the list is bracketed
-   on both ends. Rendered conditionally (only when there IS a selection
-   to clear) so the empty state isn't cluttered with a meaningless action. */
+/* Footer hosts the "No project" / clear-selection button. Rendered
+   conditionally (only when there IS a selection to clear) so the empty
+   state isn't cluttered with a meaningless action. No top border â€” the
+   clear button itself is the footer's only chrome, and a separator on
+   top would re-introduce the bracketed look we just dropped. */
 .project-picker-panel-footer {
   flex-shrink: 0;
   padding: 8px 12px 12px;
-  /* Same rgba-white approach as the header's border-bottom â€” see comment
-     there for rationale. */
-  border-top: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
 }
 
 .project-picker-panel-clear {
-  /* Borderless centered single-line label â€” relies on the footer's
-     border-top alone to separate it from the list, no second border
-     around the button itself. Hover only brightens the text (no wash) so
-     the footer reads as a single solid surface with the panel. */
+  /* Borderless lowercase label in brand brown (pinned via
+     var(--color-cognac) so it stays brown on both themes; the
+     theme-adaptive var(--accent) would flip to sand on Ink). Hover
+     swaps in a var(--bg-elevated) wash mirroring the .nav-item hover
+     treatment in Sidebar.css â€” same surface color, same transition
+     duration â€” so the picker panel's clear-action shares the click
+     affordance language with every other actionable row in the app. */
   display: block;
   width: 100%;
   background: transparent;
   border: none;
   border-radius: 6px;
-  color: var(--text-secondary);
+  color: var(--color-cognac);
   font-family: inherit;
   font-size: 0.825rem;
+  font-weight: 600;
+  text-transform: lowercase;
   text-align: center;
   padding: 18px 0.75rem;
   cursor: pointer;
-  transition: color 120ms;
+  transition: background 120ms, color 120ms;
 }
 
 .project-picker-panel-clear:hover {
-  color: var(--text-primary);
+  /* White at 10% alpha â€” reads as a subtle lightness wash against the
+     panel's brown bg in both themes, without committing to a heavier
+     bg-elevated surface that would shift the row toward looking like a
+     selected/active row. Idle keeps `background: transparent` (set on
+     the base rule above) so the hover is a pure additive overlay. */
+  background: rgba(255, 255, 255, 0.1);
 }

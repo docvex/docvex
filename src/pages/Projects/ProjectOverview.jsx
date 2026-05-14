@@ -17,11 +17,12 @@ import { useHasCapability } from '../../hooks/useHasCapability';
 import DeleteProjectModal from '../../components/DeleteProjectModal';
 import InviteMemberModal from '../../components/InviteMemberModal';
 import RemoveMemberModal from '../../components/RemoveMemberModal';
+import ChangeMemberRoleModal from '../../components/ChangeMemberRoleModal';
 import RoleLocked from '../../components/RoleLocked';
 import RoleBadge, { builtInLabel } from '../../components/RoleBadge';
 import CustomRoleEditor from '../../components/CustomRoleEditor';
 import ConfirmModal from '../../components/ConfirmModal';
-import { CAPABILITIES, resolveCapability } from '../../lib/customRoles';
+import RoleCapabilityMatrix from '../../components/RoleCapabilityMatrix';
 import './ProjectDashboard.css';
 
 // Chevron-left icon for the "< Back" link — inline SVG so we don't pull in an
@@ -30,6 +31,24 @@ import './ProjectDashboard.css';
 const ChevronLeftIcon = (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <polyline points="15 18 9 12 15 6" />
+  </svg>
+);
+
+// Plus glyph for the "Invite member" CTA. Same stroke recipe as the
+// PlusIcon constant in ProjectList.jsx so the two CTAs read as siblings.
+const PlusIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </svg>
+);
+
+// Chevron-down glyph for the per-row expand affordance. Rotates 180° via
+// CSS when the row is expanded so the same SVG serves both states; same
+// stroke recipe as the other inline icons here.
+const ChevronDownIcon = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="6 9 12 15 18 9" />
   </svg>
 );
 
@@ -51,31 +70,6 @@ const UsersIcon = (
 //
 // Auto-selecting this project into SelectedProjectContext is handled by
 // <ProjectAutoSelect/> at the ProjectShell level — see App.jsx.
-
-// Built-in role definitions — purely UI documentation. The capability matrix
-// itself lives in resolveCapability() (src/lib/customRoles.js) and the SQL
-// `has_capability()` function (migration 008); this array just attaches the
-// description copy and any "extras" not expressible as toggleable
-// capabilities (owner's exclusive `project.delete` power).
-const BUILT_IN_ROLE_DEFS = [
-  {
-    role: 'owner',
-    description: 'The project creator. Gets every capability automatically, plus the exclusive ability to delete the project.',
-    extras: ['✓ Delete this project (owner-only, not assignable)'],
-  },
-  {
-    role: 'admin',
-    description: 'Full access to everything except deleting the project. Can manage members, files, and custom roles.',
-  },
-  {
-    role: 'member',
-    description: 'Can view and contribute files. Can delete files they uploaded themselves.',
-  },
-  {
-    role: 'viewer',
-    description: 'Read-only access to files. Can\'t upload or delete anything. Useful for external collaborators.',
-  },
-];
 
 // Resolves a human-readable display name from a member profile in the same
 // order as the Sidebar/Account helpers (full_name > name > email local part).
@@ -119,7 +113,8 @@ function formatExpiry(isoString) {
 export default function ProjectOverview() {
   const {
     project, role, members, customRoles, loading, error,
-    removeMemberLocal, removeCustomRoleLocal, refreshCustomRoles,
+    removeMemberLocal, setMemberRoleLocal, removeCustomRoleLocal,
+    refreshCustomRoles,
   } = useProject();
   // Capability-aware gates for the affordances that ARE in the toggleable
   // set (post-migration 008). Owners/admins resolve to true for all of
@@ -128,6 +123,7 @@ export default function ProjectOverview() {
   // purpose — gated on the legacy admin+ tier below via `isAdmin`.
   const canInvite     = useHasCapability('members.invite');
   const canRemove     = useHasCapability('members.remove');
+  const canChangeRole = useHasCapability('members.change_role');
   const { clearSelection } = useSelectedProject();
   const { notify } = useNotifications();
   const { session } = useAuth();
@@ -161,6 +157,30 @@ export default function ProjectOverview() {
   const [removePending, setRemovePending] = useState(false);
   const [removeError, setRemoveError] = useState(null);
 
+  // Change-role state — `roleChangeTarget` holds the member row whose role
+  // picker is open. Lives in the modal itself; no pending/error mirrored
+  // here because the modal owns its own RPC lifecycle (same pattern as
+  // CustomRoleEditor).
+  const [roleChangeTarget, setRoleChangeTarget] = useState(null);
+
+  // Per-row expanded-actions state. Stores the user_id of the row whose
+  // actions panel is currently revealed (or null if none). Single-slot:
+  // expanding one row auto-collapses any other — matches the accordion
+  // pattern users already expect from this kind of list. Esc collapses
+  // whichever is open; we don't close on outside click because the panel
+  // is inline (no overlay), so the click-anywhere-to-dismiss convention
+  // would surprise more than help.
+  const [expandedUserId, setExpandedUserId] = useState(null);
+
+  useEffect(() => {
+    if (expandedUserId === null) return;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') setExpandedUserId(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [expandedUserId]);
+
   // Admin-only — owner+admin both qualify per the RANK helper in RoleGate.
   // Inline comparison avoids the extra hook call since we only need it once.
   const isAdmin = role === 'owner' || role === 'admin';
@@ -173,6 +193,17 @@ export default function ProjectOverview() {
   // will get a dedicated "Leave project" flow in a follow-up).
   const canRemoveMember = (m) =>
     canRemove && m.role !== 'owner' && m.user_id !== currentUserId;
+
+  // Show "Change role" on a member row when the viewer has the
+  // members.change_role capability AND the target row is NOT the owner
+  // (RLS's `with check (role <> 'owner')` rejects owner edits anyway, and
+  // the picker omits owner as an option). Self-edit is permitted in
+  // principle — RLS doesn't block it — but we hide the button on the
+  // viewer's own row to avoid foot-guns like "I just demoted myself out
+  // of admin and can't undo it." A separate flow can be added if anyone
+  // ever needs to self-demote.
+  const canChangeMemberRole = (m) =>
+    canChangeRole && m.role !== 'owner' && m.user_id !== currentUserId;
 
   // ── Custom roles tab state ──────────────────────────────────────────────
   // `editorTarget` semantics:
@@ -702,7 +733,7 @@ export default function ProjectOverview() {
                     className="project-dashboard-card-btn"
                     onClick={() => setInviteOpen(true)}
                   >
-                    + Invite member
+                    {PlusIcon} Invite member
                   </button>
                 )}
               </div>
@@ -723,27 +754,78 @@ export default function ProjectOverview() {
                   const memberCustomRole = m.custom_role_id
                     ? customRoles.find((cr) => cr.id === m.custom_role_id)
                     : null;
+                  const hasActions = canChangeMemberRole(m) || canRemoveMember(m);
+                  const isExpanded = expandedUserId === m.user_id;
+                  const actionsPanelId = `member-actions-${m.user_id}`;
                   return (
-                    <li key={m.user_id} className="member-row">
-                      <MemberAvatar profile={m.profile} />
-                      <div className="member-text">
-                        <div className="member-name">{getMemberName(m.profile)}</div>
-                        {m.profile?.email && (
-                          <div className="member-email">{m.profile.email}</div>
+                    <li
+                      key={m.user_id}
+                      className={`member-row${isExpanded ? ' is-expanded' : ''}${hasActions ? '' : ' is-static'}`}
+                    >
+                      <button
+                        type="button"
+                        className="member-row-toggle"
+                        onClick={() => setExpandedUserId(isExpanded ? null : m.user_id)}
+                        disabled={!hasActions}
+                        aria-expanded={hasActions ? isExpanded : undefined}
+                        aria-controls={hasActions ? actionsPanelId : undefined}
+                      >
+                        <MemberAvatar profile={m.profile} />
+                        <div className="member-text">
+                          <div className="member-name">{getMemberName(m.profile)}</div>
+                          {m.profile?.email && (
+                            <div className="member-email">{m.profile.email}</div>
+                          )}
+                        </div>
+                        {isSelf && <span className="member-self-pill">Me</span>}
+                        <RoleBadge role={m.role} customRole={memberCustomRole} showBase />
+                        {hasActions && (
+                          <span className="member-row-chevron" aria-hidden="true">
+                            {ChevronDownIcon}
+                          </span>
                         )}
-                      </div>
-                      {isSelf && <span className="member-self-pill">Me</span>}
-                      <RoleBadge role={m.role} customRole={memberCustomRole} showBase />
-                      {canRemoveMember(m) && (
-                        <button
-                          type="button"
-                          className="member-remove-btn"
-                          onClick={() => setRemoveTarget(m)}
-                          title={`Remove ${getMemberName(m.profile)} from this project`}
-                          disabled={removePending && removeTarget?.user_id === m.user_id}
+                      </button>
+
+                      {hasActions && (
+                        // Wrapping shell stays mounted regardless of
+                        // expanded state so the grid-template-rows
+                        // transition has both a start and end value to
+                        // animate between. `inert` keeps the buttons
+                        // out of the tab order + click flow while
+                        // collapsed without unmounting them.
+                        <div
+                          className="member-row-actions-shell"
+                          aria-hidden={!isExpanded}
+                          {...(!isExpanded ? { inert: '' } : {})}
                         >
-                          Remove
-                        </button>
+                          <div id={actionsPanelId} className="member-row-actions">
+                            {canChangeMemberRole(m) && (
+                              <button
+                                type="button"
+                                className="member-action-btn"
+                                onClick={() => {
+                                  setRoleChangeTarget(m);
+                                  setExpandedUserId(null);
+                                }}
+                              >
+                                Change role
+                              </button>
+                            )}
+                            {canRemoveMember(m) && (
+                              <button
+                                type="button"
+                                className="member-action-btn member-action-btn-destructive"
+                                onClick={() => {
+                                  setRemoveTarget(m);
+                                  setExpandedUserId(null);
+                                }}
+                                disabled={removePending && removeTarget?.user_id === m.user_id}
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       )}
                     </li>
                   );
@@ -824,143 +906,20 @@ export default function ProjectOverview() {
         </>
       )}
 
+      {/* Roles tab — matrix layout: capabilities as rows, every role
+          (4 built-in + N custom + a `+` column) as columns, allow/deny
+          dot at each intersection. Built-in cells are read-only; custom
+          cells flip on click (inherit → grant → revoke → inherit). The
+          `+` column header and the per-custom-role pencil/trash icons
+          drive the same editorTarget / roleDeleteTarget state that the
+          modals below already consume. */}
       {activeTab === 'roles' && (
-        <>
-          {/* Built-in roles — read-only documentation card. The four
-              built-ins are the ground truth for what every role does;
-              custom roles below extend or restrict them via the
-              capability override system. The 'viewer' enum value is
-              displayed as "Client" via RoleBadge / builtInLabel. */}
-          <section className="project-dashboard-card">
-            <div className="project-dashboard-card-header">
-              <h2 className="project-dashboard-card-title">Built-in roles</h2>
-              <span className="project-dashboard-card-count">4 roles</span>
-            </div>
-            <p className="project-dashboard-card-subtitle">
-              The four tiers every project starts with. Their capabilities
-              aren’t editable — design custom roles below to vary access.
-            </p>
-            <div className="roles-grid">
-              {BUILT_IN_ROLE_DEFS.map((b) => (
-                <div key={b.role} className="role-card role-card-built-in">
-                  <div className="role-card-header">
-                    <RoleBadge role={b.role} />
-                    <span className="role-card-title">{builtInLabel(b.role)}</span>
-                  </div>
-                  <p className="role-card-desc">{b.description}</p>
-                  <ul className="role-card-caps">
-                    {b.extras?.map((line) => (
-                      <li key={line} className="role-card-cap role-card-cap-extra">{line}</li>
-                    ))}
-                    {CAPABILITIES.map((cap) => {
-                      const granted = resolveCapability(b.role, cap.id, []);
-                      return (
-                        <li
-                          key={cap.id}
-                          className={`role-card-cap${granted ? ' is-granted' : ' is-revoked'}`}
-                          title={cap.hint}
-                        >
-                          <span className="role-card-cap-dot" aria-hidden="true">
-                            {granted ? '✓' : '·'}
-                          </span>
-                          {cap.label}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* Custom roles — admin+ writes. Empty-state copy explains the
-              feature when none exist. The "+ Add custom role" CTA in the
-              header is the only entry point into the editor. Edit/Delete
-              are per-row admin-gated buttons. */}
-          <section className="project-dashboard-card">
-            <div className="project-dashboard-card-header">
-              <h2 className="project-dashboard-card-title">Custom roles</h2>
-              <div className="project-dashboard-card-actions">
-                <span className="project-dashboard-card-count">
-                  {customRoles.length} {customRoles.length === 1 ? 'role' : 'roles'}
-                </span>
-                {/* Admin+ tier guard — manage-custom-roles is intentionally
-                    NOT a toggleable capability (a Member-with-invite-perms
-                    shouldn't be able to redefine the role catalog). */}
-                {isAdmin && (
-                  <button
-                    type="button"
-                    className="project-dashboard-card-btn"
-                    onClick={() => setEditorTarget(null)}
-                  >
-                    + Add custom role
-                  </button>
-                )}
-              </div>
-            </div>
-            <p className="project-dashboard-card-subtitle">
-              Renameable variants of a built-in tier with optional capability
-              overrides. Members assigned to a custom role inherit its base
-              tier plus your adjustments.
-            </p>
-
-            {customRoles.length === 0 ? (
-              <div className="project-dashboard-empty">
-                {isAdmin
-                  ? 'No custom roles yet. Click + Add custom role to create one.'
-                  : 'No custom roles defined for this project.'}
-              </div>
-            ) : (
-              <div className="roles-grid">
-                {customRoles.map((cr) => {
-                  const grants   = (cr.capabilities || []).filter((c) => c.granted).length;
-                  const revokes  = (cr.capabilities || []).filter((c) => !c.granted).length;
-                  return (
-                    <div key={cr.id} className="role-card role-card-custom">
-                      <div className="role-card-header">
-                        <RoleBadge role={cr.base_role} customRole={cr} />
-                        <span className="role-card-subtitle">
-                          extends {builtInLabel(cr.base_role)}
-                        </span>
-                      </div>
-                      {cr.description && (
-                        <p className="role-card-desc">{cr.description}</p>
-                      )}
-                      <div className="role-card-override-line">
-                        {grants === 0 && revokes === 0 ? (
-                          <span className="role-card-override-empty">No overrides — inherits the base tier.</span>
-                        ) : (
-                          <>
-                            {grants  > 0 && <span className="role-card-override-grant">+{grants} granted</span>}
-                            {revokes > 0 && <span className="role-card-override-revoke">−{revokes} revoked</span>}
-                          </>
-                        )}
-                      </div>
-                      {isAdmin && (
-                        <div className="role-card-actions">
-                          <button
-                            type="button"
-                            className="role-card-action-btn"
-                            onClick={() => setEditorTarget(cr)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            className="role-card-action-btn role-card-action-btn-destructive"
-                            onClick={() => setRoleDeleteTarget(cr)}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        </>
+        <RoleCapabilityMatrix
+          isAdmin={isAdmin}
+          onCreateRole={() => setEditorTarget(null)}
+          onEditRole={(cr) => setEditorTarget(cr)}
+          onDeleteRole={(cr) => setRoleDeleteTarget(cr)}
+        />
       )}
 
       {activeTab === 'ai' && (
@@ -1006,6 +965,23 @@ export default function ProjectOverview() {
           if (removePending) return;
           setRemoveTarget(null);
           setRemoveError(null);
+        }}
+      />
+
+      <ChangeMemberRoleModal
+        open={!!roleChangeTarget}
+        member={roleChangeTarget}
+        projectId={project.id}
+        customRoles={customRoles}
+        memberName={roleChangeTarget ? getMemberName(roleChangeTarget.profile) : ''}
+        onClose={() => setRoleChangeTarget(null)}
+        onSaved={({ baseRole, customRoleId }) => {
+          // Optimistic patch — same idiom as removeMemberLocal. Realtime
+          // UPDATE also fires and runs the same map; the second pass is a
+          // no-op because the row is already in the target state.
+          if (roleChangeTarget) {
+            setMemberRoleLocal(roleChangeTarget.user_id, baseRole, customRoleId);
+          }
         }}
       />
 

@@ -53,6 +53,37 @@ export function resolveCapability(baseRole, capability, overrides) {
   return TIER_DEFAULTS[baseRole]?.has(capability) ?? false;
 }
 
+// Tri-state cycle for a single capability on a custom role. Pure function
+// that operates on the array shape `[{capability, granted}, ...]` (same
+// shape listCustomRoles returns and updateCustomRole accepts), so the
+// matrix and the editor share one implementation.
+//
+//   Inherit (no override)              → flip to opposite of base default
+//   Explicit override (opposite base)  → clear override (back to inherit)
+//   Explicit override matching base    → flip to opposite (edge case from
+//                                        a base-tier switch that left a
+//                                        now-redundant override behind)
+//
+// Returns a NEW array — never mutates the input — so callers can hand the
+// result straight to React state without aliasing concerns.
+export function cycleCapability(baseRole, capId, capabilities) {
+  const baseDefault = resolveCapability(baseRole, capId, []);
+  const existing = (capabilities || []).find((c) => c.capability === capId);
+
+  if (!existing) {
+    // From inherited → flip to opposite of base default.
+    return [...(capabilities || []), { capability: capId, granted: !baseDefault }];
+  }
+  if (existing.granted === !baseDefault) {
+    // From "explicit opposite" → clear the override.
+    return (capabilities || []).filter((c) => c.capability !== capId);
+  }
+  // From "explicit match base" (redundant override) → flip to opposite.
+  return (capabilities || []).map((c) =>
+    c.capability === capId ? { ...c, granted: !baseDefault } : c,
+  );
+}
+
 // List custom roles for a project, with their capability overrides nested.
 // PostgREST does the join via the FK between custom_role_capabilities and
 // custom_roles, so a single round-trip returns the full role catalog.

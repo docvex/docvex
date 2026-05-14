@@ -40,6 +40,11 @@ import { useAuth } from './AuthContext';
 //                  device. The realtime DELETE handler does the same filter
 //                  cross-device; this just skips the round-trip latency for
 //                  the user who clicked Remove.
+//   - setMemberRoleLocal(userId, baseRole, customRoleId) — optimistic local
+//                  patch of role + custom_role_id on a member row. Same
+//                  pattern as removeMemberLocal: the actor's UI updates
+//                  immediately, the realtime UPDATE handler keeps everyone
+//                  else in sync.
 //   - removeCustomRoleLocal(id) — optimistic local removal of a custom role
 //                  + cleans up any member rows that pointed at it (resets
 //                  their custom_role_id to null on the local copy; the FK
@@ -252,6 +257,27 @@ export function ProjectProvider({ children }) {
     setMembers((prev) => prev.filter((m) => m.user_id !== userId));
   }, []);
 
+  // Optimistic role-change helper. Mirrors the realtime UPDATE branch in
+  // the project_members handler — patches role + custom_role_id on the
+  // matching row. Exposed so the local actor (the admin who just saved
+  // the change-role modal) sees the pill update instantly, instead of
+  // waiting on the realtime echo (which can take hundreds of ms or, in
+  // rare cases of dropped frames, never arrive at all until the next
+  // reconcile). Cross-device clients still update via the realtime
+  // UPDATE event. Also patches the provider's `role` state when the
+  // actor edited their own row, for symmetry with the realtime handler.
+  const setMemberRoleLocal = useCallback((userId, baseRole, customRoleId) => {
+    setMembers((prev) =>
+      prev.map((m) => (m.user_id === userId
+        ? { ...m, role: baseRole, custom_role_id: customRoleId ?? null }
+        : m)),
+    );
+    if (selfUserId && userId === selfUserId) {
+      setRole(baseRole);
+      setProject((prev) => (prev ? { ...prev, role: baseRole } : prev));
+    }
+  }, [selfUserId]);
+
   // Optimistic local removal for a custom role. Two state updates:
   //   1. Drop the role from the catalog so the Roles tab updates instantly.
   //   2. Clear `custom_role_id` on any member assigned to it so their pill
@@ -268,10 +294,12 @@ export function ProjectProvider({ children }) {
   const value = useMemo(
     () => ({
       project, role, members, customRoles, loading, error,
-      refresh, refreshCustomRoles, removeMemberLocal, removeCustomRoleLocal,
+      refresh, refreshCustomRoles,
+      removeMemberLocal, setMemberRoleLocal, removeCustomRoleLocal,
     }),
     [project, role, members, customRoles, loading, error,
-     refresh, refreshCustomRoles, removeMemberLocal, removeCustomRoleLocal],
+     refresh, refreshCustomRoles,
+     removeMemberLocal, setMemberRoleLocal, removeCustomRoleLocal],
   );
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

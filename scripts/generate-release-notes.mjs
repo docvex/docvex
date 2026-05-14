@@ -42,8 +42,22 @@ async function main() {
   }
 
   const range = prevTag ? `${prevTag}..HEAD` : 'HEAD';
+  // --stat gives Claude per-commit file-change context so it can infer which
+  // surface each change touches (e.g. files in src/pages/Notifications →
+  // "the notification history page") and write richer, more grounded bullets
+  // than the bare commit subject alone allows. The `=== %s ===` delimiter
+  // makes commit boundaries unambiguous when stat blocks land between them.
+  //
+  // Pathspec exclusions strip:
+  //   - docs/        → the gh-pages web-build artifacts (regenerated every
+  //                    release by `web:build`; pure hash-renamed bundles, no
+  //                    semantic signal — would otherwise flood the stat with
+  //                    50+ "Foo-AbCd1234.js → Foo-Wx9z5678.js" lines)
+  //   - package-lock.json → dep-bump churn that Claude can rarely turn into
+  //                    a user-facing note; mention it via commit subject if
+  //                    it matters
   const commitLog = sh(
-    `git log ${range} --no-merges --pretty=format:"- %s%n%b"`,
+    `git log ${range} --no-merges --stat --pretty=format:"%n=== %s ===%n%b" -- . ":(exclude)docs" ":(exclude)package-lock.json"`,
   );
   if (!commitLog) {
     log(`No commits since ${prevTag || 'initial commit'} — skipping summary.`);
@@ -52,15 +66,38 @@ async function main() {
 
   log(`Summarising ${prevTag || '(initial)'} → ${tag}`);
 
-  const prompt = `You are writing user-facing release notes for the Docvex desktop app.
-The new release is ${tag} (previous: ${prevTag || 'first release'}).
-Below are the git commits since the previous release. Group changes into
-"### Added", "### Changed", and "### Fixed" sections (omit a section if
-empty). Skip purely internal/chore/CI commits unless they're the only
-content. Write one bullet per change, plain English, present tense.
-Output Markdown only — no preamble, no closing sign-off.
+  const prompt = `You are writing detailed user-facing release notes for Docvex, a desktop document-management app built on Electron + React + Supabase. Users of these notes are the people who run the app, not engineers — they want to know what's new, what's better, and what's fixed, in concrete terms.
 
-Commits:
+The new release is ${tag} (previous: ${prevTag || 'first release'}).
+
+Below are the git commits since the previous release, each followed by the list of files it touched (a "diffstat"). Use the file paths to ground your descriptions — e.g. changes under src/pages/Notifications/ are about the notification history page; src/components/FileDetailModal* is the file-preview modal; supabase/migrations/* is database / backend schema; src/main.js + src/preload.js are the desktop shell.
+
+Produce thorough, informative release notes with this structure:
+
+## Summary
+Open with 2–3 sentences capturing the headline themes of the release — what a user would tell a colleague this version is "about." Don't enumerate every change; pick the through-line.
+
+## Sections
+Then list the changes under these headings, omitting any that are empty:
+
+### ✨ New features
+### 🔧 Improvements
+### 🐛 Bug fixes
+### 🔒 Security & infrastructure
+
+For each entry:
+- Lead with a **short bold phrase** naming the change.
+- Follow with 1–3 sentences explaining what changed, where in the app it shows up, and why a user would care. Name UI surfaces concretely ("the notification history page", "the file detail modal", "the DEBUG menu in the menu bar", "the Projects → Roles tab"). When behavior changed, describe the before → after in user terms.
+- Merge multiple commits into one bullet when they implement a single user-visible change (e.g. a feature added across several commits).
+- Skip purely internal/chore/CI/refactor commits UNLESS they have a user-visible effect (a release-tooling fix that means notes now arrive, a build fix that unbroke a workflow, etc.).
+
+Style rules:
+- Plain present-tense English. No release-engineer jargon, no "bumped", no "refactored X to Y". Translate engineering changes into user impact.
+- Don't quote commit hashes, filenames, or function names. Refer to features by the name a user would see in the UI.
+- Don't pad — but don't be stingy either. If a change is meaningful, give it the 2–3 sentences it deserves.
+- Output Markdown only. No preamble like "Here are the notes:", no closing sign-off, no triple-backtick wrapping the whole document.
+
+Commits with file changes:
 ${commitLog}`;
 
   // Claude CLI in non-interactive print mode. Two Windows-specific gotchas

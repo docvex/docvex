@@ -203,6 +203,34 @@ export default function NotificationsPage() {
               ? 'You are all caught up.'
               : `${notifications.length} total · ${unreadCount} unread`}
           </p>
+          {/* Color legend for the per-row priority dots. Same 8px dots and
+              same color tokens as the row markers (.n-row-priority +
+              .n-row-pri-* rules in Notifications.css) so users can map
+              "red dot in this row" → "Critical" at a glance. Normal renders
+              as a hollow ring since rows in that bucket carry no dot —
+              the ring communicates "this is the default, no marker." Only
+              shown when the inbox is non-empty (matches the tab-strip
+              rendering rule); on an empty page the legend is pointless. */}
+          {notifications.length > 0 && (
+            <ul className="notifications-legend" aria-label="Priority color legend">
+              <li className="n-legend-item">
+                <span className="n-legend-dot n-legend-dot-critical" aria-hidden="true" />
+                <span>Critical</span>
+              </li>
+              <li className="n-legend-item">
+                <span className="n-legend-dot n-legend-dot-high" aria-hidden="true" />
+                <span>High</span>
+              </li>
+              <li className="n-legend-item">
+                <span className="n-legend-dot n-legend-dot-normal" aria-hidden="true" />
+                <span>Normal</span>
+              </li>
+              <li className="n-legend-item">
+                <span className="n-legend-dot n-legend-dot-low" aria-hidden="true" />
+                <span>Low</span>
+              </li>
+            </ul>
+          )}
         </div>
         <div className="notifications-header-actions">
           <button

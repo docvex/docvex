@@ -1,0 +1,334 @@
+/* Role × capability matrix used on the project Overview "Roles" tab.
+   Layout: a CSS grid wrapped in a horizontally-scrollable container so the
+   sheet doesn't blow the page up when many custom roles exist. The first
+   column (capability labels) is sticky-left so it stays visible while the
+   user scrolls right through role columns. The header row is sticky-top so
+   the role names stay visible if/when the matrix grows tall enough to
+   scroll vertically inside its container.
+
+   Column count is dynamic — `--role-matrix-column-count` is set on the
+   .role-matrix-scroll wrapper inline (in JSX) from the JS-computed count
+   (1 + 4 built-ins + N custom + 1 plus). The grid-template-columns rule
+   below consumes it. The dot indicators (.role-matrix-dot) reuse the same
+   --success / --danger token family as the rest of the app. */
+
+.role-matrix-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 0.4rem;
+}
+
+.role-matrix-section-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.role-matrix-section-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.role-matrix-section-subtitle {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* Horizontal-scroll container. The matrix grid lives inside; the wrapper
+   handles overflow so the page doesn't grow horizontally when a project
+   has many custom roles. border + radius give it a contained-card look. */
+.role-matrix-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+/* The matrix itself — a single CSS grid where every row spans every column.
+   First column is the feature-label column (fixed minmax); the next four
+   are built-in role columns; the remainder are custom-role columns + a
+   trailing auto-sized column for the + button. We use the same minmax for
+   every role column so cells line up visually regardless of role-name
+   length (long names truncate, see .role-matrix-header-sub). */
+.role-matrix {
+  display: grid;
+  grid-template-columns:
+    minmax(180px, 220px)
+    repeat(calc(var(--role-matrix-column-count) - 2), minmax(120px, 1fr))
+    auto;
+  /* No row-gap — the row separator is drawn by per-cell border-top below
+     so it spans the full sticky-corner without breaking. */
+}
+
+/* The row wrappers exist for semantics (role="row") and for selector
+   scoping (e.g. `.role-matrix-row-header .role-matrix-cell`). They must
+   NOT participate in grid layout themselves — otherwise each row would be
+   placed in a single grid cell and the cells inside it would stack
+   vertically. `display: contents` makes the wrapper invisible to the
+   layout engine so its children become direct grid items of `.role-matrix`. */
+.role-matrix-row {
+  display: contents;
+}
+
+/* Every cell shares this base so border + padding is uniform. The grid
+   places them automatically; no explicit grid-row/column needed. */
+.role-matrix-cell {
+  display: flex;
+  align-items: center;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+/* Header row — sticky-top so role names stay visible if the body scrolls
+   vertically. Background needs to be opaque so cells underneath don't
+   bleed through during scroll. */
+.role-matrix-row-header .role-matrix-cell {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-strong);
+  min-height: 56px;
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+}
+
+/* The four built-in role headers — center-aligned badge, no actions below. */
+.role-matrix-cell-header-builtin {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+/* Custom-role headers — center badge, sub-line ("extends X"), and a small
+   icon-button row for edit/delete. flex-direction:column stacks the three
+   pieces. */
+.role-matrix-cell-header-custom {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.role-matrix-header-sub {
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.role-matrix-header-actions {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.15rem;
+}
+
+.role-matrix-header-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+
+.role-matrix-header-icon-btn:hover {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.role-matrix-header-icon-btn-destructive:hover {
+  color: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger-soft) 40%, transparent);
+}
+
+/* + column header — narrower (auto-sized), centered button. The cell
+   itself is empty for non-admins so the grid column collapses to the
+   button's intrinsic width without an obvious gap. */
+.role-matrix-cell-header-add {
+  justify-content: center;
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
+}
+
+.role-matrix-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+
+.role-matrix-add-btn:hover {
+  background: var(--accent-tint);
+  color: var(--accent);
+  border-color: var(--accent);
+  border-style: solid;
+}
+
+/* Top-left corner cell — sits at the intersection of the sticky header
+   row and the sticky feature column. Needs the highest z-index so it
+   covers both directions of scroll. */
+.role-matrix-cell-corner {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+}
+
+/* Feature-label column — sticky-left so it stays in view while the user
+   scrolls right through role columns. Slightly different bg + a right
+   border give it a "frozen header column" feel. */
+.role-matrix-cell-feature {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* Group sub-header rows (Files / Members) — a single label cell on the
+   left + empty spacers across the rest. Slightly muted bg differentiates
+   them from capability rows. */
+.role-matrix-row-group .role-matrix-cell {
+  background: color-mix(in srgb, var(--bg-elevated) 50%, var(--bg-card));
+  border-bottom: 1px solid var(--border);
+  min-height: 34px;
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+}
+
+.role-matrix-cell-group-label {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-right: 1px solid var(--border);
+}
+
+.role-matrix-cell-group-spacer {
+  /* Empty filler — just needs to take the column slot to keep the grid
+     row count consistent. No visible content. */
+}
+
+/* Value cells — center the dot horizontally + vertically. */
+.role-matrix-cell-value {
+  justify-content: center;
+}
+
+/* Read-only value cells (all built-in columns; custom columns for
+   non-admins) get a slightly dimmed background and disable pointer
+   feedback on the dot button beneath. */
+.role-matrix-cell-readonly {
+  background: color-mix(in srgb, var(--bg-card) 92%, var(--bg-page));
+}
+
+/* The dot indicator. Two color states (granted / revoked) sourced from
+   the project's semantic --success-soft / --danger-soft tokens so the
+   color stays consistent with toasts, notification icons, etc. */
+.role-matrix-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.role-matrix-dot.is-granted {
+  background: var(--success-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--success-soft) 25%, transparent);
+}
+
+.role-matrix-dot.is-revoked {
+  background: var(--danger-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger-soft) 25%, transparent);
+}
+
+/* Override indicator — a thin outline ring around the dot tells the user
+   the cell holds an explicit override on a custom role (vs an inherited
+   value from the base tier). Only applies to custom-role cells (built-in
+   cells never set the .is-override class). */
+.role-matrix-dot.is-override {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+/* Dot button wrapper — invisible but clickable, sized to give a bigger
+   hit target than the 12px dot itself. Hover state lightens the
+   surrounding cell so the user gets feedback before clicking. */
+.role-matrix-dot-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.role-matrix-dot-btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.role-matrix-dot-btn:disabled,
+.role-matrix-dot-btn.is-readonly {
+  cursor: default;
+}
+
+/* Trailing add-column spacers in body rows — empty cells just to keep the
+   grid column count consistent. No visual content. */
+.role-matrix-cell-add-spacer {
+  background: var(--bg-card);
+}
+
+/* Empty-state hint shown beneath the matrix when no custom roles exist.
+   The matrix itself still renders (with just the built-in columns + the
+   + button) so the layout doesn't shift; this is supplementary copy. */
+.role-matrix-empty-hint {
+  margin: 0;
+  padding: 0.2rem 0.25rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}

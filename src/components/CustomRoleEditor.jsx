@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CAPABILITIES, createCustomRole, updateCustomRole, resolveCapability } from '../lib/customRoles';
+import { CAPABILITIES, createCustomRole, updateCustomRole, resolveCapability, cycleCapability } from '../lib/customRoles';
 import { builtInLabel } from './RoleBadge';
 import './ConfirmModal.css';
 import './InviteMemberModal.css';
@@ -141,21 +141,18 @@ export default function CustomRoleEditor({ open, role, projectId, onClose, onSav
     if (e.target === e.currentTarget) onClose?.();
   };
 
+  // Delegates the tri-state transition (inherit → grant → revoke → inherit)
+  // to cycleCapability in src/lib/customRoles.js so the editor and the
+  // RoleCapabilityMatrix share one canonical cycle. The editor's local
+  // state is a Map for O(1) lookup during render; we convert to/from the
+  // array shape at the boundary.
   const cycleOverride = (capId) => {
     setOverrides((prev) => {
-      const next = new Map(prev);
-      const baseDefault = resolveCapability(baseRole, capId, []);
-      if (!next.has(capId)) {
-        // From "inherited" → flip to the opposite of the base default.
-        next.set(capId, !baseDefault);
-      } else if (next.get(capId) === !baseDefault) {
-        // From "explicit override" → back to inherited.
-        next.delete(capId);
-      } else {
-        // From "same as base, explicitly set" → flip to opposite.
-        next.set(capId, !baseDefault);
-      }
-      return next;
+      const arr = Array.from(prev.entries()).map(
+        ([capability, granted]) => ({ capability, granted }),
+      );
+      const nextArr = cycleCapability(baseRole, capId, arr);
+      return new Map(nextArr.map((c) => [c.capability, c.granted]));
     });
   };
 

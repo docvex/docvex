@@ -418,3 +418,47 @@
   background: color-mix(in srgb, var(--text-muted) 40%, transparent);
 }
 /* normal: stays display:none from the base rule above. */
+
+/* ── Header legend ────────────────────────────────────────────────────────
+   Compact color-key shown under the "X total · Y unread" subtitle so users
+   can decode the per-row priority dots without hunting for documentation.
+   Dots here mirror the .n-row-priority swatches above by reusing the same
+   tokens (--danger-soft / --warning-soft / --text-muted). The 'normal'
+   chip uses a hollow ring instead of a fill so it visually matches the
+   "no dot on the row" reality — communicating "this is the default state,
+   no marker added." */
+.notifications-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.n-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.n-legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.n-legend-dot-critical { background: var(--danger-soft); }
+.n-legend-dot-high     { background: var(--warning-soft); }
+.n-legend-dot-normal {
+  /* Hollow ring — communicates "this row has no dot, it's the default". */
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 55%, transparent);
+}
+.n-legend-dot-low {
+  background: color-mix(in srgb, var(--text-muted) 40%, transparent);
+}
