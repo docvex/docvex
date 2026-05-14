@@ -10,7 +10,7 @@ Built with Electron + React + Supabase, distributed via auto-updating Windows in
 [![Downloads](https://img.shields.io/github/downloads/petreluca1105-dotcom/docvex/total?label=downloads&color=6366f1)](https://github.com/petreluca1105-dotcom/docvex/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-blue)](#install)
 
-### ⬇️ [Download Docvex for Windows (v5.1.0)](https://github.com/petreluca1105-dotcom/docvex/releases/download/v5.1.0/docvex-5.1.0.Setup.exe)
+### ⬇️ [Download Docvex for Windows (v5.2.0)](https://github.com/petreluca1105-dotcom/docvex/releases/download/v5.2.0/docvex-5.2.0.Setup.exe)
 
 [Browse all releases](https://github.com/petreluca1105-dotcom/docvex/releases) · [Latest (auto-redirect)](https://github.com/petreluca1105-dotcom/docvex/releases/latest)
 
@@ -22,7 +22,7 @@ Built with Electron + React + Supabase, distributed via auto-updating Windows in
 
 The newest installer is always at **[github.com/petreluca1105-dotcom/docvex/releases/latest](https://github.com/petreluca1105-dotcom/docvex/releases/latest)** — that URL is a GitHub-managed redirect that follows whichever tag was published most recently.
 
-> **Direct link for the current version:** [docvex-5.1.0.Setup.exe](https://github.com/petreluca1105-dotcom/docvex/releases/download/v5.1.0/docvex-5.1.0.Setup.exe)
+> **Direct link for the current version:** [docvex-5.2.0.Setup.exe](https://github.com/petreluca1105-dotcom/docvex/releases/download/v5.2.0/docvex-5.2.0.Setup.exe)
 
 Once installed, Docvex auto-updates in the background (polls `update.electronjs.org` every 10 minutes) and applies the new version on next launch. See the in-app **Updates** tab for release notes and version history.
 
@@ -41,7 +41,7 @@ Once installed, Docvex auto-updates in the background (polls `update.electronjs.
 ## 💾 Install
 
 ### Windows
-1. Click **[Download docvex-5.1.0.Setup.exe](https://github.com/petreluca1105-dotcom/docvex/releases/download/v5.1.0/docvex-5.1.0.Setup.exe)** (or [grab the latest](https://github.com/petreluca1105-dotcom/docvex/releases/latest)).
+1. Click **[Download docvex-5.2.0.Setup.exe](https://github.com/petreluca1105-dotcom/docvex/releases/download/v5.2.0/docvex-5.2.0.Setup.exe)** (or [grab the latest](https://github.com/petreluca1105-dotcom/docvex/releases/latest)).
 2. Run `Setup.exe`. Docvex installs to `%LocalAppData%\docvex` and adds itself to the Start menu.
 3. Sign in with email + password or Google OAuth on first launch.
 
