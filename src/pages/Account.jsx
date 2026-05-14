@@ -5,6 +5,7 @@ import { useNotifications } from '../context/NotificationsContext';
 import { PLAN } from '../lib/plan';
 import ConfirmModal from '../components/ConfirmModal';
 import DeleteAccountModal from '../components/DeleteAccountModal';
+import ThemePicker from '../components/ThemePicker';
 import './Account.css';
 
 function titleCase(s = '') {
@@ -103,7 +104,7 @@ export default function Account() {
     } catch (err) {
       setLinkingGoogle(false);
       notify({
-        category: 'system',
+        category: 'auth',
         variant: 'error',
         title: 'Could not link Google',
         // Common cause: "Manual linking is disabled" — requires enabling
@@ -153,8 +154,9 @@ export default function Account() {
       // see what went wrong and retry. The account row is untouched on
       // error per the function's contract.
       notify({
-        category: 'system',
+        category: 'auth',
         variant: 'error',
+        priority: 'critical',
         title: 'Could not delete account',
         body: error.message || 'The server rejected the request.',
       });
@@ -257,6 +259,12 @@ export default function Account() {
           Upgrade plan
         </button>
       </section>
+
+      {/* Theme picker — sits between Subscription and Danger zone per the
+          plan. Lets the user toggle between Cream (light brand default) and
+          Ink (dark variant of the same brand palette). Stores per-user in
+          localStorage; see src/context/ThemeContext.jsx. */}
+      <ThemePicker />
 
       <section className="account-card account-danger">
         <h2 className="account-card-title">Danger zone</h2>

@@ -1,4 +1,4 @@
-.updates-page {
+﻿.updates-page {
   max-width: 820px;
   display: flex;
   flex-direction: column;
@@ -12,12 +12,12 @@
 .updates-title {
   font-size: 1.5rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
   margin: 0 0 0.25rem;
 }
 
 .updates-subtitle {
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.875rem;
   margin: 0;
 }
@@ -30,63 +30,63 @@
   gap: 1rem;
   padding: 1rem 1.25rem;
   border-radius: 10px;
-  border: 1px solid #2a2a2a;
-  background: #1a1a1a;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
 }
 
 .updates-banner strong {
   display: block;
   font-size: 0.95rem;
-  color: #e0e0e0;
+  color: var(--text-primary);
   margin-bottom: 0.2rem;
 }
 
 .updates-banner p {
   margin: 0;
   font-size: 0.825rem;
-  color: #888;
+  color: var(--text-muted);
   line-height: 1.4;
 }
 
 .updates-banner-info {
-  border-color: rgba(99, 102, 241, 0.35);
-  background: rgba(99, 102, 241, 0.06);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .updates-banner-success {
-  border-color: rgba(34, 197, 94, 0.4);
-  background: rgba(34, 197, 94, 0.07);
+  border-color: color-mix(in srgb, var(--success-soft) 40%, transparent);
+  background: color-mix(in srgb, var(--success-soft) 7%, transparent);
 }
 
-.updates-banner-success strong { color: #4ade80; }
+.updates-banner-success strong { color: var(--success-soft); }
 
 .updates-banner-error {
-  border-color: rgba(220, 38, 38, 0.4);
-  background: rgba(220, 38, 38, 0.07);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
 }
 
-.updates-banner-error strong { color: #f87171; }
+.updates-banner-error strong { color: var(--danger-soft); }
 
 .updates-banner-neutral {
-  /* default styling — kept as a fallback for legacy/neutral states */
+  /* default styling â€” kept as a fallback for legacy/neutral states */
 }
 
-/* "You're up to date" — green like the success banner, conveying "all good,
+/* "You're up to date" â€” green like the success banner, conveying "all good,
    nothing to do". Same palette as updates-banner-success since both are
    positive states; the heading text differentiates them.
-   The background is a slow-panning multi-stop green gradient — gives the
+   The background is a slow-panning multi-stop green gradient â€” gives the
    "all good" surface a gentle alive-but-calm motion (~8s loop) so the
    user reads it as healthy/live rather than a static notice. Stays in
    the same alpha range as the previous flat tint so it's just as readable. */
 .updates-banner-uptodate {
-  border-color: rgba(34, 197, 94, 0.4);
+  border-color: color-mix(in srgb, var(--success-soft) 40%, transparent);
   background: linear-gradient(
     120deg,
-    rgba(34, 197, 94, 0.05) 0%,
-    rgba(34, 197, 94, 0.16) 25%,
-    rgba(74, 222, 128, 0.18) 50%,
-    rgba(34, 197, 94, 0.16) 75%,
-    rgba(34, 197, 94, 0.05) 100%
+    color-mix(in srgb, var(--success-soft) 5%, transparent) 0%,
+    color-mix(in srgb, var(--success-soft) 16%, transparent) 25%,
+    color-mix(in srgb, var(--success-soft) 18%, transparent) 50%,
+    color-mix(in srgb, var(--success-soft) 16%, transparent) 75%,
+    color-mix(in srgb, var(--success-soft) 5%, transparent) 100%
   );
   /* 300% wide so there's enough off-screen runway for the
      background-position pan to translate smoothly without ever showing
@@ -101,17 +101,17 @@
   100% { background-position:   0% 50%; }
 }
 
-.updates-banner-uptodate strong { color: #4ade80; }
+.updates-banner-uptodate strong { color: var(--success-soft); }
 
-/* "New version available" — purple to grab attention without being alarming
-   (red would imply error). Distinct from indigo #6366f1 (current/installed)
+/* "New version available" â€” purple to grab attention without being alarming
+   (red would imply error). Distinct from indigo var(--accent) (current/installed)
    and amber (pre-release) so the banner reads as its own state. */
 .updates-banner-update {
-  border-color: rgba(168, 85, 247, 0.4);
-  background: rgba(168, 85, 247, 0.09);
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
+  background: color-mix(in srgb, var(--info) 9%, transparent);
 }
 
-.updates-banner-update strong { color: #c084fc; }
+.updates-banner-update strong { color: var(--info-soft); }
 
 /* Button shared with status banner + release headers */
 .updates-btn {
@@ -119,9 +119,9 @@
   align-items: center;
   gap: 0.4rem;
   background: transparent;
-  border: 1px solid #333;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #ccc;
+  color: var(--text-secondary);
   font-size: 0.825rem;
   font-weight: 500;
   padding: 0.45rem 0.9rem;
@@ -132,9 +132,9 @@
 }
 
 .updates-btn:hover:not(:disabled) {
-  background: #1f1f1f;
-  border-color: #555;
-  color: #fff;
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
 .updates-btn:disabled {
@@ -143,15 +143,15 @@
 }
 
 .updates-btn-primary {
-  background: #6366f1;
-  border-color: #6366f1;
-  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
 }
 
 .updates-btn-primary:hover:not(:disabled) {
-  background: #7c7ff5;
-  border-color: #7c7ff5;
-  color: #fff;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--text-on-accent);
 }
 
 /* Release list */
@@ -163,25 +163,25 @@
 
 .updates-empty {
   text-align: center;
-  color: #666;
+  color: var(--text-muted);
   font-size: 0.875rem;
   padding: 2rem;
-  border: 1px dashed #2a2a2a;
+  border: 1px dashed var(--border);
   border-radius: 10px;
 }
 
 .release-card {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.25rem 1.5rem;
-  /* Containing block for the absolutely-positioned .release-revert-btn —
+  /* Containing block for the absolutely-positioned .release-revert-btn â€”
      the button floats in the card's bottom-right corner without taking
      layout space. */
   position: relative;
 }
 
-/* The currently-installed release card no longer gets a distinct border —
+/* The currently-installed release card no longer gets a distinct border â€”
    the "Installed" pill inside the header already identifies it, and the
    extra green outline was redundant visual weight competing with the
    release that actually needs attention (the latest). */
@@ -205,7 +205,7 @@
 .release-version {
   font-size: 1.05rem;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-primary);
   margin: 0;
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
 }
@@ -220,89 +220,89 @@
 }
 
 .release-tag-current {
-  /* Green to match .updates-banner-uptodate — the "Installed" pill and the
+  /* Green to match .updates-banner-uptodate â€” the "Installed" pill and the
      "You're up to date" banner now share one visual identity, including
      the same slow-panning gradient so the eye reads them as one cue.
      Reuses the same keyframes (updates-banner-uptodate-pan) so any future
      tweak to the motion only happens in one place. */
-  color: #4ade80;
+  color: var(--success-soft);
   background: linear-gradient(
     120deg,
-    rgba(34, 197, 94, 0.08) 0%,
-    rgba(34, 197, 94, 0.22) 25%,
-    rgba(74, 222, 128, 0.26) 50%,
-    rgba(34, 197, 94, 0.22) 75%,
-    rgba(34, 197, 94, 0.08) 100%
+    color-mix(in srgb, var(--success-soft) 8%, transparent) 0%,
+    color-mix(in srgb, var(--success-soft) 22%, transparent) 25%,
+    color-mix(in srgb, var(--success-soft) 26%, transparent) 50%,
+    color-mix(in srgb, var(--success-soft) 22%, transparent) 75%,
+    color-mix(in srgb, var(--success-soft) 8%, transparent) 100%
   );
   background-size: 300% 100%;
   animation: updates-banner-uptodate-pan 8s ease-in-out infinite;
-  border: 1px solid rgba(34, 197, 94, 0.35);
+  border: 1px solid color-mix(in srgb, var(--success-soft) 35%, transparent);
 }
 
 .release-tag-pre {
-  color: #f59e0b;
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: var(--warning-soft);
+  background: color-mix(in srgb, var(--warning-soft) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning-soft) 35%, transparent);
 }
 
-/* Semver bump pills — orthogonal to "Installed"/"Pre-release". Major reuses
+/* Semver bump pills â€” orthogonal to "Installed"/"Pre-release". Major reuses
    the error-banner red palette, patch reuses the success-banner green, and
    minor uses sky blue so it stays distinct from indigo (current) and amber
    (pre-release). The card also gets a tinted left edge so users can scan
    the list by bump type without reading the pills. */
 .release-tag-major {
-  color: #f87171;
-  background: rgba(220, 38, 38, 0.12);
-  border: 1px solid rgba(220, 38, 38, 0.35);
+  color: var(--danger-soft);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
 }
 
 .release-tag-minor {
-  color: #38bdf8;
-  background: rgba(56, 189, 248, 0.12);
-  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: var(--info-soft);
+  background: color-mix(in srgb, var(--info-soft) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--info-soft) 35%, transparent);
 }
 
 .release-tag-patch {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-primary) 28%, transparent);
 }
 
-.release-card.is-major { border-left: 3px solid rgba(220, 38, 38, 0.55); }
-.release-card.is-minor { border-left: 3px solid rgba(56, 189, 248, 0.55); }
-.release-card.is-patch { border-left: 3px solid rgba(255, 255, 255, 0.5); }
+.release-card.is-major { border-left: 3px solid color-mix(in srgb, var(--danger) 55%, transparent); }
+.release-card.is-minor { border-left: 3px solid color-mix(in srgb, var(--info-soft) 55%, transparent); }
+.release-card.is-patch { border-left: 3px solid color-mix(in srgb, var(--text-primary) 50%, transparent); }
 
 .release-meta {
   display: flex;
   align-items: center;
   gap: 1rem;
   font-size: 0.78rem;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .release-link {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  color: #aaa;
+  color: var(--text-secondary);
   text-decoration: none;
   transition: color 150ms;
 }
 
 .release-link:hover {
-  color: #fff;
+  color: var(--text-primary);
 }
 
-/* Revert button — floats in the card's bottom-right corner via absolute
+/* Revert button â€” floats in the card's bottom-right corner via absolute
    positioning so it doesn't consume layout space (release notes flow
-   under it). Outlined ghost style — matches the existing destructive-
+   under it). Outlined ghost style â€” matches the existing destructive-
    adjacent button vocabulary but muted, since reverting is reversible.
    Surface color is slightly darker than the card so the button stands
    off the notes underneath without needing a heavier border. */
 .release-revert-btn {
   position: absolute;
   /* bottom/right 0 anchors to the card's padding-edge (= inside of the
-     border) regardless of .release-card's padding — absolutely positioned
+     border) regardless of .release-card's padding â€” absolutely positioned
      children's containing block IS the padding box of their relative
      ancestor, so the parent's padding has no effect on these offsets.
      Result: the button sits flush in the bottom-right corner of the card. */
@@ -311,16 +311,16 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  background: #1a1a1a;
+  background: var(--bg-card);
   /* Only the top-left corner is rounded; the right + bottom edges share
      the card's own border (the card's outer border becomes the button's
      visible right/bottom side), so explicit right/bottom borders are
      dropped to avoid a double-line stack. */
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border);
   border-right: none;
   border-bottom: none;
   border-radius: 6px 0 0 0;
-  color: #aaa;
+  color: var(--text-secondary);
   font-family: inherit;
   font-size: 0.8rem;
   font-weight: 500;
@@ -330,9 +330,9 @@
 }
 
 .release-revert-btn:hover:not(:disabled) {
-  background: #1f1f1f;
-  border-color: #555;
-  color: #fff;
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
 .release-revert-btn:disabled {
@@ -343,7 +343,7 @@
 .release-name {
   font-size: 0.95rem;
   font-weight: 500;
-  color: #c4c4c4;
+  color: var(--text-secondary);
   margin: 0 0 0.75rem;
 }
 
@@ -351,13 +351,13 @@
 .release-body {
   font-size: 0.875rem;
   line-height: 1.55;
-  color: #c4c4c4;
+  color: var(--text-secondary);
 }
 
 .release-body h1,
 .release-body h2,
 .release-body h3 {
-  color: #e0e0e0;
+  color: var(--text-primary);
   margin: 1rem 0 0.5rem;
   font-weight: 600;
 }
@@ -383,16 +383,16 @@
 .release-body code {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 0.82rem;
-  background: #111;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0.05rem 0.35rem;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .release-body pre {
-  background: #111;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.75rem 1rem;
   overflow-x: auto;
@@ -406,7 +406,7 @@
 }
 
 .release-body a {
-  color: #818cf8;
+  color: var(--accent-hover);
   text-decoration: none;
 }
 
@@ -415,15 +415,15 @@
 }
 
 .release-body blockquote {
-  border-left: 3px solid #2a2a2a;
+  border-left: 3px solid var(--border);
   margin: 0.75rem 0;
   padding: 0.25rem 0 0.25rem 1rem;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .release-body hr {
   border: none;
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid var(--border);
   margin: 1rem 0;
 }
 
@@ -434,18 +434,18 @@
 
 .release-body th,
 .release-body td {
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border);
   padding: 0.4rem 0.7rem;
   text-align: left;
 }
 
 .release-body th {
-  background: #1f1f1f;
-  color: #e0e0e0;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
 }
 
 .release-empty {
-  color: #666;
+  color: var(--text-muted);
   font-style: italic;
   margin: 0;
 }

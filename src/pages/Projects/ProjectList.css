@@ -1,5 +1,5 @@
-/* Projects list & cards — matches the dark theme used elsewhere
-   (bg #0f0f0f, card #1a1a1a, border #2a2a2a, accent #6366f1). */
+﻿/* Projects list & cards â€” matches the dark theme used elsewhere
+   (bg var(--bg-page), card var(--bg-card), border var(--border), accent var(--accent)). */
 
 .projects-page {
   max-width: 920px;
@@ -18,26 +18,26 @@
 .projects-title {
   font-size: 1.5rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
   margin: 0 0 0.25rem;
 }
 
 .projects-subtitle {
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.875rem;
   margin: 0;
 }
 
-/* Primary CTA — reused by the header and the empty-state. Matches the
+/* Primary CTA â€” reused by the header and the empty-state. Matches the
    .updates-btn-primary style from Updates.css (indigo fill, white text). */
 .projects-cta {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  background: #6366f1;
-  border: 1px solid #6366f1;
+  background: var(--accent);
+  border: 1px solid var(--accent);
   border-radius: 6px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 0.85rem;
   font-weight: 500;
   padding: 0.5rem 1rem;
@@ -48,26 +48,26 @@
 }
 
 .projects-cta:hover {
-  background: #7c7ff5;
-  border-color: #7c7ff5;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 /* Loading / error / empty banners */
 .projects-loading,
 .projects-error,
 .projects-empty {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 1.5rem;
-  color: #c4c4c4;
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 
 .projects-error {
-  border-color: rgba(220, 38, 38, 0.4);
-  background: rgba(220, 38, 38, 0.07);
-  color: #f87171;
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  color: var(--danger-soft);
 }
 
 .projects-empty {
@@ -79,15 +79,15 @@
   margin: 0 0 0.5rem;
   font-size: 1.1rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .projects-empty p {
   margin: 0 0 1.5rem;
-  color: #888;
+  color: var(--text-muted);
 }
 
-/* Card grid — auto-fit so it stays usable from ~600px to wide windows. */
+/* Card grid â€” auto-fit so it stays usable from ~600px to wide windows. */
 .projects-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -98,8 +98,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.1rem 1.25rem;
   text-decoration: none;
@@ -108,8 +108,8 @@
 }
 
 .project-card:hover {
-  border-color: #3a3a3a;
-  background: #1f1f1f;
+  border-color: var(--border-strong);
+  background: var(--bg-elevated);
 }
 
 .project-card:active {
@@ -126,7 +126,7 @@
 .project-card-name {
   font-size: 1rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
   margin: 0;
   /* Long names ellipsize so the role pill stays visible. */
   white-space: nowrap;
@@ -136,7 +136,7 @@
 
 .project-card-description {
   margin: 0;
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 0.85rem;
   line-height: 1.45;
   /* Limit to 2 lines so cards stay similar height. */
@@ -147,7 +147,7 @@
 }
 
 .project-card-description-empty {
-  color: #666;
+  color: var(--text-muted);
   font-style: italic;
 }
 
@@ -156,7 +156,7 @@
   align-items: center;
   gap: 1rem;
   font-size: 0.78rem;
-  color: #888;
+  color: var(--text-muted);
   margin-top: auto;
 }
 
@@ -166,12 +166,12 @@
   gap: 0.3rem;
 }
 
-/* Role pills — same shape language as Updates page's release-tag pills.
+/* Role pills â€” same shape language as Updates page's release-tag pills.
    Reusing palettes from existing CSS:
-     owner  → wood-ish amber (the "this is mine" emphasis)
-     admin  → indigo (matches brand accent)
-     member → muted neutral
-     viewer → softer muted */
+     owner  â†’ wood-ish amber (the "this is mine" emphasis)
+     admin  â†’ indigo (matches brand accent)
+     member â†’ muted neutral
+     viewer â†’ softer muted */
 .project-card-role {
   flex-shrink: 0;
   font-size: 0.65rem;
@@ -184,25 +184,25 @@
 }
 
 .role-owner {
-  color: #f59e0b;
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.35);
+  color: var(--warning-soft);
+  background: color-mix(in srgb, var(--warning-soft) 12%, transparent);
+  border-color: color-mix(in srgb, var(--warning-soft) 35%, transparent);
 }
 
 .role-admin {
-  color: #6366f1;
-  background: rgba(99, 102, 241, 0.12);
-  border-color: rgba(99, 102, 241, 0.35);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .role-member {
-  color: #c4c4c4;
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 15%, transparent);
 }
 
 .role-viewer {
-  color: #888;
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 10%, transparent);
 }

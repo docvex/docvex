@@ -1,4 +1,4 @@
-/* Fixed strip pinned to the bottom of the viewport. Spans the whole window
+﻿/* Fixed strip pinned to the bottom of the viewport. Spans the whole window
    (over the sidebar too) so the user can see progress from any route. */
 .update-progress {
   position: fixed;
@@ -12,9 +12,9 @@
   padding: 8px 14px;
   background: rgba(15, 15, 15, 0.92);
   backdrop-filter: blur(6px);
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid var(--border);
   font-size: 0.78rem;
-  color: #c0c0c0;
+  color: var(--text-secondary);
   /* Slide-up entrance so the bar doesn't pop in jarringly */
   animation: update-progress-in 180ms ease-out;
 }
@@ -30,7 +30,7 @@
   flex: 1;
   height: 4px;
   border-radius: 2px;
-  background: #2a2a2a;
+  background: var(--border);
   overflow: hidden;
 }
 
@@ -41,8 +41,8 @@
   left: 0;
   width: 35%;
   border-radius: 2px;
-  background: linear-gradient(90deg, #6366f1 0%, #818cf8 50%, #6366f1 100%);
-  /* Sweep across the track and back — indeterminate progress because the
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 50%, var(--accent) 100%);
+  /* Sweep across the track and back â€” indeterminate progress because the
      Squirrel autoUpdater doesn't expose byte-progress events. */
   animation: update-progress-sweep 1.4s ease-in-out infinite;
 }

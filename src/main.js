@@ -105,6 +105,36 @@ function buildAppMenu() {
         click: () => switchAccount(acc),
       })),
     },
+    {
+      // Dev-only developer aids:
+      //   - Clear all cached data: wipes the renderer's module-level caches
+      //     (signed URLs in projectFiles.js, parsed pdf.js docs in pdfCache.js).
+      //   - Send all test notifications: fires one of every entry in
+      //     TEST_NOTIFICATIONS (src/notifications/testNotifications.js) so
+      //     devs can preview the toast stack + history rows for every
+      //     category × priority × icon combo without manually triggering
+      //     the live actions.
+      // Grows as more dev surfaces appear.
+      label: 'DEBUG',
+      submenu: [
+        {
+          label: 'Clear all cached data',
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('debug:clear-cache');
+            }
+          },
+        },
+        {
+          label: 'Send all test notifications',
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('debug:send-test-notifications');
+            }
+          },
+        },
+      ],
+    },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }

@@ -1,4 +1,4 @@
-/* Placeholder Project Dashboard — step 3 expands this significantly.
+﻿/* Placeholder Project Dashboard â€” step 3 expands this significantly.
    Reuses the role pill classes from ProjectList.css scope (re-declared here
    so they don't depend on the sibling stylesheet being loaded). */
 
@@ -11,11 +11,11 @@
 
 .project-dashboard-loading,
 .project-dashboard-error {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 1.5rem;
-  color: #c4c4c4;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   display: flex;
   flex-direction: column;
@@ -24,9 +24,9 @@
 }
 
 .project-dashboard-error {
-  border-color: rgba(220, 38, 38, 0.4);
-  background: rgba(220, 38, 38, 0.07);
-  color: #f87171;
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  color: var(--danger-soft);
 }
 
 .project-dashboard-back,
@@ -36,12 +36,12 @@
   /* Spacing between the chevron icon and the text label ("Back" on the
      Overview, the project name on the Dashboard). */
   gap: 0.3rem;
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.8rem;
   text-decoration: none;
   transition: color 150ms;
   /* Pull the icon down a hair so its optical center sits on the text
-     baseline — the chevron polyline is geometric-centered, not visually. */
+     baseline â€” the chevron polyline is geometric-centered, not visually. */
 }
 
 .project-dashboard-back svg,
@@ -51,7 +51,7 @@
 
 .project-dashboard-back:hover,
 .project-dashboard-back-link:hover {
-  color: #c4c4c4;
+  color: var(--text-secondary);
 }
 
 .project-dashboard-header {
@@ -70,18 +70,18 @@
 .project-dashboard-title {
   font-size: 1.6rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
   margin: 0;
 }
 
 .project-dashboard-description {
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 0.95rem;
   line-height: 1.5;
   margin: 0;
 }
 
-/* Role pills — duplicated from ProjectList.css so this page renders
+/* Role pills â€” duplicated from ProjectList.css so this page renders
    correctly when loaded directly (CSS files only load when imported, so we
    can't rely on the sibling stylesheet's classes being present). */
 .project-dashboard-role {
@@ -96,32 +96,32 @@
 }
 
 .project-dashboard-role.role-owner {
-  color: #f59e0b;
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.35);
+  color: var(--warning-soft);
+  background: color-mix(in srgb, var(--warning-soft) 12%, transparent);
+  border-color: color-mix(in srgb, var(--warning-soft) 35%, transparent);
 }
 
 .project-dashboard-role.role-admin {
-  color: #6366f1;
-  background: rgba(99, 102, 241, 0.12);
-  border-color: rgba(99, 102, 241, 0.35);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .project-dashboard-role.role-member {
-  color: #c4c4c4;
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 15%, transparent);
 }
 
 .project-dashboard-role.role-viewer {
-  color: #888;
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 10%, transparent);
 }
 
 .project-dashboard-coming-soon {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.5rem;
 }
@@ -130,12 +130,12 @@
   margin: 0 0 0.5rem;
   font-size: 1rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .project-dashboard-coming-soon p {
   margin: 0 0 0.5rem;
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 0.875rem;
   line-height: 1.5;
 }
@@ -147,16 +147,16 @@
 .project-dashboard-stats {
   margin-top: 1rem !important;
   padding-top: 1rem;
-  border-top: 1px solid #2a2a2a;
-  color: #c4c4c4 !important;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary) !important;
   font-size: 0.825rem !important;
 }
 
-/* Generic dashboard "card" — reused by Recent files and any future sections
+/* Generic dashboard "card" â€” reused by Recent files and any future sections
    (Members preview, Activity feed). Same visual shell as .coming-soon. */
 .project-dashboard-card {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.5rem;
 }
@@ -173,7 +173,7 @@
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 /* Small badge in the card header opposite the title (e.g. "5 members" on the
@@ -181,7 +181,7 @@
    reads as the primary label. */
 .project-dashboard-card-count {
   font-size: 0.8rem;
-  color: #888;
+  color: var(--text-muted);
   flex-shrink: 0;
   /* inline-flex so an optional leading icon (e.g. UsersIcon on the Members
      card) sits flush with the text without baseline drift. Same gap used
@@ -196,7 +196,7 @@
 }
 
 /* Wrapper for the right side of a card header when it needs to host more
-   than just a count — e.g. count + "Invite member" button on the Members
+   than just a count â€” e.g. count + "Invite member" button on the Members
    card. Gap matches the parent header's gap so the visual rhythm is
    consistent whether one or two children render. */
 .project-dashboard-card-actions {
@@ -212,9 +212,9 @@
    primary CTA on the card. */
 .project-dashboard-card-btn {
   background: transparent;
-  border: 1px solid rgba(99, 102, 241, 0.4);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   border-radius: 6px;
-  color: #a5a8f5;
+  color: var(--accent-soft);
   font-size: 0.78rem;
   font-weight: 500;
   padding: 0.35rem 0.7rem;
@@ -224,9 +224,9 @@
 }
 
 .project-dashboard-card-btn:hover {
-  background: rgba(99, 102, 241, 0.12);
-  border-color: #6366f1;
-  color: #c7c9ff;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: var(--accent);
+  color: var(--accent-soft);
 }
 
 .project-dashboard-card-btn:disabled {
@@ -236,28 +236,28 @@
 
 .project-dashboard-card-subtitle {
   margin: 0 0 1rem;
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.825rem;
   line-height: 1.5;
 }
 
-/* Empty-state body inside a dashboard card — dashed border + muted text so it
+/* Empty-state body inside a dashboard card â€” dashed border + muted text so it
    reads clearly as "nothing here yet, but something will be." */
 .project-dashboard-empty {
-  border: 1px dashed #2a2a2a;
+  border: 1px dashed var(--border);
   border-radius: 8px;
   padding: 1.5rem;
   text-align: center;
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.875rem;
   line-height: 1.5;
 }
 
-/* Danger zone — mirrors .account-danger over in Account.css. Red-tinted card
+/* Danger zone â€” mirrors .account-danger over in Account.css. Red-tinted card
    border, red title, destructive button on the right. */
 .project-dashboard-danger {
-  background: #1a1a1a;
-  border: 1px solid rgba(220, 38, 38, 0.28);
+  background: var(--bg-card);
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
   border-radius: 12px;
   padding: 1.25rem 1.5rem;
 }
@@ -266,7 +266,7 @@
   margin: 0 0 1rem;
   font-size: 1rem;
   font-weight: 600;
-  color: #f87171;
+  color: var(--danger-soft);
 }
 
 .project-dashboard-danger-row {
@@ -275,7 +275,7 @@
   justify-content: space-between;
   gap: 1rem;
   padding-top: 0.85rem;
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid var(--border);
 }
 
 .project-dashboard-danger-text {
@@ -285,22 +285,22 @@
 .project-dashboard-danger-title {
   font-size: 0.9rem;
   font-weight: 500;
-  color: #e0e0e0;
+  color: var(--text-primary);
   margin: 0 0 0.2rem;
 }
 
 .project-dashboard-danger-desc {
   font-size: 0.8rem;
-  color: #888;
+  color: var(--text-muted);
   margin: 0;
   line-height: 1.4;
 }
 
 .project-dashboard-danger-btn {
   background: transparent;
-  border: 1px solid rgba(220, 38, 38, 0.4);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
   border-radius: 6px;
-  color: #f87171;
+  color: var(--danger-soft);
   font-size: 0.85rem;
   font-weight: 500;
   padding: 0.45rem 0.95rem;
@@ -311,9 +311,9 @@
 }
 
 .project-dashboard-danger-btn:hover {
-  background: rgba(220, 38, 38, 0.12);
-  border-color: #dc2626;
-  color: #fca5a5;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: var(--danger-soft);
+  color: var(--danger-text);
 }
 
 .project-dashboard-danger-btn:disabled {
@@ -327,14 +327,14 @@
 .project-dashboard-danger-error {
   margin-top: 0.75rem;
   padding: 0.6rem 0.85rem;
-  background: rgba(220, 38, 38, 0.07);
-  border: 1px solid rgba(220, 38, 38, 0.4);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
   border-radius: 6px;
-  color: #f87171;
+  color: var(--danger-soft);
   font-size: 0.825rem;
 }
 
-/* ── Members list (Project Overview page) ─────────────────────────────── */
+/* â”€â”€ Members list (Project Overview page) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .member-list {
   list-style: none;
@@ -349,7 +349,7 @@
   align-items: center;
   gap: 0.85rem;
   padding: 0.7rem 0;
-  border-top: 1px solid #222;
+  border-top: 1px solid var(--bg-elevated);
 }
 
 .member-row:first-child {
@@ -367,17 +367,17 @@
   border-radius: 50%;
   flex-shrink: 0;
   object-fit: cover;
-  background: #2a2a2a;
+  background: var(--border);
 }
 
-/* Initial-letter fallback when the profile has no avatar_url — mirrors the
+/* Initial-letter fallback when the profile has no avatar_url â€” mirrors the
    sidebar's avatar fallback (indigo circle with white initial). */
 .member-avatar-fallback {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #6366f1;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   font-size: 0.85rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -392,7 +392,7 @@
 }
 
 .member-name {
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   font-weight: 500;
   overflow: hidden;
@@ -400,7 +400,7 @@
   white-space: nowrap;
 }
 
-/* "You" pill — sits to the LEFT of the role pill in the current user's row
+/* "You" pill â€” sits to the LEFT of the role pill in the current user's row
    so a glance at the right edge of the Members list answers "which row is
    me?". Vibrant emerald fill (distinct hue from any of the role pills:
    amber owner, indigo admin, neutral member/viewer) so it pops without
@@ -411,22 +411,225 @@
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #fff;
-  background: #10b981;
-  border: 1px solid #34d399;
+  color: var(--text-primary);
+  background: var(--success);
+  border: 1px solid var(--success-soft);
   border-radius: 999px;
   padding: 0.2rem 0.6rem;
 }
 
 .member-email {
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.78rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* ── Pending invitations list (Project Overview page) ─────────────────── */
+/* Per-row destructive action. Quieter than .project-dashboard-danger-btn
+   because removing a member is reversible (re-invite is one click) and the
+   row already carries other content competing for attention â€” a louder
+   button on every actionable row would dominate the list visually. Sits
+   at the far right after the role pill so a row scans
+   avatar â†’ name/email â†’ self-pill â†’ role â†’ action. */
+.member-remove-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--danger-soft);
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.member-remove-btn:hover {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger-text);
+}
+
+.member-remove-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* RoleBadge custom-role variant â€” slightly different visual treatment so a
+   custom role doesn't get mistaken for a built-in tier at a glance. The
+   base color still comes from .role-{tier} above; this rule layers a
+   subtle dashed bottom edge to mark "I'm a custom variant of this tier". */
+.project-dashboard-role.role-custom {
+  position: relative;
+}
+
+.role-base-suffix {
+  font-weight: 500;
+  opacity: 0.7;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+/* â”€â”€ Roles tab (Project Overview page) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.roles-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.85rem;
+  margin-top: 0.4rem;
+}
+
+.role-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.role-card-built-in {
+  /* Subtle indicator that the card is a documentation row, not editable. */
+  background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-elevated) 100%);
+}
+
+.role-card-custom {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+
+.role-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.role-card-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+.role-card-subtitle {
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.role-card-desc {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.role-card-caps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+}
+
+.role-card-cap {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  color: var(--text-muted);
+}
+
+.role-card-cap.is-granted {
+  color: var(--text-secondary);
+}
+
+.role-card-cap.is-revoked {
+  color: var(--border-strong);
+  text-decoration: line-through;
+}
+
+.role-card-cap-extra {
+  color: var(--warning-soft);  /* amber â€” matches the owner role pill */
+}
+
+.role-card-cap-dot {
+  font-size: 0.85rem;
+  width: 0.85rem;
+  flex-shrink: 0;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.role-card-cap.is-granted .role-card-cap-dot {
+  color: var(--success-soft);  /* emerald â€” same color as the "On" pill in the editor */
+}
+
+/* Custom-role override line â€” small summary row between description and
+   action buttons. e.g. "+2 granted  âˆ’1 revoked". */
+.role-card-override-line {
+  display: flex;
+  gap: 0.6rem;
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
+}
+
+.role-card-override-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.role-card-override-grant {
+  color: var(--success-soft);
+}
+
+.role-card-override-revoke {
+  color: var(--danger-soft);
+}
+
+.role-card-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.role-card-action-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.3rem 0.65rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.role-card-action-btn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.role-card-action-btn-destructive {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger-soft);
+}
+
+.role-card-action-btn-destructive:hover {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: var(--danger-soft);
+  color: var(--danger-text);
+}
+
+/* â”€â”€ Pending invitations list (Project Overview page) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* Mirrors .member-list shape so the two stacked cards on the Overview page
    read as siblings rather than two unrelated lists. */
@@ -443,7 +646,7 @@
   align-items: center;
   gap: 0.85rem;
   padding: 0.7rem 0;
-  border-top: 1px solid #222;
+  border-top: 1px solid var(--bg-elevated);
 }
 
 .invitation-row:first-child {
@@ -464,7 +667,7 @@
 }
 
 .invitation-email {
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   font-weight: 500;
   overflow: hidden;
@@ -473,20 +676,20 @@
 }
 
 .invitation-meta {
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.78rem;
 }
 
 /* Neutral ghost button paired with Revoke on each invitation row. Copies
-   the docvex://invite?token=… URL to the clipboard so the admin can DM
+   the docvex://invite?token=â€¦ URL to the clipboard so the admin can DM
    it manually when the auto-send email leg failed (Resend domain not
    verified, etc.). Indigo hover tint matches the rest of the app's
    primary-action vocabulary. */
 .invitation-copy-btn {
   background: transparent;
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #c4c4c4;
+  color: var(--text-secondary);
   font-size: 0.78rem;
   font-weight: 500;
   padding: 0.3rem 0.65rem;
@@ -498,20 +701,20 @@
 }
 
 .invitation-copy-btn:hover {
-  background: rgba(99, 102, 241, 0.12);
-  border-color: #6366f1;
-  color: #fff;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: var(--accent);
+  color: var(--text-primary);
 }
 
-/* Small destructive ghost button — quieter than the project-dashboard-danger
+/* Small destructive ghost button â€” quieter than the project-dashboard-danger
    variant because revoking a pending invitation is a low-impact, reversible
    action; the admin can re-invite immediately. Hover lifts to the same red
    accent the rest of the destructive UI uses. */
 .invitation-revoke-btn {
   background: transparent;
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #c4c4c4;
+  color: var(--text-secondary);
   font-size: 0.78rem;
   font-weight: 500;
   padding: 0.3rem 0.65rem;
@@ -523,9 +726,9 @@
 }
 
 .invitation-revoke-btn:hover {
-  background: rgba(220, 38, 38, 0.12);
-  border-color: rgba(220, 38, 38, 0.4);
-  color: #f87171;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger-soft);
 }
 
 .invitation-revoke-btn:disabled {
@@ -533,7 +736,7 @@
   cursor: not-allowed;
 }
 
-/* ── Tab bar (Project Overview) ───────────────────────────────────────── */
+/* â”€â”€ Tab bar (Project Overview) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* Underline-style tab bar sitting between the header and the panel content.
    Same visual idiom as GitHub repo tabs / VS Code editor tabs: bottom-only
@@ -543,7 +746,7 @@
 .project-tabs {
   display: flex;
   gap: 0;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid var(--border);
   /* Pull up against the header so the bar reads as an extension of it
      rather than a floating control. */
   margin-top: -0.25rem;
@@ -560,7 +763,7 @@
      instead of stacking. */
   margin-bottom: -1px;
   border-bottom: 2px solid transparent;
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.88rem;
   font-weight: 500;
   padding: 0.7rem 1rem;
@@ -570,19 +773,19 @@
 }
 
 .project-tab:hover:not(.is-active) {
-  color: #c4c4c4;
+  color: var(--text-secondary);
 }
 
 .project-tab.is-active {
-  color: #e0e0e0;
-  border-bottom-color: #6366f1;
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
 }
 
 .project-tab-count {
   font-size: 0.7rem;
   font-weight: 600;
-  background: #2a2a2a;
-  color: #c4c4c4;
+  background: var(--border);
+  color: var(--text-secondary);
   border-radius: 999px;
   padding: 0.1rem 0.45rem;
   min-width: 1.1rem;
@@ -590,11 +793,11 @@
 }
 
 .project-tab.is-active .project-tab-count {
-  background: rgba(99, 102, 241, 0.18);
-  color: #c7c9ff;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-soft);
 }
 
-/* ── Project-details edit form (Project tab) ──────────────────────────── */
+/* â”€â”€ Project-details edit form (Project tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* Mirrors the field stack from ProjectCreate.css but lives inside an
    existing .project-dashboard-card, so it inherits the card's padding/border
@@ -613,22 +816,22 @@
 }
 
 .project-edit-label {
-  color: #c4c4c4;
+  color: var(--text-secondary);
   font-size: 0.85rem;
   font-weight: 500;
 }
 
 .project-edit-required {
-  color: #f87171;
+  color: var(--danger-soft);
   margin-left: 0.15rem;
 }
 
 .project-edit-input,
 .project-edit-textarea {
-  background: #0f0f0f;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-page);
+  border: 1px solid var(--border);
   border-radius: 7px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   padding: 0.55rem 0.75rem;
   font-family: inherit;
@@ -638,12 +841,12 @@
 
 .project-edit-input::placeholder,
 .project-edit-textarea::placeholder {
-  color: #555;
+  color: var(--border-strong);
 }
 
 .project-edit-input:focus,
 .project-edit-textarea:focus {
-  border-color: #6366f1;
+  border-color: var(--accent);
 }
 
 .project-edit-input:disabled,
@@ -659,10 +862,10 @@
 }
 
 .project-edit-error {
-  background: rgba(220, 38, 38, 0.07);
-  border: 1px solid rgba(220, 38, 38, 0.4);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
   border-radius: 7px;
-  color: #f87171;
+  color: var(--danger-soft);
   font-size: 0.85rem;
   padding: 0.55rem 0.8rem;
 }
@@ -688,26 +891,26 @@
 }
 
 .project-edit-cancel {
-  color: #aaa;
+  color: var(--text-secondary);
   background: transparent;
-  border-color: #333;
+  border-color: var(--border);
 }
 
 .project-edit-cancel:hover:not(:disabled) {
-  color: #fff;
-  border-color: #555;
-  background: #1f1f1f;
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  background: var(--bg-elevated);
 }
 
 .project-edit-submit {
-  color: #fff;
-  background: #6366f1;
-  border-color: #6366f1;
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .project-edit-submit:hover:not(:disabled) {
-  background: #7c7ff5;
-  border-color: #7c7ff5;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .project-edit-cancel:disabled,

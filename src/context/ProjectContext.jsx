@@ -10,22 +10,40 @@ import React, {
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { getProject, listMembers } from '../lib/projects';
+import { listCustomRoles, subscribeForProjectRoles } from '../lib/customRoles';
 import { useAuth } from './AuthContext';
 
 // Scoped to a single /projects/:projectId subtree. Mounted by App.jsx only
 // inside the project routes so unrelated pages (Dashboard, Account, Updates)
 // don't pay the cost of a project fetch + Realtime channel.
 //
-// State: { project, role, members, loading, error, refresh }.
+// State: { project, role, members, customRoles, loading, error, refresh,
+//          refreshCustomRoles, removeMemberLocal, removeCustomRoleLocal }.
 //   - project    — full row from public.projects, null while loading/error
 //   - role       — caller's role on this project: 'owner'|'admin'|'member'|'viewer'|null
-//   - members    — array of { user_id, role, added_at, profile } from listMembers()
+//   - members    — array of { user_id, role, custom_role_id, added_at, profile }
+//                  from listMembers(). When custom_role_id is set, the
+//                  member's effective display + capabilities come from the
+//                  customRoles catalog entry of that id.
+//   - customRoles — array of { id, name, description, base_role, capabilities }
+//                  from listCustomRoles(). Capabilities is the override set
+//                  (rows that differ from the base_role's defaults).
 //   - loading    — true during the initial fetch (refresh() doesn't flip this)
 //   - error      — Error from the initial fetch, null on success
 //   - refresh()  — manual re-fetch trigger; useful after mutations that don't
 //                  themselves come through Realtime (e.g. updateMemberRole
 //                  triggers a Realtime UPDATE event, but a Dashboard rename
 //                  needs a manual refresh for the name to update locally).
+//   - refreshCustomRoles() — refetch just the custom roles list, used after
+//                  a successful create/update from the editor modal.
+//   - removeMemberLocal(userId) — optimistic local removal for the actor's
+//                  device. The realtime DELETE handler does the same filter
+//                  cross-device; this just skips the round-trip latency for
+//                  the user who clicked Remove.
+//   - removeCustomRoleLocal(id) — optimistic local removal of a custom role
+//                  + cleans up any member rows that pointed at it (resets
+//                  their custom_role_id to null on the local copy; the FK
+//                  on the server handles the truth).
 
 const ProjectContext = createContext(null);
 
@@ -36,6 +54,7 @@ export function ProjectProvider({ children }) {
   const [project, setProject] = useState(null);
   const [role, setRole] = useState(null);
   const [members, setMembers] = useState([]);
+  const [customRoles, setCustomRoles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -47,14 +66,23 @@ export function ProjectProvider({ children }) {
   // member events (e.g. an admin bulk-importing invitations that all accept
   // around the same time) coalesces into one listMembers() call instead of N.
   const memberRefetchTimerRef = useRef(null);
+  // Same debounce pattern for custom-role + capability events. A single
+  // role edit fires up to 1 custom_roles UPDATE + N capability INSERT/DELETE
+  // rows; the debounce coalesces them.
+  const rolesRefetchTimerRef = useRef(null);
 
   const load = useCallback(async () => {
     if (!projectId) return;
     cancelledRef.current = false;
 
-    const [{ data: projData, error: projErr }, { data: memData, error: memErr }] = await Promise.all([
+    const [
+      { data: projData, error: projErr },
+      { data: memData,  error: memErr  },
+      { data: rolesData, error: rolesErr },
+    ] = await Promise.all([
       getProject(projectId),
       listMembers(projectId),
+      listCustomRoles(projectId),
     ]);
     if (cancelledRef.current) return;
 
@@ -63,6 +91,7 @@ export function ProjectProvider({ children }) {
       setProject(null);
       setRole(null);
       setMembers([]);
+      setCustomRoles([]);
       setLoading(false);
       return;
     }
@@ -70,6 +99,10 @@ export function ProjectProvider({ children }) {
     setProject(projData);
     setRole(projData?.role ?? null);
     setMembers(memErr ? [] : (memData || []));
+    // listCustomRoles errors are non-fatal: a viewer with RLS access but a
+    // transient network blip still sees the page; capability resolution
+    // falls back to the base-tier matrix.
+    setCustomRoles(rolesErr ? [] : (rolesData || []));
     setError(null);
     setLoading(false);
   }, [projectId]);
@@ -129,9 +162,11 @@ export function ProjectProvider({ children }) {
           // refetch then reconciles to authoritative data — covers INSERTs
           // and any UPDATE where the affected user isn't in our array yet.
           if (payload.eventType === 'UPDATE' && payload.new?.user_id) {
-            const { user_id: changedId, role: newRole } = payload.new;
+            const { user_id: changedId, role: newRole, custom_role_id: newCustomRoleId } = payload.new;
             setMembers((prev) =>
-              prev.map((m) => (m.user_id === changedId ? { ...m, role: newRole } : m)),
+              prev.map((m) => (m.user_id === changedId
+                ? { ...m, role: newRole, custom_role_id: newCustomRoleId ?? null }
+                : m)),
             );
             // If the caller is the affected user, patch the provider's role
             // state too — keeps "I just got promoted" UI in sync without
@@ -158,14 +193,85 @@ export function ProjectProvider({ children }) {
     };
   }, [projectId, selfUserId]);
 
+  // Custom-roles realtime subscription. Separate from the projects/members
+  // channel above because (a) the capability table can't be filtered on
+  // project_id at the realtime layer (the FK is on custom_role_id, not
+  // project_id), so the subscription is unfiltered + reconciled via a
+  // debounced refetch; and (b) keeping it isolated means a custom-role
+  // refresh doesn't churn the members list query.
+  useEffect(() => {
+    if (!projectId) return undefined;
+
+    const refreshRolesDebounced = () => {
+      if (rolesRefetchTimerRef.current) clearTimeout(rolesRefetchTimerRef.current);
+      rolesRefetchTimerRef.current = setTimeout(async () => {
+        rolesRefetchTimerRef.current = null;
+        const { data, error: rolesErr } = await listCustomRoles(projectId);
+        if (cancelledRef.current) return;
+        if (!rolesErr) setCustomRoles(data || []);
+      }, 200);
+    };
+
+    const unsubscribe = subscribeForProjectRoles(projectId, () => {
+      // Every change (insert/update/delete on either table) triggers a
+      // reconcile. Cheap — the roles list is small.
+      refreshRolesDebounced();
+    });
+
+    return () => {
+      if (rolesRefetchTimerRef.current) {
+        clearTimeout(rolesRefetchTimerRef.current);
+        rolesRefetchTimerRef.current = null;
+      }
+      try { unsubscribe(); } catch { /* non-fatal */ }
+    };
+  }, [projectId]);
+
   // Public refresh — same as the effect's load(), but exposed so pages can
   // re-pull after a mutation (e.g. updateProject from the Settings page).
   // Doesn't flip `loading` so the UI doesn't flicker.
   const refresh = useCallback(async () => { await load(); }, [load]);
 
+  // Custom-roles-only refresh, exposed so the editor modal can pull a fresh
+  // catalog after a successful save without re-fetching the project + members.
+  const refreshCustomRoles = useCallback(async () => {
+    if (!projectId) return;
+    const { data, error: err } = await listCustomRoles(projectId);
+    if (cancelledRef.current) return;
+    if (!err) setCustomRoles(data || []);
+  }, [projectId]);
+
+  // Optimistic local removal helper. Mirrors the realtime DELETE handler's
+  // setMembers filter — exposed so the local actor (the admin clicking
+  // "Remove" on a member row) sees the row vanish instantly, without
+  // waiting on the realtime echo round-trip. The realtime DELETE event
+  // also fires and runs the same filter; the second pass is a no-op
+  // because the row is already gone. Cross-device clients still rely on
+  // the realtime DELETE event (now actually delivered post-migration 007).
+  const removeMemberLocal = useCallback((userId) => {
+    setMembers((prev) => prev.filter((m) => m.user_id !== userId));
+  }, []);
+
+  // Optimistic local removal for a custom role. Two state updates:
+  //   1. Drop the role from the catalog so the Roles tab updates instantly.
+  //   2. Clear `custom_role_id` on any member assigned to it so their pill
+  //      reverts to the built-in label without waiting for the realtime
+  //      echo. The DB's FK is ON DELETE SET NULL, so the server state
+  //      arrives at the same shape; this is a latency shortcut.
+  const removeCustomRoleLocal = useCallback((roleId) => {
+    setCustomRoles((prev) => prev.filter((r) => r.id !== roleId));
+    setMembers((prev) => prev.map((m) =>
+      m.custom_role_id === roleId ? { ...m, custom_role_id: null } : m,
+    ));
+  }, []);
+
   const value = useMemo(
-    () => ({ project, role, members, loading, error, refresh }),
-    [project, role, members, loading, error, refresh],
+    () => ({
+      project, role, members, customRoles, loading, error,
+      refresh, refreshCustomRoles, removeMemberLocal, removeCustomRoleLocal,
+    }),
+    [project, role, members, customRoles, loading, error,
+     refresh, refreshCustomRoles, removeMemberLocal, removeCustomRoleLocal],
   );
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
@@ -175,4 +281,15 @@ export function useProject() {
   const ctx = useContext(ProjectContext);
   if (!ctx) throw new Error('useProject must be used inside <ProjectProvider>');
   return ctx;
+}
+
+// Like useProject(), but returns null when no provider is in scope instead
+// of throwing. For consumers that can ALSO get by with just the
+// SelectedProjectContext's role (e.g. useHasCapability, which works on both
+// /projects/:id full-context routes AND on /files where only SelectedProject
+// is available). Don't use this where the consumer genuinely depends on
+// `members` or `customRoles` being populated — those are only present under
+// a real ProjectProvider.
+export function useProjectOptional() {
+  return useContext(ProjectContext);
 }

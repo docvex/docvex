@@ -49,8 +49,9 @@ export default function ProjectCreate() {
     // Background success toast — the navigation immediately moves the user
     // off this page so the inline confirmation has no time to be read.
     notify({
-      category: 'system',
+      category: 'project',
       variant: 'success',
+      icon: 'folder-plus',
       title: `Project "${data.name}" created`,
       dedupeKey: `project-created-${data.id}`,
     });

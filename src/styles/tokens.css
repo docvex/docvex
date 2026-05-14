@@ -1,0 +1,150 @@
+/* DocVex theme system — brand palette + semantic aliases for two themes.
+ *
+ * Imported once globally from src/renderer.jsx + src/web.jsx after index.css.
+ * Selectors are scoped via [data-theme="…"] on <html>, set by ThemeContext.
+ *
+ * Pattern: the bare :root block defines the brand-palette constants AND a
+ * Cream-defaults fallback alongside :root[data-theme="cream"], so the page
+ * paints in Cream even before React mounts and ThemeContext applies the
+ * attribute. Ink overrides the semantic aliases (not the brand constants).
+ *
+ * Every per-component stylesheet reads from `var(--…)` only — no hex
+ * literals — so adding a third theme is a 30-line addition (new
+ * :root[data-theme="…"] block + a new entry in ThemeContext's themes list).
+ */
+
+:root {
+  /* ── Brand palette ─────────────────────────────────────────────────────
+     Five constants. Used by both themes for the semantic aliases below,
+     and by the theme-picker swatch strip directly. Order in the picker
+     strip is fixed left-to-right: Ink · Slate · Sand · Cream · Cognac. */
+  --color-ink:    #0F172A;
+  --color-slate:  #1E293B;
+  --color-sand:   #DCC9A3;
+  --color-cream:  #F5F2EA;
+  --color-cognac: #8B5E3C;
+
+  /* ── Typography ────────────────────────────────────────────────────────
+     Theme-agnostic. Fonts loaded via <link> in index.html / index.web.html. */
+  --font-body:    'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+}
+
+/* ── Cream theme — the default ────────────────────────────────────────────
+ * The un-suffixed :root selector applies these same tokens so the first
+ * paint (before ThemeContext sets data-theme) is Cream. Users who picked
+ * Ink see a single-frame Cream flash on cold load — see "FOUC" in the plan
+ * for the optional inline-script preamble follow-up.
+ *
+ * The bare [data-theme="cream"] selector (without :root) lets ANY element
+ * declare itself a cream-themed sub-tree. The ThemePicker mocks rely on
+ * this so each theme card paints in its OWN theme regardless of the app's
+ * current theme — see src/components/ThemePicker.jsx. */
+:root,
+:root[data-theme="cream"],
+[data-theme="cream"] {
+  /* ── Notification category palette ──────────────────────────────────────
+     Distinct colors per notification category so users can scan the
+     history page (and toast stack) at a glance and immediately tell
+     "this was about a project / file / member / role / etc." without
+     reading every title. Darker shades chosen here for legibility on
+     the cream surface; Ink theme overrides below pick lighter shades. */
+  --cat-auth:    #047857;  /* emerald 700 — identity */
+  --cat-project: #4F46E5;  /* indigo 600 — workspace */
+  --cat-member:  #0891B2;  /* cyan 600 — people */
+  --cat-file:    #B45309;  /* amber 700 — content */
+  --cat-role:    #BE185D;  /* pink 700 — permissions */
+  --cat-update:  #6D28D9;  /* violet 700 — system updates */
+  --cat-support: var(--color-cognac);  /* brand — first-party comms */
+  --cat-system:  #475569;  /* slate 600 — neutral / fallback */
+
+  --bg-page:        var(--color-cream);
+  --bg-card:        #FFFFFF;
+  --bg-elevated:    #FAF7F0;
+  --bg-sidebar:     #FFFFFF;
+  --bg-input:       #FFFFFF;
+  --border:         rgba(15, 23, 42, 0.10);
+  --border-strong:  rgba(15, 23, 42, 0.18);
+  --text-primary:   var(--color-ink);
+  --text-secondary: var(--color-slate);
+  --text-muted:     #6B7280;
+  --text-on-accent: #FFFFFF;
+  --accent:         var(--color-cognac);
+  --accent-hover:   #74502F;
+  --accent-soft:    var(--color-sand);
+  --accent-tint:    rgba(139, 94, 60, 0.10);    /* faint cognac wash — for hover bgs, focus rings */
+  --danger:         #B91C1C;
+  --danger-soft:    #DC2626;
+  --danger-text:    #B91C1C;
+  --success:        #15803D;
+  --success-soft:   #22C55E;
+  --warning:        #B45309;
+  --warning-soft:   #F59E0B;
+  --info:           #0369A1;
+  --info-soft:      #38BDF8;
+  --shadow-card:    0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-elev:    0 8px 24px rgba(15, 23, 42, 0.10);
+  --overlay-scrim:  rgba(15, 23, 42, 0.45);
+  --scrollbar-thumb: rgba(15, 23, 42, 0.30);
+}
+
+/* ── Ink theme — dark variant of the same brand palette ──────────────────
+ * Reuses brand constants from :root above; redefines only the semantic
+ * aliases. Body bg becomes ink, primary text becomes cream, the accent
+ * shifts from cognac (which would disappear on dark ink) to the lighter
+ * sand so it has visible contrast. Danger / success / warning / info
+ * brighten similarly. Bare [data-theme="ink"] (without :root) lets any
+ * subtree opt into Ink — used by the ThemePicker mock cards. */
+:root[data-theme="ink"],
+[data-theme="ink"] {
+  /* Notification category palette — lighter shades for legibility on the
+     dark ink surface. Same categories as Cream, same semantic mapping. */
+  --cat-auth:    #34D399;  /* emerald 400 */
+  --cat-project: #A5B4FC;  /* indigo 300 */
+  --cat-member:  #67E8F9;  /* cyan 300 */
+  --cat-file:    #FCD34D;  /* amber 300 */
+  --cat-role:    #F9A8D4;  /* pink 300 */
+  --cat-update:  #C4B5FD;  /* violet 300 */
+  --cat-support: var(--color-sand);  /* brand on dark */
+  --cat-system:  #94A3B8;  /* slate 400 */
+
+  --bg-page:        var(--color-ink);
+  --bg-card:        var(--color-slate);
+  --bg-elevated:    #2A3548;
+  --bg-sidebar:     #15213A;
+  --bg-input:       #15213A;
+  --border:         rgba(245, 242, 234, 0.10);
+  --border-strong:  rgba(245, 242, 234, 0.20);
+  --text-primary:   var(--color-cream);
+  --text-secondary: #C9CEDC;
+  --text-muted:     #8A93A8;
+  --text-on-accent: var(--color-ink);
+  --accent:         var(--color-sand);
+  --accent-hover:   #C8B58E;
+  --accent-soft:    var(--color-cognac);
+  --accent-tint:    rgba(220, 201, 163, 0.12);  /* sand wash */
+  --danger:         #EF4444;
+  --danger-soft:    #F87171;
+  --danger-text:    #FCA5A5;
+  --success:        #22C55E;
+  --success-soft:   #4ADE80;
+  --warning:        #F59E0B;
+  --warning-soft:   #FBBF24;
+  --info:           #38BDF8;
+  --info-soft:      #7DD3FC;
+  --shadow-card:    0 1px 3px rgba(0, 0, 0, 0.40), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-elev:    0 12px 32px rgba(0, 0, 0, 0.55);
+  --overlay-scrim:  rgba(0, 0, 0, 0.65);
+  --scrollbar-thumb: rgba(245, 242, 234, 0.35);
+}
+
+/* Global typography defaults. Per-component stylesheets can override on
+   specific elements, but the body / heading defaults route through tokens
+   so a future font swap is a one-line change. */
+body {
+  font-family: var(--font-body);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+}

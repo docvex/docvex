@@ -1,4 +1,4 @@
-/* Shared layout for the project-scoped placeholder pages (Files, To-dos).
+﻿/* Shared layout for the project-scoped placeholder pages (Files, To-dos).
    Same dark palette as ProjectList/ProjectDashboard for visual continuity.
    This stylesheet is imported by both pages so they look identical above
    the placeholder content; the actual feature pages will likely fork into
@@ -13,11 +13,11 @@
 
 .project-scoped-loading,
 .project-scoped-empty {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 2rem 1.5rem;
-  color: #c4c4c4;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   display: flex;
   flex-direction: column;
@@ -35,22 +35,22 @@
   margin: 0 0 0.25rem;
   font-size: 1.1rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .project-scoped-empty p {
   margin: 0 0 1.5rem;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .project-scoped-cta {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  background: #6366f1;
-  border: 1px solid #6366f1;
+  background: var(--accent);
+  border: 1px solid var(--accent);
   border-radius: 6px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 0.85rem;
   font-weight: 500;
   padding: 0.5rem 1rem;
@@ -59,8 +59,8 @@
 }
 
 .project-scoped-cta:hover {
-  background: #7c7ff5;
-  border-color: #7c7ff5;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .project-scoped-header {
@@ -72,24 +72,24 @@
 .project-scoped-title {
   font-size: 1.5rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
   margin: 0;
 }
 
 .project-scoped-subtitle {
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.9rem;
   margin: 0;
 }
 
 .project-scoped-subtitle strong {
-  color: #c4c4c4;
+  color: var(--text-secondary);
   font-weight: 600;
 }
 
 .project-scoped-coming-soon {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.5rem;
 }
@@ -98,12 +98,12 @@
   margin: 0 0 0.5rem;
   font-size: 1rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .project-scoped-coming-soon p {
   margin: 0;
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 0.875rem;
   line-height: 1.55;
 }
@@ -111,9 +111,9 @@
 .project-scoped-coming-soon code {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 0.82em;
-  background: #111;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0.05rem 0.35rem;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }

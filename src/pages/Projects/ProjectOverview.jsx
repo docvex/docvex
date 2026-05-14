@@ -4,10 +4,24 @@ import { useProject } from '../../context/ProjectContext';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { useNotifications } from '../../context/NotificationsContext';
 import { useAuth } from '../../context/AuthContext';
-import { deleteProject, listInvitations, revokeInvite, sendInvite, updateProject } from '../../lib/projects';
+import {
+  deleteProject,
+  listInvitations,
+  removeMember,
+  revokeInvite,
+  sendInvite,
+  updateProject,
+} from '../../lib/projects';
+import { deleteCustomRole } from '../../lib/customRoles';
+import { useHasCapability } from '../../hooks/useHasCapability';
 import DeleteProjectModal from '../../components/DeleteProjectModal';
 import InviteMemberModal from '../../components/InviteMemberModal';
+import RemoveMemberModal from '../../components/RemoveMemberModal';
 import RoleLocked from '../../components/RoleLocked';
+import RoleBadge, { builtInLabel } from '../../components/RoleBadge';
+import CustomRoleEditor from '../../components/CustomRoleEditor';
+import ConfirmModal from '../../components/ConfirmModal';
+import { CAPABILITIES, resolveCapability } from '../../lib/customRoles';
 import './ProjectDashboard.css';
 
 // Chevron-left icon for the "< Back" link — inline SVG so we don't pull in an
@@ -37,6 +51,31 @@ const UsersIcon = (
 //
 // Auto-selecting this project into SelectedProjectContext is handled by
 // <ProjectAutoSelect/> at the ProjectShell level — see App.jsx.
+
+// Built-in role definitions — purely UI documentation. The capability matrix
+// itself lives in resolveCapability() (src/lib/customRoles.js) and the SQL
+// `has_capability()` function (migration 008); this array just attaches the
+// description copy and any "extras" not expressible as toggleable
+// capabilities (owner's exclusive `project.delete` power).
+const BUILT_IN_ROLE_DEFS = [
+  {
+    role: 'owner',
+    description: 'The project creator. Gets every capability automatically, plus the exclusive ability to delete the project.',
+    extras: ['✓ Delete this project (owner-only, not assignable)'],
+  },
+  {
+    role: 'admin',
+    description: 'Full access to everything except deleting the project. Can manage members, files, and custom roles.',
+  },
+  {
+    role: 'member',
+    description: 'Can view and contribute files. Can delete files they uploaded themselves.',
+  },
+  {
+    role: 'viewer',
+    description: 'Read-only access to files. Can\'t upload or delete anything. Useful for external collaborators.',
+  },
+];
 
 // Resolves a human-readable display name from a member profile in the same
 // order as the Sidebar/Account helpers (full_name > name > email local part).
@@ -78,7 +117,17 @@ function formatExpiry(isoString) {
 }
 
 export default function ProjectOverview() {
-  const { project, role, members, loading, error } = useProject();
+  const {
+    project, role, members, customRoles, loading, error,
+    removeMemberLocal, removeCustomRoleLocal, refreshCustomRoles,
+  } = useProject();
+  // Capability-aware gates for the affordances that ARE in the toggleable
+  // set (post-migration 008). Owners/admins resolve to true for all of
+  // these via the base-tier matrix; custom-role members get them per their
+  // override set. Manage-custom-roles is NOT in the capability set on
+  // purpose — gated on the legacy admin+ tier below via `isAdmin`.
+  const canInvite     = useHasCapability('members.invite');
+  const canRemove     = useHasCapability('members.remove');
   const { clearSelection } = useSelectedProject();
   const { notify } = useNotifications();
   const { session } = useAuth();
@@ -105,10 +154,38 @@ export default function ProjectOverview() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
 
+  // Kick-member state — `removeTarget` holds the member row whose kick
+  // modal is open (null when closed). Splitting target / pending / error
+  // mirrors the delete-project trio above so the patterns read the same.
+  const [removeTarget, setRemoveTarget] = useState(null);
+  const [removePending, setRemovePending] = useState(false);
+  const [removeError, setRemoveError] = useState(null);
+
   // Admin-only — owner+admin both qualify per the RANK helper in RoleGate.
   // Inline comparison avoids the extra hook call since we only need it once.
   const isAdmin = role === 'owner' || role === 'admin';
   const isOwner = role === 'owner';
+
+  // Show "Remove" on a member row when the viewer has the members.remove
+  // capability (admin+ by default, OR a custom-role member with the
+  // override granted), the target row is NOT the owner (RLS would reject
+  // anyway), AND the target row is NOT the viewer themselves (self-removal
+  // will get a dedicated "Leave project" flow in a follow-up).
+  const canRemoveMember = (m) =>
+    canRemove && m.role !== 'owner' && m.user_id !== currentUserId;
+
+  // ── Custom roles tab state ──────────────────────────────────────────────
+  // `editorTarget` semantics:
+  //   undefined  → editor is closed.
+  //   null       → editor is open in CREATE mode.
+  //   {role row} → editor is open in EDIT mode for that role.
+  // We distinguish closed vs create-mode with `!== undefined` because both
+  // null and an object are valid "open" states.
+  const [editorTarget, setEditorTarget] = useState(undefined);
+  // Delete-confirm state for a custom role row. Same target-or-null pattern
+  // as the member-kick flow.
+  const [roleDeleteTarget, setRoleDeleteTarget] = useState(null);
+  const [roleDeletePending, setRoleDeletePending] = useState(false);
 
   // Top-level tab. Local state is fine: the value isn't deep-linkable (no
   // need to share "I was on Members" via URL — both tabs live at the same
@@ -173,8 +250,9 @@ export default function ProjectOverview() {
     // the form to the new server values. (If Realtime is dropped for any
     // reason, the next refresh() call brings everything in line.)
     notify({
-      category: 'system',
+      category: 'project',
       variant: 'success',
+      icon: 'edit',
       title: 'Project updated',
       dedupeKey: `project-updated-${project.id}`,
     });
@@ -250,7 +328,7 @@ export default function ProjectOverview() {
         variant: 'error',
         title: 'Could not copy',
         body: 'Clipboard access was denied.',
-      });
+      });  // icon falls back to 'alert' via variant default
     }
   };
 
@@ -267,7 +345,7 @@ export default function ProjectOverview() {
     setResendingId(null);
     if (error) {
       notify({
-        category: 'system',
+        category: 'member',
         variant: 'error',
         title: 'Could not resend invitation',
         body: error.message || 'The server rejected the request.',
@@ -277,8 +355,9 @@ export default function ProjectOverview() {
     const emailStatus = data?.email_status;
     if (emailStatus === 'sent') {
       notify({
-        category: 'system',
+        category: 'member',
         variant: 'success',
+        icon: 'envelope',
         title: 'Invitation resent',
         body: `Email delivered to ${inv.email}.`,
         dedupeKey: `invite-resent-${inv.id}`,
@@ -291,8 +370,9 @@ export default function ProjectOverview() {
       };
       const shortReason = reasonByStatus[emailStatus] || 'Unknown email error.';
       notify({
-        category: 'system',
+        category: 'member',
         variant: 'warning',
+        icon: 'envelope-off',
         title: 'Email not delivered',
         body: `${shortReason} (${data?.email_error || ''})`.trim(),
         dedupeKey: `invite-resend-failed-${inv.id}`,
@@ -307,7 +387,7 @@ export default function ProjectOverview() {
     setRevokingId(null);
     if (revErr) {
       notify({
-        category: 'system',
+        category: 'member',
         variant: 'error',
         title: 'Could not revoke invitation',
         body: revErr.message || 'The server rejected the request.',
@@ -316,8 +396,9 @@ export default function ProjectOverview() {
     }
     setInvitations((prev) => prev.filter((i) => i.id !== invitationId));
     notify({
-      category: 'system',
+      category: 'member',
       variant: 'success',
+      icon: 'envelope-off',
       title: 'Invitation revoked',
       dedupeKey: `invite-revoked-${invitationId}`,
     });
@@ -371,6 +452,65 @@ export default function ProjectOverview() {
     navigate('/projects', { replace: true });
   };
 
+  // Kick the targeted member. RLS gates this to admin+ on non-owner rows;
+  // a defensive RLS rejection (e.g. the actor got demoted between load and
+  // click) surfaces as a returned error and we keep the modal open with
+  // an inline message rather than closing on the user.
+  const handleRemoveMember = async () => {
+    if (!removeTarget || removePending) return;
+    setRemovePending(true);
+    setRemoveError(null);
+    const { error: remErr } = await removeMember(project.id, removeTarget.user_id);
+    setRemovePending(false);
+    if (remErr) {
+      setRemoveError(remErr.message || 'Could not remove member.');
+      return;
+    }
+    notify({
+      category: 'member',
+      variant: 'success',
+      icon: 'user-minus',
+      title: 'Member removed',
+      body: getMemberName(removeTarget.profile),
+      dedupeKey: `member-removed:${project.id}:${removeTarget.user_id}`,
+    });
+    // Optimistic local patch — drops the row from `members` on this device
+    // instantly. Cross-device clients get the same drop via the realtime
+    // DELETE handler in ProjectContext (working as of migration 007).
+    removeMemberLocal(removeTarget.user_id);
+    setRemoveTarget(null);
+  };
+
+  // Custom-role delete handler. RLS gates this to admin+ on the role's
+  // project; the local state cleanup (`removeCustomRoleLocal`) also clears
+  // any member rows' custom_role_id locally so the Members list reverts
+  // their pill to the built-in label without waiting on realtime.
+  const handleConfirmDeleteRole = async () => {
+    if (!roleDeleteTarget || roleDeletePending) return;
+    setRoleDeletePending(true);
+    const { error: delErr } = await deleteCustomRole(roleDeleteTarget.id);
+    setRoleDeletePending(false);
+    if (delErr) {
+      notify({
+        category: 'role',
+        variant: 'error',
+        title: 'Could not delete role',
+        body: delErr.message || 'The server rejected the request.',
+      });
+      return;
+    }
+    notify({
+      category: 'role',
+      variant: 'success',
+      icon: 'trash',
+      title: 'Custom role deleted',
+      body: roleDeleteTarget.name,
+      dedupeKey: `role-deleted:${roleDeleteTarget.id}`,
+    });
+    removeCustomRoleLocal(roleDeleteTarget.id);
+    setRoleDeleteTarget(null);
+  };
+
   // Tab definitions are an array so the bar renders via .map() and adding
   // a third tab later (Files, Activity) is a one-line change. Count badge on
   // Members is the same data the Members card header used to surface.
@@ -381,7 +521,12 @@ export default function ProjectOverview() {
   const tabs = [
     { id: 'project', label: 'Project' },
     { id: 'members', label: 'Members', count: members.length },
-    { id: 'ai', label: 'AI' },
+    // Roles tab — visible to every viewer+ so they can see the role catalog
+    // for the project, but only admins can create/edit/delete custom roles
+    // (gated inside the tab content itself). Count surfaces the total
+    // (built-ins + customs) so it's clear how many roles are defined.
+    { id: 'roles',   label: 'Roles',   count: 4 + customRoles.length },
+    { id: 'ai',      label: 'AI' },
   ];
 
   return (
@@ -393,7 +538,19 @@ export default function ProjectOverview() {
         </Link>
         <div className="project-dashboard-title-row">
           <h1 className="project-dashboard-title">{project.name}</h1>
-          <span className={`project-dashboard-role role-${role}`}>{role}</span>
+          {/* Header pill — looks up the caller's row in `members` to resolve
+              their custom role (if any) so the pill reflects the assignment
+              not just the enum tier. RoleBadge applies the viewer→Client
+              rename uniformly. */}
+          {(() => {
+            const me = currentUserId
+              ? members.find((m) => m.user_id === currentUserId)
+              : null;
+            const myCustomRole = me?.custom_role_id
+              ? customRoles.find((cr) => cr.id === me.custom_role_id)
+              : null;
+            return <RoleBadge role={role} customRole={myCustomRole} />;
+          })()}
         </div>
       </header>
 
@@ -534,13 +691,12 @@ export default function ProjectOverview() {
                   {UsersIcon}
                   {members.length} {members.length === 1 ? 'member' : 'members'}
                 </span>
-                {/* Invite-member button is admin-only and opted out of the
-                    overlay pattern (per user direction): non-admins don't
-                    see the button at all. A blurred button in the card
-                    header looked off-balance against the count badge, and
-                    the invite affordance is already discoverable from the
-                    Members card itself. */}
-                {isAdmin && (
+                {/* Invite-member button is gated on the members.invite
+                    capability — admin+ by default, plus any custom-role
+                    member who's been granted the override. Opted out of
+                    the overlay pattern (per user direction): users without
+                    the capability don't see the button at all. */}
+                {canInvite && (
                   <button
                     type="button"
                     className="project-dashboard-card-btn"
@@ -561,6 +717,12 @@ export default function ProjectOverview() {
               <ul className="member-list">
                 {orderedMembers.map((m) => {
                   const isSelf = m.user_id === currentUserId;
+                  // Resolve custom role for the pill so each row shows the
+                  // assigned label ("Designer") instead of just the base
+                  // tier ("Member") when an override is active.
+                  const memberCustomRole = m.custom_role_id
+                    ? customRoles.find((cr) => cr.id === m.custom_role_id)
+                    : null;
                   return (
                     <li key={m.user_id} className="member-row">
                       <MemberAvatar profile={m.profile} />
@@ -571,7 +733,18 @@ export default function ProjectOverview() {
                         )}
                       </div>
                       {isSelf && <span className="member-self-pill">Me</span>}
-                      <span className={`project-dashboard-role role-${m.role}`}>{m.role}</span>
+                      <RoleBadge role={m.role} customRole={memberCustomRole} showBase />
+                      {canRemoveMember(m) && (
+                        <button
+                          type="button"
+                          className="member-remove-btn"
+                          onClick={() => setRemoveTarget(m)}
+                          title={`Remove ${getMemberName(m.profile)} from this project`}
+                          disabled={removePending && removeTarget?.user_id === m.user_id}
+                        >
+                          Remove
+                        </button>
+                      )}
                     </li>
                   );
                 })}
@@ -579,14 +752,16 @@ export default function ProjectOverview() {
             )}
           </section>
 
-          {/* Pending invitations — admin-only, AND opted out of the overlay
-              pattern per explicit user direction: non-admins don't see the
+          {/* Pending invitations — gated on the members.invite capability
+              (admin+ by default, plus any custom-role member with the
+              override), AND opted out of the overlay pattern per explicit
+              user direction: users without the capability don't see the
               card at all. (Rationale: pending invitee emails are sensitive
               enough that even a placeholder card with a blur on top reads
               as "info leak adjacent." Hiding entirely is unambiguous.)
-              Also hidden for admins when there's nothing pending, to keep
-              the page uncluttered. */}
-          {isAdmin && invLoaded && invitations.length > 0 && (
+              Also hidden when there's nothing pending, to keep the page
+              uncluttered. */}
+          {canInvite && invLoaded && invitations.length > 0 && (
             <section className="project-dashboard-card">
               <div className="project-dashboard-card-header">
                 <h2 className="project-dashboard-card-title">Pending invitations</h2>
@@ -598,7 +773,14 @@ export default function ProjectOverview() {
                 Waiting on the invitee to click the link in their email.
               </p>
               <ul className="invitation-list">
-                {invitations.map((inv) => (
+                {invitations.map((inv) => {
+                  // Resolve custom role for the invitation pill — same join
+                  // pattern as member rows. The invitation's custom_role_id
+                  // landed in migration 008.
+                  const invCustomRole = inv.custom_role_id
+                    ? customRoles.find((cr) => cr.id === inv.custom_role_id)
+                    : null;
+                  return (
                   <li key={inv.id || inv.email} className="invitation-row">
                     <div className="invitation-text">
                       <div className="invitation-email">{inv.email}</div>
@@ -606,7 +788,7 @@ export default function ProjectOverview() {
                         {formatExpiry(inv.expires_at)}
                       </div>
                     </div>
-                    <span className={`project-dashboard-role role-${inv.role}`}>{inv.role}</span>
+                    <RoleBadge role={inv.role} customRole={invCustomRole} />
                     <button
                       type="button"
                       className="invitation-copy-btn"
@@ -634,10 +816,150 @@ export default function ProjectOverview() {
                       {revokingId === inv.id ? 'Revoking…' : 'Revoke'}
                     </button>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </section>
           )}
+        </>
+      )}
+
+      {activeTab === 'roles' && (
+        <>
+          {/* Built-in roles — read-only documentation card. The four
+              built-ins are the ground truth for what every role does;
+              custom roles below extend or restrict them via the
+              capability override system. The 'viewer' enum value is
+              displayed as "Client" via RoleBadge / builtInLabel. */}
+          <section className="project-dashboard-card">
+            <div className="project-dashboard-card-header">
+              <h2 className="project-dashboard-card-title">Built-in roles</h2>
+              <span className="project-dashboard-card-count">4 roles</span>
+            </div>
+            <p className="project-dashboard-card-subtitle">
+              The four tiers every project starts with. Their capabilities
+              aren’t editable — design custom roles below to vary access.
+            </p>
+            <div className="roles-grid">
+              {BUILT_IN_ROLE_DEFS.map((b) => (
+                <div key={b.role} className="role-card role-card-built-in">
+                  <div className="role-card-header">
+                    <RoleBadge role={b.role} />
+                    <span className="role-card-title">{builtInLabel(b.role)}</span>
+                  </div>
+                  <p className="role-card-desc">{b.description}</p>
+                  <ul className="role-card-caps">
+                    {b.extras?.map((line) => (
+                      <li key={line} className="role-card-cap role-card-cap-extra">{line}</li>
+                    ))}
+                    {CAPABILITIES.map((cap) => {
+                      const granted = resolveCapability(b.role, cap.id, []);
+                      return (
+                        <li
+                          key={cap.id}
+                          className={`role-card-cap${granted ? ' is-granted' : ' is-revoked'}`}
+                          title={cap.hint}
+                        >
+                          <span className="role-card-cap-dot" aria-hidden="true">
+                            {granted ? '✓' : '·'}
+                          </span>
+                          {cap.label}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Custom roles — admin+ writes. Empty-state copy explains the
+              feature when none exist. The "+ Add custom role" CTA in the
+              header is the only entry point into the editor. Edit/Delete
+              are per-row admin-gated buttons. */}
+          <section className="project-dashboard-card">
+            <div className="project-dashboard-card-header">
+              <h2 className="project-dashboard-card-title">Custom roles</h2>
+              <div className="project-dashboard-card-actions">
+                <span className="project-dashboard-card-count">
+                  {customRoles.length} {customRoles.length === 1 ? 'role' : 'roles'}
+                </span>
+                {/* Admin+ tier guard — manage-custom-roles is intentionally
+                    NOT a toggleable capability (a Member-with-invite-perms
+                    shouldn't be able to redefine the role catalog). */}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="project-dashboard-card-btn"
+                    onClick={() => setEditorTarget(null)}
+                  >
+                    + Add custom role
+                  </button>
+                )}
+              </div>
+            </div>
+            <p className="project-dashboard-card-subtitle">
+              Renameable variants of a built-in tier with optional capability
+              overrides. Members assigned to a custom role inherit its base
+              tier plus your adjustments.
+            </p>
+
+            {customRoles.length === 0 ? (
+              <div className="project-dashboard-empty">
+                {isAdmin
+                  ? 'No custom roles yet. Click + Add custom role to create one.'
+                  : 'No custom roles defined for this project.'}
+              </div>
+            ) : (
+              <div className="roles-grid">
+                {customRoles.map((cr) => {
+                  const grants   = (cr.capabilities || []).filter((c) => c.granted).length;
+                  const revokes  = (cr.capabilities || []).filter((c) => !c.granted).length;
+                  return (
+                    <div key={cr.id} className="role-card role-card-custom">
+                      <div className="role-card-header">
+                        <RoleBadge role={cr.base_role} customRole={cr} />
+                        <span className="role-card-subtitle">
+                          extends {builtInLabel(cr.base_role)}
+                        </span>
+                      </div>
+                      {cr.description && (
+                        <p className="role-card-desc">{cr.description}</p>
+                      )}
+                      <div className="role-card-override-line">
+                        {grants === 0 && revokes === 0 ? (
+                          <span className="role-card-override-empty">No overrides — inherits the base tier.</span>
+                        ) : (
+                          <>
+                            {grants  > 0 && <span className="role-card-override-grant">+{grants} granted</span>}
+                            {revokes > 0 && <span className="role-card-override-revoke">−{revokes} revoked</span>}
+                          </>
+                        )}
+                      </div>
+                      {isAdmin && (
+                        <div className="role-card-actions">
+                          <button
+                            type="button"
+                            className="role-card-action-btn"
+                            onClick={() => setEditorTarget(cr)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="role-card-action-btn role-card-action-btn-destructive"
+                            onClick={() => setRoleDeleteTarget(cr)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         </>
       )}
 
@@ -668,8 +990,50 @@ export default function ProjectOverview() {
         open={inviteOpen}
         projectId={project.id}
         projectName={project.name}
+        customRoles={customRoles}
         onClose={() => setInviteOpen(false)}
         onSent={handleInviteSent}
+      />
+
+      <RemoveMemberModal
+        open={!!removeTarget}
+        memberName={removeTarget ? getMemberName(removeTarget.profile) : ''}
+        projectName={project.name}
+        error={removeError}
+        pending={removePending}
+        onConfirm={handleRemoveMember}
+        onCancel={() => {
+          if (removePending) return;
+          setRemoveTarget(null);
+          setRemoveError(null);
+        }}
+      />
+
+      <CustomRoleEditor
+        open={editorTarget !== undefined}
+        role={editorTarget || null}
+        projectId={project.id}
+        onClose={() => setEditorTarget(undefined)}
+        onSaved={() => {
+          // Refetch the catalog explicitly even though realtime will also
+          // fire — gives the actor immediate confirmation that the save
+          // landed instead of waiting up to 200ms for the debounced reconcile.
+          refreshCustomRoles();
+        }}
+      />
+
+      <ConfirmModal
+        open={!!roleDeleteTarget}
+        title="Delete custom role?"
+        message={
+          roleDeleteTarget
+            ? `Members assigned to "${roleDeleteTarget.name}" will revert to ${builtInLabel(roleDeleteTarget.base_role)} (its base tier). This can't be undone.`
+            : ''
+        }
+        confirmLabel={roleDeletePending ? 'Deleting…' : 'Delete role'}
+        destructive
+        onConfirm={handleConfirmDeleteRole}
+        onCancel={() => { if (!roleDeletePending) setRoleDeleteTarget(null); }}
       />
     </div>
   );

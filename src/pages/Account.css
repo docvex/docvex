@@ -1,4 +1,4 @@
-.account-page {
+﻿.account-page {
   max-width: 720px;
   display: flex;
   flex-direction: column;
@@ -17,15 +17,15 @@
   height: 64px;
   border-radius: 50%;
   object-fit: cover;
-  background: #1f1f1f;
+  background: var(--bg-elevated);
 }
 
 .account-avatar-fallback {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #6366f1;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   font-size: 1.5rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -41,7 +41,7 @@
 .account-name {
   font-size: 1.25rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -67,9 +67,9 @@
   font-weight: 500;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #aaa;
-  background: #1f1f1f;
-  border: 1px solid #2a2a2a;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   border-radius: 999px;
   padding: 0.2rem 0.6rem;
 }
@@ -84,31 +84,31 @@
   transition: background 150ms, border-color 150ms, color 150ms;
 }
 
-/* Unlinked state — the pill is a CTA, slightly brighter on hover so it
+/* Unlinked state â€” the pill is a CTA, slightly brighter on hover so it
    reads as clickable. Indigo border tint matches the rest of the app's
    primary-action vocabulary (project-dashboard-card-btn etc.). */
 .account-provider-google.is-linkable {
-  color: #c4c4c4;
-  border-color: rgba(99, 102, 241, 0.4);
+  color: var(--text-secondary);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .account-provider-google.is-linkable:hover {
-  background: rgba(99, 102, 241, 0.12);
-  border-color: #6366f1;
-  color: #fff;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: var(--accent);
+  color: var(--text-primary);
 }
 
-/* Linked state — same surface as the normal badge but with a brighter text
+/* Linked state â€” same surface as the normal badge but with a brighter text
    color and a checkmark via the inline svg child, so "linked" reads at a
    glance without an extra label. Disabled to avoid an awkward hover state. */
 .account-provider-google.is-linked {
-  color: #e0e0e0;
-  border-color: #2a2a2a;
+  color: var(--text-primary);
+  border-color: var(--border);
   cursor: default;
 }
 
 .account-provider-google.is-linked svg:last-of-type {
-  color: #4ade80;
+  color: var(--success-soft);
 }
 
 .account-provider-google:disabled {
@@ -120,8 +120,8 @@
 
 /* Card shared layout (mirrors .auth-card aesthetic) */
 .account-card {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.25rem 1.5rem;
 }
@@ -131,7 +131,7 @@
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #888;
+  color: var(--text-muted);
   margin: 0 0 1rem;
 }
 
@@ -146,12 +146,12 @@
 }
 
 .account-info-grid dt {
-  color: #888;
+  color: var(--text-muted);
   font-weight: 500;
 }
 
 .account-info-grid dd {
-  color: #e0e0e0;
+  color: var(--text-primary);
   margin: 0;
   overflow-wrap: anywhere;
 }
@@ -165,9 +165,9 @@
 .account-userid {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 0.78rem;
-  color: #b8b8b8;
-  background: #111;
-  border: 1px solid #2a2a2a;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0.15rem 0.4rem;
 }
@@ -177,18 +177,18 @@
   align-items: center;
   justify-content: center;
   background: transparent;
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border);
   border-radius: 4px;
-  color: #888;
+  color: var(--text-muted);
   cursor: pointer;
   padding: 0.25rem;
   transition: color 150ms, border-color 150ms, background 150ms;
 }
 
 .account-copy-btn:hover {
-  color: #e0e0e0;
-  border-color: #444;
-  background: #1f1f1f;
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  background: var(--bg-elevated);
 }
 
 /* Subscription card */
@@ -208,9 +208,9 @@
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #6366f1;
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.35);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: 999px;
   padding: 0.2rem 0.65rem;
 }
@@ -223,20 +223,20 @@
   flex-direction: column;
   gap: 0.4rem;
   font-size: 0.875rem;
-  color: #c4c4c4;
+  color: var(--text-secondary);
 }
 
 .account-plan-features li::before {
-  content: '•';
-  color: #6366f1;
+  content: 'â€¢';
+  color: var(--accent);
   margin-right: 0.6rem;
 }
 
 .account-upgrade-btn {
-  background: #1f1f1f;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 0.85rem;
   font-weight: 500;
   padding: 0.55rem 1rem;
@@ -247,13 +247,13 @@
   opacity: 0.6;
 }
 
-/* Danger zone — red-tinted card with destructive action rows */
+/* Danger zone â€” red-tinted card with destructive action rows */
 .account-danger {
-  border-color: rgba(220, 38, 38, 0.28);
+  border-color: color-mix(in srgb, var(--danger) 28%, transparent);
 }
 
 .account-danger .account-card-title {
-  color: #f87171;
+  color: var(--danger-soft);
 }
 
 .account-danger-row {
@@ -262,7 +262,7 @@
   justify-content: space-between;
   gap: 1rem;
   padding: 0.85rem 0;
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid var(--border);
 }
 
 .account-danger-row:first-of-type {
@@ -281,22 +281,22 @@
 .account-danger-label {
   font-size: 0.9rem;
   font-weight: 500;
-  color: #e0e0e0;
+  color: var(--text-primary);
   margin: 0 0 0.2rem;
 }
 
 .account-danger-desc {
   font-size: 0.8rem;
-  color: #888;
+  color: var(--text-muted);
   margin: 0;
   line-height: 1.4;
 }
 
 .account-danger-btn {
   background: transparent;
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #ccc;
+  color: var(--text-secondary);
   font-size: 0.85rem;
   font-weight: 500;
   padding: 0.45rem 0.95rem;
@@ -307,18 +307,18 @@
 }
 
 .account-danger-btn:hover {
-  background: #1f1f1f;
-  border-color: #444;
-  color: #fff;
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
 .account-danger-btn.destructive {
-  border-color: rgba(220, 38, 38, 0.4);
-  color: #f87171;
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger-soft);
 }
 
 .account-danger-btn.destructive:hover {
-  background: rgba(220, 38, 38, 0.12);
-  border-color: #dc2626;
-  color: #fca5a5;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: var(--danger-soft);
+  color: var(--danger-text);
 }

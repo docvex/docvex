@@ -16,6 +16,7 @@
 // metadata row and the binary share one identity.
 
 import { supabase } from './supabaseClient';
+import { evictPdf } from './pdfCache';
 
 // Bucket name — also referenced by uploadProjectFile.js. Centralised so
 // rename / migration to a new bucket only touches one constant.
@@ -87,18 +88,68 @@ export async function insertProjectFileRow({
 
 // ── Storage URLs ──────────────────────────────────────────────────────────
 
+// Module-level memoization for signed URLs keyed by storage_path. Re-opening
+// the same file within the URL's TTL returns the cached URL synchronously —
+// no second Supabase round-trip — which also means the resolved URL is
+// identical across reopens, letting the browser's HTTP cache hit the
+// thumbnail / image / video binary too. Effect: second-and-subsequent
+// opens of the same file feel instant.
+//
+// Bounded by FIFO eviction at MAX_SIGNED_URL_CACHE so a user who scrolls
+// through hundreds of files doesn't grow the Map unbounded. Each entry is
+// ~600 bytes (URL string + tiny metadata), so the cap caps memory at ~120KB.
+const _signedUrlCache = new Map();
+const MAX_SIGNED_URL_CACHE = 200;
+// Refresh slightly before actual expiry so callers never get a URL that
+// dies mid-fetch. 30s is a comfortable margin given typical fetch durations.
+const SIGNED_URL_SAFETY_MS = 30_000;
+
 // Short-lived signed URL for downloading / inline-viewing a file. The
 // 5-minute default is enough for the user to click through and the
-// browser to fetch; the URL is single-purpose and not stored anywhere.
-// Increase expiresIn for video streaming if seek-back-after-pause stops
-// working.
+// browser to fetch. Cached (see above) so repeat opens skip the round-trip.
+// Pass `expiresIn` of 600+ if you need a long-lived URL for video streaming.
 export async function createSignedDownloadUrl(storagePath, expiresIn = 300) {
   if (!storagePath) return { data: null, error: new Error('Missing storagePath') };
+
+  const now = Date.now();
+  const cached = _signedUrlCache.get(storagePath);
+  if (cached && cached.expiresAt > now + SIGNED_URL_SAFETY_MS) {
+    // Cache hit — return the same shape supabase-js would.
+    return { data: { signedUrl: cached.url }, error: null };
+  }
+
   const { data, error } = await supabase
     .storage
     .from(BUCKET)
     .createSignedUrl(storagePath, expiresIn);
+
+  if (!error && data?.signedUrl) {
+    // Evict the oldest entry if at cap — Map iteration is insertion-order
+    // so .keys().next().value gives the oldest.
+    if (_signedUrlCache.size >= MAX_SIGNED_URL_CACHE) {
+      const oldest = _signedUrlCache.keys().next().value;
+      if (oldest !== undefined) _signedUrlCache.delete(oldest);
+    }
+    _signedUrlCache.set(storagePath, {
+      url: data.signedUrl,
+      expiresAt: now + expiresIn * 1000,
+    });
+  }
   return { data, error };
+}
+
+// Manual eviction — called from delete paths so a stale cached URL for a
+// just-deleted file doesn't get handed out to a future caller (e.g. an
+// optimistic UI element). Idempotent; missing key is a no-op.
+export function evictSignedUrlCache(storagePath) {
+  if (storagePath) _signedUrlCache.delete(storagePath);
+}
+
+// Nuke every cached signed URL. Used by the DEBUG button in FileDetailModal
+// + intended for any future sign-out hookup. Cheap operation; the Map just
+// clears in place.
+export function clearSignedUrlCache() {
+  _signedUrlCache.clear();
 }
 
 // Signed upload URL — supabase-js doesn't expose progress/abort on its
@@ -217,6 +268,17 @@ export async function deleteProjectFile({ id, storagePath, thumbnailPath }) {
     .delete()
     .eq('id', id);
   if (rowErr) return { data: null, error: rowErr };
+
+  // Drop any cached signed URLs so a stale URL doesn't get handed out to
+  // a UI element that re-renders after delete. The PDF doc cache is
+  // evicted in lockstep so a re-uploaded file doesn't pick up a parsed
+  // handle that no longer matches reality (the storage path encodes the
+  // file id, so re-upload would get a fresh path anyway — this is
+  // defence in depth + frees memory immediately).
+  evictSignedUrlCache(storagePath);
+  if (thumbnailPath) evictSignedUrlCache(thumbnailPath);
+  evictPdf(storagePath);
+
   return { data: { id }, error: null };
 }
 

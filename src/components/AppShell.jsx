@@ -8,6 +8,10 @@ import SwitchProjectLoader from './SwitchProjectLoader';
 import ReportProblemModal from './ReportProblemModal';
 import UploadOverlay from './UploadOverlay';
 import { ReportProblemProvider } from '../context/ReportProblemContext';
+import { useNotifications } from '../context/NotificationsContext';
+import { clearSignedUrlCache } from '../lib/projectFiles';
+import { clearPdfCache } from '../lib/pdfCache';
+import { TEST_NOTIFICATIONS, TEST_NOTIFICATION_STAGGER_MS } from '../notifications/testNotifications';
 import './AppShell.css';
 
 // Track the cursor's viewport position and publish it as CSS variables on
@@ -19,6 +23,61 @@ import './AppShell.css';
 // trackpads/mice that fire pointermove at 1kHz. The cost is a single
 // inline-style write per frame — cheap, but skipping intermediate frames
 // avoids stacking layout invalidations.
+// Subscribes to the main process's "DEBUG → Clear all cached data" menu
+// click. Main sends `debug:clear-cache` over IPC; we wipe the module-level
+// caches (signed URLs + parsed pdf.js docs) and toast so the user gets
+// feedback that something happened. The menu is dev-only (gated by
+// !app.isPackaged in src/main.js), so this listener is also a no-op in
+// packaged builds — onDebugClearCache simply never fires.
+function useDebugClearCacheMenu(notify) {
+  useEffect(() => {
+    const off = window.electronAPI?.onDebugClearCache?.(() => {
+      clearSignedUrlCache();
+      clearPdfCache();
+      notify?.({
+        category: 'system',
+        variant: 'info',
+        priority: 'low',
+        icon: 'sparkles',
+        title: 'Cache cleared',
+        body: 'Signed URLs + PDF documents dropped. Reopen any file to refetch.',
+        dedupeKey: 'debug-cache-cleared',
+      });
+    });
+    return () => { if (typeof off === 'function') off(); };
+  }, [notify]);
+}
+
+// Subscribes to the main process's "DEBUG → Send all test notifications"
+// menu click and fires one of every entry in TEST_NOTIFICATIONS. Used to
+// preview the full set of toasts/history-rows at once so devs can eyeball
+// every category × priority × icon combination without manually triggering
+// the live actions. Staggered 200ms apart so the toast stack animates
+// in cleanly rather than slamming all rows in the same frame (the
+// renderer's MAX_ACTIVE_TOASTS cap would queue the rest either way; the
+// stagger is for visual polish). The menu is dev-only (gated by
+// !app.isPackaged in main.js), so this listener is a no-op in packaged
+// builds — the event simply never fires.
+function useDebugSendTestNotifications(notify) {
+  useEffect(() => {
+    const off = window.electronAPI?.onSendTestNotifications?.(() => {
+      // Fire one notification per entry, staggered. clearTimeout-able so
+      // a re-trigger before the previous batch finishes doesn't leak
+      // timers, though in practice the user clicks once and waits.
+      const timers = [];
+      TEST_NOTIFICATIONS.forEach((payload, idx) => {
+        const t = window.setTimeout(() => {
+          notify?.(payload);
+        }, idx * TEST_NOTIFICATION_STAGGER_MS);
+        timers.push(t);
+      });
+      // Cleanup: if the component unmounts mid-stagger, cancel pending.
+      return () => { for (const t of timers) clearTimeout(t); };
+    });
+    return () => { if (typeof off === 'function') off(); };
+  }, [notify]);
+}
+
 function useCursorSpotlight() {
   useEffect(() => {
     const root = document.documentElement;
@@ -75,8 +134,11 @@ function isProjectScopedRoute(pathname) {
 
 export default function AppShell() {
   const { pathname } = useLocation();
+  const { notify } = useNotifications();
   const showBanner = isProjectScopedRoute(pathname);
   useCursorSpotlight();
+  useDebugClearCacheMenu(notify);
+  useDebugSendTestNotifications(notify);
   return (
     <ReportProblemProvider>
       <div className="app-shell">

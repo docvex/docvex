@@ -1,8 +1,8 @@
-/* FileDetailModal — full-bleed split-pane modal for inspecting an
+﻿/* FileDetailModal â€” full-bleed split-pane modal for inspecting an
    uploaded file. Left pane is the preview (FilePreview component);
    right pane is metadata + actions.
    Action buttons reuse .modal-btn / .modal-btn-cancel / .modal-btn-
-   confirm / .modal-btn-destructive from ConfirmModal.css — declared
+   confirm / .modal-btn-destructive from ConfirmModal.css â€” declared
    transitively via the import at the top of the .jsx so this
    stylesheet only owns what's specific to the surface. */
 
@@ -39,16 +39,16 @@
 }
 
 .file-detail-card {
-  /* Smaller compact modal — the preview is now thumbnail-grade
-     (PDF first page / video thumb), so the old 1400×900 stage was
+  /* Smaller compact modal â€” the preview is now thumbnail-grade
+     (PDF first page / video thumb), so the old 1400Ã—900 stage was
      bigger than the content warranted. Keep a comfortable working
      size but stop the modal from dominating the screen. */
   width: 85%;
   max-width: 880px;
   height: 80%;
   max-height: 600px;
-  background: #131313;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: 0 22px 60px rgba(0, 0, 0, 0.6);
   display: flex;
@@ -62,7 +62,7 @@
   to   { opacity: 1; transform: translateY(0)   scale(1); }
 }
 
-/* Header — filename on the left, close button on the right.
+/* Header â€” filename on the left, close button on the right.
    Sticky-feeling via the bottom border that separates it from the
    split-pane body below. */
 .file-detail-header {
@@ -71,7 +71,7 @@
   justify-content: space-between;
   gap: 1rem;
   padding: 14px 18px;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -79,7 +79,7 @@
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -96,16 +96,16 @@
   border-radius: 8px;
   background: transparent;
   border: 1px solid transparent;
-  color: #aaa;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: background 150ms, color 150ms, border-color 150ms;
   flex-shrink: 0;
 }
 
 .file-detail-close:hover {
-  background: #1f1f1f;
-  color: #e0e0e0;
-  border-color: #333;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-color: var(--border);
 }
 
 .file-detail-close:disabled {
@@ -113,7 +113,7 @@
   cursor: not-allowed;
 }
 
-/* Body — 50/50 split via flex. The `gap: 1px` plus the card's bg
+/* Body â€” 50/50 split via flex. The `gap: 1px` plus the card's bg
    color leaking through gives a 1px hairline divider without an
    extra DOM node. Both panes scroll their own overflow so the modal
    height never grows past 90vh. */
@@ -122,7 +122,7 @@
   flex: 1 1 auto;
   min-height: 0;
   gap: 1px;
-  background: #2a2a2a;  /* shows through the gap as the divider color */
+  background: var(--border);  /* shows through the gap as the divider color */
 }
 
 .file-detail-pane {
@@ -134,26 +134,26 @@
   overflow: hidden;
 }
 
-/* Preview pane — darker background so image / PDF letterboxing reads
+/* Preview pane â€” darker background so image / PDF letterboxing reads
    as a deliberate frame. Internal padding gives breathing room from
    the pane edges so big PDFs don't kiss the divider. */
 .file-detail-pane-preview {
-  background: #0a0a0a;
+  background: var(--bg-page);
   align-items: stretch;
   justify-content: stretch;
   overflow: hidden;
 }
 
-/* Metadata pane — same color as the card, scrollable so very long
+/* Metadata pane â€” same color as the card, scrollable so very long
    descriptions or long uploader-info don't overflow. */
 .file-detail-pane-meta {
-  background: #131313;
+  background: var(--bg-card);
   padding: 18px 20px;
   overflow-y: auto;
   gap: 18px;
 }
 
-/* Section blocks within the meta pane — label above content with
+/* Section blocks within the meta pane â€” label above content with
    consistent spacing. */
 .file-detail-section {
   display: flex;
@@ -166,23 +166,23 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #888;
+  color: var(--text-muted);
 }
 
-/* ── Description ──────────────────────────────────────────────────── */
+/* â”€â”€ Description â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* Idle view: pre-wrap so newlines in the description render. Click
-   anywhere to start editing — affordance signaled by border-color
-   change on hover. `.is-empty` muted-italic for "Add a description…". */
+   anywhere to start editing â€” affordance signaled by border-color
+   change on hover. `.is-empty` muted-italic for "Add a descriptionâ€¦". */
 .file-detail-description-view {
   display: block;
   width: 100%;
   min-height: 48px;
   padding: 10px 12px;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  color: #d0d0d0;
+  color: var(--text-secondary);
   font-size: 0.875rem;
   font-family: inherit;
   line-height: 1.5;
@@ -194,12 +194,12 @@
 }
 
 .file-detail-description-view:hover {
-  border-color: #444;
-  background: #1d1d1d;
+  border-color: var(--border-strong);
+  background: var(--bg-elevated);
 }
 
 .file-detail-description-view.is-empty {
-  color: #666;
+  color: var(--text-muted);
   font-style: italic;
 }
 
@@ -212,10 +212,10 @@
 .file-detail-textarea {
   width: 100%;
   padding: 10px 12px;
-  background: #0f0f0f;
-  border: 1px solid #3a3a3a;
+  background: var(--bg-page);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.875rem;
   font-family: inherit;
   line-height: 1.5;
@@ -226,7 +226,7 @@
 }
 
 .file-detail-textarea:focus {
-  border-color: #6366f1;
+  border-color: var(--accent);
 }
 
 .file-detail-textarea:disabled {
@@ -242,20 +242,20 @@
 
 .file-detail-hint {
   font-size: 0.7rem;
-  color: #666;
+  color: var(--text-muted);
   letter-spacing: 0.02em;
 }
 
 .file-detail-inline-error {
-  background: rgba(220, 38, 38, 0.08);
-  border: 1px solid rgba(220, 38, 38, 0.35);
-  color: #f87171;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  color: var(--danger-soft);
   border-radius: 6px;
   padding: 6px 10px;
   font-size: 0.8rem;
 }
 
-/* ── Details list ─────────────────────────────────────────────────── */
+/* â”€â”€ Details list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .file-detail-dl {
   margin: 0;
@@ -273,13 +273,13 @@
 
 .file-detail-dl dt {
   flex: 0 0 70px;
-  color: #888;
+  color: var(--text-muted);
   font-weight: 500;
 }
 
 .file-detail-dl dd {
   margin: 0;
-  color: #d0d0d0;
+  color: var(--text-secondary);
   min-width: 0;
   flex: 1;
   word-break: break-word;
@@ -288,11 +288,11 @@
 .file-detail-dl dd code {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 0.78rem;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 1px 6px;
-  color: #c4c4c4;
+  color: var(--text-secondary);
 }
 
 .file-detail-dl-row-uploader dd {
@@ -302,7 +302,7 @@
 }
 
 .file-detail-uploader-name {
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .file-detail-avatar {
@@ -310,7 +310,7 @@
   height: 24px;
   border-radius: 50%;
   object-fit: cover;
-  background: #1f1f1f;
+  background: var(--bg-elevated);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -318,15 +318,15 @@
 }
 
 .file-detail-avatar-fallback {
-  background: #6366f1;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   font-size: 0.8rem;
   font-weight: 600;
   text-transform: uppercase;
   line-height: 1;
 }
 
-/* ── Action buttons ──────────────────────────────────────────────── */
+/* â”€â”€ Action buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .file-detail-actions {
   display: flex;
@@ -341,12 +341,12 @@
   gap: 8px;
 }
 
-/* ── Nested delete-confirm modal ─────────────────────────────────── */
+/* â”€â”€ Nested delete-confirm modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* Sits ABOVE the detail card to capture clicks; same fade + rise
    animations so the second layer reads as part of the same surface
    stack. Z-index relative to the detail card via local stacking
-   context — `position: absolute; inset: 0` confines it to the card
+   context â€” `position: absolute; inset: 0` confines it to the card
    while a higher z than the panes makes it overlay them. */
 .file-detail-confirm-backdrop {
   position: absolute;
@@ -361,8 +361,8 @@
 }
 
 .file-detail-confirm-card {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;
   width: 100%;
@@ -378,18 +378,18 @@
   margin: 0;
   font-size: 1.05rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .file-detail-confirm-body {
   margin: 0;
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 0.875rem;
   line-height: 1.5;
 }
 
 .file-detail-confirm-body strong {
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-weight: 600;
   word-break: break-word;
 }
@@ -397,10 +397,10 @@
 .file-detail-confirm-input {
   width: 100%;
   padding: 9px 12px;
-  background: #0f0f0f;
-  border: 1px solid #3a3a3a;
+  background: var(--bg-page);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.875rem;
   font-family: inherit;
   outline: none;
@@ -408,7 +408,7 @@
 }
 
 .file-detail-confirm-input:focus {
-  border-color: #f87171;  /* destructive accent on focus */
+  border-color: var(--danger-soft);  /* destructive accent on focus */
 }
 
 .file-detail-confirm-input:disabled {
@@ -423,7 +423,7 @@
   margin-top: 4px;
 }
 
-/* ── FilePreview internal styles ─────────────────────────────────── */
+/* â”€â”€ FilePreview internal styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* The sub-components in FilePreview.jsx render into a fixed pane; we
    pin their containers to fill it and let the type-specific renderers
@@ -443,7 +443,7 @@
   overflow: hidden;
 }
 
-/* Clickable preview wrapper — the entire preview pane is a button
+/* Clickable preview wrapper â€” the entire preview pane is a button
    that opens the full file in a new tab. Subtle scale-up on hover
    plus a magnifier-style "Open" hint pinned in the corner make the
    affordance discoverable without dominating the preview. */
@@ -466,7 +466,7 @@
 }
 
 .file-preview-clickable:focus-visible {
-  outline: 2px solid #6366f1;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -479,9 +479,9 @@
   gap: 6px;
   padding: 6px 10px;
   background: rgba(15, 15, 15, 0.75);
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #d0d0d0;
+  color: var(--text-secondary);
   font-size: 0.75rem;
   letter-spacing: 0.02em;
   opacity: 0;
@@ -497,20 +497,64 @@
   transform: translateY(0);
 }
 
-/* PDF first-page-only static preview — no controls, just a single
-   page centered in the pane. PDF uses no horizontal padding so the
-   page spans the full pane width (the pdf.js canvas is sized to the
-   page's actual aspect, so there's no embedded letterboxing to worry
-   about). Vertical padding is kept small to avoid kissing the pane
-   top/bottom. Video keeps the original framing padding so the
-   thumbnail reads as a deliberate frame against the dark pane. */
+/* PDF first-page-only preview — progressive paint. The thumbnail JPEG
+   shows as an instant first-frame while pdf.js parses the document in
+   the background; once page 1 renders to the canvas, the canvas fades
+   in over the thumbnail. Container is a positioning context so the
+   thumbnail can absolute-overlay the same area the canvas centers in. */
 .file-preview-pdf-static {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 8px 0;
+}
+
+/* Thumbnail fast-paint — absolute + `inset: 0 0 0 0` with `margin: auto`
+   is the canonical "centered absolutely-positioned replaced element"
+   pattern: the IMG sizes to its intrinsic dimensions (capped by max-*),
+   then both axes' margins auto-split the remaining space, centering it
+   horizontally AND vertically. The previous top/bottom pinning stretched
+   the IMG box and dropped the content at the top.
+   No background or shadow on this layer — it's a fast-paint stand-in,
+   not a framed "document" surface. The full pdf.js canvas (below) keeps
+   the shadow + radius because that's the real rendered page. */
+.file-preview-pdf-thumb {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+  opacity: 1;
+  transition: opacity 220ms ease;
+  pointer-events: none;  /* let clicks reach the underlying clickable button */
+}
+
+.file-preview-pdf-thumb.is-faded {
+  opacity: 0;
+}
+
+/* pdf.js canvas — sized inline by FilePreview via canvas.style.{width,height}.
+   Starts at opacity 0 so the thumbnail underneath shows through; flips to 1
+   once the first render finishes. Crossfade with the thumbnail above hides
+   any visual jump between the letterboxed JPEG and the exact-aspect canvas. */
+.file-preview-pdf-canvas {
+  display: block;
+  background: #FFFFFF;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 220ms ease;
+  position: relative;  /* sit above the absolute thumbnail in stacking order */
+  z-index: 1;
+}
+
+.file-preview-pdf-canvas.is-visible {
+  opacity: 1;
 }
 
 .file-preview-video-static {
@@ -522,23 +566,18 @@
   padding: 12px;
 }
 
-.file-preview-pdf-static img,
 .file-preview-video-static img {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   display: block;
-  background: #fff;
+  background: #000;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   border-radius: 4px;
 }
 
-.file-preview-video-static img {
-  background: #000;
-}
-
 /* Generic "no thumbnail" placeholder used for video/PDF when the
-   pre-baked thumb is missing — large glyph centered in the pane. */
+   pre-baked thumb is missing â€” large glyph centered in the pane. */
 .file-preview-glyph {
   width: 100%;
   height: 100%;
@@ -547,7 +586,7 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .file-preview-glyph svg {
@@ -557,7 +596,7 @@
 
 .file-preview-glyph-label {
   font-size: 0.8rem;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .file-preview-image img {
@@ -597,7 +636,9 @@
      page so it doesn't bleed to the pane edges. */
   display: block;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-  background: #fff;
+  /* Literal white — the PDF page itself is white regardless of the app
+     theme. Don't tokenize. */
+  background: #FFFFFF;
 }
 
 .file-preview-pdf-controls {
@@ -607,15 +648,15 @@
   justify-content: center;
   gap: 12px;
   padding: 10px 0 12px;
-  color: #c4c4c4;
+  color: var(--text-secondary);
   font-size: 0.85rem;
 }
 
 .file-preview-pdf-controls button {
-  background: #1f1f1f;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   width: 32px;
   height: 32px;
   font-size: 1.1rem;
@@ -625,8 +666,8 @@
 }
 
 .file-preview-pdf-controls button:hover:not(:disabled) {
-  background: #2a2a2a;
-  border-color: #444;
+  background: var(--border);
+  border-color: var(--border-strong);
 }
 
 .file-preview-pdf-controls button:disabled {
@@ -648,8 +689,8 @@
   padding: 18px 20px;
   font-size: 0.85rem;
   line-height: 1.55;
-  color: #d0d0d0;
-  background: #0f0f0f;
+  color: var(--text-secondary);
+  background: var(--bg-page);
   overflow: auto;
 }
 
@@ -665,16 +706,16 @@
 
 .file-preview-text-markdown code {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 1px 5px;
   font-size: 0.82em;
 }
 
 .file-preview-text-markdown pre {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px 12px;
   overflow-x: auto;
@@ -682,7 +723,7 @@
 
 .file-preview-empty {
   flex-direction: column;
-  color: #888;
+  color: var(--text-muted);
   padding: 24px;
   text-align: center;
   gap: 6px;
@@ -692,13 +733,13 @@
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: #c4c4c4;
+  color: var(--text-secondary);
 }
 
 .file-preview-empty-reason {
   margin: 0;
   font-size: 0.85rem;
-  color: #888;
+  color: var(--text-muted);
   word-break: break-word;
   max-width: 480px;
 }
@@ -706,31 +747,33 @@
 .file-preview-empty-hint {
   margin: 8px 0 0;
   font-size: 0.825rem;
-  color: #999;
+  color: var(--text-muted);
 }
 
 .file-preview-empty-hint strong {
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .file-preview-loading {
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.9rem;
 }
 
-/* ── Responsive ──────────────────────────────────────────────────── */
+/* â”€â”€ Responsive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* Narrow viewport: stack panes vertically. Below this width the 50/50
    split makes both panes uselessly cramped. Sizes use percentages of
    the backdrop (not 100vw) because the backdrop's left edge is offset
-   by --sidebar-width — using viewport units here would overflow. */
+   by --sidebar-width — using viewport units here would overflow.
+   Keeps the base 14px border-radius so the corners stay rounded even
+   in the stacked layout (the backdrop has padding around the card so
+   the rounded corners are visible against the backdrop scrim). */
 @media (max-width: 860px) {
   .file-detail-card {
     width: 100%;
     height: 100%;
     max-width: none;
     max-height: none;
-    border-radius: 0;
   }
   .file-detail-body {
     flex-direction: column;

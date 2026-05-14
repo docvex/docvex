@@ -44,12 +44,19 @@ export function ReportProblemProvider({ children }) {
       // initial bundle. Only fetched the first time the user clicks
       // "Report a problem". Subsequent clicks reuse the cached module.
       const html2canvas = (await import('html2canvas')).default;
+      // Pull the active --bg-page so the html2canvas screenshot matches
+      // whatever theme the user is on (Cream → cream bg; Ink → ink bg).
+      // The getComputedStyle path returns a non-token resolved string,
+      // which is what html2canvas's `backgroundColor` option expects.
+      const pageBg = getComputedStyle(document.documentElement)
+        .getPropertyValue('--bg-page')
+        .trim() || '#F5F2EA'; // Cream fallback if the token isn't loaded yet.
       const canvas = await html2canvas(document.body, {
         // Page background — html2canvas defaults to white, which would
-        // look jarring for a dark-themed app. Matching the global page
-        // bg keeps the capture indistinguishable from a real screenshot
-        // of the app.
-        backgroundColor: '#0f0f0f',
+        // look jarring against either of our themes. Matching the live
+        // page bg keeps the capture indistinguishable from a real
+        // screenshot of the app under whichever theme is active.
+        backgroundColor: pageBg,
         // Allow cross-origin images (avatars, etc) to render — without
         // this, any <img> from a different origin gets a CORS-tainted
         // canvas and the export fails.

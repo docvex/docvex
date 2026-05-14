@@ -162,8 +162,9 @@ export function UploadsProvider({ children }) {
         // have navigated away from the progress panel by the time the
         // failure lands.
         notify({
-          category: 'system',
+          category: 'file',
           variant: 'error',
+          icon: 'upload',
           title: 'Upload failed',
           body: `${entry.file.name}: ${error.message || 'Unknown error'}`,
           dedupeKey: `upload-error:${entry.id}`,
@@ -276,8 +277,9 @@ export function UploadsProvider({ children }) {
 
     if (rejectedCount > 0) {
       notify({
-        category: 'system',
+        category: 'file',
         variant: 'error',
+        icon: 'file-x',
         title: 'Unsupported file type',
         body: `${rejectedCount} file${rejectedCount === 1 ? '' : 's'} skipped. Allowed: PDF, image, video, text.`,
         dedupeKey: 'upload-mime-rejected',

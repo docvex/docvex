@@ -59,6 +59,8 @@ export function useAuthNotificationSource(notify, { ready = true } = {}) {
         notify({
           category: 'auth',
           variant: 'success',
+          priority: 'low',
+          icon: 'log-in',
           title: `Signed in as ${displayName(session.user)}`,
           dedupeKey: 'auth-signin',
           dedupeStrategy: 'replace',
@@ -70,6 +72,8 @@ export function useAuthNotificationSource(notify, { ready = true } = {}) {
         notify({
           category: 'auth',
           variant: 'info',
+          priority: 'low',
+          icon: 'log-out',
           title: 'Signed out',
           dedupeKey: 'auth-signout',
           dedupeStrategy: 'replace',
@@ -79,6 +83,8 @@ export function useAuthNotificationSource(notify, { ready = true } = {}) {
         notify({
           category: 'auth',
           variant: 'info',
+          priority: 'low',
+          icon: 'edit',
           title: 'Profile updated',
           dedupeKey: 'user-updated',
           dedupeStrategy: 'coalesce',

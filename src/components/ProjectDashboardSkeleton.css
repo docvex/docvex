@@ -1,5 +1,5 @@
-/* Skeleton for ProjectDashboard. The .skel-bar shimmer is duplicated from
-   ProjectScopedSkeleton.css — both files define it identically so each
+﻿/* Skeleton for ProjectDashboard. The .skel-bar shimmer is duplicated from
+   ProjectScopedSkeleton.css â€” both files define it identically so each
    component renders correctly when loaded alone (CSS files only load when
    their JSX is imported). Same translate-based shimmer (GPU-only). */
 
@@ -35,8 +35,8 @@
 }
 
 .skel-dash-card {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.5rem;
   display: flex;
@@ -63,10 +63,10 @@
   margin-bottom: 0.55rem;
 }
 
-/* Mimics .project-dashboard-empty — dashed-border box with a single
+/* Mimics .project-dashboard-empty â€” dashed-border box with a single
    centered line of placeholder text. */
 .skel-dash-empty {
-  border: 1px dashed #2a2a2a;
+  border: 1px dashed var(--border);
   border-radius: 8px;
   padding: 1.5rem;
   display: flex;
@@ -78,9 +78,9 @@
   height: 0.875rem;
 }
 
-/* Shared shimmer bar — same definition as ProjectScopedSkeleton.css. */
+/* Shared shimmer bar â€” same definition as ProjectScopedSkeleton.css. */
 .skel-bar {
-  background: #1a1a1a;
+  background: var(--bg-card);
   position: relative;
   overflow: hidden;
   border-radius: 6px;
@@ -93,7 +93,7 @@
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(255, 255, 255, 0.04),
+    color-mix(in srgb, var(--text-primary) 4%, transparent),
     transparent
   );
   transform: translateX(-100%);
@@ -107,5 +107,5 @@
 
 /* Inner bars sit on a slightly darker background than the card panel. */
 .skel-dash-card .skel-bar {
-  background: #141414;
+  background: var(--bg-sidebar);
 }

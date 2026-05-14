@@ -1,4 +1,4 @@
-/* RoleLocked — overlay applied to features the caller's role doesn't permit.
+﻿/* RoleLocked â€” overlay applied to features the caller's role doesn't permit.
    See RoleLocked.jsx for the pattern + reasoning. */
 
 .role-locked {
@@ -25,7 +25,7 @@
 }
 
 /* Full-bleed overlay sitting on top of the dimmed content. Backdrop-blur
-   reinforces the "this is locked" signal — the content underneath becomes
+   reinforces the "this is locked" signal â€” the content underneath becomes
    recognizable-but-unreachable. */
 .role-locked-overlay {
   position: absolute;
@@ -46,16 +46,16 @@
   padding: 0.5rem;
 }
 
-/* The badge itself — pill shape, dark surface, subtle border. Matches the
+/* The badge itself â€” pill shape, dark surface, subtle border. Matches the
    visual weight of the role pills on the page so it reads as a sibling of
    them rather than a foreign element. */
 .role-locked-badge {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
-  color: #c4c4c4;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
   font-size: 0.82rem;
   font-weight: 500;
   padding: 0.5rem 0.9rem;
@@ -63,13 +63,13 @@
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
   /* Tighten on truly tiny wrappers (e.g. a small button) so the badge
      doesn't burst the parent's width. White-space:nowrap keeps the
-     "[role] only" phrase on one line — it's short enough that wrapping
+     "[role] only" phrase on one line â€” it's short enough that wrapping
      would look worse than overflow. */
   white-space: nowrap;
 }
 
 .role-locked-badge strong {
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-weight: 600;
   /* Uppercase + spacing mirror the role-pill typography for parity. */
   text-transform: uppercase;
@@ -79,45 +79,45 @@
 
 .role-locked-badge svg {
   flex-shrink: 0;
-  color: #888;
+  color: var(--text-muted);
 }
 
-/* ── Per-role color variants ──────────────────────────────────────────────
+/* â”€â”€ Per-role color variants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Border + icon + role-name color match the role pills in
    ProjectDashboard.css (`.project-dashboard-role.role-*`). Background stays
    the solid dark base from .role-locked-badge above so the pill remains
-   legible over the blurred content + the dim overlay underneath — adding a
+   legible over the blurred content + the dim overlay underneath â€” adding a
    translucent tint there would either disappear into the overlay or wash
    out the text. */
 
 .role-locked-badge-owner {
-  border-color: rgba(245, 158, 11, 0.45);
+  border-color: color-mix(in srgb, var(--warning-soft) 45%, transparent);
 }
 .role-locked-badge-owner svg,
 .role-locked-badge-owner strong {
-  color: #f59e0b;
+  color: var(--warning-soft);
 }
 
 .role-locked-badge-admin {
-  border-color: rgba(99, 102, 241, 0.45);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .role-locked-badge-admin svg,
 .role-locked-badge-admin strong {
-  color: #6366f1;
+  color: var(--accent);
 }
 
 .role-locked-badge-member {
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: color-mix(in srgb, var(--text-primary) 20%, transparent);
 }
 .role-locked-badge-member svg,
 .role-locked-badge-member strong {
-  color: #c4c4c4;
+  color: var(--text-secondary);
 }
 
 .role-locked-badge-viewer {
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: color-mix(in srgb, var(--text-primary) 14%, transparent);
 }
 .role-locked-badge-viewer svg,
 .role-locked-badge-viewer strong {
-  color: #888;
+  color: var(--text-muted);
 }

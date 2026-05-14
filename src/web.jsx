@@ -1,8 +1,10 @@
 import './index.css';
+import './styles/tokens.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { UpdatesProvider } from './context/UpdatesContext';
 import { NotificationsProvider } from './context/NotificationsContext';
 import { SelectedProjectProvider } from './context/SelectedProjectContext';
@@ -31,16 +33,18 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter basename="/app">
       <AuthProvider>
-        <SelectedProjectProvider>
-          <UpdatesProvider>
-            <NotificationsProvider>
-              <UploadsProvider>
-                <App />
-              </UploadsProvider>
-              <NotificationCenter />
-            </NotificationsProvider>
-          </UpdatesProvider>
-        </SelectedProjectProvider>
+        <ThemeProvider>
+          <SelectedProjectProvider>
+            <UpdatesProvider>
+              <NotificationsProvider>
+                <UploadsProvider>
+                  <App />
+                </UploadsProvider>
+                <NotificationCenter />
+              </NotificationsProvider>
+            </UpdatesProvider>
+          </SelectedProjectProvider>
+        </ThemeProvider>
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>

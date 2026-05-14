@@ -1,4 +1,4 @@
-.notifications-page {
+﻿.notifications-page {
   max-width: 820px;
   display: flex;
   flex-direction: column;
@@ -16,12 +16,12 @@
 .notifications-title {
   font-size: 1.5rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
   margin: 0 0 0.25rem;
 }
 
 .notifications-subtitle {
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.875rem;
   margin: 0;
 }
@@ -37,9 +37,9 @@
   align-items: center;
   gap: 0.4rem;
   background: transparent;
-  border: 1px solid #333;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #ccc;
+  color: var(--text-secondary);
   font-size: 0.825rem;
   font-weight: 500;
   padding: 0.45rem 0.9rem;
@@ -49,9 +49,9 @@
 }
 
 .notifications-btn:hover:not(:disabled) {
-  background: #1f1f1f;
-  border-color: #555;
-  color: #fff;
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
 .notifications-btn:disabled {
@@ -63,9 +63,9 @@
 .notifications-empty {
   text-align: center;
   padding: 3rem 1.5rem;
-  border: 1px dashed #2a2a2a;
+  border: 1px dashed var(--border);
   border-radius: 10px;
-  color: #888;
+  color: var(--text-muted);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -73,20 +73,20 @@
 }
 
 .notifications-empty-icon {
-  color: #444;
+  color: var(--border-strong);
   display: inline-flex;
   margin-bottom: 0.4rem;
 }
 
 .notifications-empty-title {
-  color: #ccc;
+  color: var(--text-secondary);
   font-size: 1rem;
   font-weight: 500;
   margin: 0;
 }
 
 .notifications-empty-help {
-  color: #666;
+  color: var(--text-muted);
   font-size: 0.825rem;
   margin: 0;
   max-width: 380px;
@@ -110,7 +110,7 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #666;
+  color: var(--text-muted);
   margin: 0 0 0.1rem 0.25rem;
 }
 
@@ -129,23 +129,23 @@
   display: flex;
   align-items: flex-start;
   gap: 0.7rem;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-left-width: 3px;
   border-radius: 10px;
   padding: 0.8rem 0.9rem 0.8rem 0.95rem;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.875rem;
   cursor: pointer;
   transition: background 120ms, border-color 120ms;
 }
 
 .n-row:hover {
-  background: #1f1f1f;
+  background: var(--bg-elevated);
 }
 
 /* Read rows fade as a whole so the eye scans straight to anything still
-   unread. The icon used to dim on its own — that fade now rides on the row,
+   unread. The icon used to dim on its own â€” that fade now rides on the row,
    which also dims the title, message, and action buttons together. Hovering
    a read row brings it back toward full opacity so it stays interactive. */
 .n-row:not(.n-row-unread) {
@@ -157,10 +157,20 @@
   opacity: 0.85;
 }
 
-.n-row-info    { border-left-color: var(--toast-info,    #6366f1); }
-.n-row-success { border-left-color: var(--toast-success, #4ade80); }
-.n-row-warning { border-left-color: var(--toast-warning, #f59e0b); }
-.n-row-error   { border-left-color: var(--toast-error,   #f87171); }
+/* Category-driven row coloring — mirrors the toast palette in
+   NotificationCenter.css. Left border + icon color come from --cat-{name}.
+   Error variant overrides at the end so failures stay red. */
+.n-row { border-left-color: var(--cat-system); }
+.n-row-cat-auth    { border-left-color: var(--cat-auth); }
+.n-row-cat-project { border-left-color: var(--cat-project); }
+.n-row-cat-member  { border-left-color: var(--cat-member); }
+.n-row-cat-file    { border-left-color: var(--cat-file); }
+.n-row-cat-role    { border-left-color: var(--cat-role); }
+.n-row-cat-update  { border-left-color: var(--cat-update); }
+.n-row-cat-support { border-left-color: var(--cat-support); }
+.n-row-cat-system  { border-left-color: var(--cat-system); }
+.n-row-cat-info    { border-left-color: var(--cat-system); }
+.n-row-cat-social  { border-left-color: var(--cat-member); }
 
 .n-row-icon {
   flex-shrink: 0;
@@ -170,16 +180,28 @@
   width: 20px;
   height: 20px;
   margin-top: 1px;
-  color: #888;
+  color: var(--cat-system);
   /* Icon stays at full opacity inside the row. Read/unread differentiation
-     is now driven by the parent .n-row opacity rule above — fading the icon
+     is driven by the parent .n-row opacity rule above — fading the icon
      separately would compound and make read icons nearly invisible. */
 }
 
-.n-row-info    .n-row-icon { color: var(--toast-info,    #6366f1); }
-.n-row-success .n-row-icon { color: var(--toast-success, #4ade80); }
-.n-row-warning .n-row-icon { color: var(--toast-warning, #f59e0b); }
-.n-row-error   .n-row-icon { color: var(--toast-error,   #f87171); }
+.n-row-cat-auth    .n-row-icon { color: var(--cat-auth); }
+.n-row-cat-project .n-row-icon { color: var(--cat-project); }
+.n-row-cat-member  .n-row-icon { color: var(--cat-member); }
+.n-row-cat-file    .n-row-icon { color: var(--cat-file); }
+.n-row-cat-role    .n-row-icon { color: var(--cat-role); }
+.n-row-cat-update  .n-row-icon { color: var(--cat-update); }
+.n-row-cat-support .n-row-icon { color: var(--cat-support); }
+.n-row-cat-system  .n-row-icon { color: var(--cat-system); }
+.n-row-cat-info    .n-row-icon { color: var(--cat-system); }
+.n-row-cat-social  .n-row-icon { color: var(--cat-member); }
+
+/* Variant overrides — error always red, warning always amber, regardless
+   of category. Listed AFTER the .n-row-cat-* rules so cascade wins. */
+.n-row-error   { border-left-color: var(--danger-soft); }
+.n-row-error   .n-row-icon { color: var(--danger-soft); }
+.n-row-warning .n-row-icon { color: var(--warning-soft); }
 
 .n-row-body {
   flex: 1;
@@ -195,24 +217,24 @@
 
 .n-row-title {
   font-weight: 500;
-  color: #e8e8e8;
+  color: var(--text-primary);
   word-break: break-word;
 }
 
 .n-row-unread .n-row-title {
-  color: #fff;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
 .n-row-time {
   flex-shrink: 0;
   font-size: 0.75rem;
-  color: #777;
+  color: var(--text-muted);
   white-space: nowrap;
 }
 
 .n-row-message {
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 0.825rem;
   margin-top: 0.15rem;
   line-height: 1.45;
@@ -231,9 +253,9 @@
   align-items: center;
   gap: 0.3rem;
   background: transparent;
-  border: 1px solid #333;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #ddd;
+  color: var(--text-secondary);
   font-size: 0.78rem;
   font-weight: 500;
   padding: 0.32rem 0.7rem;
@@ -243,27 +265,27 @@
 }
 
 .n-row-action:hover {
-  background: #1f1f1f;
-  border-color: #555;
-  color: #fff;
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
 .n-row-action-primary {
-  background: #6366f1;
-  border-color: #6366f1;
-  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
 }
 
 .n-row-action-primary:hover {
-  background: #7c7ff5;
-  border-color: #7c7ff5;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .n-row-remove {
   flex-shrink: 0;
   background: transparent;
   border: none;
-  color: #555;
+  color: var(--border-strong);
   padding: 4px;
   margin: -4px;
   border-radius: 4px;
@@ -281,7 +303,7 @@
 /* Multi-line notifications (have a body message and/or action buttons):
    pin the X to the top of the row so it aligns with the title rather than
    floating in the middle of the card. :has() detects descendants under the
-   .n-row — supported by Chromium ≥ 105 (Electron's renderer). */
+   .n-row â€” supported by Chromium â‰¥ 105 (Electron's renderer). */
 .n-row:has(.n-row-message) .n-row-remove,
 .n-row:has(.n-row-actions) .n-row-remove {
   align-self: flex-start;
@@ -291,6 +313,108 @@
 }
 
 .n-row-remove:hover {
-  color: #f87171;
-  background: rgba(248, 113, 113, 0.12);
+  color: var(--danger-soft);
+  background: color-mix(in srgb, var(--danger-soft) 12%, transparent);
 }
+
+/* ── Priority tabs ────────────────────────────────────────────────────────
+   Filter the inbox by priority. Visual idiom mirrors the .project-tabs
+   strip on the Project Overview page so the two surfaces feel related.
+   Tab labels carry live counts so the unread-by-priority signal reads at
+   a glance. */
+.n-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin: 0 0 0.25rem;
+  flex-wrap: wrap;
+}
+
+.n-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: transparent;
+  border: none;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 0.825rem;
+  font-weight: 500;
+  padding: 0.55rem 0.85rem;
+  cursor: pointer;
+  transition: color 150ms, border-color 150ms;
+  font-family: inherit;
+}
+
+.n-tab:hover:not(.is-active) {
+  color: var(--text-secondary);
+}
+
+.n-tab.is-active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+/* Count badge — neutral by default; takes a small priority-tinted accent
+   when the matching tab is active so the user re-finds their filter at a
+   glance even after looking away. */
+.n-tab-count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  min-width: 1.1rem;
+  text-align: center;
+}
+
+.n-tab.is-active .n-tab-count {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+/* Priority-specific active tints — only when the matching tab is selected
+   AND active so the page never blends a critical-red accent into the
+   inactive tab strip. */
+.n-tab-critical.is-active             { border-bottom-color: var(--danger-soft); color: var(--danger-soft); }
+.n-tab-critical.is-active .n-tab-count { background: color-mix(in srgb, var(--danger-soft) 18%, transparent); color: var(--danger-soft); }
+
+.n-tab-high.is-active             { border-bottom-color: var(--warning-soft); color: var(--warning-soft); }
+.n-tab-high.is-active .n-tab-count { background: color-mix(in srgb, var(--warning-soft) 18%, transparent); color: var(--warning-soft); }
+
+/* Normal + Low use the default accent (cognac) so they don't introduce
+   new colors. The dot below provides the actual priority cue per row. */
+
+/* ── Per-row priority dot ─────────────────────────────────────────────────
+   8px dot pinned next to the title via .n-row-title-wrap. Only critical /
+   high / low get a colored dot; normal is invisible (display:none in the
+   .n-row-pri-normal rule) so the default row stays visually clean. */
+.n-row-title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.n-row-priority {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  /* Default — invisible until a priority-specific rule below kicks in.
+     `display: none` instead of `opacity: 0` so layout doesn't reserve the
+     8px gap for normal rows (the title sits flush against its icon). */
+  display: none;
+}
+
+.n-row-pri-critical .n-row-priority { display: inline-block; background: var(--danger-soft); }
+.n-row-pri-high     .n-row-priority { display: inline-block; background: var(--warning-soft); }
+.n-row-pri-low      .n-row-priority {
+  display: inline-block;
+  background: color-mix(in srgb, var(--text-muted) 40%, transparent);
+}
+/* normal: stays display:none from the base rule above. */

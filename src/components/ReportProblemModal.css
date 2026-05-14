@@ -1,4 +1,4 @@
-/* ReportProblemModal — full-screen overlay for filing a bug report.
+﻿/* ReportProblemModal â€” full-screen overlay for filing a bug report.
    Reuses the shared .modal-btn / .modal-btn-cancel / .modal-btn-confirm
    classes from ConfirmModal.css (loaded transitively via any modal that
    mounts those rules first; we don't re-declare them here so a single
@@ -23,8 +23,8 @@
 }
 
 .report-modal-card {
-  background: #131313;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 14px;
   width: 100%;
   max-width: 720px;
@@ -43,7 +43,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 1.1rem 1.4rem;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -51,7 +51,7 @@
   margin: 0;
   font-size: 1.1rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .report-modal-close {
@@ -59,7 +59,7 @@
   border: 1px solid transparent;
   border-radius: 6px;
   padding: 0.35rem;
-  color: #888;
+  color: var(--text-muted);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -68,9 +68,9 @@
 }
 
 .report-modal-close:hover:not(:disabled) {
-  background: #1f1f1f;
-  color: #fff;
-  border-color: #2a2a2a;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-color: var(--border);
 }
 
 .report-modal-close:disabled {
@@ -100,16 +100,16 @@
 .report-modal-label {
   font-size: 0.85rem;
   font-weight: 500;
-  color: #c4c4c4;
+  color: var(--text-secondary);
 }
 
 .report-modal-required {
-  color: #f87171;
+  color: var(--danger-soft);
   margin-left: 0.15rem;
 }
 
 .report-modal-optional {
-  color: #666;
+  color: var(--text-muted);
   font-weight: 400;
   font-size: 0.78rem;
   margin-left: 0.25rem;
@@ -117,10 +117,10 @@
 
 .report-modal-input,
 .report-modal-textarea {
-  background: #0f0f0f;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-page);
+  border: 1px solid var(--border);
   border-radius: 7px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   padding: 0.55rem 0.75rem;
   font-family: inherit;
@@ -130,12 +130,12 @@
 
 .report-modal-input::placeholder,
 .report-modal-textarea::placeholder {
-  color: #555;
+  color: var(--border-strong);
 }
 
 .report-modal-input:focus,
 .report-modal-textarea:focus {
-  border-color: #6366f1;
+  border-color: var(--accent);
 }
 
 .report-modal-input:disabled,
@@ -151,7 +151,7 @@
   font-family: inherit;
 }
 
-/* Attachments grid — auto-fits at 140px columns so the layout adapts to
+/* Attachments grid â€” auto-fits at 140px columns so the layout adapts to
    the modal width on narrow screens (though desktop-only, the
    re-flowable grid is cheap). */
 .report-modal-attachments {
@@ -163,8 +163,8 @@
 
 .report-modal-attachment {
   position: relative;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   display: flex;
@@ -175,7 +175,7 @@
 }
 
 .report-modal-attachment.is-screenshot {
-  border-color: rgba(99, 102, 241, 0.4);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .report-modal-thumb {
@@ -183,7 +183,7 @@
   width: 100%;
   height: 100px;
   object-fit: cover;
-  background: #0f0f0f;
+  background: var(--bg-page);
 }
 
 .report-modal-attachment-meta {
@@ -196,7 +196,7 @@
 
 .report-modal-attachment-name {
   font-size: 0.75rem;
-  color: #c4c4c4;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -204,7 +204,7 @@
 
 .report-modal-attachment-size {
   font-size: 0.68rem;
-  color: #777;
+  color: var(--text-muted);
 }
 
 .report-modal-attachment-remove {
@@ -217,17 +217,17 @@
   align-items: center;
   justify-content: center;
   background: rgba(15, 15, 15, 0.78);
-  color: #c4c4c4;
-  border: 1px solid #2a2a2a;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
   transition: background 120ms, color 120ms, border-color 120ms;
 }
 
 .report-modal-attachment-remove:hover:not(:disabled) {
-  background: rgba(220, 38, 38, 0.18);
-  color: #fca5a5;
-  border-color: rgba(220, 38, 38, 0.4);
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--danger-text);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
 }
 
 .report-modal-attachment-remove:disabled {
@@ -235,13 +235,13 @@
   cursor: not-allowed;
 }
 
-/* "+ Add" tile — same footprint as an attachment but dashed so it
+/* "+ Add" tile â€” same footprint as an attachment but dashed so it
    reads as an action target rather than content. */
 .report-modal-attachment-add {
   background: transparent;
-  border: 1px dashed #333;
+  border: 1px dashed var(--border);
   border-radius: 8px;
-  color: #888;
+  color: var(--text-muted);
   font-family: inherit;
   font-size: 0.78rem;
   cursor: pointer;
@@ -258,9 +258,9 @@
 }
 
 .report-modal-attachment-add:hover:not(:disabled) {
-  border-color: #6366f1;
-  color: #c7c9ff;
-  background: rgba(99, 102, 241, 0.05);
+  border-color: var(--accent);
+  color: var(--accent-soft);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
 .report-modal-attachment-add:disabled {
@@ -272,25 +272,25 @@
   text-align: center;
 }
 
-/* Size readout — turns red when the total goes past the 25 MB cap so
+/* Size readout â€” turns red when the total goes past the 25 MB cap so
    the user sees why the submit button just disabled itself. */
 .report-modal-size {
   display: flex;
   justify-content: space-between;
   margin-top: 0.5rem;
   font-size: 0.78rem;
-  color: #777;
+  color: var(--text-muted);
 }
 
 .report-modal-size.is-over {
-  color: #f87171;
+  color: var(--danger-soft);
 }
 
 .report-modal-error {
-  background: rgba(220, 38, 38, 0.08);
-  border: 1px solid rgba(220, 38, 38, 0.4);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
   border-radius: 7px;
-  color: #f87171;
+  color: var(--danger-soft);
   font-size: 0.85rem;
   padding: 0.55rem 0.8rem;
 }

@@ -1,55 +1,55 @@
-/* Files page — file-card grid and its loading/empty/error states.
+﻿/* Files page â€” file-card grid and its loading/empty/error states.
    Shares the page-shell rules in ProjectScoped.css (title, subtitle,
    page container width); this file owns only what's specific to the
    list itself. */
 
-/* Inline loading line — small, unobtrusive. The real loader for "no
+/* Inline loading line â€” small, unobtrusive. The real loader for "no
    project selected yet" still uses ProjectScopedSkeleton (rendered
    before this branch fires). This message is for the brief flash
    between selecting a project and the file list resolving. */
 .project-files-loading {
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.9rem;
   padding: 1rem 0;
 }
 
 .project-files-error {
-  background: rgba(220, 38, 38, 0.08);
-  border: 1px solid rgba(220, 38, 38, 0.35);
-  color: #f87171;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  color: var(--danger-soft);
   border-radius: 8px;
   padding: 0.7rem 1rem;
   font-size: 0.85rem;
 }
 
-/* Empty state — first-time use for the project. Uses the same card
+/* Empty state â€” first-time use for the project. Uses the same card
    surface as .project-scoped-coming-soon so it reads as a friendly
    prompt rather than an error. Copy nudges the user toward the
    drag-drop affordance instead of a "Upload" button (there isn't one). */
 .project-files-empty {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 2rem 1.5rem;
   text-align: center;
-  color: #aaa;
+  color: var(--text-secondary);
 }
 
 .project-files-empty h2 {
   margin: 0 0 0.4rem;
   font-size: 1rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .project-files-empty p {
   margin: 0;
   font-size: 0.875rem;
   line-height: 1.55;
-  color: #888;
+  color: var(--text-muted);
 }
 
-/* Auto-fitting grid — cards are 160px-ish wide, the grid fills the
+/* Auto-fitting grid â€” cards are 160px-ish wide, the grid fills the
    page-shell's 820px max-width and wraps as the viewport narrows.
    1rem gap matches the page-level gap on .project-scoped-page so the
    grid visually aligns with the header above it. */
@@ -59,7 +59,7 @@
   gap: 1rem;
 }
 
-/* The card itself — a <button> so it's keyboard-focusable + Enter-
+/* The card itself â€” a <button> so it's keyboard-focusable + Enter-
    activatable for free. All resets so the visual is fully owned by
    .project-files-card rules below. */
 .project-files-card {
@@ -67,21 +67,21 @@
   flex-direction: column;
   align-items: stretch;
   gap: 0;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
   padding: 0;
   font-family: inherit;
-  color: #e0e0e0;
+  color: var(--text-primary);
   cursor: pointer;
   text-align: left;
   transition: border-color 150ms, background 150ms, transform 100ms;
 }
 
 .project-files-card:hover {
-  border-color: #c9974a;
-  background: #1f1f1f;
+  border-color: var(--accent);
+  background: var(--bg-elevated);
 }
 
 .project-files-card:active {
@@ -89,21 +89,21 @@
 }
 
 .project-files-card:focus-visible {
-  outline: 2px solid #c9974a;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* Thumb area — fixed aspect ratio so the grid rows align cleanly
+/* Thumb area â€” fixed aspect ratio so the grid rows align cleanly
    regardless of image dimensions. Images cover; icon fallback gets
    a centered glyph in gold accent on the same surface. */
 .project-files-thumb {
   aspect-ratio: 4 / 3;
-  background: #131313;
+  background: var(--bg-card);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-bottom: 1px solid #232323;
+  border-bottom: 1px solid var(--bg-elevated);
 }
 
 .project-files-thumb img {
@@ -115,12 +115,12 @@
 
 /* Icon glyph for non-image cards. 40% of the thumb's width / height so
    it sits comfortably centered without crowding the corners. Gold
-   accent — same color the brand mark uses, matches the overall family
+   accent â€” same color the brand mark uses, matches the overall family
    the drag-overlay's dashed border is in. */
 .project-files-icon {
   width: 40%;
   height: 40%;
-  color: #c9974a;
+  color: var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -131,8 +131,8 @@
   height: 100%;
 }
 
-/* Bottom metadata block — name (truncated to one line) over a small
-   muted "size · date" line. Two-line height fixed so card heights
+/* Bottom metadata block â€” name (truncated to one line) over a small
+   muted "size Â· date" line. Two-line height fixed so card heights
    stay uniform regardless of filename length. */
 .project-files-meta {
   padding: 8px 10px 10px;
@@ -145,7 +145,7 @@
 .project-files-name {
   font-size: 0.85rem;
   font-weight: 500;
-  color: #e0e0e0;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -153,6 +153,6 @@
 
 .project-files-sub {
   font-size: 0.72rem;
-  color: #888;
+  color: var(--text-muted);
   letter-spacing: 0.02em;
 }

@@ -1,7 +1,7 @@
-.sidebar {
+﻿.sidebar {
   position: relative;
   /* Z-index above the ProjectPickerDrawer (z-index 40) so the drawer is
-     literally hidden behind the sidebar when closed — its open animation
+     literally hidden behind the sidebar when closed â€” its open animation
      then visibly slides it out from behind. Both sit above the project
      banner (z-index 30) so opening the picker visually overlays the
      "working in" bar instead of being clipped beneath it. */
@@ -9,8 +9,8 @@
   width: 60px;
   min-width: 60px;
   height: 100vh;
-  background: #141414;
-  border-right: 1px solid #2a2a2a;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -48,20 +48,20 @@
 /* When the picker panel is open, fade the sidebar's right divider into
    the panel's background color (#332B1F) so the two surfaces appear to
    merge with no visible seam between them. Using border-color (not
-   border-width: 0) avoids a 1px layout shift — the global box-sizing is
+   border-width: 0) avoids a 1px layout shift â€” the global box-sizing is
    border-box, so dropping the border width would grow the content area
    and nudge every nav row 1px to the right. */
 .sidebar.picker-open {
-  /* Color-match the 1px right border to the panel's bg (#735A34) so the
+  /* Color-match the 1px right border to the panel's bg (var(--accent-hover)) so the
      seam between sidebar and panel disappears WITHOUT zeroing the border
-     width — zeroing reclaims 1px of content area inside the sidebar
+     width â€” zeroing reclaims 1px of content area inside the sidebar
      (box-sizing: border-box) which makes every nav-item's background
      grow 1px wider, reading as a visible right-shift of all nav buttons
      when the picker opens. Keeping the width constant and just blending
      the color keeps geometry stable. Border-color animates via the
      transition declared on .sidebar above, so the open/close beat is
      still smooth. */
-  border-right-color: #735A34;
+  border-right-color: var(--accent-hover);
 }
 
 /* Labels stay visible while the picker is open (mirrors the .locked rule)
@@ -71,7 +71,7 @@
   opacity: 1;
   pointer-events: auto;
   /* Same 100ms delay the :hover / .locked rules use so labels don't pop
-     in before the sidebar has finished widening — matters for the
+     in before the sidebar has finished widening â€” matters for the
      keyboard-activation edge case where the trigger is clicked without
      a hover state ever firing. */
   transition-delay: 100ms;
@@ -97,7 +97,7 @@
   pointer-events: auto;
 }
 
-/* Brand row at the top — original small inline icon on the left, stacked
+/* Brand row at the top â€” original small inline icon on the left, stacked
    app name + clickable version on the right (revealed when expanded). */
 .sidebar-brand {
   display: flex;
@@ -105,15 +105,15 @@
   gap: 8px;
   /* Matches .project-picker-panel-header so the DOCVEX title and the
      "ALL PROJECTS" title sit on the same horizontal baseline when the
-     panel is open — both header rows share the same inset from their
+     panel is open â€” both header rows share the same inset from their
      respective surface edges.
      Right-padding reserves a 38px column for the absolutely-positioned
      lock-btn (24px button + 14px from the right edge) so brand-left
      content can never overflow into where the lock visually sits. */
   padding: 14px 38px 14px 18px;
   height: 64px;
-  border-bottom: 1px solid #2a2a2a;
-  /* Containing block for the absolutely-positioned .lock-btn below — by
+  border-bottom: 1px solid var(--border);
+  /* Containing block for the absolutely-positioned .lock-btn below â€” by
      pulling the lock out of flex flow it becomes immune to any width
      fluctuation in .brand-left (NavLink .active toggles, version pill
      swapping between v-num and "Update available" badge, route changes
@@ -132,14 +132,14 @@
 .brand-icon {
   /* The PNG carries its own colors; the color rule below is left as a
      fallback for any inline-SVG mark we might swap back to. */
-  color: #c9974a;
+  color: var(--accent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .brand-icon-img {
-  /* Locked at 36px in every sidebar state — the brand mark is the visual
+  /* Locked at 36px in every sidebar state â€” the brand mark is the visual
      anchor of the app, kept at one size so it doesn't dance on every
      hover/lock. The brand row's 14px right padding is what gets
      compromised when the sidebar collapses to 60px; that's a deliberate
@@ -165,10 +165,10 @@
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
-/* Version is a NavLink to /updates — muted by default, lights up on hover.
+/* Version is a NavLink to /updates â€” muted by default, lights up on hover.
    Inherits .label's pointer-events: none in the collapsed state, so it only
    becomes clickable once the sidebar is expanded. */
 .brand-version {
@@ -179,7 +179,7 @@
   font-size: 0.72rem;
   font-weight: 500;
   letter-spacing: 0.04em;
-  color: #777;
+  color: var(--text-muted);
   transition: color 150ms;
   width: fit-content;
 }
@@ -190,7 +190,7 @@
 }
 
 .brand-version:hover .brand-version-num {
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 /* Same orange treatment as the Updates nav row's "Available" pill so the
@@ -200,20 +200,20 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #f97316;
-  background: rgba(249, 115, 22, 0.12);
-  border: 1px solid rgba(249, 115, 22, 0.35);
+  color: var(--warning-soft);
+  background: color-mix(in srgb, var(--warning-soft) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning-soft) 35%, transparent);
   border-radius: 999px;
   padding: 0.1rem 0.45rem;
   white-space: nowrap;
 }
 
-/* Lock toggle — absolutely positioned inside .sidebar-brand so its
+/* Lock toggle â€” absolutely positioned inside .sidebar-brand so its
    coordinates are fixed in pixel terms regardless of what brand-left
    does. Vertically centered via top:50% + translateY trick; horizontally
    anchored 14px from the brand row's right padding edge (matches the
    .sidebar-brand padding-right inset).
-   Still fades in/out with the rest of the .label children via opacity —
+   Still fades in/out with the rest of the .label children via opacity â€”
    not removed from the DOM so the click target persists. */
 .lock-btn {
   position: absolute;
@@ -225,13 +225,13 @@
   justify-content: center;
   background: none;
   border: none;
-  color: #555;
+  color: var(--border-strong);
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
   /* Pinned box so the icon-path swap between open/closed lock SVGs
      can't cause sub-pixel intrinsic-size flicker (16px icon + 4px
-     padding × 2). */
+     padding Ã— 2). */
   width: 24px;
   height: 24px;
   box-sizing: border-box;
@@ -239,21 +239,21 @@
 }
 
 .lock-btn:hover {
-  color: #aaa;
-  background: #1f1f1f;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
 }
 
 .lock-btn.is-locked {
-  /* Gold — matches the .brand-icon and the project-selection accents
+  /* Gold â€” matches the .brand-icon and the project-selection accents
      (.project-picker-trigger.has-selection, .project-picker-panel-row.is-current)
      so the locked sidebar reads as the same brand-color family. */
-  color: #c9974a;
+  color: var(--accent);
 }
 
 .lock-btn.is-locked:hover {
-  /* Lighter gold for the active hover — same lightness shift the indigo
-     pair used (#6366f1 → #818cf8). */
-  color: #e1b673;
+  /* Lighter gold for the active hover â€” same lightness shift the indigo
+     pair used (var(--accent) â†’ var(--accent-hover)). */
+  color: var(--accent-soft);
 }
 
 /* Nav list */
@@ -269,7 +269,7 @@
 }
 
 /* Section headers (Personal / Projects). Visible only when the sidebar is
-   expanded — collapsed they fade to opacity 0 (via .label) AND shrink to
+   expanded â€” collapsed they fade to opacity 0 (via .label) AND shrink to
    zero height so the icons below don't get pushed down by empty space. The
    max-height transition matches the sidebar's own 250ms width transition
    so the whole expand/collapse motion lands in lock-step. */
@@ -293,7 +293,7 @@
   padding-bottom: 0 !important;
 }
 
-/* The first section header doesn't need extra top spacing — the sidebar-nav
+/* The first section header doesn't need extra top spacing â€” the sidebar-nav
    padding (8px) already separates it from the brand row's bottom border. */
 .sidebar-section-header:first-child {
   padding-top: 4px !important;
@@ -304,7 +304,7 @@
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #555;
+  color: var(--border-strong);
 }
 
 /* Button-shaped nav row (project picker trigger). Reuses .nav-item base
@@ -329,7 +329,7 @@
   margin: 0 8px;
   font-size: 0.825rem;
   font-style: italic;
-  color: #555;
+  color: var(--border-strong);
 }
 
 .sidebar-placeholder-text {
@@ -345,7 +345,7 @@
   gap: 12px;
   padding: 9px 10px;
   border-radius: 7px;
-  color: #888;
+  color: var(--text-muted);
   text-decoration: none;
   font-size: 0.875rem;
   font-weight: 500;
@@ -357,16 +357,16 @@
 }
 
 .nav-item:hover {
-  background: #1f1f1f;
-  color: #e0e0e0;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
 }
 
 .nav-item.active {
-  background: #1f1f1f;
-  color: #fff;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
 }
 
-/* Icon wrapper — fixed size so it stays centered when sidebar is narrow */
+/* Icon wrapper â€” fixed size so it stays centered when sidebar is narrow */
 .icon {
   display: flex;
   align-items: center;
@@ -385,8 +385,8 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #f97316;
-  border: 2px solid #141414;
+  background: var(--warning-soft);
+  border: 2px solid var(--bg-sidebar);
   box-sizing: content-box;
 }
 
@@ -407,9 +407,9 @@
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #f97316;
-  background: rgba(249, 115, 22, 0.12);
-  border: 1px solid rgba(249, 115, 22, 0.35);
+  color: var(--warning-soft);
+  background: color-mix(in srgb, var(--warning-soft) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning-soft) 35%, transparent);
   border-radius: 999px;
   padding: 0.1rem 0.5rem;
 }
@@ -417,14 +417,14 @@
 /* Footer */
 .sidebar-footer {
   padding: 8px;
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid var(--border);
 }
 
-/* "Report a problem" — sits BELOW the Account row in the footer.
+/* "Report a problem" â€” sits BELOW the Account row in the footer.
    Inherits .nav-item visuals; the only customization is the small
    top margin so it visually separates from the Account button
    directly above. While capturing, the button is disabled (greyed
-   via the :disabled pseudo on .nav-item — set up below). */
+   via the :disabled pseudo on .nav-item â€” set up below). */
 .report-problem-btn {
   margin-top: 4px;
 }
@@ -438,11 +438,11 @@
 /* `:disabled` rows (e.g. "Report a problem" while a screen capture is
    in flight) need to stay visible on hover so the user sees their
    feedback. No brightening, but no fading either. Color pinned to the
-   .nav-item base (#888) so .nav-item:hover's brighter color doesn't
+   .nav-item base (var(--text-muted)) so .nav-item:hover's brighter color doesn't
    leak in via the cascade. */
 .nav-item:disabled:hover {
   background: none;
-  color: #888;
+  color: var(--text-muted);
 }
 
 /* `.is-disabled` styling for the Projects section's Files / To-dos rows
@@ -452,10 +452,10 @@
 
 /* Account quick-access in footer when signed in (uses default nav-item look) */
 .account-btn {
-  /* No extra rules — inherits .nav-item / .nav-item.active styles */
+  /* No extra rules â€” inherits .nav-item / .nav-item.active styles */
 }
 
-/* Name stacks above the tier pill — gives the username its own line and
+/* Name stacks above the tier pill â€” gives the username its own line and
    keeps the tier compact below it. Items align to the left edge so the
    tier pill sits flush under the name's start, not centered. */
 .account-btn-label {
@@ -480,9 +480,9 @@
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #6366f1;
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.35);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: 999px;
   padding: 0.1rem 0.45rem;
   flex-shrink: 0;
@@ -494,7 +494,7 @@
    shrinks back to 24px (matching every other icon) when the sidebar is
    minimized so it stays perfectly centered in the 60px-wide collapsed
    strip. The icon slot below tracks the same dimension.
-   Transitions match the sidebar's own 250ms width transition exactly —
+   Transitions match the sidebar's own 250ms width transition exactly â€”
    previously they ran at 200ms, which finished 50ms ahead of the sidebar
    and made the shrink read as out-of-sync / abrupt. */
 .sidebar-avatar {
@@ -506,7 +506,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background: #1f1f1f;
+  background: var(--bg-elevated);
   transition:
     width 250ms ease,
     height 250ms ease;
@@ -517,7 +517,7 @@
   transition: width 250ms ease;
 }
 
-/* Collapsed sidebar — shrink avatar and its slot back to 24px so they
+/* Collapsed sidebar â€” shrink avatar and its slot back to 24px so they
    align with the other nav-item icons and the row's geometry mirrors
    exactly what Activity / Projects / Notifications show. Without this
    override the 32px avatar overhangs the row's 23px content area and
@@ -532,8 +532,8 @@
 }
 
 .sidebar-avatar-fallback {
-  background: #6366f1;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   font-size: 0.9rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -548,26 +548,26 @@
 
 /* Primary-style entry point shown when no session exists */
 .signin-btn {
-  background: #6366f1;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
 }
 
 .signin-btn:hover {
-  background: #7c7ff5;
-  color: #fff;
+  background: var(--accent-hover);
+  color: var(--text-on-accent);
 }
 
 .signin-btn.active {
-  background: #6366f1;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
 }
 
 /* Loading spinner used in ProtectedRoute */
 .spinner {
   width: 28px;
   height: 28px;
-  border: 2px solid #333;
-  border-top-color: #aaa;
+  border: 2px solid var(--border);
+  border-top-color: var(--text-secondary);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -576,18 +576,18 @@
   to { transform: rotate(360deg); }
 }
 
-/* ───────────────────────────────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Projects-section trigger row.
    - Default ("Select a project"): neutral background matched to the
-     picker panel (.project-picker-panel) — when the panel slides out, the
+     picker panel (.project-picker-panel) â€” when the panel slides out, the
      trigger on the left and the panel on the right read as one continuous
-     surface (same #161616). The button stretches to the sidebar's right
+     surface (same var(--bg-elevated)). The button stretches to the sidebar's right
      edge (no right margin) so there's no gap between them.
    - .has-selection: indigo-tinted active background (the same indigo used
      by .nav-item.active palettes) so the selected project visually owns
      the section's top row.
    The picker list itself lives in ProjectPickerPanel.{jsx,css}.
-   ─────────────────────────────────────────────────────────────────────── */
+   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .project-picker-trigger {
   display: flex;
   align-items: center;
@@ -600,23 +600,23 @@
   width: 100%;
   margin: 2px 0;
   padding: 9px 12px;
-  /* Shared surface color with the picker panel — see
+  /* Shared surface color with the picker panel â€” see
      .project-picker-panel below. The two read as one continuous block
      once the panel slides out. */
-  background: #1d1d1d;
+  background: var(--bg-elevated);
   border: none;
   border-radius: 7px;
-  color: #ddd;
+  color: var(--text-secondary);
   font-size: 0.875rem;
   font-weight: 500;
   font-family: inherit;
-  /* Text centered — same value used inside justify-content above so the
+  /* Text centered â€” same value used inside justify-content above so the
      "Select a project" / project-name label sits in the middle of the
      button rather than flush left. */
   text-align: center;
   cursor: pointer;
-  /* Width + border-radius interpolate over 220ms — same duration the
-     picker panel takes to slide — so the button reshape and the panel
+  /* Width + border-radius interpolate over 220ms â€” same duration the
+     picker panel takes to slide â€” so the button reshape and the panel
      slide run in lock-step and feel like one motion. */
   transition:
     background 150ms,
@@ -626,15 +626,15 @@
 }
 
 .project-picker-trigger:hover {
-  background: #262626;
-  color: #fff;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
 }
 
-/* Picker-open state — the trigger's left edge stays aligned with the
+/* Picker-open state â€” the trigger's left edge stays aligned with the
    nav-items (no margin shift), but its width grows by 8px to overflow the
    parent <li>'s padding-right and land flush with the sidebar's outer
    edge. Right corners square off so the trigger merges into the panel
-   (also #1d1d1d) sliding out beside it. */
+   (also var(--bg-elevated)) sliding out beside it. */
 .sidebar.picker-open .project-picker-trigger {
   width: calc(100% + 8px);
   margin: 2px 0;
@@ -644,30 +644,30 @@
      state is visible regardless of cursor position. Both selection
      states get pinned to their own hover color (gold for has-selection,
      neutral for no selection). */
-  background: #735A34;
-  color: #fff;
+  background: var(--accent-hover);
+  color: var(--text-on-accent);
 }
 
 .sidebar.picker-open .project-picker-trigger.has-selection {
-  background: #735A34
+  background: var(--accent-hover)
 }
 
 /* Hover-while-open keeps the same value so moving the mouse over the
    open trigger doesn't trigger a third color step. */
 .sidebar.picker-open .project-picker-trigger:hover {
-  background: #735A34;
+  background: var(--accent-hover);
 }
 
 .sidebar.picker-open .project-picker-trigger.has-selection:hover {
-  background: #735A34;
+  background: var(--accent-hover);
 }
 
 .project-picker-trigger.has-selection {
-  /* Gold tint — matches the .brand-icon color (#c9974a) so the
+  /* Gold tint â€” matches the .brand-icon color (var(--accent)) so the
      project-selection accent reads as the same brand color family as the
      logo in the sidebar header. */
   background:  rgba(201, 151, 74, 0.25);
-  color: #fff;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -677,15 +677,15 @@
 
 /* Spinner shown inside the trigger while a project switch is in progress.
    Same gold accent as the full-screen SwitchProjectLoader spinner so the
-   two visually rhyme — eye tracks both as the same "switching" cue.
+   two visually rhyme â€” eye tracks both as the same "switching" cue.
    Sized smaller (16px vs 38px) to fit inside the trigger row without
    forcing a height change. */
 .project-picker-trigger-spinner {
   display: inline-block;
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  border-top-color: #c9974a;
+  border: 2px solid color-mix(in srgb, var(--text-primary) 15%, transparent);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: project-picker-trigger-spin 0.7s linear infinite;
   vertical-align: middle;
@@ -697,7 +697,7 @@
 
 /* While switching, dim the trigger slightly so it reads as "in flight"
    rather than the static idle state. The has-selection gold bg already
-   provides a visible surface — no extra background needed. */
+   provides a visible surface â€” no extra background needed. */
 .project-picker-trigger.is-switching {
   cursor: progress;
   /* Don't allow the click to retrigger another switch mid-animation. */
@@ -721,24 +721,24 @@
   line-height: 1;
 }
 
-/* Disabled nav-item — Dashboard / Files / To-dos when no project is
+/* Disabled nav-item â€” Dashboard / Files / To-dos when no project is
    selected. Dimmed enough to read as "this isn't useful yet". The
    click handler still wires up to togglePicker (so a misclick fast-
    tracks to the action that resolves the disabled state), but the
    cursor reads `not-allowed` so the dominant signal is "this is
-   gated", not "this is clickable" — paired with the cursor-following
+   gated", not "this is clickable" â€” paired with the cursor-following
    "Select a project to use these features" pill.
    Hover is intentionally a no-op visually: idle and hover render
-   identically — same color, transparent background — so the dimmed
+   identically â€” same color, transparent background â€” so the dimmed
    state doesn't read as responsive. */
 .nav-item.is-disabled {
-  color: #555;
+  color: var(--border-strong);
   cursor: not-allowed;
 }
 
 .nav-item.is-disabled:hover {
   background: transparent;
-  color: #555;
+  color: var(--border-strong);
 }
 
 .nav-item.is-disabled .icon {
@@ -747,7 +747,7 @@
 
 /* Wrapper around the three locked Project rows. The user moves the
    cursor between Dashboard / Files / To-dos and we want the pill to
-   stay pinned the whole time — when each row was its own <li>, the
+   stay pinned the whole time â€” when each row was its own <li>, the
    transit across the 4px inter-row gap fired mouseleave on the row
    being exited and the pill blinked off until mouseenter on the next
    row hit. One <li> wrapping all three buttons makes the whole
@@ -767,26 +767,26 @@
   cursor: not-allowed;
 }
 
-/* ───────────────────────────────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Locked-features cursor pill.
    Shown while hovering Projects-section nav items (Dashboard / Files /
    To-dos) with no project selected. Position is driven by an inline
-   `transform: translate(x, y)` updated on every mousemove — top:0/left:0
+   `transform: translate(x, y)` updated on every mousemove â€” top:0/left:0
    anchor it to the viewport origin so the transform values map 1:1 to
    cursor coordinates (cleaner math than offsetting from any other
    origin). `position: fixed` keeps it stable while the page scrolls.
 
-   Rendered via React portal at document.body level — see the createPortal
+   Rendered via React portal at document.body level â€” see the createPortal
    call in Sidebar.jsx for why (the sidebar's `contain: layout` would
    otherwise clip a fixed-position descendant to the sidebar column).
 
    `pointer-events: none` is critical: without it, the pill's box would
-   eat the very `mousemove`/`mouseleave` events it depends on — moving
+   eat the very `mousemove`/`mouseleave` events it depends on â€” moving
    the cursor over the pill itself would fire mouseleave on the row
    below, the pill state would clear, the pill would disappear, the row
    would receive mousemove again, the pill would re-appear in a slightly
    different position, and the cycle would jitter.
-   ─────────────────────────────────────────────────────────────────────── */
+   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .locked-features-hint {
   position: fixed;
   top: 0;
@@ -795,25 +795,25 @@
      so the pill is never partially occluded by the surfaces it explains. */
   z-index: 10000;
   pointer-events: none;
-  /* Pill shape — fully rounded ends, padding tuned for a single-line
+  /* Pill shape â€” fully rounded ends, padding tuned for a single-line
      message at the body's font-size. white-space:nowrap so the text
      doesn't wrap into two lines as the cursor traverses the viewport. */
   padding: 6px 12px;
   border-radius: 999px;
-  background: #1f1f1f;
-  border: 1px solid #2a2a2a;
-  color: #e0e0e0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
   font-size: 0.75rem;
   font-weight: 500;
   font-family: inherit;
   white-space: nowrap;
   line-height: 1.2;
   /* Drop shadow lifts the pill off the page so it reads as a floating
-     overlay rather than part of the nearest panel — same shadow recipe
+     overlay rather than part of the nearest panel â€” same shadow recipe
      the modal cards use, scaled down. */
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   /* Brief fade-in keeps the appearance from popping abruptly when the
-     cursor first enters a disabled row. No exit animation — the pill
+     cursor first enters a disabled row. No exit animation â€” the pill
      unmounts on mouseleave, which is fine for a transient affordance. */
   animation: locked-features-hint-in 120ms ease-out;
   /* will-change hints the compositor to keep the pill on its own layer

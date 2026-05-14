@@ -4,7 +4,16 @@
     <meta charset="UTF-8" />
     <title>DocVex</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
-
+    <!-- Theme color: matches the default Cream theme's --bg-page. Theme is
+         per-user now (ThemeContext + localStorage), so this stays static
+         at the default; dynamically syncing on theme switch is a follow-up. -->
+    <meta name="theme-color" content="#F5F2EA" />
+    <!-- Google Fonts: Inter (body) + Plus Jakarta Sans (headings). Loaded
+         once at app start; cached by the OS DNS / browser. Preconnect
+         halves the latency for the actual font fetch. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="root"></div>

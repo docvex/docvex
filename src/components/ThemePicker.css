@@ -1,0 +1,146 @@
+/* ThemePicker — sits inside the Account page between the Subscription
+   card and the Danger zone. Reuses `.account-card` + `.account-card-title`
+   for the outer shell so it visually nests with the surrounding sections;
+   this stylesheet owns only the grid + per-card styling. */
+
+.theme-picker-desc {
+  margin: 0 0 1rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.theme-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.85rem;
+}
+
+/* Each theme is a clickable button card. The whole thing is one big tap
+   target — click anywhere to apply. Keyboard-focusable via Tab. */
+.theme-picker-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  transition: border-color 150ms, box-shadow 150ms, transform 150ms;
+}
+
+.theme-picker-card:hover:not(.is-active) {
+  border-color: var(--border-strong);
+}
+
+.theme-picker-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Active card: thicker accent border + faint accent wash. The border-width
+   change is absorbed by negative margin so the layout doesn't jitter when
+   selection moves between cards. */
+.theme-picker-card.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* ── Mini preview surface ─────────────────────────────────────────────────
+   Renders IN the theme via [data-theme] on the parent div. The tokens.css
+   :root[data-theme="…"] selectors apply HERE locally (CSS custom properties
+   inherit through the DOM), so the mock paints in cream-on-ink or
+   ink-on-cream regardless of the app's current theme. */
+.theme-picker-mock {
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.65rem;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.theme-picker-mock-surface {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.55rem;
+  height: 100%;
+}
+
+.theme-picker-mock-title {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.theme-picker-mock-cta {
+  width: 32px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+/* ── Palette strip ────────────────────────────────────────────────────────
+   Five equal-width swatches in the canonical brand order. Identical layout
+   on every card — the order is the palette identity. */
+.theme-picker-swatches {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  height: 16px;
+}
+
+.theme-picker-swatch {
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+/* ── Row with name + active pill ─────────────────────────────────────── */
+.theme-picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.theme-picker-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.theme-picker-active-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+}
+
+.theme-picker-card-desc {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}

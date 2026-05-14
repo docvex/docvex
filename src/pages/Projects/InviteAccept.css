@@ -1,4 +1,4 @@
-/* Centered, narrow card — the page has no real navigation; everything the
+﻿/* Centered, narrow card â€” the page has no real navigation; everything the
    user can do is in the card, so the card should anchor the eye. */
 .invite-accept-page {
   display: flex;
@@ -7,8 +7,8 @@
 }
 
 .invite-accept-card {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.75rem;
   max-width: 480px;
@@ -19,7 +19,7 @@
 }
 
 .invite-accept-loading {
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.9rem;
 }
 
@@ -27,37 +27,37 @@
    unknown). Same accent vocabulary as project-dashboard-error so the user
    recognises "this is the bad-path screen" at a glance. */
 .invite-accept-error {
-  border-color: rgba(220, 38, 38, 0.4);
-  background: rgba(220, 38, 38, 0.05);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 5%, transparent);
 }
 
 .invite-accept-error .invite-accept-title {
-  color: #f87171;
+  color: var(--danger-soft);
 }
 
 .invite-accept-title {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
   line-height: 1.3;
 }
 
 .invite-accept-body {
   margin: 0;
-  color: #c4c4c4;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   line-height: 1.5;
 }
 
 .invite-accept-body strong {
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
 .invite-accept-hint {
   margin: 0;
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.78rem;
   line-height: 1.4;
 }
@@ -71,12 +71,12 @@
   flex-wrap: wrap;
 }
 
-/* Indigo primary button — matches the AuthPage's sign-in button so users
+/* Indigo primary button â€” matches the AuthPage's sign-in button so users
    recognise the action vocabulary. */
 .invite-accept-primary-btn {
-  background: #6366f1;
-  color: #fff;
-  border: 1px solid #6366f1;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: 1px solid var(--accent);
   border-radius: 6px;
   font-size: 0.875rem;
   font-weight: 500;
@@ -87,8 +87,8 @@
 }
 
 .invite-accept-primary-btn:hover:not(:disabled) {
-  background: #5558e0;
-  border-color: #5558e0;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .invite-accept-primary-btn:disabled {
@@ -98,9 +98,9 @@
 
 .invite-accept-secondary-link {
   background: transparent;
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #c4c4c4;
+  color: var(--text-secondary);
   font-size: 0.85rem;
   font-weight: 500;
   padding: 0.5rem 0.85rem;
@@ -111,7 +111,7 @@
 }
 
 .invite-accept-secondary-link:hover {
-  background: #1f1f1f;
-  border-color: #444;
-  color: #fff;
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }

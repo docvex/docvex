@@ -1,0 +1,198 @@
+﻿/* CustomRoleEditor â€” extends the shared ConfirmModal + InviteMemberModal
+   styles. We import both stylesheets from the .jsx so the backdrop/card/
+   button/label patterns are inherited; this file owns only the bits
+   specific to the role editor (capability rows, tier picker, textarea). */
+
+.custom-role-editor {
+  max-width: 560px;
+  /* Capability list can grow tall on a small monitor; keep the modal
+     scrollable inside the viewport. */
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.custom-role-editor-textarea {
+  resize: vertical;
+  min-height: 50px;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+/* â”€â”€ Base tier picker â€” three radio buttons as colored chips â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.custom-role-editor-tiers {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.35rem 0 1rem;
+  flex-wrap: wrap;
+}
+
+.custom-role-editor-tier {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  transition: border-color 150ms, background 150ms;
+}
+
+.custom-role-editor-tier:hover:not(.is-active) {
+  border-color: var(--border-strong);
+  background: var(--bg-card);
+}
+
+.custom-role-editor-tier input[type="radio"] {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.custom-role-editor-tier-label {
+  text-transform: capitalize;
+  font-weight: 500;
+}
+
+/* Active state mirrors the role pill colors so the chip reads as the
+   same tier the user is about to base their role on. */
+.custom-role-editor-tier.is-active.role-admin {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-soft);
+}
+
+.custom-role-editor-tier.is-active.role-member {
+  border-color: color-mix(in srgb, var(--text-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-primary);
+}
+
+.custom-role-editor-tier.is-active.role-viewer {
+  border-color: color-mix(in srgb, var(--text-primary) 22%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  color: var(--text-secondary);
+}
+
+/* â”€â”€ Capability rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.custom-role-editor-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.custom-role-editor-caps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin: 0 0 1rem;
+}
+
+.custom-role-editor-cap-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.custom-role-editor-cap-group-title {
+  background: var(--bg-card);
+  padding: 0.45rem 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Each row is a button so it's clickable as a single hit target â€”
+   keyboard focusable via Tab; clicking anywhere on the row toggles
+   the override. */
+.custom-role-editor-cap-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--bg-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  transition: background 150ms;
+}
+
+.custom-role-editor-cap-row:first-child {
+  border-top: none;
+}
+
+.custom-role-editor-cap-row:hover:not(:disabled) {
+  background: var(--bg-elevated);
+}
+
+.custom-role-editor-cap-row:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.custom-role-editor-cap-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.custom-role-editor-cap-label {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.custom-role-editor-cap-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.1rem;
+  line-height: 1.35;
+}
+
+.custom-role-editor-cap-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+
+.custom-role-editor-cap-state-text {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.custom-role-editor-cap-row.is-override .custom-role-editor-cap-state-text {
+  color: var(--accent-soft);  /* indigo: matches admin pill, signals "explicit override" */
+}
+
+.custom-role-editor-cap-pill {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.custom-role-editor-cap-pill.is-granted {
+  color: var(--success-soft);
+  background: rgba(16, 185, 129, 0.12);
+  border-color: color-mix(in srgb, var(--success-soft) 40%, transparent);
+}
+
+.custom-role-editor-cap-pill.is-revoked {
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger-soft) 40%, transparent);
+}

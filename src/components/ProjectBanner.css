@@ -1,5 +1,5 @@
-/* "Working in <project>" banner — full-width solid bar flush against the
-   top of the main content area. Gold accent (#c9974a) matching the brand
+﻿/* "Working in <project>" banner â€” full-width solid bar flush against the
+   top of the main content area. Gold accent (var(--accent)) matching the brand
    icon and the project-selection accents elsewhere (.project-picker-
    trigger.has-selection, .project-picker-panel-row.is-current,
    .lock-btn.is-locked).
@@ -8,7 +8,7 @@
    `left: 0; right: 0` spans from the right edge of the sidebar to the right
    edge of the viewport, regardless of whether the sidebar is collapsed
    (60px) or locked open (220px). The pill itself doesn't animate width on
-   sidebar toggle — main-content reshapes around it via flex layout. */
+   sidebar toggle â€” main-content reshapes around it via flex layout. */
 
 .project-banner-pill {
   position: absolute;
@@ -20,13 +20,13 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  /* Solid gold (no transparency) — the bar reads as chrome, not a floating
+  /* Solid gold (no transparency) â€” the bar reads as chrome, not a floating
      indicator like the old translucent pill did. */
-  background: #c9964a88;
-  /* Near-black on gold gives ~8:1 contrast — readable from across the room,
-     where the old #fff-on-gold combo was ~2.5:1 and fought the eye. The
+  background: color-mix(in srgb, var(--accent) 53%, transparent);
+  /* Near-black on gold gives ~8:1 contrast â€” readable from across the room,
+     where the old var(--text-primary)-on-gold combo was ~2.5:1 and fought the eye. The
      accent stays gold; only the text tone changes. */
-  color: #ffffff;
+  color: var(--text-primary);
   font-size: 0.9rem;
   font-weight: 500;
   letter-spacing: 0.01em;
@@ -44,7 +44,7 @@
 }
 
 .project-banner-pill:hover {
-  background: #c9964ae0;
+  background: color-mix(in srgb, var(--accent) 88%, transparent);
 }
 
 .project-banner-pill:active {
@@ -55,7 +55,7 @@
 }
 
 /* "working in" reads softer than the project name so the eye lands on the
-   name first — opacity, not a lighter color, so the contrast against the
+   name first â€” opacity, not a lighter color, so the contrast against the
    gold background stays high. */
 .project-banner-pill-prefix {
   opacity: 0.7;

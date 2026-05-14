@@ -33,6 +33,8 @@ export function useUpdateNotificationSource(notify, { ready = true } = {}) {
       notify({
         category: 'update',
         variant: 'info',
+        priority: 'high',
+        icon: 'download',
         title: `Update available${latestVersion ? ` v${latestVersion}` : ''}`,
         body: 'A newer version of docvex is ready to download.',
         payload: { latestVersion },
@@ -56,6 +58,8 @@ export function useUpdateNotificationSource(notify, { ready = true } = {}) {
       notify({
         category: 'update',
         variant: 'success',
+        priority: 'high',
+        icon: 'download',
         title: 'Update ready to install',
         body: installerState?.releaseName
           ? `Restart docvex to apply ${installerState.releaseName}.`
@@ -70,6 +74,7 @@ export function useUpdateNotificationSource(notify, { ready = true } = {}) {
       notify({
         category: 'update',
         variant: 'error',
+        priority: 'critical',
         title: 'Update error',
         body: installerState?.message || 'The auto-updater reported a problem.',
         payload: { message: installerState?.message ?? null },

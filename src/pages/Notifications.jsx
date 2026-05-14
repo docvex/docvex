@@ -1,10 +1,26 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotifications } from '../context/NotificationsContext';
 import { useUpdates } from '../context/UpdatesContext';
 import { buildActions } from '../notifications/actionRegistry';
-import { formatRelativeTime, groupByDay } from '../lib/notifications';
+import {
+  formatRelativeTime,
+  groupByDay,
+  NOTIFICATION_PRIORITIES,
+} from '../lib/notifications';
+import { resolveNotificationIcon } from '../notifications/icons';
 import './Notifications.css';
+
+// Tab strip definition. Order is hierarchical: All first as the default
+// "show me everything", then critical → high → normal → low matching the
+// priority enum's intrinsic weight (lower index = more urgent).
+const PRIORITY_TABS = Object.freeze([
+  { id: 'all',                                  label: 'All' },
+  { id: NOTIFICATION_PRIORITIES.CRITICAL,       label: 'Critical' },
+  { id: NOTIFICATION_PRIORITIES.HIGH,           label: 'High' },
+  { id: NOTIFICATION_PRIORITIES.NORMAL,         label: 'Normal' },
+  { id: NOTIFICATION_PRIORITIES.LOW,            label: 'Low' },
+]);
 
 // Inline SVGs per CLAUDE.md convention.
 const AuthIcon = (
@@ -60,6 +76,10 @@ const BellOffIcon = (
   </svg>
 );
 
+// CategoryIcon is retained as a fallback for very old persisted rows that
+// predate the resolveNotificationIcon helper, but new code paths always
+// flow through the resolver — it knows about explicit per-notification
+// icons AND falls back through variant → category → info in one call.
 const CategoryIcon = {
   auth: AuthIcon,
   update: UpdateIcon,
@@ -69,22 +89,39 @@ const CategoryIcon = {
 };
 
 function NotificationRow({ notification, ctx, onMarkRead, onRemove }) {
-  const { id, variant, title, body, created_at, read_at, category } = notification;
+  const { id, variant, title, body, created_at, read_at, category, priority } = notification;
   const actions = buildActions(notification, ctx);
   const handleRowClick = () => {
     if (!read_at) onMarkRead(id);
   };
+  // Resolved per-notification icon — explicit > variant default (error/
+  // warning) > category default (folder/user/etc.).
+  const icon = resolveNotificationIcon(notification) || CategoryIcon[category] || InfoIcon;
+  // Priority falls back to 'normal' for older persisted rows without the
+  // field. The dot itself only renders for non-normal (the class hides
+  // the normal dot via display:none) so the default look stays clean.
+  const effectivePriority = priority || 'normal';
   return (
     <li
-      className={`n-row n-row-${variant || 'info'}${read_at ? '' : ' n-row-unread'}`}
+      className={`n-row n-row-${variant || 'info'} n-row-cat-${category || 'system'} n-row-pri-${effectivePriority}${read_at ? '' : ' n-row-unread'}`}
       onClick={handleRowClick}
     >
       <span className="n-row-icon" aria-hidden="true">
-        {CategoryIcon[category] || InfoIcon}
+        {icon}
       </span>
       <div className="n-row-body">
         <div className="n-row-head">
-          <span className="n-row-title">{title}</span>
+          <span className="n-row-title-wrap">
+            {/* Priority dot — only visually present for critical/high/low;
+                the .n-row-pri-normal rule hides it. Tooltip exposes the
+                priority name for screen readers + hover. */}
+            <span
+              className="n-row-priority"
+              title={`Priority: ${effectivePriority}`}
+              aria-label={`Priority: ${effectivePriority}`}
+            />
+            <span className="n-row-title">{title}</span>
+          </span>
           <time
             className="n-row-time"
             dateTime={created_at}
@@ -129,8 +166,31 @@ export default function NotificationsPage() {
   const { notifications, unreadCount, markRead, markAllRead, remove, clearAll } = useNotifications();
   const navigate = useNavigate();
   const { installUpdate } = useUpdates();
+  // Active priority tab — 'all' is the default union, the others filter
+  // to ONLY that priority (exclusive). Page-state lives in memory; not
+  // persisted across reloads (matches the rest of the app's convention).
+  const [priorityFilter, setPriorityFilter] = useState('all');
 
-  const groups = useMemo(() => groupByDay(notifications), [notifications]);
+  // Per-priority counts derived in one pass over the full list. Drives
+  // the tab badges so the unread-by-priority signal reads at a glance.
+  // `all` is just the total length; reading both off the same memoized
+  // object means no double-iteration.
+  const counts = useMemo(() => {
+    const out = { all: notifications.length, critical: 0, high: 0, normal: 0, low: 0 };
+    for (const n of notifications) {
+      const p = n.priority || 'normal';
+      if (out[p] != null) out[p] += 1;
+    }
+    return out;
+  }, [notifications]);
+
+  // Filter the list before day-grouping. 'all' is a pass-through.
+  const filtered = useMemo(() => {
+    if (priorityFilter === 'all') return notifications;
+    return notifications.filter((n) => (n.priority || 'normal') === priorityFilter);
+  }, [notifications, priorityFilter]);
+
+  const groups = useMemo(() => groupByDay(filtered), [filtered]);
   const ctx = useMemo(() => ({ navigate, installUpdate }), [navigate, installUpdate]);
 
   return (
@@ -164,12 +224,51 @@ export default function NotificationsPage() {
         </div>
       </header>
 
+      {/* Priority filter tabs — exclusive. Each non-All tab shows only
+          that priority; All is the union. Counts come from a single-pass
+          memo above. The tab strip renders even on an empty inbox so the
+          UI shape is stable (users see the surface area available). */}
+      {notifications.length > 0 && (
+        <nav className="n-tabs" role="tablist" aria-label="Filter by priority">
+          {PRIORITY_TABS.map((t) => {
+            const active = priorityFilter === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={`n-tab${active ? ' is-active' : ''} n-tab-${t.id}`}
+                onClick={() => setPriorityFilter(t.id)}
+              >
+                <span>{t.label}</span>
+                <span className="n-tab-count">{counts[t.id] || 0}</span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
+
       {notifications.length === 0 ? (
         <div className="notifications-empty">
           <span className="notifications-empty-icon" aria-hidden="true">{BellOffIcon}</span>
           <p className="notifications-empty-title">No notifications yet</p>
           <p className="notifications-empty-help">
             Sign-ins, update lifecycle, and (soon) social events will land here as they happen.
+          </p>
+        </div>
+      ) : filtered.length === 0 ? (
+        // Tab-specific empty state — happens when the user picks a tab
+        // (e.g. "Critical") that has zero items in their history. Tells
+        // them WHY the list is empty (filter, not data) so they don't
+        // wonder if a notification got eaten.
+        <div className="notifications-empty">
+          <span className="notifications-empty-icon" aria-hidden="true">{BellOffIcon}</span>
+          <p className="notifications-empty-title">
+            No {PRIORITY_TABS.find((t) => t.id === priorityFilter)?.label?.toLowerCase()} notifications
+          </p>
+          <p className="notifications-empty-help">
+            Nothing in this priority bucket right now. Try the All tab to see everything.
           </p>
         </div>
       ) : (

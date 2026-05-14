@@ -1,10 +1,10 @@
-/* ─────────────────────────────────────────────────────────────────────
-   Drop-card overlay — visible while the user is dragging files over
+﻿/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+   Drop-card overlay â€” visible while the user is dragging files over
    the window. The backdrop dims the page so the dashed card reads as
    the primary affordance; CRITICAL that pointer-events: none cascades
    through every child so the actual `drop` event reaches the
    window-level listener regardless of where the cursor releases.
-   ───────────────────────────────────────────────────────────────────── */
+   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .upload-overlay-backdrop {
   position: fixed;
   inset: 0;
@@ -34,7 +34,7 @@
      the dashes read cleanly from a desk-distance viewing angle;
      16px corner radius matches the existing card geometry in
      ProjectPickerPanel / SwitchProjectLoader. */
-  border: 2px dashed #c9974a;
+  border: 2px dashed var(--accent);
   border-radius: 16px;
   background: rgba(20, 20, 20, 0.6);
   backdrop-filter: blur(6px);
@@ -47,7 +47,7 @@
   align-items: center;
   gap: 1rem;
   text-align: center;
-  color: #e0e0e0;
+  color: var(--text-primary);
   pointer-events: none;
   animation: upload-overlay-card-rise 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -57,23 +57,23 @@
   to   { opacity: 1; transform: translateY(0)   scale(1); }
 }
 
-/* Locked variant — no project selected. Same dashed shape, but muted
+/* Locked variant â€” no project selected. Same dashed shape, but muted
    gray so it reads as "blocked" instead of "ready". The user still
    sees the affordance + the explanatory copy. */
 .upload-overlay-card[data-mode="locked"] {
-  border-color: #555;
-  color: #aaa;
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
 }
 
 .upload-overlay-icon {
-  color: #c9974a;
+  color: var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .upload-overlay-card[data-mode="locked"] .upload-overlay-icon {
-  color: #666;
+  color: var(--text-muted);
 }
 
 .upload-overlay-title {
@@ -85,24 +85,24 @@
 
 .upload-overlay-title strong {
   /* Gold tint for the project name so it pops out of the line. */
-  color: #e1b673;
+  color: var(--accent-soft);
   font-weight: 700;
 }
 
 .upload-overlay-types {
   font-size: 0.78rem;
-  color: #888;
+  color: var(--text-muted);
   letter-spacing: 0.04em;
 }
 
-/* ─────────────────────────────────────────────────────────────────────
-   Progress panel — anchored bottom-right, shows in-flight + recently
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+   Progress panel â€” anchored bottom-right, shows in-flight + recently
    finished uploads. Pointer-events ON so the Cancel button is
    clickable. Sits at the same z-index as the drop card but lower in
    the stacking context because it renders below in source order;
-   that's fine — they're never visually overlapping (one is centered,
+   that's fine â€” they're never visually overlapping (one is centered,
    one is bottom-right).
-   ───────────────────────────────────────────────────────────────────── */
+   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .upload-progress-panel {
   position: fixed;
   right: 18px;
@@ -110,11 +110,11 @@
   z-index: 9998;
   width: 360px;
   max-width: calc(100vw - 36px);
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.85rem;
   /* Cap height so a long upload queue doesn't run off the screen;
      the list scrolls internally. */
@@ -135,7 +135,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -143,7 +143,7 @@
   font-size: 0.82rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .upload-progress-cancel {
@@ -151,8 +151,8 @@
   align-items: center;
   gap: 6px;
   background: transparent;
-  border: 1px solid #3a3a3a;
-  color: #c0c0c0;
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
   border-radius: 6px;
   padding: 4px 10px;
   font-size: 0.75rem;
@@ -162,24 +162,24 @@
 }
 
 .upload-progress-cancel:hover {
-  background: rgba(220, 38, 38, 0.12);
-  border-color: rgba(220, 38, 38, 0.45);
-  color: #f87171;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  color: var(--danger-soft);
 }
 
-/* Overall progress bar — total bytes across all active uploads.
+/* Overall progress bar â€” total bytes across all active uploads.
    Sits just under the header so it reads as the summary of the rows
    below it. Hidden when nothing's in flight. */
 .upload-progress-bar {
   height: 3px;
-  background: #232323;
+  background: var(--bg-elevated);
   overflow: hidden;
   flex-shrink: 0;
 }
 
 .upload-progress-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #c9974a, #e1b673);
+  background: linear-gradient(90deg, var(--accent), var(--accent-soft));
   transition: width 200ms ease;
 }
 
@@ -197,7 +197,7 @@
    rules below. */
 .upload-row {
   padding: 8px 14px;
-  border-bottom: 1px solid #232323;
+  border-bottom: 1px solid var(--bg-elevated);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -216,7 +216,7 @@
 
 .upload-row-name {
   font-size: 0.85rem;
-  color: #e0e0e0;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -227,31 +227,31 @@
 .upload-row-status {
   font-size: 0.72rem;
   font-weight: 600;
-  color: #888;
+  color: var(--text-muted);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   flex-shrink: 0;
 }
 
 .upload-row.is-uploading .upload-row-status,
-.upload-row.is-pending   .upload-row-status { color: #c9974a; }
-.upload-row.is-done      .upload-row-status { color: #4ade80; }
+.upload-row.is-pending   .upload-row-status { color: var(--accent); }
+.upload-row.is-done      .upload-row-status { color: var(--success-soft); }
 .upload-row.is-canceled  .upload-row-status,
 .upload-row.is-rejected  .upload-row-status,
-.upload-row.is-error     .upload-row-status { color: #f87171; }
+.upload-row.is-error     .upload-row-status { color: var(--danger-soft); }
 
 .upload-row-line2 {
   font-size: 0.72rem;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .upload-row-error {
-  color: #f87171;
+  color: var(--danger-soft);
 }
 
 .upload-row-track {
   height: 2px;
-  background: #232323;
+  background: var(--bg-elevated);
   border-radius: 2px;
   overflow: hidden;
   margin-top: 4px;
@@ -259,11 +259,11 @@
 
 .upload-row-fill {
   height: 100%;
-  background: linear-gradient(90deg, #c9974a, #e1b673);
+  background: linear-gradient(90deg, var(--accent), var(--accent-soft));
   transition: width 150ms ease;
 }
 
-/* Hide the per-file track once the row reaches a terminal state — the
+/* Hide the per-file track once the row reaches a terminal state â€” the
    status label communicates the outcome, the progress bar becomes
    noise. Saves vertical space when many entries pile up. */
 .upload-row.is-done      .upload-row-track,

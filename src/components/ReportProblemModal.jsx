@@ -180,8 +180,9 @@ export default function ReportProblemModal() {
     }
 
     notify({
-      category: 'system',
+      category: 'support',
       variant: 'success',
+      icon: 'send',
       title: 'Report sent',
       body: 'Support will reply by email.',
       dedupeKey: 'support-report-sent',

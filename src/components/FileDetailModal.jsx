@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useNotifications } from '../context/NotificationsContext';
+import { useHasCapability } from '../hooks/useHasCapability';
 import {
   createSignedDownloadUrl,
   fetchUploaderProfile,
@@ -90,17 +90,23 @@ function UploaderAvatar({ profile }) {
 
 export default function FileDetailModal({ file, onClose, onDeleted }) {
   const { session } = useAuth();
-  const { selectedProject } = useSelectedProject();
   const { notify } = useNotifications();
 
   const viewerId = session?.user?.id || null;
-  // Role hierarchy: 'owner' includes admin powers in the existing
-  // has_project_role() function (migration 001). Mirror that here for
-  // the client-side delete-visibility check; RLS is still the source
-  // of truth.
-  const viewerRole = selectedProject?.role || null;
-  const viewerIsAdmin = viewerRole === 'admin' || viewerRole === 'owner';
-  const canDelete = Boolean(file) && (viewerIsAdmin || file.uploaded_by === viewerId);
+  // Delete-visibility uses the capability layer so a custom-role member
+  // with `files.delete_any` granted on top of their base tier sees the
+  // Delete button — and conversely, a custom-role Admin with
+  // `files.delete_any` revoked DOESN'T see it. The RLS policy on
+  // project_files (migration 008) gates on the same two capabilities, so
+  // the UI and the server agree on who can act.
+  const canDeleteAny = useHasCapability('files.delete_any');
+  const canDeleteOwn = useHasCapability('files.delete_own');
+  const isOwnFile   = Boolean(file) && file.uploaded_by === viewerId;
+  const canDelete   = Boolean(file) && (canDeleteAny || (isOwnFile && canDeleteOwn));
+  // The Delete button used to gate on viewerIsAdmin (computed from
+  // selectedProject.role); the capability hook now answers the same
+  // question more flexibly. If a future surface needs the raw tier,
+  // re-import useSelectedProject and read selectedProject.role.
 
   // ── Local state ────────────────────────────────────────────────────────
   const [previewUrl, setPreviewUrl]   = useState(null);
@@ -278,7 +284,7 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
     const { data, error } = await createSignedDownloadUrl(file.storage_path, 300);
     if (error || !data?.signedUrl) {
       notify({
-        category: 'system',
+        category: 'file',
         variant: 'error',
         title: 'Could not open file',
         body: error?.message || 'Try again in a moment.',
@@ -305,8 +311,9 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
       return;
     }
     notify({
-      category: 'system',
+      category: 'file',
       variant: 'success',
+      icon: 'trash',
       title: 'File deleted',
       body: file.name,
       dedupeKey: `file-deleted:${file.id}`,

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { loadPdfModule } from '../lib/pdfWorker';
+import { getCachedPdf } from '../lib/pdfCache';
 
 // Preview renderer for the FileDetailModal's left pane.
 // Dispatches by MIME to one of:
@@ -130,17 +130,23 @@ function VideoPreview({ thumbnailUrl, file, onOpen }) {
 }
 
 // ── PDF ──────────────────────────────────────────────────────────────────
-// First-page-only preview, always via pdf.js. We deliberately skip the
-// pre-baked _thumb.jpg here even when it exists: that thumbnail is a
-// fixed 400×300 canvas with the page centered on a dark backdrop, so
-// portrait PDFs have ~80px of dark bars baked into the image on each
-// side. Stretching the JPEG to fill the pane stretches those bars too,
-// which reads as "ugly side padding". Rendering with pdf.js to a
-// canvas sized to the real page aspect avoids it — the canvas IS the
-// page, no embedded letterboxing. Cost: one pdf.js getDocument round-
-// trip per modal open, which is the same module the upload pipeline
-// already loads, so the worker is usually warm.
-function PdfPreview({ signedUrl, file, onOpen }) {
+// Progressive preview: paints the pre-baked thumbnail JPEG immediately as
+// a fast first-frame, then runs pdf.js in parallel and fades the rendered
+// canvas in over the thumbnail once ready. Two reasons this pattern wins:
+//
+//   1. Latency. pdf.js startup (worker fetch on cold load, getDocument,
+//      page-1 render) is ~500ms–2s; the thumbnail is ~50KB and paints in
+//      under 100ms. The user sees a real preview almost immediately
+//      instead of staring at "Loading PDF…" text.
+//   2. Visual fidelity. The thumbnail JPEG has dark letterbox bars baked
+//      in for non-4:3 pages, which is why we don't use it as the FINAL
+//      preview. But as a fast first-frame it's "good enough", and the
+//      canvas crossfade hides the swap so the dark bars never read as
+//      "ugly padding" the way they did when the thumbnail was permanent.
+//
+// If `thumbnailUrl` is absent (legacy uploads pre-migration 004), we fall
+// back to the loading-text state until pdf.js finishes.
+function PdfPreview({ signedUrl, thumbnailUrl, file, onOpen }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const pdfRef = useRef(null);
@@ -148,24 +154,32 @@ function PdfPreview({ signedUrl, file, onOpen }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
+  // True once pdf.js has finished its first render. Drives the canvas's
+  // opacity + the thumbnail's fade-out; stays true for the lifetime of
+  // the component so a resize-reflow doesn't bounce visibility.
+  const [pdfPainted, setPdfPainted] = useState(false);
 
-  // Load the document once on signedUrl change. Cleanup destroys the
-  // pdf handle so the worker can free the parsed structure.
+  // Load the document via the module-level LRU cache (src/lib/pdfCache.js).
+  // First open: pdf.js fetches + parses, result is cached. Second-and-
+  // subsequent opens of the same file: cache hit, near-zero latency.
+  // Skips the work entirely while signedUrl is still null — lets the
+  // thumbnail paint immediately even before the signed URL resolves.
+  //
+  // Cleanup intentionally does NOT call doc.destroy(): the cache owns the
+  // handle's lifetime via LRU eviction. Destroying on every unmount would
+  // defeat the cache (next reopen of the same file would re-parse).
   useEffect(() => {
+    if (!signedUrl) return undefined;
     let cancelled = false;
     pdfRef.current = null;
     setLoading(true);
     setError(null);
+    setPdfPainted(false);
 
     (async () => {
       try {
-        const pdfjs = await loadPdfModule();
+        const pdf = await getCachedPdf(file.storage_path, signedUrl);
         if (cancelled) return;
-        const pdf = await pdfjs.getDocument({ url: signedUrl }).promise;
-        if (cancelled) {
-          pdf.destroy();
-          return;
-        }
         pdfRef.current = pdf;
         setLoading(false);
       } catch (err) {
@@ -177,10 +191,9 @@ function PdfPreview({ signedUrl, file, onOpen }) {
 
     return () => {
       cancelled = true;
-      try { pdfRef.current?.destroy(); } catch { /* ignore */ }
-      pdfRef.current = null;
+      pdfRef.current = null;  // cache keeps the doc alive; just drop our ref
     };
-  }, [signedUrl]);
+  }, [signedUrl, file.storage_path]);
 
   // Debounced container-size tracking — same pattern the old paginator
   // used; without the 150ms debounce a resize-drag stacks render
@@ -247,6 +260,7 @@ function PdfPreview({ signedUrl, file, onOpen }) {
         renderTaskRef.current = task;
         await task.promise;
         if (renderTaskRef.current === task) renderTaskRef.current = null;
+        if (!cancelled) setPdfPainted(true);
       } catch (err) {
         if (err?.name !== 'RenderingCancelledException' && !cancelled) {
           setError(err?.message || 'Failed to render page');
@@ -259,13 +273,31 @@ function PdfPreview({ signedUrl, file, onOpen }) {
 
   if (error) return <NoPreview reason={error} />;
 
+  // The canvas is ALWAYS in the DOM (even before pdf.js finishes) so the
+  // render effect can attach to it via canvasRef as soon as the document
+  // resolves. Until pdfPainted, the canvas stays at opacity 0 and the
+  // thumbnail underneath shows through. Once painted, the canvas fades
+  // in and the thumbnail fades out.
+  const showLoadingText = !pdfPainted && !thumbnailUrl;
+
   return (
     <ClickablePreview onOpen={onOpen} ariaLabel={`Open ${file.name}`}>
       <div className="file-preview-pdf-static" ref={containerRef}>
-        {loading ? (
+        {thumbnailUrl && (
+          <img
+            className={`file-preview-pdf-thumb${pdfPainted ? ' is-faded' : ''}`}
+            src={thumbnailUrl}
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+          />
+        )}
+        <canvas
+          ref={canvasRef}
+          className={`file-preview-pdf-canvas${pdfPainted ? ' is-visible' : ''}`}
+        />
+        {showLoadingText && (
           <div className="file-preview-loading">Loading PDF…</div>
-        ) : (
-          <canvas ref={canvasRef} />
         )}
       </div>
     </ClickablePreview>
@@ -345,13 +377,22 @@ function TextPreview({ signedUrl, file }) {
 
 // ── Dispatcher ───────────────────────────────────────────────────────────
 export default function FilePreview({ file, signedUrl, thumbnailUrl, onOpen }) {
-  if (!file || !signedUrl) {
+  if (!file) return null;
+
+  const t = file.mime_type || '';
+
+  // PDF and Video both have a thumbnail-as-fast-paint path. They can render
+  // their first frame from `thumbnailUrl` BEFORE `signedUrl` resolves, so we
+  // dispatch them eagerly. Each component waits for signedUrl internally
+  // before kicking off its heavier work (pdf.js parse / video fetch).
+  if (t === 'application/pdf') return <PdfPreview   file={file} signedUrl={signedUrl} thumbnailUrl={thumbnailUrl} onOpen={onOpen} />;
+  if (t.startsWith('video/'))  return <VideoPreview file={file} thumbnailUrl={thumbnailUrl} onOpen={onOpen} />;
+
+  // Everything else needs the signed URL before it can show anything.
+  if (!signedUrl) {
     return <div className="file-preview-loading">Loading preview…</div>;
   }
-  const t = file.mime_type || '';
-  if (t.startsWith('image/'))   return <ImagePreview file={file} signedUrl={signedUrl} onOpen={onOpen} />;
-  if (t.startsWith('video/'))   return <VideoPreview file={file} thumbnailUrl={thumbnailUrl} onOpen={onOpen} />;
-  if (t === 'application/pdf')  return <PdfPreview   file={file} signedUrl={signedUrl} onOpen={onOpen} />;
-  if (t.startsWith('text/'))    return <TextPreview  file={file} signedUrl={signedUrl} />;
+  if (t.startsWith('image/'))  return <ImagePreview file={file} signedUrl={signedUrl} onOpen={onOpen} />;
+  if (t.startsWith('text/'))   return <TextPreview  file={file} signedUrl={signedUrl} />;
   return <NoPreview reason={`No preview for ${t || 'this file type'}.`} />;
 }

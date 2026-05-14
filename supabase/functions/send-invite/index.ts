@@ -67,7 +67,7 @@ Deno.serve(async (req: Request) => {
   if (pre) return pre;
   if (req.method !== "POST") return jsonResponse({ error: "method_not_allowed" }, 405);
 
-  let body: { project_id?: string; email?: string; role?: string };
+  let body: { project_id?: string; email?: string; role?: string; custom_role_id?: string | null };
   try {
     body = await req.json();
   } catch {
@@ -77,12 +77,15 @@ Deno.serve(async (req: Request) => {
   const project_id = body.project_id?.trim();
   const email = body.email?.toLowerCase().trim();
   const role = body.role?.toLowerCase().trim() ?? "member";
+  // custom_role_id is optional — when present, the invitation persists it
+  // and accept_invitation() copies it onto the new project_members row.
+  const custom_role_id = body.custom_role_id?.trim() || null;
 
   if (!project_id) return jsonResponse({ error: "missing_project_id" }, 400);
   if (!email || !EMAIL_RE.test(email)) return jsonResponse({ error: "invalid_email" }, 400);
   if (!VALID_ROLES.has(role)) return jsonResponse({ error: "invalid_role" }, 400);
 
-  // Caller-context client for the admin check (RLS sees auth.uid()).
+  // Caller-context client for the capability check (RLS sees auth.uid()).
   const authHeader = req.headers.get("Authorization") ?? "";
   const callerClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: { headers: { Authorization: authHeader } },
@@ -91,12 +94,16 @@ Deno.serve(async (req: Request) => {
   const { data: { user }, error: userErr } = await callerClient.auth.getUser();
   if (userErr || !user) return jsonResponse({ error: "unauthenticated" }, 401);
 
-  const { data: isAdmin, error: roleErr } = await callerClient.rpc("has_project_role", {
+  // Capability-aware check (migration 008): a base-Member custom role with
+  // members.invite granted ALSO passes. Falls back to admin tier for
+  // ordinary admins/owners. has_capability returns false for non-members
+  // of the project, so this also handles "unauthenticated for this project".
+  const { data: canInvite, error: capErr } = await callerClient.rpc("has_capability", {
     p_project_id: project_id,
-    p_min_role: "admin",
+    p_capability: "members.invite",
   });
-  if (roleErr) return jsonResponse({ error: "role_check_failed", detail: roleErr.message }, 500);
-  if (!isAdmin) return jsonResponse({ error: "forbidden" }, 403);
+  if (capErr) return jsonResponse({ error: "role_check_failed", detail: capErr.message }, 500);
+  if (!canInvite) return jsonResponse({ error: "forbidden" }, 403);
 
   // Service-role client for the upsert (bypasses RLS so we can read the
   // existing row's token even if the partial-unique conflict path doesn't
@@ -109,7 +116,7 @@ Deno.serve(async (req: Request) => {
   // If found, reuse it. Otherwise insert fresh.
   const { data: existing, error: existErr } = await admin
     .from("project_invitations")
-    .select("id, token, role, expires_at, accepted_at")
+    .select("id, token, role, custom_role_id, expires_at, accepted_at")
     .eq("project_id", project_id)
     .ilike("email", email)
     .is("accepted_at", null)
@@ -124,15 +131,20 @@ Deno.serve(async (req: Request) => {
     invitation_id = existing.id;
     token = existing.token;
     inviteRole = existing.role;
-    // If the admin tried to invite at a different role, update it in place.
-    if (existing.role !== role) {
-      await admin.from("project_invitations").update({ role }).eq("id", existing.id);
+    // If the admin tried to invite at a different role/custom_role_id,
+    // update it in place. We compare BOTH so re-inviting the same email
+    // at a different custom role replaces the assignment correctly.
+    if (existing.role !== role || (existing.custom_role_id ?? null) !== custom_role_id) {
+      await admin
+        .from("project_invitations")
+        .update({ role, custom_role_id })
+        .eq("id", existing.id);
       inviteRole = role;
     }
   } else {
     const { data: inserted, error: insErr } = await admin
       .from("project_invitations")
-      .insert({ project_id, email, role, invited_by: user.id })
+      .insert({ project_id, email, role, custom_role_id, invited_by: user.id })
       .select("id, token")
       .single();
     if (insErr || !inserted) {

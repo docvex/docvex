@@ -1,5 +1,5 @@
-/* Widens the shared .modal-card slightly so the project name + input have
-   breathing room — the default 380px feels cramped once you add an input. */
+﻿/* Widens the shared .modal-card slightly so the project name + input have
+   breathing room â€” the default 380px feels cramped once you add an input. */
 .delete-project-modal {
   max-width: 460px;
 }
@@ -7,7 +7,7 @@
 .delete-project-label {
   display: block;
   font-size: 0.85rem;
-  color: #c4c4c4;
+  color: var(--text-secondary);
   margin: 0 0 0.4rem;
   line-height: 1.5;
 }
@@ -17,8 +17,8 @@
 .delete-project-name {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 600;
-  color: #fca5a5;
-  background: rgba(220, 38, 38, 0.08);
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
   padding: 0.05rem 0.35rem;
   border-radius: 4px;
   user-select: text;
@@ -27,10 +27,10 @@
 .delete-project-input {
   width: 100%;
   box-sizing: border-box;
-  background: #0f0f0f;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-page);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   padding: 0.55rem 0.7rem;
   margin: 0 0 1.25rem;
@@ -40,8 +40,8 @@
 
 .delete-project-input:focus {
   outline: none;
-  border-color: #dc2626;
-  background: #121212;
+  border-color: var(--danger-soft);
+  background: var(--bg-input);
 }
 
 .delete-project-input:disabled {
@@ -49,16 +49,16 @@
   cursor: not-allowed;
 }
 
-/* Disabled destructive button — visually dim so the user understands typing
+/* Disabled destructive button â€” visually dim so the user understands typing
    the name will enable it. */
 .delete-project-modal .modal-btn-destructive:disabled {
-  background: rgba(220, 38, 38, 0.35);
-  color: rgba(255, 255, 255, 0.6);
+  background: color-mix(in srgb, var(--danger) 35%, transparent);
+  color: color-mix(in srgb, var(--text-primary) 60%, transparent);
   cursor: not-allowed;
 }
 
 .delete-project-modal .modal-btn-destructive:disabled:hover {
-  background: rgba(220, 38, 38, 0.35);
+  background: color-mix(in srgb, var(--danger) 35%, transparent);
 }
 
 .delete-project-modal .modal-btn-cancel:disabled {

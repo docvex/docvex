@@ -26,6 +26,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('account:switch-to', listener);
   },
 
+  // Dev-only "DEBUG → Clear all cached data" menu hook. Main fires the
+  // event when the menu item is clicked; the renderer wipes its module-
+  // level caches (signed URLs, parsed pdf.js docs) so the next open
+  // re-fetches everything from scratch. Returns an unsubscribe fn.
+  onDebugClearCache: (handler) => {
+    const listener = () => handler();
+    ipcRenderer.on('debug:clear-cache', listener);
+    return () => ipcRenderer.removeListener('debug:clear-cache', listener);
+  },
+
+  // Dev-only "DEBUG → Send all test notifications" menu hook. Fires every
+  // entry in TEST_NOTIFICATIONS so devs can preview the full toast +
+  // history surface for each category × priority × icon combination
+  // without manually triggering the live actions. Returns an unsubscribe fn.
+  onSendTestNotifications: (handler) => {
+    const listener = () => handler();
+    ipcRenderer.on('debug:send-test-notifications', listener);
+    return () => ipcRenderer.removeListener('debug:send-test-notifications', listener);
+  },
+
   // Open any URL in the user's default browser (used for release links etc.)
   openExternal: (url) => ipcRenderer.send('app:open-external', url),
 

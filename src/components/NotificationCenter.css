@@ -1,10 +1,12 @@
-/* Toast palette — sourced from existing app colors so palette changes touch
-   this single file rather than every variant rule downstream. */
+﻿/* Variant-only fallback tokens — used only by the error override below and
+   any consumer that hasn't migrated to category coloring yet. The PRIMARY
+   color story is now category-driven: see .toast-cat-* rules further down
+   plus src/styles/tokens.css's --cat-* tokens. */
 :root {
-  --toast-info:    #6366f1;
-  --toast-success: #4ade80;
-  --toast-warning: #f59e0b;
-  --toast-error:   #f87171;
+  --toast-info:    var(--info-soft);
+  --toast-success: var(--success-soft);
+  --toast-warning: var(--warning-soft);
+  --toast-error:   var(--danger-soft);
 }
 
 /* Bottom-right anchored stack. pointer-events: none on the container lets
@@ -15,7 +17,7 @@
   right: 1.5rem;
   z-index: 9999;
   display: flex;
-  flex-direction: column;       /* newest gets prepended → appears on top */
+  flex-direction: column;       /* newest gets prepended â†’ appears on top */
   align-items: flex-end;
   gap: 0.75rem;
   pointer-events: none;
@@ -26,8 +28,8 @@
 .toast {
   width: 320px;
   max-width: 100%;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-left-width: 3px;
   border-radius: 10px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
@@ -35,7 +37,7 @@
   align-items: flex-start;
   gap: 0.65rem;
   padding: 0.85rem 0.85rem 0.85rem 0.95rem;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.875rem;
   line-height: 1.4;
   pointer-events: auto;          /* re-enable above container's pass-through */
@@ -47,10 +49,25 @@
   animation: toast-slide-out 180ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
-.toast-info    { border-left-color: var(--toast-info); }
-.toast-success { border-left-color: var(--toast-success); }
-.toast-warning { border-left-color: var(--toast-warning); }
-.toast-error   { border-left-color: var(--toast-error); }
+/* ── Category-driven color (primary) ─────────────────────────────────────
+   Left border + icon color come from --cat-{name} (defined per-theme in
+   tokens.css), giving each notification an at-a-glance "what is this
+   about?" signal. Error variant overrides further below — failures are
+   so important their red trumps the category color.
+
+   Default rule applies to any toast without an explicit .toast-cat-*
+   class so old / unmigrated notifications still get a sensible color. */
+.toast { border-left-color: var(--cat-system); }
+.toast-cat-auth    { border-left-color: var(--cat-auth); }
+.toast-cat-project { border-left-color: var(--cat-project); }
+.toast-cat-member  { border-left-color: var(--cat-member); }
+.toast-cat-file    { border-left-color: var(--cat-file); }
+.toast-cat-role    { border-left-color: var(--cat-role); }
+.toast-cat-update  { border-left-color: var(--cat-update); }
+.toast-cat-support { border-left-color: var(--cat-support); }
+.toast-cat-system  { border-left-color: var(--cat-system); }
+.toast-cat-info    { border-left-color: var(--cat-system); }
+.toast-cat-social  { border-left-color: var(--cat-member); }
 
 .toast-icon {
   flex-shrink: 0;
@@ -60,12 +77,27 @@
   width: 22px;
   height: 22px;
   margin-top: 1px;
+  color: var(--cat-system);
 }
 
-.toast-info    .toast-icon { color: var(--toast-info); }
-.toast-success .toast-icon { color: var(--toast-success); }
-.toast-warning .toast-icon { color: var(--toast-warning); }
+.toast-cat-auth    .toast-icon { color: var(--cat-auth); }
+.toast-cat-project .toast-icon { color: var(--cat-project); }
+.toast-cat-member  .toast-icon { color: var(--cat-member); }
+.toast-cat-file    .toast-icon { color: var(--cat-file); }
+.toast-cat-role    .toast-icon { color: var(--cat-role); }
+.toast-cat-update  .toast-icon { color: var(--cat-update); }
+.toast-cat-support .toast-icon { color: var(--cat-support); }
+.toast-cat-system  .toast-icon { color: var(--cat-system); }
+.toast-cat-info    .toast-icon { color: var(--cat-system); }
+.toast-cat-social  .toast-icon { color: var(--cat-member); }
+
+/* ── Variant overrides (secondary) ────────────────────────────────────────
+   ONLY error and warning override the category color so failures still
+   read as "stop and look". Success and info inherit the category tint. */
+.toast-error,
+.toast.toast-error { border-left-color: var(--toast-error); }
 .toast-error   .toast-icon { color: var(--toast-error); }
+.toast-warning .toast-icon { color: var(--toast-warning); }
 
 .toast-body {
   flex: 1;
@@ -74,12 +106,12 @@
 
 .toast-title {
   font-weight: 600;
-  color: #f0f0f0;
+  color: var(--text-primary);
   word-break: break-word;
 }
 
 .toast-message {
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 0.82rem;
   margin-top: 0.15rem;
   word-break: break-word;
@@ -97,9 +129,9 @@
   align-items: center;
   gap: 0.3rem;
   background: transparent;
-  border: 1px solid #333;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #ddd;
+  color: var(--text-secondary);
   font-size: 0.78rem;
   font-weight: 500;
   padding: 0.32rem 0.7rem;
@@ -109,27 +141,27 @@
 }
 
 .toast-action:hover {
-  background: #1f1f1f;
-  border-color: #555;
-  color: #fff;
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
 .toast-action-primary {
-  background: #6366f1;
-  border-color: #6366f1;
-  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
 }
 
 .toast-action-primary:hover {
-  background: #7c7ff5;
-  border-color: #7c7ff5;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .toast-close {
   flex-shrink: 0;
   background: transparent;
   border: none;
-  color: #666;
+  color: var(--text-muted);
   padding: 2px;
   margin: -2px;
   border-radius: 4px;
@@ -141,8 +173,8 @@
 }
 
 .toast-close:hover {
-  color: #ddd;
-  background: #222;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
 }
 
 @keyframes toast-slide-in {
@@ -167,7 +199,7 @@
   }
 }
 
-/* Respect motion preferences — fade only, no slide. */
+/* Respect motion preferences â€” fade only, no slide. */
 @media (prefers-reduced-motion: reduce) {
   .toast {
     animation: toast-fade-in 100ms linear;

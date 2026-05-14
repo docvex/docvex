@@ -163,7 +163,7 @@ export async function deleteProject(projectId) {
 export async function listMembers(projectId) {
   const { data: members, error: mErr } = await supabase
     .from('project_members')
-    .select('user_id, role, added_at')
+    .select('user_id, role, added_at, custom_role_id')
     .eq('project_id', projectId)
     .order('added_at', { ascending: true });
   if (mErr) return { data: [], error: mErr };
@@ -179,6 +179,10 @@ export async function listMembers(projectId) {
     data: members.map((m) => ({
       user_id: m.user_id,
       role: m.role,
+      // custom_role_id (nullable). When set, ProjectContext joins it against
+      // its customRoles catalog so consumers can read the resolved role
+      // name + base_role straight from the member row.
+      custom_role_id: m.custom_role_id ?? null,
       added_at: m.added_at,
       profile: profileById.get(m.user_id) ?? null,
     })),
@@ -235,7 +239,7 @@ export async function leaveProject(projectId) {
 export async function listInvitations(projectId) {
   const { data, error } = await supabase
     .from('project_invitations')
-    .select('id, email, role, token, expires_at, created_at, invited_by')
+    .select('id, email, role, custom_role_id, token, expires_at, created_at, invited_by')
     .eq('project_id', projectId)
     .is('accepted_at', null)
     .order('created_at', { ascending: false });
@@ -247,10 +251,15 @@ export async function listInvitations(projectId) {
 // supabase.functions.invoke automatically sends the user JWT in the
 // Authorization header so the function can verify it.
 
-export async function sendInvite(projectId, email, role) {
-  const { data, error } = await supabase.functions.invoke('send-invite', {
-    body: { project_id: projectId, email, role },
-  });
+// Optional customRoleId is the id of a `custom_roles` row for the project.
+// When set, the Edge Function persists it on the invitation; accept_invitation
+// then uses the custom role's base_role for the project_members.role enum
+// AND copies custom_role_id onto the new member row. Backward-compat: omit
+// the arg and behaviour is identical to before.
+export async function sendInvite(projectId, email, role, customRoleId = null) {
+  const body = { project_id: projectId, email, role };
+  if (customRoleId) body.custom_role_id = customRoleId;
+  const { data, error } = await supabase.functions.invoke('send-invite', { body });
   return { data, error };
 }
 

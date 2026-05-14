@@ -9,9 +9,12 @@ html, body {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background: #0f0f0f;
-  color: #e0e0e0;
+  /* font-family is set via tokens.css (--font-body) — kept fallback list
+     here just so the page paints with a system stack if tokens.css fails
+     to load. */
+  font-family: var(--font-body, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif);
+  background: var(--bg-page);
+  color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -21,4 +24,37 @@ body {
 #root {
   height: 100vh;
   overflow: hidden;
+}
+
+/* ── Global scrollbar styling ─────────────────────────────────────────────
+   Transparent track + a solid-token thumb. The token (--scrollbar-thumb)
+   is defined per-theme in tokens.css so the scrollbar reads correctly on
+   both Cream (dark-ink thumb on cream bg) and Ink (light-cream thumb on
+   ink bg) without per-surface overrides. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+
+/* Hide the up/down arrow buttons that WebKit renders on some platforms.
+   The thumb is the only affordance worth keeping; arrows make a thin
+   scrollbar look cluttered. */
+::-webkit-scrollbar-button {
+  display: none;
 }

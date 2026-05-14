@@ -199,8 +199,9 @@ export default function InviteAccept() {
     // service-role read returned null.
     const projectName = data?.project_name;
     notify({
-      category: 'system',
+      category: 'project',
       variant: 'success',
+      icon: 'check',
       title: projectName ? `Joined "${projectName}"` : 'Joined project',
       body: projectName
         ? 'Welcome aboard — you now have access.'

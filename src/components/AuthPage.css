@@ -1,14 +1,14 @@
-.auth-page {
+﻿.auth-page {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 100vh;
-  background: #0f0f0f;
+  background: var(--bg-page);
 }
 
 .auth-card {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 2.5rem;
   width: 100%;
@@ -19,7 +19,7 @@
   font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: 0.1em;
-  color: #fff;
+  color: var(--text-primary);
   margin: 0 0 0.25rem;
   text-align: center;
 }
@@ -27,7 +27,7 @@
 .auth-subtitle {
   font-size: 1rem;
   font-weight: 400;
-  color: #888;
+  color: var(--text-muted);
   margin: 0 0 1.75rem;
   text-align: center;
 }
@@ -46,15 +46,15 @@
 
 .form-group label {
   font-size: 0.8rem;
-  color: #aaa;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .form-group input {
-  background: #111;
-  border: 1px solid #333;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   padding: 0.6rem 0.75rem;
   outline: none;
@@ -62,24 +62,24 @@
 }
 
 .form-group input:focus {
-  border-color: #555;
+  border-color: var(--border-strong);
 }
 
 .auth-error {
   font-size: 0.8rem;
-  color: #f87171;
+  color: var(--danger-soft);
   margin: 0;
 }
 
 .auth-message {
   font-size: 0.8rem;
-  color: #4ade80;
+  color: var(--success-soft);
   margin: 0;
 }
 
 .btn-primary {
-  background: #fff;
-  color: #0f0f0f;
+  background: var(--accent);
+  color: var(--text-on-accent);
   border: none;
   border-radius: 6px;
   font-size: 0.9rem;
@@ -104,7 +104,7 @@
   align-items: center;
   gap: 0.75rem;
   margin: 1.25rem 0;
-  color: #444;
+  color: var(--border-strong);
   font-size: 0.8rem;
 }
 
@@ -113,7 +113,7 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: #2a2a2a;
+  background: var(--border);
 }
 
 .btn-google {
@@ -121,10 +121,10 @@
   align-items: center;
   justify-content: center;
   gap: 0.6rem;
-  background: #1a1a1a;
-  border: 1px solid #333;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   font-weight: 500;
   padding: 0.65rem;
@@ -134,8 +134,8 @@
 }
 
 .btn-google:hover:not(:disabled) {
-  background: #222;
-  border-color: #555;
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
 }
 
 .btn-google:disabled {
@@ -146,14 +146,14 @@
 .auth-toggle {
   text-align: center;
   font-size: 0.8rem;
-  color: #666;
+  color: var(--text-muted);
   margin: 1.25rem 0 0;
 }
 
 .link-btn {
   background: none;
   border: none;
-  color: #aaa;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: inherit;
   padding: 0;
@@ -162,5 +162,5 @@
 }
 
 .link-btn:hover {
-  color: #fff;
+  color: var(--text-primary);
 }
