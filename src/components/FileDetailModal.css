@@ -1,0 +1,745 @@
+/* FileDetailModal — full-bleed split-pane modal for inspecting an
+   uploaded file. Left pane is the preview (FilePreview component);
+   right pane is metadata + actions.
+   Action buttons reuse .modal-btn / .modal-btn-cancel / .modal-btn-
+   confirm / .modal-btn-destructive from ConfirmModal.css — declared
+   transitively via the import at the top of the .jsx so this
+   stylesheet only owns what's specific to the surface. */
+
+.file-detail-backdrop {
+  position: fixed;
+  /* Pin the backdrop's left edge to the live sidebar width so the
+     modal centers over the *main content area* rather than the whole
+     viewport. AppShell publishes --sidebar-width on .app-shell (60px
+     collapsed, 220px on hover/locked/picker-open), so the modal
+     follows the sidebar as it expands and collapses. Transition the
+     `left` so the recenter is smooth instead of snapping. */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: var(--sidebar-width, 60px);
+  /* Same dim level + z-index slot as ReportProblemModal so the two
+     full-screen surfaces never visually compete. Below the sidebar
+     so the sidebar stays interactive while the modal is open. Above
+     SwitchProjectLoader (45), below NotificationCenter toasts (9999). */
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 48;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  overflow: hidden;
+  animation: file-detail-fade 140ms ease;
+  transition: left 220ms ease;
+}
+
+@keyframes file-detail-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.file-detail-card {
+  /* Smaller compact modal — the preview is now thumbnail-grade
+     (PDF first page / video thumb), so the old 1400×900 stage was
+     bigger than the content warranted. Keep a comfortable working
+     size but stop the modal from dominating the screen. */
+  width: 85%;
+  max-width: 880px;
+  height: 80%;
+  max-height: 600px;
+  background: #131313;
+  border: 1px solid #2a2a2a;
+  border-radius: 14px;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: file-detail-rise 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes file-detail-rise {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+/* Header — filename on the left, close button on the right.
+   Sticky-feeling via the bottom border that separates it from the
+   split-pane body below. */
+.file-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 14px 18px;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+}
+
+.file-detail-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.file-detail-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #aaa;
+  cursor: pointer;
+  transition: background 150ms, color 150ms, border-color 150ms;
+  flex-shrink: 0;
+}
+
+.file-detail-close:hover {
+  background: #1f1f1f;
+  color: #e0e0e0;
+  border-color: #333;
+}
+
+.file-detail-close:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Body — 50/50 split via flex. The `gap: 1px` plus the card's bg
+   color leaking through gives a 1px hairline divider without an
+   extra DOM node. Both panes scroll their own overflow so the modal
+   height never grows past 90vh. */
+.file-detail-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 1px;
+  background: #2a2a2a;  /* shows through the gap as the divider color */
+}
+
+.file-detail-pane {
+  flex: 1 1 50%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Preview pane — darker background so image / PDF letterboxing reads
+   as a deliberate frame. Internal padding gives breathing room from
+   the pane edges so big PDFs don't kiss the divider. */
+.file-detail-pane-preview {
+  background: #0a0a0a;
+  align-items: stretch;
+  justify-content: stretch;
+  overflow: hidden;
+}
+
+/* Metadata pane — same color as the card, scrollable so very long
+   descriptions or long uploader-info don't overflow. */
+.file-detail-pane-meta {
+  background: #131313;
+  padding: 18px 20px;
+  overflow-y: auto;
+  gap: 18px;
+}
+
+/* Section blocks within the meta pane — label above content with
+   consistent spacing. */
+.file-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.file-detail-section-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #888;
+}
+
+/* ── Description ──────────────────────────────────────────────────── */
+
+/* Idle view: pre-wrap so newlines in the description render. Click
+   anywhere to start editing — affordance signaled by border-color
+   change on hover. `.is-empty` muted-italic for "Add a description…". */
+.file-detail-description-view {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 12px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  color: #d0d0d0;
+  font-size: 0.875rem;
+  font-family: inherit;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+  transition: border-color 150ms, background 150ms;
+}
+
+.file-detail-description-view:hover {
+  border-color: #444;
+  background: #1d1d1d;
+}
+
+.file-detail-description-view.is-empty {
+  color: #666;
+  font-style: italic;
+}
+
+.file-detail-description-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.file-detail-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: #0f0f0f;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 0.875rem;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 100px;
+  outline: none;
+  transition: border-color 150ms;
+}
+
+.file-detail-textarea:focus {
+  border-color: #6366f1;
+}
+
+.file-detail-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.file-detail-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.file-detail-hint {
+  font-size: 0.7rem;
+  color: #666;
+  letter-spacing: 0.02em;
+}
+
+.file-detail-inline-error {
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  color: #f87171;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+}
+
+/* ── Details list ─────────────────────────────────────────────────── */
+
+.file-detail-dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.file-detail-dl-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 0.85rem;
+}
+
+.file-detail-dl dt {
+  flex: 0 0 70px;
+  color: #888;
+  font-weight: 500;
+}
+
+.file-detail-dl dd {
+  margin: 0;
+  color: #d0d0d0;
+  min-width: 0;
+  flex: 1;
+  word-break: break-word;
+}
+
+.file-detail-dl dd code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.78rem;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: #c4c4c4;
+}
+
+.file-detail-dl-row-uploader dd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-detail-uploader-name {
+  color: #e0e0e0;
+}
+
+.file-detail-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #1f1f1f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.file-detail-avatar-fallback {
+  background: #6366f1;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+/* ── Action buttons ──────────────────────────────────────────────── */
+
+.file-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.file-detail-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Nested delete-confirm modal ─────────────────────────────────── */
+
+/* Sits ABOVE the detail card to capture clicks; same fade + rise
+   animations so the second layer reads as part of the same surface
+   stack. Z-index relative to the detail card via local stacking
+   context — `position: absolute; inset: 0` confines it to the card
+   while a higher z than the panes makes it overlay them. */
+.file-detail-confirm-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 2;
+  animation: file-detail-fade 140ms ease;
+}
+
+.file-detail-confirm-card {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 20px;
+  width: 100%;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  animation: file-detail-rise 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.file-detail-confirm-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.file-detail-confirm-body {
+  margin: 0;
+  color: #aaa;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.file-detail-confirm-body strong {
+  color: #e0e0e0;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.file-detail-confirm-input {
+  width: 100%;
+  padding: 9px 12px;
+  background: #0f0f0f;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 0.875rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 150ms;
+}
+
+.file-detail-confirm-input:focus {
+  border-color: #f87171;  /* destructive accent on focus */
+}
+
+.file-detail-confirm-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.file-detail-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* ── FilePreview internal styles ─────────────────────────────────── */
+
+/* The sub-components in FilePreview.jsx render into a fixed pane; we
+   pin their containers to fill it and let the type-specific renderers
+   own their own scroll / object-fit behavior. */
+
+.file-preview-image,
+.file-preview-video,
+.file-preview-pdf,
+.file-preview-text,
+.file-preview-empty,
+.file-preview-loading {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Clickable preview wrapper — the entire preview pane is a button
+   that opens the full file in a new tab. Subtle scale-up on hover
+   plus a magnifier-style "Open" hint pinned in the corner make the
+   affordance discoverable without dominating the preview. */
+.file-preview-clickable {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: 0;
+  cursor: zoom-in;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+}
+
+.file-preview-clickable:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: -2px;
+}
+
+.file-preview-open-hint {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(15, 15, 15, 0.75);
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #d0d0d0;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 150ms, transform 150ms;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+
+.file-preview-clickable:hover .file-preview-open-hint,
+.file-preview-clickable:focus-visible .file-preview-open-hint {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* PDF first-page-only static preview — no controls, just a single
+   page centered in the pane. PDF uses no horizontal padding so the
+   page spans the full pane width (the pdf.js canvas is sized to the
+   page's actual aspect, so there's no embedded letterboxing to worry
+   about). Vertical padding is kept small to avoid kissing the pane
+   top/bottom. Video keeps the original framing padding so the
+   thumbnail reads as a deliberate frame against the dark pane. */
+.file-preview-pdf-static {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.file-preview-video-static {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+
+.file-preview-pdf-static img,
+.file-preview-video-static img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+}
+
+.file-preview-video-static img {
+  background: #000;
+}
+
+/* Generic "no thumbnail" placeholder used for video/PDF when the
+   pre-baked thumb is missing — large glyph centered in the pane. */
+.file-preview-glyph {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #666;
+}
+
+.file-preview-glyph svg {
+  width: 72px;
+  height: 72px;
+}
+
+.file-preview-glyph-label {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.file-preview-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.file-preview-video video {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  background: #000;
+}
+
+.file-preview-pdf {
+  flex-direction: column;
+  position: relative;
+  padding: 12px 12px 0;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.file-preview-pdf-canvas-wrap {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  min-height: 0;
+}
+
+.file-preview-pdf-canvas-wrap canvas {
+  /* The actual width/height is set inline by FilePreview based on the
+     fit calculation; this rule just normalizes display + frames the
+     page so it doesn't bleed to the pane edges. */
+  display: block;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  background: #fff;
+}
+
+.file-preview-pdf-controls {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 0 12px;
+  color: #c4c4c4;
+  font-size: 0.85rem;
+}
+
+.file-preview-pdf-controls button {
+  background: #1f1f1f;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #e0e0e0;
+  width: 32px;
+  height: 32px;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms;
+}
+
+.file-preview-pdf-controls button:hover:not(:disabled) {
+  background: #2a2a2a;
+  border-color: #444;
+}
+
+.file-preview-pdf-controls button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.file-preview-text {
+  align-items: stretch;
+  justify-content: stretch;
+  overflow: auto;
+}
+
+.file-preview-text-pre,
+.file-preview-text-markdown {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 18px 20px;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: #d0d0d0;
+  background: #0f0f0f;
+  overflow: auto;
+}
+
+.file-preview-text-pre {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.file-preview-text-markdown {
+  font-family: inherit;
+}
+
+.file-preview-text-markdown code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.82em;
+}
+
+.file-preview-text-markdown pre {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+
+.file-preview-empty {
+  flex-direction: column;
+  color: #888;
+  padding: 24px;
+  text-align: center;
+  gap: 6px;
+}
+
+.file-preview-empty-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #c4c4c4;
+}
+
+.file-preview-empty-reason {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #888;
+  word-break: break-word;
+  max-width: 480px;
+}
+
+.file-preview-empty-hint {
+  margin: 8px 0 0;
+  font-size: 0.825rem;
+  color: #999;
+}
+
+.file-preview-empty-hint strong {
+  color: #e0e0e0;
+}
+
+.file-preview-loading {
+  color: #888;
+  font-size: 0.9rem;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────── */
+
+/* Narrow viewport: stack panes vertically. Below this width the 50/50
+   split makes both panes uselessly cramped. Sizes use percentages of
+   the backdrop (not 100vw) because the backdrop's left edge is offset
+   by --sidebar-width — using viewport units here would overflow. */
+@media (max-width: 860px) {
+  .file-detail-card {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+  }
+  .file-detail-body {
+    flex-direction: column;
+  }
+  .file-detail-pane {
+    flex: 1 1 50%;
+  }
+  .file-detail-pane-preview {
+    flex: 1 1 45%;
+    min-height: 200px;
+  }
+}

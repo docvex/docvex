@@ -26,6 +26,7 @@ import {
   insertProjectFileRow,
   deleteStorageObject,
 } from './projectFiles';
+import { generateThumbnail, buildThumbnailPath } from './thumbnails';
 
 // MIME allowlist. Reject anything else client-side so the user gets an
 // immediate "Unsupported file type" instead of a confusing 4xx after the
@@ -127,7 +128,17 @@ export async function uploadProjectFile({
     return { data: null, error: signErr || new Error('Failed to obtain signed upload URL') };
   }
 
-  // 2. Stream the file to it.
+  // 2. Kick off thumbnail generation in PARALLEL with the main upload.
+  // Both run against local resources (canvas / pdf.js / a hidden <video>
+  // and an XHR), so they don't fight for bandwidth — by the time the
+  // main PUT finishes, the thumbnail Blob is usually ready too. If the
+  // generator yields null (unsupported MIME, decode failure, timeout)
+  // we just skip the thumbnail leg and leave thumbnail_path null; the
+  // FileCard falls back to a glyph in that case. Never throws — the
+  // generator catches its own errors and yields null.
+  const thumbnailPromise = generateThumbnail(file);
+
+  // 3. Stream the file to the signed URL.
   const putResult = await putFileWithProgress({
     url: target.signedUrl,
     file,
@@ -135,14 +146,47 @@ export async function uploadProjectFile({
     onProgress,
   });
   if (!putResult.ok) {
+    // Main PUT failed (network, abort, or 4xx). Discard the in-flight
+    // thumbnail too — there's no row to point at it, and uploading a
+    // thumbnail for a file that never landed would just leak storage.
     return { data: null, error: putResult.error };
   }
 
-  // 3. Insert the metadata row. If THIS fails the binary is now orphaned
-  // — fire-and-forget the delete so we don't leak storage. The user
+  // 4. Wait for the thumbnail (likely already done) and ship it.
+  // Failures at this step are non-fatal: the main file uploaded
+  // successfully, so we still want a metadata row — just without a
+  // thumbnail_path. The fallback glyph in the UI covers the gap.
+  let thumbnailPath = null;
+  const thumbnailBlob = await thumbnailPromise;
+  if (thumbnailBlob && !signal?.aborted) {
+    const tPath = buildThumbnailPath(projectId, fileId);
+    const { data: tTarget } = await createSignedUploadTarget(tPath);
+    if (tTarget?.signedUrl) {
+      // No progress callback for the thumbnail — it's a few tens of KB
+      // and the UI doesn't surface a separate progress bar for it. We
+      // still pass the abort signal so cancelling the parent upload
+      // also kills an in-flight thumbnail PUT.
+      const tResult = await putFileWithProgress({
+        url: tTarget.signedUrl,
+        // Wrap the Blob in a File so putFileWithProgress's `file.type`
+        // / `file.name` reads work uniformly with the main-upload path.
+        file: new File([thumbnailBlob], '_thumb.jpg', { type: 'image/jpeg' }),
+        signal,
+      });
+      if (tResult.ok) thumbnailPath = tPath;
+      // tResult.ok === false: thumbnail PUT failed; thumbnailPath stays
+      // null. Don't bubble — the main upload's success isn't conditional
+      // on the thumbnail.
+    }
+  }
+
+  // 5. Insert the metadata row. If THIS fails the binary is now orphaned
+  // — fire-and-forget the deletes so we don't leak storage. The user
   // already saw the upload "succeed" (bytes hit the server); surfacing
   // a second error here is correct: the file isn't queryable through
-  // the app's lists until a row exists.
+  // the app's lists until a row exists. Clean BOTH the main object and
+  // the thumbnail (if one was uploaded) — admin-only per RLS, silent
+  // failure for members; a sweeper / admin can mop those orphans up.
   const { data: row, error: insertErr } = await insertProjectFileRow({
     id: fileId,
     projectId,
@@ -150,12 +194,16 @@ export async function uploadProjectFile({
     mimeType: file.type || 'application/octet-stream',
     sizeBytes: file.size,
     storagePath,
+    thumbnailPath,
     uploadedBy,
   });
   if (insertErr) {
     deleteStorageObject(storagePath).catch(() => { /* swallowed — admin sweeper covers it */ });
+    if (thumbnailPath) {
+      deleteStorageObject(thumbnailPath).catch(() => { /* same */ });
+    }
     return { data: null, error: insertErr };
   }
 
-  return { data: { fileId, storagePath, row }, error: null };
+  return { data: { fileId, storagePath, thumbnailPath, row }, error: null };
 }

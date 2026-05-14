@@ -185,46 +185,47 @@ export function UploadsProvider({ children }) {
   // the concurrency cap. Re-invoked whenever an upload finishes so the
   // next pending one fills the freed slot.
   //
-  // CRITICAL: do NOT call runUpload from inside the setUploads updater.
-  // React StrictMode (dev) intentionally invokes state-updater callbacks
-  // TWICE to surface impurity — calling runUpload inside the callback
-  // would fly two XHRs per pending entry and create two project_files
-  // rows per dropped file (manifesting as duplicate cards in /files).
-  // Instead, compute the list of entries to start inside the updater,
-  // assign it to a closure variable, and dispatch runUpload AFTER the
-  // updater returns. The closure-variable assignment is idempotent
-  // (same `prev` → same `toStart` on both invocations), so the for
-  // loop runs once with the correct value.
+  // Side effects (calling runUpload, mutating startedRef / inFlightRef)
+  // live INSIDE the setUploads updater. They have to: setState only
+  // QUEUES the updater — running it is deferred to React's next render.
+  // Moving the dispatch outside (`let toStart; setUploads(...); for...`)
+  // means the for loop runs BEFORE the updater has been invoked, so
+  // toStart is still empty and nothing ever fires. Entries sit on
+  // 'pending' (rendered as "QUEUED") forever.
   //
-  // We also guard each pending entry against being scheduled twice by
-  // tracking already-dispatched ids in `startedRef`. Belt-and-suspenders:
-  // even if drainQueue gets called twice in overlapping render cycles
-  // before the 'uploading' status patch has been observed by the next
-  // updater, we won't re-start an entry that's already in flight.
+  // The trick is making the side effects idempotent so StrictMode dev's
+  // double-invocation of the updater doesn't double-fire uploads:
+  //
+  //   • `startedRef.has(id)` — each entry's runUpload fires at most
+  //     once per id. First invocation adds the id; second invocation
+  //     sees it in the Set and skips.
+  //   • `inFlightRef.current` (not prev.filter) — live in-flight count
+  //     INCLUDING entries we just kicked off inside this loop. The
+  //     first invocation's runUploads bump the ref synchronously; the
+  //     second invocation reads the bumped count and either breaks
+  //     early or doesn't loop at all.
+  //
+  // Result: StrictMode runs the updater twice, but runUpload is called
+  // exactly once per entry, and we never exceed MAX_CONCURRENT.
   const startedRef = useRef(new Set());
   const drainQueue = useCallback(() => {
-    let toStart = [];
     setUploads((prev) => {
-      const inFlight = prev.filter((u) => u.status === 'uploading').length;
-      const slots = MAX_CONCURRENT - inFlight;
-      if (slots <= 0) { toStart = []; return prev; }
-      const candidates = [];
+      const slots = MAX_CONCURRENT - inFlightRef.current;
+      if (slots <= 0) return prev;
+      let started = 0;
       for (const u of prev) {
-        if (candidates.length >= slots) break;
-        if (u.status === 'pending' && !startedRef.current.has(u.id)) {
-          candidates.push(u);
-        }
+        if (started >= slots) break;
+        if (u.status !== 'pending') continue;
+        if (startedRef.current.has(u.id)) continue;
+        startedRef.current.add(u.id);
+        runUpload(u).then(() => {
+          startedRef.current.delete(u.id);
+          drainQueue();
+        });
+        started += 1;
       }
-      toStart = candidates;
       return prev;
     });
-    for (const entry of toStart) {
-      startedRef.current.add(entry.id);
-      runUpload(entry).then(() => {
-        startedRef.current.delete(entry.id);
-        drainQueue();
-      });
-    }
   }, [runUpload]);
 
   // ── Public actions ──────────────────────────────────────────────────────

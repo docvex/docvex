@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
+import FileDetailModal from '../../components/FileDetailModal';
 import {
   listProjectFiles,
   createSignedDownloadUrl,
@@ -86,53 +87,54 @@ function formatDate(iso) {
   return then.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-// One file card. Images fetch a signed URL lazily on mount to render a
-// thumbnail; non-images render the MIME glyph. Click anywhere on the
-// card → open the file via a fresh signed URL in a new window/tab.
-function FileCard({ file }) {
+// One file card. Resolution order for the thumbnail visual:
+//   1. `thumbnail_path` (new in migration 004) — a sibling _thumb.jpg
+//      generated at upload time for images / PDFs / videos. Cheap to
+//      fetch (~50 KB), uniform 400×300, exists for any post-migration
+//      upload that wasn't text/* and didn't fail generation.
+//   2. For images uploaded BEFORE migration 004: fall back to fetching
+//      the full image and CSS-scaling it. Wasteful but functional —
+//      keeps legacy rows usable until they're re-uploaded.
+//   3. Everything else (PDF/video/text with no thumbnail_path; failed-
+//      generation rows): MIME-keyed stroke glyph in the gold accent.
+//
+// Click → `onOpen(file)` hands the row up to the page, which mounts
+// FileDetailModal. The previous behavior (open the signed URL directly
+// in a new tab) now lives inside the modal as the View button — same
+// semantics, just one click further away.
+function FileCard({ file, onOpen }) {
   const isImage = (file.mime_type || '').startsWith('image/');
-  const [thumbUrl, setThumbUrl] = useState(null);
-  const [opening, setOpening] = useState(false);
+  const hasThumbnail = Boolean(file.thumbnail_path);
+  // Fall back to fetching the source image only if no pre-baked thumb
+  // exists AND the file is an image — that covers legacy uploads.
+  const shouldFetchSourceAsThumb = isImage && !hasThumbnail;
 
-  // Lazy signed-URL fetch for image thumbnails. Cancellation flag so a
-  // fast project switch + remount doesn't write stale URLs into the
-  // new card's state.
+  const [thumbUrl, setThumbUrl] = useState(null);
+
+  // Lazy signed-URL fetch. Pick the thumbnail object when migration-004
+  // populated it; otherwise the source image as a legacy fallback.
+  // Cancellation flag so a fast project switch + remount doesn't write
+  // stale URLs into the new card's state.
   useEffect(() => {
-    if (!isImage) return;
+    const path = hasThumbnail ? file.thumbnail_path : (shouldFetchSourceAsThumb ? file.storage_path : null);
+    if (!path) return;
     let cancelled = false;
-    createSignedDownloadUrl(file.storage_path, 300).then(({ data, error }) => {
+    createSignedDownloadUrl(path, 300).then(({ data, error }) => {
       if (cancelled || error || !data?.signedUrl) return;
       setThumbUrl(data.signedUrl);
     });
     return () => { cancelled = true; };
-  }, [isImage, file.storage_path]);
-
-  // Fresh signed URL on click — the thumb URL is 5 min and might have
-  // expired by the time the user clicks, and a non-image card never
-  // fetched one to begin with. Either way, one extra round-trip is
-  // imperceptible.
-  const handleOpen = async () => {
-    if (opening) return;
-    setOpening(true);
-    const { data, error } = await createSignedDownloadUrl(file.storage_path, 300);
-    setOpening(false);
-    if (error || !data?.signedUrl) return;
-    // In Electron, window.open with http(s) URLs is allowed by main.js's
-    // app:open-external filter for clicked NavLinks. createSignedUrl
-    // returns an https:// URL, so this is fine in both Electron renderer
-    // and the web build.
-    window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
-  };
+  }, [hasThumbnail, shouldFetchSourceAsThumb, file.thumbnail_path, file.storage_path]);
 
   return (
     <button
       type="button"
       className="project-files-card"
-      onClick={handleOpen}
+      onClick={() => onOpen?.(file)}
       title={file.name}
     >
       <div className="project-files-thumb">
-        {isImage && thumbUrl ? (
+        {thumbUrl ? (
           <img src={thumbUrl} alt="" loading="lazy" />
         ) : (
           <span className="project-files-icon">{iconForMime(file.mime_type)}</span>
@@ -155,6 +157,12 @@ export default function ProjectFiles() {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // The currently-open file detail modal. Holds only the id of the
+  // selected file — the actual file row is re-resolved from `files`
+  // every render so realtime UPDATE / DELETE events automatically
+  // flow into the modal's prop (and a DELETE event reduces the prop
+  // to null, which the modal interprets as "auto-close").
+  const [openFileId, setOpenFileId] = useState(null);
 
   // Load + subscribe per project. Re-fires whenever the user switches
   // projects so the list reflects the new context. The cleanup runs
@@ -201,6 +209,18 @@ export default function ProjectFiles() {
     return () => { cancelled = true; unsubscribe(); };
   }, [projectId]);
 
+  // Auto-close the file detail modal when its file disappears from the
+  // list — covers realtime DELETE from another device, project switch
+  // (whole `files` array replaced), or our own delete that already
+  // called `onClose`. Without this the modal lingers with a null prop
+  // (renders null visually, but `openFileId` stays set, blocking the
+  // next reopen until the user navigates away).
+  useEffect(() => {
+    if (openFileId && !files.some((f) => f.id === openFileId)) {
+      setOpenFileId(null);
+    }
+  }, [openFileId, files]);
+
   // Initial skeleton while the SelectedProjectContext is still hydrating
   // — matches the prior placeholder's pattern.
   if (projLoading && !selectedProject) {
@@ -239,8 +259,31 @@ export default function ProjectFiles() {
         </div>
       ) : (
         <div className="project-files-grid">
-          {files.map((f) => <FileCard key={f.id} file={f} />)}
+          {files.map((f) => (
+            <FileCard key={f.id} file={f} onOpen={(file) => setOpenFileId(file.id)} />
+          ))}
         </div>
+      )}
+
+      {/* File detail modal. Re-resolving the file row from `files` on
+          every render is the realtime hook — when the page's existing
+          subscription updates `files` (someone edited a description,
+          someone deleted a row), the modal's `file` prop changes too.
+          A DELETE event reduces the prop to null, which the modal
+          interprets as "auto-close".
+          onDeleted fires synchronously when the user deletes a file
+          from inside the modal — drops it from local state immediately
+          so the UI updates without waiting for the Realtime echo
+          (the postgres_changes DELETE event is filtered out before
+          it reaches this client when REPLICA IDENTITY isn't FULL on
+          project_files; migration 006 fixes that for cross-device
+          updates, this callback fixes the local case unconditionally). */}
+      {openFileId && (
+        <FileDetailModal
+          file={files.find((f) => f.id === openFileId) || null}
+          onClose={() => setOpenFileId(null)}
+          onDeleted={(id) => setFiles((prev) => prev.filter((f) => f.id !== id))}
+        />
       )}
     </div>
   );

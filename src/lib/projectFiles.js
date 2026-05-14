@@ -24,6 +24,15 @@ const TABLE = 'project_files';
 
 // ── Metadata reads ────────────────────────────────────────────────────────
 
+// Column list used by both the list query and the insert's RETURNING
+// clause. Centralised so adding a column (e.g. thumbnail_path landed in
+// migration 004, description in migration 005) only requires one edit.
+// Strings are concatenated at definition time so this is constant-folded
+// by the bundler.
+const SELECT_COLUMNS =
+  'id, project_id, name, description, mime_type, size_bytes, storage_path, ' +
+  'thumbnail_path, uploaded_by, uploaded_at';
+
 // Newest-first list of files for a project. RLS gates by viewer+ via the
 // "viewers read project files" policy, so callers don't add a project-
 // membership filter themselves. The project_files_project_uploaded_idx
@@ -33,7 +42,7 @@ export async function listProjectFiles(projectId) {
   if (!projectId) return { data: [], error: new Error('Missing projectId') };
   const { data, error } = await supabase
     .from(TABLE)
-    .select('id, project_id, name, mime_type, size_bytes, storage_path, uploaded_by, uploaded_at')
+    .select(SELECT_COLUMNS)
     .eq('project_id', projectId)
     .order('uploaded_at', { ascending: false });
   return { data: data || [], error };
@@ -44,6 +53,10 @@ export async function listProjectFiles(projectId) {
 // — passing the wrong id would be rejected by the policy anyway, but
 // requiring it explicitly keeps the call-site honest. The same `id` is
 // already in the storage path's middle segment.
+//
+// `thumbnailPath` is optional — null/undefined means "no preview thumb"
+// (text files, generation failure, or pre-migration-004 uploads). The
+// renderer falls back to a MIME-keyed glyph in that case.
 export async function insertProjectFileRow({
   id,
   projectId,
@@ -51,6 +64,7 @@ export async function insertProjectFileRow({
   mimeType,
   sizeBytes,
   storagePath,
+  thumbnailPath = null,
   uploadedBy,
 }) {
   const row = {
@@ -60,12 +74,13 @@ export async function insertProjectFileRow({
     mime_type: mimeType,
     size_bytes: sizeBytes,
     storage_path: storagePath,
+    thumbnail_path: thumbnailPath,
     uploaded_by: uploadedBy,
   };
   const { data, error } = await supabase
     .from(TABLE)
     .insert(row)
-    .select('id, project_id, name, mime_type, size_bytes, storage_path, uploaded_by, uploaded_at')
+    .select(SELECT_COLUMNS)
     .single();
   return { data, error };
 }
@@ -141,4 +156,83 @@ export function subscribeForProject(projectId, onChange) {
   return () => {
     try { supabase.removeChannel(channel); } catch { /* non-fatal */ }
   };
+}
+
+// ── Description edit ─────────────────────────────────────────────────────
+
+// Patch ONLY the description column. We deliberately don't expose a
+// generic update helper — name / mime_type / storage_path should never
+// be reassigned post-upload, and the narrow surface here makes that a
+// compile-time fact for callers. Empty / whitespace-only strings are
+// normalised to NULL so "" and "  " don't read as "the user explicitly
+// set a blank description" in the UI.
+//
+// RLS (migration 005) gates the write to uploader-or-admin; the caller
+// doesn't need to add a where-clause for the auth check. The RPC will
+// return zero rows if the gate rejects, which surfaces as a "row not
+// found" error from .single() — the caller can display that to the
+// user without leaking who is or isn't authorized.
+export async function updateProjectFileDescription(id, description) {
+  if (!id) return { data: null, error: new Error('Missing id') };
+  const normalised = description?.trim() ? description.trim() : null;
+  const { data, error } = await supabase
+    .from(TABLE)
+    .update({ description: normalised })
+    .eq('id', id)
+    .select(SELECT_COLUMNS)
+    .single();
+  return { data, error };
+}
+
+// ── Full delete (binary + thumbnail + row) ──────────────────────────────
+
+// Deletes the binary(ies) FIRST, then the metadata row. Order matters:
+// the storage RLS policy's uploader-path EXISTS subquery (migration
+// 005) needs the project_files row to still exist to authorize the
+// uploader. Swapping the order would lock out non-admin uploaders from
+// deleting their own storage object (admin still works either way —
+// the admin path doesn't depend on the row).
+//
+// supabase.storage.remove([…]) silently no-ops on "object not found",
+// so calling with a thumbnail_path that's stale (orphaned object) is
+// safe. The row delete is the source of truth for "the file is gone";
+// any storage leftover is mopped up by the periodic admin sweeper /
+// dashboard cleanup.
+export async function deleteProjectFile({ id, storagePath, thumbnailPath }) {
+  if (!id || !storagePath) {
+    return { data: null, error: new Error('Missing id or storagePath') };
+  }
+  const paths = [storagePath];
+  if (thumbnailPath) paths.push(thumbnailPath);
+  const { error: storageErr } = await supabase.storage.from(BUCKET).remove(paths);
+  if (storageErr) {
+    // Storage delete failed (RLS rejection for unauthorized callers,
+    // network blip, etc.). Bubble — don't proceed to the row delete:
+    // a row-only delete would orphan the binary and the file would
+    // disappear from the UI but still exist in storage indefinitely.
+    return { data: null, error: storageErr };
+  }
+  const { error: rowErr } = await supabase
+    .from(TABLE)
+    .delete()
+    .eq('id', id);
+  if (rowErr) return { data: null, error: rowErr };
+  return { data: { id }, error: null };
+}
+
+// ── Uploader profile lookup ──────────────────────────────────────────────
+
+// Single-uuid wrapper around the existing get_member_profiles RPC
+// (defined at supabase/migrations/001_projects.sql:230-237; called
+// today from src/lib/projects.js:163-187 for the Members tab). Returns
+// one profile row or null — null means the user was deleted (FK was set
+// null on auth.users delete per migration 003) or the RPC returned no
+// match. The detail modal renders "Unknown" + an initial-letter avatar
+// in that case.
+export async function fetchUploaderProfile(userId) {
+  if (!userId) return { data: null, error: null };
+  const { data, error } = await supabase
+    .rpc('get_member_profiles', { p_user_ids: [userId] });
+  if (error) return { data: null, error };
+  return { data: data?.[0] || null, error: null };
 }
