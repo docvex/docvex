@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useReportProblem } from '../context/ReportProblemContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { sendSupportReport } from '../lib/support';
+import Tooltip from './Tooltip';
 // Reuse the shared .modal-btn / .modal-btn-cancel / .modal-btn-confirm
 // rules — same pattern InviteMemberModal / DeleteAccountModal use.
 import './ConfirmModal.css';
@@ -203,16 +204,17 @@ export default function ReportProblemModal() {
       >
         <header className="report-modal-header">
           <h2 id="report-modal-title" className="report-modal-title">Report a problem</h2>
-          <button
-            type="button"
-            className="report-modal-close"
-            onClick={close}
-            disabled={sending}
-            aria-label="Close"
-            title="Close"
-          >
-            {CloseIcon}
-          </button>
+          <Tooltip content="Close">
+            <button
+              type="button"
+              className="report-modal-close"
+              onClick={close}
+              disabled={sending}
+              aria-label="Close"
+            >
+              {CloseIcon}
+            </button>
+          </Tooltip>
         </header>
 
         <form className="report-modal-form" onSubmit={handleSubmit} noValidate>
@@ -252,27 +254,30 @@ export default function ReportProblemModal() {
               {/* Auto-captured screenshot — shown first so the user
                   notices it's there and can remove it before sending. */}
               {screenshot && (
-                <div className="report-modal-attachment is-screenshot" title="Screenshot of the page behind the modal">
-                  <img
-                    src={screenshot.dataUrl}
-                    alt="Captured screenshot"
-                    className="report-modal-thumb"
-                  />
-                  <div className="report-modal-attachment-meta">
-                    <span className="report-modal-attachment-name">screenshot.png</span>
-                    <span className="report-modal-attachment-size">{formatBytes(screenshot.blob?.size ?? 0)}</span>
+                <Tooltip content="Screenshot of the page behind the modal">
+                  <div className="report-modal-attachment is-screenshot">
+                    <img
+                      src={screenshot.dataUrl}
+                      alt="Captured screenshot"
+                      className="report-modal-thumb"
+                    />
+                    <div className="report-modal-attachment-meta">
+                      <span className="report-modal-attachment-name">screenshot.png</span>
+                      <span className="report-modal-attachment-size">{formatBytes(screenshot.blob?.size ?? 0)}</span>
+                    </div>
+                    <Tooltip content="Remove screenshot">
+                      <button
+                        type="button"
+                        className="report-modal-attachment-remove"
+                        onClick={removeScreenshot}
+                        disabled={sending}
+                        aria-label="Remove screenshot"
+                      >
+                        {TrashIcon}
+                      </button>
+                    </Tooltip>
                   </div>
-                  <button
-                    type="button"
-                    className="report-modal-attachment-remove"
-                    onClick={removeScreenshot}
-                    disabled={sending}
-                    aria-label="Remove screenshot"
-                    title="Remove screenshot"
-                  >
-                    {TrashIcon}
-                  </button>
-                </div>
+                </Tooltip>
               )}
 
               {/* User-uploaded files. Images render their thumbnail
@@ -282,49 +287,53 @@ export default function ReportProblemModal() {
                 const previewUrl = filePreviews.get(f);
                 const isVideo = f.type.startsWith('video/');
                 return (
-                  <div className="report-modal-attachment" key={`${f.name}:${f.size}:${f.lastModified}`} title={f.name}>
-                    {isVideo ? (
-                      <video
-                        src={previewUrl}
-                        className="report-modal-thumb"
-                        muted
-                        playsInline
-                        preload="metadata"
-                      />
-                    ) : (
-                      <img src={previewUrl} alt={f.name} className="report-modal-thumb" />
-                    )}
-                    <div className="report-modal-attachment-meta">
-                      <span className="report-modal-attachment-name">{f.name}</span>
-                      <span className="report-modal-attachment-size">{formatBytes(f.size)}</span>
+                  <Tooltip key={`${f.name}:${f.size}:${f.lastModified}`} content={f.name}>
+                    <div className="report-modal-attachment">
+                      {isVideo ? (
+                        <video
+                          src={previewUrl}
+                          className="report-modal-thumb"
+                          muted
+                          playsInline
+                          preload="metadata"
+                        />
+                      ) : (
+                        <img src={previewUrl} alt={f.name} className="report-modal-thumb" />
+                      )}
+                      <div className="report-modal-attachment-meta">
+                        <span className="report-modal-attachment-name">{f.name}</span>
+                        <span className="report-modal-attachment-size">{formatBytes(f.size)}</span>
+                      </div>
+                      <Tooltip content="Remove">
+                        <button
+                          type="button"
+                          className="report-modal-attachment-remove"
+                          onClick={() => removeExtra(f)}
+                          disabled={sending}
+                          aria-label={`Remove ${f.name}`}
+                        >
+                          {TrashIcon}
+                        </button>
+                      </Tooltip>
                     </div>
-                    <button
-                      type="button"
-                      className="report-modal-attachment-remove"
-                      onClick={() => removeExtra(f)}
-                      disabled={sending}
-                      aria-label={`Remove ${f.name}`}
-                      title="Remove"
-                    >
-                      {TrashIcon}
-                    </button>
-                  </div>
+                  </Tooltip>
                 );
               })}
 
               {/* "Add" tile — proxies a hidden file input. accept
                   restricts to images and videos but the user can still
                   override via "All files" in the picker if needed. */}
-              <button
-                type="button"
-                className="report-modal-attachment-add"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={sending}
-                title="Add image or video"
-              >
-                {PlusIcon}
-                <span className="report-modal-attachment-add-label">Add image or video</span>
-              </button>
+              <Tooltip content="Add image or video">
+                <button
+                  type="button"
+                  className="report-modal-attachment-add"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={sending}
+                >
+                  {PlusIcon}
+                  <span className="report-modal-attachment-add-label">Add image or video</span>
+                </button>
+              </Tooltip>
               <input
                 ref={fileInputRef}
                 type="file"

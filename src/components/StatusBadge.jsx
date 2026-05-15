@@ -1,5 +1,6 @@
 import React from 'react';
 import { getStatusOption } from '../lib/userStatus';
+import Tooltip from './Tooltip';
 import './StatusBadge.css';
 
 // Small colored dot rendered absolutely-positioned over the bottom-right
@@ -31,22 +32,24 @@ export default function StatusBadge({
 
   if (onClick) {
     return (
-      <button
-        type="button"
-        className={className}
-        style={style}
-        onClick={onClick}
-        aria-label={ariaLabel || `Status: ${option.label}. Click to change.`}
-        title={option.label}
-      />
+      <Tooltip content={option.label}>
+        <button
+          type="button"
+          className={className}
+          style={style}
+          onClick={onClick}
+          aria-label={ariaLabel || `Status: ${option.label}. Click to change.`}
+        />
+      </Tooltip>
     );
   }
   return (
-    <span
-      className={className}
-      style={style}
-      aria-label={ariaLabel || `Status: ${option.label}`}
-      title={option.label}
-    />
+    <Tooltip content={option.label}>
+      <span
+        className={className}
+        style={style}
+        aria-label={ariaLabel || `Status: ${option.label}`}
+      />
+    </Tooltip>
   );
 }

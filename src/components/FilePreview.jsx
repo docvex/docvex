@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getCachedPdf } from '../lib/pdfCache';
 import VideoFrameSlideshow from './VideoFrameSlideshow';
+import Tooltip from './Tooltip';
 
 // Preview renderer for the FileDetailModal's left pane.
 // Dispatches by MIME to one of:
@@ -53,19 +54,20 @@ const VideoGlyph = (
 // keyboard focus so it doesn't clutter the preview itself.
 function ClickablePreview({ onOpen, children, ariaLabel }) {
   return (
-    <button
-      type="button"
-      className="file-preview-clickable"
-      onClick={onOpen}
-      aria-label={ariaLabel}
-      title="Click to open"
-    >
-      {children}
-      <span className="file-preview-open-hint">
-        {OpenIcon}
-        <span>Open</span>
-      </span>
-    </button>
+    <Tooltip content="Click to open">
+      <button
+        type="button"
+        className="file-preview-clickable"
+        onClick={onOpen}
+        aria-label={ariaLabel}
+      >
+        {children}
+        <span className="file-preview-open-hint">
+          {OpenIcon}
+          <span>Open</span>
+        </span>
+      </button>
+    </Tooltip>
   );
 }
 

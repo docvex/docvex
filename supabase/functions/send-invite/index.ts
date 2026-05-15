@@ -15,6 +15,7 @@
 // Body returns: { ok: true, invitation_id }.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { inviteEmail } from "../_shared/emailTemplates.ts";
 
 // Inlined CORS helpers — kept identical across send-invite / accept-invite /
 // revoke-invite. Access-Control-Allow-Origin is "*" because Electron's
@@ -67,25 +68,24 @@ Deno.serve(async (req: Request) => {
   if (pre) return pre;
   if (req.method !== "POST") return jsonResponse({ error: "method_not_allowed" }, 405);
 
-  let body: { project_id?: string; email?: string; role?: string; custom_role_id?: string | null };
+  let body: { project_id?: string; email?: string; role?: string; custom_role_id?: string | null; debug?: boolean };
   try {
     body = await req.json();
   } catch {
     return jsonResponse({ error: "invalid_json" }, 400);
   }
 
-  const project_id = body.project_id?.trim();
-  const email = body.email?.toLowerCase().trim();
-  const role = body.role?.toLowerCase().trim() ?? "member";
-  // custom_role_id is optional — when present, the invitation persists it
-  // and accept_invitation() copies it onto the new project_members row.
-  const custom_role_id = body.custom_role_id?.trim() || null;
-
-  if (!project_id) return jsonResponse({ error: "missing_project_id" }, 400);
-  if (!email || !EMAIL_RE.test(email)) return jsonResponse({ error: "invalid_email" }, 400);
-  if (!VALID_ROLES.has(role)) return jsonResponse({ error: "invalid_role" }, 400);
+  // Debug mode = "send a preview of this template to my own inbox so I
+  // can see how it'll look". Bypasses the capability check, the DB
+  // upsert, and the recipient parameter — the email always goes to the
+  // signed-in user, with a placeholder project name and a fake token.
+  // The auth check still runs (we read the JWT below) so this isn't
+  // an open spam relay.
+  const isDebug = body.debug === true;
 
   // Caller-context client for the capability check (RLS sees auth.uid()).
+  // Resolved BEFORE the input validation in debug mode so we can short-
+  // circuit straight to the email send with the caller's own address.
   const authHeader = req.headers.get("Authorization") ?? "";
   const callerClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: { headers: { Authorization: authHeader } },
@@ -94,16 +94,31 @@ Deno.serve(async (req: Request) => {
   const { data: { user }, error: userErr } = await callerClient.auth.getUser();
   if (userErr || !user) return jsonResponse({ error: "unauthenticated" }, 401);
 
-  // Capability-aware check (migration 008): a base-Member custom role with
-  // members.invite granted ALSO passes. Falls back to admin tier for
-  // ordinary admins/owners. has_capability returns false for non-members
-  // of the project, so this also handles "unauthenticated for this project".
-  const { data: canInvite, error: capErr } = await callerClient.rpc("has_capability", {
-    p_project_id: project_id,
-    p_capability: "members.invite",
-  });
-  if (capErr) return jsonResponse({ error: "role_check_failed", detail: capErr.message }, 500);
-  if (!canInvite) return jsonResponse({ error: "forbidden" }, 403);
+  const project_id = body.project_id?.trim();
+  const email = isDebug
+    ? (user.email ?? "")
+    : (body.email?.toLowerCase().trim() ?? "");
+  const role = body.role?.toLowerCase().trim() ?? "member";
+  // custom_role_id is optional — when present, the invitation persists it
+  // and accept_invitation() copies it onto the new project_members row.
+  const custom_role_id = body.custom_role_id?.trim() || null;
+
+  if (!isDebug) {
+    if (!project_id) return jsonResponse({ error: "missing_project_id" }, 400);
+    if (!email || !EMAIL_RE.test(email)) return jsonResponse({ error: "invalid_email" }, 400);
+    if (!VALID_ROLES.has(role)) return jsonResponse({ error: "invalid_role" }, 400);
+
+    // Capability-aware check (migration 008): a base-Member custom role with
+    // members.invite granted ALSO passes. Falls back to admin tier for
+    // ordinary admins/owners. has_capability returns false for non-members
+    // of the project, so this also handles "unauthenticated for this project".
+    const { data: canInvite, error: capErr } = await callerClient.rpc("has_capability", {
+      p_project_id: project_id,
+      p_capability: "members.invite",
+    });
+    if (capErr) return jsonResponse({ error: "role_check_failed", detail: capErr.message }, 500);
+    if (!canInvite) return jsonResponse({ error: "forbidden" }, 403);
+  }
 
   // Service-role client for the upsert (bypasses RLS so we can read the
   // existing row's token even if the partial-unique conflict path doesn't
@@ -112,54 +127,63 @@ Deno.serve(async (req: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // First look up an existing pending invitation for (project, lower(email)).
-  // If found, reuse it. Otherwise insert fresh.
-  const { data: existing, error: existErr } = await admin
-    .from("project_invitations")
-    .select("id, token, role, custom_role_id, expires_at, accepted_at")
-    .eq("project_id", project_id)
-    .ilike("email", email)
-    .is("accepted_at", null)
-    .maybeSingle();
-  if (existErr) return jsonResponse({ error: "lookup_failed", detail: existErr.message }, 500);
-
-  let invitation_id: string;
+  let invitation_id: string | null = null;
   let token: string;
   let inviteRole: string = role;
+  let projectName: string;
 
-  if (existing) {
-    invitation_id = existing.id;
-    token = existing.token;
-    inviteRole = existing.role;
-    // If the admin tried to invite at a different role/custom_role_id,
-    // update it in place. We compare BOTH so re-inviting the same email
-    // at a different custom role replaces the assignment correctly.
-    if (existing.role !== role || (existing.custom_role_id ?? null) !== custom_role_id) {
-      await admin
-        .from("project_invitations")
-        .update({ role, custom_role_id })
-        .eq("id", existing.id);
-      inviteRole = role;
-    }
+  if (isDebug) {
+    // Debug preview: no DB upsert, no project lookup. Use placeholder
+    // values for the template so the rendered email shows what a real
+    // one would look like.
+    invitation_id = null;
+    token = "DEBUG-PREVIEW-TOKEN";
+    projectName = "Sample project";
+    inviteRole = "member";
   } else {
-    const { data: inserted, error: insErr } = await admin
+    // First look up an existing pending invitation for (project, lower(email)).
+    // If found, reuse it. Otherwise insert fresh.
+    const { data: existing, error: existErr } = await admin
       .from("project_invitations")
-      .insert({ project_id, email, role, custom_role_id, invited_by: user.id })
-      .select("id, token")
-      .single();
-    if (insErr || !inserted) {
-      return jsonResponse({ error: "insert_failed", detail: insErr?.message }, 500);
+      .select("id, token, role, custom_role_id, expires_at, accepted_at")
+      .eq("project_id", project_id)
+      .ilike("email", email)
+      .is("accepted_at", null)
+      .maybeSingle();
+    if (existErr) return jsonResponse({ error: "lookup_failed", detail: existErr.message }, 500);
+
+    if (existing) {
+      invitation_id = existing.id;
+      token = existing.token;
+      inviteRole = existing.role;
+      // If the admin tried to invite at a different role/custom_role_id,
+      // update it in place. We compare BOTH so re-inviting the same email
+      // at a different custom role replaces the assignment correctly.
+      if (existing.role !== role || (existing.custom_role_id ?? null) !== custom_role_id) {
+        await admin
+          .from("project_invitations")
+          .update({ role, custom_role_id })
+          .eq("id", existing.id);
+        inviteRole = role;
+      }
+    } else {
+      const { data: inserted, error: insErr } = await admin
+        .from("project_invitations")
+        .insert({ project_id, email, role, custom_role_id, invited_by: user.id })
+        .select("id, token")
+        .single();
+      if (insErr || !inserted) {
+        return jsonResponse({ error: "insert_failed", detail: insErr?.message }, 500);
+      }
+      invitation_id = inserted.id;
+      token = inserted.token;
     }
-    invitation_id = inserted.id;
-    token = inserted.token;
+
+    const projectQ = await admin.from("projects").select("name").eq("id", project_id).single();
+    projectName = projectQ.data?.name ?? "a project";
   }
 
-  // Need the project name + inviter's display name for the email body.
-  const [projectQ, inviterEmail] = await Promise.all([
-    admin.from("projects").select("name").eq("id", project_id).single(),
-    Promise.resolve(user.email ?? "a teammate"),
-  ]);
-  const projectName = projectQ.data?.name ?? "a project";
+  const inviterEmail = user.email ?? "a teammate";
   const inviterName =
     (user.user_metadata as Record<string, unknown> | null)?.full_name as string
     ?? (user.user_metadata as Record<string, unknown> | null)?.name as string
@@ -172,32 +196,16 @@ Deno.serve(async (req: Request) => {
   // handoff) AND web users (graceful fallback) without the email
   // needing two CTAs.
   const bouncerLink = `${INVITE_BOUNCER_URL}?token=${token}`;
-  const subject = `${inviterName} invited you to ${projectName}`;
-  const text =
-    `${inviterName} (${inviterEmail}) invited you to join "${projectName}" on Docvex as a ${inviteRole}.\n\n` +
-    `Accept the invitation:\n${bouncerLink}\n\n` +
-    `The link opens the Docvex desktop app if you have it installed, or the web app otherwise.\n\n` +
-    `Don't have Docvex installed yet? Get it from https://docvex.ro\n\n` +
-    `This invitation expires in 7 days.`;
-  const html =
-    `<p><strong>${inviterName}</strong> (${inviterEmail}) invited you to join ` +
-    `<strong>${projectName}</strong> on Docvex as a <code>${inviteRole}</code>.</p>` +
-    `<p style="margin:24px 0">` +
-      `<a href="${bouncerLink}" ` +
-        `style="display:inline-block;background:#6366f1;color:#fff;padding:10px 20px;` +
-        `border-radius:6px;text-decoration:none;font-weight:500;font-family:Arial,sans-serif">` +
-        `Accept invitation` +
-      `</a>` +
-    `</p>` +
-    `<p style="color:#666;font-size:0.85em">` +
-      `If the button above doesn't work, open ` +
-      `<a href="${bouncerLink}">${bouncerLink}</a> ` +
-      `in your browser — it'll open the desktop app if you have it installed, or the web app otherwise.` +
-    `</p>` +
-    `<p style="color:#888;font-size:0.8em;margin-top:24px;padding-top:16px;border-top:1px solid #eee">` +
-      `Don't have Docvex yet? <a href="https://docvex.ro">Download for Windows</a>. ` +
-      `This invitation expires in 7 days.` +
-    `</p>`;
+
+  // Build subject/html/text from the shared brand-styled template so
+  // every email the user sees from Docvex shares the same chrome.
+  const { subject, html, text } = inviteEmail({
+    inviterName,
+    inviterEmail,
+    projectName,
+    inviteRole,
+    bouncerLink,
+  });
 
   // Email-send result is reported back to the renderer alongside `ok: true`
   // so the admin sees WHY a real email didn't arrive even though the row

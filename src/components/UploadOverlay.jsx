@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { useUploads } from '../context/UploadsContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
+import Tooltip from './Tooltip';
 import './UploadOverlay.css';
 
 // Visual layer for the file-upload feature. ALL state lives in
@@ -67,7 +68,9 @@ function UploadRow({ upload }) {
   return (
     <li className={`upload-row is-${status}`}>
       <div className="upload-row-line1">
-        <span className="upload-row-name" title={file.name}>{file.name}</span>
+        <Tooltip content={file.name}>
+          <span className="upload-row-name">{file.name}</span>
+        </Tooltip>
         <span className="upload-row-status">
           {status === 'uploading' && `${pct}%`}
           {status === 'pending'   && 'Queued'}
@@ -149,15 +152,16 @@ export default function UploadOverlay() {
                 : 'Uploads'}
             </span>
             {uploadingCount > 0 && (
-              <button
-                type="button"
-                className="upload-progress-cancel"
-                onClick={cancelAllUploads}
-                title="Cancel all uploads (Esc)"
-              >
-                {CancelIcon}
-                <span>Cancel</span>
-              </button>
+              <Tooltip content="Cancel all uploads (Esc)">
+                <button
+                  type="button"
+                  className="upload-progress-cancel"
+                  onClick={cancelAllUploads}
+                >
+                  {CancelIcon}
+                  <span>Cancel</span>
+                </button>
+              </Tooltip>
             )}
           </header>
           {uploadingCount > 0 && (

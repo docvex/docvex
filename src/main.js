@@ -133,6 +133,18 @@ function buildAppMenu() {
             }
           },
         },
+        {
+          // Fires every transactional email template (welcome, invite,
+          // support-report) addressed to the signed-in user's own email
+          // so devs can verify each layout end-to-end without
+          // orchestrating a real signup / invite / bug-report.
+          label: 'Send all email previews to me',
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('debug:send-email-previews');
+            }
+          },
+        },
       ],
     },
   ];

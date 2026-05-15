@@ -45,23 +45,19 @@
   min-width: 220px;
 }
 
-/* When the picker panel is open, fade the sidebar's right divider into
-   the panel's background color (#332B1F) so the two surfaces appear to
-   merge with no visible seam between them. Using border-color (not
-   border-width: 0) avoids a 1px layout shift â€” the global box-sizing is
-   border-box, so dropping the border width would grow the content area
-   and nudge every nav row 1px to the right. */
+/* When the picker panel is open, drop the sidebar's right divider entirely
+   so the panel sits flush against the sidebar's content edge. The .is-current
+   row in the panel paints a 3px cognac left-edge stripe; with the divider
+   still in place we'd see a 1px sliver of panel bg (the divider was color-
+   matched to the panel) between the sidebar's content and the stripe.
+   Zeroing the border instead makes the stripe land directly on the sidebar's
+   trailing edge.
+
+   Side-effect of removing the 1px border (global box-sizing is border-box):
+   the sidebar's content area grows by 1px, so nav-item backgrounds extend
+   1px further right. Negligible visually, and only while the picker is open. */
 .sidebar.picker-open {
-  /* Color-match the 1px right border to the panel's bg (var(--accent-hover)) so the
-     seam between sidebar and panel disappears WITHOUT zeroing the border
-     width â€” zeroing reclaims 1px of content area inside the sidebar
-     (box-sizing: border-box) which makes every nav-item's background
-     grow 1px wider, reading as a visible right-shift of all nav buttons
-     when the picker opens. Keeping the width constant and just blending
-     the color keeps geometry stable. Border-color animates via the
-     transition declared on .sidebar above, so the open/close beat is
-     still smooth. */
-  border-right-color: var(--accent-hover);
+  border-right-width: 0;
 }
 
 /* Labels stay visible while the picker is open (mirrors the .locked rule)
@@ -129,6 +125,34 @@
   min-width: 0;
 }
 
+/* The brand-left is now a NavLink (renders as <a>) pointing at /updates.
+   Suppress the browser's default anchor styling so the brand row reads
+   identically to the old <div> version, then layer hover/active states
+   on top. Cursor:pointer is inherited from <a>; we just disable the
+   underline and inherit color from the children (.brand-name and
+   .brand-version own their own colors). */
+.brand-link {
+  text-decoration: none;
+  color: inherit;
+  /* Tiny padding so the click target extends slightly beyond the visual
+     text — feels more forgiving without changing the layout (negative
+     margin compensates so .sidebar-brand's overall geometry is unchanged). */
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border-radius: 8px;
+  transition: background 150ms;
+}
+
+.brand-link:hover {
+  background: var(--bg-elevated);
+}
+
+/* When the user is on /updates, give the brand row the same subtle wash
+   the active nav-items use so it reads as the active surface. */
+.brand-link.is-active {
+  background: var(--bg-elevated);
+}
+
 .brand-icon {
   /* The PNG carries its own colors; the color rule below is left as a
      fallback for any inline-SVG mark we might swap back to. */
@@ -136,17 +160,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* Override the 24px width inherited from .icon so the larger brand
+     mark below isn't clipped to the nav-icon column. The brand-row
+     uses its own .brand-left flex container (gap: 12px) so the icon
+     column width doesn't need to match the nav rows here. */
+  width: 36px;
 }
 
 .brand-icon-img {
-  /* 24px in every sidebar state â€” matches the .nav-item .icon column
-     width below (left 18px â†’ right 42px from the sidebar's outer edge),
-     so the logo's left and right edges align vertically with every nav
-     icon. The previous 36px overran the nav-icon column by 12px on the
-     right, which read as the logo "floating" against an offset column
-     in the collapsed sidebar. Locked at one size so it doesn't dance on
-     every hover/lock toggle. */
-  width: 24px;
+  /* 36px brand mark — intentionally larger than the 24px nav icons so
+     the logo carries more visual weight as the identity element of the
+     sidebar. Locked at one size so it doesn't dance on every hover/lock
+     toggle. */
+  width: 36px;
   aspect-ratio: 1/1;
   /* `contain` so the image isn't cropped if it has padding or non-square
      subject; the brand mark stays centered in the sidebar's icon slot. */
@@ -170,14 +196,14 @@
   color: var(--text-primary);
 }
 
-/* Version is a NavLink to /updates â€” muted by default, lights up on hover.
-   Inherits .label's pointer-events: none in the collapsed state, so it only
-   becomes clickable once the sidebar is expanded. */
+/* Version pill — now a plain <span> child of the outer .brand-link <a>.
+   Muted by default; the parent link's hover state lights it up via the
+   selector below. Sits inside .label so it still fades out with the rest
+   of the text when the sidebar is collapsed. */
 .brand-version {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  text-decoration: none;
   font-size: 0.72rem;
   font-weight: 500;
   letter-spacing: 0.04em;
@@ -186,12 +212,7 @@
   width: fit-content;
 }
 
-.sidebar:hover .brand-version,
-.sidebar.locked .brand-version {
-  pointer-events: auto;
-}
-
-.brand-version:hover .brand-version-num {
+.brand-link:hover .brand-version-num {
   color: var(--text-primary);
 }
 
@@ -262,16 +283,83 @@
   color: color-mix(in srgb, var(--accent), black 18%);
 }
 
-/* Nav list */
+/* Nav list — scrolls vertically when its content (Personal section +
+   Projects section + the usage card + every per-project nav item) is
+   taller than the available flex slot between the brand row and the
+   footer. `min-height: 0` is required for an `overflow:auto` flex
+   child to actually constrain its height instead of growing to fit
+   content (default flex children have `min-height: auto`).
+
+   Scrollbar styling matches the global app scrollbar from index.css
+   (8px wide, themed thumb with 4px radius, no buttons) so the sidebar
+   rail reads as the same affordance as the project list / file list
+   scrollbars on the main content side.
+
+   `direction: rtl` on the nav itself flips the scrollbar to the LEFT
+   edge (the inner items get `direction: ltr` to restore normal LTR
+   layout for their content). This puts the rail against the sidebar's
+   trailing-content edge facing the main content area, mirroring where
+   the eye expects the divider between sidebar and page to be. */
 .sidebar-nav {
   list-style: none;
   margin: 0;
   padding: 8px 0;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  direction: rtl;
+  /* Firefox: thin native rail, themed thumb via the global token. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* Chromium / WebKit scrollbar — 8px wide rail with a translucent
+   themed thumb. The thumb uses `color-mix` to derive a more transparent
+   variant of the global `--scrollbar-thumb` token (~45% of its alpha)
+   so the sidebar rail reads as a softer affordance than the main
+   content scrollbar, since it sits closer to the eye in a narrow
+   column. No arrows: explicitly zero the height/width AND `display:
+   none` on every button pseudo (`:start`, `:end`, `:single-button`,
+   `:double-button`, etc.) so platform-default arrows from any
+   combination of pseudo-state never sneak back in. */
+.sidebar-nav::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sidebar-nav::-webkit-scrollbar-track,
+.sidebar-nav::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--scrollbar-thumb) 45%, transparent);
+  border-radius: 4px;
+}
+
+/* Zero out every arrow-button variant. Some platforms paint the top
+   and bottom buttons even with `display: none` on the base selector,
+   so we belt-and-braces with explicit pseudo-element targeting plus a
+   0×0 box size as a safety net. */
+.sidebar-nav::-webkit-scrollbar-button,
+.sidebar-nav::-webkit-scrollbar-button:start,
+.sidebar-nav::-webkit-scrollbar-button:end,
+.sidebar-nav::-webkit-scrollbar-button:vertical:start,
+.sidebar-nav::-webkit-scrollbar-button:vertical:end,
+.sidebar-nav::-webkit-scrollbar-button:single-button,
+.sidebar-nav::-webkit-scrollbar-button:double-button {
+  display: none;
+  height: 0;
+  width: 0;
 }
 
 .sidebar-nav > li {
   padding: 2px 8px;
+  /* Restore LTR layout for each item — the parent .sidebar-nav uses
+     `direction: rtl` to flip the scrollbar to the left edge, but
+     individual items (icons left of labels, etc.) should still read
+     LTR. */
+  direction: ltr;
 }
 
 /* Section headers (Personal / Projects). Visible only when the sidebar is
@@ -424,12 +512,33 @@
 }
 
 /* "Report a problem" â€” sits BELOW the Account row in the footer.
-   Inherits .nav-item visuals; the only customization is the small
-   top margin so it visually separates from the Account button
-   directly above. While capturing, the button is disabled (greyed
-   via the :disabled pseudo on .nav-item â€” set up below). */
+   Intentionally low-key: the button is a fallback affordance, not a
+   primary action, so we strip back the .nav-item visual weight.
+   No icon, smaller font, lowercase label, lighter font-weight, muted
+   color, and tighter vertical padding so it reads as supporting text
+   rather than another tab. The base .nav-item rule sets `padding: 9px
+   10px`; we override the vertical padding here. While capturing, the
+   button is disabled (greyed via the :disabled pseudo on .nav-item). */
 .report-problem-btn {
-  margin-top: 4px;
+  margin-top: 2px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  text-transform: lowercase;
+  letter-spacing: 0.01em;
+  /* No icon child anymore, so center the label horizontally inside the
+     button's full width instead of leaving it flush-left from the
+     inherited .nav-item flex layout. */
+  justify-content: center;
+}
+
+.report-problem-btn:hover {
+  /* Brighten on hover so the user can confirm the click target without
+     letting the idle state shout for attention. Still softer than the
+     full .nav-item:hover treatment (which uses var(--text-primary)). */
+  color: var(--text-secondary);
 }
 
 .nav-item:disabled,
@@ -844,6 +953,207 @@
   line-height: 1;
 }
 
+/* Project memory + AI usage card — sits directly under the project
+   picker trigger. Two states driven by `.is-expanded` on both the <li>
+   and the inner toggle button:
+
+     - Minimized (default): the two progress bars (memory + AI) stack
+       tightly on top of each other with a 2px gap and no labels — reads
+       as a compact "health strip" that takes minimal vertical room.
+     - Maximized: each bar gets a labeled row above it ("Project memory"
+       + "62%" etc.), the bars themselves get a bit more breathing room,
+       and a "Configure" button slides in below linking to /projects.
+
+   Clicking the toggle button flips the state. The Configure button has
+   stopPropagation in JS so a click on it doesn't also collapse the card.
+
+   The label rows carry the global .label class so they fade with the
+   sidebar's collapse animation; the bars themselves don't fade, so even
+   a fully-collapsed sidebar still surfaces the health strip. */
+.project-usage-li {
+  /* Override .sidebar-nav > li's 2px 8px so we can paint the row edge
+     to edge with the trigger above (which has its own 8px-padding li). */
+  padding: 0 8px;
+  margin-top: 6px;
+  margin-bottom: 4px;
+}
+
+.project-usage {
+  display: flex;
+  flex-direction: column;
+  /* Minimized: tight 2px gap stacks the two bars on top of each other.
+     Maximized: bumped to 10px via .is-expanded below so each labeled row
+     has its own breathing room. */
+  gap: 2px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 7px;
+  color: var(--text-muted);
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  text-align: left;
+  /* gap + padding animate so the minimize/maximize transition reads as
+     a smooth expand rather than a hard step. */
+  transition:
+    background 150ms,
+    color 150ms,
+    gap 220ms ease,
+    padding 220ms ease;
+}
+
+.project-usage.is-expanded {
+  gap: 10px;
+  padding: 8px 10px 10px;
+}
+
+.project-usage:hover {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+
+/* Each "section" wraps one bar + its label row. flex-column so the
+   label sits directly above the bar. The label-row is always rendered
+   (so its max-height/opacity can animate the show/hide) — `gap: 0` in
+   the minimized state keeps the collapsed label from leaving a 4px
+   empty slot above the bar; `.is-expanded` opens the gap to 5px so
+   the visible label has breathing room above the bar. The gap
+   transition matches the label-row's max-height duration so the open
+   beats land in sync. */
+.project-usage-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  transition: gap 220ms ease;
+}
+
+.project-usage.is-expanded .project-usage-section {
+  gap: 5px;
+}
+
+/* Label line above each bar — title on the left, percentage on the
+   right. Always rendered so the minimize/maximize toggle can animate
+   the open/close; collapse + reveal is driven by `max-height` +
+   `opacity` transitions so both directions feel smooth.
+
+   Specificity note: the `.label` class is shared with the rest of the
+   sidebar and is targeted by `.sidebar .label { transition: opacity
+   120ms ease; }` (specificity 0,2,0). A bare `.project-usage-label-row`
+   (0,1,0) would lose the specificity battle on the `transition`
+   shorthand — the shorthand resets every transition-* property, so
+   the `.sidebar .label` rule would wipe our max-height transition and
+   the label collapse would snap instead of animate. Scoping under
+   `.project-usage` bumps us to (0,2,0) and the later source order
+   makes us the winner. */
+.project-usage .project-usage-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  /* Minimized: zero out the slot so the bars sit flush.
+     overflow:hidden clips the text while it's height 0 (otherwise
+     letters with descenders would leak below the collapsed line).
+     The opacity transition lasts slightly shorter than max-height so
+     text fades out fully before the row finishes collapsing — avoids
+     a brief "squashed text" frame. */
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition:
+    max-height 220ms ease,
+    opacity 160ms ease;
+}
+
+/* Collapsed sidebar — keep the labels hidden regardless of card state.
+   The .label class would normally handle this for us, but we dropped it
+   from the label-row spans to escape the `.sidebar .label` transition
+   conflict (see Sidebar.jsx note); this rule re-implements the
+   collapsed-sidebar hide locally. Specificity (0,5,0 with the four
+   :not()s) easily beats `.project-usage.is-expanded .project-usage-label-row`
+   so it wins even when the card is expanded. */
+.sidebar:not(:hover):not(.locked):not(.picker-open) .project-usage-label-row {
+  max-height: 0;
+  opacity: 0;
+}
+
+.project-usage.is-expanded .project-usage-label-row {
+  /* 1rem of room for the 0.7rem text with a little headroom for the
+     line's gap above the bar (.project-usage-section's column gap). */
+  max-height: 1rem;
+  opacity: 1;
+}
+
+.project-usage-label {
+  /* Preserve the source-case "Project Memory" / "AI Usage" — no
+     text-transform here so the labels render exactly as written. */
+  color: var(--text-muted);
+}
+
+.project-usage-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.project-usage:hover .project-usage-value {
+  color: var(--text-primary);
+}
+
+/* Track — pill-rounded, muted background. Height grows between the
+   minimized state (6px) and the expanded state (10px) so the bars
+   feel "bigger" when the user opens the card. The `height` transition
+   matches the duration of the .project-usage `gap`/`padding` morph
+   (220ms ease) so the whole card resizes in lock-step rather than the
+   bars finishing first and pulling the eye. */
+.project-usage-bar {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  overflow: hidden;
+  transition: height 220ms ease;
+}
+
+.project-usage.is-expanded .project-usage-bar {
+  height: 10px;
+}
+
+/* Fill — width is set inline from the JSX (percent). The memory bar
+   uses a baby-blue fill; the AI bar uses pink (see the
+   `.project-usage-bar-fill-ai` variant below). Width transitions
+   smoothly on data changes (future: live updates). */
+.project-usage-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  /* Baby blue — Tailwind sky-300 ish. Reads bright on the dark Ink
+     surface AND pops against the Cream sidebar's near-white bg without
+     being garish. Pinned (not theme-adaptive) so the categorical
+     colour pairing with the pink AI bar is preserved in both themes. */
+  background: #7DD3FC;
+  border-radius: 999px;
+  transition: width 280ms ease;
+}
+
+/* AI usage variant — pink fill so the two stacked bars are
+   instantly distinguishable in the minimized state without having to
+   read labels. Pinned (not theme-adaptive) so the categorical colour
+   pairing stays consistent across themes. */
+.project-usage-bar-fill-ai {
+  background: #F472B6;
+}
+
+
 /* Disabled nav-item â€” Dashboard / Files / To-dos when no project is
    selected. Dimmed enough to read as "this isn't useful yet". The
    click handler still wires up to togglePicker (so a misclick fast-
@@ -890,62 +1200,8 @@
   cursor: not-allowed;
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-   Locked-features cursor pill.
-   Shown while hovering Projects-section nav items (Dashboard / Files /
-   To-dos) with no project selected. Position is driven by an inline
-   `transform: translate(x, y)` updated on every mousemove â€” top:0/left:0
-   anchor it to the viewport origin so the transform values map 1:1 to
-   cursor coordinates (cleaner math than offsetting from any other
-   origin). `position: fixed` keeps it stable while the page scrolls.
-
-   Rendered via React portal at document.body level â€” see the createPortal
-   call in Sidebar.jsx for why (the sidebar's `contain: layout` would
-   otherwise clip a fixed-position descendant to the sidebar column).
-
-   `pointer-events: none` is critical: without it, the pill's box would
-   eat the very `mousemove`/`mouseleave` events it depends on â€” moving
-   the cursor over the pill itself would fire mouseleave on the row
-   below, the pill state would clear, the pill would disappear, the row
-   would receive mousemove again, the pill would re-appear in a slightly
-   different position, and the cycle would jitter.
-   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.locked-features-hint {
-  position: fixed;
-  top: 0;
-  left: 0;
-  /* Above the sidebar (z-index:50) and the ProjectPickerDrawer (z-index:40)
-     so the pill is never partially occluded by the surfaces it explains. */
-  z-index: 10000;
-  pointer-events: none;
-  /* Pill shape â€” fully rounded ends, padding tuned for a single-line
-     message at the body's font-size. white-space:nowrap so the text
-     doesn't wrap into two lines as the cursor traverses the viewport. */
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  font-size: 0.75rem;
-  font-weight: 500;
-  font-family: inherit;
-  white-space: nowrap;
-  line-height: 1.2;
-  /* Drop shadow lifts the pill off the page so it reads as a floating
-     overlay rather than part of the nearest panel â€” same shadow recipe
-     the modal cards use, scaled down. */
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  /* Brief fade-in keeps the appearance from popping abruptly when the
-     cursor first enters a disabled row. No exit animation â€” the pill
-     unmounts on mouseleave, which is fine for a transient affordance. */
-  animation: locked-features-hint-in 120ms ease-out;
-  /* will-change hints the compositor to keep the pill on its own layer
-     so the per-mousemove transform update is a paint-free composite step
-     rather than a layout/paint cycle. */
-  will-change: transform;
-}
-
-@keyframes locked-features-hint-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
+/* The cursor-following pill that used to live here (.locked-features-hint
+   + its keyframes) was inlined into the global Tooltip component — see
+   Tooltip.jsx / Tooltip.css. The locked-projects-section now wraps its
+   <li> in <Tooltip> directly and the rest of the app inherits the same
+   pill behaviour for free. */

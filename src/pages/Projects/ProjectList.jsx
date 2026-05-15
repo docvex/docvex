@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listMyProjects } from '../../lib/projects';
+import { sortProjectsByRecent, getMostRecentProjectId } from '../../lib/recentProjects';
+import { useAuth } from '../../context/AuthContext';
 import './ProjectList.css';
 
 // Inline SVG per the CLAUDE.md convention. Matching the stroke icons used in
@@ -63,12 +65,17 @@ function EmptyState() {
 // explicit action via the inline picker in the sidebar's Projects section
 // (state machine driven by SelectedProjectContext.pickerOpen). Keeps the
 // browse-vs-switch distinction clean.
-function ProjectCard({ project }) {
+function ProjectCard({ project, isMostRecent }) {
   return (
-    <Link to={`/projects/${project.id}`} className="project-card">
+    <Link
+      to={`/projects/${project.id}`}
+      className={`project-card${isMostRecent ? ' is-most-recent' : ''}`}
+    >
       <div className="project-card-header">
         <h3 className="project-card-name">{project.name}</h3>
-        <span className={`project-card-role role-${project.role}`}>{project.role}</span>
+        <div className="project-card-badges">
+          <span className={`project-card-role role-${project.role}`}>{project.role}</span>
+        </div>
       </div>
       {project.description ? (
         <p className="project-card-description">{project.description}</p>
@@ -91,11 +98,22 @@ function ProjectCard({ project }) {
           </span>
         </span>
       </div>
+      {/* "Most recent" tab — absolutely positioned so it hangs off the
+          bottom-right edge of the card like a bookmark tab, sitting below
+          the card's bottom border. The card is position:relative; the tab
+          escapes overflow because the card doesn't clip. */}
+      {isMostRecent && (
+        <span className="project-card-recent" title="Project you most recently opened">
+          Most recent
+        </span>
+      )}
     </Link>
   );
 }
 
 export default function ProjectList() {
+  const { session } = useAuth();
+  const userId = session?.user?.id ?? null;
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -111,6 +129,17 @@ export default function ProjectList() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Sort projects by per-user "most recent" first, falling back to the
+  // server's created_at-desc order for projects the user has never opened.
+  // Recomputed only when the project list or the user changes (the
+  // recency map is read inside sortProjectsByRecent so reads-after-writes
+  // pick up newly stamped projects on the next dependency change).
+  const orderedProjects = useMemo(
+    () => sortProjectsByRecent(userId, projects),
+    [userId, projects],
+  );
+  const mostRecentId = useMemo(() => getMostRecentProjectId(userId), [userId, projects]);
 
   return (
     <div className="projects-page">
@@ -138,8 +167,12 @@ export default function ProjectList() {
 
       {!loading && projects.length > 0 && (
         <section className="projects-grid">
-          {projects.map((p) => (
-            <ProjectCard key={p.id} project={p} />
+          {orderedProjects.map((p) => (
+            <ProjectCard
+              key={p.id}
+              project={p}
+              isMostRecent={p.id === mostRecentId}
+            />
           ))}
         </section>
       )}

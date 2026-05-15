@@ -22,6 +22,9 @@ const ProjectDashboard = lazy(() => import('./pages/Projects/ProjectDashboard'))
 const ProjectFiles = lazy(() => import('./pages/Projects/ProjectFiles'));
 const ProjectClients = lazy(() => import('./pages/Projects/ProjectClients'));
 const ProjectTodos = lazy(() => import('./pages/Projects/ProjectTodos'));
+const ProjectChat = lazy(() => import('./pages/Projects/ProjectChat'));
+const ProjectGenerate = lazy(() => import('./pages/Projects/ProjectGenerate'));
+const ProjectAutomate = lazy(() => import('./pages/Projects/ProjectAutomate'));
 const InviteAccept = lazy(() => import('./pages/Projects/InviteAccept'));
 
 // Shared full-screen spinner. Re-uses the `.spinner` class from Sidebar.css
@@ -134,6 +137,9 @@ export default function App() {
             <Route path="files" element={<ProjectFiles />} />
             <Route path="clients" element={<ProjectClients />} />
             <Route path="todos" element={<ProjectTodos />} />
+            <Route path="chat" element={<ProjectChat />} />
+            <Route path="generate" element={<ProjectGenerate />} />
+            <Route path="automate" element={<ProjectAutomate />} />
           </Route>
         </Route>
       </Routes>

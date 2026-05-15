@@ -8,6 +8,7 @@ import {
 import { useProject } from '../context/ProjectContext';
 import { useNotifications } from '../context/NotificationsContext';
 import RoleBadge, { builtInLabel } from './RoleBadge';
+import Tooltip from './Tooltip';
 import './RoleCapabilityMatrix.css';
 
 // Pencil + trash icons for the custom-role column header actions. Same
@@ -270,24 +271,26 @@ export default function RoleCapabilityMatrix({
                 </span>
                 {isAdmin && (
                   <div className="role-matrix-header-actions">
-                    <button
-                      type="button"
-                      className="role-matrix-header-icon-btn"
-                      onClick={() => onEditRole?.(cr)}
-                      aria-label={`Edit ${cr.name}`}
-                      title="Edit role"
-                    >
-                      {PencilIcon}
-                    </button>
-                    <button
-                      type="button"
-                      className="role-matrix-header-icon-btn role-matrix-header-icon-btn-destructive"
-                      onClick={() => onDeleteRole?.(cr)}
-                      aria-label={`Delete ${cr.name}`}
-                      title="Delete role"
-                    >
-                      {TrashIcon}
-                    </button>
+                    <Tooltip content="Edit role">
+                      <button
+                        type="button"
+                        className="role-matrix-header-icon-btn"
+                        onClick={() => onEditRole?.(cr)}
+                        aria-label={`Edit ${cr.name}`}
+                      >
+                        {PencilIcon}
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Delete role">
+                      <button
+                        type="button"
+                        className="role-matrix-header-icon-btn role-matrix-header-icon-btn-destructive"
+                        onClick={() => onDeleteRole?.(cr)}
+                        aria-label={`Delete ${cr.name}`}
+                      >
+                        {TrashIcon}
+                      </button>
+                    </Tooltip>
                   </div>
                 )}
               </div>
@@ -298,15 +301,16 @@ export default function RoleCapabilityMatrix({
                 column count for everyone — keeps row alignment stable. */}
             <div className="role-matrix-cell role-matrix-cell-header role-matrix-cell-header-add" role="columnheader">
               {isAdmin && (
-                <button
-                  type="button"
-                  className="role-matrix-add-btn"
-                  onClick={onCreateRole}
-                  aria-label="Add custom role"
-                  title="Add custom role"
-                >
-                  {PlusIcon}
-                </button>
+                <Tooltip content="Add custom role">
+                  <button
+                    type="button"
+                    className="role-matrix-add-btn"
+                    onClick={onCreateRole}
+                    aria-label="Add custom role"
+                  >
+                    {PlusIcon}
+                  </button>
+                </Tooltip>
               )}
             </div>
           </div>
@@ -328,13 +332,14 @@ export default function RoleCapabilityMatrix({
 
               {groupCaps.map((cap) => (
                 <div key={cap.id} className="role-matrix-row" role="row">
-                  <div
-                    className="role-matrix-cell role-matrix-cell-feature"
-                    role="rowheader"
-                    title={cap.hint}
-                  >
-                    {cap.label}
-                  </div>
+                  <Tooltip content={cap.hint}>
+                    <div
+                      className="role-matrix-cell role-matrix-cell-feature"
+                      role="rowheader"
+                    >
+                      {cap.label}
+                    </div>
+                  </Tooltip>
 
                   {BUILT_IN_COLUMNS.map((tier) => {
                     const granted = resolveCapability(tier, cap.id, []);
@@ -364,19 +369,20 @@ export default function RoleCapabilityMatrix({
                         className={`role-matrix-cell role-matrix-cell-value${interactive ? '' : ' role-matrix-cell-readonly'}`}
                         role="cell"
                       >
-                        <button
-                          type="button"
-                          className={`role-matrix-dot-btn${interactive ? '' : ' is-readonly'}`}
-                          onClick={() => handleCellClick(cr, cap.id)}
-                          disabled={!interactive}
-                          aria-label={`${cr.name} ${cap.label}: ${granted ? 'allowed' : 'denied'}${hasOverride ? ' (override)' : ' (inherited)'}. Click to change.`}
-                          title={hasOverride ? 'Override — click to clear' : 'Inherited — click to override'}
-                        >
-                          <span
-                            className={`role-matrix-dot${granted ? ' is-granted' : ' is-revoked'}${hasOverride ? ' is-override' : ''}`}
-                            aria-hidden="true"
-                          />
-                        </button>
+                        <Tooltip content={hasOverride ? 'Override — click to clear' : 'Inherited — click to override'}>
+                          <button
+                            type="button"
+                            className={`role-matrix-dot-btn${interactive ? '' : ' is-readonly'}`}
+                            onClick={() => handleCellClick(cr, cap.id)}
+                            disabled={!interactive}
+                            aria-label={`${cr.name} ${cap.label}: ${granted ? 'allowed' : 'denied'}${hasOverride ? ' (override)' : ' (inherited)'}. Click to change.`}
+                          >
+                            <span
+                              className={`role-matrix-dot${granted ? ' is-granted' : ' is-revoked'}${hasOverride ? ' is-override' : ''}`}
+                              aria-hidden="true"
+                            />
+                          </button>
+                        </Tooltip>
                       </div>
                     );
                   })}

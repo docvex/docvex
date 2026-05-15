@@ -29,7 +29,6 @@
      slides out beside the button. Slightly lighter than the sidebar
      (var(--bg-sidebar)) for visible separation. */
   background: var(--accent-hover);
-  border-right: 1px solid var(--border);
   z-index: 40;
   display: flex;
   flex-direction: column;
@@ -123,6 +122,43 @@
   padding: 0px 0;
   flex: 1;
   overflow-y: auto;
+  /* Firefox: thin native rail, themed thumb softened via the global
+     scrollbar-thumb token. */
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--scrollbar-thumb) 45%, transparent) transparent;
+}
+
+/* Chromium / WebKit scrollbar — same treatment as `.sidebar-nav`:
+   8px rail, transparent track, 45%-alpha-scaled themed thumb with a
+   4px radius, no arrow buttons. Keeps the picker panel's rail visually
+   consistent with the primary sidebar's. */
+.project-picker-panel-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.project-picker-panel-list::-webkit-scrollbar-track,
+.project-picker-panel-list::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.project-picker-panel-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--scrollbar-thumb) 45%, transparent);
+  border-radius: 4px;
+}
+
+/* Zero out every arrow-button variant — same belt-and-braces approach
+   used on .sidebar-nav so platform-default arrows never sneak back in
+   on Windows / older Chromium builds. */
+.project-picker-panel-list::-webkit-scrollbar-button,
+.project-picker-panel-list::-webkit-scrollbar-button:start,
+.project-picker-panel-list::-webkit-scrollbar-button:end,
+.project-picker-panel-list::-webkit-scrollbar-button:vertical:start,
+.project-picker-panel-list::-webkit-scrollbar-button:vertical:end,
+.project-picker-panel-list::-webkit-scrollbar-button:single-button,
+.project-picker-panel-list::-webkit-scrollbar-button:double-button {
+  display: none;
+  height: 0;
+  width: 0;
 }
 
 .project-picker-panel-state {
@@ -136,6 +172,14 @@
 
 .project-picker-panel-row {
   width: 100%;
+  /* Row layout — left column (name + role + "Most recent" pill stacked
+     vertically) gets the spare horizontal room, right column (members
+     icon + count) sits flush-right, vertically centered against the
+     whole row regardless of how tall the left column grows. */
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.6rem;
   background: transparent;
   border: none;
   /* Row divider matches the panel header's border-bottom (above) â€”
@@ -169,6 +213,151 @@
   color: var(--text-primary);
 }
 
+/* Left column — stacks the project name above the row of tags (role
+   pill + optional "Most recent" pill). flex:1 claims the spare width so
+   the right-side members column anchors to the right edge; min-width:0
+   lets the name actually ellipsize when it overflows (flex children
+   default to min-content width). */
+.project-picker-panel-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+}
+
+/* Project name — ellipsizes long names so a single line stays one row
+   tall regardless of length. */
+.project-picker-panel-row-name {
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Tag strip — horizontal row of pill labels under the project name. Wraps
+   if the row is narrow enough that the role + "Most recent" pills can't fit
+   on one line together (rare at the panel's 260px width but defensive). */
+.project-picker-panel-row-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* Role pill — same shape language as .project-card-role but the color
+   palette is tuned for the panel's dark/light accent-hover bg (rather
+   than a neutral card surface), so contrast holds in both themes. Colors
+   are overridden per role below. */
+.project-picker-panel-row-role {
+  flex-shrink: 0;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  border: 1px solid transparent;
+  /* Default surface — overridden per .role-* class below. */
+  background: color-mix(in srgb, var(--text-on-accent) 12%, transparent);
+  color: var(--text-on-accent);
+  border-color: color-mix(in srgb, var(--text-on-accent) 30%, transparent);
+}
+
+/* Per-role color overrides scoped to the panel — the global .role-*
+   classes from ProjectList.css would otherwise paint cognac-on-cognac
+   for admin and dark-text-on-dark-bg for member/viewer. These use the
+   warning palette for owner (bright amber on both themes), accent-soft
+   for admin (theme-adaptive contrast), and on-accent neutrals for
+   member/viewer (white on Cream, ink on Ink — readable against the
+   accent-hover panel bg). */
+.project-picker-panel-row .project-picker-panel-row-role.role-owner {
+  color: var(--warning-soft);
+  background: color-mix(in srgb, var(--warning-soft) 16%, transparent);
+  border-color: color-mix(in srgb, var(--warning-soft) 45%, transparent);
+}
+
+.project-picker-panel-row .project-picker-panel-row-role.role-admin {
+  color: var(--accent-soft);
+  background: color-mix(in srgb, var(--accent-soft) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent-soft) 45%, transparent);
+}
+
+.project-picker-panel-row .project-picker-panel-row-role.role-member,
+.project-picker-panel-row .project-picker-panel-row-role.role-viewer {
+  color: var(--text-on-accent);
+  background: color-mix(in srgb, var(--text-on-accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--text-on-accent) 25%, transparent);
+}
+
+/* Right column — members icon + count, vertically centered against the
+   whole row. Uses inherited text color (var(--text-on-accent)) so it
+   adopts the row's hover/active color flips automatically. */
+.project-picker-panel-row-members {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--text-on-accent) 80%, transparent);
+}
+
+.project-picker-panel-row-members svg {
+  flex-shrink: 0;
+  /* Slight dim against the count so the icon reads as supporting glyph
+     rather than competing with the number. */
+  opacity: 0.85;
+}
+
+.project-picker-panel-row-members-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.project-picker-panel-row:hover .project-picker-panel-row-members {
+  color: var(--text-primary);
+}
+
+/* Selected row — brighten the members icon + count to full text-on-accent
+   (the row's base color) instead of leaving them at the 80% dim the idle
+   rule applies, so the supporting glyph reads at full strength on the
+   selected row. Icon's idle 0.85 opacity dim is cleared too. */
+.project-picker-panel-row.is-current .project-picker-panel-row-members {
+  color: var(--text-on-accent);
+}
+
+.project-picker-panel-row.is-current .project-picker-panel-row-members svg {
+  opacity: 1;
+}
+
+/* "Most recent" pill — sits on its own line below the project name. The
+   panel's bg is var(--accent-hover) (a dark brown on Cream, light tan on
+   Ink), so a muted/transparent pill blends in. var(--accent-soft) is
+   theme-adaptive: sand on Cream (a bright tan-gold against dark brown =
+   high contrast) and cognac on Ink (dark brown against light tan = high
+   contrast). Paired with var(--accent) text (the inverse of accent-soft
+   in each theme) the pill reads as the highest-energy element on the row
+   while staying inside the brand palette. */
+.project-picker-panel-row-recent {
+  align-self: flex-start;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 0.18rem 0.6rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  white-space: nowrap;
+  /* Warm halo so the pill lifts off the row and reads as actively
+     glowing rather than sitting flat. The accent-tinted shadow uses
+     the same color family as the fill so the glow looks like spill
+     light rather than a separate hue. */
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--accent-soft) 65%, transparent);
+}
+
 /* "this is the project you're currently in" within the panel â€” the row's
    fill stays at the neutral var(--bg-elevated) it had before; only the
    3px left-edge stripe carries the brand brown so the marker reads as a
@@ -183,12 +372,26 @@
    bumped by 1px to compensate for the removed border so the is-current
    row stays the same total height as its non-current siblings, which
    keeps the list rhythm unchanged. */
+/* "this is the project you're currently in" within the panel — the row's
+   fill is dropped (was var(--bg-elevated), but on Cream that's a near-white
+   tint sitting between the white sidebar and the cognac stripe, which made
+   the stripe read as "3px inside a continuous light area" rather than flush
+   against the sidebar's edge). Letting the panel's accent-hover bg show
+   through means the cognac stripe lands directly against the sidebar with
+   the panel's brown on its other side — flush, no in-between fill. */
 .project-picker-panel-row.is-current {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
+  background: transparent;
   box-shadow: inset 3px 0 0 var(--color-cognac);
   border-bottom: none;
   padding-bottom: calc(0.55rem + 1px);
+}
+
+.project-picker-panel-row.is-current:hover {
+  /* Hover on the current row stays clear of bg-elevated for the same
+     reason — keep the panel's bg visible so the stripe stays flush. The
+     row's text-on-accent color provides enough hover affordance already. */
+  background: transparent;
+  color: var(--text-on-accent);
 }
 
 /* Footer hosts the "No project" / clear-selection button. Rendered
@@ -220,7 +423,7 @@
   font-weight: 600;
   text-transform: lowercase;
   text-align: center;
-  padding: 18px 0.75rem;
+  padding: 8px 0.75rem;
   cursor: pointer;
   transition: background 120ms, color 120ms;
 }
@@ -262,6 +465,24 @@
   overflow: hidden;
   border-radius: 6px;
   background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+
+/* Ink (dark) theme: the panel sits on var(--accent-hover) which is a dark
+   navy/ink surface, so a text-primary-tinted bar reads as a near-black
+   smudge. Override the bar + shimmer to white-at-low-alpha so the skeleton
+   reads as a soft light pulse against the dark panel instead. Scoped via
+   [data-theme="ink"] so the Cream theme keeps the existing tone. */
+[data-theme="ink"] .project-picker-panel .skel-bar {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="ink"] .project-picker-panel .skel-bar::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.14),
+    transparent
+  );
 }
 
 .skel-bar::after {

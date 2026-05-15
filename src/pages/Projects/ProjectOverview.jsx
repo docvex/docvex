@@ -23,6 +23,7 @@ import RoleBadge, { builtInLabel } from '../../components/RoleBadge';
 import CustomRoleEditor from '../../components/CustomRoleEditor';
 import ConfirmModal from '../../components/ConfirmModal';
 import RoleCapabilityMatrix from '../../components/RoleCapabilityMatrix';
+import Tooltip from '../../components/Tooltip';
 import StatusBadge from '../../components/StatusBadge';
 import './ProjectDashboard.css';
 
@@ -786,7 +787,11 @@ export default function ProjectOverview() {
                             <div className="member-email">{m.profile.email}</div>
                           )}
                         </div>
-                        {isSelf && <span className="member-self-pill">Me</span>}
+                        {/* On the viewer's own row, the "me" chip sits to
+                            the left of the role badge so a glance at the
+                            right edge of the list answers "which row is
+                            me?" without scanning every name. */}
+                        {isSelf && <span className="member-self-pill">me</span>}
                         <RoleBadge role={m.role} customRole={memberCustomRole} showBase />
                         {hasActions && (
                           <span className="member-row-chevron" aria-hidden="true">
@@ -805,7 +810,7 @@ export default function ProjectOverview() {
                         <div
                           className="member-row-actions-shell"
                           aria-hidden={!isExpanded}
-                          {...(!isExpanded ? { inert: '' } : {})}
+                          inert={!isExpanded ? true : undefined}
                         >
                           <div id={actionsPanelId} className="member-row-actions">
                             {canChangeMemberRole(m) && (
@@ -880,32 +885,35 @@ export default function ProjectOverview() {
                       </div>
                     </div>
                     <RoleBadge role={inv.role} customRole={invCustomRole} />
-                    <button
-                      type="button"
-                      className="invitation-copy-btn"
-                      onClick={() => handleCopyLink(inv)}
-                      title="Copy docvex:// invite link (useful when the email didn't deliver)"
-                    >
-                      {copiedInviteId === inv.id ? 'Copied!' : 'Copy link'}
-                    </button>
-                    <button
-                      type="button"
-                      className="invitation-copy-btn"
-                      onClick={() => handleResend(inv)}
-                      disabled={resendingId === inv.id}
-                      title="Resend the invitation email (re-uses the same token, no new row)"
-                    >
-                      {resendingId === inv.id ? 'Resending…' : 'Resend email'}
-                    </button>
-                    <button
-                      type="button"
-                      className="invitation-revoke-btn"
-                      onClick={() => handleRevoke(inv.id)}
-                      disabled={revokingId === inv.id}
-                      title="Revoke this invitation"
-                    >
-                      {revokingId === inv.id ? 'Revoking…' : 'Revoke'}
-                    </button>
+                    <Tooltip content="Copy docvex:// invite link (useful when the email didn't deliver)">
+                      <button
+                        type="button"
+                        className="invitation-copy-btn"
+                        onClick={() => handleCopyLink(inv)}
+                      >
+                        {copiedInviteId === inv.id ? 'Copied!' : 'Copy link'}
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Resend the invitation email (re-uses the same token, no new row)">
+                      <button
+                        type="button"
+                        className="invitation-copy-btn"
+                        onClick={() => handleResend(inv)}
+                        disabled={resendingId === inv.id}
+                      >
+                        {resendingId === inv.id ? 'Resending…' : 'Resend email'}
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Revoke this invitation">
+                      <button
+                        type="button"
+                        className="invitation-revoke-btn"
+                        onClick={() => handleRevoke(inv.id)}
+                        disabled={revokingId === inv.id}
+                      >
+                        {revokingId === inv.id ? 'Revoking…' : 'Revoke'}
+                      </button>
+                    </Tooltip>
                   </li>
                   );
                 })}

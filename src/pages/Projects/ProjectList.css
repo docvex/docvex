@@ -104,6 +104,17 @@
   text-decoration: none;
   color: inherit;
   transition: border-color 150ms, background 150ms, transform 80ms;
+  /* Containing block for the absolutely-positioned "Most recent" tab
+     that hangs off the bottom-right edge — overflow is intentionally
+     left visible so the tab can extend past the card boundary. */
+  position: relative;
+}
+
+/* When the card has the "Most recent" tab hanging off its bottom edge,
+   add a little extra bottom margin so the tab doesn't overlap the next
+   row of cards in the grid. */
+.project-card.is-most-recent {
+  margin-bottom: 0.6rem;
 }
 
 .project-card:hover {
@@ -120,6 +131,41 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
+}
+
+/* Wraps the role pill + the optional "Most recent" badge on the right side
+   of the card header so they stack cleanly together. flex-shrink:0 inherits
+   from each pill — the title (left) gets all the spare horizontal room and
+   ellipsizes when it has to. */
+.project-card-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+/* "Most recent" tab — hangs off the bottom-right edge of the project
+   card like a bookmark tab. Position-absolute with a negative bottom
+   offset so the pill clears the card's bottom border and sits below it.
+   Visual style matches .project-picker-panel-row-recent in the secondary
+   sidebar so both "most recent" surfaces share one visual language: small
+   uppercase letter-spaced label, theme-adaptive var(--accent-soft) fill
+   with var(--accent) text, and a warm accent-tinted halo shadow. */
+.project-card-recent {
+  position: absolute;
+  right: 1rem;
+  bottom: -0.65rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 0.18rem 0.6rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  white-space: nowrap;
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--accent-soft) 65%, transparent);
 }
 
 .project-card-name {

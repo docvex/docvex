@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelectedProject } from '../context/SelectedProjectContext';
+import Tooltip from './Tooltip';
 import './ProjectBanner.css';
 
 // Tiny indigo pill at the top of the page that reads "working in <project>".
@@ -18,14 +19,15 @@ export default function ProjectBanner() {
   if (loading || !selectedProject) return null;
 
   return (
-    <button
-      type="button"
-      className="project-banner-pill"
-      onClick={() => navigate(`/projects/${selectedProject.id}`)}
-      title={`Go to ${selectedProject.name} overview`}
-    >
-      <span className="project-banner-pill-prefix">working in</span>
-      <span className="project-banner-pill-name">{selectedProject.name}</span>
-    </button>
+    <Tooltip content={`Go to ${selectedProject.name} overview`}>
+      <button
+        type="button"
+        className="project-banner-pill"
+        onClick={() => navigate(`/projects/${selectedProject.id}`)}
+      >
+        <span className="project-banner-pill-prefix">working in</span>
+        <span className="project-banner-pill-name">{selectedProject.name}</span>
+      </button>
+    </Tooltip>
   );
 }

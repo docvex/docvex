@@ -4,6 +4,7 @@ import { useSelectedProject } from '../../context/SelectedProjectContext';
 import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import FileDetailModal from '../../components/FileDetailModal';
 import VideoFrameSlideshow from '../../components/VideoFrameSlideshow';
+import Tooltip from '../../components/Tooltip';
 import {
   listProjectFiles,
   createSignedDownloadUrl,
@@ -133,14 +134,14 @@ function FileCard({ file, onOpen }) {
   }, [hasThumbnail, shouldFetchSourceAsThumb, file.thumbnail_path, file.storage_path]);
 
   return (
-    <button
-      type="button"
-      className="project-files-card"
-      onClick={() => onOpen?.(file)}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      title={file.name}
-    >
+    <Tooltip content={file.name}>
+      <button
+        type="button"
+        className="project-files-card"
+        onClick={() => onOpen?.(file)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
       <div className="project-files-thumb">
         {hasFrames ? (
           // Video with multi-frame slideshow: cycles on hover, pins to
@@ -159,23 +160,59 @@ function FileCard({ file, onOpen }) {
           <span className="project-files-icon">{iconForMime(file.mime_type)}</span>
         )}
       </div>
-      <div className="project-files-meta">
-        <div className="project-files-name">{file.name}</div>
-        <div className="project-files-sub">
-          {formatBytes(file.size_bytes)} · {formatDate(file.uploaded_at)}
+        <div className="project-files-meta">
+          <div className="project-files-name">{file.name}</div>
+          <div className="project-files-sub">
+            {formatBytes(file.size_bytes)} · {formatDate(file.uploaded_at)}
+          </div>
         </div>
-      </div>
-    </button>
+      </button>
+    </Tooltip>
   );
+}
+
+// Per-project file count cached in localStorage so the next visit's
+// skeleton matches what the user is about to see (zero layout shift on
+// hand-off). The cache is written after every successful list load —
+// see the effect in ProjectFiles below. On first-ever visit the read
+// returns null and the skeleton falls back to a small default count.
+const FILES_COUNT_KEY = (projectId) => `docvex:project-files-count:${projectId}`;
+const DEFAULT_SKELETON_COUNT = 8;
+
+function readCachedFilesCount(projectId) {
+  if (!projectId) return null;
+  try {
+    const raw = localStorage.getItem(FILES_COUNT_KEY(projectId));
+    if (raw === null) return null;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  } catch {
+    // localStorage can throw in private-browsing / quota-exceeded modes —
+    // the skeleton just falls back to the default count in that case.
+    return null;
+  }
+}
+
+function writeCachedFilesCount(projectId, count) {
+  if (!projectId) return;
+  try {
+    localStorage.setItem(FILES_COUNT_KEY(projectId), String(count));
+  } catch { /* see read above */ }
 }
 
 // Shimmering grid of thumbnail-card-shaped placeholders shown while
 // listProjectFiles() resolves. Mirrors .project-files-card dimensions
 // (4:3 thumb + 2-line meta) so real cards drop into the same slots.
-function ProjectFilesGridSkeleton() {
+// `count` is the cached file count from the previous visit — null on
+// first ever visit; falls back to DEFAULT_SKELETON_COUNT.
+function ProjectFilesGridSkeleton({ count }) {
+  const n = count ?? DEFAULT_SKELETON_COUNT;
+  // count===0 means "user has no files" — render the empty grid (the
+  // empty state will swap in immediately after the fetch resolves).
+  if (n === 0) return <div className="project-files-grid" aria-hidden="true" />;
   return (
     <div className="project-files-grid" aria-hidden="true">
-      {Array.from({ length: 8 }).map((_, i) => (
+      {Array.from({ length: n }).map((_, i) => (
         <div key={i} className="project-files-card project-files-card-skeleton">
           <div className="project-files-thumb skel-bar skel-files-thumb" />
           <div className="project-files-meta">
@@ -222,6 +259,9 @@ export default function ProjectFiles() {
         setFiles([]);
       } else {
         setFiles(data);
+        // Cache the count so the next mount can render exactly this many
+        // skeleton cards — zero layout shift on hand-off.
+        writeCachedFilesCount(projectId, data.length);
       }
       setLoading(false);
     });
@@ -289,7 +329,7 @@ export default function ProjectFiles() {
       )}
 
       {loading ? (
-        <ProjectFilesGridSkeleton />
+        <ProjectFilesGridSkeleton count={readCachedFilesCount(projectId)} />
       ) : files.length === 0 ? (
         <div className="project-files-empty">
           <h2>No files yet</h2>

@@ -46,6 +46,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('debug:send-test-notifications', listener);
   },
 
+  // Dev-only "DEBUG → Send all email previews to me" menu hook. Fires the
+  // welcome, invite, and support-report Edge Functions with the debug
+  // flag set so each template lands in the signed-in user's own inbox.
+  // Returns an unsubscribe fn.
+  onDebugSendEmailPreviews: (handler) => {
+    const listener = () => handler();
+    ipcRenderer.on('debug:send-email-previews', listener);
+    return () => ipcRenderer.removeListener('debug:send-email-previews', listener);
+  },
+
   // Open any URL in the user's default browser (used for release links etc.)
   openExternal: (url) => ipcRenderer.send('app:open-external', url),
 

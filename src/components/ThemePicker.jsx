@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTheme } from '../context/ThemeContext';
+import Tooltip from './Tooltip';
 import './ThemePicker.css';
 
 // Brand palette swatches — same order in every theme card per the spec:
@@ -78,12 +79,12 @@ export default function ThemePicker() {
               {/* Palette strip — fixed Ink·Slate·Sand·Cream·Cognac order. */}
               <div className="theme-picker-swatches" aria-hidden="true">
                 {BRAND_SWATCHES.map((sw) => (
-                  <span
-                    key={sw.id}
-                    className="theme-picker-swatch"
-                    style={{ background: `var(${sw.cssVar})` }}
-                    title={sw.label}
-                  />
+                  <Tooltip key={sw.id} content={sw.label}>
+                    <span
+                      className="theme-picker-swatch"
+                      style={{ background: `var(${sw.cssVar})` }}
+                    />
+                  </Tooltip>
                 ))}
               </div>
               <div className="theme-picker-row">

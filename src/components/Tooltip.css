@@ -1,0 +1,64 @@
+/* Cursor-following pill tooltip — see Tooltip.jsx. Visual treatment
+   mirrors the sidebar's `.locked-features-hint` cursor pill so every
+   tooltip in the app reads as the same affordance. */
+
+.tooltip-trigger-wrap {
+  /* `display: contents` collapses the wrapper to nothing in the layout
+     tree — the child takes the wrapper's place in its parent's flex/
+     grid/inline context. Means we can wrap any trigger without
+     reflowing the surrounding row. Synthetic mouse/focus events still
+     bubble through React. */
+  display: contents;
+}
+
+.tooltip {
+  position: fixed;
+  /* top:0/left:0 anchors the pill at the viewport origin so the JS-set
+     `transform: translate(x, y)` maps 1:1 to cursor coordinates. */
+  top: 0;
+  left: 0;
+  /* Above every floating surface in the app (sidebar z:50, picker z:40,
+     modals etc.) so the pill is never partially occluded by what it
+     explains. Matches .locked-features-hint's z-index. */
+  z-index: 10000;
+  /* Pill shape — fully rounded ends. */
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-family: inherit;
+  white-space: nowrap;
+  line-height: 1.2;
+  /* Pointer-events off so the pill can never sit between the cursor and
+     its trigger (which would cause a flicker loop on mouseleave). */
+  pointer-events: none;
+  /* Drop shadow lifts the pill off the page so it reads as a floating
+     overlay rather than part of the nearest panel — same shadow recipe
+     .locked-features-hint uses. */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  /* Brief fade-in keeps the appearance from popping abruptly when the
+     cursor first enters a trigger. No exit animation — the pill unmounts
+     on mouseleave, which is fine for a transient affordance. */
+  animation: tooltip-in 120ms ease-out;
+  /* Smooth chase: every mousemove writes a new `transform: translate(…)`
+     inline on the pill (see Tooltip.jsx). The CSS transition interpolates
+     between the previous and new transform over ~90ms, so the pill glides
+     behind the cursor instead of teleporting on every pointer event.
+     ease-out front-loads the motion so the pill keeps up with fast
+     gestures and settles softly at the end. CSS transitions re-target
+     on each change rather than queueing, so rapid moves never accumulate
+     lag — the pill always animates toward the latest cursor position. */
+  transition: transform 90ms ease-out;
+  /* will-change hints the compositor to keep the pill on its own layer
+     so the per-mousemove transform update is a paint-free composite step
+     rather than a layout/paint cycle. */
+  will-change: transform;
+}
+
+@keyframes tooltip-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}

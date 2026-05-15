@@ -1,4 +1,5 @@
 import React from 'react';
+import Tooltip from './Tooltip';
 
 // Renders a role pill in one consistent style across the app. Two things
 // this centralises:
@@ -30,18 +31,23 @@ export default function RoleBadge({ role, customRole, showBase = false, classNam
   // Display label. Custom roles win; otherwise rewrite viewer → Client.
   const label = customRole?.name ?? builtInLabel(role);
 
+  const tooltipContent = customRole
+    ? `Custom role — extends ${capitalize(builtInLabel(baseRole))}`
+    : null;
+
   return (
-    <span
-      className={`project-dashboard-role role-${baseRole}${
-        customRole ? ' role-custom' : ''
-      } ${className}`.trim()}
-      title={customRole ? `Custom role — extends ${capitalize(builtInLabel(baseRole))}` : undefined}
-    >
-      {label}
-      {customRole && showBase && (
-        <span className="role-base-suffix"> · {builtInLabel(baseRole)}</span>
-      )}
-    </span>
+    <Tooltip content={tooltipContent}>
+      <span
+        className={`project-dashboard-role role-${baseRole}${
+          customRole ? ' role-custom' : ''
+        } ${className}`.trim()}
+      >
+        {label}
+        {customRole && showBase && (
+          <span className="role-base-suffix"> · {builtInLabel(baseRole)}</span>
+        )}
+      </span>
+    </Tooltip>
   );
 }
 

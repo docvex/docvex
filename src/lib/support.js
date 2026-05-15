@@ -30,18 +30,22 @@ async function blobToBase64(blob) {
   });
 }
 
-// sendSupportReport({ subject?, description, attachments? })
+// sendSupportReport({ subject?, description, attachments?, debug? })
 //   subject:     optional. Edge Function falls back to "Bug report from
 //                <user-email>" when null/empty.
 //   description: required. The user's free-form description of the issue.
 //   attachments: optional. Array of { filename, blob } — `blob` can be a
 //                File (extra uploads) or a plain Blob (the html2canvas
 //                screenshot). Each is base64-encoded before invoking.
+//   debug:       optional. When true, the email goes to the signed-in
+//                user's own inbox instead of the support address (used
+//                by the DEBUG menu's "Send all email previews"). Auth is
+//                still enforced server-side.
 //
 // Returns the supabase-js shape: { data, error }. On success, `data` is
 // `{ ok: true, email_id }`. On failure, `error` is a FunctionsHttpError
 // or a synthesized Error from the function's `{ error, detail }` body.
-export async function sendSupportReport({ subject, description, attachments }) {
+export async function sendSupportReport({ subject, description, attachments, debug }) {
   const appVersion = await getAppVersion();
   const platform = isElectron ? 'electron' : (isWebBuild ? 'web' : 'unknown');
   const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown';
@@ -71,6 +75,7 @@ export async function sendSupportReport({ subject, description, attachments }) {
         url,
         submitted_at: submittedAt,
       },
+      ...(debug ? { debug: true } : {}),
     },
   });
 

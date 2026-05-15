@@ -7,6 +7,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import DeleteAccountModal from '../components/DeleteAccountModal';
 import ThemePicker from '../components/ThemePicker';
 import StatusBadge from '../components/StatusBadge';
+import Tooltip from '../components/Tooltip';
 import { STATUS_OPTIONS, DEFAULT_STATUS_KEY, updateStatus } from '../lib/userStatus';
 import './Account.css';
 
@@ -222,12 +223,8 @@ export default function Account() {
             {/* Google pill always renders. When already linked it's a
                 static badge with a checkmark; when not, it becomes a
                 button that kicks off the OAuth link flow. */}
-            <button
-              type="button"
-              className={`account-provider-badge account-provider-google${googleLinked ? ' is-linked' : ' is-linkable'}`}
-              onClick={handleLinkGoogle}
-              disabled={googleLinked || linkingGoogle}
-              title={
+            <Tooltip
+              content={
                 googleLinked
                   ? 'Google account is linked'
                   : linkingGoogle
@@ -235,16 +232,23 @@ export default function Account() {
                   : 'Link this account with Google'
               }
             >
-              <GoogleGlyph />
-              <span>
-                {googleLinked
-                  ? 'Google'
-                  : linkingGoogle
-                  ? 'Linking…'
-                  : 'Link Google'}
-              </span>
-              {googleLinked && CheckIcon}
-            </button>
+              <button
+                type="button"
+                className={`account-provider-badge account-provider-google${googleLinked ? ' is-linked' : ' is-linkable'}`}
+                onClick={handleLinkGoogle}
+                disabled={googleLinked || linkingGoogle}
+              >
+                <GoogleGlyph />
+                <span>
+                  {googleLinked
+                    ? 'Google'
+                    : linkingGoogle
+                    ? 'Linking…'
+                    : 'Link Google'}
+                </span>
+                {googleLinked && CheckIcon}
+              </button>
+            </Tooltip>
           </div>
         </div>
       </header>
@@ -258,14 +262,15 @@ export default function Account() {
           <dt>User ID</dt>
           <dd className="account-userid-row">
             <code className="account-userid">{user.id}</code>
-            <button
-              className="account-copy-btn"
-              onClick={handleCopyId}
-              title={copied ? 'Copied' : 'Copy ID'}
-              aria-label="Copy user ID"
-            >
-              {copied ? CheckIcon : CopyIcon}
-            </button>
+            <Tooltip content={copied ? 'Copied' : 'Copy ID'}>
+              <button
+                className="account-copy-btn"
+                onClick={handleCopyId}
+                aria-label="Copy user ID"
+              >
+                {copied ? CheckIcon : CopyIcon}
+              </button>
+            </Tooltip>
           </dd>
 
           <dt>Provider</dt>
@@ -326,9 +331,11 @@ export default function Account() {
             <li key={f}>{f}</li>
           ))}
         </ul>
-        <button className="account-upgrade-btn" disabled title="Coming soon">
-          Upgrade plan
-        </button>
+        <Tooltip content="Coming soon">
+          <button className="account-upgrade-btn" disabled>
+            Upgrade plan
+          </button>
+        </Tooltip>
       </section>
 
       {/* Theme picker — sits between Subscription and Danger zone per the

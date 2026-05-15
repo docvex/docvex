@@ -1,9 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
-import ProjectDashboardSkeleton from '../../components/ProjectDashboardSkeleton';
 import TeamTree from './TeamTree';
 import './ProjectDashboard.css';
+
+// Crossfade window between the loading spinner and the team tree on the
+// Members tab. Has to match the CSS transition duration on
+// .project-dashboard-members-loading.is-fading-out — keep these two in
+// sync if you tweak the feel. 250ms is short enough to feel instant
+// but long enough that the eye reads "the spinner left, the tree
+// arrived" instead of "something flashed".
+const MEMBERS_FADE_MS = 250;
 
 // Project Dashboard — the "working surface" for /projects/:id/dashboard.
 // Reached from the Projects sidebar's Dashboard sub-item. Today it hosts
@@ -22,6 +29,24 @@ export default function ProjectDashboard() {
   // Members is the default tab — the team tree gives the page immediate
   // visual content, vs. Activity which is currently just a placeholder.
   const [activeTab, setActiveTab] = useState('members');
+
+  // Tracks the spinner's mounted lifetime separately from `loading` so
+  // we can keep it on the page during its fade-out animation after the
+  // fetch resolves. While loading is true the spinner is mounted at
+  // full opacity. When loading flips false we apply the fading-out
+  // class (CSS transitions opacity to 0), then unmount the spinner
+  // after MEMBERS_FADE_MS. The tree mounts immediately when loading
+  // resolves and fades in via its own keyframes — the two animations
+  // overlap, producing a crossfade.
+  const [spinnerMounted, setSpinnerMounted] = useState(loading);
+  useEffect(() => {
+    if (loading) {
+      setSpinnerMounted(true);
+      return undefined;
+    }
+    const timer = setTimeout(() => setSpinnerMounted(false), MEMBERS_FADE_MS);
+    return () => clearTimeout(timer);
+  }, [loading]);
 
   if (error) {
     return (
@@ -46,7 +71,7 @@ export default function ProjectDashboard() {
   }
 
   const tabs = [
-    { id: 'members', label: 'Members', count: members.length },
+    { id: 'members', label: 'Members' },
     { id: 'activity', label: 'Activity' },
   ];
 
@@ -66,46 +91,70 @@ export default function ProjectDashboard() {
         </div>
       </header>
 
-      {loading ? (
-        <ProjectDashboardSkeleton />
-      ) : (
+      {/* Tab bar — same underline pattern as ProjectOverview. role="tablist"
+          so screen readers announce the relationship; each button is a tab
+          whose pressed state mirrors activeTab. Renders immediately (no
+          skeleton on the bar itself). Only the Members count pill is
+          gated on `loading` — when true it shows a small shimmering
+          placeholder so the tab width doesn't reflow when the real
+          count drops in. */}
+      <div className="project-tabs" role="tablist" aria-label="Dashboard sections">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === t.id}
+            className={`project-tab ${activeTab === t.id ? 'is-active' : ''}`}
+            onClick={() => setActiveTab(t.id)}
+          >
+            <span>{t.label}</span>
+            {t.id === 'members' && (
+              loading
+                ? <span className="project-tab-count project-tab-count-skel skel-bar" aria-hidden="true" />
+                : <span className="project-tab-count">{members.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'members' && (
         <>
-          {/* Tab bar — same underline pattern as ProjectOverview. role="tablist"
-              so screen readers announce the relationship; each button is a tab
-              whose pressed state mirrors activeTab. */}
-          <div className="project-tabs" role="tablist" aria-label="Dashboard sections">
-            {tabs.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === t.id}
-                className={`project-tab ${activeTab === t.id ? 'is-active' : ''}`}
-                onClick={() => setActiveTab(t.id)}
-              >
-                <span>{t.label}</span>
-                {typeof t.count === 'number' && (
-                  <span className="project-tab-count">{t.count}</span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {activeTab === 'members' && (
-            <TeamTree members={members} customRoles={customRoles} />
+          {/* Spinner overlay. Mounted while loading AND for one fade
+              window after loading resolves so the opacity transition
+              has time to complete. Reuses the global .spinner class
+              from Sidebar.css. */}
+          {spinnerMounted && (
+            <div
+              className={`project-dashboard-members-loading${loading ? '' : ' is-fading-out'}`}
+              role="status"
+              aria-live="polite"
+            >
+              <span className="spinner" aria-label="Loading members" />
+            </div>
           )}
-
-          {activeTab === 'activity' && (
-            <section className="project-dashboard-card">
-              <div className="project-dashboard-card-header">
-                <h2 className="project-dashboard-card-title">Activity</h2>
-              </div>
-              <div className="project-dashboard-empty">
-                Activity feed coming soon.
-              </div>
-            </section>
+          {/* Team tree mounts as soon as loading resolves and fades in
+              via its own keyframes (see .project-dashboard-members-fade-in
+              in the CSS). Mounting it eagerly while the spinner is still
+              fading out lets the two animations overlap — the eye reads
+              this as a crossfade rather than a hard swap. */}
+          {!loading && (
+            <div className="project-dashboard-members-fade-in">
+              <TeamTree members={members} customRoles={customRoles} />
+            </div>
           )}
         </>
+      )}
+
+      {activeTab === 'activity' && (
+        <section className="project-dashboard-card">
+          <div className="project-dashboard-card-header">
+            <h2 className="project-dashboard-card-title">Activity</h2>
+          </div>
+          <div className="project-dashboard-empty">
+            Activity feed coming soon.
+          </div>
+        </section>
       )}
     </div>
   );

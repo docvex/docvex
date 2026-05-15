@@ -25,7 +25,7 @@ const TABLE = 'notifications';
 export async function fetchRecent(userId, limit = HISTORY_CAP) {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('id, user_id, category, variant, title, body, payload, created_at, read_at, dedupe_key')
+    .select('id, user_id, category, variant, priority, title, body, icon, payload, created_at, read_at, dedupe_key')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(limit);

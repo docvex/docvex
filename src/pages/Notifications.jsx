@@ -9,6 +9,7 @@ import {
   NOTIFICATION_PRIORITIES,
 } from '../lib/notifications';
 import { resolveNotificationIcon } from '../notifications/icons';
+import Tooltip from '../components/Tooltip';
 import './Notifications.css';
 
 // Tab strip definition. Order is hierarchical: All first as the default
@@ -115,20 +116,22 @@ function NotificationRow({ notification, ctx, onMarkRead, onRemove }) {
             {/* Priority dot — only visually present for critical/high/low;
                 the .n-row-pri-normal rule hides it. Tooltip exposes the
                 priority name for screen readers + hover. */}
-            <span
-              className="n-row-priority"
-              title={`Priority: ${effectivePriority}`}
-              aria-label={`Priority: ${effectivePriority}`}
-            />
+            <Tooltip content={`Priority: ${effectivePriority}`}>
+              <span
+                className="n-row-priority"
+                aria-label={`Priority: ${effectivePriority}`}
+              />
+            </Tooltip>
             <span className="n-row-title">{title}</span>
           </span>
-          <time
-            className="n-row-time"
-            dateTime={created_at}
-            title={new Date(created_at).toLocaleString()}
-          >
-            {formatRelativeTime(created_at)}
-          </time>
+          <Tooltip content={new Date(created_at).toLocaleString()}>
+            <time
+              className="n-row-time"
+              dateTime={created_at}
+            >
+              {formatRelativeTime(created_at)}
+            </time>
+          </Tooltip>
         </div>
         {body && <div className="n-row-message">{body}</div>}
         {actions.length > 0 && (

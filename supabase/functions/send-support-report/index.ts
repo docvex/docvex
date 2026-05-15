@@ -101,6 +101,10 @@ type Payload = {
   description?: string;
   attachments?: Attachment[];
   metadata?: Metadata;
+  // When true, the email is sent to the caller's own address instead
+  // of the support inbox. Lets the DEBUG menu preview the template
+  // without spamming the support team. Auth is still required.
+  debug?: boolean;
 };
 
 Deno.serve(async (req: Request) => {
@@ -279,7 +283,10 @@ Deno.serve(async (req: Request) => {
         // email so the inbox list view shows who filed the report at a
         // glance. See the `fromDisplay` comment above for the why.
         from: `"${fromDisplay}" <support@support.docvex.ro>`,
-        to: ["customersupport@docvex.ro"],
+        // Debug mode routes the email to the caller themselves so they
+        // can preview the template without hitting the real support
+        // inbox. Auth was already verified above.
+        to: [body.debug === true ? userEmail : "customersupport@docvex.ro"],
         // Reply-To set to the reporter so the support team can hit Reply
         // and land in the user's inbox. Without this, replies bounce
         // around the support@ address with no end user attached.

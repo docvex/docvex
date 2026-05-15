@@ -22,6 +22,169 @@
   margin: 0;
 }
 
+/* ── Tab bar ───────────────────────────────────────────────────────────────
+   Mirrors the ProjectDashboard's .project-tabs visual: flush-left buttons
+   with a 2px accent underline on the active tab, sitting on top of a 1px
+   page-divider border. The active tab's bottom-border merges with the
+   bar's baseline via a -1px margin-bottom so the two lines read as a
+   single indicator instead of stacking. */
+.updates-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-top: -0.25rem;
+}
+
+.updates-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: none;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  font-weight: 500;
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+  transition: color 150ms, border-color 150ms;
+  font-family: inherit;
+}
+
+.updates-tab:hover:not(.is-active) {
+  color: var(--text-secondary);
+}
+
+.updates-tab.is-active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+/* ── About / Contact tab bodies ───────────────────────────────────────────
+   Card layout shared between the About and Contact us tabs. Same border /
+   radius / spacing recipe used elsewhere (e.g. Notifications page) so the
+   surface reads as a familiar app card rather than a one-off block. */
+.updates-about-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.updates-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.updates-card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.updates-card-body {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.updates-card-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+
+.updates-card-list li::marker {
+  color: var(--color-cognac);
+}
+
+.updates-contact-list {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.updates-contact-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.updates-contact-label {
+  display: inline-block;
+  min-width: 72px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.updates-about-link {
+  color: var(--color-cognac);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: color 120ms;
+}
+
+.updates-about-link:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+/* Filled CTA used by the "Open report form" button on the Contact tab. */
+.updates-card-cta {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--color-cognac);
+  border: 1px solid var(--color-cognac);
+  border-radius: 6px;
+  color: var(--text-on-accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: filter 150ms, opacity 150ms;
+}
+
+.updates-card-cta:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.updates-card-cta:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.updates-about-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.updates-about-sep {
+  color: var(--text-muted);
+}
+
 /* Status banner */
 .updates-banner {
   display: flex;

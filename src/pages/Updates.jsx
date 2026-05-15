@@ -2,7 +2,10 @@ import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useUpdates, versionTagFor } from '../context/UpdatesContext';
+import { useAuth } from '../context/AuthContext';
+import { useReportProblem } from '../context/ReportProblemContext';
 import ConfirmModal from '../components/ConfirmModal';
+import Tooltip from '../components/Tooltip';
 import { isElectron, openExternal as platformOpenExternal } from '../lib/platform';
 import './Updates.css';
 
@@ -10,6 +13,14 @@ import './Updates.css';
 // marketing site (not directly to a release asset) so the user lands on
 // the install/download page that already exists.
 const DESKTOP_DOWNLOAD_URL = 'https://docvex.ro/';
+const DOCVEX_SITE = 'https://docvex.ro/';
+const SUPPORT_EMAIL = 'customersupport@docvex.ro';
+const TEAM_EMAIL = 'docvexteam@docvex.ro';
+
+// Single subtitle shared across all three tabs (Updates / About /
+// Contact us). One line covers all of them since they're three views
+// of the same "about the app" surface.
+const ABOUT_SUBTITLE = 'Learn about DocVex, browse release notes, and get in touch.';
 
 function formatDate(iso) {
   if (!iso) return '';
@@ -193,14 +204,15 @@ function StatusBanner() {
               : 'Auto-update is only active in packaged builds.'}
           </p>
         </div>
-        <button
-          className="updates-btn updates-btn-primary"
-          onClick={checkNow}
-          disabled={checking || !isPackaged}
-          title={!isPackaged ? 'Available in packaged builds only' : undefined}
-        >
-          {DownloadIcon} {checking ? 'Downloading…' : 'Install update'}
-        </button>
+        <Tooltip content={!isPackaged ? 'Available in packaged builds only' : undefined}>
+          <button
+            className="updates-btn updates-btn-primary"
+            onClick={checkNow}
+            disabled={checking || !isPackaged}
+          >
+            {DownloadIcon} {checking ? 'Downloading…' : 'Install update'}
+          </button>
+        </Tooltip>
       </div>
     );
   }
@@ -218,8 +230,154 @@ function StatusBanner() {
   );
 }
 
+// Body content for the About tab — what DocVex is and what you can do
+// with it. Pulled out as a sibling component so the main Updates page
+// reads cleanly with three small tab-body components rather than a
+// 200-line render. No top-level <header> because the page already owns
+// the title + subtitle row above the tab bar.
+function AboutTabBody() {
+  const { currentVersion } = useUpdates();
+  const openSite = (e) => {
+    if (!isElectron) return;
+    e.preventDefault();
+    platformOpenExternal(DOCVEX_SITE);
+  };
+  return (
+    <div className="updates-about-body">
+      <section className="updates-card">
+        <h2 className="updates-card-title">What DocVex is</h2>
+        <p className="updates-card-body">
+          DocVex is a workspace built for legal teams — a single place to
+          organise projects, share documents with clients, and keep day-to-day
+          work moving without juggling email threads or scattered folders.
+        </p>
+      </section>
+
+      <section className="updates-card">
+        <h2 className="updates-card-title">What you can do here</h2>
+        <ul className="updates-card-list">
+          <li>Create projects and invite teammates with role-based access.</li>
+          <li>Upload, preview, and annotate files alongside your team.</li>
+          <li>Manage clients and track to-dos inside each project.</li>
+          <li>Stay current with in-app notifications and release updates.</li>
+        </ul>
+      </section>
+
+      <footer className="updates-about-footer">
+        <a
+          href={DOCVEX_SITE}
+          className="updates-about-link"
+          target="_blank"
+          rel="noreferrer"
+          onClick={openSite}
+        >
+          docvex.ro
+        </a>
+        <span className="updates-about-sep">·</span>
+        <span>
+          {currentVersion ? `Version ${currentVersion}` : 'Desktop & web client'}
+        </span>
+        <span className="updates-about-sep">·</span>
+        <span>© {new Date().getFullYear()} DocVex</span>
+      </footer>
+    </div>
+  );
+}
+
+// Body content for the Contact us tab. Surfaces three ways to reach
+// the team: the in-app Report-a-problem flow (signed-in only — the
+// support function reads the user's JWT), and two mailto links for
+// general questions. On Electron we delegate the mailto: open to the
+// main process so the default-handler fires there rather than
+// navigating the renderer.
+function ContactTabBody() {
+  const { session } = useAuth();
+  const { captureAndOpen: openReportProblem, capturing } = useReportProblem();
+
+  const openMail = (address) => (e) => {
+    if (!isElectron) return;
+    e.preventDefault();
+    platformOpenExternal(`mailto:${address}`);
+  };
+  const openSite = (e) => {
+    if (!isElectron) return;
+    e.preventDefault();
+    platformOpenExternal(DOCVEX_SITE);
+  };
+
+  return (
+    <div className="updates-about-body">
+      {session && (
+        <section className="updates-card">
+          <h2 className="updates-card-title">Report a problem</h2>
+          <p className="updates-card-body">
+            Send the team a description plus an automatic screenshot of what
+            you're looking at right now. Fastest path for anything that's
+            broken or behaving unexpectedly.
+          </p>
+          <button
+            type="button"
+            className="updates-card-cta"
+            onClick={openReportProblem}
+            disabled={capturing}
+          >
+            {capturing ? 'Capturing screenshot…' : 'Open report form'}
+          </button>
+        </section>
+      )}
+
+      <section className="updates-card">
+        <h2 className="updates-card-title">Email us</h2>
+        <p className="updates-card-body">
+          For general questions, partnership enquiries, or anything that
+          doesn't fit a bug report.
+        </p>
+        <ul className="updates-contact-list">
+          <li>
+            <span className="updates-contact-label">Support</span>
+            <a
+              className="updates-about-link"
+              href={`mailto:${SUPPORT_EMAIL}`}
+              onClick={openMail(SUPPORT_EMAIL)}
+            >
+              {SUPPORT_EMAIL}
+            </a>
+          </li>
+          <li>
+            <span className="updates-contact-label">Team</span>
+            <a
+              className="updates-about-link"
+              href={`mailto:${TEAM_EMAIL}`}
+              onClick={openMail(TEAM_EMAIL)}
+            >
+              {TEAM_EMAIL}
+            </a>
+          </li>
+        </ul>
+      </section>
+
+      <footer className="updates-about-footer">
+        <a
+          href={DOCVEX_SITE}
+          className="updates-about-link"
+          target="_blank"
+          rel="noreferrer"
+          onClick={openSite}
+        >
+          docvex.ro
+        </a>
+      </footer>
+    </div>
+  );
+}
+
 export default function Updates() {
   const { releases, currentVersion, loading, error } = useUpdates();
+
+  // Active tab. Defaults to 'updates' because that was the page's prior
+  // sole purpose; About + Contact us are the new additions that joined
+  // the same hub when the sidebar's brand button started routing here.
+  const [activeTab, setActiveTab] = useState('updates');
 
   // Revert-confirmation modal state. `pendingRevert` holds the release the
   // user is about to roll back to (null when no modal). One state object
@@ -239,13 +397,42 @@ export default function Updates() {
 
   const pendingVer = pendingRevert ? versionTagFor(pendingRevert).replace(/^v/, '') : '';
 
+  const tabs = [
+    { id: 'updates', label: 'Updates' },
+    { id: 'about',   label: 'About' },
+    { id: 'contact', label: 'Contact us' },
+  ];
+
   return (
     <div className="updates-page">
       <header className="updates-header">
-        <h1 className="updates-title">Updates</h1>
-        <p className="updates-subtitle">Version history and release notes from GitHub.</p>
+        <h1 className="updates-title">About</h1>
+        <p className="updates-subtitle">{ABOUT_SUBTITLE}</p>
       </header>
 
+      {/* Tab bar — same underline pattern as ProjectDashboard. role="tablist"
+          so screen readers announce the relationship; each button is a tab
+          whose pressed state mirrors activeTab. */}
+      <div className="updates-tabs" role="tablist" aria-label="About sections">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === t.id}
+            className={`updates-tab ${activeTab === t.id ? 'is-active' : ''}`}
+            onClick={() => setActiveTab(t.id)}
+          >
+            <span>{t.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'about'   && <AboutTabBody />}
+      {activeTab === 'contact' && <ContactTabBody />}
+
+      {activeTab === 'updates' && (
+      <>
       <StatusBanner />
 
       <section className="updates-releases">
@@ -335,25 +522,30 @@ export default function Updates() {
                 // corner without consuming layout space — release notes
                 // flow as if the button weren't there.
                 return (
-                  <button
-                    type="button"
-                    className="release-revert-btn"
-                    onClick={() => setup && requestRevert(release)}
-                    disabled={!setup}
-                    title={
+                  <Tooltip
+                    content={
                       setup
                         ? `Download v${ver}'s installer to revert. Heads up: auto-update will pull the latest version again on next launch.`
                         : 'No Setup.exe asset on this release.'
                     }
                   >
-                    {RevertIcon} Revert to this version
-                  </button>
+                    <button
+                      type="button"
+                      className="release-revert-btn"
+                      onClick={() => setup && requestRevert(release)}
+                      disabled={!setup}
+                    >
+                      {RevertIcon} Revert to this version
+                    </button>
+                  </Tooltip>
                 );
               })()}
             </article>
           );
         })}
       </section>
+      </>
+      )}
 
       {/* Confirm before triggering a downgrade download. Two reasons:
           (1) Reverting opens a system installer and replaces the running

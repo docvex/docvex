@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { isNotificationsStorageKey } from '../lib/notifications';
 import { deleteAllForUser as deleteAllNotificationsForUser } from '../lib/notificationsRepo';
+import { sendWelcomeEmail } from '../lib/sendWelcome';
 import { PENDING_INVITE_TOKEN_KEY } from '../pages/Projects/InviteAccept';
 import {
   isElectron,
@@ -80,6 +81,35 @@ export function AuthProvider({ children }) {
             navigate(`/invite/${pending}`, { replace: true });
           }
         } catch { /* sessionStorage may be unavailable; non-fatal */ }
+
+        // Welcome email — sent exactly once per account, on the first
+        // SIGNED_IN where `user_metadata.welcome_email_sent` is missing.
+        // The flag lives on auth.users.raw_user_meta_data so it survives
+        // device switches and reinstalls. Fire-and-forget; never blocks
+        // the sign-in UX. On send failure the flag stays unset and the
+        // next sign-in retries.
+        if (session?.user && !session.user.user_metadata?.welcome_email_sent) {
+          (async () => {
+            try {
+              const { error } = await sendWelcomeEmail();
+              if (error) {
+                console.warn('[auth] welcome email failed', error);
+                return;
+              }
+              const { error: updErr } = await supabase.auth.updateUser({
+                data: { welcome_email_sent: true },
+              });
+              if (updErr) {
+                // The send succeeded but the flag write failed — the
+                // next sign-in will try to resend. Log so a recurring
+                // duplicate is debuggable.
+                console.warn('[auth] welcome_email_sent flag write failed', updErr);
+              }
+            } catch (err) {
+              console.warn('[auth] welcome email crashed', err);
+            }
+          })();
+        }
       }
     });
 

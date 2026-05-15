@@ -11,6 +11,9 @@ import { ReportProblemProvider } from '../context/ReportProblemContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { clearSignedUrlCache } from '../lib/projectFiles';
 import { clearPdfCache } from '../lib/pdfCache';
+import { sendInviteDebug } from '../lib/projects';
+import { sendSupportReport } from '../lib/support';
+import { sendWelcomeEmail } from '../lib/sendWelcome';
 import { TEST_NOTIFICATIONS, TEST_NOTIFICATION_STAGGER_MS } from '../notifications/testNotifications';
 import './AppShell.css';
 
@@ -78,6 +81,96 @@ function useDebugSendTestNotifications(notify) {
   }, [notify]);
 }
 
+// Subscribes to the main process's "DEBUG → Send all email previews to me"
+// menu click. Fires every transactional email Edge Function with the
+// `debug: true` flag so each template lands in the signed-in user's own
+// inbox. Each send is reported to the renderer via a toast naming the
+// template + success/failure so the user knows which ones worked.
+//
+// The three calls run in parallel — failures on one don't block the
+// others. Slight stagger isn't needed (Resend handles concurrent
+// requests fine), and parallel feels snappier than serial when the
+// user is previewing a redesign.
+function useDebugSendEmailPreviews(notify) {
+  useEffect(() => {
+    const off = window.electronAPI?.onDebugSendEmailPreviews?.(async () => {
+      notify?.({
+        category: 'system',
+        variant: 'info',
+        priority: 'low',
+        icon: 'sparkles',
+        title: 'Sending email previews',
+        body: 'Welcome, invite, and support-report templates are being sent to your inbox.',
+        dedupeKey: 'debug-emails-start',
+      });
+
+      const targets = [
+        { label: 'Welcome',         run: () => sendWelcomeEmail({ debug: true }) },
+        { label: 'Invite',          run: () => sendInviteDebug() },
+        { label: 'Support report',  run: () => sendSupportReport({
+          subject: 'Template preview',
+          description: 'Triggered from DEBUG → Send all email previews to me. This row exists only so the support-report template renders end-to-end.',
+          debug: true,
+        }) },
+      ];
+
+      await Promise.all(targets.map(async ({ label, run }) => {
+        try {
+          const { data, error } = await run();
+          if (error) {
+            notify?.({
+              category: 'system',
+              variant: 'error',
+              priority: 'high',
+              icon: 'alert',
+              title: `${label} preview failed`,
+              body: error.message || 'Unknown error',
+              dedupeKey: `debug-email-${label}-error`,
+            });
+            return;
+          }
+          // Most functions return `email_status` in `data`. When it's
+          // anything other than 'sent' the email didn't actually land —
+          // surface that so the user doesn't go searching their inbox.
+          const status = data?.email_status;
+          if (status && status !== 'sent') {
+            notify?.({
+              category: 'system',
+              variant: 'warning',
+              priority: 'normal',
+              icon: 'alert',
+              title: `${label}: ${status}`,
+              body: data?.email_error || 'See Edge Function logs for details.',
+              dedupeKey: `debug-email-${label}-${status}`,
+            });
+            return;
+          }
+          notify?.({
+            category: 'system',
+            variant: 'success',
+            priority: 'low',
+            icon: 'sparkles',
+            title: `${label} sent`,
+            body: 'Check your inbox to preview the template.',
+            dedupeKey: `debug-email-${label}-sent`,
+          });
+        } catch (err) {
+          notify?.({
+            category: 'system',
+            variant: 'error',
+            priority: 'high',
+            icon: 'alert',
+            title: `${label} preview crashed`,
+            body: String(err?.message ?? err),
+            dedupeKey: `debug-email-${label}-crash`,
+          });
+        }
+      }));
+    });
+    return () => { if (typeof off === 'function') off(); };
+  }, [notify]);
+}
+
 function useCursorSpotlight() {
   useEffect(() => {
     const root = document.documentElement;
@@ -120,6 +213,9 @@ function isProjectScopedRoute(pathname) {
   if (pathname === '/files' || pathname.startsWith('/files/')) return true;
   if (pathname === '/clients' || pathname.startsWith('/clients/')) return true;
   if (pathname === '/todos' || pathname.startsWith('/todos/')) return true;
+  if (pathname === '/chat' || pathname.startsWith('/chat/')) return true;
+  if (pathname === '/generate' || pathname.startsWith('/generate/')) return true;
+  if (pathname === '/automate' || pathname.startsWith('/automate/')) return true;
   if (pathname === '/projects' || pathname === '/projects/') return false;
   if (pathname === '/projects/new') return false;
   if (pathname.startsWith('/projects/')) {
@@ -139,6 +235,7 @@ export default function AppShell() {
   useCursorSpotlight();
   useDebugClearCacheMenu(notify);
   useDebugSendTestNotifications(notify);
+  useDebugSendEmailPreviews(notify);
   return (
     <ReportProblemProvider>
       <div className="app-shell">

@@ -11,6 +11,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { getProject, listMembers } from '../lib/projects';
 import { listCustomRoles, subscribeForProjectRoles } from '../lib/customRoles';
+import { markProjectAccessed } from '../lib/recentProjects';
 import { useAuth } from './AuthContext';
 
 // Scoped to a single /projects/:projectId subtree. Mounted by App.jsx only
@@ -110,7 +111,12 @@ export function ProjectProvider({ children }) {
     setCustomRoles(rolesErr ? [] : (rolesData || []));
     setError(null);
     setLoading(false);
-  }, [projectId]);
+    // Stamp the recency map so visiting a project's Overview or Dashboard
+    // counts as "accessed" even when the selection wasn't changed via the
+    // picker. selectProject already stamps on picker selection; this catches
+    // the URL-nav-to-overview path that doesn't go through selectProject.
+    if (projData?.id && selfUserId) markProjectAccessed(selfUserId, projData.id, projData.name);
+  }, [projectId, selfUserId]);
 
   // Initial load when projectId changes. Reset loading so the consumer can
   // distinguish "no project yet" from "switched projects".

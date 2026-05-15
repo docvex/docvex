@@ -1,15 +1,57 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { listMyProjects, PROJECTS_CHANGED_EVENT } from '../lib/projects';
+import { sortProjectsByRecent, getMostRecentProjectId } from '../lib/recentProjects';
+import Tooltip from './Tooltip';
 import './ProjectPickerPanel.css';
+
+// Cached project count, keyed per signed-in user, so the skeleton on the next
+// open matches what the user is about to see (no count-shift on hand-off).
+// The cache is written after every successful listMyProjects() resolution.
+// First-ever open returns null and the skeleton falls back to a small default.
+// localStorage can throw in private-browsing / quota-exceeded modes — the
+// reads/writes swallow those errors and the skeleton just uses the default.
+const PROJECTS_COUNT_KEY = (userId) => `docvex:projects-count:${userId}`;
+const DEFAULT_SKELETON_COUNT = 4;
+
+function readCachedProjectsCount(userId) {
+  if (!userId) return null;
+  try {
+    const raw = localStorage.getItem(PROJECTS_COUNT_KEY(userId));
+    if (raw === null) return null;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedProjectsCount(userId, count) {
+  if (!userId) return;
+  try {
+    localStorage.setItem(PROJECTS_COUNT_KEY(userId), String(count));
+  } catch { /* see read above */ }
+}
 
 // Inline icons (match the rest of the codebase's stroke-icon convention).
 const CloseIcon = (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <line x1="18" y1="6" x2="6" y2="18"/>
     <line x1="6" y1="6" x2="18" y2="18"/>
+  </svg>
+);
+
+// Two-person silhouette for the per-row members count — same glyph used
+// by .project-card-meta in ProjectList so the "N members" affordance reads
+// the same on both surfaces.
+const UsersIcon = (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+    <circle cx="9" cy="7" r="4"/>
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
   </svg>
 );
 
@@ -24,6 +66,9 @@ function isProjectScopedPath(pathname) {
   if (pathname === '/files'    || pathname.startsWith('/files/'))    return true;
   if (pathname === '/clients'  || pathname.startsWith('/clients/'))  return true;
   if (pathname === '/todos'    || pathname.startsWith('/todos/'))    return true;
+  if (pathname === '/chat'     || pathname.startsWith('/chat/'))     return true;
+  if (pathname === '/generate' || pathname.startsWith('/generate/')) return true;
+  if (pathname === '/automate' || pathname.startsWith('/automate/')) return true;
   // /projects/:id/dashboard — anything ending in /dashboard under /projects/
   return /^\/projects\/[^/]+\/dashboard\/?$/.test(pathname);
 }
@@ -49,6 +94,25 @@ export default function ProjectPickerPanel() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState(null);
+
+  // Sort projects by per-user recency. Pinned to the (userId, projects, pickerOpen)
+  // tuple so the order refreshes every time the picker reopens — the recency
+  // map may have been stamped by a navigation that happened while the panel
+  // was closed. pickerOpen as a dep is intentional: ordering changes are
+  // user-visible only on open, so we recompute exactly then.
+  const userId = session?.user?.id ?? null;
+  // The pickerOpen dependency is what triggers a re-sort on each open — its
+  // value is read by the hook even though we don't reference it directly.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const orderedProjects = useMemo(
+    () => sortProjectsByRecent(userId, projects),
+    [userId, projects, pickerOpen],
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const mostRecentId = useMemo(
+    () => getMostRecentProjectId(userId),
+    [userId, projects, pickerOpen],
+  );
 
   // Cache the project list across panel opens — the panel opens often (every
   // click on the trigger) and re-fetching on every open is wasteful. The
@@ -86,7 +150,13 @@ export default function ProjectPickerPanel() {
       setProjects(data || []);
       setError(error);
       setLoading(false);
-      if (!error) hasFetchedRef.current = true;
+      if (!error) {
+        hasFetchedRef.current = true;
+        // Cache the count so the next open's skeleton matches the real list
+        // length — keeps the row rhythm steady when the user reopens the
+        // picker and the fetch is still in flight.
+        writeCachedProjectsCount(session?.user?.id, (data || []).length);
+      }
     });
     return () => { cancelled = true; };
   }, [pickerOpen, session]);
@@ -181,18 +251,24 @@ export default function ProjectPickerPanel() {
           {/* Top-right close X — mirrors Esc / backdrop-click but gives the
               user a visible, mouse-only escape hatch right where they
               expect it on most modal-ish overlays. */}
-          <button
-            type="button"
-            className="project-picker-panel-close"
-            onClick={closePicker}
-            aria-label="Close project picker"
-            title="Close"
-          >
-            {CloseIcon}
-          </button>
+          <Tooltip content="Close">
+            <button
+              type="button"
+              className="project-picker-panel-close"
+              onClick={closePicker}
+              aria-label="Close project picker"
+            >
+              {CloseIcon}
+            </button>
+          </Tooltip>
         </header>
         <ul className="project-picker-panel-list">
-          {loading && Array.from({ length: 4 }).map((_, i) => (
+          {loading && Array.from({
+            // Per-user cache: the next open's skeleton renders the same number
+            // of rows the user just saw. Falls back to DEFAULT_SKELETON_COUNT
+            // on first-ever open (no cache yet) so we always show something.
+            length: readCachedProjectsCount(session?.user?.id) ?? DEFAULT_SKELETON_COUNT,
+          }).map((_, i) => (
             <li key={`skel-${i}`} className="project-picker-panel-skel-item" aria-hidden="true">
               <div className="skel-bar project-picker-panel-skel-row" />
             </li>
@@ -205,16 +281,46 @@ export default function ProjectPickerPanel() {
           {!loading && !error && projects.length === 0 && (
             <li className="project-picker-panel-state">No projects yet</li>
           )}
-          {!loading && projects.map((p) => (
+          {!loading && orderedProjects.map((p) => (
             <li key={p.id}>
-              <button
-                type="button"
-                className={`project-picker-panel-row${p.id === selectedProjectId ? ' is-current' : ''}`}
-                onClick={() => onPick(p)}
-                title={p.id === selectedProjectId ? 'Currently selected' : `Switch to ${p.name}`}
-              >
-                {p.name}
-              </button>
+              <Tooltip content={p.id === selectedProjectId ? 'Currently selected' : `Switch to ${p.name}`}>
+                <button
+                  type="button"
+                  className={`project-picker-panel-row${p.id === selectedProjectId ? ' is-current' : ''}`}
+                  onClick={() => onPick(p)}
+                >
+                  {/* Left column — project name on top, role pill + optional
+                      "Most recent" pill stacked below. Gets the spare
+                      horizontal room and ellipsizes long names. */}
+                  <div className="project-picker-panel-row-main">
+                    <span className="project-picker-panel-row-name">{p.name}</span>
+                    <div className="project-picker-panel-row-tags">
+                      {p.role && (
+                        <span className={`project-picker-panel-row-role role-${p.role}`}>
+                          {p.role}
+                        </span>
+                      )}
+                      {p.id === mostRecentId && (
+                        <span className="project-picker-panel-row-recent">Most recent</span>
+                      )}
+                    </div>
+                  </div>
+                  {/* Right column — members icon + count, vertically centered
+                      against the whole row. Falls back to "—" when the row
+                      doesn't carry a member_count (defensive; listMyProjects
+                      always returns the embed count). */}
+                  <span className="project-picker-panel-row-members" aria-label={
+                    typeof p.member_count === 'number'
+                      ? `${p.member_count} ${p.member_count === 1 ? 'member' : 'members'}`
+                      : 'Members'
+                  }>
+                    {UsersIcon}
+                    <span className="project-picker-panel-row-members-count">
+                      {typeof p.member_count === 'number' ? p.member_count : '—'}
+                    </span>
+                  </span>
+                </button>
+              </Tooltip>
             </li>
           ))}
         </ul>
@@ -225,14 +331,15 @@ export default function ProjectPickerPanel() {
             project. */}
         {selectedProjectId && (
           <footer className="project-picker-panel-footer">
-            <button
-              type="button"
-              className="project-picker-panel-clear"
-              onClick={onClear}
-              title="Work without a project selected"
-            >
-              Select no project
-            </button>
+            <Tooltip content="Work without a project selected">
+              <button
+                type="button"
+                className="project-picker-panel-clear"
+                onClick={onClear}
+              >
+                Select no project
+              </button>
+            </Tooltip>
           </footer>
         )}
       </aside>

@@ -10,6 +10,7 @@ import {
 } from '../lib/projectFiles';
 import FilePreview from './FilePreview';
 import StatusBadge from './StatusBadge';
+import Tooltip from './Tooltip';
 // Re-use the .modal-btn / .modal-btn-cancel / .modal-btn-destructive
 // rules from the shared modal stylesheet so the action buttons inherit
 // the same look the other modals use.
@@ -353,19 +354,22 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
     >
       <div className="file-detail-card">
         <header className="file-detail-header">
-          <h2 id="file-detail-title" className="file-detail-title" title={file.name}>
-            {file.name}
-          </h2>
-          <button
-            type="button"
-            className="file-detail-close"
-            onClick={onClose}
-            disabled={pendingDelete}
-            aria-label="Close"
-            title="Close"
-          >
-            {CloseIcon}
-          </button>
+          <Tooltip content={file.name}>
+            <h2 id="file-detail-title" className="file-detail-title">
+              {file.name}
+            </h2>
+          </Tooltip>
+          <Tooltip content="Close">
+            <button
+              type="button"
+              className="file-detail-close"
+              onClick={onClose}
+              disabled={pendingDelete}
+              aria-label="Close"
+            >
+              {CloseIcon}
+            </button>
+          </Tooltip>
         </header>
 
         <div className="file-detail-body">
@@ -421,14 +425,15 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
                   <div className="file-detail-hint">Cmd/Ctrl+Enter to save · Esc to cancel</div>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  className={`file-detail-description-view${hasDescription ? '' : ' is-empty'}`}
-                  onClick={startEditing}
-                  title="Click to edit"
-                >
-                  {hasDescription ? file.description : 'Add a description…'}
-                </button>
+                <Tooltip content="Click to edit">
+                  <button
+                    type="button"
+                    className={`file-detail-description-view${hasDescription ? '' : ' is-empty'}`}
+                    onClick={startEditing}
+                  >
+                    {hasDescription ? file.description : 'Add a description…'}
+                  </button>
+                </Tooltip>
               )}
             </section>
 
@@ -458,27 +463,29 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
             </section>
 
             <div className="file-detail-actions">
-              <button
-                type="button"
-                className="modal-btn modal-btn-cancel file-detail-action"
-                onClick={handleView}
-                disabled={pendingDelete}
-                title="Open the file in a new tab"
-              >
-                {ExternalLinkIcon}
-                <span>View</span>
-              </button>
-              {canDelete && (
+              <Tooltip content="Open the file in a new tab">
                 <button
                   type="button"
-                  className="modal-btn modal-btn-destructive file-detail-action"
-                  onClick={() => setConfirmingDelete(true)}
+                  className="modal-btn modal-btn-cancel file-detail-action"
+                  onClick={handleView}
                   disabled={pendingDelete}
-                  title="Delete this file"
                 >
-                  {TrashIcon}
-                  <span>Delete</span>
+                  {ExternalLinkIcon}
+                  <span>View</span>
                 </button>
+              </Tooltip>
+              {canDelete && (
+                <Tooltip content="Delete this file">
+                  <button
+                    type="button"
+                    className="modal-btn modal-btn-destructive file-detail-action"
+                    onClick={() => setConfirmingDelete(true)}
+                    disabled={pendingDelete}
+                  >
+                    {TrashIcon}
+                    <span>Delete</span>
+                  </button>
+                </Tooltip>
               )}
             </div>
           </aside>

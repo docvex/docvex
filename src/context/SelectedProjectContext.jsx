@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import { useAuth } from './AuthContext';
 import { getProject } from '../lib/projects';
+import { markProjectAccessed } from '../lib/recentProjects';
 
 // Tracks which project the user is "working in" right now. Distinct from
 // ProjectContext (which is URL-scoped, used inside /projects/:projectId):
@@ -146,6 +147,12 @@ export function SelectedProjectProvider({ children }) {
       if (id) localStorage.setItem(storageKey(userId), id);
       else    localStorage.removeItem(storageKey(userId));
     } catch { /* private mode / quota — non-fatal */ }
+    // Stamp the recency map so the "Most recent" badge + the
+    // sort-to-top behavior in project lists tracks every selection.
+    // Skips on clear (id == null) — clearing isn't an access event.
+    // Pass the prefetched name when available so the sidebar bookmark
+    // row can render meaningful copy without an extra fetch.
+    if (id) markProjectAccessed(userId, id, prefetched?.name ?? null);
   }, [userId]);
 
   const clearSelection = useCallback(() => selectProject(null), [selectProject]);

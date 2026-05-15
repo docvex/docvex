@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CAPABILITIES, createCustomRole, updateCustomRole, resolveCapability, cycleCapability } from '../lib/customRoles';
 import { builtInLabel } from './RoleBadge';
+import Tooltip from './Tooltip';
 import './ConfirmModal.css';
 import './InviteMemberModal.css';
 import './CustomRoleEditor.css';
@@ -239,25 +240,25 @@ export default function CustomRoleEditor({ open, role, projectId, onClose, onSav
                     ? (effective ? 'Granted (override)' : 'Revoked (override)')
                     : (baseDefault ? 'Inherited (granted)' : 'Inherited (not granted)');
                   return (
-                    <button
-                      type="button"
-                      key={cap.id}
-                      className={`custom-role-editor-cap-row${effective ? ' is-granted' : ''}${hasOverride ? ' is-override' : ''}`}
-                      onClick={() => cycleOverride(cap.id)}
-                      disabled={pending}
-                      title={`Click to ${hasOverride ? 'clear override' : 'override'}`}
-                    >
-                      <div className="custom-role-editor-cap-info">
-                        <div className="custom-role-editor-cap-label">{cap.label}</div>
-                        <div className="custom-role-editor-cap-hint">{cap.hint}</div>
-                      </div>
-                      <div className="custom-role-editor-cap-state">
-                        <span className="custom-role-editor-cap-state-text">{stateLabel}</span>
-                        <span className={`custom-role-editor-cap-pill${effective ? ' is-granted' : ' is-revoked'}`}>
-                          {effective ? 'On' : 'Off'}
-                        </span>
-                      </div>
-                    </button>
+                    <Tooltip key={cap.id} content={`Click to ${hasOverride ? 'clear override' : 'override'}`}>
+                      <button
+                        type="button"
+                        className={`custom-role-editor-cap-row${effective ? ' is-granted' : ''}${hasOverride ? ' is-override' : ''}`}
+                        onClick={() => cycleOverride(cap.id)}
+                        disabled={pending}
+                      >
+                        <div className="custom-role-editor-cap-info">
+                          <div className="custom-role-editor-cap-label">{cap.label}</div>
+                          <div className="custom-role-editor-cap-hint">{cap.hint}</div>
+                        </div>
+                        <div className="custom-role-editor-cap-state">
+                          <span className="custom-role-editor-cap-state-text">{stateLabel}</span>
+                          <span className={`custom-role-editor-cap-pill${effective ? ' is-granted' : ' is-revoked'}`}>
+                            {effective ? 'On' : 'Off'}
+                          </span>
+                        </div>
+                      </button>
+                    </Tooltip>
                   );
                 })}
               </div>

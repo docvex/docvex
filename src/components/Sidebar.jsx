@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useUpdates } from '../context/UpdatesContext';
@@ -9,6 +8,7 @@ import { useReportProblem } from '../context/ReportProblemContext';
 import { PLAN } from '../lib/plan';
 import StatusBadge from './StatusBadge';
 import StatusPicker from './StatusPicker';
+import Tooltip from './Tooltip';
 import { updateStatus, DEFAULT_STATUS_KEY } from '../lib/userStatus';
 // Vite imports the asset, hashes it, and emits an asset reference.
 // Chromium (Electron's renderer) renders .ico in <img> tags, so the same
@@ -93,6 +93,29 @@ const ClientsIcon = (
   </svg>
 );
 
+// Speech bubble for the Chat tab.
+const ChatIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+  </svg>
+);
+
+// Sparkles for the Generate tab — reads as "AI / create".
+const GenerateIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z"/>
+    <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8z"/>
+    <path d="M5 4l.7 1.9L7.6 6.6 5.7 7.3 5 9.2 4.3 7.3 2.4 6.6l1.9-.7z"/>
+  </svg>
+);
+
+// Lightning bolt for the Automate tab — universal "automation / workflow" glyph.
+const AutomateIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+  </svg>
+);
+
 const SwitchIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="17 1 21 5 17 9"/>
@@ -107,17 +130,6 @@ const SignInIcon = (
     <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
     <polyline points="10 17 15 12 10 7"/>
     <line x1="15" y1="12" x2="3" y2="12"/>
-  </svg>
-);
-
-// Speech bubble with an exclamation mark — universal "report a
-// problem" affordance. Stroke uses currentColor so the icon picks up
-// the nav-item's hover / focus / active color state for free.
-const ReportProblemIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
-    <line x1="12" y1="8" x2="12" y2="12"/>
-    <line x1="12" y1="16" x2="12.01" y2="16"/>
   </svg>
 );
 
@@ -226,30 +238,16 @@ export default function Sidebar() {
     try { localStorage.setItem(LOCK_STORAGE_KEY, String(locked)); } catch { /* ignore */ }
   }, [locked]);
 
-  // Cursor-following pill shown while hovering the Projects-section nav
-  // items with NO project selected. The three rows (Dashboard / Files /
-  // To-dos) render as disabled buttons in that state — the pill makes
-  // the "why these are dimmed" affordance explicit without forcing the
-  // user to wait for a native title tooltip.
-  //
-  // Position is the cursor's viewport coordinates with an 8px offset so
-  // the pill sits just below-right of the pointer — close enough to read
-  // as attached to the cursor without the cursor visual overlapping the
-  // pill box. null means hidden. Rendered via createPortal at <body>
-  // level because `.sidebar` has `contain: layout`, which makes it a
-  // containing block for `position: fixed` descendants — without the
-  // portal the pill would be clipped to the 60-220px sidebar column.
-  const [lockedHintPos, setLockedHintPos] = useState(null);
-  const showLockedHint = (e) => setLockedHintPos({ x: e.clientX, y: e.clientY });
-  const hideLockedHint = () => setLockedHintPos(null);
-
-  // Once a project gets picked, the disabled buttons unmount and are
-  // replaced by real NavLinks — no `mouseleave` ever fires, so the pill
-  // state would be left stale on screen. Clearing on the same dependency
-  // that drives the swap keeps state and DOM in sync.
-  useEffect(() => {
-    if (selectedProject) setLockedHintPos(null);
-  }, [selectedProject]);
+  // Project memory / AI usage card — two states:
+  //   - minimized (default): both progress bars stacked vertically with
+  //     no labels or percentages. Reads as a compact "health strip".
+  //   - maximized: each bar gets its own labeled row (title + percent)
+  //     and a "Configure" button appears below, linking to the Projects
+  //     list (/projects) for storage/AI-quota management.
+  // Toggle by clicking the card. Local state — no persistence yet; if the
+  // user wants this to survive reloads later, swap to a localStorage-
+  // backed initializer like LOCK_STORAGE_KEY above.
+  const [usageExpanded, setUsageExpanded] = useState(false);
 
   // Project-picker state (open/close, fetching the project list, Esc to
   // close) lives in ProjectPickerPanel.jsx now — the panel owns its own
@@ -290,43 +288,50 @@ export default function Sidebar() {
     <>
     <nav className={`sidebar${locked ? ' locked' : ''}${pickerOpen ? ' picker-open' : ''}`}>
       <div className="sidebar-brand">
-        <div className="brand-left">
-          <span className="icon brand-icon">
-            <img src={brandIcon} alt="Docvex" className="brand-icon-img" />
-          </span>
-          <span className="label brand-text">
-            <span className="brand-name">DOCVEX</span>
-            {currentVersion && (
-              <NavLink
-                to="/updates"
-                end
-                className="brand-version"
-                title={hasUpdate ? 'Update available — open Updates' : 'Open Updates'}
-                onClick={closePicker}
-              >
-                {/* Once an update is pending the version number stops being
-                    the actionable info — the pill takes its slot rather than
-                    sitting next to it, so the brand block stays uncluttered
-                    and the eye lands on the call-to-action. */}
-                {hasUpdate ? (
-                  <span className="brand-version-badge">Update available</span>
+        {/* The whole brand block (icon + DOCVEX + version) is one big NavLink
+            to the About DocVex hub (/updates route — kept for backwards
+            compat). The page now hosts three tabs: Updates / About / Contact
+            us, so a single entry point covers all three. The previous
+            version-only NavLink was nested inside this div; pulling the
+            whole brand-left into the link gives the click a much larger
+            target without changing the visual. */}
+        <Tooltip content={hasUpdate ? 'About DocVex — update available' : 'Open About DocVex'}>
+          <NavLink
+            to="/updates"
+            end
+            className={({ isActive }) => `brand-left brand-link${isActive ? ' is-active' : ''}`}
+            onClick={closePicker}
+          >
+            <span className="icon brand-icon">
+              <img src={brandIcon} alt="Docvex" className="brand-icon-img" />
+            </span>
+            <span className="label brand-text">
+              <span className="brand-name">DOCVEX</span>
+              {currentVersion && (
+                // Once an update is pending the version number stops being
+                // the actionable info — the pill takes its slot rather than
+                // sitting next to it, so the brand block stays uncluttered
+                // and the eye lands on the call-to-action.
+                hasUpdate ? (
+                  <span className="brand-version brand-version-badge">Update available</span>
                 ) : (
-                  <span className="brand-version-num">v{currentVersion}</span>
-                )}
-              </NavLink>
-            )}
-          </span>
-        </div>
-        <button
-          type="button"
-          className={`label lock-btn${locked ? ' is-locked' : ''}`}
-          onClick={() => setLocked((v) => !v)}
-          title={locked ? 'Unlock sidebar' : 'Lock sidebar open'}
-          aria-label={locked ? 'Unlock sidebar' : 'Lock sidebar open'}
-          aria-pressed={locked}
-        >
-          {locked ? LockClosedIcon : LockOpenIcon}
-        </button>
+                  <span className="brand-version brand-version-num">v{currentVersion}</span>
+                )
+              )}
+            </span>
+          </NavLink>
+        </Tooltip>
+        <Tooltip content={locked ? 'Unlock sidebar' : 'Lock sidebar open'}>
+          <button
+            type="button"
+            className={`label lock-btn${locked ? ' is-locked' : ''}`}
+            onClick={() => setLocked((v) => !v)}
+            aria-label={locked ? 'Unlock sidebar' : 'Lock sidebar open'}
+            aria-pressed={locked}
+          >
+            {locked ? LockClosedIcon : LockOpenIcon}
+          </button>
+        </Tooltip>
       </div>
 
       <ul className="sidebar-nav">
@@ -372,15 +377,17 @@ export default function Sidebar() {
               <span className="label sidebar-section-label">Projects</span>
             </li>
             <li>
-              <button
-                type="button"
-                className={`project-picker-trigger${selectedProject ? ' has-selection' : ''}${switching ? ' is-switching' : ''}`}
-                onClick={togglePicker}
-                title={
+              <Tooltip
+                content={
                   switching
                     ? (switchingToName ? `Switching to ${switchingToName}…` : 'Switching project…')
                     : (selectedProject ? 'Switch project' : 'Select a project')
                 }
+              >
+              <button
+                type="button"
+                className={`project-picker-trigger${selectedProject ? ' has-selection' : ''}${switching ? ' is-switching' : ''}`}
+                onClick={togglePicker}
               >
                 {/* While a switch is in progress, replace the project name
                     with a small spinner so the trigger visibly tracks the
@@ -395,7 +402,110 @@ export default function Sidebar() {
                   )}
                 </span>
               </button>
+              </Tooltip>
             </li>
+            {/* Project memory + AI usage card — only renders when a project
+                is selected. Two states:
+                  - minimized: both bars stacked tightly together with no
+                    labels (compact "health strip").
+                  - maximized: each bar gets a labeled row + percentage,
+                    plus a "Configure" button that navigates to /projects
+                    (the project list, where storage/quota management
+                    will live).
+                The whole card is clickable to toggle the state; the
+                Configure button has stopPropagation so its click does NOT
+                also collapse the card. Tooltip only surfaces in the
+                minimized state — labels are visible in the maximized one.
+                Placeholder static percentages; wire to real per-project
+                storage + AI quota data when the schema lands. */}
+            {selectedProject && (() => {
+              const memoryPercent = 35; // TODO: wire to real per-project storage
+              const memoryLimit = '5 GB';
+              const aiPercent = 62;     // TODO: wire to real per-project AI quota
+              const aiLimit = '10k tokens';
+              const minimizedHint =
+                `Project memory ${memoryPercent}% · AI usage ${aiPercent}% — click to expand`;
+              // Tooltip content must stay non-empty for BOTH states. When
+              // it goes empty, Tooltip short-circuits to `return children`
+              // and the trigger-wrap `<span>` disappears from the DOM —
+              // which remounts the button as a fresh element on every
+              // toggle. New elements skip CSS transitions on their first
+              // computed style, killing the morph animation.
+              const expandedHint = 'Click to collapse usage';
+              return (
+                <li className={`project-usage-li${usageExpanded ? ' is-expanded' : ''}`}>
+                  <Tooltip content={usageExpanded ? expandedHint : minimizedHint}>
+                    <button
+                      type="button"
+                      className={`project-usage${usageExpanded ? ' is-expanded' : ''}`}
+                      onClick={() => setUsageExpanded((v) => !v)}
+                      aria-expanded={usageExpanded}
+                      aria-label={
+                        usageExpanded
+                          ? 'Collapse usage details'
+                          : `Project memory ${memoryPercent}% of ${memoryLimit}, AI usage ${aiPercent}% of ${aiLimit}. Click to expand.`
+                      }
+                    >
+                      {/* Memory row — label row ALWAYS renders so the
+                          minimized → expanded morph can animate the label
+                          in/out via CSS (max-height + opacity transitions
+                          on .project-usage-label-row). Conditionally
+                          rendering the label would make it pop in
+                          instantly and break the smooth morph. */}
+                      <span className="project-usage-section">
+                        {/* No `.label` class — the global `.sidebar .label`
+                            rules pin a 120ms opacity transition with a
+                            100ms transition-delay on hover/lock/picker-open
+                            that overrode our own max-height + opacity
+                            transition, making the morph look like nothing
+                            happened for the first 100ms after a click.
+                            Sidebar-collapsed visibility is handled by a
+                            dedicated `.project-usage-label-row` rule in
+                            Sidebar.css instead. */}
+                        <span className="project-usage-label-row">
+                          <span className="project-usage-label">Project Memory</span>
+                          <span className="project-usage-value">{memoryPercent}%</span>
+                        </span>
+                        <span
+                          className="project-usage-bar"
+                          role="progressbar"
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={memoryPercent}
+                        >
+                          <span
+                            className="project-usage-bar-fill"
+                            style={{ width: `${memoryPercent}%` }}
+                          />
+                        </span>
+                      </span>
+                      {/* AI usage row — same shape as memory; fill tinted
+                          differently (pink vs baby blue) so the two are
+                          distinguishable even when stacked in the
+                          minimized state with no labels visible. */}
+                      <span className="project-usage-section">
+                        <span className="project-usage-label-row">
+                          <span className="project-usage-label">AI Usage</span>
+                          <span className="project-usage-value">{aiPercent}%</span>
+                        </span>
+                        <span
+                          className="project-usage-bar"
+                          role="progressbar"
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={aiPercent}
+                        >
+                          <span
+                            className="project-usage-bar-fill project-usage-bar-fill-ai"
+                            style={{ width: `${aiPercent}%` }}
+                          />
+                        </span>
+                      </span>
+                    </button>
+                  </Tooltip>
+                </li>
+              );
+            })()}
             {selectedProject ? (
               <>
                 <li>
@@ -443,21 +553,48 @@ export default function Sidebar() {
                     <span className="label">To-dos</span>
                   </NavLink>
                 </li>
+                <li>
+                  <NavLink
+                    to="/chat"
+                    className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+                    onClick={closePicker}
+                  >
+                    <span className="icon">{ChatIcon}</span>
+                    <span className="label">Chat</span>
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/generate"
+                    className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+                    onClick={closePicker}
+                  >
+                    <span className="icon">{GenerateIcon}</span>
+                    <span className="label">Generate</span>
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/automate"
+                    className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+                    onClick={closePicker}
+                  >
+                    <span className="icon">{AutomateIcon}</span>
+                    <span className="label">Automate</span>
+                  </NavLink>
+                </li>
               </>
             ) : (
-              // Single <li> wrapping all three locked buttons so the
-              // hover zone is one continuous rectangle — the cursor
-              // moving from Dashboard → Files → To-dos never leaves
-              // this element, no mouseleave fires, the pill stays
-              // pinned and tracking. Three separate <li>s flickered
-              // the pill off-and-on in the 4px gap between rows.
-              // Internal spacing replicated via `gap: 4px` in CSS so
-              // the visual layout is byte-identical to the old version.
-              <li
-                className="locked-projects-section"
-                onMouseMove={showLockedHint}
-                onMouseLeave={hideLockedHint}
-              >
+              // Single <li> wrapping all the locked buttons so the hover
+              // zone is one continuous rectangle — the cursor moving
+              // between rows never leaves this element, no mouseleave
+              // fires on the Tooltip wrapper, and the pill stays pinned
+              // and tracking. Separate <li>s would flicker the pill
+              // off-and-on in the 4px gap between rows.
+              // Internal spacing replicated via `gap: 4px` in CSS so the
+              // visual layout is byte-identical to the old version.
+              <Tooltip content="Select a project to use these features">
+              <li className="locked-projects-section">
                 <button
                   type="button"
                   className="nav-item is-disabled"
@@ -490,34 +627,61 @@ export default function Sidebar() {
                   <span className="icon">{TodosIcon}</span>
                   <span className="label">To-dos</span>
                 </button>
+                <button
+                  type="button"
+                  className="nav-item is-disabled"
+                  onClick={togglePicker}
+                >
+                  <span className="icon">{ChatIcon}</span>
+                  <span className="label">Chat</span>
+                </button>
+                <button
+                  type="button"
+                  className="nav-item is-disabled"
+                  onClick={togglePicker}
+                >
+                  <span className="icon">{GenerateIcon}</span>
+                  <span className="label">Generate</span>
+                </button>
+                <button
+                  type="button"
+                  className="nav-item is-disabled"
+                  onClick={togglePicker}
+                >
+                  <span className="icon">{AutomateIcon}</span>
+                  <span className="label">Automate</span>
+                </button>
               </li>
+              </Tooltip>
             )}
           </>
         )}
+
       </ul>
 
       <div className="sidebar-footer">
         {session ? (() => {
           const displayName = getDisplayName(session.user);
           return (
-            <NavLink
-              to="/account"
-              end
-              className={({ isActive }) => `nav-item account-btn${isActive ? ' active' : ''}`}
-              title={`${displayName} · ${PLAN.tier}`}
-              onClick={closePicker}
-            >
-              <span className="icon">
-                <AccountAvatar
-                  user={session.user}
-                  onBadgeClick={(rect) => setStatusAnchor(rect)}
-                />
-              </span>
-              <span className="label account-btn-label">
-                <span className="account-btn-name">{displayName}</span>
-                <span className="account-btn-tier">{PLAN.tier}</span>
-              </span>
-            </NavLink>
+            <Tooltip content={`${displayName} · ${PLAN.tier}`}>
+              <NavLink
+                to="/account"
+                end
+                className={({ isActive }) => `nav-item account-btn${isActive ? ' active' : ''}`}
+                onClick={closePicker}
+              >
+                <span className="icon">
+                  <AccountAvatar
+                    user={session.user}
+                    onBadgeClick={(rect) => setStatusAnchor(rect)}
+                  />
+                </span>
+                <span className="label account-btn-label">
+                  <span className="account-btn-name">{displayName}</span>
+                  <span className="account-btn-tier">{PLAN.tier}</span>
+                </span>
+              </NavLink>
+            </Tooltip>
           );
         })() : (
           <NavLink to="/auth" className="nav-item signin-btn">
@@ -533,37 +697,21 @@ export default function Sidebar() {
             and dim it so the user gets feedback without a separate
             spinner element. */}
         {session && (
-          <button
-            type="button"
-            className="nav-item report-problem-btn"
-            onClick={openReportProblem}
-            disabled={reportCapturing}
-            title={reportCapturing ? 'Capturing screenshot…' : 'Report a problem'}
-          >
-            <span className="icon">{ReportProblemIcon}</span>
-            <span className="label">
-              {reportCapturing ? 'Capturing…' : 'Report a problem'}
-            </span>
-          </button>
+          <Tooltip content={reportCapturing ? 'Capturing screenshot…' : 'Report a problem'}>
+            <button
+              type="button"
+              className="nav-item report-problem-btn"
+              onClick={openReportProblem}
+              disabled={reportCapturing}
+            >
+              <span className="label">
+                {reportCapturing ? 'Capturing…' : 'Report a problem'}
+              </span>
+            </button>
+          </Tooltip>
         )}
       </div>
     </nav>
-    {/* Cursor-following pill, portal'd to <body> so `.sidebar`'s
-        `contain: layout` containing-block can't clip it. `pointer-events:
-        none` lives in CSS so the pill never eats hover/click events from
-        the row it's hovering over. The +8px offset places it just below-
-        right of the cursor — tight enough to read as attached to the
-        pointer but still clear of the cursor visual itself. */}
-    {lockedHintPos && createPortal(
-      <div
-        className="locked-features-hint"
-        aria-hidden="true"
-        style={{ transform: `translate(${lockedHintPos.x + 8}px, ${lockedHintPos.y + 8}px)` }}
-      >
-        Select a project to use these features
-      </div>,
-      document.body,
-    )}
     {statusAnchor && session && (
       <StatusPicker
         anchorRect={statusAnchor}

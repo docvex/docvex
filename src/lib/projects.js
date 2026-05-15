@@ -263,6 +263,17 @@ export async function sendInvite(projectId, email, role, customRoleId = null) {
   return { data, error };
 }
 
+// Debug-only: trigger the invite Edge Function with `debug: true`. The
+// function skips its capability/upsert path and sends a brand-styled
+// preview to the caller's own email — used by the DEBUG menu's "Send
+// all email previews" item. No project context required.
+export async function sendInviteDebug() {
+  const { data, error } = await supabase.functions.invoke('send-invite', {
+    body: { debug: true },
+  });
+  return { data, error };
+}
+
 export async function acceptInvite(token) {
   const { data, error } = await supabase.functions.invoke('accept-invite', {
     body: { token },
