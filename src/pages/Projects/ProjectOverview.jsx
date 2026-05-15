@@ -23,6 +23,7 @@ import RoleBadge, { builtInLabel } from '../../components/RoleBadge';
 import CustomRoleEditor from '../../components/CustomRoleEditor';
 import ConfirmModal from '../../components/ConfirmModal';
 import RoleCapabilityMatrix from '../../components/RoleCapabilityMatrix';
+import StatusBadge from '../../components/StatusBadge';
 import './ProjectDashboard.css';
 
 // Chevron-left icon for the "< Back" link — inline SVG so we don't pull in an
@@ -87,10 +88,18 @@ function getMemberName(profile) {
 function MemberAvatar({ profile }) {
   const avatarUrl = profile?.avatar_url;
   const initial = (profile?.email || profile?.full_name || '?').charAt(0).toUpperCase();
-  if (avatarUrl) {
-    return <img className="member-avatar" src={avatarUrl} alt="" referrerPolicy="no-referrer" />;
-  }
-  return <span className="member-avatar member-avatar-fallback">{initial}</span>;
+  const status = profile?.status;
+  const avatarEl = avatarUrl ? (
+    <img className="member-avatar" src={avatarUrl} alt="" referrerPolicy="no-referrer" />
+  ) : (
+    <span className="member-avatar member-avatar-fallback">{initial}</span>
+  );
+  return (
+    <span className="member-avatar-wrap">
+      {avatarEl}
+      <StatusBadge status={status} size="sm" ringColor="var(--bg-card)" />
+    </span>
+  );
 }
 
 // "Expires in N days" hint for a pending invitation. Rounds down on the day

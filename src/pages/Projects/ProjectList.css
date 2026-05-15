@@ -52,8 +52,7 @@
   border-color: var(--accent-hover);
 }
 
-/* Loading / error / empty banners */
-.projects-loading,
+/* Error / empty banners */
 .projects-error,
 .projects-empty {
   background: var(--bg-card);
@@ -205,4 +204,75 @@
   color: var(--text-muted);
   background: color-mix(in srgb, var(--text-primary) 3%, transparent);
   border-color: color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+
+/* Skeleton cards — same outer shape as .project-card so the real grid
+   drops in without layout shift. Inner placeholders are .skel-bar with
+   per-piece width/height classes below. .skel-bar + @keyframes
+   skel-shimmer are duplicated per CSS file in this codebase so each
+   component renders correctly when loaded alone — same pattern as
+   ProjectDashboardSkeleton.css / ProjectScopedSkeleton.css.
+
+   .skel-bar comes first so the per-piece classes below win on
+   border-radius via source order (e.g. .skel-card-role's 999px). */
+.skel-bar {
+  background: var(--bg-elevated);
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.skel-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--text-primary) 4%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes skel-shimmer {
+  to { transform: translateX(100%); }
+}
+
+.project-card-skeleton {
+  cursor: default;
+  pointer-events: none;
+}
+
+.project-card-skeleton:hover {
+  border-color: var(--border);
+  background: var(--bg-card);
+}
+
+.skel-card-name {
+  width: 60%;
+  height: 1rem;
+}
+
+.skel-card-role {
+  width: 3rem;
+  height: 0.9rem;
+  border-radius: 999px;
+}
+
+.skel-card-desc-1 {
+  width: 95%;
+  height: 0.85rem;
+}
+
+.skel-card-desc-2 {
+  width: 70%;
+  height: 0.85rem;
+}
+
+.skel-card-meta {
+  width: 5rem;
+  height: 0.78rem;
 }

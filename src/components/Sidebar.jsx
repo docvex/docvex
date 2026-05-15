@@ -7,6 +7,9 @@ import { useNotifications } from '../context/NotificationsContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useReportProblem } from '../context/ReportProblemContext';
 import { PLAN } from '../lib/plan';
+import StatusBadge from './StatusBadge';
+import StatusPicker from './StatusPicker';
+import { updateStatus, DEFAULT_STATUS_KEY } from '../lib/userStatus';
 // Vite imports the asset, hashes it, and emits an asset reference.
 // Chromium (Electron's renderer) renders .ico in <img> tags, so the same
 // favicon.ico the forge packager uses on Windows doubles as the in-app
@@ -134,23 +137,46 @@ const LockClosedIcon = (
 
 const LOCK_STORAGE_KEY = 'docvex.sidebarLocked';
 
-function AccountAvatar({ user }) {
+function AccountAvatar({ user, onBadgeClick }) {
   // Mirrors the Account page's avatar logic: real picture for OAuth users,
-  // initial-letter fallback for email-only sign-ups.
+  // initial-letter fallback for email-only sign-ups. Wrapped in a
+  // position-relative span so the StatusBadge can anchor to the corner.
+  // The badge is rendered as a <button> with its own onClick that stops
+  // propagation — clicking the dot opens the StatusPicker, NOT the parent
+  // NavLink's /account navigation.
   const avatarUrl = user?.user_metadata?.avatar_url;
   const initial = (user?.email || '?').charAt(0).toUpperCase();
+  const status = user?.user_metadata?.status || DEFAULT_STATUS_KEY;
 
-  if (avatarUrl) {
-    return (
-      <img
-        className="sidebar-avatar"
-        src={avatarUrl}
-        alt=""
-        referrerPolicy="no-referrer"
+  const avatarEl = avatarUrl ? (
+    <img
+      className="sidebar-avatar"
+      src={avatarUrl}
+      alt=""
+      referrerPolicy="no-referrer"
+    />
+  ) : (
+    <span className="sidebar-avatar sidebar-avatar-fallback">{initial}</span>
+  );
+
+  return (
+    <span className="sidebar-avatar-wrap">
+      {avatarEl}
+      <StatusBadge
+        status={status}
+        size="sm"
+        ringColor="var(--bg-sidebar)"
+        onClick={(e) => {
+          // Block the NavLink's /account navigation — clicking the dot
+          // is its own affordance (open the picker), not a shortcut to
+          // the Account page.
+          e.preventDefault();
+          e.stopPropagation();
+          onBadgeClick(e.currentTarget.getBoundingClientRect());
+        }}
       />
-    );
-  }
-  return <span className="sidebar-avatar sidebar-avatar-fallback">{initial}</span>;
+    </span>
+  );
 }
 
 export default function Sidebar() {
@@ -167,6 +193,10 @@ export default function Sidebar() {
   } = useSelectedProject();
   const { captureAndOpen: openReportProblem, capturing: reportCapturing } = useReportProblem();
   const { pathname } = useLocation();
+  // Status picker anchor — DOMRect of the clicked StatusBadge. null = closed.
+  // The picker re-anchors on every open (via the AccountAvatar's onBadgeClick
+  // callback) so a sidebar resize between opens doesn't leave it floating.
+  const [statusAnchor, setStatusAnchor] = useState(null);
   // Personal-section "Projects" item lights up on the project browser pages:
   //   /projects               — the list
   //   /projects/new           — the create form
@@ -478,7 +508,10 @@ export default function Sidebar() {
               onClick={closePicker}
             >
               <span className="icon">
-                <AccountAvatar user={session.user} />
+                <AccountAvatar
+                  user={session.user}
+                  onBadgeClick={(rect) => setStatusAnchor(rect)}
+                />
               </span>
               <span className="label account-btn-label">
                 <span className="account-btn-name">{displayName}</span>
@@ -530,6 +563,17 @@ export default function Sidebar() {
         Select a project to use these features
       </div>,
       document.body,
+    )}
+    {statusAnchor && session && (
+      <StatusPicker
+        anchorRect={statusAnchor}
+        currentStatus={session.user?.user_metadata?.status || DEFAULT_STATUS_KEY}
+        onPick={async (key) => {
+          setStatusAnchor(null);
+          await updateStatus(key);
+        }}
+        onClose={() => setStatusAnchor(null)}
+      />
     )}
     </>
   );

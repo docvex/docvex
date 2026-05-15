@@ -9,6 +9,7 @@ import {
   deleteProjectFile,
 } from '../lib/projectFiles';
 import FilePreview from './FilePreview';
+import StatusBadge from './StatusBadge';
 // Re-use the .modal-btn / .modal-btn-cancel / .modal-btn-destructive
 // rules from the shared modal stylesheet so the action buttons inherit
 // the same look the other modals use.
@@ -81,11 +82,19 @@ function profileDisplayName(profile) {
 // get_member_profiles row, slightly different shape).
 function UploaderAvatar({ profile }) {
   const url = profile?.avatar_url;
-  if (url) {
-    return <img className="file-detail-avatar" src={url} alt="" referrerPolicy="no-referrer" />;
-  }
   const initial = (profile?.full_name || profile?.name || profile?.email || '?').charAt(0).toUpperCase();
-  return <span className="file-detail-avatar file-detail-avatar-fallback">{initial}</span>;
+  const status = profile?.status;
+  const avatarEl = url ? (
+    <img className="file-detail-avatar" src={url} alt="" referrerPolicy="no-referrer" />
+  ) : (
+    <span className="file-detail-avatar file-detail-avatar-fallback">{initial}</span>
+  );
+  return (
+    <span className="file-detail-avatar-wrap">
+      {avatarEl}
+      <StatusBadge status={status} size="sm" ringColor="var(--bg-card)" />
+    </span>
+  );
 }
 
 export default function FileDetailModal({ file, onClose, onDeleted }) {
@@ -304,6 +313,7 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
       id: file.id,
       storagePath: file.storage_path,
       thumbnailPath: file.thumbnail_path,
+      thumbnailFrames: file.thumbnail_frames,
     });
     setPendingDelete(false);
     if (error) {

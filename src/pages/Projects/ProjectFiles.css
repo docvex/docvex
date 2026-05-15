@@ -3,16 +3,6 @@
    page container width); this file owns only what's specific to the
    list itself. */
 
-/* Inline loading line â€” small, unobtrusive. The real loader for "no
-   project selected yet" still uses ProjectScopedSkeleton (rendered
-   before this branch fires). This message is for the brief flash
-   between selecting a project and the file list resolving. */
-.project-files-loading {
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  padding: 1rem 0;
-}
-
 .project-files-error {
   background: color-mix(in srgb, var(--danger) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
@@ -155,4 +145,66 @@
   font-size: 0.72rem;
   color: var(--text-muted);
   letter-spacing: 0.02em;
+}
+
+/* Skeleton file cards â€” outer .project-files-card shape stays, inner
+   bits are .skel-bar placeholders. .skel-bar + @keyframes skel-shimmer
+   are duplicated per CSS file (same convention as ProjectDashboardSkeleton.css).
+   .skel-bar comes first so the size-specific classes below can override
+   its border-radius via source-order without bumping specificity. */
+.skel-bar {
+  background: var(--bg-elevated);
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.skel-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--text-primary) 4%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes skel-shimmer {
+  to { transform: translateX(100%); }
+}
+
+.project-files-card-skeleton {
+  cursor: default;
+  pointer-events: none;
+}
+
+.project-files-card-skeleton:hover {
+  border-color: var(--border);
+  background: var(--bg-card);
+}
+
+.skel-files-thumb {
+  /* Inherits .project-files-thumb aspect-ratio. Override the
+     border-bottom that .project-files-thumb sets and the .skel-bar
+     6px corner so the thumb meets the card edges flush (the parent
+     .project-files-card's overflow:hidden 10px radius does the
+     visible corner-rounding). */
+  border-bottom: none;
+  border-radius: 0;
+}
+
+.skel-files-name {
+  width: 80%;
+  height: 0.9rem;
+}
+
+.skel-files-sub {
+  width: 55%;
+  height: 0.72rem;
+  margin-top: 4px;
 }

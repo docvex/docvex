@@ -21,6 +21,29 @@ const UsersIcon = (
   </svg>
 );
 
+// Shimmering grid of card-shaped placeholders shown while listMyProjects()
+// resolves. Mirrors .project-card dimensions so the real cards drop into
+// the same slots without layout shift.
+function ProjectListSkeleton() {
+  return (
+    <section className="projects-grid" aria-hidden="true">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="project-card project-card-skeleton">
+          <div className="project-card-header">
+            <div className="skel-bar skel-card-name" />
+            <div className="skel-bar skel-card-role" />
+          </div>
+          <div className="skel-bar skel-card-desc-1" />
+          <div className="skel-bar skel-card-desc-2" />
+          <div className="project-card-meta">
+            <div className="skel-bar skel-card-meta" />
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 // Empty state when the user is in zero projects. Same CTA as the header so
 // there's nothing to learn — first thing visible is "make one".
 function EmptyState() {
@@ -103,7 +126,7 @@ export default function ProjectList() {
         </Link>
       </header>
 
-      {loading && <div className="projects-loading">Loading projects…</div>}
+      {loading && <ProjectListSkeleton />}
 
       {error && (
         <div className="projects-error">

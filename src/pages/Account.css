@@ -12,12 +12,29 @@
   padding: 0.5rem 0 1rem;
 }
 
+/* Positioning context for the activity-status dot on the header avatar.
+   inline-block so the wrapper hugs the 64px avatar instead of stretching
+   to fill the header row's flex track. */
+.account-avatar-wrap {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
 .account-avatar {
   width: 64px;
   height: 64px;
   border-radius: 50%;
   object-fit: cover;
   background: var(--bg-elevated);
+}
+
+/* Use the page background as the badge's ring so it cuts a clean visual
+   hole into whatever surface sits behind the header avatar. */
+.account-avatar-wrap .status-badge {
+  bottom: 2px;
+  right: 2px;
+  --status-ring: var(--bg-page);
 }
 
 .account-avatar-fallback {
@@ -321,4 +338,109 @@
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   border-color: var(--danger-soft);
   color: var(--danger-text);
+}
+
+/* ── Activity status card ──────────────────────────────────────────────── */
+
+/* Lead text under the Activity status heading. Same spacing as a card-
+   level subtitle in other places, so the card visually reads as a
+   sibling of the Account information grid above it. */
+.account-card-subtitle {
+  margin: -0.5rem 0 0.85rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.account-status-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.account-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: inherit;
+  text-align: left;
+  transition: background 120ms, border-color 120ms;
+}
+
+.account-status-row:hover {
+  background: var(--bg-elevated);
+}
+
+.account-status-row.is-selected {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.account-status-row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.account-status-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--status-color);
+  flex-shrink: 0;
+}
+
+.account-status-dot-offline {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--status-color);
+}
+
+.account-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.account-status-label {
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.account-status-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.account-status-check {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* Inline error displayed if updateUser fails — same red-tint surface
+   as the existing project-dashboard-error styling so the visual feels
+   consistent across the app. */
+.account-status-error {
+  margin-top: 0.75rem;
+  padding: 0.55rem 0.8rem;
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  border-radius: 7px;
+  color: var(--danger-soft);
+  font-size: 0.85rem;
 }

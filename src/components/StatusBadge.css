@@ -1,0 +1,53 @@
+/* Status dot sitting on the bottom-right corner of an avatar. The
+   surrounding container needs `position: relative` for this to anchor
+   correctly — every consumer wraps the avatar in a *-avatar-wrap
+   element to provide that. */
+.status-badge {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  border-radius: 50%;
+  background: var(--status-color);
+  /* The 2px ring is what visually separates the dot from the avatar
+     image behind it. Color comes from a CSS var so each surface can
+     match its own background (sidebar vs. account page vs. modal). */
+  box-shadow: 0 0 0 2px var(--status-ring, var(--bg-page));
+  /* Block-level so children-less elements still claim their size. */
+  display: block;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+}
+
+/* Hollow ring for the 'offline' state — same convention as Discord/Slack.
+   Color sits on the ring (`box-shadow` inset replaces the fill). */
+.status-badge-offline {
+  background: var(--status-ring, var(--bg-page));
+  box-shadow:
+    0 0 0 2px var(--status-ring, var(--bg-page)),
+    inset 0 0 0 2px var(--status-color);
+}
+
+/* Size variants. `sm` for small avatars (32px in lists / tree cards /
+   sidebar footer); `md` for the file-detail modal's medium avatar; `lg`
+   for the Account page header's big avatar. */
+.status-badge-sm { width: 10px; height: 10px; }
+.status-badge-md { width: 14px; height: 14px; }
+.status-badge-lg { width: 20px; height: 20px; }
+
+/* Interactive variant — used in the sidebar where clicking the badge
+   opens the StatusPicker. Cursor + focus ring + slight grow on hover so
+   the affordance is clear without distracting from the avatar itself. */
+.status-badge-interactive {
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.status-badge-interactive:hover {
+  transform: scale(1.15);
+}
+
+.status-badge-interactive:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 2px;
+}

@@ -385,6 +385,15 @@
   background: var(--border);
 }
 
+/* Positioning context for the activity-status dot on a member-list avatar.
+   inline-flex so the wrapper sizes to the avatar exactly — the row's flex
+   layout would otherwise stretch a plain inline element. */
+.member-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
 /* Initial-letter fallback when the profile has no avatar_url â€” mirrors the
    sidebar's avatar fallback (indigo circle with white initial). */
 .member-avatar-fallback {
@@ -494,24 +503,25 @@
   color: var(--text-primary);
 }
 
-/* Animated shell around the actions panel. The grid-template-rows trick
-   transitions from 0fr (collapsed) to 1fr (auto height) — one of the few
-   ways to animate to/from `height: auto` without measuring the content.
-   The inner row needs `min-height: 0` + `overflow: hidden` so the grid
-   can actually clip it during the transition. */
+/* Animated shell around the actions panel. Uses `interpolate-size:
+   allow-keywords` so we can transition height between 0 and auto —
+   keeps expand and collapse durations symmetric (a max-height trick
+   with a too-large ceiling makes the collapse feel delayed because
+   the first portion of the transition shrinks invisible slack before
+   anything visually moves). Supported in Chromium 129+; Electron's
+   bundled Chromium is well past that. */
 .member-row-actions-shell {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 240ms ease;
+  interpolate-size: allow-keywords;
+  height: 0;
+  overflow: hidden;
+  transition: height 240ms ease;
 }
 
 .member-row.is-expanded .member-row-actions-shell {
-  grid-template-rows: 1fr;
+  height: auto;
 }
 
 .member-row-actions-shell > .member-row-actions {
-  overflow: hidden;
-  min-height: 0;
   opacity: 0;
   transition: opacity 180ms ease;
 }
@@ -885,4 +895,186 @@
 .project-edit-submit:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* ── Team tree (Dashboard → Members tab) ─────────────────────────────────
+   Horizontal org-chart layout: one column per role tier (owner→viewer),
+   cards stacked vertically inside each column, SVG bezier connectors
+   linking tier N to tier N+1 via a fan-in / fan-out junction. The SVG
+   sits absolutely-positioned behind the cards so it can paint over the
+   gaps between columns without intercepting clicks.
+
+   The tree lives inside a fixed-size .team-tree-viewport that the user
+   can pan around by click-dragging — viewport clips the overflow, inner
+   .team-tree gets a CSS transform driven by React state in TeamTree.jsx. */
+.team-tree-viewport {
+  /* Fixed so the canvas fills the screen area from below the tab bar to
+     the bottom edge and from the sidebar's right edge to the right edge —
+     escapes the .project-dashboard's 820px max-width constraint. The `top`
+     is measured at runtime from the .project-tabs element (set via inline
+     style); `left` tracks the sidebar's hover/lock state through the
+     --sidebar-width variable published by .app-shell. */
+  position: fixed;
+  left: var(--sidebar-width, 60px);
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  /* Disable text selection during pan — otherwise a drag from a card
+     selects the name text and the cursor flips to text-select halfway
+     through. */
+  user-select: none;
+  cursor: grab;
+  /* Promote to its own compositor layer so the transformed child
+     repaints don't thrash neighbouring layout. */
+  contain: layout paint;
+}
+
+.team-tree-viewport.is-dragging,
+.team-tree-viewport:active {
+  cursor: grabbing;
+}
+
+.team-tree {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 4rem;
+  padding: 0.5rem 0.25rem;
+  /* GPU-friendly hint for the transform that updates on every mousemove
+     frame during a pan. */
+  will-change: transform;
+}
+
+.team-tree-edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  /* Strokes drawn by <path>; color comes from currentColor so a single
+     property change re-tints all the connectors at once. */
+  color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  opacity: 0.7;
+}
+
+.tree-tier {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  /* Centre the cards vertically within the column so the connector
+     fan-in/out has a balanced spread regardless of tier card counts. */
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tier-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: 0.2rem;
+}
+
+.tier-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Card shell mirrors .project-dashboard-card but compact — tighter padding,
+   row layout for avatar + text, and a fixed min-width so the SVG geometry
+   stays predictable across tiers. */
+.tree-card {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.6rem 0.8rem;
+  min-width: 200px;
+  max-width: 220px;
+  transition: border-color 150ms, background 150ms;
+}
+
+.tree-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg-card));
+}
+
+.tree-card-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+  background: var(--border);
+}
+
+/* Positioning context for the activity-status dot on a tree-card avatar.
+   Same shape as .member-avatar-wrap — separate class because the card
+   variant lives on a different visual surface (bg-card vs. row hover). */
+.tree-card-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.tree-card-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.tree-card-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.tree-card-name {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Email line under the name — same muted treatment as .member-email on the
+   Project Overview list so the two surfaces feel like siblings. */
+.tree-card-email {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Role pill inside a tree card needs to sit on its own line — override
+   the parent .project-dashboard-role's inline alignment so it doesn't
+   try to fight the flex column above. */
+.tree-card-text .project-dashboard-role {
+  align-self: flex-start;
 }

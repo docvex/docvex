@@ -32,7 +32,7 @@ const TABLE = 'project_files';
 // by the bundler.
 const SELECT_COLUMNS =
   'id, project_id, name, description, mime_type, size_bytes, storage_path, ' +
-  'thumbnail_path, uploaded_by, uploaded_at';
+  'thumbnail_path, thumbnail_frames, uploaded_by, uploaded_at';
 
 // Newest-first list of files for a project. RLS gates by viewer+ via the
 // "viewers read project files" policy, so callers don't add a project-
@@ -66,6 +66,7 @@ export async function insertProjectFileRow({
   sizeBytes,
   storagePath,
   thumbnailPath = null,
+  thumbnailFrames = null,
   uploadedBy,
 }) {
   const row = {
@@ -76,6 +77,9 @@ export async function insertProjectFileRow({
     size_bytes: sizeBytes,
     storage_path: storagePath,
     thumbnail_path: thumbnailPath,
+    // Null for non-video / legacy rows; populated string[] when the
+    // uploader extracted >=2 frames for the hover slideshow.
+    thumbnail_frames: thumbnailFrames,
     uploaded_by: uploadedBy,
   };
   const { data, error } = await supabase
@@ -249,12 +253,20 @@ export async function updateProjectFileDescription(id, description) {
 // safe. The row delete is the source of truth for "the file is gone";
 // any storage leftover is mopped up by the periodic admin sweeper /
 // dashboard cleanup.
-export async function deleteProjectFile({ id, storagePath, thumbnailPath }) {
+export async function deleteProjectFile({ id, storagePath, thumbnailPath, thumbnailFrames }) {
   if (!id || !storagePath) {
     return { data: null, error: new Error('Missing id or storagePath') };
   }
   const paths = [storagePath];
-  if (thumbnailPath) paths.push(thumbnailPath);
+  // Video files: every frame path goes in the remove() batch. Includes
+  // frame 0 (= thumbnailPath for new uploads); de-dup so we don't pass
+  // the same path twice. Storage.remove silently no-ops on misses.
+  if (Array.isArray(thumbnailFrames) && thumbnailFrames.length > 0) {
+    for (const f of thumbnailFrames) {
+      if (f && !paths.includes(f)) paths.push(f);
+    }
+  }
+  if (thumbnailPath && !paths.includes(thumbnailPath)) paths.push(thumbnailPath);
   const { error: storageErr } = await supabase.storage.from(BUCKET).remove(paths);
   if (storageErr) {
     // Storage delete failed (RLS rejection for unauthorized callers,
@@ -277,6 +289,9 @@ export async function deleteProjectFile({ id, storagePath, thumbnailPath }) {
   // defence in depth + frees memory immediately).
   evictSignedUrlCache(storagePath);
   if (thumbnailPath) evictSignedUrlCache(thumbnailPath);
+  if (Array.isArray(thumbnailFrames)) {
+    for (const f of thumbnailFrames) evictSignedUrlCache(f);
+  }
   evictPdf(storagePath);
 
   return { data: { id }, error: null };

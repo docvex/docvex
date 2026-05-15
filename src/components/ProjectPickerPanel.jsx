@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { listMyProjects, PROJECTS_CHANGED_EVENT } from '../lib/projects';
@@ -12,6 +12,21 @@ const CloseIcon = (
     <line x1="6" y1="6" x2="18" y2="18"/>
   </svg>
 );
+
+// Pathname predicate: are we currently inside a "project tab" — one of
+// the Projects-section sub-routes that's actually scoped to a specific
+// project (Dashboard / Files / Clients / To-dos)? The SwitchProjectLoader
+// only fires when this is true, so picking a project from a personal tab
+// (Activity, Updates, Notifications, Account, project list/overview)
+// silently swaps the sidebar's "working in" target without flashing the
+// full-screen switching overlay.
+function isProjectScopedPath(pathname) {
+  if (pathname === '/files'    || pathname.startsWith('/files/'))    return true;
+  if (pathname === '/clients'  || pathname.startsWith('/clients/'))  return true;
+  if (pathname === '/todos'    || pathname.startsWith('/todos/'))    return true;
+  // /projects/:id/dashboard — anything ending in /dashboard under /projects/
+  return /^\/projects\/[^/]+\/dashboard\/?$/.test(pathname);
+}
 
 // Secondary nav column that slides out from behind the sidebar when the
 // user opens the project picker. Owns its own fetch + Esc handling; the
@@ -29,6 +44,7 @@ export default function ProjectPickerPanel() {
     beginSwitch,
   } = useSelectedProject();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
 
   const [projects, setProjects] = useState([]);
   const [loading, setLoading]   = useState(false);
@@ -101,7 +117,16 @@ export default function ProjectPickerPanel() {
     // beginSwitch BEFORE any state/route change so the overlay is in place
     // before React renders the transition's intermediate frames. The name
     // surfaces as "Switching to <name>" in the loader subtitle.
-    beginSwitch(project.name);
+    //
+    // Skip the overlay entirely when the user is on a "personal" tab
+    // (Activity, Updates, Notifications, Account, project list/overview):
+    // in that case the picker is just swapping the sidebar's working-in
+    // target and the full-screen loader would feel out of place. The
+    // overlay fires only when switching between two project-scoped pages
+    // — Dashboard / Files / Clients / To-dos.
+    if (isProjectScopedPath(pathname)) {
+      beginSwitch(project.name);
+    }
     // Hand the full row to SelectedProjectContext so it skips the redundant
     // getProject() round-trip — we already have everything it needs. The
     // SwitchProjectLoader's min-visible-time floor (preserved separately)
@@ -126,7 +151,12 @@ export default function ProjectPickerPanel() {
   // /projects/foo, <ProjectAutoSelect/> would re-pick foo on the next
   // render. No name passed so the loader uses its generic copy.
   const onClear = () => {
-    beginSwitch(null);
+    // Same gate as onPick — only show the overlay if we're abandoning a
+    // project-scoped page. Clearing from a personal tab leaves the page
+    // we're already on, so the overlay has nothing meaningful to mask.
+    if (isProjectScopedPath(pathname)) {
+      beginSwitch(null);
+    }
     clearSelection();
     closePicker();
     navigate('/');
@@ -162,9 +192,11 @@ export default function ProjectPickerPanel() {
           </button>
         </header>
         <ul className="project-picker-panel-list">
-          {loading && (
-            <li className="project-picker-panel-state">Loading…</li>
-          )}
+          {loading && Array.from({ length: 4 }).map((_, i) => (
+            <li key={`skel-${i}`} className="project-picker-panel-skel-item" aria-hidden="true">
+              <div className="skel-bar project-picker-panel-skel-row" />
+            </li>
+          ))}
           {!loading && error && (
             <li className="project-picker-panel-state project-picker-panel-state-error">
               {error.message}

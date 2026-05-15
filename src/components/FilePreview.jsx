@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getCachedPdf } from '../lib/pdfCache';
+import VideoFrameSlideshow from './VideoFrameSlideshow';
 
 // Preview renderer for the FileDetailModal's left pane.
 // Dispatches by MIME to one of:
@@ -110,6 +111,26 @@ function ImagePreview({ signedUrl, file, onOpen }) {
 // If the pre-baked thumbnail exists (uploads after migration 004),
 // we show it; otherwise we fall back to a large video glyph.
 function VideoPreview({ thumbnailUrl, file, onOpen }) {
+  const hasFrames = Array.isArray(file?.thumbnail_frames) && file.thumbnail_frames.length > 1;
+
+  if (hasFrames) {
+    // Multi-frame slideshow path — the modal is "always hovered" since
+    // the user explicitly opened the file, so the slideshow plays
+    // continuously instead of being gated on a hover state.
+    return (
+      <ClickablePreview onOpen={onOpen} ariaLabel={`Open ${file.name}`}>
+        <div className="file-preview-video-static">
+          <VideoFrameSlideshow
+            framePaths={file.thumbnail_frames}
+            active={true}
+            posterUrl={thumbnailUrl}
+            alt={file.name}
+          />
+        </div>
+      </ClickablePreview>
+    );
+  }
+
   if (thumbnailUrl) {
     return (
       <ClickablePreview onOpen={onOpen} ariaLabel={`Open ${file.name}`}>

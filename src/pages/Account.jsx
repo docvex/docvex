@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
@@ -6,6 +6,8 @@ import { PLAN } from '../lib/plan';
 import ConfirmModal from '../components/ConfirmModal';
 import DeleteAccountModal from '../components/DeleteAccountModal';
 import ThemePicker from '../components/ThemePicker';
+import StatusBadge from '../components/StatusBadge';
+import { STATUS_OPTIONS, DEFAULT_STATUS_KEY, updateStatus } from '../lib/userStatus';
 import './Account.css';
 
 function titleCase(s = '') {
@@ -59,6 +61,11 @@ export default function Account() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [linkingGoogle, setLinkingGoogle] = useState(false);
+  // Optimistic override for the active status — held locally so the UI
+  // reflects the click immediately while supabase-js's USER_UPDATED event
+  // round-trips. Cleared once the session's user_metadata catches up.
+  const [pendingStatus, setPendingStatus] = useState(null);
+  const [statusError, setStatusError] = useState(null);
 
   // ProtectedRoute should prevent us getting here without a session,
   // but guard anyway in case StrictMode renders during the redirect.
@@ -85,6 +92,30 @@ export default function Account() {
     || (user.email ? user.email.split('@')[0] : null)
     || 'Account';
   const initials = (user.email || '?').charAt(0).toUpperCase();
+  const activeStatus = pendingStatus || user.user_metadata?.status || DEFAULT_STATUS_KEY;
+
+  const handleStatusPick = async (key) => {
+    if (key === activeStatus) return;
+    setPendingStatus(key);
+    setStatusError(null);
+    const { error } = await updateStatus(key);
+    if (error) {
+      setPendingStatus(null);
+      setStatusError(error.message || 'Could not update status.');
+    }
+    // On success, leave pendingStatus set until session.user_metadata catches
+    // up via USER_UPDATED — see the effect below.
+  };
+
+  // Drop the optimistic override once the canonical session value matches.
+  // supabase-js fires USER_UPDATED on a successful updateUser, which flows
+  // through AuthContext and re-renders this page with the new user_metadata.
+  useEffect(() => {
+    if (!pendingStatus) return;
+    if (user.user_metadata?.status === pendingStatus) {
+      setPendingStatus(null);
+    }
+  }, [user.user_metadata?.status, pendingStatus]);
 
   const handleLinkGoogle = async () => {
     if (googleLinked || linkingGoogle) return;
@@ -172,11 +203,14 @@ export default function Account() {
   return (
     <div className="account-page">
       <header className="account-header">
-        {avatarUrl ? (
-          <img className="account-avatar" src={avatarUrl} alt="" referrerPolicy="no-referrer" />
-        ) : (
-          <div className="account-avatar account-avatar-fallback">{initials}</div>
-        )}
+        <div className="account-avatar-wrap">
+          {avatarUrl ? (
+            <img className="account-avatar" src={avatarUrl} alt="" referrerPolicy="no-referrer" />
+          ) : (
+            <div className="account-avatar account-avatar-fallback">{initials}</div>
+          )}
+          <StatusBadge status={activeStatus} size="lg" />
+        </div>
         <div className="account-identity">
           <h1 className="account-name">{displayName}</h1>
           <div className="account-provider-row">
@@ -243,6 +277,43 @@ export default function Account() {
           <dt>Last sign-in</dt>
           <dd>{formatDate(user.last_sign_in_at, true)}</dd>
         </dl>
+      </section>
+
+      <section className="account-card">
+        <h2 className="account-card-title">Activity status</h2>
+        <p className="account-card-subtitle">
+          How you appear to other members of your projects.
+        </p>
+        <ul className="account-status-list">
+          {STATUS_OPTIONS.map((option) => {
+            const isSelected = option.key === activeStatus;
+            return (
+              <li key={option.key}>
+                <button
+                  type="button"
+                  className={`account-status-row${isSelected ? ' is-selected' : ''}`}
+                  aria-pressed={isSelected}
+                  onClick={() => handleStatusPick(option.key)}
+                >
+                  <span
+                    className={`account-status-dot${option.key === 'offline' ? ' account-status-dot-offline' : ''}`}
+                    style={{ '--status-color': option.color }}
+                  />
+                  <span className="account-status-text">
+                    <span className="account-status-label">{option.label}</span>
+                    <span className="account-status-desc">{option.description}</span>
+                  </span>
+                  {isSelected && (
+                    <span className="account-status-check" aria-hidden="true">{CheckIcon}</span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        {statusError && (
+          <div className="account-status-error">{statusError}</div>
+        )}
       </section>
 
       <section className="account-card">

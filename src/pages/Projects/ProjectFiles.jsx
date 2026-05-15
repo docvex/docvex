@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import FileDetailModal from '../../components/FileDetailModal';
+import VideoFrameSlideshow from '../../components/VideoFrameSlideshow';
 import {
   listProjectFiles,
   createSignedDownloadUrl,
@@ -108,8 +109,13 @@ function FileCard({ file, onOpen }) {
   // Fall back to fetching the source image only if no pre-baked thumb
   // exists AND the file is an image — that covers legacy uploads.
   const shouldFetchSourceAsThumb = isImage && !hasThumbnail;
+  // Video with the 5-frame slideshow column populated (migration 010).
+  // Legacy videos (uploaded before migration 010 or that failed multi-
+  // frame extraction) take the single-thumbnail path below — no slideshow.
+  const hasFrames = Array.isArray(file.thumbnail_frames) && file.thumbnail_frames.length > 1;
 
   const [thumbUrl, setThumbUrl] = useState(null);
+  const [hovered, setHovered] = useState(false);
 
   // Lazy signed-URL fetch. Pick the thumbnail object when migration-004
   // populated it; otherwise the source image as a legacy fallback.
@@ -131,10 +137,23 @@ function FileCard({ file, onOpen }) {
       type="button"
       className="project-files-card"
       onClick={() => onOpen?.(file)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       title={file.name}
     >
       <div className="project-files-thumb">
-        {thumbUrl ? (
+        {hasFrames ? (
+          // Video with multi-frame slideshow: cycles on hover, pins to
+          // frame 0 otherwise. posterUrl reuses the already-fetched
+          // thumbnail signed URL so frame 0 paints instantly without a
+          // second round-trip.
+          <VideoFrameSlideshow
+            framePaths={file.thumbnail_frames}
+            active={hovered}
+            posterUrl={thumbUrl}
+            alt=""
+          />
+        ) : thumbUrl ? (
           <img src={thumbUrl} alt="" loading="lazy" />
         ) : (
           <span className="project-files-icon">{iconForMime(file.mime_type)}</span>
@@ -147,6 +166,25 @@ function FileCard({ file, onOpen }) {
         </div>
       </div>
     </button>
+  );
+}
+
+// Shimmering grid of thumbnail-card-shaped placeholders shown while
+// listProjectFiles() resolves. Mirrors .project-files-card dimensions
+// (4:3 thumb + 2-line meta) so real cards drop into the same slots.
+function ProjectFilesGridSkeleton() {
+  return (
+    <div className="project-files-grid" aria-hidden="true">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="project-files-card project-files-card-skeleton">
+          <div className="project-files-thumb skel-bar skel-files-thumb" />
+          <div className="project-files-meta">
+            <div className="skel-bar skel-files-name" />
+            <div className="skel-bar skel-files-sub" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -251,7 +289,7 @@ export default function ProjectFiles() {
       )}
 
       {loading ? (
-        <div className="project-files-loading">Loading files…</div>
+        <ProjectFilesGridSkeleton />
       ) : files.length === 0 ? (
         <div className="project-files-empty">
           <h2>No files yet</h2>

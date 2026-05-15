@@ -233,3 +233,52 @@
      the base rule above) so the hover is a pure additive overlay. */
   background: rgba(255, 255, 255, 0.1);
 }
+
+/* Skeleton list items shown while listMyProjects() resolves. The <li>
+   takes the same padding + bottom-border treatment as
+   .project-picker-panel-row so the row rhythm matches; the inner
+   .skel-bar is a single thin shimmer mimicking a project name. */
+.project-picker-panel-skel-item {
+  padding: 0.55rem 1.1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+
+.project-picker-panel-list > li.project-picker-panel-skel-item:last-child {
+  border-bottom-color: transparent;
+}
+
+.project-picker-panel-skel-row {
+  width: 70%;
+  height: 0.9rem;
+}
+
+/* Shared shimmer bar â€” same definition as ProjectDashboardSkeleton.css.
+   Duplicated per file so each component renders standalone. The bar
+   color uses var(--text-primary) at low alpha so it works on the
+   panel's brown bg in both themes (a literal bg-elevated would clash
+   with the gold panel surface). */
+.skel-bar {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+
+.skel-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--text-on-accent) 25%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes skel-shimmer {
+  to { transform: translateX(100%); }
+}

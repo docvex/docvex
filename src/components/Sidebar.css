@@ -515,6 +515,24 @@
     height 250ms ease;
 }
 
+/* Positioning context for the activity-status dot that overlays the
+   bottom-right corner of the avatar. inline-flex so the wrapper sizes
+   exactly to the avatar inside (avoiding a tiny invisible gutter that
+   would push the dot away from the avatar edge). */
+.sidebar-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Tuck the badge a hair into the corner so it overlaps the avatar's
+   circular edge instead of sitting outside it — same affordance as
+   Discord. The 2px ring (drawn by StatusBadge via box-shadow) keeps
+   the dot visually separated from the avatar behind. */
+.sidebar-avatar-wrap .status-badge {
+  bottom: -1px;
+  right: -1px;
+}
+
 .account-btn .icon {
   width: 32px;
   transition: width 250ms ease;

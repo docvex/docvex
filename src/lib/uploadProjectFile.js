@@ -26,7 +26,12 @@ import {
   insertProjectFileRow,
   deleteStorageObject,
 } from './projectFiles';
-import { generateThumbnail, buildThumbnailPath } from './thumbnails';
+import {
+  generateThumbnail,
+  generateVideoFrames,
+  buildThumbnailPath,
+  buildVideoFramePath,
+} from './thumbnails';
 
 // MIME allowlist. Reject anything else client-side so the user gets an
 // immediate "Unsupported file type" instead of a confusing 4xx after the
@@ -136,7 +141,15 @@ export async function uploadProjectFile({
   // we just skip the thumbnail leg and leave thumbnail_path null; the
   // FileCard falls back to a glyph in that case. Never throws — the
   // generator catches its own errors and yields null.
-  const thumbnailPromise = generateThumbnail(file);
+  //
+  // Video files take the multi-frame path: generateVideoFrames returns up
+  // to 5 JPEG blobs for the hover slideshow. The single-frame
+  // generateThumbnail still runs for image/PDF as before. We don't run
+  // both for video — the frames already cover the static-poster need
+  // (frame 0 is shipped to thumbnail_path for back-compat).
+  const isVideo = (file.type || '').startsWith('video/');
+  const thumbnailPromise = isVideo ? Promise.resolve(null) : generateThumbnail(file);
+  const videoFramesPromise = isVideo ? generateVideoFrames(file) : Promise.resolve([]);
 
   // 3. Stream the file to the signed URL.
   const putResult = await putFileWithProgress({
@@ -157,26 +170,57 @@ export async function uploadProjectFile({
   // successfully, so we still want a metadata row — just without a
   // thumbnail_path. The fallback glyph in the UI covers the gap.
   let thumbnailPath = null;
-  const thumbnailBlob = await thumbnailPromise;
-  if (thumbnailBlob && !signal?.aborted) {
-    const tPath = buildThumbnailPath(projectId, fileId);
-    const { data: tTarget } = await createSignedUploadTarget(tPath);
-    if (tTarget?.signedUrl) {
-      // No progress callback for the thumbnail — it's a few tens of KB
-      // and the UI doesn't surface a separate progress bar for it. We
-      // still pass the abort signal so cancelling the parent upload
-      // also kills an in-flight thumbnail PUT.
-      const tResult = await putFileWithProgress({
-        url: tTarget.signedUrl,
-        // Wrap the Blob in a File so putFileWithProgress's `file.type`
-        // / `file.name` reads work uniformly with the main-upload path.
-        file: new File([thumbnailBlob], '_thumb.jpg', { type: 'image/jpeg' }),
-        signal,
+  let thumbnailFrames = null;
+
+  if (isVideo) {
+    // Video path — upload up to 5 frames in parallel for the hover
+    // slideshow. Frame 0 doubles as the legacy thumbnail_path so any
+    // code path still keyed off thumbnail_path keeps working unchanged.
+    const frameBlobs = await videoFramesPromise;
+    if (frameBlobs.length > 0 && !signal?.aborted) {
+      const uploads = frameBlobs.map(async (blob, i) => {
+        const fPath = buildVideoFramePath(projectId, fileId, i);
+        const { data: fTarget } = await createSignedUploadTarget(fPath);
+        if (!fTarget?.signedUrl) return null;
+        const fResult = await putFileWithProgress({
+          url: fTarget.signedUrl,
+          file: new File([blob], `_thumb_${i}.jpg`, { type: 'image/jpeg' }),
+          signal,
+        });
+        return fResult.ok ? fPath : null;
       });
-      if (tResult.ok) thumbnailPath = tPath;
-      // tResult.ok === false: thumbnail PUT failed; thumbnailPath stays
-      // null. Don't bubble — the main upload's success isn't conditional
-      // on the thumbnail.
+      const settled = await Promise.all(uploads);
+      const succeededPaths = settled.filter(Boolean);
+      if (succeededPaths.length > 0) {
+        thumbnailFrames = succeededPaths;
+        thumbnailPath = succeededPaths[0]; // back-compat poster
+      }
+      // If every frame failed to upload, leave both null — the card
+      // falls back to its MIME glyph, same as if generation failed.
+    }
+  } else {
+    // Image / PDF / text — original single-frame path.
+    const thumbnailBlob = await thumbnailPromise;
+    if (thumbnailBlob && !signal?.aborted) {
+      const tPath = buildThumbnailPath(projectId, fileId);
+      const { data: tTarget } = await createSignedUploadTarget(tPath);
+      if (tTarget?.signedUrl) {
+        // No progress callback for the thumbnail — it's a few tens of KB
+        // and the UI doesn't surface a separate progress bar for it. We
+        // still pass the abort signal so cancelling the parent upload
+        // also kills an in-flight thumbnail PUT.
+        const tResult = await putFileWithProgress({
+          url: tTarget.signedUrl,
+          // Wrap the Blob in a File so putFileWithProgress's `file.type`
+          // / `file.name` reads work uniformly with the main-upload path.
+          file: new File([thumbnailBlob], '_thumb.jpg', { type: 'image/jpeg' }),
+          signal,
+        });
+        if (tResult.ok) thumbnailPath = tPath;
+        // tResult.ok === false: thumbnail PUT failed; thumbnailPath stays
+        // null. Don't bubble — the main upload's success isn't conditional
+        // on the thumbnail.
+      }
     }
   }
 
@@ -195,15 +239,22 @@ export async function uploadProjectFile({
     sizeBytes: file.size,
     storagePath,
     thumbnailPath,
+    thumbnailFrames,
     uploadedBy,
   });
   if (insertErr) {
     deleteStorageObject(storagePath).catch(() => { /* swallowed — admin sweeper covers it */ });
-    if (thumbnailPath) {
+    if (thumbnailFrames) {
+      // Clean up every frame, not just the poster — leaving frames 1-4
+      // would leak storage equivalent to the rest of the slideshow.
+      for (const fPath of thumbnailFrames) {
+        deleteStorageObject(fPath).catch(() => { /* same */ });
+      }
+    } else if (thumbnailPath) {
       deleteStorageObject(thumbnailPath).catch(() => { /* same */ });
     }
     return { data: null, error: insertErr };
   }
 
-  return { data: { fileId, storagePath, thumbnailPath, row }, error: null };
+  return { data: { fileId, storagePath, thumbnailPath, thumbnailFrames, row }, error: null };
 }

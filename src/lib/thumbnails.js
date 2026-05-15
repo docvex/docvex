@@ -223,6 +223,104 @@ async function generateVideoThumbnail(file) {
   }
 }
 
+// ── Multi-frame video extraction ────────────────────────────────────────
+// Yields up to 5 JPEG frames at fixed relative offsets through the video,
+// for the hover slideshow on the Files grid + the inline preview in the
+// File Detail modal. Returns an empty array on metadata-load failure or
+// undecodable duration; individual frame failures are silently skipped
+// (a 4-frame slideshow is still better than 0). Caller is expected to
+// wrap with withTimeout() so a stuck seek doesn't hang upload forever.
+//
+// Frames sampled at 10/30/50/70/90% of duration — avoids the black intro
+// most clips open with and the credits/fade-to-black many end with. For
+// very short clips (where 0.9 * duration would butt up against the end
+// and trip a "past end of stream" error in some codecs), we clamp the
+// target to `duration - 0.05`. This is best-effort: a 0.3s clip won't
+// produce 5 distinct frames, but it won't crash either.
+//
+// Uses addEventListener with `{ once: true }` and explicit cleanup rather
+// than the .onseeked/.onerror property pattern used by the single-frame
+// generator above — assigning the property handlers in a loop creates a
+// race where a late `seeked` event from iteration N can fire AFTER we've
+// already moved on to iteration N+1 and rewired the resolver, briefly
+// drawing the wrong frame.
+const FRAME_OFFSETS = [0.1, 0.3, 0.5, 0.7, 0.9];
+export const VIDEO_FRAME_COUNT = FRAME_OFFSETS.length;
+
+export async function generateVideoFrames(file) {
+  const url = URL.createObjectURL(file);
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
+  video.crossOrigin = 'anonymous';
+
+  const frames = [];
+  try {
+    await new Promise((resolve, reject) => {
+      const onLoaded = () => { cleanup(); resolve(); };
+      const onError = () => { cleanup(); reject(new Error('Video load failed')); };
+      function cleanup() {
+        video.removeEventListener('loadedmetadata', onLoaded);
+        video.removeEventListener('error', onError);
+      }
+      video.addEventListener('loadedmetadata', onLoaded, { once: true });
+      video.addEventListener('error', onError, { once: true });
+      video.src = url;
+    });
+
+    const duration = video.duration || 0;
+    if (!Number.isFinite(duration) || duration <= 0) return [];
+
+    const targets = FRAME_OFFSETS.map((p) =>
+      Math.max(0, Math.min(duration - 0.05, duration * p)),
+    );
+
+    for (const target of targets) {
+      try {
+        await new Promise((resolve, reject) => {
+          const onSeeked = () => { cleanup(); resolve(); };
+          const onError = () => { cleanup(); reject(new Error('Video seek failed')); };
+          function cleanup() {
+            video.removeEventListener('seeked', onSeeked);
+            video.removeEventListener('error', onError);
+          }
+          video.addEventListener('seeked', onSeeked, { once: true });
+          video.addEventListener('error', onError, { once: true });
+          video.currentTime = target;
+        });
+
+        const canvas = newCanvas();
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = BACKDROP;
+        ctx.fillRect(0, 0, TARGET_W, TARGET_H);
+        const { drawW, drawH, offsetX, offsetY } =
+          fitBox(video.videoWidth || TARGET_W, video.videoHeight || TARGET_H);
+        ctx.drawImage(video, offsetX, offsetY, drawW, drawH);
+        const blob = await canvasToJpegBlob(canvas);
+        if (blob) frames.push(blob);
+      } catch {
+        // Single-frame failure — keep going, return whatever frames landed.
+      }
+    }
+    return frames;
+  } catch {
+    return [];
+  } finally {
+    video.removeAttribute('src');
+    video.load();
+    URL.revokeObjectURL(url);
+  }
+}
+
+// Storage path for the Nth video frame. Mirrors the single-thumb path
+// convention but with an index suffix so the existing `_thumb.jpg` slot
+// stays available for image/PDF/legacy callers. Centralised so the
+// renderer (VideoFrameSlideshow) and the uploader agree on the format.
+export function buildVideoFramePath(projectId, fileId, index) {
+  return `${projectId}/${fileId}/_thumb_${index}.jpg`;
+}
+
 // ── Dispatcher ───────────────────────────────────────────────────────────
 // Returns a Blob (image/jpeg) on success, null on:
 //   - unsupported MIME (text/* and anything else)

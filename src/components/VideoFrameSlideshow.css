@@ -1,0 +1,25 @@
+/* Slideshow image fills its parent — FileCard's .project-files-thumb is a
+   fixed 4:3 box, and the modal's preview pane is sized by FilePreview's
+   own layout. object-fit: cover crops the frame to fill rather than
+   letterboxing inside the box. */
+.video-frame-slideshow {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* Disable native image dragging — the parent .project-files-card is a
+     <button>, and dragging the inner image surfaces a ghost preview
+     that interferes with the card's click affordance. */
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* Placeholder while all frame URLs are still pending — keeps the box
+   from collapsing to zero height during the first signed-URL fetch.
+   Transparent so the surrounding surface (transparent preview pane in
+   the file detail modal) shows through instead of flashing a gray box. */
+.video-frame-slideshow-empty {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
