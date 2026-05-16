@@ -75,7 +75,7 @@ Below are the git commits since the previous release, each followed by the list 
 Produce thorough, informative release notes with this structure:
 
 ## Summary
-Open with 2–3 sentences capturing the headline themes of the release — what a user would tell a colleague this version is "about." Don't enumerate every change; pick the through-line.
+Open with ONE concise sentence (≤ 25 words) capturing the headline theme — what a user would tell a colleague this version is "about." Pick the single strongest through-line; don't enumerate changes, don't list multiple themes, don't pad.
 
 ## Sections
 Then list the changes under these headings, omitting any that are empty:
