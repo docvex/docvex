@@ -18,6 +18,15 @@ export default function ProjectBanner() {
   // of "working in undefined" / empty pill appears for one frame.
   if (loading || !selectedProject) return null;
 
+  // selectedProject carries `.role` (owner / admin / member / viewer)
+  // from getProject() — the caller's role on this project, joined in
+  // from project_members. Rendered as a small pill after "as" so the
+  // banner reads "working in <project> as <role>". If the role isn't
+  // available yet (very brief window during initial load) the
+  // "as <pill>" suffix is omitted rather than rendered as a blank
+  // pill.
+  const role = selectedProject.role;
+
   return (
     <Tooltip content={`Go to ${selectedProject.name} overview`}>
       <button
@@ -27,6 +36,14 @@ export default function ProjectBanner() {
       >
         <span className="project-banner-pill-prefix">working in</span>
         <span className="project-banner-pill-name">{selectedProject.name}</span>
+        {role && (
+          <>
+            <span className="project-banner-pill-prefix">as</span>
+            <span className={`project-banner-role-pill role-${role}`}>
+              {role}
+            </span>
+          </>
+        )}
       </button>
     </Tooltip>
   );

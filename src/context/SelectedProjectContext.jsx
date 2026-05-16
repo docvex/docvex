@@ -157,6 +157,23 @@ export function SelectedProjectProvider({ children }) {
 
   const clearSelection = useCallback(() => selectProject(null), [selectProject]);
 
+  // Merge a partial patch into the currently-selected project row when the
+  // patch is for THIS selection. Used by mutation sites (e.g. project
+  // rename in ProjectOverview) to push the new field values into the
+  // sidebar trigger + ProjectBanner immediately, without waiting for the
+  // next id-change to re-fetch the row from the server. No-ops if no
+  // project is selected, or if `patch.id` is present and doesn't match
+  // the current selection — keeps the caller from accidentally patching
+  // a different project's row into this slot.
+  const patchSelectedProject = useCallback((patch) => {
+    if (!patch) return;
+    setSelectedProject((prev) => {
+      if (!prev) return prev;
+      if (patch.id && patch.id !== prev.id) return prev;
+      return { ...prev, ...patch };
+    });
+  }, []);
+
   const openPicker   = useCallback(() => setPickerOpen(true),     []);
   const closePicker  = useCallback(() => setPickerOpen(false),    []);
   // Toggle is what the sidebar trigger button and the banner's Switch
@@ -198,6 +215,7 @@ export function SelectedProjectProvider({ children }) {
     loading,
     selectProject,
     clearSelection,
+    patchSelectedProject,
     pickerOpen,
     openPicker,
     closePicker,
@@ -205,7 +223,7 @@ export function SelectedProjectProvider({ children }) {
     switching,
     switchingToName,
     beginSwitch,
-  }), [selectedProjectId, selectedProject, loading, selectProject, clearSelection, pickerOpen, openPicker, closePicker, togglePicker, switching, switchingToName, beginSwitch]);
+  }), [selectedProjectId, selectedProject, loading, selectProject, clearSelection, patchSelectedProject, pickerOpen, openPicker, closePicker, togglePicker, switching, switchingToName, beginSwitch]);
 
   return (
     <SelectedProjectContext.Provider value={value}>

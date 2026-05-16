@@ -1198,6 +1198,81 @@
   flex-direction: column;
   gap: 4px;
   cursor: not-allowed;
+  /* Match the indentation `.sidebar-nav > li` applies to every other
+     nav row. Re-declared here because this <li> sits inside a
+     <Tooltip> wrapper (<span class="tooltip-trigger-wrap"> with
+     display: contents), which breaks the `.sidebar-nav > li` direct-
+     child selector — CSS selectors walk the DOM tree, not the
+     rendered-layout tree, so the wrapper still counts as a parent
+     for selector matching even though it's invisible to layout.
+     Without this, the locked buttons rendered 8px closer to the
+     sidebar's left edge than the normal nav items they're standing in
+     for. */
+  padding: 2px 8px;
+}
+
+/* Inline "Select a project to use these features" hint — sits in the
+   column flow between two of the disabled buttons (after Clients,
+   before To-dos) so it lands visually in the middle of the section.
+   Visual treatment mirrors the cursor-following .tooltip pill: same
+   bg / border / rounded ends / fade-in, just rendered in-flow rather
+   than fixed-position, and with a muted text color (--text-secondary)
+   to read as informational rather than actionable. */
+.locked-projects-hint {
+  /* Hidden by default — only shown when the sidebar is expanded. The
+     `.label` class would already drop opacity to 0 when collapsed, but
+     the pill would still claim layout space (margin + padding +
+     line-height) and shove the icon-only rows apart. display:none
+     removes it from flow entirely so the collapsed sidebar shows a
+     clean column of disabled icons. */
+  display: none;
+  /* Centered on its own row inside the column-flex section. */
+  align-self: stretch;
+  margin: 8px 4px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 500;
+  font-family: inherit;
+  line-height: 1.3;
+  /* Defensive wrap — the copy fits on two lines comfortably at the
+     sidebar's expanded 220px width. */
+  text-align: center;
+  white-space: normal;
+  /* Matches .tooltip's float-pill shadow recipe so the hint reads as
+     the same kind of affordance, even though it's in-flow. */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  /* Don't catch the cursor — the `cursor: not-allowed` from the
+     parent .locked-projects-section should continue to show through,
+     and a click on the pill shouldn't behave any differently than a
+     click on a disabled button. */
+  pointer-events: none;
+}
+
+/* When the copy wraps to two or more lines, the fully-rounded `999px`
+   stadium ends pinch awkwardly into the text. JS (LockedProjectsHint in
+   Sidebar.jsx) measures the rendered height and adds `.is-multiline`,
+   at which point we drop to a softer 12px radius that reads correctly
+   as a rounded card rather than a deformed pill. */
+.locked-projects-hint.is-multiline {
+  border-radius: 12px;
+}
+
+/* Reveal the pill only when the sidebar is in an expanded state — same
+   triggers as `.sidebar .label`'s opacity reveal. */
+.sidebar:hover .locked-projects-hint,
+.sidebar.locked .locked-projects-hint,
+.sidebar.picker-open .locked-projects-hint {
+  display: block;
+  animation: locked-projects-hint-in 180ms ease-out 100ms both;
+}
+
+@keyframes locked-projects-hint-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* The cursor-following pill that used to live here (.locked-features-hint

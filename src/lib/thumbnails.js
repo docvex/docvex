@@ -26,6 +26,14 @@
 const TARGET_W = 400;
 const TARGET_H = 300;
 const JPEG_QUALITY = 0.85;
+// Bounding box (square) for native-aspect thumbnails — used by the
+// video + PDF generators so the resulting JPEG matches the source's
+// aspect ratio without baked-in letterbox bars. Surfaces that need a
+// fixed grid aspect (Files-grid card, hover slideshow) letterbox the
+// thumb in CSS via `object-fit: contain` + the container's dark
+// background; surfaces that want edge-to-edge previews (upload-modal
+// preview tile) get the native aspect for free.
+const MAX_DIM = 400;
 
 // Hard cap on how long any single generator runs. PDF.js can stall on
 // pathologically malformed PDFs; <video> on Windows occasionally hangs
@@ -86,6 +94,21 @@ function newCanvas() {
   return canvas;
 }
 
+// Scale (sourceW × sourceH) down to fit inside a MAX_DIM square while
+// preserving aspect ratio. Used by the native-aspect generators so the
+// JPEG ends up the exact size of the scaled frame (no surrounding
+// canvas to flatten into dark bars on JPEG export).
+function nativeAspectDims(sourceW, sourceH) {
+  if (!Number.isFinite(sourceW) || !Number.isFinite(sourceH) || sourceW <= 0 || sourceH <= 0) {
+    return { width: MAX_DIM, height: MAX_DIM };
+  }
+  const scale = Math.min(MAX_DIM / sourceW, MAX_DIM / sourceH, 1);
+  return {
+    width: Math.max(1, Math.round(sourceW * scale)),
+    height: Math.max(1, Math.round(sourceH * scale)),
+  };
+}
+
 // ── Image ────────────────────────────────────────────────────────────────
 // Loads the file into an <img> via an object URL, then draws it onto a
 // fixed-size canvas with letterboxing. Object URL revoked in finally so
@@ -128,34 +151,28 @@ async function generatePdfThumbnail(file) {
     const pdf = await pdfjs.getDocument({ data: buffer }).promise;
     const page = await pdf.getPage(1);
 
-    // pdf.js's getViewport works in PDF units (72/inch). Scale to fit
-    // the target box at 1× first, then we know the canvas dimensions
-    // before we render — render at that scale directly, no downsample.
+    // pdf.js's getViewport works in PDF units (72/inch). Scale the
+    // page to fit inside a MAX_DIM × MAX_DIM bounding box while
+    // preserving aspect — the resulting canvas IS the scaled page,
+    // no surrounding letterbox area. Most PDFs are portrait (8.5×11),
+    // so the canvas comes out taller than wide; the modal preview
+    // displays this edge-to-edge, and the Files grid letterboxes via
+    // CSS using the container's dark backdrop.
     const baseViewport = page.getViewport({ scale: 1 });
-    const scale = Math.min(TARGET_W / baseViewport.width, TARGET_H / baseViewport.height);
+    const { width, height } = nativeAspectDims(baseViewport.width, baseViewport.height);
+    const scale = width / baseViewport.width;
     const viewport = page.getViewport({ scale });
 
-    const canvas = newCanvas();
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = BACKDROP;
-    ctx.fillRect(0, 0, TARGET_W, TARGET_H);
-
-    // Render the page onto a SECOND, page-sized canvas first, then
-    // letterbox it onto the fixed-size thumbnail canvas. Lets the
-    // page render at its natural aspect ratio without distortion.
-    const pageCanvas = document.createElement('canvas');
-    pageCanvas.width = Math.round(viewport.width);
-    pageCanvas.height = Math.round(viewport.height);
-    const pageCtx = pageCanvas.getContext('2d');
     // White page background — most PDFs render assuming a white page.
-    // The black thumbnail backdrop is the framing, not the page itself.
-    pageCtx.fillStyle = '#ffffff';
-    pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-    await page.render({ canvasContext: pageCtx, viewport, canvas: pageCanvas }).promise;
-
-    const offsetX = Math.round((TARGET_W - pageCanvas.width) / 2);
-    const offsetY = Math.round((TARGET_H - pageCanvas.height) / 2);
-    ctx.drawImage(pageCanvas, offsetX, offsetY);
+    // No outer letterbox fill anymore (canvas is exactly the page
+    // size), so this is the only fill needed.
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    await page.render({ canvasContext: ctx, viewport, canvas }).promise;
 
     return await canvasToJpegBlob(canvas);
   } catch {
@@ -199,13 +216,17 @@ async function generateVideoThumbnail(file) {
       video.currentTime = target;
     });
 
-    const canvas = newCanvas();
+    // Native-aspect canvas: sized to the scaled video frame so the
+    // resulting JPEG has no surrounding letterbox bars baked in.
+    // Portrait (9:16) videos come out as portrait thumbnails; the
+    // upload-modal preview displays them edge-to-edge, the Files
+    // grid letterboxes via CSS.
+    const { width, height } = nativeAspectDims(video.videoWidth, video.videoHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = BACKDROP;
-    ctx.fillRect(0, 0, TARGET_W, TARGET_H);
-    const { drawW, drawH, offsetX, offsetY } =
-      fitBox(video.videoWidth || TARGET_W, video.videoHeight || TARGET_H);
-    ctx.drawImage(video, offsetX, offsetY, drawW, drawH);
+    ctx.drawImage(video, 0, 0, width, height);
 
     return await canvasToJpegBlob(canvas);
   } catch {
@@ -290,13 +311,17 @@ export async function generateVideoFrames(file) {
           video.currentTime = target;
         });
 
-        const canvas = newCanvas();
+        // Native-aspect canvas per frame (no letterbox bars baked
+        // in). Sized lazily inside the loop — videoWidth/Height is
+        // stable across seeks, but we still recompute defensively
+        // in case the decoder reports new dims partway through (some
+        // formats with rotation metadata can).
+        const { width, height } = nativeAspectDims(video.videoWidth, video.videoHeight);
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
         const ctx = canvas.getContext('2d');
-        ctx.fillStyle = BACKDROP;
-        ctx.fillRect(0, 0, TARGET_W, TARGET_H);
-        const { drawW, drawH, offsetX, offsetY } =
-          fitBox(video.videoWidth || TARGET_W, video.videoHeight || TARGET_H);
-        ctx.drawImage(video, offsetX, offsetY, drawW, drawH);
+        ctx.drawImage(video, 0, 0, width, height);
         const blob = await canvasToJpegBlob(canvas);
         if (blob) frames.push(blob);
       } catch {
@@ -319,6 +344,43 @@ export async function generateVideoFrames(file) {
 // renderer (VideoFrameSlideshow) and the uploader agree on the format.
 export function buildVideoFramePath(projectId, fileId, index) {
   return `${projectId}/${fileId}/_thumb_${index}.jpg`;
+}
+
+// Extract a video file's duration in seconds via a hidden <video> +
+// the `loadedmetadata` event. Cheap (only fetches enough bytes for
+// the header) and runs in parallel with the main upload, so the
+// duration is usually available by the time the upload finishes.
+// Returns null on any failure (codec unsupported, metadata never
+// arrives, NaN/Infinity duration) — caller treats null as "no
+// duration available" and skips the badge in the UI.
+export async function extractVideoDuration(file) {
+  if (!file || !file.type?.startsWith('video/')) return null;
+  const url = URL.createObjectURL(file);
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'metadata';
+  try {
+    const duration = await withTimeout(new Promise((resolve, reject) => {
+      const onLoaded = () => { cleanup(); resolve(video.duration); };
+      const onError = () => { cleanup(); reject(new Error('Video load failed')); };
+      function cleanup() {
+        video.removeEventListener('loadedmetadata', onLoaded);
+        video.removeEventListener('error', onError);
+      }
+      video.addEventListener('loadedmetadata', onLoaded, { once: true });
+      video.addEventListener('error', onError, { once: true });
+      video.src = url;
+    }), GENERATE_TIMEOUT_MS);
+    if (!Number.isFinite(duration) || duration <= 0) return null;
+    return duration;
+  } catch {
+    return null;
+  } finally {
+    video.removeAttribute('src');
+    video.load();
+    URL.revokeObjectURL(url);
+  }
 }
 
 // ── Dispatcher ───────────────────────────────────────────────────────────

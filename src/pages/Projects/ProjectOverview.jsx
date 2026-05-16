@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   deleteProject,
   listInvitations,
+  notifyProjectsChanged,
   removeMember,
   revokeInvite,
   sendInvite,
@@ -134,7 +135,7 @@ export default function ProjectOverview() {
   const canInvite     = useHasCapability('members.invite');
   const canRemove     = useHasCapability('members.remove');
   const canChangeRole = useHasCapability('members.change_role');
-  const { clearSelection } = useSelectedProject();
+  const { clearSelection, patchSelectedProject } = useSelectedProject();
   const { notify } = useNotifications();
   const { session } = useAuth();
   const navigate = useNavigate();
@@ -277,7 +278,7 @@ export default function ProjectOverview() {
       return;
     }
     setSavingProject(true);
-    const { error: updErr } = await updateProject(project.id, {
+    const { data: updated, error: updErr } = await updateProject(project.id, {
       name: trimmedName,
       description: editDescription,
     });
@@ -286,10 +287,24 @@ export default function ProjectOverview() {
       setProjectFormError(updErr.message || 'Could not save the project.');
       return;
     }
-    // Don't manually patch project state here — ProjectContext's Realtime
-    // subscription fires the UPDATE event and the sync effect above resets
-    // the form to the new server values. (If Realtime is dropped for any
-    // reason, the next refresh() call brings everything in line.)
+    // ProjectContext's Realtime UPDATE handler patches `project` and resets
+    // the form via the sync effect above — but Realtime has a 50-300ms
+    // round-trip and (more importantly) only feeds ProjectContext.
+    // SelectedProjectContext keeps its own `selectedProject` snapshot for
+    // the sidebar trigger + ProjectBanner; without an explicit patch it
+    // would render the stale name until the user reloads or re-selects.
+    // ProjectPickerPanel caches the project list across opens and only
+    // invalidates on PROJECTS_CHANGED_EVENT, so we fire that too so the
+    // next picker open shows the new name. Use the server's returned row
+    // when present (`updated`) so the patch reflects authoritative values
+    // including any trimming Postgres applied.
+    const patch = updated || {
+      id: project.id,
+      name: trimmedName,
+      description: editDescription?.trim() || null,
+    };
+    patchSelectedProject(patch);
+    notifyProjectsChanged();
     notify({
       category: 'project',
       variant: 'success',

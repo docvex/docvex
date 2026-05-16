@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import FileDetailModal from '../../components/FileDetailModal';
+import { useUploads } from '../../context/UploadsContext';
 import VideoFrameSlideshow from '../../components/VideoFrameSlideshow';
 import Tooltip from '../../components/Tooltip';
 import {
@@ -13,10 +14,12 @@ import {
 import './ProjectScoped.css';
 import './ProjectFiles.css';
 
-// Project-scoped file list. Uploads come in via the global drag-drop
-// overlay (UploadOverlay + UploadsContext) — this page doesn't own the
-// upload pipeline, it only reads the result. The Realtime subscription
-// on `project_files` makes new uploads appear here without an explicit
+// Project-scoped file list. Uploads come in via the global upload
+// modal (UploadModal + UploadsContext) — this page doesn't own the
+// upload pipeline, it only reads the result. The bottom-right FAB on
+// this page opens the modal; drag-and-drop anywhere in the app routes
+// through the same modal too. The Realtime subscription on
+// `project_files` makes new uploads appear here without an explicit
 // callback from the uploader, so this works whether the user uploaded
 // while on this page or from any other route. Cross-user uploads from
 // other project members also show up live via the same channel.
@@ -71,6 +74,42 @@ function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// Format a number of seconds as M:SS or H:MM:SS for the video
+// duration badge. Duplicated between this file and UploadModal.jsx
+// (matches the codebase's convention of inlining tiny helpers rather
+// than extracting a shared util). Defensive against non-finite inputs.
+function formatDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '';
+  const s = Math.round(seconds);
+  const hours = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+  const pad = (n) => n.toString().padStart(2, '0');
+  if (hours > 0) return `${hours}:${pad(mins)}:${pad(secs)}`;
+  return `${mins}:${pad(secs)}`;
+}
+
+// Split a filename into base + extension for the card's display:
+// the basename fills the name line and the extension gets pulled out
+// into the top-right corner tag. Splits on the LAST dot only — so
+// "my.report.v2.pdf" → base "my.report.v2", ext "pdf".
+// Edge cases that DON'T get split (return ext: ''):
+//   • No dot at all (e.g. "README")
+//   • Dot at position 0 (e.g. ".env" — that's the leading-dot
+//     convention, not an extension)
+//   • Trailing dot (e.g. "name." — the part after is empty)
+//   • Extension >8 chars (anything that long is almost certainly part
+//     of the name, like "report.final-2026-04" — keeps weird names
+//     readable instead of stamping a giant tag in the corner)
+function splitNameAndExtension(name) {
+  if (!name) return { base: '', ext: '' };
+  const lastDot = name.lastIndexOf('.');
+  if (lastDot <= 0 || lastDot === name.length - 1) return { base: name, ext: '' };
+  const ext = name.slice(lastDot + 1);
+  if (ext.length > 8) return { base: name, ext: '' };
+  return { base: name.slice(0, lastDot), ext };
 }
 
 // Compact relative-ish date — "today / yesterday / N days ago / Mon DD".
@@ -133,6 +172,24 @@ function FileCard({ file, onOpen }) {
     return () => { cancelled = true; };
   }, [hasThumbnail, shouldFetchSourceAsThumb, file.thumbnail_path, file.storage_path]);
 
+  // Two sources for the name/extension split:
+  //   1. file.name — the user-editable display name from the DB.
+  //      For files uploaded after the upload-modal started trimming
+  //      extensions, this is just the base name with no extension to
+  //      split. For files uploaded before (or where the user typed
+  //      an extension into the name input themselves), splitting
+  //      yields a real extension.
+  //   2. storage_path — always preserves the original filename
+  //      (storage uses file.name verbatim). Used as a fallback for
+  //      the corner tag when (1) didn't have an extension.
+  // Display name = base from (1) if (1) had a real ext, else
+  // file.name as-is. Extension tag = ext from (1) or from (2).
+  const fromName = splitNameAndExtension(file.name);
+  const storageFilename = (file.storage_path || '').split('/').pop() || '';
+  const fromStorage = splitNameAndExtension(storageFilename);
+  const nameBase = fromName.ext ? fromName.base : (file.name || '');
+  const nameExt = fromName.ext || fromStorage.ext;
+
   return (
     <Tooltip content={file.name}>
       <button
@@ -159,9 +216,27 @@ function FileCard({ file, onOpen }) {
         ) : (
           <span className="project-files-icon">{iconForMime(file.mime_type)}</span>
         )}
+        {/* Video runtime badge — bottom-right of the thumb. Only
+            rendered when migration 011's duration_seconds column is
+            populated (post-migration video uploads). Legacy video
+            rows fall back to no badge. */}
+        {file.duration_seconds && (
+          <span className="project-files-duration" aria-hidden="true">
+            {formatDuration(file.duration_seconds)}
+          </span>
+        )}
       </div>
+        {/* Extension tag — anchored to the top-right corner of the
+            card, floats above the thumb. Hidden when there's nothing
+            to show (extensionless names like README, or split returned
+            empty for an edge case) so we don't render an empty pill. */}
+        {nameExt && (
+          <span className="project-files-ext" aria-hidden="true">
+            {nameExt.toUpperCase()}
+          </span>
+        )}
         <div className="project-files-meta">
-          <div className="project-files-name">{file.name}</div>
+          <div className="project-files-name">{nameBase}</div>
           <div className="project-files-sub">
             {formatBytes(file.size_bytes)} · {formatDate(file.uploaded_at)}
           </div>
@@ -238,6 +313,10 @@ export default function ProjectFiles() {
   // flow into the modal's prop (and a DELETE event reduces the prop
   // to null, which the modal interprets as "auto-close").
   const [openFileId, setOpenFileId] = useState(null);
+  // Upload modal open/close now lives in UploadsContext so drag-drop
+  // events (handled in the context's window listener) can open it
+  // from any route — not just the FAB on this page.
+  const { openModal: openUploadModal, modalOpen: uploadOpen } = useUploads();
 
   // Load + subscribe per project. Re-fires whenever the user switches
   // projects so the list reflects the new context. The cleanup runs
@@ -363,6 +442,35 @@ export default function ProjectFiles() {
           onDeleted={(id) => setFiles((prev) => prev.filter((f) => f.id !== id))}
         />
       )}
+
+      {/* Floating action button — bottom-right corner of the viewport,
+          opens the full-screen upload modal. Position is `fixed` so it
+          stays anchored regardless of page scroll. Hidden via aria when
+          the modal is open so the FAB doesn't redundantly grab focus
+          while its panel is already on screen. */}
+      <button
+        type="button"
+        className="project-files-fab"
+        onClick={openUploadModal}
+        aria-label="Upload files"
+        aria-haspopup="dialog"
+        aria-expanded={uploadOpen}
+      >
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      </button>
     </div>
   );
 }

@@ -11,30 +11,27 @@ import { useAuth } from './AuthContext';
 import { useSelectedProject } from './SelectedProjectContext';
 import { useNotifications } from './NotificationsContext';
 import { uploadProjectFile, isAcceptedMime } from '../lib/uploadProjectFile';
+import {
+  generateThumbnail,
+  generateVideoFrames,
+  extractVideoDuration,
+} from '../lib/thumbnails';
 
-// Global drag-detection + upload-orchestration state.
+// Upload-orchestration state.
 //
-// One context, two responsibilities — they live together because the
-// drag listener is what triggers `beginUpload`, so splitting would just
-// force a second context to consume the first. The visual (UploadOverlay)
-// reads from `useUploads()` to render its three branches:
-//
-//   dragActive && !selectedProjectId  → "select a project first" card
-//   dragActive && selectedProjectId   → "drop files here to upload to X" card
-//   !dragActive && uploadingCount > 0 → bottom-right progress panel
-//   !dragActive && uploadingCount = 0 → renders null
-//
-// Window-level dragenter/dragleave/dragover/drop listeners are attached
-// once per provider mount (the cleanup removes them on unmount). The
-// overlay itself has NO drag handlers — `pointer-events: none` on its
-// elements means drops always reach the window listener, regardless of
-// where on the screen the user releases the mouse.
+// The visual (UploadModal) reads from `useUploads()` to render
+// `modalOpen` → fully open: header, dropzone, staged + in-flight
+// list, Send footer. Neither → renders null. The modal is opened
+// by the FAB on the Files page, OR automatically when the user
+// drags a file anywhere in the renderer window — the window-level
+// dragenter listener flips `modalOpen` and the drop listener
+// stages the files into the same review-before-send list.
 //
 // Cancellation: each upload owns an AbortController held in
-// `controllersRef` (a Map keyed by upload id). `cancelAllUploads()`
-// iterates and calls .abort() — the in-flight XHRs hear the signal and
-// resolve with AbortError. Files that already finished stay finished;
-// the cancel doesn't roll them back.
+// `controllersRef` (a Map keyed by upload id). `cancelAllUploads()` /
+// `closeModal()` iterate and call .abort() — the in-flight XHRs hear
+// the signal and resolve with AbortError. Files that already finished
+// stay finished; the cancel doesn't roll them back.
 
 const UploadsContext = createContext(null);
 
@@ -56,6 +53,8 @@ const TERMINAL_DISMISS_MS = 5000;
 // random.
 let _seq = 0;
 const nextId = () => `upload-${Date.now()}-${++_seq}`;
+let _stagedSeq = 0;
+const nextStagedId = () => `staged-${Date.now()}-${++_stagedSeq}`;
 
 export function UploadsProvider({ children }) {
   const { session } = useAuth();
@@ -63,13 +62,55 @@ export function UploadsProvider({ children }) {
   const { selectedProjectId, selectedProject } = useSelectedProject();
   const { notify } = useNotifications();
 
-  // ── Drag-detection state ────────────────────────────────────────────────
-  // dragenter/dragleave fire on every nested element boundary the cursor
-  // crosses, not just on the window edge. The counter pattern absorbs the
-  // spurious child-boundary events — we only flip dragActive when the
-  // counter transitions through 0 (true window exit/entry).
-  const dragCounterRef = useRef(0);
+  // ── Modal state ─────────────────────────────────────────────────────────
+  // Lives in context (vs. local to ProjectFiles) so any caller that
+  // ever needs to open the modal programmatically can. Today the only
+  // trigger is the FAB on the Files page.
+  // `closeModal` is defined later (further down in this provider)
+  // because it also aborts in-flight uploads + clears the staged /
+  // uploads arrays, and needs access to refs declared below.
+  const [modalOpen, setModalOpen] = useState(false);
+  const openModal  = useCallback(() => setModalOpen(true), []);
+
+  // Drag-active is a SEPARATE flag from modalOpen. While the user is
+  // mid-drag (file held over the renderer, not yet released), the
+  // modal renders in a stripped-down "drag-only" mode showing just
+  // the dashed dropzone — no header, no list, no footer. On drop we
+  // flip modalOpen=true and dragActive=false, which reveals the full
+  // chrome around the SAME dropzone DOM node (kept mounted via CSS
+  // display:none on the chrome, not unmounting). modalOpenRef mirrors
+  // the state so the window-level listeners (attached once) can decide
+  // whether a fresh dragenter should trigger drag-only mode or leave
+  // the already-open modal alone.
   const [dragActive, setDragActive] = useState(false);
+  const modalOpenRef = useRef(false);
+  useEffect(() => { modalOpenRef.current = modalOpen; }, [modalOpen]);
+
+  // ── Pre-send prep ───────────────────────────────────────────────────────
+  // Thumbnail / video-frame / duration generation used to run inside
+  // runUpload — that meant clicking Send waited on local CPU work
+  // (PDF rastering, video decoding) before the network PUT could even
+  // start. Now the same work fires the moment a file is staged, runs
+  // in the background, and the resolved Blobs/numbers get stashed on
+  // the staged entry. By the time the user clicks Send the assets are
+  // usually ready, so the upload starts immediately. If the user
+  // beats prep, sendStaged awaits the outstanding prep promises and
+  // the Send button shows a spinner via the `sending` flag.
+  const [sending, setSending] = useState(false);
+  // id → Promise resolving to { thumbnail, thumbnailFrames, durationSeconds }.
+  // Kept in a ref (not state) because callers `.then()`/`await` against
+  // it imperatively — no rendering depends on the Map itself.
+  const prepPromisesRef = useRef(new Map());
+
+  // ── Staging area ────────────────────────────────────────────────────────
+  // Files the user has picked / dropped but not yet sent. Both the
+  // FAB-modal pick flow AND the global drag-drop flow funnel into this
+  // single array. The actual network upload only kicks off when the
+  // user clicks Send (or sendStaged() is invoked programmatically).
+  // Each entry is { id, file } so trash buttons can target by id
+  // instead of index (which goes wrong the moment a row is removed
+  // between two trash clicks).
+  const [staged, setStaged] = useState([]);
 
   // ── Upload-orchestration state ──────────────────────────────────────────
   // uploads: ordered array, newest-last so the panel shows them in roll
@@ -93,6 +134,14 @@ export function UploadsProvider({ children }) {
   useEffect(() => { selectedProjectIdRef.current = selectedProjectId; }, [selectedProjectId]);
   useEffect(() => { selectedProjectNameRef.current = selectedProject?.name || null; }, [selectedProject]);
   useEffect(() => { userIdRef.current = userId; }, [userId]);
+
+  // Project switch invalidates anything in the staging area — the
+  // staged files were picked with one project in mind and shouldn't
+  // silently get sent to a different project the user just selected.
+  useEffect(() => {
+    setStaged([]);
+    prepPromisesRef.current.clear();
+  }, [selectedProjectId]);
 
   // ── Derived state ───────────────────────────────────────────────────────
   const uploadingCount = useMemo(
@@ -143,9 +192,15 @@ export function UploadsProvider({ children }) {
     const { data, error } = await uploadProjectFile({
       projectId: entry.projectId,
       file: entry.file,
+      displayName: entry.name,
+      description: entry.description,
       uploadedBy: entry.uploadedBy,
       signal: controller.signal,
       onProgress: (loaded, total) => patchUpload(entry.id, { loaded, total }),
+      // Pre-computed at staging time. uploadProjectFile skips
+      // generation when prepped is non-null, so Send-to-PUT is
+      // basically instant on warm prep.
+      prepped: entry.prepped,
     });
 
     controllersRef.current.delete(entry.id);
@@ -229,6 +284,132 @@ export function UploadsProvider({ children }) {
     });
   }, [runUpload]);
 
+  // ── Staging actions ─────────────────────────────────────────────────────
+  // Pre-send prep for a single staged file. Runs thumbnail/frame/
+  // duration extraction (whichever apply for the MIME) and patches
+  // the staged entry with the resolved values + prepReady: true.
+  // Errors are NON-fatal: a prep failure just leaves the assets null
+  // and the upload pipeline falls back to its in-flight generation.
+  // Returns the prep results so sendStaged can `await` directly off
+  // the stored promise.
+  const prepStagedFile = useCallback(async (id, file) => {
+    const isVideo = (file.type || '').startsWith('video/');
+    try {
+      const [thumbnail, thumbnailFrames, durationSeconds] = await Promise.all([
+        isVideo ? Promise.resolve(null) : generateThumbnail(file),
+        isVideo ? generateVideoFrames(file) : Promise.resolve(null),
+        isVideo ? extractVideoDuration(file) : Promise.resolve(null),
+      ]);
+      setStaged((prev) => prev.map((s) => (
+        s.id === id
+          ? { ...s, thumbnail, thumbnailFrames, durationSeconds, prepReady: true }
+          : s
+      )));
+      return { thumbnail, thumbnailFrames, durationSeconds };
+    } catch {
+      // Mark as ready (so the spinner clears) but with null assets —
+      // the upload pipeline's fallback path will regenerate inline.
+      setStaged((prev) => prev.map((s) => (
+        s.id === id
+          ? { ...s, prepReady: true }
+          : s
+      )));
+      return { thumbnail: null, thumbnailFrames: null, durationSeconds: null };
+    }
+  }, []);
+
+  // MIME-rejects pre-flight (rejected files toast + skip — they never
+  // reach the staging area). Acceptable files appear as 'staged' rows
+  // in the modal and stay there until the user clicks Send.
+  const stageFiles = useCallback((files) => {
+    const fileArray = Array.from(files || []);
+    if (fileArray.length === 0) return;
+
+    const accepted = [];
+    let rejectedCount = 0;
+    for (const f of fileArray) {
+      if (isAcceptedMime(f.type)) accepted.push(f);
+      else rejectedCount += 1;
+    }
+    if (rejectedCount > 0) {
+      notify({
+        category: 'file',
+        variant: 'error',
+        icon: 'file-x',
+        title: 'Unsupported file type',
+        body: `${rejectedCount} file${rejectedCount === 1 ? '' : 's'} skipped. Allowed: PDF, image, video, text.`,
+        dedupeKey: 'upload-staging-mime-rejected',
+      });
+    }
+    if (accepted.length === 0) return;
+    const newEntries = accepted.map((file) => ({
+      id: nextStagedId(),
+      file,
+      // Editable display name — defaults to the file's original
+      // filename WITHOUT its extension so users don't have to
+      // manually delete ".pdf" / ".mp4" / etc. before typing a
+      // nicer title. The extension is still preserved on the
+      // storage_path (which always uses file.name) and surfaces
+      // on the Files-grid card as a corner tag — splitting it off
+      // here just cleans up the editable display name. Split on
+      // the LAST dot only, ignore leading dots (".env" stays
+      // intact), trailing dots, and "extensions" > 8 chars (likely
+      // part of the actual name, not a real extension).
+      name: (() => {
+        const n = file.name;
+        const i = n.lastIndexOf('.');
+        if (i <= 0 || i === n.length - 1) return n;
+        if (n.length - i - 1 > 8) return n;
+        return n.slice(0, i);
+      })(),
+      // Optional description — empty until the user types into
+      // the row's description textarea. Written to the row's
+      // `description` column at insert time; null when blank.
+      description: '',
+      // Pre-send prep slots — filled by prepStagedFile() below. The
+      // upload pipeline reads them at Send time; if they're still
+      // null (prep hasn't finished and Send isn't awaiting), the
+      // pipeline regenerates inline. prepReady drives the row's
+      // "Preparing…" → "Ready to send" status flip and the Send
+      // button's spinner.
+      thumbnail: null,
+      thumbnailFrames: null,
+      durationSeconds: null,
+      prepReady: false,
+    }));
+    setStaged((prev) => [...prev, ...newEntries]);
+    // Kick off prep for each new entry. Store the promise so
+    // sendStaged can await any still-in-flight prep when the user
+    // hits Send before it completes.
+    for (const entry of newEntries) {
+      prepPromisesRef.current.set(entry.id, prepStagedFile(entry.id, entry.file));
+    }
+  }, [notify, prepStagedFile]);
+
+  const removeStaged = useCallback((id) => {
+    setStaged((prev) => prev.filter((s) => s.id !== id));
+    // Abandon the in-flight prep promise. We can't actually cancel
+    // PDF/video generation (the underlying APIs don't expose it), but
+    // dropping the map entry means sendStaged won't await it later.
+    prepPromisesRef.current.delete(id);
+  }, []);
+
+  const clearStaged = useCallback(() => {
+    setStaged([]);
+    prepPromisesRef.current.clear();
+  }, []);
+
+  // Per-row editors for the staged inputs. The modal calls these from
+  // onChange handlers as the user types — cheap because `staged` is
+  // rarely > 20 entries.
+  const updateStagedName = useCallback((id, name) => {
+    setStaged((prev) => prev.map((s) => (s.id === id ? { ...s, name } : s)));
+  }, []);
+
+  const updateStagedDescription = useCallback((id, description) => {
+    setStaged((prev) => prev.map((s) => (s.id === id ? { ...s, description } : s)));
+  }, []);
+
   // ── Public actions ──────────────────────────────────────────────────────
 
   // Append N files as new upload entries. MIME-rejects pre-flight so
@@ -290,6 +471,111 @@ export function UploadsProvider({ children }) {
     drainQueue();
   }, [drainQueue, notify, scheduleDismiss]);
 
+  // Commit the staging area to the upload pipeline. KEEPS each
+  // staged row's id and reuses it as the upload entry id, so when
+  // the row transitions from "Ready to send" → "Queued" → "Uploading"
+  // the React key in UploadModal's list matches across both arrays
+  // and the same <li> DOM node is updated in place — no remount, no
+  // entrance-animation replay, no visual flicker as the modal would
+  // otherwise briefly contract (old <li> unmounts) and expand (new
+  // <li> mounts and animates). Skips beginUpload's MIME re-check and
+  // rejection branch because staged files were already filtered
+  // through `isAcceptedMime` at staging time.
+  const sendStaged = useCallback(async () => {
+    if (sending) return;
+    if (staged.length === 0) return;
+    const projectId = selectedProjectIdRef.current;
+    const projectName = selectedProjectNameRef.current;
+    const uploadedBy = userIdRef.current;
+    if (!projectId || !uploadedBy) {
+      setStaged([]);
+      prepPromisesRef.current.clear();
+      return;
+    }
+    // Snapshot the staging list at click time so files added during
+    // the prep-await aren't silently sent or dropped — they stay
+    // staged for a subsequent Send.
+    const snapshot = staged;
+    const snapshotIds = new Set(snapshot.map((s) => s.id));
+
+    setSending(true);
+    // Await every in-flight prep. Already-resolved promises return
+    // immediately; the spinner on Send only stays up if the user
+    // beat prep. Falls back to nulls if a prep promise rejected or
+    // was never registered (defensive; shouldn't happen).
+    const prepResults = await Promise.all(
+      snapshot.map(async (s) => {
+        const p = prepPromisesRef.current.get(s.id);
+        if (!p) return null;
+        try { return await p; }
+        catch { return null; }
+      }),
+    );
+
+    const entries = snapshot.map(({ id, file, name, description }, i) => ({
+      id,
+      file,
+      // Carry the staged name + description into the upload entry
+      // so runUpload can hand them to uploadProjectFile, and so the
+      // synthetic row in the modal keeps showing the user-chosen
+      // name during in-flight/done states instead of reverting to
+      // file.name.
+      name,
+      description,
+      projectId,
+      projectName,
+      uploadedBy,
+      status: 'pending',
+      loaded: 0,
+      total: file.size,
+      error: null,
+      // Pre-computed thumbnail / video frames / duration — passed
+      // through to uploadProjectFile so it can skip generation and
+      // start the network PUT immediately. Null per-field is OK
+      // (the pipeline treats null as "no thumb" / "no duration"
+      // rather than re-generating).
+      prepped: prepResults[i] || {
+        thumbnail: null, thumbnailFrames: null, durationSeconds: null,
+      },
+    }));
+
+    // Drop the snapshot from staged + the prep map. Anything added
+    // mid-await stays on staged untouched.
+    setStaged((prev) => prev.filter((s) => !snapshotIds.has(s.id)));
+    for (const id of snapshotIds) prepPromisesRef.current.delete(id);
+
+    setUploads((prev) => [...prev, ...entries]);
+    setSending(false);
+    drainQueue();
+
+    // Close the modal once the uploads are queued — the user asked
+    // for Send to dismiss the dialog. The in-flight uploads keep
+    // running in the background (their AbortControllers + entries
+    // are still in the uploads array); the modal can be reopened
+    // via the FAB to inspect status, and completed uploads
+    // auto-dismiss via the existing TERMINAL_DISMISS_MS timer. We
+    // intentionally do NOT call closeModal() here — that would
+    // abort the in-flight uploads + wipe the uploads array, which
+    // is the user-initiated cancel path, not the post-send path.
+    setModalOpen(false);
+  }, [staged, sending, drainQueue]);
+
+  // Per-row trash action used by the upload modal's list. Aborts the
+  // upload if it's in flight (the XHR resolves with AbortError, runUpload
+  // patches to 'canceled', scheduleDismiss fires), and unconditionally
+  // removes the entry from `uploads` so the row disappears immediately
+  // rather than waiting for the auto-dismiss timer. For 'done' rows the
+  // file stays in storage — this only clears the entry from the in-memory
+  // upload log; actual file deletion happens from FileDetailModal.
+  const dismissUpload = useCallback((id) => {
+    const controller = controllersRef.current.get(id);
+    if (controller) {
+      try { controller.abort(); } catch { /* swallow */ }
+      controllersRef.current.delete(id);
+    }
+    setUploads((prev) => prev.filter((u) => u.id !== id));
+  }, []);
+
   // Abort every in-flight upload + drop the queued pending ones. Already-
   // finished entries are left alone (their files are in storage and have
   // metadata rows — undoing them would require a separate "uploaded by
@@ -312,16 +598,64 @@ export function UploadsProvider({ children }) {
     }, TERMINAL_DISMISS_MS);
   }, []);
 
-  // ── Window-level drag listeners ─────────────────────────────────────────
-  // Attached once per provider mount. The overlay component has no drag
-  // handlers of its own; everything is captured at the window level so
-  // drops anywhere over the app land in beginUpload.
+  // Close the modal AND wipe everything that was visible inside it.
+  // Closing is treated as "dismiss what I was reviewing" — staged
+  // files (never uploaded) are dropped, in-flight uploads are
+  // aborted (uploadProjectFile's orphan-cleanup branch handles any
+  // partial bytes in storage), and the row list is cleared. Files
+  // that already finished uploading stay in storage — those are
+  // durable from the moment the upload succeeded; only their list
+  // row is removed.
+  const closeModal = useCallback(() => {
+    setModalOpen(false);
+    setDragActive(false);
+    setSending(false);
+    for (const controller of controllersRef.current.values()) {
+      try { controller.abort(); } catch { /* swallow */ }
+    }
+    controllersRef.current.clear();
+    startedRef.current.clear();
+    inFlightRef.current = 0;
+    setStaged([]);
+    setUploads([]);
+    prepPromisesRef.current.clear();
+  }, []);
+
+  // Window-level drag-and-drop. Two distinct visual states:
+  //   • dragenter (mid-drag, modal was closed): flip dragActive=true,
+  //     which renders the modal in drag-only mode (dropzone only).
+  //   • drop: flip dragActive=false + modalOpen=true and stage the
+  //     files, which reveals the full chrome around the now-staged
+  //     rows. The dropzone DOM node stays mounted across this
+  //     transition (chrome is hidden via CSS, not unmounted) so the
+  //     dropzone doesn't visually pop/relayout when the chrome
+  //     appears.
+  //
+  // dragenter/dragleave bubble up from every nested element the
+  // cursor crosses (e.g. moving from page background onto a card
+  // fires leave-on-bg + enter-on-card in the same gesture). A simple
+  // boolean would flicker; instead we count depth — incrementing on
+  // every dragenter, decrementing on every dragleave — and only
+  // consider the drag truly gone when the counter returns to zero.
+  // drop resets to zero unconditionally because no further dragleave
+  // fires after a successful drop.
+  //
+  // Modal-already-open case: a second drag while modalOpen=true does
+  // NOT set dragActive — the full chrome stays put and the drop just
+  // appends to the staging list. dragActive only governs the "modal
+  // was closed, drag opened it as a teaser" state.
+  //
+  // preventDefault on dragover is REQUIRED for drop to fire — without
+  // it the renderer treats the page as a non-drop-target and the OS
+  // default ("open this file in a new tab") takes over, navigating
+  // the SPA away. preventDefault on drop suppresses that same
+  // fallback for the terminal event.
   useEffect(() => {
-    const isFileDrag = (dt) => {
-      if (!dt) return false;
-      const types = dt.types;
-      // DOMStringList exposes both .length and array indexing; .includes
-      // is unsupported on Chromium's legacy DOMStringList, so iterate.
+    let dragDepth = 0;
+
+    const carriesFiles = (e) => {
+      const types = e.dataTransfer?.types;
+      if (!types) return false;
       for (let i = 0; i < types.length; i++) {
         if (types[i] === 'Files') return true;
       }
@@ -329,74 +663,77 @@ export function UploadsProvider({ children }) {
     };
 
     const onDragEnter = (e) => {
-      if (!isFileDrag(e.dataTransfer)) return;
+      if (!carriesFiles(e)) return;
+      if (!selectedProjectIdRef.current) return;
       e.preventDefault();
-      dragCounterRef.current += 1;
-      if (dragCounterRef.current === 1) setDragActive(true);
-    };
-
-    const onDragLeave = (e) => {
-      if (!isFileDrag(e.dataTransfer)) return;
-      dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
-      if (dragCounterRef.current === 0) setDragActive(false);
+      dragDepth += 1;
+      if (!modalOpenRef.current) setDragActive(true);
     };
 
     const onDragOver = (e) => {
-      if (!isFileDrag(e.dataTransfer)) return;
-      // REQUIRED: without preventDefault on dragover, Electron Chromium
-      // treats the drop as a default-action navigation to file://… —
-      // the renderer would replace itself with the dropped file. This
-      // is the single most important line in the file.
+      if (!carriesFiles(e)) return;
       e.preventDefault();
-      // Reflect the gate in the OS cursor: with a project selected the
-      // cursor gains a "+" copy badge; without one it gets the "no"
-      // badge so the user sees the gate before they even release.
-      e.dataTransfer.dropEffect = selectedProjectIdRef.current ? 'copy' : 'none';
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+
+    const onDragLeave = (e) => {
+      if (!carriesFiles(e)) return;
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) setDragActive(false);
     };
 
     const onDrop = (e) => {
-      if (!isFileDrag(e.dataTransfer)) return;
+      if (!carriesFiles(e)) return;
       e.preventDefault();
-      dragCounterRef.current = 0;
+      dragDepth = 0;
       setDragActive(false);
-      // Gate: no project selected → no-op. The overlay's "select a project
-      // first" copy already explained the gate to the user.
       if (!selectedProjectIdRef.current) return;
-      const files = Array.from(e.dataTransfer.files || []);
+      const files = Array.from(e.dataTransfer?.files || []);
       if (files.length === 0) return;
-      beginUpload(files);
-    };
-
-    // Belt-and-suspenders: if the user Alt-Tabs away mid-drag, some
-    // platforms swallow the final dragleave. Resetting on window blur
-    // ensures the overlay doesn't stay stuck open.
-    const onBlur = () => {
-      dragCounterRef.current = 0;
-      setDragActive(false);
+      setModalOpen(true);
+      stageFiles(files);
     };
 
     window.addEventListener('dragenter', onDragEnter);
-    window.addEventListener('dragleave', onDragLeave);
     window.addEventListener('dragover', onDragOver);
+    window.addEventListener('dragleave', onDragLeave);
     window.addEventListener('drop', onDrop);
-    window.addEventListener('blur', onBlur);
     return () => {
       window.removeEventListener('dragenter', onDragEnter);
-      window.removeEventListener('dragleave', onDragLeave);
       window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('dragleave', onDragLeave);
       window.removeEventListener('drop', onDrop);
-      window.removeEventListener('blur', onBlur);
     };
-  }, [beginUpload]);
+  }, [stageFiles]);
 
   const value = useMemo(() => ({
-    dragActive,
     uploads,
     uploadingCount,
     overallProgress,
     beginUpload,
     cancelAllUploads,
-  }), [dragActive, uploads, uploadingCount, overallProgress, beginUpload, cancelAllUploads]);
+    dismissUpload,
+    // Staging + modal — surfaces consume these to render the
+    // review-before-send list and the FAB → modal trigger respectively.
+    staged,
+    stageFiles,
+    removeStaged,
+    clearStaged,
+    sendStaged,
+    updateStagedName,
+    updateStagedDescription,
+    modalOpen,
+    openModal,
+    closeModal,
+    dragActive,
+    sending,
+  }), [
+    uploads, uploadingCount, overallProgress, beginUpload,
+    cancelAllUploads, dismissUpload,
+    staged, stageFiles, removeStaged, clearStaged, sendStaged,
+    updateStagedName, updateStagedDescription,
+    modalOpen, openModal, closeModal, dragActive, sending,
+  ]);
 
   return (
     <UploadsContext.Provider value={value}>

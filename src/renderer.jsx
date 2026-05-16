@@ -26,10 +26,10 @@ import App from './App';
 //                                 (uses notify() for rejection/error toasts).
 //                                 Sits inside NotificationsProvider so the
 //                                 toast helper is in scope; sits outside <App />
-//                                 so the AppShell-mounted UploadOverlay reads
+//                                 so the AppShell-mounted UploadModal reads
 //                                 its state. NotificationCenter renders ABOVE
-//                                 the overlay's z-index (9999 vs 9998) so
-//                                 toasts can pop in front of the drop card.
+//                                 the modal's z-index (9999 vs 1000) so
+//                                 toasts can pop in front of the dropzone.
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <MemoryRouter initialEntries={['/']}>

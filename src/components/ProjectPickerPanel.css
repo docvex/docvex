@@ -209,8 +209,16 @@
 }
 
 .project-picker-panel-row:hover {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
+  /* White at 10% alpha — a subtle additive wash on top of the panel's
+     accent-hover bg in both themes. Mirrors the treatment used on
+     `.project-picker-panel-clear:hover` further down so every
+     interactive surface in the panel shares the same hover language.
+     Pure overlay (no bg-elevated surface swap) means the row stays
+     tinted by the panel's brown/tan and doesn't suddenly read as a
+     foreign light card. The row's idle text color (text-on-accent)
+     is preserved — no flip to text-primary, which would render as
+     dark-on-dark in cream theme once the bg is mostly still brown. */
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* Left column — stacks the project name above the row of tags (role
@@ -465,6 +473,60 @@
   overflow: hidden;
   border-radius: 6px;
   background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+
+/* Cream (light) theme: the panel's bg is var(--accent-hover) = #74502F
+   (dark cognac), so the default var(--text-primary) (ink/dark navy)
+   title + close-X and var(--text-muted) (gray) empty state read as
+   dark-on-dark. Pin them to var(--color-cream) so they sit as warm
+   white on the brown panel — same value the row text gets via
+   text-on-accent. Scoped to [data-theme="cream"] so the Ink theme,
+   where text-primary is already cream and lands readably on the
+   lighter accent-hover, is left untouched. */
+[data-theme="cream"] .project-picker-panel-title,
+[data-theme="cream"] .project-picker-panel-close,
+[data-theme="cream"] .project-picker-panel-state {
+  color: var(--color-cream);
+}
+
+[data-theme="cream"] .project-picker-panel-close:hover {
+  color: var(--color-cream);
+  background: color-mix(in srgb, var(--color-cream) 12%, transparent);
+}
+
+/* Ink (dark) theme: the panel bg is var(--accent-hover) = #C8B58E (light
+   tan), so a transparent "selected" row leaves the tan panel showing
+   through and the marker reads only via the 3px cognac stripe. Swap to
+   the brand navy var(--color-slate) so the selected row is a clear
+   slate-navy slab against the tan panel — much louder selection
+   affordance. Slate (#1E293B) is the lighter of the palette's two
+   navies; ink (#0F172A) read as near-black against the tan and was
+   visually heavier than the brand intended. Text-on-accent in ink
+   theme is itself ink (dark navy), which would disappear on the new
+   navy bg, so we flip the row text + role-pill colors to cream/sand
+   for legibility. The cognac left-stripe stays put — it remains the
+   consistent "selected" flag across both themes. */
+[data-theme="ink"] .project-picker-panel-row.is-current,
+[data-theme="ink"] .project-picker-panel-row.is-current:hover {
+  background: var(--color-slate);
+  color: var(--color-cream);
+}
+
+[data-theme="ink"] .project-picker-panel-row.is-current .project-picker-panel-row-members,
+[data-theme="ink"] .project-picker-panel-row.is-current:hover .project-picker-panel-row-members {
+  color: var(--color-cream);
+}
+
+/* Member/viewer role pill on the navy-selected row in ink theme — base
+   rule paints both fg and bg-tint from text-on-accent (ink/dark navy),
+   which disappears against the new navy bg. Re-route through cream so
+   the pill stays visible. Owner/admin pills already use warning/sand
+   palettes that read fine on navy, so no override needed for those. */
+[data-theme="ink"] .project-picker-panel-row.is-current .project-picker-panel-row-role.role-member,
+[data-theme="ink"] .project-picker-panel-row.is-current .project-picker-panel-row-role.role-viewer {
+  color: var(--color-cream);
+  background: color-mix(in srgb, var(--color-cream) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-cream) 28%, transparent);
 }
 
 /* Ink (dark) theme: the panel sits on var(--accent-hover) which is a dark

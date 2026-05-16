@@ -6,7 +6,7 @@ import ProjectBanner from './ProjectBanner';
 import ProjectPickerPanel from './ProjectPickerPanel';
 import SwitchProjectLoader from './SwitchProjectLoader';
 import ReportProblemModal from './ReportProblemModal';
-import UploadOverlay from './UploadOverlay';
+import UploadModal from './UploadModal';
 import { ReportProblemProvider } from '../context/ReportProblemContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { clearSignedUrlCache } from '../lib/projectFiles';
@@ -277,15 +277,16 @@ export default function AppShell() {
             captureAndOpen() on the ReportProblemContext. Returns null when
             closed, so mounting unconditionally is free. */}
         <ReportProblemModal />
-        {/* Global drag-drop file-upload overlay (z-index 9998, above
-            every modal, below NotificationCenter toasts at 9999). The
-            component returns null when there's no drag in progress AND
-            no uploads in flight, so the mount is free. Reads its state
-            from UploadsContext (renderer.jsx mounts the provider). The
-            backdrop is pointer-events: none so drops always reach the
-            window-level listener inside UploadsProvider regardless of
-            where on screen the user releases. */}
-        <UploadOverlay />
+        {/* Global upload modal — open/close + drag-active state live
+            in UploadsContext. Renders for BOTH states: drag-only
+            (only the dashed dropzone is visible, chrome hidden,
+            pointer-events off so drops fall through) AND fully open
+            (after a drop or FAB click — header, dropzone, list, Send
+            button). Keeping a single component for both states means
+            the DOM tree stays put across the drop transition, so
+            there's no one-frame disappearance the previous two-
+            component setup had. */}
+        <UploadModal />
       </div>
     </ReportProblemProvider>
   );

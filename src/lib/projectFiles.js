@@ -32,7 +32,7 @@ const TABLE = 'project_files';
 // by the bundler.
 const SELECT_COLUMNS =
   'id, project_id, name, description, mime_type, size_bytes, storage_path, ' +
-  'thumbnail_path, thumbnail_frames, uploaded_by, uploaded_at';
+  'thumbnail_path, thumbnail_frames, duration_seconds, uploaded_by, uploaded_at';
 
 // Newest-first list of files for a project. RLS gates by viewer+ via the
 // "viewers read project files" policy, so callers don't add a project-
@@ -62,17 +62,24 @@ export async function insertProjectFileRow({
   id,
   projectId,
   name,
+  description = null,
   mimeType,
   sizeBytes,
   storagePath,
   thumbnailPath = null,
   thumbnailFrames = null,
+  durationSeconds = null,
   uploadedBy,
 }) {
   const row = {
     id,
     project_id: projectId,
     name,
+    // Optional at upload time — set when the user filled the
+    // description input in the upload modal. Null treated by the
+    // schema (migration 005) as "no description"; FileDetailModal
+    // can still add/edit one later.
+    description: description || null,
     mime_type: mimeType,
     size_bytes: sizeBytes,
     storage_path: storagePath,
@@ -80,6 +87,8 @@ export async function insertProjectFileRow({
     // Null for non-video / legacy rows; populated string[] when the
     // uploader extracted >=2 frames for the hover slideshow.
     thumbnail_frames: thumbnailFrames,
+    // Video runtime in seconds (migration 011). Null for non-video.
+    duration_seconds: durationSeconds,
     uploaded_by: uploadedBy,
   };
   const { data, error } = await supabase

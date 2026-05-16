@@ -63,16 +63,15 @@
 .project-page-frame {
   position: relative;
   z-index: 2;
-  /* 2.35rem = banner's padding-top (0.5rem) + banner's text height
-     (1.35rem at line-height:1.5) + 0.5rem of breathing room below the
-     text. The panel's top edge lines up just below the banner text, and
-     the banner's 1.625rem padding-bottom (= 0.5rem buffer + 1.125rem
-     corner-radius) extends the gold strip far enough for the panel's
-     rounded corners to cut into without overshooting into page-bg.
-     Net effect: text sits at the visual center of the FULL-WIDTH gold
-     band (y=0..2.35rem) rather than at the geometric center of the
-     entire banner box. */
-  margin-top: 2.35rem;
+  /* 1.85rem = banner's padding-top (0.25rem) + banner's text height
+     (1.35rem at line-height:1.5) + 0.25rem of breathing room below
+     the text. Halved from the previous 2.35rem to track the banner's
+     halved vertical padding (0.5 → 0.25 top, 1.625 → 1.375 bottom).
+     The banner's 1.375rem padding-bottom = 0.25rem buffer +
+     1.125rem corner-radius still extends the gold strip exactly
+     far enough for the panel's rounded top corners to cut into
+     without overshooting into page-bg. */
+  margin-top: 1.85rem;
   /* Two-stop linear gradient creates the rounded "lip" effect:
        0 → 1.125rem (top 18px, corner-radius height): opaque --bg-page.
                     The border-radius clips this fill to the rounded

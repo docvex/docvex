@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useUpdates } from '../context/UpdatesContext';
@@ -187,6 +187,53 @@ function AccountAvatar({ user, onBadgeClick }) {
           onBadgeClick(e.currentTarget.getBoundingClientRect());
         }}
       />
+    </span>
+  );
+}
+
+// "Select a project to use these features" pill rendered inline inside
+// the locked-projects section. CSS gives it a fully-rounded
+// `border-radius: 999px` (stadium shape) by default, which only looks
+// right when the text fits on a single line — once the copy wraps, the
+// big half-circle ends pinch awkwardly into the lines. This component
+// watches the pill's rendered height via ResizeObserver and toggles
+// `is-multiline` when the content rises above ~1 line, at which point
+// CSS swaps the radius for a softer corner that reads correctly on
+// multi-line content.
+function LockedProjectsHint() {
+  const ref = useRef(null);
+  const [multiLine, setMultiLine] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      // `display: none` (sidebar collapsed) yields offsetHeight 0 and
+      // a non-numeric line-height; bail before computing nonsense.
+      if (el.offsetHeight === 0) return;
+      const cs = getComputedStyle(el);
+      const lineHeight = parseFloat(cs.lineHeight);
+      const padTop = parseFloat(cs.paddingTop);
+      const padBottom = parseFloat(cs.paddingBottom);
+      const contentHeight = el.offsetHeight - padTop - padBottom;
+      // 1.4 × line-height threshold gives a comfortable margin: a single
+      // line measures ~1.0 ×, two lines measure ~2.0 ×, so the cutoff
+      // never flickers on sub-pixel rounding.
+      setMultiLine(contentHeight > lineHeight * 1.4);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <span
+      ref={ref}
+      className={`locked-projects-hint${multiLine ? ' is-multiline' : ''}`}
+      aria-hidden="true"
+    >
+      Select a project to use these features
     </span>
   );
 }
@@ -593,7 +640,24 @@ export default function Sidebar() {
               // off-and-on in the 4px gap between rows.
               // Internal spacing replicated via `gap: 4px` in CSS so the
               // visual layout is byte-identical to the old version.
-              <Tooltip content="Select a project to use these features">
+              // Tooltip wraps the buttons INSIDE the <li> rather than the
+              // <li> itself. Wrapping the <li> from outside produced a
+              // `<span><li>…</li></span>` DOM tree which broke the
+              // `.sidebar-nav > li` rule's child-combinator match — the
+              // <li> stopped inheriting `direction: ltr` from that rule
+              // and instead picked up `direction: rtl` from .sidebar-nav
+              // (used to put the scrollbar on the left), flipping every
+              // button's inner flex row and shoving the icons to the
+              // right of the labels. With the Tooltip's display:contents
+              // span sitting inside the <li>, the <li> is again a direct
+              // child of <ul.sidebar-nav> and the rule matches normally.
+              // Hint pill replaces the cursor-following Tooltip wrapper —
+              // sits inline between the disabled buttons (after Clients,
+              // before To-dos so it lands roughly in the middle of the
+              // seven-row list) and is always visible. The section only
+              // renders when the buttons are gated by "no project
+              // selected", so the explanatory copy is always relevant —
+              // no need for a hover-driven affordance here.
               <li className="locked-projects-section">
                 <button
                   type="button"
@@ -619,6 +683,12 @@ export default function Sidebar() {
                   <span className="icon">{ClientsIcon}</span>
                   <span className="label">Clients</span>
                 </button>
+                {/* Pill lives in its own component so it can own a
+                    ResizeObserver that toggles `.is-multiline` when the
+                    copy wraps — CSS then drops the fully-rounded
+                    `border-radius: 999px` (stadium) to a softer corner
+                    that reads correctly on multi-line content. */}
+                <LockedProjectsHint />
                 <button
                   type="button"
                   className="nav-item is-disabled"
@@ -652,7 +722,6 @@ export default function Sidebar() {
                   <span className="label">Automate</span>
                 </button>
               </li>
-              </Tooltip>
             )}
           </>
         )}

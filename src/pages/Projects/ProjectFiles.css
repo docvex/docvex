@@ -51,8 +51,10 @@
 
 /* The card itself â€” a <button> so it's keyboard-focusable + Enter-
    activatable for free. All resets so the visual is fully owned by
-   .project-files-card rules below. */
+   .project-files-card rules below. position: relative anchors the
+   .project-files-ext corner tag. */
 .project-files-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -87,6 +89,7 @@
    regardless of image dimensions. Images cover; icon fallback gets
    a centered glyph in gold accent on the same surface. */
 .project-files-thumb {
+  position: relative;
   aspect-ratio: 4 / 3;
   background: var(--bg-card);
   display: flex;
@@ -99,7 +102,13 @@
 .project-files-thumb img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* contain (not cover) so portrait/landscape video thumbs — which
+     are now stored at native aspect (no baked-in letterbox bars) —
+     letterbox via CSS against the container's dark --bg-card
+     backdrop. For 4:3 thumbnails (images / PDFs / legacy
+     letterboxed video thumbs) contain fills exactly the same as
+     cover would, so the grid display is unchanged for those. */
+  object-fit: contain;
   display: block;
 }
 
@@ -145,6 +154,55 @@
   font-size: 0.72rem;
   color: var(--text-muted);
   letter-spacing: 0.02em;
+}
+
+/* Extension tag pinned to the top-right corner of the card. Floats
+   above the thumb (z-index 1) so it stays visible whether the thumb
+   resolved to an image, video frame, or fallback glyph. The dark
+   semi-transparent surface keeps it readable on any thumbnail
+   (light photos, dark renders, brand-accent glyphs). Pointer-events
+   off so clicks pass through to the parent button — the tag is
+   purely decorative metadata, not a separate target. */
+.project-files-ext {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  /* Backdrop blur so the tag reads cleanly on detailed/bright
+     thumbnails. Cheap on a single small element. */
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* Video duration badge — bottom-right of the thumb, same recipe as
+   the extension tag but with tabular numerals so digits don't shift
+   between cards. Anchored to .project-files-thumb (position: relative
+   on that container). */
+.project-files-duration {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 /* Skeleton file cards â€” outer .project-files-card shape stays, inner
@@ -207,4 +265,69 @@
   width: 55%;
   height: 0.72rem;
   margin-top: 4px;
+}
+
+/* Floating action button — anchored to the bottom-right of the viewport
+   (position: fixed) so it survives page scroll and keeps a constant
+   reach target. Brand-accent circle with a high z-index so it floats
+   above the page surfaces (cards, banner, etc.). The upload modal it
+   triggers (z:1000) sits above it; while the modal is on screen the
+   FAB is hidden via `body:has(.upload-modal-backdrop)` below so the
+   trigger doesn't ghost through the dimmed backdrop. 24px inset from
+   the corner matches the breathing room the rest of the app uses for
+   floating affordances. */
+.project-files-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  z-index: 200;
+  transition:
+    background 140ms ease,
+    transform 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.project-files-fab:hover {
+  background: var(--accent-hover);
+  /* Tiny lift on hover so the button reads as actively responding to
+     the cursor — same affordance language as the Project card hovers. */
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34);
+}
+
+.project-files-fab:active {
+  /* Drop the lift on press so the click feels tactile. */
+  transform: translateY(0);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+}
+
+.project-files-fab:focus-visible {
+  /* Keyboard focus ring — accent-tinted halo for visibility on both
+     themes without clashing with the brand. */
+  outline: none;
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.28),
+    0 0 0 3px var(--accent-tint);
+}
+
+/* Hide the FAB whenever the upload modal's backdrop is on screen.
+   The modal now renders for BOTH the drag-only state (only the
+   dashed dropzone is visible) and the fully-open state, so a single
+   `:has(.upload-modal-backdrop)` rule catches every case where the
+   FAB would otherwise float above the modal at its z-index 200 vs
+   the modal's z-index 1000. The FAB exists only to open the modal,
+   so dropping it during these states is also semantically correct. */
+body:has(.upload-modal-backdrop) .project-files-fab {
+  display: none;
 }

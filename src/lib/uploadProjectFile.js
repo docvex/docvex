@@ -29,6 +29,7 @@ import {
 import {
   generateThumbnail,
   generateVideoFrames,
+  extractVideoDuration,
   buildThumbnailPath,
   buildVideoFramePath,
 } from './thumbnails';
@@ -109,9 +110,26 @@ function putFileWithProgress({ url, file, signal, onProgress }) {
 export async function uploadProjectFile({
   projectId,
   file,
+  // Optional display name + description the user set in the upload
+  // modal's per-row inputs. `displayName` falls back to `file.name`
+  // when the user didn't override it (so the DB's `name` column
+  // still equals the original filename in that case). `description`
+  // is null when blank — the schema treats null as "no description".
+  // Storage path always uses `file.name`; the row's display name is
+  // a presentation-layer concern.
+  displayName,
+  description,
   uploadedBy,
   signal,
   onProgress,
+  // Optional pre-computed assets (thumbnail Blob, video frame Blobs,
+  // duration). When the upload-modal staging step already generated
+  // these (which it does — see UploadsContext.prepStagedFile), we
+  // skip the in-flight generation so Send → upload-starts feels
+  // instant. When null/undefined we fall back to generating inline
+  // so the legacy beginUpload() and any future direct callers still
+  // work.
+  prepped,
 }) {
   if (!projectId)  return { data: null, error: new Error('Missing projectId') };
   if (!file)       return { data: null, error: new Error('Missing file') };
@@ -148,8 +166,23 @@ export async function uploadProjectFile({
   // both for video — the frames already cover the static-poster need
   // (frame 0 is shipped to thumbnail_path for back-compat).
   const isVideo = (file.type || '').startsWith('video/');
-  const thumbnailPromise = isVideo ? Promise.resolve(null) : generateThumbnail(file);
-  const videoFramesPromise = isVideo ? generateVideoFrames(file) : Promise.resolve([]);
+  // Either use the pre-computed values from staging-time prep (resolved
+  // promises = instant) or kick off generation here in parallel with
+  // the main PUT (legacy path for callers that didn't pre-prep).
+  const thumbnailPromise = prepped
+    ? Promise.resolve(prepped.thumbnail ?? null)
+    : (isVideo ? Promise.resolve(null) : generateThumbnail(file));
+  const videoFramesPromise = prepped
+    ? Promise.resolve(prepped.thumbnailFrames ?? [])
+    : (isVideo ? generateVideoFrames(file) : Promise.resolve([]));
+  // Video duration extracted in parallel — small, fast (only metadata
+  // bytes pulled), and the result lands in the project_files row at
+  // insert time so the Files grid can render a runtime badge without
+  // re-fetching the binary. Null for non-video; null on extraction
+  // failure (badge simply doesn't render).
+  const durationPromise = prepped
+    ? Promise.resolve(prepped.durationSeconds ?? null)
+    : (isVideo ? extractVideoDuration(file) : Promise.resolve(null));
 
   // 3. Stream the file to the signed URL.
   const putResult = await putFileWithProgress({
@@ -231,15 +264,23 @@ export async function uploadProjectFile({
   // the app's lists until a row exists. Clean BOTH the main object and
   // the thumbnail (if one was uploaded) — admin-only per RLS, silent
   // failure for members; a sweeper / admin can mop those orphans up.
+  // Settle the duration probe before the insert. It almost always
+  // finished long before the main PUT (metadata fetch is tiny), but
+  // awaiting it here means we don't insert a video row with a null
+  // duration just because the probe hadn't resolved yet.
+  const durationSeconds = await durationPromise;
+
   const { data: row, error: insertErr } = await insertProjectFileRow({
     id: fileId,
     projectId,
-    name: file.name,
+    name: (displayName && displayName.trim()) || file.name,
+    description: (description && description.trim()) || null,
     mimeType: file.type || 'application/octet-stream',
     sizeBytes: file.size,
     storagePath,
     thumbnailPath,
     thumbnailFrames,
+    durationSeconds,
     uploadedBy,
   });
   if (insertErr) {
