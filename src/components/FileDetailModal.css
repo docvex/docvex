@@ -1,39 +1,31 @@
-﻿/* FileDetailModal â€” full-bleed split-pane modal for inspecting an
-   uploaded file. Left pane is the preview (FilePreview component);
-   right pane is metadata + actions.
+﻿/* FileDetailModal — right-side slide-in panel for inspecting an
+   uploaded file. Preview sits on top, metadata + actions stack below.
    Action buttons reuse .modal-btn / .modal-btn-cancel / .modal-btn-
-   confirm / .modal-btn-destructive from ConfirmModal.css â€” declared
+   confirm / .modal-btn-destructive from ConfirmModal.css — declared
    transitively via the import at the top of the .jsx so this
    stylesheet only owns what's specific to the surface. */
 
 .file-detail-backdrop {
   position: fixed;
   /* Pin the backdrop's left edge to the live sidebar width so the
-     modal centers over the *main content area* rather than the whole
+     dim covers the *main content area* rather than the whole
      viewport. AppShell publishes --sidebar-width on .app-shell (60px
-     collapsed, 220px on hover/locked/picker-open), so the modal
-     follows the sidebar as it expands and collapses. Transition the
-     `left` so the recenter is smooth instead of snapping. */
+     collapsed, 220px on hover/locked/picker-open). */
   top: 0;
   right: 0;
   bottom: 0;
   left: var(--sidebar-width, 60px);
-  /* Black dim — matches ReportProblemModal's wash so full-screen
-     modal surfaces share a consistent backdrop tone. Scoped to the
-     content area (left edge pinned to --sidebar-width) so the
-     sidebar stays unobscured and interactive while the modal is
-     open. Above SwitchProjectLoader (45), below the sidebar (50)
-     and NotificationCenter toasts (9999); the `file-detail-fade`
-     keyframe fades the whole element so the dim animates in with
-     the card. */
-  background: rgba(0, 0, 0, 0.65);
+  /* Lighter dim than a centered modal — a side panel coexists with
+     the page underneath rather than blocking it, so the wash is more
+     about focus than blocking. Above SwitchProjectLoader (45), below
+     the sidebar (50) and NotificationCenter toasts (9999). */
+  background: rgba(0, 0, 0, 0.45);
   z-index: 48;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.25rem;
+  align-items: stretch;
+  justify-content: flex-end;
   overflow: hidden;
-  animation: file-detail-fade 140ms ease;
+  animation: file-detail-fade 160ms ease;
   transition: left 220ms ease;
 }
 
@@ -43,43 +35,30 @@
 }
 
 .file-detail-card {
-  /* Compact working surface â€” preview is thumbnail-grade so we don't
-     need to dominate the viewport. Two size variants driven by the
-     orientation class: horizontal (portrait/tall file â†’ side-by-side
-     panes) and vertical (landscape/wide file â†’ stacked panes). Both
-     fit comfortably on a standard laptop screen; the vertical card
-     is taller because the meta pane sits below the preview rather
-     than next to it. */
-  width: 85%;
+  /* Right-anchored side panel — fixed width on wide viewports,
+     responsive cap below. Full height of the content area; no
+     border-radius or top/bottom margin so it reads as a docked
+     drawer rather than a floating card. */
+  width: 480px;
+  max-width: 100%;
+  height: 100%;
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.6);
+  border-left: 1px solid var(--border);
+  box-shadow: -22px 0 60px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: file-detail-rise 200ms cubic-bezier(0.16, 1, 0.3, 1);
-  /* Smooth the dimension swap when orientation flips between files
-     (e.g. clicking a portrait photo then a landscape one). Without
-     this the card would snap to its new size in one frame. */
-  transition: max-width 220ms ease, max-height 220ms ease;
+  animation: file-detail-slide 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.file-detail-card.is-horizontal {
-  max-width: 880px;
-  height: 80%;
-  max-height: 600px;
-}
+/* Orientation classes are still emitted by the JSX but no longer
+   change the card's outer dimensions — the side panel always uses a
+   single stacked layout. They survive only as hooks for the preview
+   pane height (see .file-detail-pane-preview rules below). */
 
-.file-detail-card.is-vertical {
-  max-width: 760px;
-  height: 92%;
-  max-height: 780px;
-}
-
-@keyframes file-detail-rise {
-  from { opacity: 0; transform: translateY(10px) scale(0.985); }
-  to   { opacity: 1; transform: translateY(0)   scale(1); }
+@keyframes file-detail-slide {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 /* Header â€” close button only now. The file's name moved into the meta
@@ -137,39 +116,37 @@
   cursor: not-allowed;
 }
 
-/* Body â€” 50/50 split (horizontal) or 60/40 stack (vertical). The
+/* Body — always stacked vertically inside the side panel. The
    `gap: 1px` plus the card's bg color leaking through gives a 1px
-   hairline divider without an extra DOM node. Both panes scroll
-   their own overflow so the modal never overflows its max-height. */
+   hairline divider without an extra DOM node. Meta pane scrolls its
+   own overflow so long descriptions don't push actions off-screen. */
 .file-detail-body {
   display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
   gap: 1px;
   background: var(--border);  /* shows through the gap as the divider color */
 }
 
-/* Horizontal layout (default, portrait files) â€” preview left, meta
-   right. Each pane claims half of the body width. */
-.file-detail-card.is-horizontal .file-detail-body {
-  flex-direction: row;
-}
-.file-detail-card.is-horizontal .file-detail-pane {
-  flex: 1 1 50%;
+.file-detail-pane-preview {
+  /* Portrait/tall files (the default 'horizontal' orientation class)
+     get more vertical space so the preview reads at a comfortable
+     size. Landscape/wide files ('vertical' class) need less because
+     the page-width constraint of the side panel already caps how big
+     they can render — extra height would just letterbox. */
+  flex: 0 0 320px;
 }
 
-/* Vertical layout (landscape files) â€” preview on top getting the wide
-   horizontal space, meta below. Preview claims ~60% of the height so
-   wide images / video thumbs read at a comfortable size; meta gets
-   the remaining ~40% which is plenty for the title + description +
-   details + actions stack. */
-.file-detail-card.is-vertical .file-detail-body {
-  flex-direction: column;
+.file-detail-card.is-horizontal .file-detail-pane-preview {
+  flex: 0 0 360px;
 }
+
 .file-detail-card.is-vertical .file-detail-pane-preview {
-  flex: 0 0 60%;
+  flex: 0 0 260px;
 }
-.file-detail-card.is-vertical .file-detail-pane-meta {
+
+.file-detail-pane-meta {
   flex: 1 1 auto;
 }
 
@@ -280,6 +257,31 @@
   border-radius: 6px;
   padding: 6px 10px;
   font-size: 0.8rem;
+}
+
+/* Branch-state banner — appears at the top of the meta pane on
+   'mine' branch when the file has a queued change. Tinted by kind
+   so the user can tell at a glance whether it's an edit, replace
+   or delete that's pending. */
+.file-detail-branch-banner {
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+.file-detail-branch-banner.is-edit,
+.file-detail-branch-banner.is-replace {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: rgba(245, 158, 11, 1);
+}
+
+.file-detail-branch-banner.is-delete {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger-soft);
 }
 
 /* â”€â”€ Details list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -401,12 +403,17 @@
   border-radius: 12px;
   padding: 20px;
   width: 100%;
-  max-width: 460px;
+  max-width: 420px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
-  animation: file-detail-rise 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: file-detail-confirm-rise 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes file-detail-confirm-rise {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
 }
 
 .file-detail-confirm-title {
@@ -532,11 +539,9 @@
   transform: translateY(0);
 }
 
-/* PDF first-page-only preview — progressive paint. The thumbnail JPEG
-   shows as an instant first-frame while pdf.js parses the document in
-   the background; once page 1 renders to the canvas, the canvas fades
-   in over the thumbnail. Container is a positioning context so the
-   thumbnail can absolute-overlay the same area the canvas centers in. */
+/* PDF first-page-only preview — pdf.js renders the original PDF to a
+   canvas. The loading text sits in the same flex centerline so the
+   transition from "Loading…" to the canvas doesn't shift layout. */
 .file-preview-pdf-static {
   position: relative;
   width: 100%;
@@ -547,36 +552,9 @@
   padding: 8px 0;
 }
 
-/* Thumbnail fast-paint — absolute + `inset: 0 0 0 0` with `margin: auto`
-   is the canonical "centered absolutely-positioned replaced element"
-   pattern: the IMG sizes to its intrinsic dimensions (capped by max-*),
-   then both axes' margins auto-split the remaining space, centering it
-   horizontally AND vertically. The previous top/bottom pinning stretched
-   the IMG box and dropped the content at the top.
-   No background or shadow on this layer — it's a fast-paint stand-in,
-   not a framed "document" surface. The full pdf.js canvas (below) keeps
-   the shadow + radius because that's the real rendered page. */
-.file-preview-pdf-thumb {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  display: block;
-  opacity: 1;
-  transition: opacity 220ms ease;
-  pointer-events: none;  /* let clicks reach the underlying clickable button */
-}
-
-.file-preview-pdf-thumb.is-faded {
-  opacity: 0;
-}
-
 /* pdf.js canvas — sized inline by FilePreview via canvas.style.{width,height}.
-   Starts at opacity 0 so the thumbnail underneath shows through; flips to 1
-   once the first render finishes. Crossfade with the thumbnail above hides
-   any visual jump between the letterboxed JPEG and the exact-aspect canvas. */
+   Starts at opacity 0; flips to 1 once the first render finishes so the
+   canvas fades in over the "Loading PDF…" text rather than popping. */
 .file-preview-pdf-canvas {
   display: block;
   background: #FFFFFF;
@@ -584,28 +562,10 @@
   border-radius: 4px;
   opacity: 0;
   transition: opacity 220ms ease;
-  position: relative;  /* sit above the absolute thumbnail in stacking order */
-  z-index: 1;
 }
 
 .file-preview-pdf-canvas.is-visible {
   opacity: 1;
-}
-
-.file-preview-video-static {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.file-preview-video-static img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  background: transparent;
 }
 
 /* Generic "no thumbnail" placeholder used for video/PDF when the
@@ -791,35 +751,14 @@
   font-size: 0.9rem;
 }
 
-/* â”€â”€ Responsive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Responsive ──────────────────────────────────────────────────────── */
 
-/* Narrow viewport: force the stacked (vertical) layout regardless of
-   the file's natural aspect — at this width the side-by-side panes
-   would be uselessly cramped. Selectors target both orientation
-   variants so the .is-horizontal class doesn't override the media
-   query rule via higher specificity. Sizes use percentages of the
-   backdrop (not 100vw) because the backdrop's left edge is offset
-   by --sidebar-width — using viewport units here would overflow. */
+/* Narrow viewport: panel expands to fill the entire content area
+   (everything right of the sidebar). At this width the 480px panel
+   would leave only a sliver of dimmed page on the left, which reads
+   as broken rather than intentional. */
 @media (max-width: 860px) {
-  .file-detail-card,
-  .file-detail-card.is-horizontal,
-  .file-detail-card.is-vertical {
+  .file-detail-card {
     width: 100%;
-    height: 100%;
-    max-width: none;
-    max-height: none;
-  }
-  .file-detail-card.is-horizontal .file-detail-body,
-  .file-detail-card.is-vertical .file-detail-body {
-    flex-direction: column;
-  }
-  .file-detail-card.is-horizontal .file-detail-pane,
-  .file-detail-card.is-vertical .file-detail-pane {
-    flex: 1 1 50%;
-  }
-  .file-detail-card.is-horizontal .file-detail-pane-preview,
-  .file-detail-card.is-vertical .file-detail-pane-preview {
-    flex: 1 1 45%;
-    min-height: 200px;
   }
 }

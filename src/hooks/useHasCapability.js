@@ -4,6 +4,14 @@ import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useAuth } from '../context/AuthContext';
 import { resolveCapability } from '../lib/customRoles';
 
+// DEV OVERRIDE — when true, every capability check returns true for
+// any signed-in user with a role on the project. Bypasses the tier
+// matrix + custom-role overrides entirely. Set to false (or delete
+// the early return below) to restore the real role-based gating.
+// Server-side RLS still enforces actual permissions — this only
+// unlocks the UI affordances.
+const ALL_PERMISSIONS_OVERRIDE = true;
+
 // Client-side mirror of the public.has_capability(project_id, capability) SQL
 // function. RLS remains the authoritative gate; this hook exists so the UI
 // shows / hides controls in lockstep with what the server would accept.
@@ -36,6 +44,12 @@ export function useHasCapability(capability) {
 
   return useMemo(() => {
     const myUserId = session?.user?.id ?? null;
+    const hasRole = Boolean(projectCtx?.role || selectedProject?.role);
+
+    // DEV OVERRIDE: any signed-in user with a role on this project
+    // gets every capability. RLS still enforces server-side. Flip
+    // ALL_PERMISSIONS_OVERRIDE to false to restore the real gating.
+    if (ALL_PERMISSIONS_OVERRIDE && hasRole && myUserId) return true;
 
     // Path A — full ProjectContext available
     if (projectCtx?.role) {
@@ -72,6 +86,13 @@ export function useCapabilities(capabilities) {
   return useMemo(() => {
     const out = {};
     const myUserId = session?.user?.id ?? null;
+    const hasRole = Boolean(projectCtx?.role || selectedProject?.role);
+
+    // DEV OVERRIDE — see useHasCapability above. Same gate.
+    if (ALL_PERMISSIONS_OVERRIDE && hasRole && myUserId) {
+      for (const cap of capabilities) out[cap] = true;
+      return out;
+    }
 
     // Resolve once, then iterate capabilities.
     let baseRole = null;

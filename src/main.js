@@ -1,8 +1,44 @@
-import { app, BrowserWindow, Menu, ipcMain, shell, autoUpdater, dialog } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, shell, autoUpdater, dialog, protocol } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import started from 'electron-squirrel-startup';
 import { updateElectronApp } from 'update-electron-app';
+
+// Custom `localfile://` scheme — lets the renderer load arbitrary
+// files from the user's chosen branch folder via `<img src=…>`,
+// without flipping webSecurity off. Registration MUST happen before
+// app.whenReady because the scheme privileges are global. The actual
+// request handler is wired in app.whenReady below.
+//
+// Privileges:
+//   standard        — REQUIRED for fetch + <img> to work. Without it
+//                     Chromium treats the scheme as opaque (like
+//                     mailto:) and `<img>` loads fail with
+//                     ERR_UNKNOWN_URL_SCHEME before the handler runs.
+//   secure          — treat as same-origin (so it can be loaded from
+//                     http(s) and Vite-served pages)
+//   supportFetchAPI — fetch() works against this scheme (future-proof)
+//   stream          — large videos / PDFs stream rather than buffer
+//   bypassCSP       — allow the renderer's CSP to load it
+//   corsEnabled     — without this, `fetch('localfile://…')` from the
+//                     Vite dev origin (http://localhost:5173) is blocked
+//                     by Chromium CORS before the protocol handler runs.
+//                     `<img src>` works without it, but the SHA-256
+//                     hashing path uses fetch() to read bytes as a Blob.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'localfile',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true,
+      corsEnabled: true,
+    },
+  },
+]);
 
 // Known accounts for the dev-only "Account" menu. Clicking an item sends an
 // IPC to the renderer, which signs out of the current Supabase session,
@@ -398,6 +434,72 @@ ipcMain.handle('local-folder:download', async (_, payload) => {
   return { results, error: null };
 });
 
+// Write user-provided bytes (typically files picked via the FAB on
+// 'mine' branch) directly into the branch folder. Sibling of the
+// download handler above, which fetches URLs — here the renderer
+// already holds the bytes, so the IPC payload carries an
+// ArrayBuffer per file. Filenames are sanitised the same way as
+// download; collisions overwrite (last writer wins) so a re-upload
+// of the same name behaves predictably.
+ipcMain.handle('local-folder:write-files', async (_, payload) => {
+  const dir = payload?.dir;
+  const files = Array.isArray(payload?.files) ? payload.files : [];
+  if (!dir) return { results: [], error: 'No directory specified' };
+  try {
+    await fsp.mkdir(dir, { recursive: true });
+  } catch (err) {
+    return { results: [], error: `Could not create directory: ${err?.message || err}` };
+  }
+  const results = [];
+  for (const f of files) {
+    if (!f?.filename || !f?.bytes) {
+      results.push({ filename: f?.filename || '?', ok: false, error: 'Missing filename or bytes' });
+      continue;
+    }
+    try {
+      const buf = Buffer.from(f.bytes);
+      const target = path.join(dir, sanitizeFilename(f.filename));
+      await fsp.writeFile(target, buf);
+      results.push({ filename: f.filename, path: target, ok: true });
+    } catch (err) {
+      results.push({ filename: f.filename, ok: false, error: err?.message || String(err) });
+    }
+  }
+  return { results, error: null };
+});
+
+// Rename a file inside the user's branch folder. Used when the
+// FileDetailModal name input is committed on the My branch view —
+// the metadata-rename branch_change is queued in parallel; this
+// IPC handles the actual on-disk move so File Explorer reflects
+// the new name. Same defensive `path.resolve` + `startsWith(dir)`
+// check as delete-files so a stray path can't escape the branch.
+ipcMain.handle('local-folder:rename-file', async (_, payload) => {
+  const dir = payload?.dir;
+  const fromName = payload?.fromName;
+  const toName = payload?.toName;
+  if (!dir || !fromName || !toName) return { error: 'Missing args' };
+  if (fromName === toName) return { ok: true, error: null };
+  try {
+    const normalizedDir = path.resolve(dir);
+    const fromPath = path.resolve(dir, fromName);
+    const toPath = path.resolve(dir, toName);
+    if (!fromPath.startsWith(normalizedDir) || !toPath.startsWith(normalizedDir)) {
+      return { error: 'Path outside branch folder' };
+    }
+    await fsp.rename(fromPath, toPath);
+    return { ok: true, error: null };
+  } catch (err) {
+    if (err?.code === 'ENOENT') {
+      // Source file already gone (raced with watcher, manual move).
+      // Surface as a soft failure so the caller can refresh without
+      // panic.
+      return { error: 'Source file not found' };
+    }
+    return { error: err?.message || String(err) };
+  }
+});
+
 // Open a local file (or its parent folder) in the OS file manager /
 // default app. Used for the card click handler on local files and the
 // "Open folder" button next to the local pane header.
@@ -407,9 +509,183 @@ ipcMain.handle('local-folder:open-path', async (_, targetPath) => {
   // on failure. Pass it through so the renderer can surface failures.
   return shell.openPath(targetPath);
 });
+
+// Reveal a local file in the OS file manager (Explorer on Windows,
+// Finder on macOS, the default file manager on Linux) with the file
+// pre-selected. Wired to the "Show in explorer" context-menu item
+// on My-branch cards. Returns nothing useful (shell call is sync-ish
+// and best-effort).
+ipcMain.handle('local-folder:show-in-folder', async (_, targetPath) => {
+  if (!targetPath) return { ok: false, error: 'No path' };
+  try {
+    shell.showItemInFolder(targetPath);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+// Delete a batch of files inside the user's branch folder. Used by
+// the "Sync to main" flow when the local copy has files that no
+// longer exist on main. We only accept paths INSIDE the chosen
+// directory (`dir`) — defensive against a malformed path slipping
+// through and deleting something outside the branch.
+ipcMain.handle('local-folder:delete-files', async (_, payload) => {
+  const dir = payload?.dir;
+  const paths = Array.isArray(payload?.paths) ? payload.paths : [];
+  if (!dir) return { results: [], error: 'No directory specified' };
+  const results = [];
+  // Normalize the dir prefix once so the inside-the-folder check is
+  // a cheap startsWith on the canonical resolved path.
+  let normalizedDir;
+  try {
+    normalizedDir = path.resolve(dir);
+  } catch (err) {
+    return { results: [], error: `Bad directory: ${err?.message || err}` };
+  }
+  for (const p of paths) {
+    if (!p || typeof p !== 'string') {
+      results.push({ path: p, ok: false, error: 'Invalid path' });
+      continue;
+    }
+    let resolved;
+    try {
+      resolved = path.resolve(p);
+    } catch (err) {
+      results.push({ path: p, ok: false, error: err?.message || String(err) });
+      continue;
+    }
+    if (!resolved.startsWith(normalizedDir)) {
+      results.push({ path: p, ok: false, error: 'Path is outside branch folder' });
+      continue;
+    }
+    try {
+      await fsp.unlink(resolved);
+      results.push({ path: p, ok: true });
+    } catch (err) {
+      // ENOENT is benign — the file's already gone, treat as success
+      // so the sync's "delete these N files" tally still works.
+      if (err?.code === 'ENOENT') {
+        results.push({ path: p, ok: true });
+      } else {
+        results.push({ path: p, ok: false, error: err?.message || String(err) });
+      }
+    }
+  }
+  return { results, error: null };
+});
+
+// ── Filesystem watcher ────────────────────────────────────────────────
+// Watches the user's branch folder for add / change / delete events
+// and pings the renderer so it can re-list. One watcher at a time
+// (we only ever have one selected folder); switching folders closes
+// the old watcher and opens a new one. fs.watch emits multiple
+// events per single user action (a save can fire rename + change),
+// so we debounce 200ms before notifying.
+//
+// fs.watch on Windows is reliable for top-level adds/removes/renames
+// in a single directory. It does NOT recurse into subdirectories,
+// which matches the Files-tab semantics (the list itself is flat).
+let watcher = null;
+let watcherDebounce = null;
+let watchedDir = null;
+
+const stopWatcher = () => {
+  if (watcher) {
+    try { watcher.close(); } catch { /* swallow */ }
+    watcher = null;
+  }
+  if (watcherDebounce) {
+    clearTimeout(watcherDebounce);
+    watcherDebounce = null;
+  }
+  watchedDir = null;
+};
+
+ipcMain.handle('local-folder:watch', (_, dir) => {
+  stopWatcher();
+  if (!dir) return { ok: true };
+  try {
+    watcher = fs.watch(dir, { persistent: false }, () => {
+      // Debounce: collapse a burst of events (rename + change pairs
+      // during a save) into a single notification.
+      if (watcherDebounce) clearTimeout(watcherDebounce);
+      watcherDebounce = setTimeout(() => {
+        watcherDebounce = null;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('local-folder:changed', dir);
+        }
+      }, 200);
+    });
+    watcher.on('error', () => stopWatcher());
+    watchedDir = dir;
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('local-folder:unwatch', () => {
+  stopWatcher();
+  return { ok: true };
+});
+
+// Tear the watcher down on quit so we don't leave a handle dangling.
+app.on('before-quit', stopWatcher);
 // --------------------------------------------------------------------------
 
 app.whenReady().then(() => {
+  // Resolve `localfile://local/<encoded-absolute-path>` requests by
+  // streaming the file off disk via fs.createReadStream wrapped in a
+  // Response. The renderer URL-encodes the full path as a single
+  // segment, including drive letters / backslashes / spaces, so we
+  // just decode the pathname and read directly — no further URL
+  // wrangling.
+  //
+  // Why streaming + a Node ReadStream instead of net.fetch(file://…):
+  //   • net.fetch on file:// hits ERR_UNEXPECTED on Windows when the
+  //     path contains a drive letter that's been URL-parsed weirdly.
+  //   • A Node stream wrapped in a Response gives the renderer
+  //     proper byte-range support for `<video>` / `<img>` requests
+  //     without buffering large files into memory.
+  //
+  // Security note: this exposes arbitrary local files to the
+  // renderer. Same trust boundary as the rest of the renderer
+  // (preload's localFolder IPCs already read/write the filesystem),
+  // so no additional gate is needed beyond not shipping this scheme
+  // to any non-Electron context.
+  protocol.handle('localfile', async (request) => {
+    let filePath = '';
+    try {
+      const url = new URL(request.url);
+      // pathname is the encoded path segment; strip leading slash and
+      // decode in one go.
+      const raw = url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
+      filePath = decodeURIComponent(raw);
+      const stat = await fsp.stat(filePath);
+      if (!stat.isFile()) {
+        return new Response('Not a file', { status: 404 });
+      }
+      const mime = guessMimeFromName(filePath) || 'application/octet-stream';
+      // Wrap the Node Readable in a web ReadableStream so the Fetch
+      // Response constructor accepts it. Available in Node 18+ via
+      // ReadableStream.from; Electron 42 bundles Node 22.
+      const nodeStream = fs.createReadStream(filePath);
+      const webStream = ReadableStream.from(nodeStream);
+      return new Response(webStream, {
+        headers: {
+          'content-type': mime,
+          'content-length': String(stat.size),
+        },
+      });
+    } catch (err) {
+      return new Response(
+        `localfile error reading ${filePath}: ${err?.message || err}`,
+        { status: err?.code === 'ENOENT' ? 404 : 500 },
+      );
+    }
+  });
+
   // Account-switcher menu is dev-only — the hardcoded ACCOUNTS list above is
   // the developer's personal test emails, not something distributed users
   // should see in their menu bar.

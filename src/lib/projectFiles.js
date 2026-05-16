@@ -32,7 +32,8 @@ const TABLE = 'project_files';
 // by the bundler.
 const SELECT_COLUMNS =
   'id, project_id, name, description, mime_type, size_bytes, storage_path, ' +
-  'thumbnail_path, thumbnail_frames, duration_seconds, uploaded_by, uploaded_at';
+  'thumbnail_path, thumbnail_frames, duration_seconds, content_hash, ' +
+  'uploaded_by, uploaded_at';
 
 // Newest-first list of files for a project. RLS gates by viewer+ via the
 // "viewers read project files" policy, so callers don't add a project-
@@ -69,6 +70,7 @@ export async function insertProjectFileRow({
   thumbnailPath = null,
   thumbnailFrames = null,
   durationSeconds = null,
+  contentHash = null,
   uploadedBy,
 }) {
   const row = {
@@ -89,6 +91,10 @@ export async function insertProjectFileRow({
     thumbnail_frames: thumbnailFrames,
     // Video runtime in seconds (migration 011). Null for non-video.
     duration_seconds: durationSeconds,
+    // SHA-256 of the file bytes (migration 014). Used by the branch
+    // diff to detect same-size content edits. Null for rows uploaded
+    // before migration 014 or where the renderer failed to hash.
+    content_hash: contentHash,
     uploaded_by: uploadedBy,
   };
   const { data, error } = await supabase

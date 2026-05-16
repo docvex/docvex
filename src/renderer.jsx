@@ -9,6 +9,7 @@ import { UpdatesProvider } from './context/UpdatesContext';
 import { NotificationsProvider } from './context/NotificationsContext';
 import { SelectedProjectProvider } from './context/SelectedProjectContext';
 import { UploadsProvider } from './context/UploadsContext';
+import { BranchProvider } from './context/BranchContext';
 import NotificationCenter from './components/NotificationCenter';
 import App from './App';
 
@@ -39,7 +40,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <UpdatesProvider>
               <NotificationsProvider>
                 <UploadsProvider>
-                  <App />
+                  <BranchProvider>
+                    <App />
+                  </BranchProvider>
                 </UploadsProvider>
                 <NotificationCenter />
               </NotificationsProvider>

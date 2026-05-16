@@ -2,25 +2,20 @@ import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getCachedPdf } from '../lib/pdfCache';
-import VideoFrameSlideshow from './VideoFrameSlideshow';
 import Tooltip from './Tooltip';
 
-// Preview renderer for the FileDetailModal's left pane.
+// Preview renderer for the FileDetailModal's preview pane.
 // Dispatches by MIME to one of:
-//   • <ImagePreview>  — image/*
-//   • <VideoPreview>  — video/*           (static thumbnail only, no <video>)
-//   • <PdfPreview>    — application/pdf   (first page only, no paginator)
-//   • <TextPreview>   — text/*            (fetched, capped at 1 MB)
+//   • <ImagePreview>  — image/*           (<img> of the original)
+//   • <VideoPreview>  — video/*           (native <video controls> of the original)
+//   • <PdfPreview>    — application/pdf   (pdf.js renders page 1 of the original)
+//   • <TextPreview>   — text/*            (fetched body, capped at 1 MB)
 // Anything else renders a fallback "no preview" panel with a hint to
 // use the View button in the right pane.
 //
-// All four sub-components receive `{ file, signedUrl, thumbnailUrl, onOpen }`.
-// signedUrl is the 10-minute signed URL for the source file. thumbnailUrl
-// is the signed URL for the pre-baked _thumb.jpg generated at upload
-// time (see src/lib/thumbnails.js) — present for image/PDF/video uploads
-// after migration 004. onOpen is the modal's handleView callback — fired
-// when the user clicks anywhere on the preview pane so the whole preview
-// reads as a "tap to open" surface.
+// signedUrl is the 10-minute signed URL for the source file. onOpen is
+// the modal's handleView callback — fired when the user clicks the
+// preview pane so the whole preview reads as a "tap to open" surface.
 
 // Hard cap on text preview fetch — a giant log file would lock the
 // modal otherwise. The fallback message points the user at View, which
@@ -34,16 +29,6 @@ const OpenIcon = (
     <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
     <polyline points="15 3 21 3 21 9" />
     <line x1="10" y1="14" x2="21" y2="3" />
-  </svg>
-);
-
-// Large fallback glyph for video previews with no pre-baked thumbnail.
-// Same shape as the VideoIcon in ProjectFiles.jsx (the file-card list)
-// so the visual language is consistent across the page and the modal.
-const VideoGlyph = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="2" y="6" width="14" height="12" rx="2" ry="2" />
-    <polygon points="22 8 16 12 22 16 22 8" />
   </svg>
 );
 
@@ -104,72 +89,23 @@ function ImagePreview({ signedUrl, file, onOpen }) {
 }
 
 // ── Video ────────────────────────────────────────────────────────────────
-// Static thumbnail only — no <video> element. We deliberately skip
-// mounting the video tag so the preview reads as a low-cost teaser:
-//   1. Loading the full video to play in a small pane is wasteful.
-//   2. The user's intent when clicking a video card is usually "open it"
-//      not "scrub in this little box", and the click-to-open affordance
-//      now matches that.
-// If the pre-baked thumbnail exists (uploads after migration 004),
-// we show it; otherwise we fall back to a large video glyph.
-function VideoPreview({ thumbnailUrl, file, onOpen }) {
-  const hasFrames = Array.isArray(file?.thumbnail_frames) && file.thumbnail_frames.length > 1;
-
-  if (hasFrames) {
-    // Multi-frame slideshow path — the modal is "always hovered" since
-    // the user explicitly opened the file, so the slideshow plays
-    // continuously instead of being gated on a hover state.
-    return (
-      <ClickablePreview onOpen={onOpen} ariaLabel={`Open ${file.name}`}>
-        <div className="file-preview-video-static">
-          <VideoFrameSlideshow
-            framePaths={file.thumbnail_frames}
-            active={true}
-            posterUrl={thumbnailUrl}
-            alt={file.name}
-          />
-        </div>
-      </ClickablePreview>
-    );
-  }
-
-  if (thumbnailUrl) {
-    return (
-      <ClickablePreview onOpen={onOpen} ariaLabel={`Open ${file.name}`}>
-        <div className="file-preview-video-static">
-          <img src={thumbnailUrl} alt={file.name} draggable={false} />
-        </div>
-      </ClickablePreview>
-    );
-  }
+// Mounts a native <video controls> element with the original file. NOT
+// wrapped in ClickablePreview because the click-to-open surface would
+// intercept the native play/pause/scrub controls.
+function VideoPreview({ signedUrl }) {
+  if (!signedUrl) return <div className="file-preview-loading">Loading video…</div>;
   return (
-    <ClickablePreview onOpen={onOpen} ariaLabel={`Open ${file.name}`}>
-      <div className="file-preview-glyph" aria-hidden="true">
-        {VideoGlyph}
-        <span className="file-preview-glyph-label">Video preview unavailable</span>
-      </div>
-    </ClickablePreview>
+    <div className="file-preview-video">
+      <video src={signedUrl} controls preload="metadata" />
+    </div>
   );
 }
 
 // ── PDF ──────────────────────────────────────────────────────────────────
-// Progressive preview: paints the pre-baked thumbnail JPEG immediately as
-// a fast first-frame, then runs pdf.js in parallel and fades the rendered
-// canvas in over the thumbnail once ready. Two reasons this pattern wins:
-//
-//   1. Latency. pdf.js startup (worker fetch on cold load, getDocument,
-//      page-1 render) is ~500ms–2s; the thumbnail is ~50KB and paints in
-//      under 100ms. The user sees a real preview almost immediately
-//      instead of staring at "Loading PDF…" text.
-//   2. Visual fidelity. The thumbnail JPEG has dark letterbox bars baked
-//      in for non-4:3 pages, which is why we don't use it as the FINAL
-//      preview. But as a fast first-frame it's "good enough", and the
-//      canvas crossfade hides the swap so the dark bars never read as
-//      "ugly padding" the way they did when the thumbnail was permanent.
-//
-// If `thumbnailUrl` is absent (legacy uploads pre-migration 004), we fall
-// back to the loading-text state until pdf.js finishes.
-function PdfPreview({ signedUrl, thumbnailUrl, file, onOpen }) {
+// Renders page 1 of the original PDF via pdf.js to a canvas. No thumbnail
+// fast-paint layer — the canvas is the only display surface, and a
+// "Loading PDF…" string shows while pdf.js parses and renders.
+function PdfPreview({ signedUrl, file, onOpen }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const pdfRef = useRef(null);
@@ -177,9 +113,9 @@ function PdfPreview({ signedUrl, thumbnailUrl, file, onOpen }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
-  // True once pdf.js has finished its first render. Drives the canvas's
-  // opacity + the thumbnail's fade-out; stays true for the lifetime of
-  // the component so a resize-reflow doesn't bounce visibility.
+  // True once pdf.js has finished its first render. Drives the canvas
+  // fade-in; stays true for the lifetime of the component so a
+  // resize-reflow doesn't bounce visibility.
   const [pdfPainted, setPdfPainted] = useState(false);
 
   // Load the document via the module-level LRU cache (src/lib/pdfCache.js).
@@ -296,30 +232,14 @@ function PdfPreview({ signedUrl, thumbnailUrl, file, onOpen }) {
 
   if (error) return <NoPreview reason={error} />;
 
-  // The canvas is ALWAYS in the DOM (even before pdf.js finishes) so the
-  // render effect can attach to it via canvasRef as soon as the document
-  // resolves. Until pdfPainted, the canvas stays at opacity 0 and the
-  // thumbnail underneath shows through. Once painted, the canvas fades
-  // in and the thumbnail fades out.
-  const showLoadingText = !pdfPainted && !thumbnailUrl;
-
   return (
     <ClickablePreview onOpen={onOpen} ariaLabel={`Open ${file.name}`}>
       <div className="file-preview-pdf-static" ref={containerRef}>
-        {thumbnailUrl && (
-          <img
-            className={`file-preview-pdf-thumb${pdfPainted ? ' is-faded' : ''}`}
-            src={thumbnailUrl}
-            alt=""
-            aria-hidden="true"
-            draggable={false}
-          />
-        )}
         <canvas
           ref={canvasRef}
           className={`file-preview-pdf-canvas${pdfPainted ? ' is-visible' : ''}`}
         />
-        {showLoadingText && (
+        {!pdfPainted && (
           <div className="file-preview-loading">Loading PDF…</div>
         )}
       </div>
@@ -399,17 +319,16 @@ function TextPreview({ signedUrl, file }) {
 }
 
 // ── Dispatcher ───────────────────────────────────────────────────────────
-export default function FilePreview({ file, signedUrl, thumbnailUrl, onOpen }) {
+export default function FilePreview({ file, signedUrl, onOpen }) {
   if (!file) return null;
 
   const t = file.mime_type || '';
 
-  // PDF and Video both have a thumbnail-as-fast-paint path. They can render
-  // their first frame from `thumbnailUrl` BEFORE `signedUrl` resolves, so we
-  // dispatch them eagerly. Each component waits for signedUrl internally
-  // before kicking off its heavier work (pdf.js parse / video fetch).
-  if (t === 'application/pdf') return <PdfPreview   file={file} signedUrl={signedUrl} thumbnailUrl={thumbnailUrl} onOpen={onOpen} />;
-  if (t.startsWith('video/'))  return <VideoPreview file={file} thumbnailUrl={thumbnailUrl} onOpen={onOpen} />;
+  // Both PDF and Video wait on signedUrl internally — PdfPreview gates
+  // its pdf.js parse on it; VideoPreview shows a loading message until
+  // it arrives, then mounts the native <video>.
+  if (t === 'application/pdf') return <PdfPreview   file={file} signedUrl={signedUrl} onOpen={onOpen} />;
+  if (t.startsWith('video/'))  return <VideoPreview signedUrl={signedUrl} />;
 
   // Everything else needs the signed URL before it can show anything.
   if (!signedUrl) {

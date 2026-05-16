@@ -7,9 +7,21 @@
    more horizontal room than the default 820px ProjectScoped page
    width, so card thumbnails read at a comfortable size without
    getting stuck at one card per row. 1400px is generous on a 1080p+
-   display and gracefully reflows on narrower windows. */
+   display and gracefully reflows on narrower windows.
+
+   The `calc(100vw - 220px - 4rem)` ceiling pins the page width to
+   the same value it would have when the sidebar is fully expanded
+   (220px) plus main-content's 2rem padding on each side. Without
+   this, toggling the sidebar would let main-content's flex sizing
+   continuously shrink/grow the grid container — and because the
+   grid uses `auto-fill` columns, the column COUNT (an integer)
+   jumps at each boundary, reflowing rows and visibly bumping items
+   up/down mid-animation. Pinning to the expanded-state width keeps
+   the column count constant across the animation; the trade-off is
+   a ~160px sliver of empty space to the right of the grid when the
+   sidebar is collapsed, which beats the layout flicker. */
 .project-files-page {
-  max-width: 1400px;
+  max-width: min(1400px, calc(100vw - 220px - 4rem));
 }
 
 /* Local-folder controls â€” lives under the page subtitle. Single row:
@@ -95,6 +107,81 @@
   color: var(--text-muted);
 }
 
+/* Branch-overlay pill on a card. Anchored bottom-left of the card
+   (opposite the extension tag in the top-right). The four kinds
+   share the same shape; only the colour family changes:
+     add     â†’ success green (new content)
+     edit    â†’ amber          (in-place change)
+     replace â†’ amber          (in-place bytes change)
+     delete  â†’ danger red     (removal)
+   Pointer-events off so clicks pass through to the card. */
+.project-files-branch-pill {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 1;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  pointer-events: none;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.project-files-branch-pill.is-add     { background: var(--success, #16a34a); }
+.project-files-branch-pill.is-edit,
+.project-files-branch-pill.is-replace { background: rgba(245, 158, 11, 0.95); }
+.project-files-branch-pill.is-delete  { background: var(--danger, #dc2626); }
+
+/* Deleted cards are dimmed + struck-through so the user sees them
+   in the list but knows they're queued for removal. */
+.project-files-card.is-branch-deleted {
+  opacity: 0.55;
+}
+
+.project-files-card.is-branch-deleted .project-files-name {
+  text-decoration: line-through;
+}
+
+/* "Missing from branch" cards — cloud files that the user hasn't
+   downloaded yet. Dimmed at rest so they read as "not on disk";
+   hover lifts them so the download-cloud overlay below pops. */
+.project-files-card.is-branch-missing {
+  opacity: 0.7;
+}
+
+.project-files-card.is-branch-missing:hover {
+  opacity: 1;
+}
+
+/* Centered download-cloud icon scrim sitting on top of the card's
+   thumb. Brand-accent tint via a colour-mixed overlay so the icon
+   reads as an action ("pull this here") rather than a passive
+   status. The icon itself is hovered-brighter via the parent rule
+   above. */
+.project-files-missing-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--accent) 18%, rgba(0, 0, 0, 0.45));
+  color: #fff;
+  pointer-events: none;
+  transition: background 150ms;
+}
+
+.project-files-card.is-branch-missing:hover .project-files-missing-overlay {
+  background: color-mix(in srgb, var(--accent) 32%, rgba(0, 0, 0, 0.55));
+}
+
+.project-files-missing-overlay svg {
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
+}
+
 /* Tab strip â€” Cloud | Local, sits between the page header and the
    active tab's content. Underline-style tabs (the active tab gets a
    2px accent underline, inactive tabs are muted) so the strip reads
@@ -170,6 +257,364 @@
   flex-direction: column;
   gap: 1.25rem;
   min-width: 0;
+}
+
+/* Branch status row — under the Main/My-branch tabs. Stacks one or
+   more chips:
+     • "New update on main" — main has moved ahead of base_version.
+                              This one is a BUTTON: clicking opens
+                              the sync modal so the user can pull
+                              the new bytes without scrolling.
+     • "Changes made"       — user has local edits to push.
+     • "Synced with main"   — calm state when neither of the above.
+   Each chip has an animated linear gradient tinted by semantic so
+   the row reads as alive without dominating the page. */
+.project-files-branch-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.75rem;
+  margin-top: 0.2rem;
+}
+
+.project-files-branch-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.7rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+  /* The animated gradient: a wide multi-stop linear-gradient sized
+     much larger than the chip, scrolling the background-position so
+     the visible band shifts across the chip face. Per-semantic
+     color stops are overridden below. */
+  background: linear-gradient(
+    120deg,
+    var(--bg-card) 0%,
+    var(--bg-elevated) 40%,
+    var(--bg-card) 60%,
+    var(--bg-elevated) 100%
+  );
+  background-size: 220% 220%;
+  animation: branch-status-shimmer 8s ease-in-out infinite;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+@keyframes branch-status-shimmer {
+  0%   { background-position:   0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position:   0% 50%; }
+}
+
+.project-files-branch-status-label {
+  white-space: nowrap;
+}
+
+.project-files-branch-status-cta {
+  margin-left: auto;
+  padding-left: 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  opacity: 0.85;
+  transition: transform 150ms, opacity 150ms;
+}
+
+.project-files-branch-status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.04);
+}
+
+/* ── Synced (calm green) ─────────────────────────────────────────── */
+.project-files-branch-status-item.is-synced {
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, #4ade80 8%,  var(--bg-card))      0%,
+    color-mix(in srgb, #4ade80 18%, var(--bg-elevated)) 40%,
+    color-mix(in srgb, #4ade80 8%,  var(--bg-card))     60%,
+    color-mix(in srgb, #4ade80 22%, var(--bg-elevated)) 100%
+  );
+  background-size: 220% 220%;
+  border-color: color-mix(in srgb, #4ade80 35%, var(--border));
+}
+
+.project-files-branch-status-item.is-synced .project-files-branch-status-dot {
+  background: #4ade80;
+  box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.15);
+}
+
+/* ── Changes made (warm amber) ───────────────────────────────────── */
+.project-files-branch-status-item.is-changes {
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, #f59e0b 10%, var(--bg-card))      0%,
+    color-mix(in srgb, #f59e0b 24%, var(--bg-elevated)) 40%,
+    color-mix(in srgb, #f59e0b 10%, var(--bg-card))     60%,
+    color-mix(in srgb, #f59e0b 28%, var(--bg-elevated)) 100%
+  );
+  background-size: 220% 220%;
+  border-color: color-mix(in srgb, #f59e0b 45%, var(--border));
+}
+
+.project-files-branch-status-item.is-changes .project-files-branch-status-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18);
+}
+
+/* ── Change requests (neutral/indigo, interactive — Main tab) ───── */
+.project-files-branch-status-item.is-requests {
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--accent) 10%, var(--bg-card))      0%,
+    color-mix(in srgb, var(--accent) 22%, var(--bg-elevated)) 40%,
+    color-mix(in srgb, var(--accent) 10%, var(--bg-card))     60%,
+    color-mix(in srgb, var(--accent) 26%, var(--bg-elevated)) 100%
+  );
+  background-size: 220% 220%;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.project-files-branch-status-item.is-requests .project-files-branch-status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.project-files-branch-status-item.is-requests.is-interactive:hover:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 28%, rgba(0, 0, 0, 0.25));
+}
+
+/* Count badge sitting inside the pill (next to the label) — visually
+   matches the .project-files-tab-count pill style so the count
+   semantics read identically wherever they appear. */
+.project-files-branch-status-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 0.45rem;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* ── New update on main (accent, interactive) ────────────────────── */
+.project-files-branch-status-item.is-update {
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--accent) 14%, var(--bg-card))      0%,
+    color-mix(in srgb, var(--accent) 32%, var(--bg-elevated)) 35%,
+    color-mix(in srgb, var(--accent) 14%, var(--bg-card))     60%,
+    color-mix(in srgb, var(--accent) 38%, var(--bg-elevated)) 100%
+  );
+  background-size: 240% 240%;
+  /* Faster on the actionable chip so it draws the eye. */
+  animation: branch-status-shimmer 5s ease-in-out infinite;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.project-files-branch-status-item.is-update .project-files-branch-status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent);
+  animation: branch-status-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes branch-status-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent); }
+  50%      { box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 10%, transparent); }
+}
+
+/* Interactive variant — button reset + hover/active states. The
+   `cursor: pointer` and translateY-on-hover signal that this chip
+   is the one the user can click. */
+.project-files-branch-status-item.is-interactive {
+  appearance: none;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: transform 150ms, border-color 150ms, box-shadow 150ms;
+}
+
+.project-files-branch-status-item.is-interactive:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+/* Per-semantic hover glow — the chip's accent color is the hover
+   focal so a green "synced" chip wouldn't suddenly bloom in accent
+   blue (if it were ever interactive). */
+.project-files-branch-status-item.is-update.is-interactive:hover:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 30%, rgba(0, 0, 0, 0.25));
+}
+
+.project-files-branch-status-item.is-changes.is-interactive:hover:not(:disabled) {
+  border-color: #f59e0b;
+  box-shadow: 0 8px 24px rgba(245, 158, 11, 0.32);
+}
+
+/* Faster shimmer + pulsing dot on the "Changes made" chip once it's
+   interactive, mirroring the "New update" treatment so both
+   actionable chips feel equally alive. */
+.project-files-branch-status-item.is-changes.is-interactive {
+  animation: branch-status-shimmer 5s ease-in-out infinite;
+}
+
+.project-files-branch-status-item.is-changes.is-interactive .project-files-branch-status-dot {
+  animation: branch-status-pulse-amber 1.6s ease-in-out infinite;
+}
+
+@keyframes branch-status-pulse-amber {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.22); }
+  50%      { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.10); }
+}
+
+.project-files-branch-status-item.is-interactive:hover:not(:disabled) .project-files-branch-status-cta {
+  transform: translateX(2px);
+  opacity: 1;
+}
+
+.project-files-branch-status-item.is-interactive:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.project-files-branch-status-item.is-interactive:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.project-files-branch-status-item.is-interactive:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  animation: none;
+}
+
+.project-files-branch-status-item.is-interactive:disabled .project-files-branch-status-dot {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .project-files-branch-status-item,
+  .project-files-branch-status-item.is-update,
+  .project-files-branch-status-item.is-update .project-files-branch-status-dot {
+    animation: none;
+  }
+}
+
+/* "Revert to main branch" — single destructive action under the file
+   grid. Replaces the old Sync / Reset / Commit button trio. Outlined
+   destructive style so it reads as serious without screaming. */
+.project-files-revert-row {
+  display: flex;
+  justify-content: center;
+  padding: 1rem 0 0.25rem;
+}
+
+.project-files-revert-btn {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--danger) 60%, var(--border));
+  border-radius: 8px;
+  color: var(--danger-soft);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.55rem 1.1rem;
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.project-files-revert-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.project-files-revert-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── Morphing tooltip-to-menu pill on local cards ───────────────── */
+
+/* Performance note: we *don't* CSS-transition padding / min-width /
+   border-radius / background between the tooltip and menu shapes —
+   those all force layout + paint each frame and visibly stutter
+   when the pill is a portalled element with a box-shadow. Instead
+   the shape flips instantly when `.is-menu` is added, and an
+   opacity + scale pop covers the swap. Both are GPU-composable,
+   so the morph reads as smooth even on weaker hardware.
+
+   We keep the cursor-chase transform transition from the base
+   `.tooltip` rules — that one is already transform-only, cheap. */
+
+.project-files-morph-pill.is-menu {
+  padding: 4px;
+  border-radius: 10px;
+  min-width: 200px;
+  background: var(--bg-card);
+  border-color: var(--border-strong);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  white-space: normal;
+  /* No CSS transition here — the JS FLIP effect in LocalFileCard
+     wires its own `transition: transform 220ms` inline so it can
+     drive the morph with a transform-only animation that doesn't
+     conflict with the inline `translate(x, y)` for cursor anchoring.
+     A CSS `transition: transform` would race the JS one. */
+  transition: none;
+  will-change: transform;
+}
+
+.project-files-morph-text {
+  /* Preserve the explicit newline character used in the modified-
+     file tooltip body (e.g. "name\nDiffers from cloud version"). */
+  white-space: pre-line;
+}
+
+.project-files-morph-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-files-morph-item {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.55rem 0.8rem;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.project-files-morph-item:hover:not(:disabled),
+.project-files-morph-item:focus-visible {
+  background: var(--bg-elevated);
+  outline: none;
+}
+
+.project-files-morph-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* Panel-level action row â€” currently only used by the Local panel
@@ -296,13 +741,21 @@
 /* The card itself â€” a <button> so it's keyboard-focusable + Enter-
    activatable for free. All resets so the visual is fully owned by
    .project-files-card rules below. position: relative anchors the
-   .project-files-ext corner tag. */
+   .project-files-ext corner tag.
+
+   `aspect-ratio: 2 / 3` locks every card on the page to the same
+   width-to-height ratio regardless of section, branch state, or
+   filename. Combined with the grid's `1fr` columns (equal widths),
+   this guarantees every tile renders at the exact same size. The
+   thumb stretches via flex to fill whatever vertical space remains
+   above the natural-height meta strip. */
 .project-files-card {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 0;
+  aspect-ratio: 2 / 3;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -329,12 +782,14 @@
   outline-offset: 2px;
 }
 
-/* Thumb area â€” fixed aspect ratio so the grid rows align cleanly
-   regardless of image dimensions. Images cover; icon fallback gets
-   a centered glyph in gold accent on the same surface. */
+/* Thumb area â€” flex-fills the card above the meta strip. The card's
+   aspect-ratio locks overall dimensions, so the thumb's resulting
+   shape is determined by `card-width × (card-height − meta-height)`
+   rather than its own ratio. Images contain inside this box. */
 .project-files-thumb {
   position: relative;
-  aspect-ratio: 4 / 3;
+  flex: 1 1 0;
+  min-height: 0;
   background: var(--bg-card);
   display: flex;
   align-items: center;

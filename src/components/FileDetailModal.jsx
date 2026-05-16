@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { useHasCapability } from '../hooks/useHasCapability';
+import { useBranch } from '../context/BranchContext';
 import {
   createSignedDownloadUrl,
   fetchUploaderProfile,
@@ -98,7 +99,7 @@ function UploaderAvatar({ profile }) {
   );
 }
 
-export default function FileDetailModal({ file, onClose, onDeleted }) {
+export default function FileDetailModal({ file, onClose, onDeleted, readOnly = false, onLocalRename }) {
   const { session } = useAuth();
   const { notify } = useNotifications();
 
@@ -112,7 +113,37 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
   const canDeleteAny = useHasCapability('files.delete_any');
   const canDeleteOwn = useHasCapability('files.delete_own');
   const isOwnFile   = Boolean(file) && file.uploaded_by === viewerId;
-  const canDelete   = Boolean(file) && (canDeleteAny || (isOwnFile && canDeleteOwn));
+
+  // Branch context — when the user is viewing their private branch
+  // ('mine'), every edit/delete is intercepted and queued as a
+  // branch_changes row instead of mutating project_files directly.
+  // On 'main' view the existing direct-mutation path runs unchanged.
+  const { view: branchView, queueChange, overlayByFileId } = useBranch();
+  const branchOverlay = file ? overlayByFileId.get(file.id) || null : null;
+  const isOnMineBranch = branchView === 'mine';
+
+  // `readOnly` is a caller-side override (Files page sets it true when
+  // the modal is opened from the Cloud tab / Main branch — main is the
+  // canonical surface, no edits allowed there). It collapses the
+  // editable + delete affordances regardless of RLS / capability.
+  //
+  // Edit/delete gates have TWO modes:
+  //   • Main view  — direct project_files mutation, RLS-gated to the
+  //     uploader or admin. Mirrors `has_project_role + uploaded_by`
+  //     in migration 005.
+  //   • My branch  — every member can edit/delete ANY file because
+  //     the action just queues a branch_change for admin review. RLS
+  //     on branch_changes is row-owner-only and doesn't depend on
+  //     project_files ownership.
+  const canDelete = !readOnly && Boolean(file) && (
+    isOnMineBranch
+      || canDeleteAny
+      || (isOwnFile && canDeleteOwn)
+  );
+  // Disable inputs when the file is already queued for delete — the
+  // file is logically gone from the branch, further edits don't make
+  // sense until the user discards or pushes the delete.
+  const isQueuedForDelete = isOnMineBranch && branchOverlay?.kind === 'delete';
   // The Delete button used to gate on viewerIsAdmin (computed from
   // selectedProject.role); the capability hook now answers the same
   // question more flexibly. If a future surface needs the raw tier,
@@ -120,12 +151,6 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
 
   // ── Local state ────────────────────────────────────────────────────────
   const [previewUrl, setPreviewUrl]   = useState(null);
-  // Signed URL for the pre-baked _thumb.jpg (migration 004). FilePreview
-  // uses this for the PDF first-page and video-thumbnail surfaces so we
-  // don't pay the cost of running pdf.js / mounting a <video> just to
-  // show a teaser. Null for text/images/legacy uploads — FilePreview
-  // falls back to the source signedUrl in those cases.
-  const [thumbnailUrl, setThumbnailUrl] = useState(null);
   const [uploader, setUploader]       = useState(null);
   // Editable fields — drafts shadow the props so the user can type
   // freely; on blur we diff against the prop and fire a save if
@@ -141,11 +166,10 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
   // so we can disable that input without freezing the other one.
   const [savingField, setSavingField] = useState(null);
   const [saveError, setSaveError]     = useState(null);
-  // Orientation — driven by the file's natural aspect ratio. 'vertical'
-  // = wide/landscape file → preview on top, info below. 'horizontal'
-  // = tall/portrait file → preview on left, info on right. Default
-  // horizontal so PDFs / text / unprobed files use the more compact
-  // side-by-side layout.
+  // Orientation — driven by an image file's natural aspect ratio.
+  // Adjusts the preview pane's flex-basis in the side panel: portrait
+  // images get more vertical space, landscape less. Non-image files
+  // stay on the default ('horizontal' = portrait-leaning preview).
   const [orientation, setOrientation] = useState('horizontal');
   // Delete flow: a nested confirm-state (type the filename to confirm)
   // plus a pendingDelete flag so the buttons stay disabled while the
@@ -161,19 +185,44 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
   // 005: uploader OR admin). `canDeleteAny` returning true is the
   // capability layer's way of saying "this viewer is admin-or-better
   // on the project", so it doubles as the admin signal for editing.
-  const canEdit = Boolean(file) && (canDeleteAny || isOwnFile);
+  // Edit gate — same split as canDelete above:
+  //   • Main view  — uploader or admin per RLS.
+  //   • My branch  — anyone (the edit just queues a branch_change
+  //     for admin review; no direct project_files mutation).
+  const canEdit = !readOnly && Boolean(file) && (
+    isOnMineBranch
+      || canDeleteAny
+      || isOwnFile
+  );
 
-  // Sync drafts from the prop on mount / prop changes / focus changes.
+  // Effective name/description for display:
+  //   • On 'main', the project_files row is the truth.
+  //   • On 'mine', any queued edit/replace overlay's proposed values
+  //     win — so the modal mirrors what the card shows AND what the
+  //     branch will look like after approval. Without this, the
+  //     modal would re-paint the old main-branch name even after the
+  //     user's queued rename, contradicting the card.
+  // `in` (not ??) so an explicit null/"" in proposed (the user
+  // cleared a field) wins over the main value.
+  const overlayProposed = (isOnMineBranch && branchOverlay?.proposed) || null;
+  const effectiveName = overlayProposed && 'name' in overlayProposed
+    ? (overlayProposed.name ?? '')
+    : (file?.name ?? '');
+  const effectiveDescription = overlayProposed && 'description' in overlayProposed
+    ? (overlayProposed.description ?? '')
+    : (file?.description ?? '');
+
+  // Sync drafts from the effective values on mount / changes / focus.
   // Skipping the sync for a focused field prevents a concurrent UPDATE
-  // (realtime echo from another device) from clobbering what the user
-  // is currently typing — they'll see the remote change the next time
-  // they blur out of the field.
+  // (realtime echo from another device, or local optimistic update)
+  // from clobbering what the user is currently typing — they'll see
+  // the remote change the next time they blur out of the field.
   useEffect(() => {
     if (!file) return;
-    if (!nameFocused) setDraftName(file.name ?? '');
-    if (!descFocused) setDraftDescription(file.description ?? '');
+    if (!nameFocused) setDraftName(effectiveName);
+    if (!descFocused) setDraftDescription(effectiveDescription);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file?.id, file?.name, file?.description, nameFocused, descFocused]);
+  }, [file?.id, effectiveName, effectiveDescription, nameFocused, descFocused]);
 
   // Reset transient state when the file prop changes id.
   useEffect(() => {
@@ -199,14 +248,10 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
   useEffect(() => {
     if (!file) return undefined;
     const mime = file.mime_type || '';
-    // Images: probe the source directly via signedUrl — exact native
-    // dimensions, no thumbnail interpolation. Videos: probe the
-    // thumbnail (stored at native aspect per ProjectFiles.css
-    // comment) since we don't mount a <video> for the preview.
-    const probeUrl = mime.startsWith('image/')
-      ? previewUrl
-      : (mime.startsWith('video/') ? thumbnailUrl : null);
-    if (!probeUrl) return undefined;
+    // Only images probe via signedUrl — exact native dimensions, no
+    // thumbnail interpolation. Video/PDF/text stay on the default
+    // horizontal orientation; they don't need an aspect-aware layout.
+    if (!mime.startsWith('image/') || !previewUrl) return undefined;
 
     let cancelled = false;
     const img = new Image();
@@ -215,9 +260,9 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
       if (!img.naturalWidth || !img.naturalHeight) return;
       setOrientation(img.naturalWidth > img.naturalHeight ? 'vertical' : 'horizontal');
     };
-    img.src = probeUrl;
+    img.src = previewUrl;
     return () => { cancelled = true; };
-  }, [file?.id, file?.mime_type, previewUrl, thumbnailUrl]);
+  }, [file?.id, file?.mime_type, previewUrl]);
 
   // Fetch signed URL + uploader profile when a file is shown. 10-min
   // TTL on the URL so the user can sit reading the modal without the
@@ -235,24 +280,6 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
     });
     return () => { cancelled = true; };
   }, [file?.storage_path]);
-
-  // Sibling fetch for the pre-baked thumbnail (migration 004). Same
-  // 10-minute TTL so it doesn't expire while the modal is open. Failures
-  // are silent: FilePreview's PDF/video paths gracefully degrade to a
-  // pdf.js render / a glyph fallback when thumbnailUrl is null.
-  useEffect(() => {
-    if (!file?.thumbnail_path) {
-      setThumbnailUrl(null);
-      return undefined;
-    }
-    let cancelled = false;
-    setThumbnailUrl(null);
-    createSignedDownloadUrl(file.thumbnail_path, 600).then(({ data, error }) => {
-      if (cancelled || error || !data?.signedUrl) return;
-      setThumbnailUrl(data.signedUrl);
-    });
-    return () => { cancelled = true; };
-  }, [file?.thumbnail_path]);
 
   useEffect(() => {
     if (!file?.uploaded_by) {
@@ -308,53 +335,83 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
   // Generic save — sends the patch and reconciles the draft on
   // success/failure. On RLS rejection (.single() returns no rows)
   // or DB constraint violation we revert the draft so the input
-  // snaps back to the last-known-good prop value.
+  // snaps back to the last-known-good prop value. On 'mine' branch
+  // the patch is routed to queueChange (creates / extends a
+  // branch_changes row) instead of mutating project_files directly.
   const persistPatch = async (field, patch, revertValue) => {
     setSavingField(field);
     setSaveError(null);
-    const { error } = await updateProjectFile(file.id, patch);
+    let error = null;
+    if (isOnMineBranch) {
+      // Queue the edit as a branch change. The branch UI overlay
+      // applies the proposed values on top of the main row.
+      const res = await queueChange({
+        kind: 'edit',
+        targetFileId: file.id,
+        proposed: patch,
+      });
+      error = res.error;
+      // ALSO rename the file on disk if this patch carries a new
+      // name. computeBranchDiff's rename-pair detection (matching
+      // by content_hash) keeps the resulting filesystem move from
+      // showing up as add+delete in the diff, so the rename intent
+      // remains represented by the branch_change above only.
+      // Best-effort: a disk-rename failure leaves the metadata
+      // queue intact — the user just won't see the new name in
+      // File Explorer until they refresh / rename manually.
+      if (!error && field === 'name' && patch?.name && typeof onLocalRename === 'function') {
+        try { await onLocalRename(patch.name); }
+        catch { /* swallow — toast'd elsewhere if needed */ }
+      }
+    } else {
+      const res = await updateProjectFile(file.id, patch);
+      error = res.error;
+    }
     setSavingField(null);
     if (error) {
       setSaveError(error.message || 'Could not save changes.');
       if (field === 'name') setDraftName(revertValue);
       else if (field === 'description') setDraftDescription(revertValue);
     }
-    // On success the realtime UPDATE echo will update file.* via the
-    // page's subscription; the prop-sync effect rehydrates the draft
-    // from the new prop next render (the field is already blurred so
-    // sync is unblocked).
+    // On main: realtime UPDATE echo refreshes file.* via the page's
+    // subscription. On mine: realtime INSERT echoes the branch_changes
+    // row into BranchContext.pendingChanges, and the page's overlay
+    // re-renders the card with the queued kind.
   };
 
   const commitName = () => {
     if (!file) return;
     const trimmed = draftName.trim();
     if (!trimmed) {
-      // Empty after trim — revert to the prop without a round-trip.
-      // The DB's `length(trim(name)) > 0` check would reject this
-      // anyway; surfacing it instantly is friendlier than the
-      // "constraint violation" toast.
-      setDraftName(file.name ?? '');
+      // Empty after trim — revert to the effective value without a
+      // round-trip. The DB's `length(trim(name)) > 0` check would
+      // reject this anyway; surfacing it instantly is friendlier
+      // than the "constraint violation" toast.
+      setDraftName(effectiveName);
       return;
     }
-    if (trimmed === file.name) return;
-    persistPatch('name', { name: trimmed }, file.name ?? '');
+    // Compare against the currently-displayed value, not just
+    // file.name — on 'mine' an overlay may already carry a proposed
+    // name, and we don't want to re-queue an identical edit.
+    if (trimmed === effectiveName) return;
+    persistPatch('name', { name: trimmed }, effectiveName);
   };
 
   const commitDescription = () => {
     if (!file) return;
     // Normalise both sides the same way the lib does before comparing,
-    // so a draft of "" vs a prop of null reads as "no change".
+    // so a draft of "" vs an effective of null reads as "no change".
     const trimmed = draftDescription.trim();
     const draftNormal = trimmed || null;
-    const propNormal  = (file.description || '').trim() || null;
-    if (draftNormal === propNormal) return;
-    persistPatch('description', { description: draftDescription }, file.description ?? '');
+    const effNormal   = (effectiveDescription || '').trim() || null;
+    if (draftNormal === effNormal) return;
+    persistPatch('description', { description: draftDescription }, effectiveDescription);
   };
 
   const handleNameKeyDown = (e) => {
     if (e.key === 'Escape') {
       e.preventDefault();
-      setDraftName(file.name ?? '');
+      setDraftName(effectiveName);
       e.currentTarget.blur();
     }
     if (e.key === 'Enter') {
@@ -365,7 +422,7 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
   const handleDescriptionKeyDown = (e) => {
     if (e.key === 'Escape') {
       e.preventDefault();
-      setDraftDescription(file.description ?? '');
+      setDraftDescription(effectiveDescription);
       e.currentTarget.blur();
     }
     // Cmd/Ctrl-Enter saves; plain Enter inserts a newline.
@@ -398,6 +455,35 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
     if (confirmText.trim() !== file.name) return;
     setPendingDelete(true);
     setDeleteError(null);
+    // Branch routing: on 'mine' the delete is queued as a
+    // branch_changes row (reversible by discarding the change before
+    // pushing). On 'main' the delete hits project_files + storage
+    // immediately (the existing direct path).
+    if (isOnMineBranch) {
+      const { error } = await queueChange({
+        kind: 'delete',
+        targetFileId: file.id,
+        proposed: null,
+      });
+      setPendingDelete(false);
+      if (error) {
+        setDeleteError(error.message || 'Could not queue delete.');
+        return;
+      }
+      notify({
+        category: 'file',
+        variant: 'success',
+        icon: 'trash',
+        title: 'Delete queued',
+        body: `${file.name} will be removed when an admin approves your push.`,
+        dedupeKey: `branch-delete-queued:${file.id}`,
+      });
+      // Close the modal but don't tell the page to drop the row —
+      // the file still exists on main; the branch overlay will paint
+      // a "DELETED" pill on the card via BranchContext.
+      onClose?.();
+      return;
+    }
     const { error } = await deleteProjectFile({
       id: file.id,
       storagePath: file.storage_path,
@@ -417,14 +503,6 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
       body: file.name,
       dedupeKey: `file-deleted:${file.id}`,
     });
-    // Optimistically tell the page to drop the row from its `files`
-    // state so the card disappears instantly — independent of the
-    // Realtime DELETE echo (which, without REPLICA IDENTITY FULL on
-    // project_files, doesn't pass the project_id filter on the
-    // postgres_changes channel and never reaches this client).
-    // Migration 006 sets that replica identity so other devices also
-    // get the live update via Realtime; this callback is the local
-    // path that doesn't depend on the round-trip succeeding.
     onDeleted?.(file.id);
     onClose?.();
   };
@@ -460,27 +538,36 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
         </header>
 
         <div className="file-detail-body">
-          {/* Preview pane — left in horizontal mode, top in vertical
-              mode (driven by the .is-vertical / .is-horizontal class
-              on the card). Background is darker than the meta pane so
-              image / PDF letterboxing has a deliberate frame. The
-              preview itself is a click-to-open surface — every
-              FilePreview sub-renderer wraps its content in a
-              ClickablePreview that calls handleView (open the full
-              file in a new tab). */}
+          {/* Preview pane — sits at the top of the side panel. The
+              .is-horizontal / .is-vertical class on the card adjusts
+              its flex-basis (portrait files get more vertical space).
+              Every FilePreview sub-renderer wraps its content in a
+              ClickablePreview that calls handleView to open the full
+              file in a new tab. */}
           <div className="file-detail-pane file-detail-pane-preview">
             <FilePreview
               file={file}
               signedUrl={previewUrl}
-              thumbnailUrl={thumbnailUrl}
               onOpen={handleView}
             />
           </div>
 
           {/* Meta pane — title input + description textarea + Details
-              + actions. In vertical mode this pane sits below the
-              preview; in horizontal mode it sits to the right. */}
+              + actions. Scrolls its own overflow so long descriptions
+              don't push the action buttons off-screen. */}
           <aside className="file-detail-pane file-detail-pane-meta">
+            {/* Branch-state banner — shown only on 'mine' branch when
+                this file has a queued change. Calls out the queued
+                kind so the user understands why later edits are
+                getting routed differently / why the file looks struck
+                through on its card. */}
+            {isOnMineBranch && branchOverlay && (
+              <div className={`file-detail-branch-banner is-${branchOverlay.kind}`}>
+                {branchOverlay.kind === 'edit'    && 'Edit queued — will apply on approval.'}
+                {branchOverlay.kind === 'delete'  && 'Delete queued — file will be removed on approval.'}
+                {branchOverlay.kind === 'replace' && 'Replace queued — bytes will be swapped on approval.'}
+              </div>
+            )}
             <section className="file-detail-section file-detail-section-title">
               <label className="file-detail-section-label" htmlFor="file-detail-name-input">
                 Title
@@ -495,7 +582,7 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
                 onBlur={() => { setNameFocused(false); commitName(); }}
                 onKeyDown={handleNameKeyDown}
                 placeholder="File name"
-                disabled={!canEdit || savingField === 'name'}
+                disabled={!canEdit || savingField === 'name' || isQueuedForDelete}
                 spellCheck={false}
                 maxLength={200}
                 aria-label="File name"
@@ -515,7 +602,7 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
                 onBlur={() => { setDescFocused(false); commitDescription(); }}
                 onKeyDown={handleDescriptionKeyDown}
                 placeholder={canEdit ? "What's this file about?" : 'No description'}
-                disabled={!canEdit || savingField === 'description'}
+                disabled={!canEdit || savingField === 'description' || isQueuedForDelete}
                 rows={3}
                 maxLength={2000}
                 aria-label="File description"

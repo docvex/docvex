@@ -184,7 +184,26 @@ export async function uploadProjectFile({
     ? Promise.resolve(prepped.durationSeconds ?? null)
     : (isVideo ? extractVideoDuration(file) : Promise.resolve(null));
 
-  // 3. Stream the file to the signed URL.
+  // 3. Stream the file to the signed URL. In parallel: compute a
+  // SHA-256 of the bytes so the metadata row carries `content_hash`
+  // — future branch diffs use it to catch same-size content edits.
+  // The hash is non-fatal: a failure (huge file, OOM on the
+  // arrayBuffer read) just leaves the column null and the diff falls
+  // back to size compare.
+  let contentHash = null;
+  const hashPromise = (async () => {
+    try {
+      const buf = await file.arrayBuffer();
+      const digest = await crypto.subtle.digest('SHA-256', buf);
+      const bytes = new Uint8Array(digest);
+      let s = '';
+      for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, '0');
+      return s;
+    } catch {
+      return null;
+    }
+  })();
+
   const putResult = await putFileWithProgress({
     url: target.signedUrl,
     file,
@@ -197,6 +216,7 @@ export async function uploadProjectFile({
     // thumbnail for a file that never landed would just leak storage.
     return { data: null, error: putResult.error };
   }
+  contentHash = await hashPromise;
 
   // 4. Wait for the thumbnail (likely already done) and ship it.
   // Failures at this step are non-fatal: the main file uploaded
@@ -281,6 +301,7 @@ export async function uploadProjectFile({
     thumbnailPath,
     thumbnailFrames,
     durationSeconds,
+    contentHash,
     uploadedBy,
   });
   if (insertErr) {

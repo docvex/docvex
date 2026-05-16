@@ -80,6 +80,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pick: () => ipcRenderer.invoke('local-folder:pick'),
     list: (dir) => ipcRenderer.invoke('local-folder:list', dir),
     download: (payload) => ipcRenderer.invoke('local-folder:download', payload),
+    // Write raw bytes already held in the renderer (e.g. files the
+    // user picked via <input type=file>) directly into the user's
+    // branch folder. Sibling of `download`, which fetches a URL —
+    // here the renderer already has the bytes, so the IPC payload
+    // carries them as an ArrayBuffer per file.
+    writeFiles: (payload) => ipcRenderer.invoke('local-folder:write-files', payload),
+    deleteFiles: (payload) => ipcRenderer.invoke('local-folder:delete-files', payload),
+    renameFile: (payload) => ipcRenderer.invoke('local-folder:rename-file', payload),
     openPath: (target) => ipcRenderer.invoke('local-folder:open-path', target),
+    showInFolder: (target) => ipcRenderer.invoke('local-folder:show-in-folder', target),
+    // Filesystem watcher — main wraps a single fs.watch handle around
+    // the requested dir. Renderer pairs `watch(dir)` with a handler
+    // subscription via `onChange(...)`; the returned unsubscribe fn
+    // detaches just the renderer listener (the watcher itself is
+    // shared per-window and closed via `unwatch()`).
+    watch: (dir) => ipcRenderer.invoke('local-folder:watch', dir),
+    unwatch: () => ipcRenderer.invoke('local-folder:unwatch'),
+    onChange: (handler) => {
+      const listener = (_, dir) => handler(dir);
+      ipcRenderer.on('local-folder:changed', listener);
+      return () => ipcRenderer.removeListener('local-folder:changed', listener);
+    },
   },
 });
