@@ -476,7 +476,7 @@ export default function UploadModal() {
             picker (drag-and-drop is no longer supported). */}
         <button
           type="button"
-          className={`upload-modal-dropzone${hasAnyRows ? ' is-compact' : ''}`}
+          className={`upload-modal-dropzone${hasAnyRows ? ' is-compact' : ''}${dragActive && !isDragOnly ? ' is-drag-over' : ''}`}
           onClick={handlePick}
         >
           <span className="upload-modal-dropzone-icon">{CloudUploadIcon}</span>

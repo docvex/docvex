@@ -145,7 +145,8 @@
     color         420ms ease;
 }
 
-.upload-modal-dropzone:hover {
+.upload-modal-dropzone:hover,
+.upload-modal-dropzone.is-drag-over {
   background: var(--accent-tint);
   border-color: var(--accent);
   color: var(--accent);

@@ -1,5 +1,6 @@
-import { app, BrowserWindow, Menu, ipcMain, shell, autoUpdater } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, shell, autoUpdater, dialog } from 'electron';
 import path from 'node:path';
+import fsp from 'node:fs/promises';
 import started from 'electron-squirrel-startup';
 import { updateElectronApp } from 'update-electron-app';
 
@@ -273,6 +274,138 @@ ipcMain.on('update:install', () => {
   if (app.isPackaged && updateStatus.state === 'downloaded') {
     autoUpdater.quitAndInstall();
   }
+});
+// --------------------------------------------------------------------------
+
+// Local-folder sync IPC ----------------------------------------------------
+// Backs the Files page's "download from cloud" workflow: the renderer
+// chooses a folder, lists its contents, and asks main to fetch a batch
+// of signed Supabase URLs into it. We do the file I/O here (not the
+// renderer) because the renderer is sandboxed away from `fs` by
+// contextIsolation, and because Node's streaming fetch + writeFile is
+// the easiest path that avoids loading multi-MB videos into renderer
+// memory just to pipe them back out.
+
+// Map a filename's extension to a best-effort MIME type so the renderer
+// can pick the right card icon (PDF / video / image / text / generic).
+// Mirrors the categoriser in ProjectFiles.jsx so local + cloud cards
+// bucket into the same Photos / Videos / Documents sections.
+function guessMimeFromName(name) {
+  const ext = path.extname(name).slice(1).toLowerCase();
+  if (!ext) return '';
+  if (['jpg', 'jpeg'].includes(ext)) return 'image/jpeg';
+  if (['png', 'gif', 'webp', 'bmp', 'svg', 'heic'].includes(ext)) return `image/${ext}`;
+  if (['mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v'].includes(ext)) return `video/${ext}`;
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'md') return 'text/markdown';
+  if (['txt', 'log', 'json', 'csv', 'xml', 'html', 'css', 'js', 'ts'].includes(ext)) return 'text/plain';
+  if (['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'application/octet-stream';
+  return '';
+}
+
+// Strip path separators + Windows-reserved chars. The cloud filename
+// almost always comes from `File.name` (already sanitised by the OS file
+// picker), but a renamed display name could carry "/" or ":" — those
+// would either escape the target dir or fail to create on Windows.
+// Replace with underscore so a stray character doesn't blow up the
+// whole batch.
+function sanitizeFilename(name) {
+  return name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 240);
+}
+
+// Open the native folder picker. Returns the chosen absolute path, or
+// null when the user canceled. `createDirectory` lets the picker offer
+// a "New folder" button on macOS; on Windows the OS dialog has its own
+// affordance and the flag is a no-op.
+ipcMain.handle('local-folder:pick', async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory'],
+    title: 'Choose download folder',
+  });
+  if (result.canceled) return null;
+  return result.filePaths?.[0] || null;
+});
+
+// List regular files in `dir`. Subdirectories are filtered out — the
+// Files tab is flat by design, and recursing could surface a project's
+// node_modules. Each entry carries size + mtime so the card meta line
+// can show the same "size · date" pair the cloud cards use.
+ipcMain.handle('local-folder:list', async (_, dir) => {
+  if (!dir) return { files: [], error: 'No directory specified' };
+  try {
+    const entries = await fsp.readdir(dir, { withFileTypes: true });
+    const files = [];
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      // Skip dotfiles + the OS metadata files (Thumbs.db / .DS_Store)
+      // so the local pane reads as "your project's documents" instead
+      // of leaking OS bookkeeping.
+      if (entry.name.startsWith('.') || entry.name === 'Thumbs.db') continue;
+      try {
+        const full = path.join(dir, entry.name);
+        const stat = await fsp.stat(full);
+        files.push({
+          name: entry.name,
+          path: full,
+          sizeBytes: stat.size,
+          mtimeIso: stat.mtime.toISOString(),
+          mimeType: guessMimeFromName(entry.name),
+        });
+      } catch { /* skip files we can't stat (permission, symlink to gone target) */ }
+    }
+    // Newest first — matches the cloud list's `uploaded_at DESC` order.
+    files.sort((a, b) => (a.mtimeIso < b.mtimeIso ? 1 : -1));
+    return { files, error: null };
+  } catch (err) {
+    return { files: [], error: err?.message || 'Could not read directory' };
+  }
+});
+
+// Download a batch of cloud files into `dir`. Caller passes pre-signed
+// URLs so we don't need Supabase credentials in the main process; we
+// just fetch each URL and write the bytes. Results are returned per-
+// file so the renderer can show a "3 of 5 downloaded" summary.
+// Existing files at the target path are overwritten — the user
+// explicitly asked to sync from cloud, so cloud is the source of
+// truth.
+ipcMain.handle('local-folder:download', async (_, payload) => {
+  const dir = payload?.dir;
+  const files = Array.isArray(payload?.files) ? payload.files : [];
+  if (!dir) return { results: [], error: 'No directory specified' };
+  try {
+    await fsp.mkdir(dir, { recursive: true });
+  } catch (err) {
+    return { results: [], error: `Could not create directory: ${err?.message || err}` };
+  }
+  const results = [];
+  for (const f of files) {
+    if (!f?.url || !f?.filename) {
+      results.push({ filename: f?.filename || '?', ok: false, error: 'Missing url or filename' });
+      continue;
+    }
+    try {
+      const res = await fetch(f.url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      const target = path.join(dir, sanitizeFilename(f.filename));
+      await fsp.writeFile(target, buf);
+      results.push({ filename: f.filename, path: target, ok: true });
+    } catch (err) {
+      results.push({ filename: f.filename, ok: false, error: err?.message || String(err) });
+    }
+  }
+  return { results, error: null };
+});
+
+// Open a local file (or its parent folder) in the OS file manager /
+// default app. Used for the card click handler on local files and the
+// "Open folder" button next to the local pane header.
+ipcMain.handle('local-folder:open-path', async (_, targetPath) => {
+  if (!targetPath) return '';
+  // shell.openPath returns an empty string on success, an error message
+  // on failure. Pass it through so the renderer can surface failures.
+  return shell.openPath(targetPath);
 });
 // --------------------------------------------------------------------------
 

@@ -5,7 +5,7 @@ import { useHasCapability } from '../hooks/useHasCapability';
 import {
   createSignedDownloadUrl,
   fetchUploaderProfile,
-  updateProjectFileDescription,
+  updateProjectFile,
   deleteProjectFile,
 } from '../lib/projectFiles';
 import FilePreview from './FilePreview';
@@ -127,14 +127,26 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
   // falls back to the source signedUrl in those cases.
   const [thumbnailUrl, setThumbnailUrl] = useState(null);
   const [uploader, setUploader]       = useState(null);
-  // Description: edit-mode flag, the in-progress textarea value, and
-  // the saved value. The prop's description.is the source of truth;
-  // the textarea value diverges only while editing, and converges back
-  // on save / cancel.
-  const [editing, setEditing]               = useState(false);
+  // Editable fields — drafts shadow the props so the user can type
+  // freely; on blur we diff against the prop and fire a save if
+  // changed. The prop is the source of truth (realtime UPDATE events
+  // from other devices flow through it), so we re-sync the draft on
+  // prop change EXCEPT for the field currently focused — see the sync
+  // effect below.
+  const [draftName, setDraftName]               = useState('');
   const [draftDescription, setDraftDescription] = useState('');
-  const [saving, setSaving]                 = useState(false);
-  const [saveError, setSaveError]           = useState(null);
+  const [nameFocused, setNameFocused]           = useState(false);
+  const [descFocused, setDescFocused]           = useState(false);
+  // 'name' | 'description' | null — which field is mid-save right now,
+  // so we can disable that input without freezing the other one.
+  const [savingField, setSavingField] = useState(null);
+  const [saveError, setSaveError]     = useState(null);
+  // Orientation — driven by the file's natural aspect ratio. 'vertical'
+  // = wide/landscape file → preview on top, info below. 'horizontal'
+  // = tall/portrait file → preview on left, info on right. Default
+  // horizontal so PDFs / text / unprobed files use the more compact
+  // side-by-side layout.
+  const [orientation, setOrientation] = useState('horizontal');
   // Delete flow: a nested confirm-state (type the filename to confirm)
   // plus a pendingDelete flag so the buttons stay disabled while the
   // network call runs.
@@ -143,30 +155,69 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
   const [pendingDelete, setPendingDelete]       = useState(false);
   const [deleteError, setDeleteError]           = useState(null);
 
-  const textareaRef = useRef(null);
   const confirmInputRef = useRef(null);
 
-  // Reset / hydrate whenever the file prop changes id (different card
-  // opened) OR the description on the same id changes (realtime echo,
-  // another device's edit). Skipping the description reset while the
-  // user is mid-edit prevents a concurrent UPDATE from clobbering
-  // what they're typing — they see the remote change the next time
-  // they exit edit mode.
+  // Edit gate — mirrors the project_files UPDATE RLS policy (migration
+  // 005: uploader OR admin). `canDeleteAny` returning true is the
+  // capability layer's way of saying "this viewer is admin-or-better
+  // on the project", so it doubles as the admin signal for editing.
+  const canEdit = Boolean(file) && (canDeleteAny || isOwnFile);
+
+  // Sync drafts from the prop on mount / prop changes / focus changes.
+  // Skipping the sync for a focused field prevents a concurrent UPDATE
+  // (realtime echo from another device) from clobbering what the user
+  // is currently typing — they'll see the remote change the next time
+  // they blur out of the field.
   useEffect(() => {
     if (!file) return;
-    if (!editing) setDraftDescription(file.description ?? '');
+    if (!nameFocused) setDraftName(file.name ?? '');
+    if (!descFocused) setDraftDescription(file.description ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file?.id, file?.description, editing]);
+  }, [file?.id, file?.name, file?.description, nameFocused, descFocused]);
 
   // Reset transient state when the file prop changes id.
   useEffect(() => {
-    setEditing(false);
+    setSavingField(null);
     setSaveError(null);
     setConfirmingDelete(false);
     setConfirmText('');
     setPendingDelete(false);
     setDeleteError(null);
+    // Reset orientation to the default while the new file's aspect
+    // is being probed — keeps the layout from snapping between the
+    // last file's orientation and the new file's mid-load.
+    setOrientation('horizontal');
   }, [file?.id]);
+
+  // Probe natural aspect ratio for image / video files. Choose layout:
+  // landscape (width > height) → vertical (preview on top, taking the
+  // wide horizontal space); portrait (height >= width) → horizontal
+  // (preview on left, taking the tall vertical space). Either way the
+  // preview gets the dimension it actually wants. PDF / text / files
+  // with no probe source stay on the default horizontal layout (PDF
+  // pages are portrait by convention; text has no preview aspect).
+  useEffect(() => {
+    if (!file) return undefined;
+    const mime = file.mime_type || '';
+    // Images: probe the source directly via signedUrl — exact native
+    // dimensions, no thumbnail interpolation. Videos: probe the
+    // thumbnail (stored at native aspect per ProjectFiles.css
+    // comment) since we don't mount a <video> for the preview.
+    const probeUrl = mime.startsWith('image/')
+      ? previewUrl
+      : (mime.startsWith('video/') ? thumbnailUrl : null);
+    if (!probeUrl) return undefined;
+
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      if (!img.naturalWidth || !img.naturalHeight) return;
+      setOrientation(img.naturalWidth > img.naturalHeight ? 'vertical' : 'horizontal');
+    };
+    img.src = probeUrl;
+    return () => { cancelled = true; };
+  }, [file?.id, file?.mime_type, previewUrl, thumbnailUrl]);
 
   // Fetch signed URL + uploader profile when a file is shown. 10-min
   // TTL on the URL so the user can sit reading the modal without the
@@ -216,25 +267,22 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
     return () => { cancelled = true; };
   }, [file?.uploaded_by]);
 
-  // Esc closes the modal unless we're in a sub-state (editing /
-  // confirming / deleting). The sub-states own Esc handling locally.
+  // Esc closes the modal — unless a sub-state owns it. Mid-edit Esc
+  // reverts the focused field's draft and blurs (handled in each
+  // input's onKeyDown below); we don't intercept that here. Delete-
+  // confirm and active deletes hold Esc too so the user doesn't
+  // accidentally cancel a destructive flow.
   useEffect(() => {
     if (!file) return undefined;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
-      if (editing || confirmingDelete || pendingDelete) return;
+      if (confirmingDelete || pendingDelete) return;
+      if (nameFocused || descFocused) return;
       onClose?.();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [file, editing, confirmingDelete, pendingDelete, onClose]);
-
-  // Auto-focus the description textarea on edit-open.
-  useEffect(() => {
-    if (editing) {
-      requestAnimationFrame(() => textareaRef.current?.focus());
-    }
-  }, [editing]);
+  }, [file, confirmingDelete, pendingDelete, nameFocused, descFocused, onClose]);
 
   // Auto-focus the confirm input on delete-confirm-open.
   useEffect(() => {
@@ -247,44 +295,84 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
 
   // ── Handlers ───────────────────────────────────────────────────────────
   const handleBackdropMouseDown = (e) => {
-    // Backdrop click closes only when we're idle. Mid-edit / mid-confirm
-    // requires explicit Cancel so the user doesn't lose their typing.
+    // Backdrop click closes only when we're idle. Active focus on a
+    // field or a mid-confirm requires explicit interaction first so
+    // the user doesn't lose typing or accidentally cancel a destructive
+    // flow.
     if (e.target !== e.currentTarget) return;
-    if (editing || confirmingDelete || pendingDelete) return;
+    if (confirmingDelete || pendingDelete) return;
+    if (nameFocused || descFocused) return;
     onClose?.();
   };
 
-  const startEditing = () => {
-    setEditing(true);
-    setDraftDescription(file.description ?? '');
+  // Generic save — sends the patch and reconciles the draft on
+  // success/failure. On RLS rejection (.single() returns no rows)
+  // or DB constraint violation we revert the draft so the input
+  // snaps back to the last-known-good prop value.
+  const persistPatch = async (field, patch, revertValue) => {
+    setSavingField(field);
     setSaveError(null);
-  };
-  const cancelEditing = () => {
-    setEditing(false);
-    setDraftDescription(file.description ?? '');
-    setSaveError(null);
-  };
-  const handleEditorKeyDown = (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); cancelEditing(); }
-    // Cmd/Ctrl-Enter saves — fast path for power users; the Save button
-    // is also right there.
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
-  };
-  const save = async () => {
-    if (saving) return;
-    setSaving(true);
-    setSaveError(null);
-    const { error } = await updateProjectFileDescription(file.id, draftDescription);
-    setSaving(false);
+    const { error } = await updateProjectFile(file.id, patch);
+    setSavingField(null);
     if (error) {
-      setSaveError(error.message || 'Could not save description.');
-      // Keep the textarea open so the user doesn't lose their edit.
+      setSaveError(error.message || 'Could not save changes.');
+      if (field === 'name') setDraftName(revertValue);
+      else if (field === 'description') setDraftDescription(revertValue);
+    }
+    // On success the realtime UPDATE echo will update file.* via the
+    // page's subscription; the prop-sync effect rehydrates the draft
+    // from the new prop next render (the field is already blurred so
+    // sync is unblocked).
+  };
+
+  const commitName = () => {
+    if (!file) return;
+    const trimmed = draftName.trim();
+    if (!trimmed) {
+      // Empty after trim — revert to the prop without a round-trip.
+      // The DB's `length(trim(name)) > 0` check would reject this
+      // anyway; surfacing it instantly is friendlier than the
+      // "constraint violation" toast.
+      setDraftName(file.name ?? '');
       return;
     }
-    setEditing(false);
-    // The realtime UPDATE echo will bring the new value back via the
-    // page's subscription; the prop-driven reset in the effect above
-    // will set draftDescription from the new prop value next render.
+    if (trimmed === file.name) return;
+    persistPatch('name', { name: trimmed }, file.name ?? '');
+  };
+
+  const commitDescription = () => {
+    if (!file) return;
+    // Normalise both sides the same way the lib does before comparing,
+    // so a draft of "" vs a prop of null reads as "no change".
+    const trimmed = draftDescription.trim();
+    const draftNormal = trimmed || null;
+    const propNormal  = (file.description || '').trim() || null;
+    if (draftNormal === propNormal) return;
+    persistPatch('description', { description: draftDescription }, file.description ?? '');
+  };
+
+  const handleNameKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setDraftName(file.name ?? '');
+      e.currentTarget.blur();
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.currentTarget.blur(); // triggers commitName via onBlur
+    }
+  };
+  const handleDescriptionKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setDraftDescription(file.description ?? '');
+      e.currentTarget.blur();
+    }
+    // Cmd/Ctrl-Enter saves; plain Enter inserts a newline.
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      e.currentTarget.blur();
+    }
   };
 
   const handleView = async () => {
@@ -342,7 +430,6 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
   };
 
   // ── Render ─────────────────────────────────────────────────────────────
-  const hasDescription = Boolean((file.description || '').trim());
 
   return (
     <div
@@ -352,13 +439,13 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
       aria-modal="true"
       aria-labelledby="file-detail-title"
     >
-      <div className="file-detail-card">
+      <div className={`file-detail-card is-${orientation}`}>
+        {/* Header — close button only. The filename moved into the meta
+            pane as an editable input (under the title section). */}
         <header className="file-detail-header">
-          <Tooltip content={file.name}>
-            <h2 id="file-detail-title" className="file-detail-title">
-              {file.name}
-            </h2>
-          </Tooltip>
+          <span id="file-detail-title" className="file-detail-sr-title">
+            {file.name}
+          </span>
           <Tooltip content="Close">
             <button
               type="button"
@@ -373,11 +460,14 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
         </header>
 
         <div className="file-detail-body">
-          {/* Left pane — preview. Background is darker than the right
-              pane so image / PDF letterboxing has a deliberate frame.
-              The preview itself is now a click-to-open surface — every
-              sub-renderer wraps its content in a ClickablePreview that
-              calls handleView (open the full file in a new tab). */}
+          {/* Preview pane — left in horizontal mode, top in vertical
+              mode (driven by the .is-vertical / .is-horizontal class
+              on the card). Background is darker than the meta pane so
+              image / PDF letterboxing has a deliberate frame. The
+              preview itself is a click-to-open surface — every
+              FilePreview sub-renderer wraps its content in a
+              ClickablePreview that calls handleView (open the full
+              file in a new tab). */}
           <div className="file-detail-pane file-detail-pane-preview">
             <FilePreview
               file={file}
@@ -387,79 +477,78 @@ export default function FileDetailModal({ file, onClose, onDeleted }) {
             />
           </div>
 
-          {/* Right pane — metadata + actions. Stacked sections with a
-              consistent gutter. */}
+          {/* Meta pane — title input + description textarea + Details
+              + actions. In vertical mode this pane sits below the
+              preview; in horizontal mode it sits to the right. */}
           <aside className="file-detail-pane file-detail-pane-meta">
-            <section className="file-detail-section">
-              <div className="file-detail-section-label">Description</div>
-              {editing ? (
-                <div className="file-detail-description-editor">
-                  <textarea
-                    ref={textareaRef}
-                    className="file-detail-textarea"
-                    value={draftDescription}
-                    onChange={(e) => setDraftDescription(e.target.value)}
-                    onKeyDown={handleEditorKeyDown}
-                    placeholder="What's this file about?"
-                    rows={5}
-                    maxLength={2000}
-                    disabled={saving}
-                  />
-                  {saveError && (
-                    <div className="file-detail-inline-error" role="alert">{saveError}</div>
-                  )}
-                  <div className="file-detail-editor-actions">
-                    <button
-                      type="button"
-                      className="modal-btn modal-btn-cancel"
-                      onClick={cancelEditing}
-                      disabled={saving}
-                    >Cancel</button>
-                    <button
-                      type="button"
-                      className="modal-btn modal-btn-confirm"
-                      onClick={save}
-                      disabled={saving}
-                    >{saving ? 'Saving…' : 'Save'}</button>
-                  </div>
-                  <div className="file-detail-hint">Cmd/Ctrl+Enter to save · Esc to cancel</div>
-                </div>
-              ) : (
-                <Tooltip content="Click to edit">
-                  <button
-                    type="button"
-                    className={`file-detail-description-view${hasDescription ? '' : ' is-empty'}`}
-                    onClick={startEditing}
-                  >
-                    {hasDescription ? file.description : 'Add a description…'}
-                  </button>
-                </Tooltip>
-              )}
+            <section className="file-detail-section file-detail-section-title">
+              <label className="file-detail-section-label" htmlFor="file-detail-name-input">
+                Title
+              </label>
+              <input
+                id="file-detail-name-input"
+                type="text"
+                className="file-detail-name-input"
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                onFocus={() => setNameFocused(true)}
+                onBlur={() => { setNameFocused(false); commitName(); }}
+                onKeyDown={handleNameKeyDown}
+                placeholder="File name"
+                disabled={!canEdit || savingField === 'name'}
+                spellCheck={false}
+                maxLength={200}
+                aria-label="File name"
+              />
             </section>
 
             <section className="file-detail-section">
+              <label className="file-detail-section-label" htmlFor="file-detail-description-input">
+                Description
+              </label>
+              <textarea
+                id="file-detail-description-input"
+                className="file-detail-description-input"
+                value={draftDescription}
+                onChange={(e) => setDraftDescription(e.target.value)}
+                onFocus={() => setDescFocused(true)}
+                onBlur={() => { setDescFocused(false); commitDescription(); }}
+                onKeyDown={handleDescriptionKeyDown}
+                placeholder={canEdit ? "What's this file about?" : 'No description'}
+                disabled={!canEdit || savingField === 'description'}
+                rows={3}
+                maxLength={2000}
+                aria-label="File description"
+              />
+            </section>
+
+            {saveError && (
+              <div className="file-detail-inline-error" role="alert">{saveError}</div>
+            )}
+
+            <section className="file-detail-section">
               <div className="file-detail-section-label">Details</div>
-              <dl className="file-detail-dl">
-                <div className="file-detail-dl-row">
-                  <dt>Type</dt>
-                  <dd><code>{file.mime_type || 'unknown'}</code></dd>
+              <div className="file-detail-details">
+                <div className="file-detail-details-row">
+                  <span className="file-detail-details-label">Type</span>
+                  <span className="file-detail-details-value">{file.mime_type || 'unknown'}</span>
                 </div>
-                <div className="file-detail-dl-row">
-                  <dt>Size</dt>
-                  <dd>{formatBytes(file.size_bytes)}</dd>
+                <div className="file-detail-details-row">
+                  <span className="file-detail-details-label">Size</span>
+                  <span className="file-detail-details-value">{formatBytes(file.size_bytes)}</span>
                 </div>
-                <div className="file-detail-dl-row">
-                  <dt>Added</dt>
-                  <dd>{formatDateTime(file.uploaded_at)}</dd>
+                <div className="file-detail-details-row">
+                  <span className="file-detail-details-label">Added</span>
+                  <span className="file-detail-details-value">{formatDateTime(file.uploaded_at)}</span>
                 </div>
-                <div className="file-detail-dl-row file-detail-dl-row-uploader">
-                  <dt>By</dt>
-                  <dd className="file-detail-uploader">
+                <div className="file-detail-details-row file-detail-details-row-uploader">
+                  <span className="file-detail-details-label">By</span>
+                  <div className="file-detail-details-value file-detail-uploader">
                     <UploaderAvatar profile={uploader} />
                     <span className="file-detail-uploader-name">{profileDisplayName(uploader)}</span>
-                  </dd>
+                  </div>
                 </div>
-              </dl>
+              </div>
             </section>
 
             <div className="file-detail-actions">

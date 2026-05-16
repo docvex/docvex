@@ -3,6 +3,214 @@
    page container width); this file owns only what's specific to the
    list itself. */
 
+/* Wider canvas for the Files page â€” the file grid benefits from
+   more horizontal room than the default 820px ProjectScoped page
+   width, so card thumbnails read at a comfortable size without
+   getting stuck at one card per row. 1400px is generous on a 1080p+
+   display and gracefully reflows on narrower windows. */
+.project-files-page {
+  max-width: 1400px;
+}
+
+/* Local-folder controls â€” lives under the page subtitle. Single row:
+   path input (flex-grows), Browse button, Download button. Stacks
+   vertically on narrow viewports via the responsive rule below. */
+.project-files-local-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  width: 100%;
+}
+
+.project-files-local-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.7rem;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  outline: none;
+  transition: background 150ms, border-color 150ms;
+}
+
+.project-files-local-input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.project-files-local-input:hover:not(:focus) {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.project-files-local-input:focus {
+  border-color: var(--accent);
+  background: var(--bg-page);
+}
+
+.project-files-local-btn {
+  flex: 0 0 auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.project-files-local-btn:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+}
+
+.project-files-local-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Primary action variant â€” the Download button. Accent fill so it
+   reads as the main affordance on the bar. */
+.project-files-local-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.project-files-local-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.project-files-local-btn-primary:disabled {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+/* Tab strip â€” Cloud | Local, sits between the page header and the
+   active tab's content. Underline-style tabs (the active tab gets a
+   2px accent underline, inactive tabs are muted) so the strip reads
+   as a navigational header without dominating the page's visual
+   hierarchy. The bottom border doubles as a continuation of the
+   active-tab underline across the row, giving the strip a clean
+   "rails" feel. */
+.project-files-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0.2rem;
+  border-bottom: 1px solid var(--border);
+  /* Page-level gap is 1.25rem so the tab strip already breathes from
+     the header above; no extra margin needed here. */
+}
+
+.project-files-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: none;
+  /* 2px transparent underline that flips to accent when active. The
+     negative margin-bottom overlaps the strip's bottom border so the
+     active underline visually replaces it, not stacks on top. */
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 0.55rem 1rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 150ms, border-color 150ms, background 150ms;
+}
+
+.project-files-tab:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-elevated) 50%, transparent);
+}
+
+.project-files-tab.is-active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+.project-files-tab svg {
+  flex-shrink: 0;
+  /* Icons inherit the tab's text color, so they fade between
+     muted/primary on hover/active alongside the label. */
+}
+
+.project-files-tab-count {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-files-tab.is-active .project-files-tab-count {
+  color: var(--accent);
+  background: var(--accent-tint);
+}
+
+/* Tab panel â€” the content area below the tab strip. Stacks the
+   category sections (Photos / Videos / Documents) with the same
+   gap as the page's other vertical rhythm. */
+.project-files-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+/* Panel-level action row â€” currently only used by the Local panel
+   for the "Open folder" button. Right-aligned so it sits opposite
+   the tab strip's text-leading flow. */
+.project-files-panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.project-files-side-action {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.project-files-side-action:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+/* Responsive â€” narrow viewports just let the local-folder bar wrap.
+   The tab strip stays horizontal at all widths (it's already compact
+   with the count pills). */
+@media (max-width: 1100px) {
+  .project-files-local-bar {
+    flex-wrap: wrap;
+  }
+  .project-files-local-input {
+    flex: 1 1 100%;
+  }
+}
+
 .project-files-error {
   background: color-mix(in srgb, var(--danger) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
@@ -39,14 +247,50 @@
   color: var(--text-muted);
 }
 
-/* Auto-fitting grid â€” cards are 160px-ish wide, the grid fills the
-   page-shell's 820px max-width and wraps as the viewport narrows.
-   1rem gap matches the page-level gap on .project-scoped-page so the
-   grid visually aligns with the header above it. */
+/* Auto-fitting grid â€” cards are 160px-ish wide by default, the grid
+   fills the page-shell's 820px max-width and wraps as the viewport
+   narrows. 1rem gap matches the page-level gap on .project-scoped-page
+   so the grid visually aligns with the header above it. The min size
+   is driven by --project-files-card-size on the page container so
+   ctrl+scroll (handled in ProjectFiles.jsx) can resize every grid
+   on the page uniformly, Windows-Explorer style. */
 .project-files-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--project-files-card-size, 160px), 1fr));
   gap: 1rem;
+}
+
+/* Category section — title above its own grid (Photos / Videos /
+   Documents). Sits inside the page-shell's flex column, so the
+   1.25rem gap on .project-scoped-page already separates one section
+   from the next. The section itself stacks its title + grid with a
+   tighter inner gap so the heading reads as belonging to the grid
+   beneath it. */
+.project-files-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.project-files-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.01em;
+}
+
+/* Item count rendered next to the section title — muted so the
+   heading reads as the dominant element. tabular-nums keeps wider
+   counts (10 / 100 …) visually aligned with the title baseline. */
+.project-files-section-count {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The card itself â€” a <button> so it's keyboard-focusable + Enter-
@@ -181,6 +425,59 @@
      thumbnails. Cheap on a single small element. */
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
+}
+
+/* Local-card wrapper — owns the position-context the "Modified" pill
+   anchors to. Flex column so the button stretches to fill the
+   wrapper's width AND height regardless of the wrapper's intrinsic
+   size in the grid row. The wrapper itself takes its natural grid
+   slot dimensions via grid's default stretch — explicit `width:100%`
+   / `height:100%` would create a circular percentage-against-auto
+   dependency in grid's auto-sized rows and collapse the layout. */
+.project-files-local-card-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.project-files-local-card-wrap > .project-files-card {
+  /* flex-grow:1 so the button claims any vertical space the wrapper
+     has beyond the button's natural content height (when grid row
+     stretch sizes the wrapper to match a taller cloud card in the
+     same row). Cross-axis stretch (the flex default) handles width. */
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+/* "Modified" pill — straddles the bottom edge of the local card
+   (centered horizontally), so the card's bottom border runs through
+   the pill's middle. Half-sits on the card, half-hangs below —
+   visually obvious without extending the row height (the pill is
+   `position: absolute`, doesn't push neighbours or grow the
+   wrapper). Amber/warning tone keeps it distinct from the brand
+   accent and from the .project-files-ext extension tag in the
+   card's top-right corner. */
+.project-files-modified-pill {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  /* translateY(-50%) puts the pill's vertical center on the wrapper's
+     bottom edge (= the card's bottom border, since the button fills
+     the wrapper); translateX(-50%) centres it horizontally. */
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  background: rgba(245, 158, 11, 0.95);  /* amber-500 @ 95% */
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 10px;
+  border-radius: 999px;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
 /* Video duration badge — bottom-right of the thumb, same recipe as

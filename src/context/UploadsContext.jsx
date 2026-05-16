@@ -640,10 +640,11 @@ export function UploadsProvider({ children }) {
   // drop resets to zero unconditionally because no further dragleave
   // fires after a successful drop.
   //
-  // Modal-already-open case: a second drag while modalOpen=true does
-  // NOT set dragActive — the full chrome stays put and the drop just
-  // appends to the staging list. dragActive only governs the "modal
-  // was closed, drag opened it as a teaser" state.
+  // Modal-already-open case: dragActive still flips to true so the
+  // dropzone can light up in its accent "drop here" state while the
+  // user drags — but isDragOnly (`dragActive && !modalOpen`) stays
+  // false, so the full chrome around the dropzone stays put. The
+  // drop just appends to the staging list.
   //
   // preventDefault on dragover is REQUIRED for drop to fire — without
   // it the renderer treats the page as a non-drop-target and the OS
@@ -667,7 +668,7 @@ export function UploadsProvider({ children }) {
       if (!selectedProjectIdRef.current) return;
       e.preventDefault();
       dragDepth += 1;
-      if (!modalOpenRef.current) setDragActive(true);
+      setDragActive(true);
     };
 
     const onDragOver = (e) => {

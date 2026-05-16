@@ -69,4 +69,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('update:status', listener);
     return () => ipcRenderer.removeListener('update:status', listener);
   },
+
+  // Local-folder sync — backs the Files page's "download to my PC"
+  // workflow. The renderer pre-signs Supabase URLs and hands them off
+  // to main, which does the actual fs writes (renderer is sandboxed
+  // away from fs by contextIsolation). Web build doesn't have any of
+  // these — ProjectFiles gates the whole local pane on
+  // `window.electronAPI?.localFolder` being defined.
+  localFolder: {
+    pick: () => ipcRenderer.invoke('local-folder:pick'),
+    list: (dir) => ipcRenderer.invoke('local-folder:list', dir),
+    download: (payload) => ipcRenderer.invoke('local-folder:download', payload),
+    openPath: (target) => ipcRenderer.invoke('local-folder:open-path', target),
+  },
 });

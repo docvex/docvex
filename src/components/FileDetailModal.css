@@ -18,11 +18,15 @@
   right: 0;
   bottom: 0;
   left: var(--sidebar-width, 60px);
-  /* Same dim level + z-index slot as ReportProblemModal so the two
-     full-screen surfaces never visually compete. Below the sidebar
-     so the sidebar stays interactive while the modal is open. Above
-     SwitchProjectLoader (45), below NotificationCenter toasts (9999). */
-  background: transparent;
+  /* Black dim — matches ReportProblemModal's wash so full-screen
+     modal surfaces share a consistent backdrop tone. Scoped to the
+     content area (left edge pinned to --sidebar-width) so the
+     sidebar stays unobscured and interactive while the modal is
+     open. Above SwitchProjectLoader (45), below the sidebar (50)
+     and NotificationCenter toasts (9999); the `file-detail-fade`
+     keyframe fades the whole element so the dim animates in with
+     the card. */
+  background: rgba(0, 0, 0, 0.65);
   z-index: 48;
   display: flex;
   align-items: center;
@@ -39,14 +43,14 @@
 }
 
 .file-detail-card {
-  /* Smaller compact modal â€” the preview is now thumbnail-grade
-     (PDF first page / video thumb), so the old 1400Ã—900 stage was
-     bigger than the content warranted. Keep a comfortable working
-     size but stop the modal from dominating the screen. */
+  /* Compact working surface â€” preview is thumbnail-grade so we don't
+     need to dominate the viewport. Two size variants driven by the
+     orientation class: horizontal (portrait/tall file â†’ side-by-side
+     panes) and vertical (landscape/wide file â†’ stacked panes). Both
+     fit comfortably on a standard laptop screen; the vertical card
+     is taller because the meta pane sits below the preview rather
+     than next to it. */
   width: 85%;
-  max-width: 880px;
-  height: 80%;
-  max-height: 600px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -55,6 +59,22 @@
   flex-direction: column;
   overflow: hidden;
   animation: file-detail-rise 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* Smooth the dimension swap when orientation flips between files
+     (e.g. clicking a portrait photo then a landscape one). Without
+     this the card would snap to its new size in one frame. */
+  transition: max-width 220ms ease, max-height 220ms ease;
+}
+
+.file-detail-card.is-horizontal {
+  max-width: 880px;
+  height: 80%;
+  max-height: 600px;
+}
+
+.file-detail-card.is-vertical {
+  max-width: 760px;
+  height: 92%;
+  max-height: 780px;
 }
 
 @keyframes file-detail-rise {
@@ -62,29 +82,33 @@
   to   { opacity: 1; transform: translateY(0)   scale(1); }
 }
 
-/* Header â€” filename on the left, close button on the right.
-   Sticky-feeling via the bottom border that separates it from the
-   split-pane body below. */
+/* Header â€” close button only now. The file's name moved into the meta
+   pane as an editable input (see .file-detail-name-input below) so
+   header height shrinks; the screen-reader-only title still labels
+   the dialog via aria-labelledby for AT users. */
 .file-detail-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 1rem;
-  padding: 14px 18px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
-.file-detail-title {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
+/* Screen-reader-only title â€” keeps aria-labelledby valid without
+   stealing visual space. The editable input below is what sighted
+   users see. */
+.file-detail-sr-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-  min-width: 0;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .file-detail-close {
@@ -113,10 +137,10 @@
   cursor: not-allowed;
 }
 
-/* Body â€” 50/50 split via flex. The `gap: 1px` plus the card's bg
-   color leaking through gives a 1px hairline divider without an
-   extra DOM node. Both panes scroll their own overflow so the modal
-   height never grows past 90vh. */
+/* Body â€” 50/50 split (horizontal) or 60/40 stack (vertical). The
+   `gap: 1px` plus the card's bg color leaking through gives a 1px
+   hairline divider without an extra DOM node. Both panes scroll
+   their own overflow so the modal never overflows its max-height. */
 .file-detail-body {
   display: flex;
   flex: 1 1 auto;
@@ -125,8 +149,31 @@
   background: var(--border);  /* shows through the gap as the divider color */
 }
 
-.file-detail-pane {
+/* Horizontal layout (default, portrait files) â€” preview left, meta
+   right. Each pane claims half of the body width. */
+.file-detail-card.is-horizontal .file-detail-body {
+  flex-direction: row;
+}
+.file-detail-card.is-horizontal .file-detail-pane {
   flex: 1 1 50%;
+}
+
+/* Vertical layout (landscape files) â€” preview on top getting the wide
+   horizontal space, meta below. Preview claims ~60% of the height so
+   wide images / video thumbs read at a comfortable size; meta gets
+   the remaining ~40% which is plenty for the title + description +
+   details + actions stack. */
+.file-detail-card.is-vertical .file-detail-body {
+  flex-direction: column;
+}
+.file-detail-card.is-vertical .file-detail-pane-preview {
+  flex: 0 0 60%;
+}
+.file-detail-card.is-vertical .file-detail-pane-meta {
+  flex: 1 1 auto;
+}
+
+.file-detail-pane {
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -151,7 +198,7 @@
   background: var(--bg-card);
   padding: 18px 20px;
   overflow-y: auto;
-  gap: 18px;
+  gap: 16px;
 }
 
 /* Section blocks within the meta pane â€” label above content with
@@ -170,81 +217,60 @@
   color: var(--text-muted);
 }
 
-/* â”€â”€ Description â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* â”€â”€ Editable title + description â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/* Idle view: pre-wrap so newlines in the description render. Click
-   anywhere to start editing â€” affordance signaled by border-color
-   change on hover. `.is-empty` muted-italic for "Add a descriptionâ€¦". */
-.file-detail-description-view {
-  display: block;
+/* Both inputs share a ghost-field recipe: visible sunken surface so
+   the field reads as editable at rest, accent-tinted border on hover,
+   solid accent border on focus. Same family of treatment the upload
+   modal uses for its name / description inputs so the two surfaces
+   feel coherent. */
+.file-detail-name-input,
+.file-detail-description-input {
   width: 100%;
-  min-height: 48px;
-  padding: 10px 12px;
-  background: var(--bg-card);
+  background: var(--bg-page);
   border: 1px solid var(--border);
   border-radius: 8px;
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-  font-family: inherit;
-  line-height: 1.5;
-  text-align: left;
-  white-space: pre-wrap;
-  word-break: break-word;
-  cursor: text;
-  transition: border-color 150ms, background 150ms;
-}
-
-.file-detail-description-view:hover {
-  border-color: var(--border-strong);
-  background: var(--bg-elevated);
-}
-
-.file-detail-description-view.is-empty {
-  color: var(--text-muted);
-  font-style: italic;
-}
-
-.file-detail-description-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.file-detail-textarea {
-  width: 100%;
-  padding: 10px 12px;
-  background: var(--bg-page);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
   color: var(--text-primary);
-  font-size: 0.875rem;
   font-family: inherit;
+  outline: none;
+  transition: background 150ms, border-color 150ms;
+}
+
+.file-detail-name-input {
+  padding: 8px 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.file-detail-description-input {
+  padding: 10px 12px;
+  font-size: 0.875rem;
   line-height: 1.5;
   resize: vertical;
-  min-height: 100px;
-  outline: none;
-  transition: border-color 150ms;
+  min-height: 80px;
 }
 
-.file-detail-textarea:focus {
+.file-detail-name-input:hover:not(:disabled):not(:focus),
+.file-detail-description-input:hover:not(:disabled):not(:focus) {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.file-detail-name-input:focus,
+.file-detail-description-input:focus {
   border-color: var(--accent);
+  background: var(--bg-card);
 }
 
-.file-detail-textarea:disabled {
-  opacity: 0.6;
+.file-detail-name-input:disabled,
+.file-detail-description-input:disabled {
+  opacity: 0.7;
   cursor: not-allowed;
+  background: var(--bg-card);
 }
 
-.file-detail-editor-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.file-detail-hint {
-  font-size: 0.7rem;
+.file-detail-description-input::placeholder {
   color: var(--text-muted);
-  letter-spacing: 0.02em;
+  font-style: italic;
 }
 
 .file-detail-inline-error {
@@ -258,48 +284,47 @@
 
 /* â”€â”€ Details list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-.file-detail-dl {
-  margin: 0;
+/* Stacked label-above-value rows. Tighter row gap (12px) than the
+   inter-section gap (16px on the pane) so a row's label/value reads
+   as one unit, distinct from the next row. */
+.file-detail-details {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
-.file-detail-dl-row {
+.file-detail-details-row {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
+  flex-direction: column;
+  gap: 2px;
   font-size: 0.85rem;
 }
 
-.file-detail-dl dt {
-  flex: 0 0 70px;
+.file-detail-details-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--text-muted);
-  font-weight: 500;
 }
 
-.file-detail-dl dd {
-  margin: 0;
+.file-detail-details-value {
   color: var(--text-secondary);
-  min-width: 0;
-  flex: 1;
   word-break: break-word;
+  min-width: 0;
 }
 
-.file-detail-dl dd code {
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-  font-size: 0.78rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 6px;
-  color: var(--text-secondary);
+/* Uploader row â€” avatar + name side-by-side under the "By" label.
+   Slightly larger gap above the avatar/name pair so the avatar
+   doesn't crowd the label. */
+.file-detail-details-row-uploader {
+  gap: 6px;
 }
 
-.file-detail-dl-row-uploader dd {
+.file-detail-details-row-uploader .file-detail-details-value {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .file-detail-uploader-name {
@@ -465,7 +490,7 @@
   margin: 0;
   background: transparent;
   border: 0;
-  cursor: zoom-in;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -768,27 +793,32 @@
 
 /* â”€â”€ Responsive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/* Narrow viewport: stack panes vertically. Below this width the 50/50
-   split makes both panes uselessly cramped. Sizes use percentages of
-   the backdrop (not 100vw) because the backdrop's left edge is offset
-   by --sidebar-width — using viewport units here would overflow.
-   Keeps the base 14px border-radius so the corners stay rounded even
-   in the stacked layout (the backdrop has padding around the card so
-   the rounded corners are visible against the backdrop scrim). */
+/* Narrow viewport: force the stacked (vertical) layout regardless of
+   the file's natural aspect — at this width the side-by-side panes
+   would be uselessly cramped. Selectors target both orientation
+   variants so the .is-horizontal class doesn't override the media
+   query rule via higher specificity. Sizes use percentages of the
+   backdrop (not 100vw) because the backdrop's left edge is offset
+   by --sidebar-width — using viewport units here would overflow. */
 @media (max-width: 860px) {
-  .file-detail-card {
+  .file-detail-card,
+  .file-detail-card.is-horizontal,
+  .file-detail-card.is-vertical {
     width: 100%;
     height: 100%;
     max-width: none;
     max-height: none;
   }
-  .file-detail-body {
+  .file-detail-card.is-horizontal .file-detail-body,
+  .file-detail-card.is-vertical .file-detail-body {
     flex-direction: column;
   }
-  .file-detail-pane {
+  .file-detail-card.is-horizontal .file-detail-pane,
+  .file-detail-card.is-vertical .file-detail-pane {
     flex: 1 1 50%;
   }
-  .file-detail-pane-preview {
+  .file-detail-card.is-horizontal .file-detail-pane-preview,
+  .file-detail-card.is-vertical .file-detail-pane-preview {
     flex: 1 1 45%;
     min-height: 200px;
   }

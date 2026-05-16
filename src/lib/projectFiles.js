@@ -222,30 +222,60 @@ export function subscribeForProject(projectId, onChange) {
   };
 }
 
-// ── Description edit ─────────────────────────────────────────────────────
+// ── Display-name + description edit ──────────────────────────────────────
 
-// Patch ONLY the description column. We deliberately don't expose a
-// generic update helper — name / mime_type / storage_path should never
-// be reassigned post-upload, and the narrow surface here makes that a
-// compile-time fact for callers. Empty / whitespace-only strings are
-// normalised to NULL so "" and "  " don't read as "the user explicitly
-// set a blank description" in the UI.
+// Patch any combination of the user-editable columns on project_files
+// (name + description today). The narrow surface — only these two
+// columns — is intentional: mime_type / size_bytes / storage_path
+// describe the binary and must never drift from it, so they're not
+// exposable through this helper.
+//
+// Normalisation:
+//   • name: trimmed; empty-or-whitespace is rejected client-side with
+//     a clear error so the DB's `length(trim(name)) > 0` check (see
+//     migration 003) doesn't surface as a generic constraint failure.
+//   • description: trimmed; empty/whitespace becomes NULL so the
+//     schema reads "" the same as the user clearing the field
+//     ("not set"), not as "user explicitly typed an empty string".
 //
 // RLS (migration 005) gates the write to uploader-or-admin; the caller
-// doesn't need to add a where-clause for the auth check. The RPC will
-// return zero rows if the gate rejects, which surfaces as a "row not
-// found" error from .single() — the caller can display that to the
-// user without leaking who is or isn't authorized.
-export async function updateProjectFileDescription(id, description) {
+// doesn't add a where-clause for the auth check. The query returns
+// zero rows on RLS rejection, which surfaces as a "row not found"
+// error from .single() — caller can display that without leaking who
+// is or isn't authorized.
+export async function updateProjectFile(id, patch) {
   if (!id) return { data: null, error: new Error('Missing id') };
-  const normalised = description?.trim() ? description.trim() : null;
+  const update = {};
+  if (patch?.name !== undefined) {
+    const trimmed = (patch.name || '').trim();
+    if (!trimmed) {
+      return { data: null, error: new Error('Name cannot be empty') };
+    }
+    update.name = trimmed;
+  }
+  if (patch?.description !== undefined) {
+    const trimmed = (patch.description || '').trim();
+    update.description = trimmed ? trimmed : null;
+  }
+  if (Object.keys(update).length === 0) {
+    // No-op write — return success with null data so callers can branch
+    // on `error` without special-casing the "nothing changed" path.
+    return { data: null, error: null };
+  }
   const { data, error } = await supabase
     .from(TABLE)
-    .update({ description: normalised })
+    .update(update)
     .eq('id', id)
     .select(SELECT_COLUMNS)
     .single();
   return { data, error };
+}
+
+// Back-compat alias for callers that only update the description (the
+// upload modal's post-send save path). New callers should use
+// updateProjectFile directly with whichever subset of fields they need.
+export async function updateProjectFileDescription(id, description) {
+  return updateProjectFile(id, { description });
 }
 
 // ── Full delete (binary + thumbnail + row) ──────────────────────────────
