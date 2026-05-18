@@ -383,6 +383,582 @@ export async function extractVideoDuration(file) {
   }
 }
 
+// ── DOCX ─────────────────────────────────────────────────────────────────
+// .docx is a ZIP archive containing `word/document.xml` with the
+// document body. There's no native browser renderer for it, and we
+// don't want a heavyweight dep just for thumbnails — so we parse the
+// ZIP by hand (8 fixed-offset reads) and decompress the one entry we
+// care about via the native DecompressionStream('deflate-raw') API
+// (Chromium >= 103, Electron 25+). Text content is extracted from
+// <w:t> runs and rendered onto a paper-styled canvas; the result
+// resembles an Explorer preview pane more than a faithful Word
+// render, but it lets the user identify the document at a glance.
+
+// Find the End Of Central Directory record. Sits at the end of the
+// zip; may have a trailing comment up to 64 KiB, so we scan backward
+// for the signature. Returns the byte offset of the EOCD, or -1.
+function findEocd(view) {
+  const sig = 0x06054b50;
+  const len = view.byteLength;
+  const minScan = Math.max(0, len - 65557);
+  for (let i = len - 22; i >= minScan; i--) {
+    if (view.getUint32(i, true) === sig) return i;
+  }
+  return -1;
+}
+
+// Walk the central directory, return { localOffset, compressedSize,
+// method } for the first entry whose filename matches `targetName`,
+// or null if not found.
+function findZipEntry(view, uint8, cdOffset, cdEntries, targetName) {
+  const decoder = new TextDecoder();
+  let cursor = cdOffset;
+  for (let i = 0; i < cdEntries; i++) {
+    if (view.getUint32(cursor, true) !== 0x02014b50) return null;
+    const method         = view.getUint16(cursor + 10, true);
+    const compressedSize = view.getUint32(cursor + 20, true);
+    const filenameLength = view.getUint16(cursor + 28, true);
+    const extraLength    = view.getUint16(cursor + 30, true);
+    const commentLength  = view.getUint16(cursor + 32, true);
+    const localOffset    = view.getUint32(cursor + 42, true);
+    const filename = decoder.decode(uint8.subarray(cursor + 46, cursor + 46 + filenameLength));
+    if (filename === targetName) {
+      return { localOffset, compressedSize, method };
+    }
+    cursor += 46 + filenameLength + extraLength + commentLength;
+  }
+  return null;
+}
+
+// Read + decompress a single zip entry. Supports STORED (method 0)
+// and DEFLATE (method 8); other methods (rarely used in docx) return
+// null. Uses DecompressionStream('deflate-raw') because zip entries
+// use raw deflate (no zlib header) — the alias 'deflate' would
+// expect a 2-byte header and fail.
+async function readZipEntry(view, uint8, entry) {
+  // Local file header: 30 bytes fixed + variable name + variable extra.
+  // The compressed-size in the local header is sometimes 0 (zip "data
+  // descriptor" mode), so we use the central-directory value instead.
+  const off = entry.localOffset;
+  if (view.getUint32(off, true) !== 0x04034b50) return null;
+  const lfnLength   = view.getUint16(off + 26, true);
+  const lextraLength = view.getUint16(off + 28, true);
+  const dataStart = off + 30 + lfnLength + lextraLength;
+  const compressed = uint8.subarray(dataStart, dataStart + entry.compressedSize);
+  if (entry.method === 0) return compressed;
+  if (entry.method !== 8) return null;
+  try {
+    const ds = new DecompressionStream('deflate-raw');
+    const stream = new Blob([compressed]).stream().pipeThrough(ds);
+    const buf = await new Response(stream).arrayBuffer();
+    return new Uint8Array(buf);
+  } catch {
+    return null;
+  }
+}
+
+// Pull text from a docx XML body. The body is structured as
+// <w:p><w:r><w:t>…</w:t></w:r></w:p>; paragraphs are separated by
+// </w:p> boundaries. We surface paragraph breaks as newlines so the
+// rendered preview has readable line breaks instead of a wall of
+// text. HTML-style entities (the four XML ones + numeric &#NN;)
+// are decoded.
+function extractDocxText(xml) {
+  const decodeEntities = (s) => s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)));
+  const paragraphs = xml.split(/<\/w:p>/);
+  const out = [];
+  // Match `<w:t>…</w:t>` and `<w:t xml:space="preserve">…</w:t>`.
+  // Multi-line content inside a run is rare but possible; [\s\S]*?
+  // covers it without enabling /s flag (compat).
+  const runRe = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
+  for (const p of paragraphs) {
+    let line = '';
+    let m;
+    while ((m = runRe.exec(p)) !== null) {
+      line += decodeEntities(m[1]);
+    }
+    line = line.trim();
+    if (line) out.push(line);
+  }
+  return out.join('\n');
+}
+
+// ── DOCX structured parser ───────────────────────────────────────────────
+// Walk the document.xml with the browser's DOMParser and produce a
+// per-paragraph / per-run model that carries the formatting bits the
+// thumbnail renderer needs: alignment (per paragraph), bold / italic /
+// underline / color / font-size / font-family (per run). This lets a
+// document with a centred title in red 32pt Calibri render with the
+// title centred in red 32pt Calibri on the thumbnail, instead of every
+// line falling back to left-aligned 16px Inter.
+//
+// Returns [{ align, runs: [{ text, bold, italic, underline, color,
+// fontSize, fontFamily }] }, ...] OR an empty array if the XML
+// couldn't be parsed.
+
+// Local-name accessor: works across both prefixed (`w:p`) and bare
+// (`p`) forms regardless of how the browser resolves namespaces.
+function _localName(el) {
+  return el.localName || el.tagName.split(':').pop();
+}
+
+function _firstChild(el, name) {
+  if (!el) return null;
+  for (const child of el.childNodes) {
+    if (child.nodeType === 1 && _localName(child) === name) return child;
+  }
+  return null;
+}
+
+function _childrenByName(el, name) {
+  const out = [];
+  if (!el) return out;
+  for (const child of el.childNodes) {
+    if (child.nodeType === 1 && _localName(child) === name) out.push(child);
+  }
+  return out;
+}
+
+// Attribute lookup that tolerates `val` vs `w:val` (and similar
+// prefixes for other attribute names). DOMParser in XML mode keeps
+// the prefix as part of the attribute name unless namespaces are
+// recognised, so a tolerant getAttribute is the safest path.
+function _attr(el, name) {
+  if (!el) return null;
+  return el.getAttribute(name) ?? el.getAttribute(`w:${name}`);
+}
+
+// Treat `<w:b/>` as bold-on. An explicit `w:val="0"` or `w:val="false"`
+// turns it back off — Word emits this when a character style was
+// bold by default but this run un-bolded it.
+function _onOffFlag(el) {
+  if (!el) return false;
+  const v = _attr(el, 'val');
+  if (v == null) return true;
+  return v !== '0' && v.toLowerCase() !== 'false';
+}
+
+// Run properties → flat style object. `inherited` carries the
+// paragraph-level defaults (e.g., from a heading style) so a run
+// without its own rPr still picks up the right size + weight.
+function _parseRunProperties(rPr, inherited) {
+  const style = {
+    bold: inherited.bold || false,
+    italic: inherited.italic || false,
+    underline: false,
+    color: null,
+    fontSize: inherited.fontSize || null,
+    fontFamily: inherited.fontFamily || null,
+  };
+  if (!rPr) return style;
+  const b = _firstChild(rPr, 'b');
+  if (b) style.bold = _onOffFlag(b);
+  const i = _firstChild(rPr, 'i');
+  if (i) style.italic = _onOffFlag(i);
+  const u = _firstChild(rPr, 'u');
+  if (u) {
+    const val = _attr(u, 'val');
+    style.underline = val !== 'none';
+  }
+  const color = _firstChild(rPr, 'color');
+  if (color) {
+    const v = _attr(color, 'val');
+    if (v && v !== 'auto' && /^[0-9A-Fa-f]{6}$/.test(v)) style.color = `#${v}`;
+  }
+  const sz = _firstChild(rPr, 'sz');
+  if (sz) {
+    // <w:sz w:val="24"/> means 24 half-points = 12 pt.
+    const v = parseFloat(_attr(sz, 'val'));
+    if (Number.isFinite(v)) style.fontSize = v / 2;
+  }
+  const rFonts = _firstChild(rPr, 'rFonts');
+  if (rFonts) {
+    const name = _attr(rFonts, 'ascii') || _attr(rFonts, 'hAnsi') || _attr(rFonts, 'cs');
+    if (name) style.fontFamily = name;
+  }
+  return style;
+}
+
+// Map well-known heading / title pStyle ids to a size + weight bump
+// applied as the paragraph-level inheritance for runs without their
+// own rPr. styles.xml would be authoritative but it's a separate zip
+// entry — for a thumbnail this hardcoded map is "close enough" and
+// avoids a second parse pass.
+function _inheritFromStyle(styleId) {
+  const out = { fontSize: null, bold: false, italic: false, fontFamily: null };
+  if (!styleId) return out;
+  if (styleId === 'Title') { out.fontSize = 28; out.bold = true; }
+  else if (/^Heading1\b|^Heading 1$/i.test(styleId)) { out.fontSize = 24; out.bold = true; }
+  else if (/^Heading2\b|^Heading 2$/i.test(styleId)) { out.fontSize = 20; out.bold = true; }
+  else if (/^Heading3\b|^Heading 3$/i.test(styleId)) { out.fontSize = 16; out.bold = true; }
+  else if (/^Heading[4-9]\b/i.test(styleId))         { out.fontSize = 14; out.bold = true; }
+  else if (/^Subtitle$/i.test(styleId))               { out.fontSize = 16; out.italic = true; }
+  return out;
+}
+
+function _parseParagraph(p) {
+  const pPr = _firstChild(p, 'pPr');
+  let align = 'left';
+  let inherited = { fontSize: null, bold: false, italic: false, fontFamily: null };
+  if (pPr) {
+    const jc = _firstChild(pPr, 'jc');
+    if (jc) {
+      const val = _attr(jc, 'val');
+      // ECMA-376 alignment values → CSS-style alignment names.
+      if (val === 'center') align = 'center';
+      else if (val === 'right' || val === 'end') align = 'right';
+      else if (val === 'both' || val === 'distribute') align = 'justify';
+      else align = 'left';
+    }
+    const pStyle = _firstChild(pPr, 'pStyle');
+    if (pStyle) {
+      const id = _attr(pStyle, 'val') || '';
+      inherited = { ...inherited, ..._inheritFromStyle(id) };
+    }
+    // rPr inside pPr applies to the paragraph mark itself; some
+    // documents also encode the paragraph's default run properties
+    // here. Treat it as another inheritance source.
+    const ppRunPr = _firstChild(pPr, 'rPr');
+    if (ppRunPr) {
+      const ppr = _parseRunProperties(ppRunPr, inherited);
+      inherited = { ...inherited, ...ppr };
+    }
+  }
+
+  const runs = [];
+  for (const child of p.childNodes) {
+    if (child.nodeType !== 1) continue;
+    const name = _localName(child);
+    if (name === 'r') {
+      runs.push(..._parseRun(child, inherited, false));
+    } else if (name === 'hyperlink') {
+      // Hyperlinks wrap one or more runs; force blue + underline so
+      // they read as links in the thumbnail.
+      for (const sub of _childrenByName(child, 'r')) {
+        for (const seg of _parseRun(sub, inherited, true)) {
+          if (!seg.color) seg.color = '#2563eb';
+          seg.underline = true;
+          runs.push(seg);
+        }
+      }
+    }
+  }
+  return { align, runs };
+}
+
+function _parseRun(r, inherited, fromHyperlink) {
+  const rPr = _firstChild(r, 'rPr');
+  const baseStyle = _parseRunProperties(rPr, inherited);
+  const segments = [];
+  for (const child of r.childNodes) {
+    if (child.nodeType !== 1) continue;
+    const name = _localName(child);
+    if (name === 't') {
+      const text = child.textContent || '';
+      if (text) segments.push({ ...baseStyle, text });
+    } else if (name === 'br') {
+      segments.push({ ...baseStyle, text: '', lineBreak: true });
+    } else if (name === 'tab') {
+      segments.push({ ...baseStyle, text: '    ' }); // 4-space tab visual
+    }
+  }
+  return segments;
+}
+
+function parseDocxStructure(xml) {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xml, 'text/xml');
+    if (doc.getElementsByTagName('parsererror').length > 0) return [];
+    const root = doc.documentElement;
+    if (!root) return [];
+    const body = _firstChild(root, 'body');
+    if (!body) return [];
+    const result = [];
+    for (const child of body.childNodes) {
+      if (child.nodeType !== 1) continue;
+      if (_localName(child) !== 'p') continue;
+      result.push(_parseParagraph(child));
+    }
+    return result;
+  } catch {
+    return [];
+  }
+}
+
+// Canvas renderer that turns the structured paragraphs into a styled
+// page. Honors per-paragraph alignment and per-run font / size /
+// weight / italic / color / underline. Word-wraps respecting each
+// run's measured width so size changes mid-line don't blow past the
+// margin.
+function renderDocxStructuredToCanvas(ctx, paragraphs, W, H) {
+  const margin = 40;
+  const maxWidth = W - 2 * margin;
+  // Half-point sizes from the file map to canvas pixels; the
+  // pre-multiplier gives a readable density on the 600×800 thumb
+  // (12pt → 18px, 24pt → 36px). Default when a run has no explicit
+  // size comes from PT_DEFAULT.
+  const PT_TO_PX = 1.5;
+  const PT_DEFAULT = 11;
+  const LINE_HEIGHT_MULT = 1.35;
+  let y = margin + 12;
+
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#222222';
+
+  const fontFor = (style) => {
+    const pt = style?.fontSize || PT_DEFAULT;
+    const px = pt * PT_TO_PX;
+    const fam = style?.fontFamily
+      ? `"${style.fontFamily}", "Inter", system-ui, sans-serif`
+      : `"Inter", system-ui, sans-serif`;
+    const parts = [];
+    if (style?.italic) parts.push('italic');
+    if (style?.bold)   parts.push('bold');
+    parts.push(`${px}px`);
+    parts.push(fam);
+    return { font: parts.join(' '), px };
+  };
+
+  const measureToken = (text, style) => {
+    const { font } = fontFor(style);
+    ctx.font = font;
+    return ctx.measureText(text).width;
+  };
+
+  outer: for (const para of paragraphs) {
+    if (para.runs.length === 0) {
+      // Empty paragraph — visual blank line. Use the default size.
+      y += PT_DEFAULT * PT_TO_PX * LINE_HEIGHT_MULT * 0.6;
+      if (y > H - margin) break;
+      continue;
+    }
+
+    // Tokenise: each word becomes its own token carrying the
+    // owning run's style. Whitespace runs become 'space' tokens so
+    // line-breaks can drop them at line boundaries.
+    const tokens = [];
+    for (const seg of para.runs) {
+      if (seg.lineBreak) {
+        tokens.push({ type: 'break' });
+        continue;
+      }
+      const parts = seg.text.split(/(\s+)/);
+      for (const part of parts) {
+        if (!part) continue;
+        if (/^\s+$/.test(part)) {
+          tokens.push({ type: 'space', style: seg, width: measureToken(' ', seg) });
+        } else {
+          tokens.push({ type: 'word', text: part, style: seg, width: measureToken(part, seg) });
+        }
+      }
+    }
+
+    // Greedy wrap.
+    const lines = [];
+    let line = [];
+    let lineWidth = 0;
+    for (const tk of tokens) {
+      if (tk.type === 'break') {
+        lines.push(line);
+        line = [];
+        lineWidth = 0;
+        continue;
+      }
+      if (lineWidth + tk.width > maxWidth && line.length > 0) {
+        lines.push(line);
+        line = (tk.type === 'space') ? [] : [tk];
+        lineWidth = (tk.type === 'space') ? 0 : tk.width;
+      } else {
+        line.push(tk);
+        lineWidth += tk.width;
+      }
+    }
+    if (line.length > 0) lines.push(line);
+
+    // Render each wrapped line.
+    for (const ln of lines) {
+      // Trim leading + trailing spaces (justify could keep them but
+      // we treat 'justify' the same as 'left' here — proportional
+      // spacing in a 600px thumbnail isn't worth the implementation).
+      while (ln.length && ln[0].type === 'space') ln.shift();
+      while (ln.length && ln[ln.length - 1].type === 'space') ln.pop();
+      // Recompute width after trim.
+      let w = 0;
+      for (const tk of ln) w += tk.width;
+      // Tallest run on this line drives line height.
+      let maxPx = PT_DEFAULT * PT_TO_PX;
+      for (const tk of ln) {
+        const { px } = fontFor(tk.style);
+        if (px > maxPx) maxPx = px;
+      }
+      const lh = maxPx * LINE_HEIGHT_MULT;
+      const baseline = y + maxPx * 0.85;
+      if (baseline > H - margin) break outer;
+
+      let x;
+      if (para.align === 'center')      x = margin + (maxWidth - w) / 2;
+      else if (para.align === 'right')  x = margin + (maxWidth - w);
+      else                              x = margin;
+
+      for (const tk of ln) {
+        const { font, px } = fontFor(tk.style);
+        ctx.font = font;
+        ctx.fillStyle = tk.style?.color || '#222222';
+        if (tk.type === 'word') {
+          ctx.fillText(tk.text, x, baseline);
+          if (tk.style?.underline) {
+            // Underline sits a couple of px below the baseline; thickness
+            // scales with font size so a 36px heading gets a thicker line.
+            const thickness = Math.max(1, Math.round(px / 14));
+            ctx.fillRect(x, baseline + 2, tk.width, thickness);
+          }
+        }
+        x += tk.width;
+      }
+
+      y += lh;
+      if (y > H - margin) break outer;
+    }
+
+    // Paragraph spacing — half a default line.
+    y += PT_DEFAULT * PT_TO_PX * 0.4;
+    if (y > H - margin) break;
+  }
+}
+
+// Public: pull the plain text out of a .docx Blob/File. Reuses the
+// same hand-rolled zip + DecompressionStream pipeline the thumbnail
+// generator uses — no heavyweight Word renderer dep. Returns the
+// extracted paragraphs joined by newlines, or an empty string when
+// the file isn't a valid docx (missing EOCD, missing
+// word/document.xml, or unsupported compression method). The preview
+// pane consumes this directly.
+export async function extractDocxTextFromFile(file) {
+  try {
+    const buf = await file.arrayBuffer();
+    const view = new DataView(buf);
+    const uint8 = new Uint8Array(buf);
+    const eocd = findEocd(view);
+    if (eocd < 0) return '';
+    const cdEntries = view.getUint16(eocd + 10, true);
+    const cdOffset  = view.getUint32(eocd + 16, true);
+    const entry = findZipEntry(view, uint8, cdOffset, cdEntries, 'word/document.xml');
+    if (!entry) return '';
+    const xmlBytes = await readZipEntry(view, uint8, entry);
+    if (!xmlBytes) return '';
+    return extractDocxText(new TextDecoder().decode(xmlBytes));
+  } catch {
+    return '';
+  }
+}
+
+async function generateDocxThumbnail(file) {
+  // 1. Parse the zip, locate word/document.xml, build the structured
+  // paragraph model (alignment + per-run styling). Plain-text fallback
+  // stays as a safety net for the placeholder render if the structured
+  // parser comes back empty.
+  let paragraphs = [];
+  let fallbackText = '';
+  try {
+    const buf = await file.arrayBuffer();
+    const view = new DataView(buf);
+    const uint8 = new Uint8Array(buf);
+    const eocd = findEocd(view);
+    if (eocd >= 0) {
+      const cdEntries = view.getUint16(eocd + 10, true);
+      const cdOffset  = view.getUint32(eocd + 16, true);
+      const entry = findZipEntry(view, uint8, cdOffset, cdEntries, 'word/document.xml');
+      if (entry) {
+        const xmlBytes = await readZipEntry(view, uint8, entry);
+        if (xmlBytes) {
+          const xml = new TextDecoder().decode(xmlBytes);
+          paragraphs = parseDocxStructure(xml);
+          if (paragraphs.length === 0) fallbackText = extractDocxText(xml);
+        }
+      }
+    }
+  } catch {
+    paragraphs = [];
+    fallbackText = '';
+  }
+
+  // 2. Render a portrait "page" canvas. 600x800 = 3:4 paper aspect at
+  // 2x density for the 300-wide grid cards. The Files grid container
+  // letterboxes via CSS so portrait documents read as documents (not
+  // stretched landscape).
+  const W = 600;
+  const H = 800;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  // Page background — off-white so it reads as paper, not as a hole.
+  ctx.fillStyle = '#fcfcfb';
+  ctx.fillRect(0, 0, W, H);
+  // Word-blue ribbon along the top edge — visual cue that this is a
+  // .docx, distinct from the PDF preview (which is the actual page 1
+  // rendered by pdf.js with a white background and no header band).
+  ctx.fillStyle = '#2b579a';
+  ctx.fillRect(0, 0, W, 14);
+
+  if (paragraphs.length > 0) {
+    renderDocxStructuredToCanvas(ctx, paragraphs, W, H);
+  } else if (fallbackText) {
+    // Structured parse failed but plain-text salvage worked — render
+    // a calmer left-aligned default layout so the user still sees
+    // recognisable content.
+    const margin = 40;
+    const lineHeight = 22;
+    ctx.fillStyle = '#222222';
+    ctx.font = `16px "Inter", system-ui, sans-serif`;
+    ctx.textBaseline = 'top';
+    const maxWidth = W - 2 * margin;
+    let y = margin + 8;
+    const lines = fallbackText.split('\n');
+    outer: for (const para of lines) {
+      const words = para.split(/\s+/);
+      let line = '';
+      for (const word of words) {
+        const test = line ? `${line} ${word}` : word;
+        if (ctx.measureText(test).width > maxWidth && line) {
+          ctx.fillText(line, margin, y);
+          y += lineHeight;
+          if (y > H - margin) break outer;
+          line = word;
+        } else {
+          line = test;
+        }
+      }
+      if (line && y <= H - margin) {
+        ctx.fillText(line, margin, y);
+        y += lineHeight;
+      }
+      y += lineHeight * 0.4;
+      if (y > H - margin) break;
+    }
+  } else {
+    // Couldn't extract anything (encrypted docx, malformed zip,
+    // unsupported compression method). Fall back to a placeholder
+    // that still reads as a Word document at a glance.
+    ctx.fillStyle = '#2b579a';
+    ctx.font = 'bold 96px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('W', W / 2, H / 2 - 30);
+    ctx.fillStyle = '#666666';
+    ctx.font = '24px sans-serif';
+    ctx.fillText('DOCX', W / 2, H / 2 + 60);
+  }
+  return await canvasToJpegBlob(canvas);
+}
+
 // ── Dispatcher ───────────────────────────────────────────────────────────
 // Returns a Blob (image/jpeg) on success, null on:
 //   - unsupported MIME (text/* and anything else)
@@ -391,13 +967,101 @@ export async function extractVideoDuration(file) {
 // All three generators are async, none throw — the upload pipeline can
 // `await generateThumbnail(file)` and trust that null means "no thumb,
 // fall back to a glyph in the UI".
+export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+// Shared cache for rich-regenerated DOCX thumbnails. Surfaces that
+// display DOCX thumbs (file grid cards, version-card mini thumbs,
+// the modal preview) all read from this map keyed by content_hash
+// — so the second view of a file lands instantly even if the
+// renderer evolved since the file was first uploaded. FIFO eviction
+// keeps the cache bounded; evicted blob URLs are revoked so we
+// don't leak memory.
+const _DOCX_RICH_CACHE = new Map();
+const _DOCX_RICH_IN_FLIGHT = new Map(); // key → Promise (dedupes concurrent regens)
+const _DOCX_RICH_CACHE_MAX = 200;
+
+function _rememberRichDocx(key, blobUrl) {
+  if (_DOCX_RICH_CACHE.size >= _DOCX_RICH_CACHE_MAX) {
+    const oldest = _DOCX_RICH_CACHE.keys().next().value;
+    if (oldest !== undefined) {
+      const oldUrl = _DOCX_RICH_CACHE.get(oldest);
+      try { URL.revokeObjectURL(oldUrl); } catch { /* ignore */ }
+      _DOCX_RICH_CACHE.delete(oldest);
+    }
+  }
+  _DOCX_RICH_CACHE.set(key, blobUrl);
+}
+
+// Regenerate a DOCX file's thumbnail from its source bytes, using
+// whatever renderer is current. Returns a blob: URL on success or
+// null on any failure (caller falls back to the stored thumb / glyph).
+//
+// `signedUrl`     — already-signed URL pointing at the DOCX bytes
+//                   (canonical or pending; the helper doesn't care).
+// `contentHash`   — primary cache key. Falls back to signedUrl if
+//                   the row doesn't carry a hash yet.
+// `fileName`      — used to wrap the fetched Blob as a File so
+//                   generateThumbnail's MIME dispatcher routes to
+//                   the DOCX path (some signed-URL fetches return
+//                   blobs with empty .type).
+// `mimeType`      — same — passed onto the File wrapper.
+//
+// Concurrent calls for the same cache key dedupe via the in-flight
+// map: two surfaces opening the same file at once share one fetch.
+export async function getRichDocxThumbnail({ signedUrl, contentHash, fileName, mimeType }) {
+  if (!signedUrl) return null;
+  const key = contentHash || signedUrl;
+  const cached = _DOCX_RICH_CACHE.get(key);
+  if (cached) return cached;
+  const existing = _DOCX_RICH_IN_FLIGHT.get(key);
+  if (existing) return existing;
+  const promise = (async () => {
+    try {
+      const res = await fetch(signedUrl);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const typed = new File(
+        [blob],
+        fileName || 'document.docx',
+        { type: mimeType || DOCX_MIME },
+      );
+      const thumbBlob = await generateThumbnail(typed);
+      if (!thumbBlob) return null;
+      const url = URL.createObjectURL(thumbBlob);
+      _rememberRichDocx(key, url);
+      return url;
+    } catch {
+      return null;
+    } finally {
+      _DOCX_RICH_IN_FLIGHT.delete(key);
+    }
+  })();
+  _DOCX_RICH_IN_FLIGHT.set(key, promise);
+  return promise;
+}
+
+// Helper for callers that just want to know "is this a DOCX?"
+// without duplicating the DOCX_MIME / `.docx` extension check.
+export function isDocxFile(mimeType, fileName) {
+  if ((mimeType || '') === DOCX_MIME) return true;
+  if ((fileName || '').toLowerCase().endsWith('.docx')) return true;
+  return false;
+}
+
 export async function generateThumbnail(file) {
-  if (!file?.type) return null;
-  const t = file.type;
+  if (!file) return null;
+  const t = file.type || '';
+  const name = (file.name || '').toLowerCase();
   let generator = null;
   if (t.startsWith('image/'))   generator = generateImageThumbnail(file);
   else if (t === 'application/pdf') generator = generatePdfThumbnail(file);
   else if (t.startsWith('video/')) generator = generateVideoThumbnail(file);
+  // DOCX dispatch is BOTH MIME and extension because the local-folder
+  // listing path (lib/localFolder.js) historically mapped .docx to
+  // application/octet-stream — the extension check covers that legacy
+  // fallback so existing local files still get a thumbnail without
+  // a guessMimeFromName change.
+  else if (t === DOCX_MIME || name.endsWith('.docx')) generator = generateDocxThumbnail(file);
   else return null;
   return withTimeout(generator, GENERATE_TIMEOUT_MS);
 }

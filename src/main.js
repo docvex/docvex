@@ -335,7 +335,8 @@ function guessMimeFromName(name) {
   if (ext === 'pdf') return 'application/pdf';
   if (ext === 'md') return 'text/markdown';
   if (['txt', 'log', 'json', 'csv', 'xml', 'html', 'css', 'js', 'ts'].includes(ext)) return 'text/plain';
-  if (['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'application/octet-stream';
+  if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (['doc', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'application/octet-stream';
   return '';
 }
 
@@ -628,6 +629,45 @@ ipcMain.handle('local-folder:watch', (_, dir) => {
 ipcMain.handle('local-folder:unwatch', () => {
   stopWatcher();
   return { ok: true };
+});
+
+// Per-folder sidecar (.docvex.json) — the on-disk source of truth for
+// "which filename IS which stable fileId". Lives next to the user's
+// files so IDs survive a localStorage clear, ship to teammates via
+// Dropbox/iCloud, and don't need a separate bootstrap pass when the
+// user re-picks the folder. Both handlers operate INSIDE the chosen
+// folder; we don't accept absolute paths to .docvex.json so a stray
+// path can't escape and read/write arbitrary user files.
+ipcMain.handle('local-folder:read-sidecar', async (_, dir) => {
+  if (!dir) return { json: null, error: 'No directory specified' };
+  try {
+    const target = path.join(dir, '.docvex.json');
+    const raw = await fsp.readFile(target, 'utf8');
+    let parsed = null;
+    try { parsed = JSON.parse(raw); }
+    catch (parseErr) { return { json: null, error: `Bad JSON: ${parseErr?.message || parseErr}` }; }
+    return { json: parsed, error: null };
+  } catch (err) {
+    // ENOENT is the normal "no sidecar yet" case — return null without
+    // surfacing an error so callers treat it as an empty mapping.
+    if (err?.code === 'ENOENT') return { json: null, error: null };
+    return { json: null, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('local-folder:write-sidecar', async (_, payload) => {
+  const dir = payload?.dir;
+  const json = payload?.json;
+  if (!dir) return { ok: false, error: 'No directory specified' };
+  if (!json || typeof json !== 'object') return { ok: false, error: 'Invalid payload' };
+  try {
+    await fsp.mkdir(dir, { recursive: true });
+    const target = path.join(dir, '.docvex.json');
+    await fsp.writeFile(target, JSON.stringify(json, null, 2), 'utf8');
+    return { ok: true, error: null };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
 });
 
 // Tear the watcher down on quit so we don't leave a handle dangling.

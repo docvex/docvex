@@ -277,41 +277,165 @@
   margin-top: 0.2rem;
 }
 
+/* Top-of-page banner that hosts the "Changes made" chip on My
+   branch. Lives above the project header so unpushed work is the
+   first thing the user sees on entering Files. The chip itself
+   reuses the .project-files-branch-status-item.is-changes recipe
+   (5-stop gradient + animated background); this wrapper just
+   handles the outer rhythm so the chip doesn't pin to the page
+   edges. */
+.project-files-top-banner {
+  display: flex;
+  align-items: stretch;
+  margin-bottom: 1rem;
+}
+
+.project-files-top-banner .project-files-branch-status-item {
+  flex: 1 1 auto;
+}
+
+/* My-branch scope toggle — Local only / All from main. Sits above
+   the file grid on My branch only. Pill-shaped segmented control
+   matching the Version Control "By file / By author" toggle so
+   the affordance reads consistently across views. */
+.project-files-scope-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px;
+  margin-bottom: 0.75rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  gap: 2px;
+}
+
+.project-files-scope-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 14px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 140ms, color 140ms;
+}
+
+.project-files-scope-btn:hover {
+  color: var(--text-primary);
+}
+
+.project-files-scope-btn.is-active {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
 .project-files-branch-status-item {
   display: inline-flex;
+  /* Vertically center the dot + text block + count + CTA so the
+     dot sits halfway between the two text lines (label / sub)
+     instead of riding flush with the bold label's cap-height. */
   align-items: center;
-  gap: 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 0.7rem 1.1rem;
+  gap: 1rem;
+  /* Same chip recipe as .updates-banner-uptodate (in Updates.css)
+     and .cr-stage-header-text (in ChangeRequestsView.css):
+       • border-radius 10px + padding 1rem 1.25rem
+       • alpha-tinted border at 40% of the state color
+       • 5-stop linear gradient with a 5/16/18/16/5 alpha curve
+       • 300% wide bg + 8s ease-in-out pan keyframe — calm, alive,
+         no hard repeat seam
+     One visual identity for every "status surface" in the app:
+     this row, the up-to-date banner, the New release chip on the
+     Version control tab. Per-state color overrides below
+     re-skin the same gradient. Neutral default uses --text-muted
+     for chips that don't have a more specific tint. */
+  border: 1px solid color-mix(in srgb, var(--text-muted) 40%, transparent);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
   font-size: 0.95rem;
   font-weight: 500;
   letter-spacing: 0.01em;
   color: var(--text-primary);
-  /* The animated gradient: a wide multi-stop linear-gradient sized
-     much larger than the chip, scrolling the background-position so
-     the visible band shifts across the chip face. Per-semantic
-     color stops are overridden below. */
   background: linear-gradient(
     120deg,
-    var(--bg-card) 0%,
-    var(--bg-elevated) 40%,
-    var(--bg-card) 60%,
-    var(--bg-elevated) 100%
+    color-mix(in srgb, var(--text-muted) 5%, transparent) 0%,
+    color-mix(in srgb, var(--text-muted) 16%, transparent) 25%,
+    color-mix(in srgb, var(--text-muted) 18%, transparent) 50%,
+    color-mix(in srgb, var(--text-muted) 16%, transparent) 75%,
+    color-mix(in srgb, var(--text-muted) 5%, transparent) 100%
   );
-  background-size: 220% 220%;
+  background-size: 300% 100%;
   animation: branch-status-shimmer 8s ease-in-out infinite;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }
 
+/* Matches updates-banner-uptodate-pan in Updates.css — the same
+   horizontal pan over a 300%-wide background, so every "status
+   surface" in the app breathes at the same rate. */
 @keyframes branch-status-shimmer {
   0%   { background-position:   0% 50%; }
   50%  { background-position: 100% 50%; }
   100% { background-position:   0% 50%; }
 }
 
+/* Two-line text block inside each chip — bold label on top,
+   muted descriptive sub line below. Same `strong` + `p` shape as
+   the .updates-banner-uptodate row. flex:1 lets the block fill
+   the available horizontal space between the dot and the CTA
+   arrow so long sub lines flow naturally; min-width:0 lets the
+   sub ellipsise on narrow viewports without pushing siblings
+   off the chip. */
+.project-files-branch-status-text {
+  display: flex;
+  flex-direction: column;
+  /* Cross-axis = horizontal here (flex-direction:column), so
+     flex-start keeps both lines flush-left within the wrapper.
+     text-align is also pinned to be safe against any inherited
+     centering from ancestor surfaces. */
+  align-items: flex-start;
+  text-align: left;
+  gap: 0.15rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .project-files-branch-status-label {
+  display: block;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
   white-space: nowrap;
+}
+
+.project-files-branch-status-sub {
+  margin: 0;
+  font-size: 0.825rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  /* Allow the sub line to wrap on small viewports rather than
+     truncating — the secondary context is more useful as multi-
+     line text than as an ellipsised fragment. */
+  white-space: normal;
+}
+
+/* Per-state label color — same pattern as
+   .updates-banner-uptodate strong, so each chip's title takes
+   the color of its state family while the sub line stays
+   --text-muted across all states. */
+.project-files-branch-status-item.is-synced .project-files-branch-status-label {
+  color: var(--success-soft);
+}
+
+.project-files-branch-status-item.is-changes .project-files-branch-status-label {
+  color: var(--warning-soft);
+}
+
+.project-files-branch-status-item.is-requests .project-files-branch-status-label,
+.project-files-branch-status-item.is-update .project-files-branch-status-label {
+  color: var(--accent);
 }
 
 .project-files-branch-status-cta {
@@ -323,71 +447,211 @@
   transition: transform 150ms, opacity 150ms;
 }
 
+/* Wrapper that lays the "wait for review or" hint right next to
+   the action button, both vertically centered. Pushes the pair to
+   the right edge of the chip with margin-left:auto. */
+.project-files-branch-status-action-group {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-shrink: 0;
+}
+
+.project-files-branch-status-action-hint {
+  font-size: 0.8rem;
+  font-weight: 500;
+  /* Theme-aware: ink (near-black) on the cream theme so it reads on
+     the chip's amber wash; cream (near-white) on ink. Same precedence
+     every label in the app uses, so a future tokens.css tweak picks
+     this surface up for free. */
+  color: var(--text-primary);
+  opacity: 1;
+  white-space: nowrap;
+}
+
+/* The "or" conjunction sits between "wait for review" (solid white)
+   and the Sync-with-main button. Dimmed to visually separate the
+   two options without adding a divider. */
+.project-files-branch-status-action-or {
+  opacity: 0.55;
+}
+
+/* Inline action button living inside a status chip. Currently used
+   by the "Changes made" pill to surface the Sync-with-main escape
+   hatch right next to the count text. Compact, accent-bordered,
+   subtle hover lift — distinct from the chip's own
+   `.is-interactive` lift so the click target reads as the
+   button, not the whole pill. */
+.project-files-branch-status-action {
+  /* Inside the action-group the auto-margin is no longer needed —
+     the wrapper owns the right-alignment. Reset to 0 so the button
+     sits flush against the "or" hint instead of being shoved
+     further right. */
+  margin-left: 0;
+  padding: 0.35rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 22%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms, border-color 140ms, transform 100ms;
+}
+
+.project-files-branch-status-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 35%, transparent);
+}
+
+.project-files-branch-status-action:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.project-files-branch-status-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Primary variant — used for the "Push" button on the unsaved-edits
+   pill. Filled accent so the action visually outranks the secondary
+   "Discard" button next to it. Same shape / sizing as the base so
+   they line up in the action-group flex row. */
+.project-files-branch-status-action-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+}
+.project-files-branch-status-action-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
 .project-files-branch-status-dot {
   width: 12px;
   height: 12px;
   border-radius: 50%;
   flex-shrink: 0;
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.04);
+  /* Halo padding around the dot — a soft ring that visually
+     pads the dot from the chip's surface so it reads as
+     deliberately placed rather than crammed into the corner.
+     Per-state overrides below tint the ring to match the dot. */
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.04);
+  /* Outer breathing room so the halo doesn't kiss the chip's
+     border on tight viewports. The chip's align-items:center
+     handles the vertical placement between the two text lines. */
+  margin-left: 0.25rem;
 }
 
 /* ── Synced (calm green) ─────────────────────────────────────────── */
 .project-files-branch-status-item.is-synced {
+  border-color: color-mix(in srgb, var(--success-soft) 40%, transparent);
   background: linear-gradient(
     120deg,
-    color-mix(in srgb, #4ade80 8%,  var(--bg-card))      0%,
-    color-mix(in srgb, #4ade80 18%, var(--bg-elevated)) 40%,
-    color-mix(in srgb, #4ade80 8%,  var(--bg-card))     60%,
-    color-mix(in srgb, #4ade80 22%, var(--bg-elevated)) 100%
+    color-mix(in srgb, var(--success-soft) 5%, transparent) 0%,
+    color-mix(in srgb, var(--success-soft) 16%, transparent) 25%,
+    color-mix(in srgb, var(--success-soft) 18%, transparent) 50%,
+    color-mix(in srgb, var(--success-soft) 16%, transparent) 75%,
+    color-mix(in srgb, var(--success-soft) 5%, transparent) 100%
   );
-  background-size: 220% 220%;
-  border-color: color-mix(in srgb, #4ade80 35%, var(--border));
+  background-size: 300% 100%;
 }
 
 .project-files-branch-status-item.is-synced .project-files-branch-status-dot {
-  background: #4ade80;
-  box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.15);
+  background: var(--success-soft);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--success-soft) 15%, transparent);
 }
 
 /* ── Changes made (warm amber) ───────────────────────────────────── */
 .project-files-branch-status-item.is-changes {
+  border-color: color-mix(in srgb, var(--warning-soft) 40%, transparent);
   background: linear-gradient(
     120deg,
-    color-mix(in srgb, #f59e0b 10%, var(--bg-card))      0%,
-    color-mix(in srgb, #f59e0b 24%, var(--bg-elevated)) 40%,
-    color-mix(in srgb, #f59e0b 10%, var(--bg-card))     60%,
-    color-mix(in srgb, #f59e0b 28%, var(--bg-elevated)) 100%
+    color-mix(in srgb, var(--warning-soft) 5%, transparent) 0%,
+    color-mix(in srgb, var(--warning-soft) 16%, transparent) 25%,
+    color-mix(in srgb, var(--warning-soft) 18%, transparent) 50%,
+    color-mix(in srgb, var(--warning-soft) 16%, transparent) 75%,
+    color-mix(in srgb, var(--warning-soft) 5%, transparent) 100%
   );
-  background-size: 220% 220%;
-  border-color: color-mix(in srgb, #f59e0b 45%, var(--border));
+  background-size: 300% 100%;
 }
 
 .project-files-branch-status-item.is-changes .project-files-branch-status-dot {
-  background: #f59e0b;
-  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18);
+  background: var(--warning-soft);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--warning-soft) 18%, transparent);
 }
 
-/* ── Change requests (neutral/indigo, interactive — Main tab) ───── */
+/* ── Change requests / Awaiting review (indigo, interactive) ────── */
 .project-files-branch-status-item.is-requests {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
   background: linear-gradient(
     120deg,
-    color-mix(in srgb, var(--accent) 10%, var(--bg-card))      0%,
-    color-mix(in srgb, var(--accent) 22%, var(--bg-elevated)) 40%,
-    color-mix(in srgb, var(--accent) 10%, var(--bg-card))     60%,
-    color-mix(in srgb, var(--accent) 26%, var(--bg-elevated)) 100%
+    color-mix(in srgb, var(--accent) 5%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 16%, transparent) 25%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 16%, transparent) 75%,
+    color-mix(in srgb, var(--accent) 5%, transparent) 100%
   );
-  background-size: 220% 220%;
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background-size: 300% 100%;
 }
 
 .project-files-branch-status-item.is-requests .project-files-branch-status-dot {
   background: var(--accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .project-files-branch-status-item.is-requests.is-interactive:hover:not(:disabled) {
   border-color: var(--accent);
   box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 28%, rgba(0, 0, 0, 0.25));
+}
+
+/* Quiet variant — used by the "Change requests" pill on the Main
+   tab when there are zero open requests. Flat gray surface, no
+   animated gradient, no shimmer. Signals "nothing happening here"
+   so the live shimmer is reserved for chips that actually have
+   something to report. */
+.project-files-branch-status-item.is-quiet {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--text-muted);
+  animation: none;
+}
+
+.project-files-branch-status-item.is-quiet .project-files-branch-status-label {
+  color: var(--text-secondary);
+}
+
+.project-files-branch-status-item.is-quiet .project-files-branch-status-dot {
+  background: var(--text-muted);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--text-muted) 14%, transparent);
+}
+
+/* Quiet variant suppresses every hover affordance — when there is
+   nothing to review, the pill is purely informational and should
+   read as inert. Overrides .is-interactive's translateY lift,
+   cursor pointer, and the CTA slide; resets the base transition
+   so border / shadow don't animate on focus either. */
+.project-files-branch-status-item.is-quiet.is-interactive {
+  cursor: default;
+}
+
+.project-files-branch-status-item.is-quiet.is-interactive:hover:not(:disabled),
+.project-files-branch-status-item.is-quiet.is-interactive:focus-visible,
+.project-files-branch-status-item.is-quiet.is-interactive:active:not(:disabled) {
+  border-color: var(--border);
+  box-shadow: none;
+  transform: none;
+  outline: none;
+}
+
+/* Defeats the CTA-arrow slide that the base .is-interactive hover
+   adds. There's no CTA arrow in the quiet variant anyway (we don't
+   render it), but this is belt-and-suspenders for a future tweak. */
+.project-files-branch-status-item.is-quiet.is-interactive:hover:not(:disabled)
+  .project-files-branch-status-cta {
+  transform: none;
 }
 
 /* Count badge sitting inside the pill (next to the label) — visually
@@ -409,30 +673,67 @@
   line-height: 1;
 }
 
-/* ── New update on main (accent, interactive) ────────────────────── */
+/* ── New update on main (accent, interactive — bolder) ──────────── */
+/* Same shape as the other variants but with a beefier alpha curve
+   (8/22/26/22/8 vs 5/16/18/16/5) and a faster 5s pan so it draws
+   the eye relative to the calmer "Synced" / "Awaiting review"
+   states. The actionable chip should feel more alive. */
 .project-files-branch-status-item.is-update {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   background: linear-gradient(
     120deg,
-    color-mix(in srgb, var(--accent) 14%, var(--bg-card))      0%,
-    color-mix(in srgb, var(--accent) 32%, var(--bg-elevated)) 35%,
-    color-mix(in srgb, var(--accent) 14%, var(--bg-card))     60%,
-    color-mix(in srgb, var(--accent) 38%, var(--bg-elevated)) 100%
+    color-mix(in srgb, var(--accent) 8%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 25%,
+    color-mix(in srgb, var(--accent) 26%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 75%,
+    color-mix(in srgb, var(--accent) 8%, transparent) 100%
   );
-  background-size: 240% 240%;
-  /* Faster on the actionable chip so it draws the eye. */
+  background-size: 300% 100%;
   animation: branch-status-shimmer 5s ease-in-out infinite;
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 
 .project-files-branch-status-item.is-update .project-files-branch-status-dot {
   background: var(--accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent);
   animation: branch-status-pulse 1.6s ease-in-out infinite;
 }
 
 @keyframes branch-status-pulse {
-  0%, 100% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent); }
-  50%      { box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 10%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent); }
+  50%      { box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 10%, transparent); }
+}
+
+/* ── Danger variant ─────────────────────────────────────────────── */
+/* Used for the admin-only "Delete all" pill on the Main tab. Same
+   5-stop alpha gradient shape as the other variants but tinted with
+   --danger so the chip reads as destructive without breaking the
+   surface's visual language. Label text picks up --danger-soft so
+   it survives both light and dark themes. */
+.project-files-branch-status-item.is-danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--danger) 5%, transparent) 0%,
+    color-mix(in srgb, var(--danger) 16%, transparent) 25%,
+    color-mix(in srgb, var(--danger) 18%, transparent) 50%,
+    color-mix(in srgb, var(--danger) 16%, transparent) 75%,
+    color-mix(in srgb, var(--danger) 5%, transparent) 100%
+  );
+  background-size: 300% 100%;
+}
+
+.project-files-branch-status-item.is-danger .project-files-branch-status-label {
+  color: var(--danger-soft);
+}
+
+.project-files-branch-status-item.is-danger .project-files-branch-status-dot {
+  background: var(--danger-soft);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+.project-files-branch-status-item.is-danger.is-interactive:hover:not(:disabled) {
+  border-color: var(--danger);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--danger) 28%, rgba(0, 0, 0, 0.25));
 }
 
 /* Interactive variant — button reset + hover/active states. The
@@ -475,8 +776,8 @@
 }
 
 @keyframes branch-status-pulse-amber {
-  0%, 100% { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.22); }
-  50%      { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.10); }
+  0%, 100% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.22); }
+  50%      { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0.10); }
 }
 
 .project-files-branch-status-item.is-interactive:hover:not(:disabled) .project-files-branch-status-cta {
@@ -617,6 +918,20 @@
   cursor: not-allowed;
 }
 
+/* Destructive variant — used by the Delete entry. Red text at rest,
+   red-tinted hover bg so the destructive nature is signalled before
+   the user commits. Matches the pattern used by modal-btn-destructive
+   in ConfirmModal.css. */
+.project-files-morph-item-danger {
+  color: var(--danger-soft);
+}
+
+.project-files-morph-item-danger:hover:not(:disabled),
+.project-files-morph-item-danger:focus-visible {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger-soft);
+}
+
 /* Panel-level action row â€” currently only used by the Local panel
    for the "Open folder" button. Right-aligned so it sits opposite
    the tab strip's text-leading flow. */
@@ -749,28 +1064,33 @@
    this guarantees every tile renders at the exact same size. The
    thumb stretches via flex to fill whatever vertical space remains
    above the natural-height meta strip. */
+/* Windows-Explorer-style tile. Card chrome is gone — no border,
+   no surface fill — so the thumb (with its own bordered frame) is
+   the visual anchor, the filename + size line up centered below.
+   Hover/selection paint a subtle accent wash on the WHOLE tile so
+   the user can clearly see which item the pointer is over and
+   which is selected, the way Explorer does. */
 .project-files-card {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0;
+  gap: 6px;
   aspect-ratio: 2 / 3;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  overflow: visible;
+  padding: 6px 6px 8px;
   font-family: inherit;
   color: var(--text-primary);
   cursor: pointer;
-  text-align: left;
-  transition: border-color 150ms, background 150ms, transform 100ms;
+  text-align: center;
+  transition: background 120ms, border-color 120ms, transform 100ms;
 }
 
 .project-files-card:hover {
-  border-color: var(--accent);
-  background: var(--bg-elevated);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .project-files-card:active {
@@ -779,7 +1099,16 @@
 
 .project-files-card:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: 1px;
+}
+
+/* Selection highlight — driven by `selected` prop on LocalFileCard.
+   Same accent wash as hover but with a visible border so the
+   "selected" state reads as distinct from "hovered". Matches the
+   Explorer pattern: a faintly-tinted tile with a subtle outline. */
+.project-files-card.is-selected {
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 /* Thumb area â€” flex-fills the card above the meta strip. The card's
@@ -795,7 +1124,11 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-bottom: 1px solid var(--bg-elevated);
+  /* Thumb owns the visual frame now that the card itself is
+     borderless. Subtle border + rounded corners so it reads as
+     "the thing", with the filename label sitting plainly below. */
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 
 .project-files-thumb img {
@@ -829,30 +1162,76 @@
   height: 100%;
 }
 
-/* Bottom metadata block â€” name (truncated to one line) over a small
-   muted "size Â· date" line. Two-line height fixed so card heights
-   stay uniform regardless of filename length. */
+/* Bottom metadata block — centered under the thumb, Windows-Explorer
+   tile style. Name wraps to 2 lines (clamped) instead of truncating
+   so long filenames stay readable without a tooltip dance. The
+   `size · date` line sits below in muted text. */
 .project-files-meta {
-  padding: 8px 10px 10px;
+  padding: 2px 4px 0;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 2px;
   min-width: 0;
+  text-align: center;
 }
 
 .project-files-name {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 500;
   color: var(--text-primary);
-  white-space: nowrap;
+  line-height: 1.25;
+  /* Two-line clamp keeps tile heights consistent for short vs long
+     filenames without truncating mid-word. Supported in every
+     Chromium-based browser the app targets. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-word;
 }
 
 .project-files-sub {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   color: var(--text-muted);
   letter-spacing: 0.02em;
+}
+
+/* Inline rename input — replaces the .project-files-name label when
+   the card is in renaming mode. Multi-line textarea that grows with
+   content up to 4 lines, then scrolls. Long filenames wrap visually
+   the same way the static name label does, so the user sees the full
+   text mid-edit instead of having to scroll a single-line input.
+   Accent border + light fill makes it read as editable, matches
+   Explorer's F2-rename affordance. */
+.project-files-name-input {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 2px 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-align: center;
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+  /* Textarea-specific: same line-height as the static name label
+     (1.25 → ~16px at 13px font) and a 4-line max so the rename
+     box can grow vertically without pushing the rest of the page
+     around. JS auto-grow in LocalFileCard sets the inline height
+     each onChange; this max-height caps it and overflow-y handles
+     anything beyond. */
+  line-height: 1.25;
+  min-height: calc(1.25em + 6px);
+  max-height: calc(1.25em * 4 + 6px);
+  overflow-y: auto;
+  resize: none;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Extension tag pinned to the top-right corner of the card. Floats
@@ -864,8 +1243,8 @@
    purely decorative metadata, not a separate target. */
 .project-files-ext {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 4px;
+  right: 4px;
   z-index: 1;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
@@ -873,8 +1252,8 @@
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
   pointer-events: none;
   /* Backdrop blur so the tag reads cleanly on detailed/bright
      thumbnails. Cheap on a single small element. */
@@ -941,16 +1320,16 @@
    on that container). */
 .project-files-duration {
   position: absolute;
-  bottom: 6px;
-  right: 6px;
+  bottom: 4px;
+  right: 4px;
   z-index: 1;
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
   font-size: 0.66rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
   pointer-events: none;
   font-variant-numeric: tabular-nums;
   backdrop-filter: blur(6px);

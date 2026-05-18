@@ -131,6 +131,34 @@
   flex: 1;
 }
 
+/* Rename row layout — "oldName → newName" with the old half dimmed
+   so the reviewer's eye lands on the new name. Inline-flex keeps
+   the arrow snug between the two names and tabular-nums on the
+   sizes column nearby still aligns. */
+.commit-modal-item-name-rename {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.commit-modal-item-name-old {
+  opacity: 0.5;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--text-primary) 40%, transparent);
+}
+
+.commit-modal-item-name-arrow {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+
+.commit-modal-item-name-new {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
 .commit-modal-item-size {
   color: var(--text-muted);
   font-size: 0.72rem;

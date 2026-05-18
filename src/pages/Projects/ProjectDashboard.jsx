@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
+import { useBranch } from '../../context/BranchContext';
 import TeamTree from './TeamTree';
+import ChangeRequestsView from '../../components/ChangeRequestsView';
 import './ProjectDashboard.css';
 
 // Crossfade window between the loading spinner and the team tree on the
@@ -24,11 +26,56 @@ const MEMBERS_FADE_MS = 250;
 //
 // Auto-selecting the project into SelectedProjectContext happens at the
 // ProjectShell level — see <ProjectAutoSelect/> in App.jsx.
+// Whitelist of valid tab ids — guards against arbitrary ?tab= input
+// from a malformed deep-link / paste so we never end up with a tab
+// state the renderer can't render.
+const VALID_TABS = new Set(['members', 'activity', 'version-control']);
+
 export default function ProjectDashboard() {
-  const { project, role, members, customRoles, loading, error } = useProject();
-  // Members is the default tab — the team tree gives the page immediate
-  // visual content, vs. Activity which is currently just a placeholder.
-  const [activeTab, setActiveTab] = useState('members');
+  const { project, members, customRoles, loading, error } = useProject();
+  // Open change-request count drives the Version control tab's
+  // count pill (moved up from the "Files with changes" header that
+  // used to live inside the compose view). Uses the BranchContext
+  // requests array directly — same source the compose view counts.
+  const {
+    requests: changeRequests,
+    refresh: refreshBranchState,
+    refreshOpenRequestItems,
+  } = useBranch();
+  const openRequestsCount = useMemo(
+    () => (changeRequests || []).filter((r) => r.status === 'open').length,
+    [changeRequests],
+  );
+  // Tab state syncs to the `?tab=` query param so deep-linking into a
+  // specific tab (e.g., the Push button on the Files page sending the
+  // user to "Version control") works without prop drilling, AND so
+  // refreshes preserve the user's spot. Defaults to Members — the
+  // team tree gives the page immediate visual content vs. Activity
+  // or the empty-by-default Version control list.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlTab = searchParams.get('tab');
+  const activeTab = urlTab && VALID_TABS.has(urlTab) ? urlTab : 'members';
+  const setActiveTab = (next) => {
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev);
+      if (next === 'members') params.delete('tab'); // keep the URL clean on the default
+      else params.set('tab', next);
+      return params;
+    }, { replace: true });
+  };
+
+  // Refetch core data on every tab change so the user never sees a
+  // stale snapshot left over from the previous tab. The tab content
+  // already re-mounts (each <X /> branch above is conditional), but
+  // BranchContext + the items cache live in the parent providers
+  // and would otherwise carry the previous tab's view forward. A
+  // single refresh covers the most commonly stale surfaces; tab-
+  // specific child components run their own fetch effects on mount
+  // for everything else.
+  useEffect(() => {
+    refreshBranchState?.();
+    refreshOpenRequestItems?.();
+  }, [activeTab, refreshBranchState, refreshOpenRequestItems]);
 
   // Tracks the spinner's mounted lifetime separately from `loading` so
   // we can keep it on the page during its fade-out animation after the
@@ -73,22 +120,26 @@ export default function ProjectDashboard() {
   const tabs = [
     { id: 'members', label: 'Members' },
     { id: 'activity', label: 'Activity' },
+    { id: 'version-control', label: 'Pending edits' },
   ];
 
   return (
     <div className="project-dashboard">
       <header className="project-dashboard-header">
-        {/* Static title renders immediately — nothing about "Dashboard" is
-            async, so it should never flash a skeleton. The role pill IS
-            async (depends on members fetch); it gets a small placeholder
-            until `role` resolves so the horizontal space next to the
-            title doesn't reflow when the real pill drops in. */}
-        <div className="project-dashboard-title-row">
-          <h1 className="project-dashboard-title">Dashboard</h1>
-          {role
-            ? <span className={`project-dashboard-role role-${role}`}>{role}</span>
-            : <span className="skel-bar skel-dash-role" aria-hidden="true" />}
-        </div>
+        {/* Plain title — the role indicator that used to sit next to
+            "Dashboard" was removed because the same info already shows
+            up in the floating "working in <project> as <role>" pill
+            at the top of the viewport, AND on the Members tree below.
+            Two surfaces with the same data was redundant. */}
+        <h1 className="project-dashboard-title">Dashboard</h1>
+        {/* One-line framing for the page — names the three things the
+            tab bar below switches between (Members / Activity /
+            Version control) so a first-time visitor doesn't have to
+            click each tab to find out what's on this page. */}
+        <p className="project-dashboard-description">
+          See who's on the team, what's happening, and any file edits waiting for your approval on{' '}
+          <strong>{project?.name || 'this project'}</strong>.
+        </p>
       </header>
 
       {/* Tab bar — same underline pattern as ProjectOverview. role="tablist"
@@ -113,6 +164,9 @@ export default function ProjectDashboard() {
               loading
                 ? <span className="project-tab-count project-tab-count-skel skel-bar" aria-hidden="true" />
                 : <span className="project-tab-count">{members.length}</span>
+            )}
+            {t.id === 'version-control' && openRequestsCount > 0 && (
+              <span className="project-tab-count">{openRequestsCount}</span>
             )}
           </button>
         ))}
@@ -155,6 +209,10 @@ export default function ProjectDashboard() {
             Activity feed coming soon.
           </div>
         </section>
+      )}
+
+      {activeTab === 'version-control' && (
+        <ChangeRequestsView />
       )}
     </div>
   );

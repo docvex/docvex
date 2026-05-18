@@ -41,6 +41,7 @@ import {
 export function isAcceptedMime(type) {
   if (!type) return false;
   if (type === 'application/pdf') return true;
+  if (type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return true;
   if (type.startsWith('image/')) return true;
   if (type.startsWith('video/')) return true;
   if (type.startsWith('text/')) return true;

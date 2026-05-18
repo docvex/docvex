@@ -453,160 +453,12 @@ export async function createOrMergeChangeRequest({
   return { data: { request: existing, merged: true }, error: null };
 }
 
-// Compute the diff between the user's local folder and the
-// canonical project_files list. Output drives the commit modal's
-// item preview AND the post-confirm upload + change_request
-// creation. Match key is the on-disk filename (lower-cased to
-// match Windows' case-insensitive filesystem).
-//
-// Returned shape:
-//   [{ kind: 'add', local }]                   — file on disk, no cloud counterpart
-//   [{ kind: 'replace', local, cloud }]        — same filename, different bytes
-//   [{ kind: 'delete', cloud }]                — file in cloud, no local counterpart
-//
-// Detection ladder (most precise first):
-//   0. localFiles is empty → return []. An empty local folder is
-//      treated as the "clean / not-yet-materialized" state, not as
-//      "I deleted all the cloud files". The user materialises their
-//      branch by downloading or adding files; until they do there's
-//      nothing meaningful to commit. Also: matches the post-Reset
-//      state — Reset wipes local and we want the commit affordance
-//      to disappear, not flip to "commit N deletes".
-//   1. content_hash on BOTH sides → compare hashes. Catches same-size
-//      content edits (image re-encode, video re-render).
-//   2. size on both sides → fall back to size comparison. Used when
-//      either side hasn't been hashed yet (legacy rows, files the
-//      renderer hasn't background-hashed yet).
-//   3. Filename only → presence/absence drives add / delete.
-//   4. Filter out items that are already covered by an OPEN
-//      change_request from this author — see the `openRequestItems`
-//      argument. Push doesn't mutate the filesystem; without this
-//      filter the same items would keep showing as pending forever
-//      until admin approval physically rewrites the cloud.
-//
-// `localHashByName`     — Map<lowercase-filename, hex-sha256> filled
-//                         by the renderer's background hasher.
-// `cloudHashByFileId`   — Map<project_files.id, hex-sha256> used as
-//                         a fallback when project_files.content_hash
-//                         is null (legacy rows uploaded before
-//                         migration 014). Filled by the renderer
-//                         lazily — see ProjectFiles.jsx.
-// `openRequestItems`    — items currently sitting in the author's
-//                         open change_request. Diff items targeting
-//                         the same file (by target_file_id) or the
-//                         same canonical add name are filtered out
-//                         so the Commit-changes button hides as
-//                         soon as a push lands.
-//
-// Pure function — no Supabase IO.
-export function computeBranchDiff(localFiles, cloudFiles, localHashByName, cloudHashByFileId, openRequestItems) {
-  // Empty local short-circuits to no-diff — see ladder step 0 above.
-  if (!Array.isArray(localFiles) || localFiles.length === 0) return [];
-  const cloudByFilename = new Map();
-  for (const c of cloudFiles || []) {
-    const filename = (c.storage_path || '').split('/').pop();
-    if (filename) cloudByFilename.set(filename.toLowerCase(), c);
-  }
-  const localByFilename = new Map();
-  for (const l of localFiles || []) {
-    if (l?.name) localByFilename.set(l.name.toLowerCase(), l);
-  }
-  // `let` (not const) so the rename-detection pass below can rebuild
-  // the array via filter().
-  let items = [];
-  for (const local of localFiles || []) {
-    const key = local.name.toLowerCase();
-    const cloud = cloudByFilename.get(key);
-    if (!cloud) {
-      items.push({ kind: 'add', local });
-      continue;
-    }
-    const localHash = localHashByName?.get(key);
-    // Prefer the stored hash from project_files (populated post-014).
-    // Fall back to the renderer's on-demand backfill cache for legacy
-    // rows whose content_hash column is still null.
-    const cloudHash = cloud.content_hash || cloudHashByFileId?.get(cloud.id);
-    let changed;
-    if (localHash && cloudHash) {
-      // Precise path: both sides hashed.
-      changed = localHash !== cloudHash;
-    } else {
-      // Fallback: size compare. Misses same-size content edits, but
-      // never false-positives a real change.
-      changed = Number(cloud.size_bytes) !== Number(local.sizeBytes);
-    }
-    if (changed) items.push({ kind: 'replace', local, cloud });
-  }
-  for (const cloud of cloudFiles || []) {
-    const filename = (cloud.storage_path || '').split('/').pop();
-    if (filename && !localByFilename.has(filename.toLowerCase())) {
-      items.push({ kind: 'delete', cloud });
-    }
-  }
-
-  // Rename detection. After a metadata-rename via the FileDetailModal
-  // on My branch, the local file is renamed on disk too — so the
-  // filesystem now has e.g. local "bar.png" with content hash X
-  // and cloud still has "foo.png" with content hash X. Without
-  // intervention this looks like delete(foo) + add(bar), which
-  // would duplicate the rename intent that's already queued as an
-  // 'edit' branch_change. Pair add↔delete entries with matching
-  // content_hash and drop both — the rename is represented solely
-  // by the branch_change.
-  if (localHashByName && (cloudHashByFileId || (cloudFiles || []).some((c) => c.content_hash))) {
-    const renamedCloudIds  = new Set();
-    const renamedLocalKeys = new Set();
-    for (const item of items) {
-      if (item.kind !== 'add' || !item.local) continue;
-      const key = (item.local.name || '').toLowerCase();
-      const lh = localHashByName.get(key);
-      if (!lh) continue;
-      for (const other of items) {
-        if (other.kind !== 'delete' || !other.cloud) continue;
-        if (renamedCloudIds.has(other.cloud.id)) continue;
-        const ch = other.cloud.content_hash || cloudHashByFileId?.get(other.cloud.id);
-        if (ch && ch === lh) {
-          renamedCloudIds.add(other.cloud.id);
-          renamedLocalKeys.add(key);
-          break;
-        }
-      }
-    }
-    if (renamedCloudIds.size > 0) {
-      items = items.filter((item) => {
-        if (item.kind === 'add' && item.local
-            && renamedLocalKeys.has(item.local.name.toLowerCase())) return false;
-        if (item.kind === 'delete' && item.cloud
-            && renamedCloudIds.has(item.cloud.id)) return false;
-        return true;
-      });
-    }
-  }
-
-  // Filter out items already covered by an open change_request the
-  // caller passed in. Match by target_file_id for replace/delete/edit;
-  // by proposed.name (lower-cased) for adds, since adds don't have a
-  // cloud row to point at — only a future filename.
-  if (Array.isArray(openRequestItems) && openRequestItems.length > 0) {
-    const coveredTargetIds = new Set();
-    const coveredAddNames  = new Set();
-    for (const it of openRequestItems) {
-      if (it.target_file_id) coveredTargetIds.add(it.target_file_id);
-      if (it.kind === 'add' && it.proposed?.name) {
-        coveredAddNames.add(it.proposed.name.toLowerCase());
-      }
-    }
-    return items.filter((item) => {
-      if (item.kind === 'add' && item.local?.name) {
-        return !coveredAddNames.has(item.local.name.toLowerCase());
-      }
-      const targetId = item.cloud?.id;
-      if (targetId && coveredTargetIds.has(targetId)) return false;
-      return true;
-    });
-  }
-  return items;
-}
+// Filesystem diff lives in `lib/syncState.js` now — the unified
+// state computer replaced the three previous per-surface pipelines
+// (this one, the SyncToMainModal one, and the sidecar reconcile)
+// with one pass over the same inputs. Callers that previously
+// imported `computeBranchDiff` from here now call
+// `computeSyncState(...).toCommit` from `lib/syncState.js`.
 
 // Hex-encoded SHA-256 of a Blob. Uses the SubtleCrypto API which is
 // hardware-accelerated in Chromium / WebKit / Firefox. Buffers the
@@ -637,6 +489,13 @@ export async function sha256Hex(blob) {
 // without an extra round-trip, and downstream diffs catch same-size
 // content edits later.
 //
+// `fileId` (optional): pre-minted UUID for the proposed file. The
+// caller wants to thread the same id used in their local sidecar
+// (see lib/localBranchMeta.js) so that after the admin approves,
+// project_files.id matches what the sidecar already mapped the
+// local file to — no re-link needed. Omit to have a fresh UUID
+// minted here (legacy flow).
+//
 // Returns:
 //   { fileId, name, mimeType, sizeBytes, contentHash, pendingPath, canonicalPath }
 // where canonicalPath is the destination the approve RPC will write
@@ -647,14 +506,15 @@ export async function uploadBlobToPending({
   blob,
   fileName,
   mimeType,
+  fileId: providedFileId,
 }) {
   if (!projectId || !userId || !blob || !fileName) {
     return { data: null, error: new Error('Missing required arg') };
   }
-  // Mint a file_id so the canonical storage_path the approve RPC
-  // will write to project_files.storage_path is already final at
-  // submit time. Avoids any post-approval renaming dance.
-  const fileId = crypto.randomUUID();
+  // Use the caller-provided id when present so the sidecar's
+  // mapping survives intact across the approve boundary. Fall back
+  // to a fresh UUID for callers that haven't adopted the sidecar yet.
+  const fileId = providedFileId || crypto.randomUUID();
   const pendingPath = buildPendingStoragePath(projectId, userId, fileId, fileName);
   const canonicalPath = `${projectId}/${fileId}/${fileName}`;
   // Get a signed upload URL into the pending bucket.
@@ -701,6 +561,55 @@ export async function uploadBlobToPending({
   };
 }
 
+// Upload a thumbnail (or single video frame) into the pending bucket
+// alongside its parent file. Returns the pending storage path AND
+// the canonical destination path that approve_change_request will
+// copy it to — both are threaded into `proposed.thumbnail_pending_path`
+// + `proposed.thumbnail_path` so the merge step can `storage.copy()`
+// pending → canonical and the project_files row picks up
+// thumbnail_path on insert.
+//
+// Path convention mirrors uploadBlobToPending: pending lives under
+// `{projectId}/{userId}/{fileId}/_thumb{suffix}`, canonical lives
+// under `{projectId}/{fileId}/_thumb{suffix}` (matching
+// buildThumbnailPath / buildVideoFramePath from lib/thumbnails.js).
+// `suffix` is empty for the single-frame thumb and `_N` for video
+// frame N.
+export async function uploadPendingThumbnail({
+  projectId,
+  userId,
+  fileId,
+  blob,
+  suffix = '',
+}) {
+  if (!projectId || !userId || !fileId || !blob) {
+    return { data: null, error: new Error('Missing required arg') };
+  }
+  const filename = `_thumb${suffix}.jpg`;
+  const pendingPath = buildPendingStoragePath(projectId, userId, fileId, filename);
+  const canonicalPath = `${projectId}/${fileId}/${filename}`;
+  const { data: target, error: signErr } = await createPendingUploadTarget(pendingPath);
+  if (signErr || !target?.signedUrl) {
+    return { data: null, error: signErr || new Error('Could not sign thumbnail upload URL') };
+  }
+  try {
+    const putRes = await fetch(target.signedUrl, {
+      method: 'PUT',
+      body: blob,
+      headers: {
+        'content-type': blob.type || 'image/jpeg',
+        'x-upsert': 'false',
+      },
+    });
+    if (!putRes.ok) {
+      return { data: null, error: new Error(`Thumbnail upload failed (${putRes.status})`) };
+    }
+  } catch (err) {
+    return { data: null, error: new Error(err?.message || String(err)) };
+  }
+  return { data: { pendingPath, canonicalPath }, error: null };
+}
+
 // Author cancels an open request before the admin decides. The
 // RLS update policy allows author → withdrawn or admin → any
 // terminal state; the eq('status','open') guard prevents a
@@ -733,6 +642,83 @@ export async function listChangeRequests(projectId, { status, limit } = {}) {
   if (limit)  query = query.limit(limit);
   const { data, error } = await query;
   return { data: data || [], error };
+}
+
+// Every item in every OPEN change request for a project, in one
+// round trip. Replaces the N+1 of `Promise.all(getChangeRequest)`
+// the compose view originally did per open request — once a team
+// has more than a handful of open requests, that pattern stops
+// scaling (every reviewer's render fires N parallel fetches AND
+// the realtime echoes re-fire them all again).
+//
+// Returned shape matches what the compose view wants directly,
+// flattened from the supabase-js relationship join — each row is
+// one item with its parent's metadata in scope. Author profiles
+// are still resolved separately because they're a different
+// table and benefit from independent caching.
+//
+// Server-side filter (`project_id` + `request.status='open'`)
+// keeps the payload tight even on a busy project; index added
+// in migration 018 covers it.
+export async function listOpenChangeRequestItemsForProject(projectId) {
+  if (!projectId) return { data: [], error: new Error('Missing projectId') };
+  const { data, error } = await supabase
+    .from(ITEMS_TABLE)
+    .select(`
+      id, request_id, kind, target_file_id, proposed, seq,
+      request:change_requests!inner (id, project_id, author_id, title, status)
+    `)
+    .eq('project_id', projectId)
+    .eq('request.status', 'open')
+    .order('seq', { ascending: true });
+  if (error) return { data: [], error };
+  const flat = (data || []).map((row) => ({
+    requestId: row.request_id,
+    requestTitle: row.request?.title || '',
+    authorId: row.request?.author_id || null,
+    item: {
+      id: row.id,
+      kind: row.kind,
+      target_file_id: row.target_file_id,
+      proposed: row.proposed,
+      seq: row.seq,
+      request_id: row.request_id,
+    },
+  }));
+  return { data: flat, error: null };
+}
+
+// Realtime subscription for change_request_items in one project.
+// Pairs with `listOpenChangeRequestItemsForProject` to keep the
+// compose view live across the team:
+//   • A teammate's createOrMergeChangeRequest push (which inserts
+//     new items / deletes superseded ones) shows up instantly for
+//     every reviewer.
+//   • An admin's approve / reject (which delete the parent request
+//     and cascade to items) clears stale items without a refetch.
+//
+// Server-side filter on `project_id` (added in migration 018) keeps
+// the channel quiet on busy multi-project servers — without it
+// every renderer would see item events from every project in the
+// publication.
+export function subscribeChangeRequestItemsForProject(projectId, onChange) {
+  if (!projectId) return () => {};
+  const channel = supabase
+    .channel(`change_request_items:${projectId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: ITEMS_TABLE,
+        filter: `project_id=eq.${projectId}`,
+      },
+      onChange,
+    )
+    .subscribe();
+  return () => {
+    try { supabase.removeChannel(channel); } catch { /* non-fatal */ }
+  };
 }
 
 // Full detail of a single request — header + ordered items. Two
@@ -850,6 +836,16 @@ export async function approveChangeRequest(request) {
       if (!pendingPath || !canonicalPath) {
         return { data: null, error: new Error(`Item ${item.id} missing storage paths`) };
       }
+      // Best-effort destination clear so the copy below is idempotent.
+      // Supabase storage's `copy()` 400s with "Duplicate" if the
+      // destination already exists, which strands an approve forever
+      // when a previous attempt got past the copy step but failed at
+      // the RPC (e.g. the thumbnail_frames null bug fixed in
+      // migration 020). The canonical destination is owned by this
+      // approve flow — our pending bytes are authoritative — so
+      // removing any prior occupant is correct. ENOENT-style failures
+      // are swallowed (the file we tried to remove was never there).
+      await supabase.storage.from('projects').remove([canonicalPath]).catch(() => {});
       const { error: copyErr } = await supabase
         .storage
         .from(PENDING_BUCKET)
@@ -860,15 +856,48 @@ export async function approveChangeRequest(request) {
       pendingPathsToDelete.push(pendingPath);
 
       // Thumbnail copy (best-effort; the UI falls back to the MIME
-      // glyph if the thumb is missing).
+      // glyph if the thumb is missing). Same idempotency clear so a
+      // retry doesn't 400 on a left-behind thumb from an earlier
+      // partially-applied approve.
       const pendingThumb = item.proposed?.thumbnail_pending_path;
       const canonicalThumb = item.proposed?.thumbnail_path;
       if (pendingThumb && canonicalThumb) {
+        await supabase.storage.from('projects').remove([canonicalThumb]).catch(() => {});
         const { error: thumbErr } = await supabase
           .storage
           .from(PENDING_BUCKET)
           .copy(pendingThumb, canonicalThumb, { destinationBucket: 'projects' });
         if (!thumbErr) pendingPathsToDelete.push(pendingThumb);
+      }
+
+      // Video frame copies (best-effort). The upload pipeline writes
+      // every frame _thumb_N.jpg to the pending bucket but only the
+      // poster (_thumb_0) rides along in `thumbnail_pending_path` —
+      // the remaining frames live in `thumbnail_frames` as canonical
+      // paths only. Without this loop, project_files.thumbnail_frames
+      // ends up pointing at canonical paths that don't exist and the
+      // slideshow's per-frame sign requests all 400.
+      //
+      // Path derivation: canonical is `{projectId}/{fileId}/_thumb_N.jpg`,
+      // pending is `{projectId}/{userId}/{fileId}/_thumb_N.jpg` —
+      // the only structural difference is the inserted user_id
+      // segment. We rebuild the pending path from the canonical one
+      // using request.author_id (the uploader). Skip the poster
+      // (already copied above to avoid a duplicate-key 400).
+      const frames = item.proposed?.thumbnail_frames;
+      if (Array.isArray(frames) && frames.length > 0) {
+        for (const canonicalFrame of frames) {
+          if (!canonicalFrame || canonicalFrame === canonicalThumb) continue;
+          const segs = canonicalFrame.split('/');
+          if (segs.length < 3) continue;
+          const pendingFrame = [segs[0], request.author_id, ...segs.slice(1)].join('/');
+          await supabase.storage.from('projects').remove([canonicalFrame]).catch(() => {});
+          const { error: frameErr } = await supabase
+            .storage
+            .from(PENDING_BUCKET)
+            .copy(pendingFrame, canonicalFrame, { destinationBucket: 'projects' });
+          if (!frameErr) pendingPathsToDelete.push(pendingFrame);
+        }
       }
     }
 

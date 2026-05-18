@@ -1,29 +1,43 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { useNotifications } from '../../context/NotificationsContext';
 import { useBranch } from '../../context/BranchContext';
 import { useAuth } from '../../context/AuthContext';
 import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import FileDetailModal from '../../components/FileDetailModal';
-import ChangeRequestsPanel from '../../components/ChangeRequestsPanel';
 import SyncToMainModal from '../../components/SyncToMainModal';
-import CommitChangesModal from '../../components/CommitChangesModal';
+import { runCommitFlow, buildCommitSnapshot } from '../../lib/commitFlow';
 import FileThumbnail from '../../components/FileThumbnail';
 import Tooltip from '../../components/Tooltip';
+import { describeCloudFile, describeLocalFile } from '../../lib/thumbnailDescriptor';
 import {
   listProjectFiles,
   createSignedDownloadUrl,
   subscribeForProject,
+  deleteProjectFile,
+  evictSignedUrlCache,
 } from '../../lib/projectFiles';
-import { computeBranchDiff, sha256Hex } from '../../lib/branches';
+import { sha256Hex } from '../../lib/branches';
+import { computeSyncState } from '../../lib/syncState';
 import {
   localFolderApi,
   hasLocalFolderApi,
   isElectronBranch,
   readLocalBlob,
 } from '../../lib/localFolder';
+import {
+  loadSidecar,
+  saveSidecar,
+  emptySidecar,
+  renameEntry as renameSidecarEntry,
+  addEntry as addSidecarEntry,
+  removeByFilename as removeSidecarByFilename,
+  removeEntry as removeSidecarEntry,
+  LEGACY_SIDECAR_KEY,
+  toPayload as sidecarToPayload,
+} from '../../lib/localBranchMeta';
 import './ProjectScoped.css';
 import './ProjectFiles.css';
 
@@ -205,33 +219,24 @@ function formatDate(iso) {
 // in a new tab) now lives inside the modal as the View button — same
 // semantics, just one click further away.
 function FileCard({ file, onOpen, branchOverlay }) {
-  const isImage = (file.mime_type || '').startsWith('image/');
-  const hasThumbnail = Boolean(file.thumbnail_path);
-  // Fall back to fetching the source image only if no pre-baked thumb
-  // exists AND the file is an image — that covers legacy uploads.
-  const shouldFetchSourceAsThumb = isImage && !hasThumbnail;
-  // Video with the 5-frame slideshow column populated (migration 010).
-  // Legacy videos (uploaded before migration 010 or that failed multi-
-  // frame extraction) take the single-thumbnail path below — no slideshow.
-  const hasFrames = Array.isArray(file.thumbnail_frames) && file.thumbnail_frames.length > 1;
-
-  const [thumbUrl, setThumbUrl] = useState(null);
   const [hovered, setHovered] = useState(false);
-
-  // Lazy signed-URL fetch. Pick the thumbnail object when migration-004
-  // populated it; otherwise the source image as a legacy fallback.
-  // Cancellation flag so a fast project switch + remount doesn't write
-  // stale URLs into the new card's state.
-  useEffect(() => {
-    const path = hasThumbnail ? file.thumbnail_path : (shouldFetchSourceAsThumb ? file.storage_path : null);
-    if (!path) return;
-    let cancelled = false;
-    createSignedDownloadUrl(path, 300).then(({ data, error }) => {
-      if (cancelled || error || !data?.signedUrl) return;
-      setThumbUrl(data.signedUrl);
-    });
-    return () => { cancelled = true; };
-  }, [hasThumbnail, shouldFetchSourceAsThumb, file.thumbnail_path, file.storage_path]);
+  // One-line resolution: the descriptor packages the row's
+  // thumbnail_path / thumbnail_frames / storage_path / content_hash
+  // into a stable cache key + fallback chain. The unified resolver
+  // (inside FileThumbnail) handles signing, DOCX rich regen, video
+  // frame extraction, and caching across surfaces. Every file in
+  // the grid (and every other surface) keys the same way, so two
+  // views of the same file paint the same poster.
+  const descriptor = useMemo(() => describeCloudFile(file), [
+    file.id,
+    file.content_hash,
+    file.storage_path,
+    file.thumbnail_path,
+    file.thumbnail_frames,
+    file.mime_type,
+    file.name,
+    file.duration_seconds,
+  ]);
 
   // Extension source: prefer storage_path (which always preserves the
   // original filename verbatim — see buildStoragePath in
@@ -287,14 +292,7 @@ function FileCard({ file, onOpen, branchOverlay }) {
         onMouseLeave={() => setHovered(false)}
       >
       <div className="project-files-thumb">
-        <FileThumbnail
-          mimeType={file.mime_type}
-          posterUrl={thumbUrl}
-          slideshowFrames={file.thumbnail_frames}
-          hovered={hovered}
-          glyph={iconForMime(file.mime_type)}
-          duration={file.duration_seconds}
-        />
+        <FileThumbnail descriptor={descriptor} hovered={hovered} />
         {/* Missing-from-branch overlay — a semi-opaque scrim with a
             centered download-cloud icon, only rendered when the
             parent passed branchOverlay.kind === 'missing'. Clicking
@@ -328,13 +326,35 @@ function FileCard({ file, onOpen, branchOverlay }) {
         )}
         <div className="project-files-meta">
           <div className="project-files-name">{displayBase}</div>
-          <div className="project-files-sub">
-            {formatBytes(file.size_bytes)} · {formatDate(file.uploaded_at)}
-          </div>
         </div>
       </button>
     </Tooltip>
   );
+}
+
+// Module-level cache of locally-extracted thumbnails — blob: URLs
+// keyed by `<path>|<mtimeIso>`. Re-mounting the same card (scroll,
+// project switch, tab toggle) hits the cache instead of re-running
+// the heavy pdf.js / canvas pipeline. Cleared by entry replacement
+// when the mtime changes — the OS-side edit produces a new key and
+// the old blob URL is revoked at that point.
+//
+// Cap mirrors FileThumbnail's frame cache: 200 entries before FIFO
+// eviction. A typical project has dozens of cards, not thousands;
+// 200 covers the working set comfortably.
+const LOCAL_THUMB_CACHE = new Map();
+const LOCAL_THUMB_CACHE_MAX = 200;
+
+function rememberLocalThumb(key, blobUrl) {
+  if (LOCAL_THUMB_CACHE.size >= LOCAL_THUMB_CACHE_MAX) {
+    const firstKey = LOCAL_THUMB_CACHE.keys().next().value;
+    if (firstKey !== undefined) {
+      const old = LOCAL_THUMB_CACHE.get(firstKey);
+      try { URL.revokeObjectURL(old); } catch { /* ignore */ }
+      LOCAL_THUMB_CACHE.delete(firstKey);
+    }
+  }
+  LOCAL_THUMB_CACHE.set(key, blobUrl);
 }
 
 // Compact card for a locally-listed file. Stripped-down sibling of
@@ -347,18 +367,45 @@ function FileCard({ file, onOpen, branchOverlay }) {
 // edited it locally after downloading). The "Modified" pill in the
 // top-left calls that out so the user knows which files are out of
 // sync with cloud.
-function LocalFileCard({ file, onOpen, modified, cloud, overlay }) {
+function LocalFileCard({
+  file,
+  onSelect,            // single-click — just highlights the card (no modal)
+  onOpen,              // menu Properties — opens the FileDetailModal (side pane)
+  onDoubleOpen,        // double-click — opens the file in its OS default app
+  onRename,            // menu Rename — flips the card into inline-rename mode
+  onRenameSubmit,      // commits the inline rename (file, newName)
+  onRenameCancel,      // dismisses inline rename mode without changes
+  onRevert,            // menu Revert — only shown when `modified` AND a cloud counterpart exists
+  onDelete,            // menu Delete — see handleDeleteLocalCard in ProjectFiles
+  modified,
+  bytesChanged,        // true → local bytes diverge from cloud → regenerate thumbnail
+                       //         from disk instead of showing the (now stale) cloud thumb
+  selected,            // true → card paints the accent highlight ring
+  isRenaming,          // true → name slot becomes an <input> with the basename selected
+  cloud,
+  overlay,
+  localContentHash,    // SHA-256 of the on-disk bytes (from parent's localHashByName)
+                       // — feeds into the descriptor's contentKey so an in-place
+                       // edit invalidates every cache layer at once.
+}) {
+  const [hovered, setHovered] = useState(false);
   const { base: diskBase, ext } = splitNameAndExtension(file.name);
   // Effective display name precedence:
-  //   1. overlay.proposed.name  — queued rename on 'mine'. The card
-  //      must mirror what FileDetailModal shows AND what main will
-  //      look like after approval; without this it'd revert to the
-  //      old cloud.name even though the user just renamed it.
-  //   2. cloud.name             — canonical main-branch name.
-  //   3. diskBase               — the on-disk basename (fallback for
-  //      local files that have no cloud counterpart).
+  //   1. overlay.proposed.name  — un-pushed metadata edit. Briefly
+  //      authoritative between "user typed a new name in the modal"
+  //      and "auto-commit pushes it"; after the push the overlay
+  //      is consumed and we fall through.
+  //   2. diskBase               — the on-disk basename, which IS
+  //      the truth for a local card. After an inline rename the
+  //      disk has the new name immediately; falling back to
+  //      cloud.name here would show the OLD canonical name (the
+  //      cloud row doesn't update until admin approval) and leave
+  //      the user staring at "caca.png" on a file that's actually
+  //      called "newname.png" on disk.
+  //   3. cloud.name             — last-resort safety net for the
+  //      bootstrap window where diskBase is somehow blank.
   const proposedName = overlay?.proposed?.name;
-  const sourceName = proposedName || cloud?.name || null;
+  const sourceName = proposedName || diskBase || cloud?.name || null;
   let base = diskBase;
   if (sourceName) {
     let n = sourceName;
@@ -375,59 +422,66 @@ function LocalFileCard({ file, onOpen, modified, cloud, overlay }) {
   const tooltipBody = modified
     ? `${base}\nDiffers from cloud version`
     : base;
-  // URL used as the src for image previews + the hidden <video>
-  // that generates video thumbnails.
-  //   • Electron path → custom `localfile://` protocol (registered
-  //     in main.js, streams the bytes off disk).
-  //   • Web path     → blob: URL built from the FileSystemFileHandle
-  //     cached in lib/localFolder.js. Built lazily in an effect
-  //     because getFile() is async; revoked on unmount/path change.
-  // Either way the rest of the card just consumes a string src.
-  const isImage = (file.mimeType || '').startsWith('image/');
-  const isVideo = (file.mimeType || '').startsWith('video/');
+  // Build the URL for the on-disk bytes — used as the descriptor's
+  // `source` so the unified resolver can fetch + regenerate when the
+  // cloud thumbnail is missing OR stale (after a local edit).
+  //   • Electron → custom `localfile://` protocol (sync URL, streams
+  //     bytes off disk; mtime appended as a cache-buster so an
+  //     in-place edit produces a new URL the browser won't cache).
+  //   • Web      → blob: URL built from the cached FSA handle. Built
+  //     lazily in an effect because `getFile()` is async; revoked on
+  //     unmount / path change to avoid leaking bytes.
   const isWebPath = typeof file.path === 'string' && file.path.startsWith('web://');
-  // Web path: getFile() is async, so build the blob URL in an effect.
-  // Electron path: localfile:// is synchronous from the URL's POV; build
-  // it inline. Revoke the blob URL on cleanup so deleted/replaced files
-  // don't leak memory.
   const [webBlobUrl, setWebBlobUrl] = useState(null);
   useEffect(() => {
-    if (!isWebPath || (!isImage && !isVideo)) return undefined;
+    if (!isWebPath) return undefined;
     let cancelled = false;
     let url = null;
     readLocalBlob(file.path).then((blob) => {
       if (cancelled) return;
       url = URL.createObjectURL(blob);
       setWebBlobUrl(url);
-    }).catch(() => { /* missing handle — fall back to glyph */ });
+    }).catch(() => { /* missing handle — resolver falls back to glyph */ });
     return () => {
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
       setWebBlobUrl(null);
     };
-  }, [isWebPath, isImage, isVideo, file.path]);
+    // mtime in deps so an in-place byte edit re-reads the file +
+    // rebuilds a fresh blob URL — without this the descriptor's
+    // `source.url` would keep pointing at the pre-edit bytes.
+  }, [isWebPath, file.path, file.mtimeIso]);
   const localUrl = isWebPath
     ? webBlobUrl
-    : (file.path ? `localfile://local/${encodeURIComponent(file.path)}` : null);
+    : (file.path
+        ? `localfile://local/${encodeURIComponent(file.path)}${file.mtimeIso ? `?t=${encodeURIComponent(file.mtimeIso)}` : ''}`
+        : null);
 
-  // Cloud counterpart's pre-baked thumbnail (signed). When a local file
-  // pairs with a cloud row that has thumbnail_path (post-migration 004),
-  // using the cloud thumb here keeps the Main and My-branch grid views
-  // visually identical — same poster, same dimensions, no second
-  // "regenerated locally" version. Falls through to localUrl-based
-  // extraction (handled inside FileThumbnail) when there's no cloud
-  // counterpart or the cloud has no thumb.
-  const [cloudThumbUrl, setCloudThumbUrl] = useState(null);
-  useEffect(() => {
-    const path = cloud?.thumbnail_path;
-    if (!path) { setCloudThumbUrl(null); return undefined; }
-    let cancelled = false;
-    createSignedDownloadUrl(path, 600).then(({ data, error }) => {
-      if (cancelled || error || !data?.signedUrl) return;
-      setCloudThumbUrl(data.signedUrl);
-    });
-    return () => { cancelled = true; };
-  }, [cloud?.thumbnail_path]);
+  // Single descriptor → resolver hook handles signing the cloud
+  // thumbnail (when present + bytes-identical to local), regenerating
+  // from on-disk bytes via the shared generator (when bytes have
+  // changed locally OR no cloud thumb exists), and caching the result
+  // under a contentKey that breaks on every save. Replaces ~120 lines
+  // of inline state + effects that used to live here.
+  const descriptor = useMemo(() => describeLocalFile({
+    localFile: file,
+    localUrl,
+    cloud,
+    bytesChanged,
+    localContentHash,
+  }), [
+    file.path,
+    file.name,
+    file.mimeType,
+    file.mtimeIso,
+    localUrl,
+    cloud?.id,
+    cloud?.content_hash,
+    cloud?.thumbnail_path,
+    cloud?.storage_path,
+    bytesChanged,
+    localContentHash,
+  ]);
   // Morphing pill — one element that's a hover-tooltip in its calm
   // state and a vertical context menu after a right-click. Sharing
   // the same DOM node lets us animate between the two shapes via
@@ -563,13 +617,110 @@ function LocalFileCard({ file, onOpen, modified, cloud, overlay }) {
     oldPillRectRef.current = null;
   }, [menuMode]);
 
-  const handleMenuOpen = () => {
+  // Selection fires instantly on single click — no delay. Selecting
+  // and "open" don't actually conflict: double-clicking just
+  // selects + opens, which matches how Explorer behaves anyway.
+  // Both handlers stopPropagation so the panel's bg-click deselect
+  // doesn't fire on the same event.
+  //
+  // Properties (the side-pane modal) is reachable via the right-
+  // click menu item — selection alone never opens it.
+  const handleCardClick = (e) => {
+    e?.stopPropagation?.();
+    onSelect?.(file);
+  };
+  const handleCardDoubleClick = (e) => {
+    e?.stopPropagation?.();
+    onDoubleOpen?.(file);
+  };
+
+  const handleMenuProperties = () => {
     closeMenu();
     onOpen?.(file);
+  };
+  const handleMenuRename = () => {
+    closeMenu();
+    onRename?.(file);
+  };
+
+  // Inline rename — driven by the parent's `isRenaming` prop. The
+  // textarea is UNCONTROLLED (defaultValue + read-via-ref on commit)
+  // so the displayed value can never drift from the current file's
+  // name. A previous controlled-input attempt had a race where the
+  // useState initializer + delayed effect could leave renameValue
+  // out of sync with file.name (the user would type into what
+  // looked like card A's input but the bound state held card B's
+  // name, and the rename submitted with the wrong target). With
+  // defaultValue read fresh on each rename entry, there's no React
+  // state to fall out of date — the DOM input owns the value.
+  //
+  // On entering rename mode, focus the input and select just the
+  // basename (everything before the last "."), matching Windows
+  // Explorer's F2 behaviour so the user types only the new base
+  // and the extension is preserved.
+  const renameInputRef = useRef(null);
+  // Guard against commitRename firing twice (once on Enter →
+  // intentional commit; once on the resulting blur from the
+  // unmount). Reset each time the user enters rename mode.
+  const renameCommittedRef = useRef(false);
+  useEffect(() => {
+    if (!isRenaming) return;
+    renameCommittedRef.current = false;
+    const el = renameInputRef.current;
+    if (!el) return;
+    // Reset value to the current file.name so a previous edit
+    // session's stale text can't leak through (defaultValue alone
+    // only seeds on first mount). The textarea is inside an
+    // `{isRenaming ? ... : ...}` branch, so this is a fresh mount,
+    // but assigning explicitly is belt-and-suspenders against any
+    // future React reconciliation surprise.
+    el.value = file.name || '';
+    el.focus();
+    const name = file.name || '';
+    const lastDot = name.lastIndexOf('.');
+    const end = lastDot > 0 ? lastDot : name.length;
+    try { el.setSelectionRange(0, end); }
+    catch { /* legacy quirk, ignore */ }
+    // Size the textarea to fit the initial value so long names show
+    // their wrapped layout immediately rather than scrolling inside
+    // a one-line box on first paint.
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [isRenaming, file.name]);
+
+  const commitRename = () => {
+    if (!isRenaming) return;
+    if (renameCommittedRef.current) return;  // Enter already fired commit
+    renameCommittedRef.current = true;
+    const raw = renameInputRef.current?.value ?? '';
+    const next = raw.trim();
+    if (!next || next === file.name) {
+      onRenameCancel?.();
+      return;
+    }
+    onRenameSubmit?.(file, next);
+  };
+
+  const handleRenameKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitRename();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onRenameCancel?.();
+    }
+  };
+  const handleMenuRevert = () => {
+    closeMenu();
+    onRevert?.(file);
   };
   const handleMenuShowInFolder = () => {
     closeMenu();
     if (file?.path) localFolderApi.showInFolder(file.path);
+  };
+  const handleMenuDelete = () => {
+    closeMenu();
+    onDelete?.(file);
   };
 
   return (
@@ -579,32 +730,76 @@ function LocalFileCard({ file, onOpen, modified, cloud, overlay }) {
       onMouseLeave={handleMouseLeave}
       onContextMenu={handleContextMenu}
     >
-      <button
-        type="button"
-        className="project-files-card"
-        onClick={() => onOpen?.(file)}
+      {/* Outer wrapper is a div (not a button) so it can contain
+          the inline rename <input> — buttons can't contain
+          interactive elements per HTML spec. role + tabIndex +
+          keyboard handler preserve the button-equivalent
+          semantics (Space/Enter activate). Disabled while
+          renaming so a stray click on the surrounding tile
+          doesn't kick us out of edit mode unexpectedly — only
+          the input's blur/Esc/Enter dismisses. */}
+      <div
+        role="button"
+        tabIndex={isRenaming ? -1 : 0}
+        className={`project-files-card${selected ? ' is-selected' : ''}`}
+        onClick={isRenaming ? undefined : handleCardClick}
+        onDoubleClick={isRenaming ? undefined : handleCardDoubleClick}
+        onKeyDown={isRenaming ? undefined : (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleCardClick();
+          }
+        }}
       >
-        <div className="project-files-thumb">
-          <FileThumbnail
-            mimeType={file.mimeType}
-            posterUrl={cloudThumbUrl}
-            sourceUrl={localUrl}
-            glyph={iconForMime(file.mimeType)}
-            duration={cloud?.duration_seconds}
-          />
+        <div
+          className="project-files-thumb"
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+        >
+          {/* Single descriptor — the resolver picks cloud thumb (when
+              bytes match) or regenerates from on-disk bytes (when
+              local has diverged), with consistent caching and DOCX
+              rich-render across surfaces. The video hover slideshow
+              lights up here too when `cloud.thumbnail_frames` exist. */}
+          <FileThumbnail descriptor={descriptor} hovered={hovered} />
+          {ext && (
+            <span className="project-files-ext" aria-hidden="true">
+              {ext.toUpperCase()}
+            </span>
+          )}
         </div>
-        {ext && (
-          <span className="project-files-ext" aria-hidden="true">
-            {ext.toUpperCase()}
-          </span>
-        )}
         <div className="project-files-meta">
-          <div className="project-files-name">{base || file.name}</div>
-          <div className="project-files-sub">
-            {formatBytes(displaySize)} · {formatDate(displayDate)}
-          </div>
+          {isRenaming ? (
+            <textarea
+              ref={renameInputRef}
+              rows={1}
+              className="project-files-name-input"
+              // Uncontrolled — the DOM input owns the value. Seeded
+              // with the current file.name on mount; commit reads
+              // `renameInputRef.current.value` directly.
+              defaultValue={file.name}
+              onInput={(e) => {
+                // Auto-grow: reset height so the next scrollHeight
+                // measurement isn't capped by the previous frame.
+                // CSS max-height clips at 4 lines and switches to
+                // scroll once the textarea would exceed it.
+                const el = e.target;
+                el.style.height = 'auto';
+                el.style.height = `${el.scrollHeight}px`;
+              }}
+              onKeyDown={handleRenameKeyDown}
+              onBlur={commitRename}
+              // Swallow clicks so the card's onClick (select toggle)
+              // doesn't fire while the user is editing the name.
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              aria-label="Rename file"
+            />
+          ) : (
+            <div className="project-files-name">{base || file.name}</div>
+          )}
         </div>
-      </button>
+      </div>
       {modified && (
         <span className="project-files-modified-pill" aria-label="Local changes">
           Modified
@@ -629,11 +824,41 @@ function LocalFileCard({ file, onOpen, modified, cloud, overlay }) {
                   type="button"
                   role="menuitem"
                   className="project-files-morph-item"
-                  onClick={handleMenuOpen}
+                  onClick={handleMenuProperties}
                 >
-                  Open
+                  Properties
                 </button>
               </li>
+              {onRename && (
+                <li role="none">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="project-files-morph-item"
+                    onClick={handleMenuRename}
+                  >
+                    Rename
+                  </button>
+                </li>
+              )}
+              {/* Revert — only when the file has been modified locally
+                  AND there's a cloud counterpart to revert to. Pulls
+                  the canonical bytes from main and overwrites the local
+                  copy. The auto-commit timer naturally clears the
+                  Modified pill afterward (the diff goes empty for
+                  this file). */}
+              {onRevert && modified && cloud && (
+                <li role="none">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="project-files-morph-item"
+                    onClick={handleMenuRevert}
+                  >
+                    Revert
+                  </button>
+                </li>
+              )}
               <li role="none">
                 <button
                   type="button"
@@ -645,6 +870,18 @@ function LocalFileCard({ file, onOpen, modified, cloud, overlay }) {
                   Show in explorer
                 </button>
               </li>
+              {onDelete && (
+                <li role="none">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="project-files-morph-item project-files-morph-item-danger"
+                    onClick={handleMenuDelete}
+                  >
+                    Delete
+                  </button>
+                </li>
+              )}
             </ul>
           ) : (
             <span className="project-files-morph-text">{tooltipBody}</span>
@@ -653,6 +890,145 @@ function LocalFileCard({ file, onOpen, modified, cloud, overlay }) {
         document.body,
       )}
     </div>
+  );
+}
+
+// Inspector for a local-only My-branch file (no cloud counterpart
+// yet, so no Supabase storage_path). Resolves a preview URL pointing
+// at the on-disk bytes: `localfile://` on Electron, a blob: URL from
+// the cached FSA file handle on web. The blob URL is revoked on
+// unmount so we don't leak memory across opens. Hands the URL to
+// FileDetailModal via `previewUrlOverride` — which bypasses the
+// Supabase signing path so the modal renders the image / video / PDF
+// straight from disk.
+function LocalOnlyFileDetail({ localFile, projectId, viewerId, onClose }) {
+  const isWebPath = typeof localFile?.path === 'string' && localFile.path.startsWith('web://');
+  const mtime = localFile?.mtimeIso || null;
+  const [webBlobUrl, setWebBlobUrl] = useState(null);
+  useEffect(() => {
+    if (!isWebPath || !localFile?.path) return undefined;
+    let cancelled = false;
+    let url = null;
+    readLocalBlob(localFile.path).then((blob) => {
+      if (cancelled) return;
+      url = URL.createObjectURL(blob);
+      setWebBlobUrl(url);
+    }).catch(() => { /* handle missing — modal falls back to glyph */ });
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+      setWebBlobUrl(null);
+    };
+    // mtime in deps so an in-place byte edit re-reads the file and
+    // recreates the blob URL — without it the preview would freeze
+    // on the bytes the modal happened to capture at mount time.
+  }, [isWebPath, localFile?.path, mtime]);
+  const previewUrl = isWebPath
+    ? webBlobUrl
+    : (localFile?.path
+        ? `localfile://local/${encodeURIComponent(localFile.path)}${mtime ? `?t=${encodeURIComponent(mtime)}` : ''}`
+        : null);
+  return (
+    <FileDetailModal
+      file={{
+        id: `local:${localFile.path}`,
+        project_id: projectId,
+        name: localFile.name,
+        description: null,
+        mime_type: localFile.mimeType || '',
+        size_bytes: localFile.sizeBytes ?? 0,
+        storage_path: '',
+        thumbnail_path: null,
+        thumbnail_frames: null,
+        duration_seconds: null,
+        content_hash: null,
+        uploaded_by: viewerId,
+        uploaded_at: localFile.mtimeIso || new Date().toISOString(),
+      }}
+      readOnly
+      previewUrlOverride={previewUrl}
+      onClose={onClose}
+    />
+  );
+}
+
+// Resolve a preview URL pointing at the on-disk bytes for a given
+// local path. Mirrors the localfile:// (Electron) / blob: (web)
+// dispatch that LocalOnlyFileDetail uses, but as a reusable hook so
+// the modal opened for a cloud-backed-but-locally-edited file can
+// share the same resolution and revocation semantics.
+//
+// `mtime` is folded in as a cache-buster so an in-place byte edit
+// (same path, new contents) breaks every layer of caching:
+//   • Electron localfile:// — Chromium caches by URL; the `?t=mtime`
+//     query string makes the URL unique per save, forcing a fresh
+//     stream off disk. The main-process handler keys off pathname
+//     only, so the suffix doesn't change resolution.
+//   • Web blob: — the underlying File object is read freshly each
+//     time the effect re-runs; `mtime` in the dep array makes that
+//     re-run on every save instead of staying pinned to the first
+//     blob URL until the path changes.
+function useLocalPreviewUrl(path, mtime) {
+  const isWebPath = typeof path === 'string' && path.startsWith('web://');
+  const [webBlobUrl, setWebBlobUrl] = useState(null);
+  useEffect(() => {
+    if (!isWebPath || !path) return undefined;
+    let cancelled = false;
+    let url = null;
+    readLocalBlob(path).then((blob) => {
+      if (cancelled) return;
+      url = URL.createObjectURL(blob);
+      setWebBlobUrl(url);
+    }).catch(() => { /* missing — modal falls back to cloud / glyph */ });
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+      setWebBlobUrl(null);
+    };
+  }, [isWebPath, path, mtime]);
+  if (!path) return null;
+  if (isWebPath) return webBlobUrl;
+  const base = `localfile://local/${encodeURIComponent(path)}`;
+  return mtime ? `${base}?t=${encodeURIComponent(mtime)}` : base;
+}
+
+// Wraps FileDetailModal for a cloud-row whose local bytes diverge
+// from the cloud version (My-branch local edit, not yet pushed).
+// Resolves the local bytes to a preview URL and hands it to the
+// modal as `previewUrlOverride` so the preview pane reflects what
+// the file looks like NOW on disk — matching the card thumbnail's
+// behavior — instead of the stale cloud bytes from the canonical
+// bucket. Falls back to the modal's default cloud-signed flow if
+// the local path is missing.
+function MyBranchEditedFileDetail({
+  file,
+  localPath,
+  localMtime,
+  localContentHash,
+  onClose,
+  onDeleted,
+  onLocalRename,
+  readOnly,
+}) {
+  const localUrl = useLocalPreviewUrl(localPath, localMtime);
+  // The DOCX preview generator caches its rich-rendered image by
+  // `content_hash || signedUrl`. The cloud row's content_hash is the
+  // PRE-edit hash, so without override the cache returns the stale
+  // pre-edit rendering even after the URL has been busted by mtime.
+  // Swap the hash with the (post-edit) local hash when known; fall
+  // back to `null` so the cache keys on the cache-busted URL.
+  const effectiveFile = file
+    ? { ...file, content_hash: localContentHash || null }
+    : file;
+  return (
+    <FileDetailModal
+      file={effectiveFile}
+      previewUrlOverride={localUrl}
+      onClose={onClose}
+      onDeleted={onDeleted}
+      onLocalRename={onLocalRename}
+      readOnly={readOnly}
+    />
   );
 }
 
@@ -752,6 +1128,42 @@ export default function ProjectFiles() {
   // flow into the modal's prop (and a DELETE event reduces the prop
   // to null, which the modal interprets as "auto-close").
   const [openFileId, setOpenFileId] = useState(null);
+  // Local-only inspector — opened when the user clicks (or right-click →
+  // Open) a My-branch card whose file isn't yet linked to a cloud row.
+  // Holds the localFile snapshot directly; the modal mounts in readOnly
+  // mode against a synthesized cloud-row shape (no DB metadata to edit
+  // since the file hasn't been pushed).
+  const [openLocalOnlyFile, setOpenLocalOnlyFile] = useState(null);
+  // Selection highlight for My-branch local cards. Single click sets
+  // this; the side-pane modal is gated on a separate state and is
+  // reached only via right-click → Properties. Keyed by `file.path`
+  // so a re-render with the same disk path keeps the selection.
+  const [selectedLocalPath, setSelectedLocalPath] = useState(null);
+  // Inline rename — `file.path` of the card currently in rename
+  // mode, or null. Mirrors the F2-rename pattern from Explorer:
+  // right-click → Rename flips the card's name slot into an
+  // <input>; Enter commits via handleRenameSubmit, Escape / blur
+  // dismisses via handleRenameCancel.
+  const [renamingPath, setRenamingPath] = useState(null);
+  // My-branch scope toggle. "all" (default) renders both the files
+  // on disk AND any main-branch files missing from disk as ghost
+  // cards (the existing "missing — click to download" overlay).
+  // "local" hides those ghosts so the grid only shows files the
+  // user actually has on disk. Persisted per-project so the choice
+  // sticks across navigations / reloads.
+  const MY_SCOPE_KEY = projectId ? `docvex:project-files-my-scope:${projectId}` : null;
+  const [myBranchScope, setMyBranchScope] = useState(() => {
+    if (!MY_SCOPE_KEY) return 'all';
+    try {
+      const cached = localStorage.getItem(MY_SCOPE_KEY);
+      return cached === 'local' ? 'local' : 'all';
+    } catch { return 'all'; }
+  });
+  useEffect(() => {
+    if (!MY_SCOPE_KEY) return;
+    try { localStorage.setItem(MY_SCOPE_KEY, myBranchScope); }
+    catch { /* private mode — fall back to in-memory only */ }
+  }, [MY_SCOPE_KEY, myBranchScope]);
   // Upload modal open/close now lives in UploadsContext so drag-drop
   // events (handled in the context's window listener) can still open
   // it from any route. The FAB on this page no longer opens the
@@ -774,19 +1186,33 @@ export default function ProjectFiles() {
     isMember: viewerIsMember,
     isBehindMain,
     refresh: refreshBranchState,
+    queueChange,
+    refreshOpenRequestItems,
   } = useBranch();
   // Modals: revert-to-main (SyncToMainModal — pulls main into local
   // AND discards queued changes; wired to the "Revert to main branch"
   // button + the "New update on main" status chip), commit-changes
   // (push current local branch state for review; wired to the
-  // "Changes made" status chip), and the admin review panel.
-  const [requestsPanelOpen, setRequestsPanelOpen] = useState(false);
+  // "Changes made" status chip). Change-request review used to be a
+  // third modal here; it now lives as the "Version control" tab on
+  // the Project Dashboard. The status pills below navigate there.
   const [syncModalOpen, setSyncModalOpen] = useState(false);
-  const [commitModalOpen, setCommitModalOpen] = useState(false);
   const openRequestsCount = useMemo(
     () => changeRequests.filter((r) => r.status === 'open').length,
     [changeRequests],
   );
+
+  // Navigate to the dashboard's Version control tab — used by both
+  // the always-visible "Change requests" pill (Main tab) and the
+  // "Awaiting review" pill that lights up after a successful push.
+  // Falls back to a no-op when there's no selected project, which
+  // shouldn't happen here (this page itself requires one) but stays
+  // defensive against future entry points.
+  const navigate = useNavigate();
+  const openVersionControl = useCallback(() => {
+    if (!projectId) return;
+    navigate(`/projects/${projectId}/dashboard?tab=version-control`);
+  }, [navigate, projectId]);
 
   // ── Local-folder sync state ───────────────────────────────────────────
   // localFolder is the absolute path the user picked (or typed) as the
@@ -815,6 +1241,82 @@ export default function ProjectFiles() {
   // files still surface as 'replace'.
   const [cloudHashByFileId, setCloudHashByFileId] = useState(new Map());
   const cloudHashCacheRef = useRef(new Map()); // file.id → hex
+
+  // Sidecar — the per-(project, localFolder) source of truth for
+  // "this on-disk filename IS this fileId". Matching across the
+  // entire branch flow runs through this map; the old name / display-
+  // name / hash fallback stack is gone. See lib/localBranchMeta.js
+  // for the full rationale, the bootstrap path, and the
+  // reconciliation semantics. State here so writes (FAB add, modal
+  // rename, sync-to-main download) trigger React updates that
+  // recompute the diff in the same render.
+  const [sidecar, setSidecar] = useState(() => emptySidecar(null, null));
+  // Load the sidecar whenever the (project, folder) tuple changes.
+  // The empty-folder case still loads — sidecar carries the
+  // projectId so a folder switch later finds the right scope.
+  //
+  // One-time migration: if the in-folder `.docvex.json` doesn't
+  // exist yet, check the old localStorage key (where the sidecar
+  // used to live) and port it into the file. Lets existing users
+  // keep their existing fileId mapping without re-bootstrapping
+  // from scratch. Deletes the localStorage entry after a successful
+  // migration so we don't re-import on every load.
+  useEffect(() => {
+    if (!projectId || !localFolder) {
+      setSidecar(emptySidecar(projectId, localFolder));
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      let loaded = await loadSidecar(projectId, localFolder);
+      // Migration path — only fires when the in-folder sidecar
+      // came back empty. Reads the legacy localStorage payload,
+      // hydrates an in-memory sidecar from it, persists to file,
+      // and clears the legacy key.
+      if (loaded.byFileId.size === 0) {
+        let legacyRaw = null;
+        try { legacyRaw = localStorage.getItem(LEGACY_SIDECAR_KEY(projectId, localFolder)); }
+        catch { /* private mode — skip migration */ }
+        if (legacyRaw) {
+          let legacyParsed = null;
+          try { legacyParsed = JSON.parse(legacyRaw); }
+          catch { /* malformed — drop it below */ }
+          if (legacyParsed?.entries) {
+            const migrated = emptySidecar(projectId, localFolder);
+            for (const [fileId, entry] of Object.entries(legacyParsed.entries)) {
+              if (!entry?.filename) continue;
+              migrated.byFileId.set(fileId, {
+                filename: entry.filename,
+                contentHash: entry.contentHash || null,
+                mtime: entry.mtime || null,
+              });
+              migrated.byFilename.set(entry.filename.toLowerCase(), fileId);
+            }
+            if (migrated.byFileId.size > 0) {
+              // Persist before clearing the legacy key so a failed
+              // write doesn't strand the mapping.
+              const { ok } = await localFolderApi.writeSidecar({
+                dir: localFolder,
+                json: sidecarToPayload(migrated),
+              });
+              if (ok) {
+                try { localStorage.removeItem(LEGACY_SIDECAR_KEY(projectId, localFolder)); }
+                catch { /* swallow */ }
+                loaded = migrated;
+              }
+            }
+          }
+        }
+      }
+      if (!cancelled) setSidecar(loaded);
+    })();
+    return () => { cancelled = true; };
+  }, [projectId, localFolder]);
+  // Sidecar reconciliation now happens inside computeSyncState below —
+  // one pass produces both the reconciled sidecar AND the diff state.
+  // This effect just persists the result when it changes. Keeping
+  // the persist outside the memo so React state updates stay
+  // side-effect-free during render.
   useEffect(() => {
     if (branchView !== 'mine' || !hasLocalFolderApi) return undefined;
     let cancelled = false;
@@ -905,20 +1407,173 @@ export default function ProjectFiles() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branchView, files]);
 
-  // Diff between the user's local branch folder and the canonical
-  // cloud list — drives the Commit-changes button count + the
-  // commit modal's item preview. computeBranchDiff is pure and
-  // accepts the optional hash maps; comparison falls back to size
-  // when either side lacks a hash. The open-request items get
-  // passed in too so any change already submitted (and awaiting
-  // admin review) is excluded — the Commit button hides as soon as
-  // a push lands instead of staying lit forever.
-  const branchDiff = useMemo(
-    () => (branchView === 'mine'
-      ? computeBranchDiff(localFiles, files, localHashByName, cloudHashByFileId, openOwnRequestItems)
-      : []),
-    [branchView, localFiles, files, localHashByName, cloudHashByFileId, openOwnRequestItems],
+  // Soft hold for openOwnRequestItems across the post-approval
+  // window. The realtime echo for a status flip (open → approved)
+  // arrives a few hundred ms before the matching project_files
+  // INSERT/UPDATE/DELETE echoes — so there's a window where:
+  //   • BranchContext has already cleared openOwnRequestItems (the
+  //     request is no longer open).
+  //   • project_files state hasn't yet reflected the merge.
+  //   • branchDiff therefore re-emits the just-merged items as
+  //     fresh add/replace entries → "Changes made" chip flickers
+  //     back on, per-card Modified pills repaint.
+  // The hold snapshots the items at approval time and keeps them
+  // in the filter set for ~4s, smoothing the transition. A ref
+  // captures the snapshot — state updates in the same React tick
+  // can race against the items-clear that follows.
+  const lastOpenItemsRef = useRef([]);
+  const [heldApprovedItems, setHeldApprovedItems] = useState([]);
+  const holdTimerRef = useRef(null);
+
+  useEffect(() => {
+    if ((openOwnRequestItems || []).length > 0) {
+      lastOpenItemsRef.current = openOwnRequestItems;
+    }
+  }, [openOwnRequestItems]);
+
+  useEffect(() => () => {
+    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+  }, []);
+
+  // Effective "in flight" set the diff treats as already pushed.
+  // Falls back to live items when no hold is active so steady-state
+  // behaviour is unchanged.
+  const effectiveOpenItems = useMemo(
+    () => (heldApprovedItems.length > 0
+      ? [...(openOwnRequestItems || []), ...heldApprovedItems]
+      : (openOwnRequestItems || [])),
+    [openOwnRequestItems, heldApprovedItems],
   );
+
+  // Unified sync-state computation. One pass over all the inputs
+  // produces: reconciled sidecar, per-fileId rows (for the per-card
+  // render), toCommit (auto-commit input), toSync (revert-modal
+  // input), summary (status pill source), and openRequestDeleteIds
+  // (missing-card filter). Replaces three previous separate diffs.
+  // See src/lib/syncState.js for the trust hierarchy and the row
+  // classification logic.
+  const syncState = useMemo(
+    () => (branchView === 'mine'
+      ? computeSyncState({
+        localFiles,
+        cloudFiles: files,
+        sidecar,
+        pendingChanges,
+        openRequestItems: effectiveOpenItems,
+        localHashByName,
+        cloudHashByFileId,
+      })
+      : null),
+    [branchView, localFiles, files, sidecar, pendingChanges, effectiveOpenItems, localHashByName, cloudHashByFileId],
+  );
+
+  // Persist the reconciled sidecar back to disk + React state when
+  // the in-memory shape moved. The memo above is pure; this effect
+  // is the only writer.
+  useEffect(() => {
+    if (!syncState || !syncState.sidecarChanged) return;
+    setSidecar(syncState.sidecar);
+    saveSidecar(syncState.sidecar);
+  }, [syncState]);
+
+  // Compatibility shim: the existing auto-commit and per-card render
+  // code wants the legacy "branchDiff" array. toCommit is the same
+  // shape (items carry kind/local/cloud/fileId), so we expose it
+  // under the old name to keep downstream untouched.
+  const branchDiff = syncState?.toCommit || [];
+
+  // ── Manual push ────────────────────────────────────────────────────
+  // The "auto-commit on edit" pattern is gone — users wanted control
+  // over when work goes out for review. A single Push button on the
+  // "You have unsaved edits" pill triggers a one-shot push of every
+  // currently-detected local change. No title / description prompt;
+  // the title is a date-based string for the reviewer's audit log,
+  // same as the old auto-push generated.
+  //
+  // `pushing` gates the button to prevent double-clicks; refresh of
+  // `openOwnRequestItems` after success makes the pill flip from
+  // "unsaved" to "waiting for review" in the same render.
+  const [pushing, setPushing] = useState(false);
+  const handlePush = useCallback(async () => {
+    if (pushing) return;
+    if (branchView !== 'mine') return;
+    if (!projectId || !userId) return;
+    const snapshot = buildCommitSnapshot({
+      fsDiff: branchDiff,
+      pendingChanges,
+    });
+    if (snapshot.length === 0) return;
+    setPushing(true);
+    try {
+      const dateStr = new Date().toLocaleDateString(undefined, {
+        month: 'short', day: 'numeric', year: 'numeric',
+      });
+      const { error: pushErr } = await runCommitFlow({
+        projectId,
+        userId,
+        snapshot,
+        title: `Changes — ${dateStr}`,
+        description: '',
+      });
+      if (pushErr) {
+        notify?.({
+          category: 'file',
+          variant: 'error',
+          title: 'Could not send edits',
+          body: pushErr.message || String(pushErr),
+          dedupeKey: `push-fail:${Date.now()}`,
+        });
+      } else {
+        await refreshOpenRequestItems?.();
+        notify?.({
+          category: 'file',
+          variant: 'success',
+          icon: 'check',
+          title: 'Edits sent',
+          body: 'Your edits are waiting for review.',
+          dedupeKey: `push-ok:${Date.now()}`,
+        });
+      }
+    } finally {
+      setPushing(false);
+    }
+  }, [pushing, branchView, projectId, userId, branchDiff, pendingChanges, notify, refreshOpenRequestItems]);
+
+  // Per-card "modified" indicator: derived from syncState.rows so it
+  // mirrors the status pill exactly. Includes BOTH 'replace' (bytes
+  // changed) AND 'rename' (name changed) — both are pending edits
+  // from the user's perspective.
+  const diffReplaceCloudIds = useMemo(() => {
+    const s = new Set();
+    if (!syncState) return s;
+    for (const row of syncState.rows.values()) {
+      if ((row.status === 'replace' || row.status === 'rename') && row.cloud) {
+        s.add(row.cloud.id);
+      }
+    }
+    return s;
+  }, [syncState]);
+
+  // Narrower set: cloud ids whose LOCAL BYTES have diverged from the
+  // cloud-stored bytes. Used by the per-card render to decide whether
+  // to show the cloud-baked thumbnail (still accurate after a rename
+  // alone) or the locally-regenerated thumbnail (only choice when the
+  // file's content has changed locally — the cloud thumb is stale
+  // until an admin approves a push). A rename-only divergence keeps
+  // the cloud thumbnail.
+  const bytesDifferCloudIds = useMemo(() => {
+    const s = new Set();
+    if (!syncState) return s;
+    for (const row of syncState.rows.values()) {
+      if (row.status === 'replace' && row.cloud) s.add(row.cloud.id);
+    }
+    return s;
+  }, [syncState]);
+
+  // Cloud rows queued for delete by an open (or recently-approved)
+  // change request — the missing-card overlay suppresses these
+  // because the cloud row is about to disappear.
+  const openRequestDeleteIds = syncState?.openRequestDeleteIds || new Set();
   // Tracks which projectId has been hydrated from localStorage. Until
   // hydrate runs for the current project, the persist effect skips
   // writes — otherwise the initial render's localFolder='' would
@@ -931,34 +1586,55 @@ export default function ProjectFiles() {
   // keystroke; wait until they stop typing.
   const localFolderDebounceRef = useRef(null);
 
-  // Hydrate the chosen folder from localStorage when the project switches.
-  // Clearing on project switch (instead of carrying the value forward)
-  // avoids accidentally syncing project A's files into project B's
-  // folder if the user picked one and forgot. `hydratedProjectId` flips
-  // last so the persist effect's closure sees the same projectId only
-  // AFTER hydration has set the folder state.
+  // Web-only: tracks "we have a persisted folder handle but the
+  // browser needs the user's gesture to grant permission again."
+  // True between page-load and the user's first Reconnect click.
+  // Always false on Electron (paths are usable without gating).
+  const [needsReconnect, setNeedsReconnect] = useState(false);
+
+  // Hydrate the chosen folder when the project switches:
+  //   • Electron: read the path from localStorage (sync, instant).
+  //   • Web:      look up the FileSystemDirectoryHandle in IndexedDB
+  //               (async). If found, show its name and gate file
+  //               listing on a Reconnect click (FSA permission
+  //               grants don't survive a reload by default).
+  // Clearing on project switch avoids accidentally syncing project
+  // A's files into project B's folder.
   useEffect(() => {
     if (!projectId) {
       setLocalFolder('');
       setLocalFiles([]);
       setLocalError(null);
+      setNeedsReconnect(false);
       setHydratedProjectId(null);
-      return;
+      return undefined;
     }
-    // Only the Electron backend has persistent paths — the web's
-    // File System Access API hands back an opaque handle each
-    // session and re-grants permission via a user gesture, so a
-    // saved name from a previous session would just be misleading.
-    let cached = '';
     if (isElectronBranch) {
-      try {
-        cached = localStorage.getItem(LOCAL_FOLDER_KEY(projectId)) || '';
-      } catch { /* private-mode etc. — fall through with empty */ }
+      let cached = '';
+      try { cached = localStorage.getItem(LOCAL_FOLDER_KEY(projectId)) || ''; }
+      catch { /* private-mode etc. — fall through with empty */ }
+      setLocalFolder(cached);
+      setLocalFiles([]);
+      setLocalError(null);
+      setNeedsReconnect(false);
+      setHydratedProjectId(projectId);
+      return undefined;
     }
-    setLocalFolder(cached);
+    // Web restore path.
+    let cancelled = false;
+    setLocalFolder('');
     setLocalFiles([]);
     setLocalError(null);
-    setHydratedProjectId(projectId);
+    setNeedsReconnect(false);
+    localFolderApi.restorePersistedHandle(projectId).then((restored) => {
+      if (cancelled) return;
+      if (restored) {
+        setLocalFolder(restored.name);
+        setNeedsReconnect(Boolean(restored.needsPermission));
+      }
+      setHydratedProjectId(projectId);
+    });
+    return () => { cancelled = true; };
   }, [projectId]);
 
   // Persist the folder + refresh the listing whenever the path changes.
@@ -981,6 +1657,14 @@ export default function ProjectFiles() {
     }
 
     if (!hasLocalFolderApi || !localFolder) {
+      setLocalFiles([]);
+      setLocalError(null);
+      return undefined;
+    }
+    // Web restore window: handle is hot-loaded but permission isn't
+    // granted yet. Calling list() would throw NotAllowedError; skip
+    // until the user clicks Reconnect.
+    if (needsReconnect) {
       setLocalFiles([]);
       setLocalError(null);
       return undefined;
@@ -1008,7 +1692,7 @@ export default function ProjectFiles() {
       cancelled = true;
       if (localFolderDebounceRef.current) clearTimeout(localFolderDebounceRef.current);
     };
-  }, [projectId, localFolder, hydratedProjectId]);
+  }, [projectId, localFolder, hydratedProjectId, needsReconnect]);
 
   // Live-reload the local file list when the branch folder changes on
   // disk. main runs `fs.watch` (debounced 200ms) and pings us via
@@ -1037,12 +1721,40 @@ export default function ProjectFiles() {
   }, [localFolder]);
 
   // Open the native folder picker; main returns the absolute path or
-  // null if the user canceled. No-op when no Electron API (web build).
+  // null if the user canceled. On web the picker returns a
+  // FileSystemDirectoryHandle name (the IDB persistence call below
+  // saves the actual handle so the next visit can restore it).
+  // No-op when no Electron / FSA API.
   const handleBrowseFolder = useCallback(async () => {
     if (!hasLocalFolderApi) return;
     const picked = await localFolderApi.pick();
-    if (picked) setLocalFolder(picked);
-  }, []);
+    if (!picked) return;
+    setLocalFolder(picked);
+    setNeedsReconnect(false);
+    // Web: stash the just-picked handle for next session. Idempotent
+    // and a no-op on Electron, so we don't have to branch here.
+    if (projectId) await localFolderApi.persistPickedHandle(projectId);
+  }, [projectId]);
+
+  // Web-only: re-grant permission on the persisted handle. The FSA
+  // spec requires this to be inside a user gesture, which is why it
+  // wears its own button rather than firing automatically on restore.
+  // On success, clears the gate so the file-listing effect runs.
+  const handleReconnect = useCallback(async () => {
+    if (!hasLocalFolderApi) return;
+    const ok = await localFolderApi.reconnectHandle();
+    if (ok) {
+      setNeedsReconnect(false);
+    } else {
+      notify({
+        category: 'file',
+        variant: 'error',
+        title: 'Folder access denied',
+        body: 'Pick the folder again to reconnect.',
+        dedupeKey: 'reconnect-folder-denied',
+      });
+    }
+  }, [notify]);
 
   // Open the chosen folder in the OS file manager.
   const handleOpenFolder = useCallback(() => {
@@ -1097,6 +1809,20 @@ export default function ProjectFiles() {
       title: 'Downloaded',
       body: cloudFile.name,
       dedupeKey: `download-one-ok:${cloudFile.id}`,
+    });
+    // Immediate sidecar entry — claim cloud.id for the local file
+    // before the reconciliation pass would have to hash-match it
+    // back. Skips the bootstrap window where the just-downloaded
+    // file briefly has no fileId and the diff would treat it as
+    // an orphan. Hash will fill in on the next background pass.
+    setSidecar((prev) => {
+      const next = addSidecarEntry(prev, cloudFile.id, {
+        filename,
+        contentHash: cloudFile.content_hash || null,
+        mtime: new Date().toISOString(),
+      });
+      saveSidecar(next);
+      return next;
     });
     const { files: localList } = await localFolderApi.list(localFolder);
     setLocalFiles(localList || []);
@@ -1202,6 +1928,36 @@ export default function ProjectFiles() {
         : `${okCount} file${okCount === 1 ? '' : 's'} added to your branch.`,
       dedupeKey: 'fab-write-result',
     });
+    // Synchronously mint a fileId per successfully-written file and
+    // park it in the sidecar. The reconciliation effect would catch
+    // these too — but only after the background hasher runs, which
+    // can take a second or two on larger files. By claiming the IDs
+    // here, the new card resolves through the sidecar in the very
+    // next render (matching, "modified" pill, drag-to-version-control
+    // all work immediately). Hash backfills on the next reconcile.
+    if (okCount > 0) {
+      setSidecar((prev) => {
+        let next = prev;
+        for (const r of results || []) {
+          if (!r.ok || !r.filename) continue;
+          // Filename may have been sanitised by main.js; the result
+          // carries the saved name. Skip if the file already has a
+          // sidecar mapping (re-add of an existing file → keep id).
+          const lcName = r.filename.toLowerCase();
+          if (next.byFilename.has(lcName)) continue;
+          const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          next = addSidecarEntry(next, id, {
+            filename: r.filename,
+            contentHash: null,
+            mtime: new Date().toISOString(),
+          });
+        }
+        if (next !== prev) saveSidecar(next);
+        return next;
+      });
+    }
     await refetchLocalFiles();
   }, [localFolder, notify, refetchLocalFiles]);
 
@@ -1224,6 +1980,10 @@ export default function ProjectFiles() {
   // DELETEs may not propagate without REPLICA IDENTITY FULL, leaving
   // stale overlays. A targeted refetch on the transition fixes that
   // without spamming refetches on every realtime tick.
+  //
+  // Also seeds the soft hold (heldApprovedItems) with the snapshot
+  // captured in lastOpenItemsRef — see the hold rationale above
+  // the effectiveOpenItems memo.
   const lastApprovedIdsRef = useRef(new Set());
   useEffect(() => {
     if (!userId) return;
@@ -1238,6 +1998,14 @@ export default function ProjectFiles() {
     }
     lastApprovedIdsRef.current = currentlyApproved;
     if (isNewApproval) {
+      if (lastOpenItemsRef.current.length > 0) {
+        setHeldApprovedItems(lastOpenItemsRef.current);
+        if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = setTimeout(() => {
+          setHeldApprovedItems([]);
+          holdTimerRef.current = null;
+        }, 4000);
+      }
       refetchCloudFiles();
       refetchLocalFiles();
       refreshBranchState?.();
@@ -1285,6 +2053,24 @@ export default function ProjectFiles() {
       } else if (eventType === 'DELETE' && oldRow?.id) {
         setFiles((prev) => prev.filter((f) => f.id !== oldRow.id));
       } else if (eventType === 'UPDATE' && newRow?.id) {
+        // On a replace-approval the storage object at the same path
+        // gets overwritten with new bytes, but our in-memory signed
+        // URL cache still holds the old URL for that path — and the
+        // browser HTTP cache holds the bytes that URL fetched. Evict
+        // both the storage_path AND thumbnail paths so the next sign
+        // call returns a fresh URL (different token → browser cache
+        // miss → new bytes). content_hash is the actual signal that
+        // bytes diverged, but we also evict on a no-bytes-changed
+        // update (e.g., rename) because clearing a couple of paths
+        // is cheap and avoids missing a case.
+        const bytesChanged = !oldRow || oldRow.content_hash !== newRow.content_hash;
+        if (bytesChanged) {
+          if (newRow.storage_path)   evictSignedUrlCache(newRow.storage_path);
+          if (newRow.thumbnail_path) evictSignedUrlCache(newRow.thumbnail_path);
+          if (Array.isArray(newRow.thumbnail_frames)) {
+            for (const f of newRow.thumbnail_frames) evictSignedUrlCache(f);
+          }
+        }
         setFiles((prev) => prev.map((f) => (f.id === newRow.id ? newRow : f)));
       }
     });
@@ -1333,62 +2119,367 @@ export default function ProjectFiles() {
     return buckets;
   };
 
-  // Lookup of cloud files keyed by their on-disk filename — i.e. the
-  // `storage_path`'s last segment, which is exactly what the download
-  // pipeline writes to disk. Lower-cased so a Windows filesystem's
-  // case-insensitive name resolution doesn't miss a match between e.g.
-  // `Photo.jpg` (cloud) and `photo.jpg` (local). Used to detect local
-  // files that have been edited after download — size mismatch = the
-  // user changed something. Memoised on `files` so the click handler
-  // below can hold a stable reference for the My-branch → cloud-file
-  // lookup without redoing the loop on every render.
-  const cloudByFilename = useMemo(() => {
+  // Cloud files indexed by id — the sidecar maps each local file's
+  // filename to a fileId, and we hop through this index to get the
+  // actual cloud row. Memoised so the click handler + render loop
+  // share a stable reference and don't rebuild on every render.
+  const cloudById = useMemo(() => {
     const map = new Map();
     for (const f of files) {
-      const filename = (f.storage_path || '').split('/').pop();
-      if (filename) map.set(filename.toLowerCase(), f);
+      if (f?.id) map.set(f.id, f);
     }
     return map;
   }, [files]);
 
-  // Click handler for cards on the My-branch (local) tab. Match the
-  // local file to a cloud row in priority:
-  //   1. Filename match (normal case).
-  //   2. Queued-rename overlay (proposed.name == local name) — keeps
-  //      the modal openable on a freshly-renamed file before/after
-  //      the disk rename catches up.
-  //   3. Hash match — last-resort for local files renamed outside
-  //      the app.
-  // No match → opens in the OS default app (no cloud metadata to edit).
+  // Click handler for cards on the My-branch (local) tab. With the
+  // sidecar in play, matching is one hop: filename → fileId → cloud.
+  // The previous filename / display-name / overlay / hash fallback
+  // chain collapsed into the sidecar reconciliation pass, so this
+  // handler stays in sync with whatever the render loop resolves.
+  // Either path opens the FileDetailModal as a side-pane inspector;
+  // we never auto-launch the OS app from a card click — the user
+  // wants the right-side info pane, not a bytes-open.
   const handleOpenLocalCard = useCallback((localFile) => {
     const lcName = (localFile.name || '').toLowerCase();
-    let cloud = cloudByFilename.get(lcName);
-    // Post-approval display-name match — cloud.name reflects the
-    // merged rename even though storage_path keeps the original
-    // filename. Same priority as the page render to stay consistent.
-    if (!cloud) {
-      cloud = files.find((f) => (f.name || '').toLowerCase() === lcName) || null;
-    }
-    if (!cloud) {
-      const renameChange = pendingChanges.find(
-        (c) => c.proposed?.name && c.target_file_id
-          && c.proposed.name.toLowerCase() === lcName,
-      );
-      if (renameChange) {
-        cloud = files.find((f) => f.id === renameChange.target_file_id) || null;
-      }
-    }
-    if (!cloud) {
-      const localHash = localHashByName.get(lcName);
-      if (localHash) {
-        cloud = files.find(
-          (f) => (f.content_hash || cloudHashByFileId.get(f.id)) === localHash,
-        ) || null;
-      }
-    }
+    const fileId = sidecar.byFilename.get(lcName);
+    const cloud = fileId ? cloudById.get(fileId) : null;
     if (cloud) setOpenFileId(cloud.id);
-    else handleOpenLocalFile(localFile);
-  }, [cloudByFilename, files, pendingChanges, localHashByName, cloudHashByFileId, handleOpenLocalFile]);
+    else setOpenLocalOnlyFile(localFile);
+  }, [sidecar, cloudById]);
+
+  // Right-click → Delete from the My-branch card's context menu.
+  // Two paths depending on whether the file has a cloud counterpart:
+  //   • Cloud-backed: queue a `delete` branch_change targeting the
+  //     cloud row. Reversible until the user pushes — same flow as
+  //     the FileDetailModal's Delete button. No confirm needed; the
+  //     queued state is visible on the card (the DELETED overlay
+  //     pill) and discardable from the Commit modal.
+  //   • Local-only (sidecar-minted UUID, no cloud match yet): no
+  //     cloud row to mark for delete, so this is a true filesystem
+  //     remove. window.confirm() guards the destructive step since
+  //     the on-disk file isn't recoverable from the app.
+  const handleDeleteLocalCard = useCallback(async (localFile) => {
+    if (!localFile?.name) return;
+    if (!hasLocalFolderApi || !localFolder) return;
+    // Local-only delete — no branch_change, no commit, no cloud
+    // side effect. Per user direction: My-branch deletes are
+    // purely "remove from my working copy", and file removal on
+    // main is handled exclusively from the Main tab (admin
+    // "Delete all files" or per-file delete via the modal).
+    //
+    // If the file had a cloud counterpart, it will re-surface as a
+    // "missing — download" card on My branch on the next render
+    // (cloud row exists, local file doesn't). That's the expected
+    // shape: the user can re-pull it or ignore it.
+    // eslint-disable-next-line no-alert
+    const ok = window.confirm(`Permanently delete "${localFile.name}" from your local folder?`);
+    if (!ok) return;
+    const { error: delErr } = await localFolderApi.deleteFiles({
+      dir: localFolder,
+      paths: [localFile.path],
+    });
+    if (delErr) {
+      notify({
+        category: 'file',
+        variant: 'error',
+        title: 'Could not delete file',
+        body: delErr,
+        dedupeKey: `delete-local-error:${localFile.path}`,
+      });
+      return;
+    }
+    setSidecar((prev) => {
+      const next = removeSidecarByFilename(prev, localFile.name);
+      if (next !== prev) saveSidecar(next);
+      return next;
+    });
+    await refetchLocalFiles();
+    notify({
+      category: 'file',
+      variant: 'success',
+      icon: 'trash',
+      title: 'File deleted',
+      body: localFile.name,
+      dedupeKey: `delete-local-ok:${localFile.path}`,
+    });
+  }, [notify, localFolder, refetchLocalFiles]);
+
+  // Single-click selection — just highlights the card. Re-clicking
+  // the already-selected card deselects (matches OS file managers).
+  const handleSelectLocalCard = useCallback((localFile) => {
+    setSelectedLocalPath((prev) => (prev === localFile.path ? null : localFile.path));
+  }, []);
+
+  // F2 on a selected card → enter rename mode. Matches Windows
+  // Explorer's keyboard affordance. Bailed when a card is already
+  // in rename mode (the textarea would otherwise consume the key
+  // before we see it, but we guard explicitly for completeness)
+  // and when focus is in an input / textarea / contentEditable
+  // elsewhere in the app so F2 doesn't hijack other text fields.
+  useEffect(() => {
+    if (!selectedLocalPath) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'F2') return;
+      if (renamingPath) return;
+      const target = e.target;
+      const tag = (target?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) return;
+      e.preventDefault();
+      setRenamingPath(selectedLocalPath);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedLocalPath, renamingPath]);
+
+  // Right-click → Rename. Flips the card into inline-rename mode;
+  // the actual on-disk rename runs in handleRenameSubmit when the
+  // user commits via Enter / blur.
+  const handleRenameLocalCard = useCallback((localFile) => {
+    if (!localFile?.path) return;
+    setRenamingPath(localFile.path);
+  }, []);
+
+  const handleRenameCancel = useCallback(() => {
+    setRenamingPath(null);
+  }, []);
+
+  // Commits an inline rename — performs the on-disk rename, threads
+  // the change through the sidecar (same fileId, new filename) and
+  // queues a metadata edit for cloud-backed files so the rename
+  // rides into the next change request as a proper edit (not a
+  // delete-then-add). The auto-commit timer picks up the resulting
+  // branch_changes row + local diff entry on its next tick.
+  const handleRenameSubmit = useCallback(async (localFile, nextName) => {
+    setRenamingPath(null);
+    if (!hasLocalFolderApi || !localFolder || !localFile?.name) return;
+    const toName = (nextName || '').trim();
+    if (!toName || toName === localFile.name) return;
+    // Preserve the on-disk extension when the user types just the
+    // base — losing it would break the OS file-type association.
+    const lastDot = localFile.name.lastIndexOf('.');
+    const ext = lastDot > 0 ? localFile.name.slice(lastDot + 1) : '';
+    let finalName = toName;
+    if (ext && !finalName.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
+      finalName = `${finalName}.${ext}`;
+    }
+    if (finalName === localFile.name) return;
+    // Snapshot the sidecar fileId BEFORE the rename / sidecar swap.
+    // After renameSidecarEntry runs the old filename is gone from
+    // byFilename, so the cloud lookup below has to come from the
+    // pre-rename name.
+    const lcOldName = (localFile.name || '').toLowerCase();
+    const fileId = sidecar.byFilename.get(lcOldName);
+    const cloud = fileId ? cloudById.get(fileId) : null;
+    const { error } = await localFolderApi.renameFile({
+      dir: localFolder,
+      fromName: localFile.name,
+      toName: finalName,
+    });
+    if (error) {
+      notify({
+        category: 'file',
+        variant: 'error',
+        title: 'Rename failed',
+        body: error,
+        dedupeKey: `rename-local-error:${localFile.path}`,
+      });
+      return;
+    }
+    // Sidecar follows the rename — same fileId, new filename — so
+    // the next reconcile + diff match correctly. We snapshotted
+    // fileId above so the cloud queueChange below can still find
+    // the right target_file_id after the byFilename map updates.
+    setSidecar((prev) => {
+      const nextSc = renameSidecarEntry(prev, localFile.name, finalName);
+      if (nextSc !== prev) saveSidecar(nextSc);
+      return nextSc;
+    });
+    if (cloud) {
+      await queueChange({
+        kind: 'edit',
+        targetFileId: cloud.id,
+        proposed: { name: finalName },
+      });
+    }
+    await refetchLocalFiles();
+    notify({
+      category: 'file',
+      variant: 'success',
+      icon: 'check',
+      title: 'Renamed',
+      body: `${localFile.name} → ${finalName}`,
+      dedupeKey: `rename-local-ok:${localFile.path}`,
+    });
+  }, [localFolder, notify, sidecar, cloudById, queueChange, refetchLocalFiles]);
+
+  // Right-click → Revert. Pulls the canonical bytes from main and
+  // overwrites the local copy, dropping any in-progress local edits
+  // to this file. Only meaningful when there's a cloud counterpart
+  // — the menu item is gated on that AND on `modified` in
+  // LocalFileCard, so this handler can assume both.
+  const handleRevertLocalCard = useCallback(async (localFile) => {
+    if (!hasLocalFolderApi || !localFolder) return;
+    const lcName = (localFile.name || '').toLowerCase();
+    const fileId = sidecar.byFilename.get(lcName);
+    const cloud = fileId ? cloudById.get(fileId) : null;
+    if (!cloud?.storage_path) return;
+    // eslint-disable-next-line no-alert
+    const ok = window.confirm(
+      `Revert "${localFile.name}" to the main-branch version?\n\n`
+      + 'Your local edits to this file will be lost.',
+    );
+    if (!ok) return;
+    const { data, error: signErr } = await createSignedDownloadUrl(cloud.storage_path, 600);
+    if (signErr || !data?.signedUrl) {
+      notify({
+        category: 'file',
+        variant: 'error',
+        title: 'Revert failed',
+        body: signErr?.message || 'Could not sign the cloud version URL.',
+        dedupeKey: `revert-sign-error:${cloud.id}`,
+      });
+      return;
+    }
+    // If the cloud's filename differs from local (post-rename
+    // queued locally), drop the local file first so the download
+    // doesn't leave both names on disk.
+    const cloudFilename = (cloud.storage_path || '').split('/').pop()
+      || cloud.name || localFile.name;
+    if (cloudFilename.toLowerCase() !== lcName) {
+      await localFolderApi.deleteFiles({
+        dir: localFolder,
+        paths: [localFile.path],
+      }).catch(() => { /* swallow — the download still writes the canonical name */ });
+      setSidecar((prev) => {
+        const nextSc = removeSidecarByFilename(prev, localFile.name);
+        if (nextSc !== prev) saveSidecar(nextSc);
+        return nextSc;
+      });
+    }
+    const { results, error: dlErr } = await localFolderApi.download({
+      dir: localFolder,
+      files: [{ url: data.signedUrl, filename: cloudFilename }],
+    });
+    if (dlErr || !results?.[0]?.ok) {
+      notify({
+        category: 'file',
+        variant: 'error',
+        title: 'Revert failed',
+        body: dlErr || results?.[0]?.error || 'Could not write the file.',
+        dedupeKey: `revert-download-error:${cloud.id}`,
+      });
+      return;
+    }
+    // Sidecar adopts the cloud id at the canonical filename so the
+    // next reconcile + diff don't treat this as a fresh add.
+    setSidecar((prev) => {
+      const nextSc = addSidecarEntry(prev, cloud.id, {
+        filename: cloudFilename,
+        contentHash: cloud.content_hash || null,
+        mtime: new Date().toISOString(),
+      });
+      saveSidecar(nextSc);
+      return nextSc;
+    });
+    // Prime the hash map with the cloud hash so the per-card
+    // "Modified" pill clears this render instead of waiting on the
+    // background re-hasher.
+    if (cloud.content_hash) {
+      setLocalHashByName((prev) => {
+        const next = new Map(prev);
+        next.set(cloudFilename.toLowerCase(), cloud.content_hash);
+        return next;
+      });
+    }
+    await refetchLocalFiles();
+    notify({
+      category: 'file',
+      variant: 'success',
+      icon: 'check',
+      title: 'Reverted',
+      body: `"${cloudFilename}" matches main again.`,
+      dedupeKey: `revert-ok:${cloud.id}`,
+    });
+  }, [sidecar, cloudById, localFolder, notify, refetchLocalFiles]);
+
+  // Admin-only "wipe main" action — surfaced as the second pill in
+  // the Main-tab status row. Hard-deletes every project_files row
+  // (and its storage object via deleteProjectFile) sequentially.
+  // Irreversible; gated on a typed window.confirm so a stray click
+  // can't destroy a team's library. Doesn't touch local folders —
+  // the My-branch sidecar will reconcile each user's view via the
+  // existing pruning pass once realtime fires.
+  const [wipingMain, setWipingMain] = useState(false);
+  const handleWipeMain = useCallback(async () => {
+    if (wipingMain || !viewerIsAdmin) return;
+    const count = files.length;
+    if (count === 0) {
+      notify({
+        category: 'file',
+        variant: 'info',
+        title: 'Already empty',
+        body: 'The main branch has no files to delete.',
+        dedupeKey: 'wipe-main-empty',
+      });
+      return;
+    }
+    // eslint-disable-next-line no-alert
+    const ok = window.confirm(
+      `Permanently delete ALL ${count} file${count === 1 ? '' : 's'} from the main branch?\n\n`
+      + 'This affects every member of the project and cannot be undone.',
+    );
+    if (!ok) return;
+    setWipingMain(true);
+    let okCount = 0;
+    let failCount = 0;
+    const wipedIds = new Set();
+    for (const f of files) {
+      const { error } = await deleteProjectFile({
+        id: f.id,
+        storagePath: f.storage_path,
+        thumbnailPath: f.thumbnail_path,
+        thumbnailFrames: f.thumbnail_frames,
+      });
+      if (error) {
+        failCount += 1;
+      } else {
+        okCount += 1;
+        wipedIds.add(f.id);
+      }
+    }
+    setWipingMain(false);
+    await refetchCloudFiles();
+
+    // Prune sidecar entries pointing at the wiped cloud rows. Without
+    // this, the user's local files on My branch stay mapped to dead
+    // cloud ids — and because the sidecar still claims those files are
+    // "known", the diff treats them as already-tracked-against-cloud
+    // (no action needed) and the My-branch status pill flips to
+    // "Synced with main" even though main is now empty. Pruning forces
+    // the next reconcile pass to mint fresh UUIDs (Pass 1d), which
+    // makes computeBranchDiff emit them as ADDs → "Changes made" pill
+    // shows, push re-populates main.
+    if (wipedIds.size > 0) {
+      setSidecar((prev) => {
+        let next = prev;
+        for (const id of wipedIds) {
+          if (next.byFileId.has(id)) next = removeSidecarEntry(next, id);
+        }
+        if (next !== prev) saveSidecar(next);
+        return next;
+      });
+    }
+    notify({
+      category: 'file',
+      variant: failCount > 0 ? 'error' : 'success',
+      icon: 'trash',
+      title: failCount > 0 ? 'Wipe finished with errors' : 'Main branch wiped',
+      body: failCount > 0
+        ? `${okCount} of ${count} files deleted · ${failCount} failed`
+        : `${okCount} file${okCount === 1 ? '' : 's'} deleted from main.`,
+      dedupeKey: `wipe-main-result:${Date.now()}`,
+    });
+  }, [wipingMain, viewerIsAdmin, files, notify, refetchCloudFiles]);
 
   return (
     <div
@@ -1399,7 +2490,7 @@ export default function ProjectFiles() {
       <header className="project-scoped-header">
         <h1 className="project-scoped-title">Files</h1>
         <p className="project-scoped-subtitle">
-          Drop files anywhere in the app to upload to <strong>{selectedProject.name}</strong>.
+          Drag files anywhere in the window to add them to <strong>{selectedProject.name}</strong>.
         </p>
 
         {/* Local-folder bar — rendered in Electron + on Chromium-based
@@ -1422,6 +2513,20 @@ export default function ProjectFiles() {
               spellCheck={false}
               aria-label="Local download folder"
             />
+            {/* Web restore window: handle is loaded but permission
+                hasn't been granted yet this session. Show Reconnect
+                as the primary action; Browse stays available for
+                picking a different folder. */}
+            {needsReconnect && (
+              <button
+                type="button"
+                className="project-files-local-btn"
+                onClick={handleReconnect}
+                title="Grant access to the remembered folder"
+              >
+                Reconnect
+              </button>
+            )}
             <button
               type="button"
               className="project-files-local-btn"
@@ -1453,8 +2558,7 @@ export default function ProjectFiles() {
           onClick={() => setBranchView('main')}
         >
           {CloudIcon}
-          <span>Main</span>
-          <span className="project-files-tab-count">{files.length}</span>
+          <span>Cloud</span>
         </button>
         {viewerIsMember && (
           <button
@@ -1467,48 +2571,95 @@ export default function ProjectFiles() {
             onClick={() => setBranchView('mine')}
           >
             {HardDriveIcon}
-            <span>My branch</span>
-            {pendingChanges.length > 0 && (
-              <span className="project-files-tab-count">{pendingChanges.length}</span>
-            )}
+            <span>Yours</span>
           </button>
         )}
       </div>
 
-      {/* Main-tab pill row — currently just the "Change requests"
-          pill, which lets any member/admin open the review panel.
-          Same .project-files-branch-status container as the My-branch
-          status row below so both rows share spacing and pill styles. */}
-      {(viewerIsMember || viewerIsAdmin) && branchView === 'main' && (
+      {/* Cloud-tab status row — quiet when there's nothing to do,
+          renders the "Waiting for review" pill only when somebody
+          has edits awaiting approval, and surfaces the admin's
+          destructive "Wipe everything" escape hatch. Hiding the
+          empty pill keeps the page calm for first-time / non-tech
+          users — every visible element has a real signal. */}
+      {(viewerIsMember || viewerIsAdmin) && branchView === 'main' && (openRequestsCount > 0 || viewerIsAdmin) && (
         <div className="project-files-branch-status">
-          <button
-            type="button"
-            className="project-files-branch-status-item is-requests is-interactive"
-            onClick={() => setRequestsPanelOpen(true)}
-            title="Open the change-requests review panel"
-          >
-            <span className="project-files-branch-status-dot" aria-hidden="true" />
-            <span className="project-files-branch-status-label">Change requests</span>
-            {openRequestsCount > 0 && (
+          {openRequestsCount > 0 && (
+            <button
+              type="button"
+              className="project-files-branch-status-item is-interactive is-requests"
+              onClick={openVersionControl}
+              title="See the edits your team is waiting on"
+            >
+              <span className="project-files-branch-status-dot" aria-hidden="true" />
+              <div className="project-files-branch-status-text">
+                <strong className="project-files-branch-status-label">Waiting for review</strong>
+                <p className="project-files-branch-status-sub">
+                  {`${openRequestsCount} ${openRequestsCount === 1 ? 'person has' : 'people have'} edits waiting for approval.`}
+                </p>
+              </div>
               <span className="project-files-branch-status-count">{openRequestsCount}</span>
-            )}
-            <span className="project-files-branch-status-cta" aria-hidden="true">Open →</span>
-          </button>
+              <span className="project-files-branch-status-cta" aria-hidden="true">Review →</span>
+            </button>
+          )}
+          {viewerIsAdmin && (
+            <button
+              type="button"
+              className="project-files-branch-status-item is-danger is-interactive"
+              onClick={handleWipeMain}
+              disabled={wipingMain || files.length === 0}
+              title={files.length === 0
+                ? 'No files to delete'
+                : 'Delete every file in the cloud — cannot be undone'}
+            >
+              <span className="project-files-branch-status-dot" aria-hidden="true" />
+              <div className="project-files-branch-status-text">
+                <strong className="project-files-branch-status-label">
+                  {wipingMain ? 'Deleting…' : 'Wipe everything'}
+                </strong>
+                <p className="project-files-branch-status-sub">
+                  {files.length === 0
+                    ? 'Nothing to delete — the cloud is empty.'
+                    : `Permanently remove all ${files.length} file${files.length === 1 ? '' : 's'}. Cannot be undone.`}
+                </p>
+              </div>
+              <span className="project-files-branch-status-cta" aria-hidden="true">Delete →</span>
+            </button>
+          )}
         </div>
       )}
 
       {/* Branch status — sits between the tab strip and the file grid.
-          Three independent signals can light up:
+          Four independent signals can light up:
             • "New update on main"  — base_version is behind main_version.
             • "Changes made"        — local edits or queued metadata
-                                       changes vs main.
+                                       changes vs main, not yet pushed.
+            • "Awaiting review"     — pushed already, change_request is
+                                       still open. Without this signal
+                                       the chip falsely falls to
+                                       "Synced with main" between push
+                                       and admin approval (computeBranchDiff
+                                       filters out submitted items, and
+                                       main_version hasn't bumped yet).
             • "Synced with main"    — everything else (the calm state).
           Only the active signals are shown. Strictly informational —
           the action lives in the "Revert to main branch" button at
           the bottom of the file grid. */}
       {(viewerIsMember || viewerIsAdmin) && branchView === 'mine' && (() => {
         const hasLocalChanges = branchDiff.length + pendingChanges.length > 0;
-        const inSync = !isBehindMain && !hasLocalChanges;
+        // True the moment the request row is known (rather than
+        // when its items finish loading) so the pill doesn't flicker
+        // off between "auto-commit pushed" and "items refetched".
+        const hasOpenOwnRequest = (changeRequests || []).some(
+          (r) => r.author_id === userId && r.status === 'open',
+        );
+        // "Awaiting review" as a separate pill is gone; the Changes-
+        // made pill stays visible while a push is in flight so the
+        // user always knows their work is somewhere along the
+        // local → review → main pipeline. Synced only fires when
+        // there's truly nothing pending.
+        const hasUnpushedOrPending = hasLocalChanges || hasOpenOwnRequest;
+        const inSync = !isBehindMain && !hasUnpushedOrPending;
         return (
           <div className="project-files-branch-status" role="status" aria-live="polite">
             {isBehindMain && (
@@ -1522,34 +2673,94 @@ export default function ProjectFiles() {
                 disabled={!hasLocalFolderApi || !localFolder}
                 title={
                   !hasLocalFolderApi || !localFolder
-                    ? 'Pick a local folder to sync into'
-                    : 'Sync your branch with main'
+                    ? 'Pick a folder so we can save the new files into it'
+                    : 'Download the latest files into your folder'
                 }
               >
                 <span className="project-files-branch-status-dot" aria-hidden="true" />
-                <span className="project-files-branch-status-label">New update on main</span>
-                <span className="project-files-branch-status-cta" aria-hidden="true">Sync →</span>
+                <div className="project-files-branch-status-text">
+                  <strong className="project-files-branch-status-label">New files from your team</strong>
+                  <p className="project-files-branch-status-sub">
+                    {!hasLocalFolderApi || !localFolder
+                      ? 'Pick a folder above so we can save the new files there.'
+                      : "Someone added or changed files. Click to copy them to your folder."}
+                  </p>
+                </div>
+                <span className="project-files-branch-status-cta" aria-hidden="true">Get them →</span>
               </button>
             )}
-            {hasLocalChanges && (
-              // Interactive when local changes exist — clicking opens
-              // the commit modal so the user can push their branch
-              // for admin review without scrolling to find an action.
-              <button
-                type="button"
-                className="project-files-branch-status-item is-changes is-interactive"
-                onClick={() => setCommitModalOpen(true)}
-                title="Push these changes for review"
-              >
-                <span className="project-files-branch-status-dot" aria-hidden="true" />
-                <span className="project-files-branch-status-label">Changes made</span>
-                <span className="project-files-branch-status-cta" aria-hidden="true">Push →</span>
-              </button>
-            )}
+            {hasUnpushedOrPending && (() => {
+              // Two distinct states share this pill:
+              //   • Unsaved local edits → primary action is [Push]
+              //     so the user explicitly sends work for review.
+              //   • Already pushed, waiting on a reviewer → no
+              //     primary action; subtitle becomes "waiting for
+              //     review" and the only escape is the "Use cloud
+              //     version" link which throws away the pending
+              //     request and re-syncs from main.
+              const localChangeCount = branchDiff.length + pendingChanges.length;
+              const openItemCount = (openOwnRequestItems || []).length;
+              const hasLocal = localChangeCount > 0;
+              const count = hasLocal ? localChangeCount : openItemCount;
+              const label = hasLocal
+                ? 'You have unsaved edits'
+                : 'Waiting for review';
+              const sub = hasLocal
+                ? `${count} ${count === 1 ? 'edit' : 'edits'} ready — click Push to send`
+                : `${count} ${count === 1 ? 'edit' : 'edits'} sent. Hang tight while your team reviews.`;
+              return (
+                <span
+                  className="project-files-branch-status-item is-changes"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span className="project-files-branch-status-dot" aria-hidden="true" />
+                  <div className="project-files-branch-status-text">
+                    <strong className="project-files-branch-status-label">{label}</strong>
+                    <p className="project-files-branch-status-sub">{sub}</p>
+                  </div>
+                  <span className="project-files-branch-status-action-group">
+                    {hasLocal && (
+                      <button
+                        type="button"
+                        className="project-files-branch-status-action project-files-branch-status-action-primary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePush();
+                        }}
+                        disabled={pushing}
+                        title="Send your edits for review"
+                      >
+                        {pushing ? 'Sending…' : 'Push'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="project-files-branch-status-action"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSyncModalOpen(true);
+                      }}
+                      disabled={!hasLocalFolderApi || !localFolder || pushing}
+                      title={!hasLocalFolderApi || !localFolder
+                        ? 'Pick a folder above so we can put the cloud version into it'
+                        : 'Throw away your edits and use the cloud version instead'}
+                    >
+                      Discard
+                    </button>
+                  </span>
+                </span>
+              );
+            })()}
             {inSync && (
               <span className="project-files-branch-status-item is-synced">
                 <span className="project-files-branch-status-dot" aria-hidden="true" />
-                <span className="project-files-branch-status-label">Synced with main</span>
+                <div className="project-files-branch-status-text">
+                  <strong className="project-files-branch-status-label">Up to date</strong>
+                  <p className="project-files-branch-status-sub">
+                    Your folder matches the cloud — nothing to send.
+                  </p>
+                </div>
               </span>
             )}
           </div>
@@ -1561,6 +2772,12 @@ export default function ProjectFiles() {
         role="tabpanel"
         aria-labelledby={branchView === 'mine' ? 'project-files-tab-mine' : 'project-files-tab-main'}
         className="project-files-panel"
+        // Clicking the empty space inside the grid panel clears the
+        // current card selection — matches Explorer's "click the
+        // background to deselect" affordance. Cards stopPropagation
+        // their own clicks so they don't accidentally clear what
+        // they just selected.
+        onClick={() => setSelectedLocalPath(null)}
       >
         {branchView === 'main' ? (
           // ── Main branch — canonical cloud files. Read-only here;
@@ -1610,102 +2827,126 @@ export default function ProjectFiles() {
             </div>
           ) : !localFolder ? (
             <div className="project-files-empty">
-              <h2>No folder chosen</h2>
-              <p>Pick a folder above — that becomes your branch. The files there are what you'll commit when you push for review.</p>
+              <h2>Pick a folder</h2>
+              <p>Choose a folder on your computer. That folder becomes your workspace — anything you put there gets sent to your team after they approve it.</p>
+            </div>
+          ) : needsReconnect ? (
+            // Web restore: the FileSystemDirectoryHandle is hot-
+            // loaded from IndexedDB, but the browser requires a fresh
+            // user-gesture permission grant each session. Show the
+            // remembered folder name + a primary Reconnect button so
+            // the user understands why the grid is empty.
+            <div className="project-files-empty">
+              <h2>Open "{localFolder}" again</h2>
+              <p>Your browser needs you to grant access to this folder each time you visit.</p>
+              <button
+                type="button"
+                className="project-scoped-cta"
+                style={{ marginTop: '1rem' }}
+                onClick={handleReconnect}
+              >
+                Open folder
+              </button>
             </div>
           ) : localError ? (
             <div className="project-files-error" role="alert">{localError}</div>
           ) : localLoading ? (
             <ProjectFilesGridSkeleton count={null} />
-          ) : localFiles.length === 0 ? (
-            <div className="project-files-empty">
-              <h2>Folder is empty</h2>
-              <p>Click <strong>Download</strong> above to copy main's files into your branch, then edit them locally.</p>
-            </div>
-          ) : (() => {
-            // Bucket BOTH local files AND cloud files that aren't yet
-            // on disk. Local cards get the "modified" pill when their
-            // bytes differ from cloud; missing-from-disk cloud cards
-            // get the download-cloud overlay so the user can pull
-            // them down individually without running the full batch
-            // Download in the header bar.
-            const localByName = new Map(
-              localFiles.map((f) => [(f.name || '').toLowerCase(), f]),
-            );
-            // Hash-fallback index for cloud rows — used to re-link a
-            // local file to its cloud counterpart when the on-disk
-            // filename no longer matches (e.g. after the user renamed
-            // via the FileDetailModal, which renames the disk file
-            // too but leaves cloud.storage_path's filename alone).
-            const cloudByHash = new Map();
-            for (const cf of files) {
-              const h = cf.content_hash || cloudHashByFileId.get(cf.id);
-              if (h) cloudByHash.set(h, cf);
-            }
-            // Overlay-based re-linking — the authoritative pair for
-            // any queued rename. As soon as the user renames in the
-            // modal, the optimistic branch_changes row carries
-            // proposed.name; that's deterministic and arrives instantly,
-            // so we don't have to wait on the async hash computation
-            // to recognize that the on-disk "bar.png" is the same file
-            // as cloud's storage_path "foo.png". Survives reload too
-            // because branch_changes is server-persisted.
-            //
-            // Map: lowercase proposed name → cloud row.
-            const cloudByProposedName = new Map();
-            for (const change of pendingChanges) {
-              if (!change.target_file_id) continue;
-              const proposedName = change.proposed?.name;
-              if (!proposedName) continue;
-              const cf = files.find((c) => c.id === change.target_file_id);
-              if (cf) cloudByProposedName.set(proposedName.toLowerCase(), cf);
-            }
-            // Display-name index — after a rename gets approved,
-            // cloud.name carries the new value but cloud.storage_path
-            // still ends with the ORIGINAL filename (renames are
-            // metadata-only on the storage side). Without this index,
-            // a refresh post-approval would see a local "bar.png" and
-            // a cloud whose storage_path ends in "foo.png", treat
-            // them as unrelated, and render the cloud row as a
-            // "missing" card — duplicating the file the user already
-            // has. Indexing by cloud.name closes that gap
-            // immediately, without waiting on async hash backfill.
-            const cloudByDisplayName = new Map();
-            for (const cf of files) {
-              if (cf.name) cloudByDisplayName.set(cf.name.toLowerCase(), cf);
-            }
+          ) : (
+            // Scope toggle + grid. "Local only" hides ghost cards
+            // for main-branch files that aren't on disk; "All from
+            // main" surfaces them so the user can see what's missing
+            // (including files they just deleted locally — those now
+            // re-appear as ghosts pulled from the cloud row instead
+            // of disappearing entirely).
+            <>
+              <div className="project-files-scope-toggle" role="tablist" aria-label="What to show">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={myBranchScope === 'local'}
+                  className={`project-files-scope-btn${myBranchScope === 'local' ? ' is-active' : ''}`}
+                  onClick={() => setMyBranchScope('local')}
+                >
+                  Just mine
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={myBranchScope === 'all'}
+                  className={`project-files-scope-btn${myBranchScope === 'all' ? ' is-active' : ''}`}
+                  onClick={() => setMyBranchScope('all')}
+                >
+                  Everything
+                </button>
+              </div>
+              {(() => {
+            // Bucket every disk file as a local card, then (when scope
+            // == 'all') add ghost "missing" cards for cloud rows that
+            // syncState couldn't link to a local file. The unified
+            // syncState already classified every fileId; here we just
+            // pluck the missing-local entries and surface them with
+            // the download overlay.
             const buckets = { photos: [], videos: [], documents: [] };
+            const localByLcName = new Map();
+            for (const lf of localFiles) {
+              if (lf?.name) localByLcName.set(lf.name.toLowerCase(), lf);
+            }
             for (const f of localFiles) {
               buckets[categorizeMime(f.mimeType)].push({ kind: 'local', file: f });
             }
-            for (const cloud of files) {
-              const filename = (cloud.storage_path || '').split('/').pop()?.toLowerCase();
-              if (!filename) continue;
-              if (localByName.has(filename)) continue;
-              // Display-name fallback: post-approval, cloud.name is
-              // the renamed value while storage_path still ends with
-              // the original filename. If local has the new name on
-              // disk, this cloud is its counterpart.
-              const displayLc = (cloud.name || '').toLowerCase();
-              if (displayLc && localByName.has(displayLc)) continue;
-              // Overlay-fallback: if a pending edit's proposed.name
-              // exists on disk, the cloud row IS that local file's
-              // counterpart — don't show it as missing.
-              const overlay = overlayByFileId.get(cloud.id);
-              const proposedLc = overlay?.proposed?.name?.toLowerCase();
-              if (proposedLc && localByName.has(proposedLc)) continue;
-              // Hash-fallback: if the cloud row has a content_hash
-              // that matches some local file's hash, the local file
-              // IS its counterpart (just under a different filename
-              // post-rename). Don't show it as missing.
-              const h = cloud.content_hash || cloudHashByFileId.get(cloud.id);
-              if (h) {
-                const linked = localFiles.some(
-                  (lf) => localHashByName.get((lf.name || '').toLowerCase()) === h,
-                );
-                if (linked) continue;
+            if (myBranchScope === 'all' && syncState) {
+              for (const row of syncState.rows.values()) {
+                if (row.status !== 'missing-local') continue;
+                if (!row.cloud) continue;
+                // Bootstrap-window fallback: the sidecar's hash-based
+                // reconcile is async, so right after a fresh folder
+                // pick / download the user can see "download" cards
+                // for files already on disk under the canonical name.
+                // Suppress when a local filename matches either the
+                // cloud's display name or the storage-path filename
+                // (those diverge after an approved rename). The next
+                // reconcile pass with hashes wires the sidecar id.
+                const cloudLcName = (row.cloud.name || '').toLowerCase();
+                if (cloudLcName && localByLcName.has(cloudLcName)) continue;
+                const storageFilename = (row.cloud.storage_path || '').split('/').pop()?.toLowerCase();
+                if (storageFilename && localByLcName.has(storageFilename)) continue;
+                buckets[categorizeMime(row.cloud.mime_type)].push({
+                  kind: 'missing',
+                  file: row.cloud,
+                });
               }
-              buckets[categorizeMime(cloud.mime_type)].push({ kind: 'missing', file: cloud });
+            }
+            const totalItems = buckets.photos.length + buckets.videos.length + buckets.documents.length;
+            if (totalItems === 0) {
+              // Empty grid — either truly nothing (no local, no
+              // cloud) or "local only" scope with empty folder. Show
+              // the sync-with-main prompt when there's cloud content
+              // to pull; otherwise the generic empty-project nudge.
+              return (
+                <div className="project-files-empty">
+                  <h2>Folder is empty</h2>
+                  {files.length > 0 ? (
+                    <>
+                      <p>
+                        {myBranchScope === 'local'
+                          ? `Switch to "Everything" to see the ${files.length} file${files.length === 1 ? '' : 's'} in the cloud, or download them.`
+                          : `Download ${files.length} file${files.length === 1 ? '' : 's'} from the cloud into this folder to start working.`}
+                      </p>
+                      <button
+                        type="button"
+                        className="project-scoped-cta"
+                        style={{ marginTop: '1rem' }}
+                        onClick={() => setSyncModalOpen(true)}
+                      >
+                        Get latest
+                      </button>
+                    </>
+                  ) : !loading ? (
+                    <p>This project has no files yet. Use the + button to add your first one.</p>
+                  ) : null}
+                </div>
+              );
             }
             return FILE_SECTIONS.map(({ key, title }) => {
               const items = buckets[key];
@@ -1730,46 +2971,39 @@ export default function ProjectFiles() {
                       }
                       const f = entry.file;
                       const lcName = (f.name || '').toLowerCase();
-                      // Resolve the cloud counterpart in priority:
-                      //   1. Storage filename match (no rename in flight).
-                      //   2. Cloud display-name match — post-approval,
-                      //      cloud.name has the new name even though
-                      //      storage_path still ends with the old one.
-                      //      Without this, a refresh after a merged
-                      //      rename would show the cloud row as a
-                      //      separate "missing" card next to the
-                      //      local file the user already has.
-                      //   3. Overlay proposed.name match — same idea,
-                      //      but BEFORE approval (the branch_change
-                      //      row is still in place).
-                      //   4. Hash fallback — non-rename paths or
-                      //      legacy rows without a branch_change.
-                      let cloud = cloudByFilename.get(lcName);
-                      if (!cloud) cloud = cloudByDisplayName.get(lcName);
-                      if (!cloud) cloud = cloudByProposedName.get(lcName);
-                      const localHash = localHashByName.get(lcName);
-                      if (!cloud && localHash) {
-                        cloud = cloudByHash.get(localHash);
-                      }
-                      // Hash-first detection: if BOTH sides have a
-                      // content_hash, that's the authoritative answer
-                      // (catches same-size content edits). The cloud
-                      // hash falls back to the lazily-populated
-                      // backfill cache for legacy rows. Otherwise the
-                      // size mismatch heuristic.
-                      const cloudHash = cloud?.content_hash || (cloud ? cloudHashByFileId.get(cloud.id) : null);
-                      const bytesDiffer = Boolean(cloud) && (
-                        (localHash && cloudHash)
-                          ? localHash !== cloudHash
-                          : Number(cloud.size_bytes) !== Number(f.sizeBytes)
-                      );
-                      // The pill also fires when there's a queued
-                      // metadata edit (rename / description / etc.)
-                      // against this file's cloud row — that's a real
-                      // un-pushed change even if the bytes haven't
-                      // moved. The on-disk rename path only updates
-                      // the filename, so without this branch a rename-
-                      // only commit would have no visual cue on the card.
+                      // Sidecar-driven cloud resolution: filename →
+                      // fileId → cloud. One hop. The legacy
+                      // filename / display-name / proposed-name /
+                      // hash fallback stack is gone — the sidecar's
+                      // reconciliation pass absorbs all of those
+                      // cases (rename / replace / bootstrap) into a
+                      // single stable id mapping. A null cloud here
+                      // means "local-only file not yet pushed".
+                      const fileId = sidecar.byFilename.get(lcName);
+                      const cloud = fileId ? cloudById.get(fileId) : null;
+                      // Derive the "Modified" pill from branchDiff
+                      // directly so the per-card signal mirrors the
+                      // status chip exactly — same filter (open-
+                      // request items hidden, soft-hold applied),
+                      // same source of truth. The old per-card
+                      // bytesDiffer recomputed independently and
+                      // stayed lit after a push because it didn't
+                      // know about the open-request filter.
+                      const bytesDiffer = Boolean(cloud) && diffReplaceCloudIds.has(cloud.id);
+                      // True only when the local file's BYTES diverge
+                      // from cloud (rename-only divergence excluded).
+                      // Tells LocalFileCard the cloud-baked thumbnail
+                      // is stale and to fall back to a freshly
+                      // regenerated local thumbnail instead.
+                      const bytesChanged = Boolean(cloud) && bytesDifferCloudIds.has(cloud.id);
+                      // Queued metadata edit (rename / description)
+                      // — fires only on un-pushed pendingChanges
+                      // (overlayByFileId is built from those). After
+                      // a push, pendingChanges is cleared so the
+                      // overlay is gone; the EDITED corner pill
+                      // disappears too, which matches the "the file
+                      // is now in a request, not in your working
+                      // copy" mental model.
                       const overlay = cloud ? overlayByFileId.get(cloud.id) : null;
                       const hasPendingMeta = Boolean(overlay);
                       const isModified = bytesDiffer || hasPendingMeta;
@@ -1777,10 +3011,21 @@ export default function ProjectFiles() {
                         <LocalFileCard
                           key={f.path}
                           file={f}
+                          onSelect={handleSelectLocalCard}
                           onOpen={handleOpenLocalCard}
+                          onDoubleOpen={handleOpenLocalFile}
+                          onRename={handleRenameLocalCard}
+                          onRenameSubmit={handleRenameSubmit}
+                          onRenameCancel={handleRenameCancel}
+                          onRevert={handleRevertLocalCard}
+                          onDelete={handleDeleteLocalCard}
+                          selected={selectedLocalPath === f.path}
+                          isRenaming={renamingPath === f.path}
                           modified={isModified}
+                          bytesChanged={bytesChanged}
                           cloud={cloud}
                           overlay={overlay}
+                          localContentHash={localHashByName.get(f.name) || null}
                         />
                       );
                     })}
@@ -1788,16 +3033,18 @@ export default function ProjectFiles() {
                 </section>
               );
             });
-          })()
+          })()}
+            </>
+          )
         )}
 
-        {/* Revert to main branch — sits below the file grid on My
-            branch. Single destructive action that replaces the old
-            Sync / Reset / Commit trio: discards every queued change
-            and pulls main's bytes down so the local folder matches
-            main exactly. The modal (SyncToMainModal) shows the diff
-            first so the user can back out before applying. Disabled
-            in the calm state (nothing to revert + already in sync). */}
+        {/* "Revert to main branch" — the single destructive action
+            that pulls main's bytes into the local folder AND discards
+            every queued change. SyncToMainModal shows the diff first
+            so the user can back out before applying. Disabled in the
+            calm state (nothing queued, already in sync). Sits at
+            the bottom of the My branch grid so users scanning for
+            "how do I throw this all away?" find it predictably. */}
         {branchView === 'mine' && (viewerIsMember || viewerIsAdmin) && hasLocalFolderApi && localFolder && (
           <div className="project-files-revert-row">
             <button
@@ -1809,7 +3056,7 @@ export default function ProjectFiles() {
                 && (branchDiff.length + pendingChanges.length) === 0
               }
             >
-              Revert to main branch
+              Discard my edits, use cloud version
             </button>
           </div>
         )}
@@ -1828,80 +3075,140 @@ export default function ProjectFiles() {
           it reaches this client when REPLICA IDENTITY isn't FULL on
           project_files; migration 006 fixes that for cross-device
           updates, this callback fixes the local case unconditionally). */}
-      {openFileId && (
-        <FileDetailModal
-          file={files.find((f) => f.id === openFileId) || null}
-          onClose={() => setOpenFileId(null)}
-          onDeleted={(id) => setFiles((prev) => prev.filter((f) => f.id !== id))}
-          readOnly={branchView === 'main'}
-          onLocalRename={async (newName) => {
-            // Rename the on-disk file that corresponds to the cloud
-            // file the modal is editing. Only fires on My branch
-            // with a folder bound; no-op otherwise.
-            if (!hasLocalFolderApi || !localFolder) return;
-            const openCloud = files.find((f) => f.id === openFileId);
-            if (!openCloud) return;
-            const originalFilename = (openCloud.storage_path || '').split('/').pop();
-            if (!originalFilename) return;
-            // Find the local file: by name first, then by hash for
-            // the case where it was renamed locally already.
-            const lcOriginal = originalFilename.toLowerCase();
-            let localMatch = localFiles.find((f) => (f.name || '').toLowerCase() === lcOriginal);
-            if (!localMatch) {
-              const cloudHash = openCloud.content_hash || cloudHashByFileId.get(openCloud.id);
-              if (cloudHash) {
-                localMatch = localFiles.find((f) =>
-                  localHashByName.get((f.name || '').toLowerCase()) === cloudHash,
-                );
-              }
+      {openFileId && (() => {
+        const openCloudRow = files.find((f) => f.id === openFileId) || null;
+        // On My branch, when the local bytes diverge from the cloud
+        // version (queued replace / in-place edit), the cloud
+        // thumbnail + signed preview URL both point at the stale
+        // pre-edit bytes. The card already regenerates its thumbnail
+        // from disk in that case; route the modal through the same
+        // local-bytes path so the preview pane matches what the card
+        // is showing instead of paint the old version.
+        const wantLocalOverride = (
+          branchView === 'mine'
+          && openCloudRow
+          && bytesDifferCloudIds.has(openCloudRow.id)
+        );
+        let localPathForPreview = null;
+        let localMtimeForPreview = null;
+        let localHashForPreview = null;
+        if (wantLocalOverride) {
+          const sidecarEntry = sidecar.byFileId.get(openCloudRow.id);
+          const trackedFilename = sidecarEntry?.filename
+            || (openCloudRow.storage_path || '').split('/').pop();
+          if (trackedFilename) {
+            const lcTracked = trackedFilename.toLowerCase();
+            const localMatch = localFiles.find(
+              (f) => (f.name || '').toLowerCase() === lcTracked,
+            );
+            if (localMatch?.path) {
+              localPathForPreview = localMatch.path;
+              localMtimeForPreview = localMatch.mtimeIso || null;
+              localHashForPreview = localHashByName.get(trackedFilename) || null;
             }
-            if (!localMatch) return;
-            // Preserve the disk-side extension. The cloud's display
-            // name might be raw ("bar") — append the disk extension
-            // so the renamed file still opens with the right app.
-            const fromName = localMatch.name;
-            const lastDot = fromName.lastIndexOf('.');
-            const ext = lastDot > 0 ? fromName.slice(lastDot + 1) : '';
-            let toName = (newName || '').trim();
-            if (!toName) return;
-            if (ext && !toName.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
-              toName = `${toName}.${ext}`;
-            }
-            if (fromName === toName) return;
-            const { error } = await localFolderApi.renameFile({
-              dir: localFolder,
-              fromName,
-              toName,
-            });
-            if (error) return;
-            // Refresh the local listing so the renamed file appears
-            // immediately instead of waiting on the watcher poll.
-            const { files: localList, error: listErr } = await localFolderApi.list(localFolder);
-            if (!listErr) setLocalFiles(localList || []);
-          }}
+          }
+        }
+        const handleModalLocalRename = async (newName) => {
+          // Rename the on-disk file that corresponds to the cloud
+          // file the modal is editing. Only fires on My branch
+          // with a folder bound; no-op otherwise.
+          if (!hasLocalFolderApi || !localFolder) return;
+          if (!openCloudRow) return;
+          // Sidecar lookup is the source of truth — find the
+          // local filename currently mapped to this cloud row's
+          // id. Falls back to the storage filename for the
+          // brief bootstrap window before the sidecar has caught
+          // up (e.g., a brand-new download on the first ever
+          // render before the reconcile pass ran).
+          const sidecarEntry = sidecar.byFileId.get(openCloudRow.id);
+          const trackedFilename = sidecarEntry?.filename
+            || (openCloudRow.storage_path || '').split('/').pop();
+          if (!trackedFilename) return;
+          const lcTracked = trackedFilename.toLowerCase();
+          const localMatch = localFiles.find(
+            (f) => (f.name || '').toLowerCase() === lcTracked,
+          );
+          if (!localMatch) return;
+          // Preserve the disk-side extension. The cloud's display
+          // name might be raw ("bar") — append the disk extension
+          // so the renamed file still opens with the right app.
+          const fromName = localMatch.name;
+          const lastDot = fromName.lastIndexOf('.');
+          const ext = lastDot > 0 ? fromName.slice(lastDot + 1) : '';
+          let toName = (newName || '').trim();
+          if (!toName) return;
+          if (ext && !toName.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
+            toName = `${toName}.${ext}`;
+          }
+          if (fromName === toName) return;
+          const { error } = await localFolderApi.renameFile({
+            dir: localFolder,
+            fromName,
+            toName,
+          });
+          if (error) return;
+          // Sidecar follows the rename — keep the same fileId,
+          // swap the filename. Done synchronously so the matching
+          // is correct in the very next render rather than
+          // waiting on the reconciliation pass to hash-detect it.
+          setSidecar((prev) => {
+            const next = renameSidecarEntry(prev, fromName, toName);
+            if (next !== prev) saveSidecar(next);
+            return next;
+          });
+          // Refresh the local listing so the renamed file appears
+          // immediately instead of waiting on the watcher poll.
+          const { files: localList, error: listErr } = await localFolderApi.list(localFolder);
+          if (!listErr) setLocalFiles(localList || []);
+        };
+        const sharedProps = {
+          file: openCloudRow,
+          onClose: () => setOpenFileId(null),
+          onDeleted: (id) => setFiles((prev) => prev.filter((f) => f.id !== id)),
+          readOnly: branchView === 'main',
+          onLocalRename: handleModalLocalRename,
+        };
+        return localPathForPreview
+          ? (
+            <MyBranchEditedFileDetail
+              {...sharedProps}
+              localPath={localPathForPreview}
+              localMtime={localMtimeForPreview}
+              localContentHash={localHashForPreview}
+            />
+          )
+          : <FileDetailModal {...sharedProps} />;
+      })()}
+
+      {/* Local-only inspector — opens when the user clicks a My-branch
+          card whose file has no cloud counterpart yet (not pushed).
+          Wrapper resolves the local preview URL (localfile:// on
+          Electron, blob: from the cached FSA handle on web) and
+          hands it to FileDetailModal as a previewUrlOverride so the
+          modal renders the on-disk bytes — image / video / PDF /
+          text — without needing a Supabase storage_path. readOnly
+          suppresses rename / delete; the FAB / commit flow is the
+          right edit surface for an un-pushed file. */}
+      {openLocalOnlyFile && (
+        <LocalOnlyFileDetail
+          localFile={openLocalOnlyFile}
+          projectId={projectId}
+          viewerId={userId}
+          onClose={() => setOpenLocalOnlyFile(null)}
         />
       )}
 
-      {/* Branch flow modals — Commit (push for review) and Revert
-          (pull main into local + discard queued changes). Each gated
-          on its own open-state so they share no z-index with
-          FileDetailModal. */}
-      <CommitChangesModal
-        open={commitModalOpen}
-        onClose={() => setCommitModalOpen(false)}
-        localFiles={localFiles}
-        cloudFiles={files}
-        pendingChanges={pendingChanges}
-      />
+      {/* Branch flow modals — Revert only (pull main into local +
+          discard queued changes). Commit is gone: every local edit
+          auto-pushes via the runCommitFlow effect above, so the
+          user never opens a manual commit modal. The .jsx is kept
+          on disk in case a manual path is needed later. */}
       <SyncToMainModal
         open={syncModalOpen}
         onClose={() => setSyncModalOpen(false)}
-        localFiles={localFiles}
-        cloudFiles={files}
+        snapshot={syncState?.toSync || []}
         localFolder={localFolder}
-        localHashByName={localHashByName}
-        cloudHashByFileId={cloudHashByFileId}
-        onSyncComplete={({ syncedHashes, deletedNames }) => {
+        onSyncComplete={({ syncedHashes, deletedNames, syncedFileIds }) => {
           // Sync just made the local folder byte-identical to main
           // for every synced file. Prime the hash map with the known
           // cloud hashes so the "Modified" pill clears in this render
@@ -1910,6 +3217,39 @@ export default function ProjectFiles() {
             const next = new Map(prev);
             for (const [name, hash] of syncedHashes) next.set(name, hash);
             for (const name of deletedNames) next.delete(name);
+            return next;
+          });
+          // Update sidecar: claim cloud.id for each downloaded file,
+          // drop entries for files just deleted locally. Without this
+          // the reconciliation effect would re-establish the mapping
+          // on the next pass — but only after the disk listing
+          // refreshes AND hashes catch up, leaving a window where
+          // freshly-synced files render as orphans.
+          setSidecar((prev) => {
+            let next = prev;
+            for (const [filename, fileId] of syncedFileIds || new Map()) {
+              const hash = syncedHashes.get(filename) || null;
+              next = addSidecarEntry(next, fileId, {
+                filename,
+                contentHash: hash,
+                mtime: new Date().toISOString(),
+              });
+            }
+            for (const name of deletedNames || new Set()) {
+              const fid = next.byFilename.get(name);
+              if (fid) {
+                next.byFileId.delete(fid);
+                next.byFilename.delete(name);
+                // Need a fresh reference for React to detect the change.
+                next = {
+                  projectId: next.projectId,
+                  localFolder: next.localFolder,
+                  byFileId: new Map(next.byFileId),
+                  byFilename: new Map(next.byFilename),
+                };
+              }
+            }
+            if (next !== prev) saveSidecar(next);
             return next;
           });
         }}
@@ -1921,10 +3261,6 @@ export default function ProjectFiles() {
           const { files: localList, error: listErr } = await localFolderApi.list(localFolder);
           if (!listErr) setLocalFiles(localList || []);
         }}
-      />
-      <ChangeRequestsPanel
-        open={requestsPanelOpen}
-        onClose={() => setRequestsPanelOpen(false)}
       />
 
       {/* Floating action button — bottom-right of the viewport. Only

@@ -1,65 +1,46 @@
-﻿/* "Working in <project>" banner â€” full-width solid bar flush against the
-   top of the main content area. Gold accent (var(--accent)) matching the brand
-   icon and the project-selection accents elsewhere (.project-picker-
-   trigger.has-selection, .project-picker-panel-row.is-current,
-   .lock-btn.is-locked).
-
-   Positioned absolute inside .main-content (which is position:relative) so
-   `left: 0; right: 0` spans from the right edge of the sidebar to the right
-   edge of the viewport, regardless of whether the sidebar is collapsed
-   (60px) or locked open (220px). The pill itself doesn't animate width on
-   sidebar toggle â€” main-content reshapes around it via flex layout. */
+﻿/* "Working in <project>" pill — small floating chip pinned to the top
+   of the viewport so it stays visible no matter how far the user
+   scrolls. Click navigates to the project Overview.
+   Gold accent (var(--accent)) matches the brand icon and the
+   sidebar's selected-project indicator so the two surfaces read as
+   the same "you are working in this project" signal.
+   position:fixed (was absolute) lifts it out of the scroll context
+   of .main-content; left:50% + translateX(-50%) centers it
+   horizontally in the viewport — close to centered over the main
+   content area in most window sizes (off-center by half the
+   sidebar width, accepted as a fair tradeoff to avoid wiring a
+   sidebar-width CSS variable into this surface). */
 
 .project-banner-pill {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  /* z-index 1 (was 30) so the .project-page-frame (z-index 2) can sit
-     ON TOP of the gold strip below the banner text. The panel's rounded
-     top corners cut into the gold, revealing it through the corner
-     cut-aways. The banner's text region above the panel is unaffected
-     â€” the panel only overlaps the padding-bottom strip. */
-  z-index: 1;
-  display: flex;
+  position: fixed;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  /* Above page content and the dashboard's sticky tab band, below
+     modal overlays (FileDetailModal sits at 1000+ via its own
+     backdrop). */
+  z-index: 50;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  /* Matched to the picker-trigger button's has-selection bg (var(--accent),
-     via its ::before pseudo in Sidebar.css) so the sidebar's "current
-     project" indicator and the main-content's "working in <project>"
-     bar share one color identity â€” the user sees the same accent fill
-     in both places and reads them as one cohesive "you are working in
-     this project" signal. var(--accent) is theme-adaptive (cognac on
-     Cream, sand on Ink), which is fine here because text-on-accent
-     pairs with it correctly in both themes. */
+  gap: 6px;
   background: var(--accent);
-  /* The semantic "readable on accent surfaces" pair â€” white on Cream
-     (good contrast on cognac), ink on Ink (good contrast on sand). */
   color: var(--text-on-accent);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 500;
   letter-spacing: 0.01em;
-  /* Flush full-width banner: no rounding, no border.
-
-     Padding is ASYMMETRIC by design: 0.25rem top vs 1.375rem bottom
-     (halved vertical compared to the original 0.5 / 1.625 for a
-     tighter band). The `padding-bottom - padding-top = 1.125rem`
-     relationship is preserved — that's the exact corner-radius of
-     .project-page-frame, so the panel still covers exactly the
-     bottom 1.125rem and the text reads as centered in the
-     visible gold strip.
-
-     Explicit line-height (1.5) keeps text-height predictable across
-     browsers â€” without it, default line-height varies (1.2 vs 1.5)
-     and the panel margin-top math drifts. */
-  border-radius: 0;
-  border: none;
-  line-height: 1.5;
-  padding: 0.25rem 1rem 1.375rem;
+  /* Pill shape — fully rounded ends, compact padding so the chip
+     stays unobtrusive at the top of the screen. */
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text-on-accent) 15%, transparent);
+  line-height: 1.4;
+  padding: 0.4rem 1rem;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 150ms;
+  /* Soft lift so the pill reads as floating over the page rather
+     than belonging to any panel below it. */
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  transition: background 150ms, transform 120ms, box-shadow 150ms;
   animation: project-banner-pill-in 200ms ease-out;
 }
 
@@ -143,6 +124,10 @@
 }
 
 @keyframes project-banner-pill-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
+  /* The base rule sets transform: translateX(-50%) for centering;
+     keyframe transforms override that, so the X centering has to
+     be repeated here or the pill briefly snaps left-aligned as it
+     animates in. */
+  from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }

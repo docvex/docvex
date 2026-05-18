@@ -99,7 +99,21 @@ function UploaderAvatar({ profile }) {
   );
 }
 
-export default function FileDetailModal({ file, onClose, onDeleted, readOnly = false, onLocalRename }) {
+export default function FileDetailModal({
+  file,
+  onClose,
+  onDeleted,
+  readOnly = false,
+  onLocalRename,
+  // Optional preview URL that bypasses the Supabase signed-URL fetch
+  // below. Used by the local-only inspector on My branch (ProjectFiles.jsx)
+  // — those files don't have a `storage_path` yet because they haven't
+  // been pushed, so we hand the modal a `localfile://` (Electron) or
+  // blob: (web) URL pointing at the on-disk bytes. ImagePreview /
+  // VideoPreview / PdfPreview / TextPreview all just consume a string
+  // src and don't care that it isn't a Supabase URL.
+  previewUrlOverride = null,
+}) {
   const { session } = useAuth();
   const { notify } = useNotifications();
 
@@ -268,6 +282,13 @@ export default function FileDetailModal({ file, onClose, onDeleted, readOnly = f
   // TTL on the URL so the user can sit reading the modal without the
   // video / PDF source going stale.
   useEffect(() => {
+    // Caller-provided URL wins — no signing round-trip needed for
+    // local-only previews. Skip the rest of the effect so we don't
+    // briefly null out the URL before re-setting it.
+    if (previewUrlOverride) {
+      setPreviewUrl(previewUrlOverride);
+      return undefined;
+    }
     if (!file?.storage_path) {
       setPreviewUrl(null);
       return undefined;
@@ -279,7 +300,11 @@ export default function FileDetailModal({ file, onClose, onDeleted, readOnly = f
       setPreviewUrl(data.signedUrl);
     });
     return () => { cancelled = true; };
-  }, [file?.storage_path]);
+    // content_hash forces a re-sign when the file's bytes change at
+    // the same storage_path (replace-approval). Without it the modal
+    // would keep showing the old preview until the user closed and
+    // reopened it.
+  }, [file?.storage_path, file?.content_hash, previewUrlOverride]);
 
   useEffect(() => {
     if (!file?.uploaded_by) {
@@ -352,10 +377,12 @@ export default function FileDetailModal({ file, onClose, onDeleted, readOnly = f
       });
       error = res.error;
       // ALSO rename the file on disk if this patch carries a new
-      // name. computeBranchDiff's rename-pair detection (matching
-      // by content_hash) keeps the resulting filesystem move from
-      // showing up as add+delete in the diff, so the rename intent
-      // remains represented by the branch_change above only.
+      // name. The parent's onLocalRename handler renames both the
+      // disk file AND the sidecar entry (filename swap, same
+      // fileId), so the next diff render sees the same id on both
+      // sides — no phantom add, no duplicate entry. Sidecar-based
+      // matching collapses what used to be a 4-tier name/display/
+      // proposed/hash fallback into one stable id lookup.
       // Best-effort: a disk-rename failure leaves the metadata
       // queue intact — the user just won't see the new name in
       // File Explorer until they refresh / rename manually.
@@ -432,7 +459,28 @@ export default function FileDetailModal({ file, onClose, onDeleted, readOnly = f
     }
   };
 
+  // True for MIME types browsers render inline in a new tab. DOCX +
+  // generic binaries trigger a download instead, which is exactly what
+  // the View button is supposed to avoid — so we hide the button and
+  // suppress the click-to-open preview wrapping for those types.
+  const fileNameLc = (file?.name || '').toLowerCase();
+  const mimeLc = (file?.mime_type || '').toLowerCase();
+  const canViewInBrowser = Boolean(file) && (
+    mimeLc === 'application/pdf'
+      || mimeLc.startsWith('image/')
+      || mimeLc.startsWith('video/')
+      || mimeLc.startsWith('text/')
+  ) && !fileNameLc.endsWith('.docx');
+
   const handleView = async () => {
+    // When the modal is showing a previewUrlOverride (e.g. the Version
+    // control inspector pointing at proposed bytes in projects-pending),
+    // honour it so View opens the SAME bytes the user is previewing —
+    // not the canonical cloud version, which would be the wrong file.
+    if (previewUrlOverride) {
+      window.open(previewUrlOverride, '_blank', 'noopener,noreferrer');
+      return;
+    }
     // Fresh signed URL on click — the preview URL is 10 min, might be
     // close to expiring by the time the user clicks View. One extra
     // round-trip; imperceptible.
@@ -548,7 +596,7 @@ export default function FileDetailModal({ file, onClose, onDeleted, readOnly = f
             <FilePreview
               file={file}
               signedUrl={previewUrl}
-              onOpen={handleView}
+              onOpen={canViewInBrowser ? handleView : null}
             />
           </div>
 
@@ -639,17 +687,19 @@ export default function FileDetailModal({ file, onClose, onDeleted, readOnly = f
             </section>
 
             <div className="file-detail-actions">
-              <Tooltip content="Open the file in a new tab">
-                <button
-                  type="button"
-                  className="modal-btn modal-btn-cancel file-detail-action"
-                  onClick={handleView}
-                  disabled={pendingDelete}
-                >
-                  {ExternalLinkIcon}
-                  <span>View</span>
-                </button>
-              </Tooltip>
+              {canViewInBrowser && (
+                <Tooltip content="Open the file in a new tab">
+                  <button
+                    type="button"
+                    className="modal-btn modal-btn-cancel file-detail-action"
+                    onClick={handleView}
+                    disabled={pendingDelete}
+                  >
+                    {ExternalLinkIcon}
+                    <span>View</span>
+                  </button>
+                </Tooltip>
+              )}
               {canDelete && (
                 <Tooltip content="Delete this file">
                   <button

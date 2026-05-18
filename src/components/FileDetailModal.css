@@ -36,12 +36,15 @@
 
 .file-detail-card {
   /* Right-anchored side panel — fixed width on wide viewports,
-     responsive cap below. Full height of the content area; no
-     border-radius or top/bottom margin so it reads as a docked
-     drawer rather than a floating card. */
+     responsive cap below. Full SCREEN height (100vh, not just 100%
+     of the parent flex slot) so the panel always docks from the
+     viewport's top edge to its bottom edge regardless of which
+     surface opened it. min-height pinned to 100vh too so a tall
+     inner content can't squeeze the panel shorter than the screen. */
   width: 480px;
   max-width: 100%;
-  height: 100%;
+  height: 100vh;
+  min-height: 100vh;
   background: var(--bg-card);
   border-left: 1px solid var(--border);
   box-shadow: -22px 0 60px rgba(0, 0, 0, 0.5);

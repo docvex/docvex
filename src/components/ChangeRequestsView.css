@@ -1,0 +1,1200 @@
+/* Compose-release surface — embedded inside the Project Dashboard's
+   "Version control" tab. Three logical regions:
+     • Files-with-changes list  (top-left)   — cards w/ thumbnails
+     • Versions strip           (bottom-left) — horizontal chips w/ author dots
+     • New release              (right)       — drop target, staged rows
+   Each version chip and each staged row carries a colored author
+   dot so a reviewer can scan "whose version is whose" without
+   reading any names. */
+
+.cr-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: 1300px;
+  /* No background / border on the outer chrome — the two inner
+     columns carry their own bg-card so they read as separate
+     panels sitting on the dashboard's dot-grid backdrop. */
+}
+
+/* ── Body grid (left column + stage) ──────────────────────────────── */
+/* max-height caps the body so the panes' own overflow-y:auto kicks
+   in — without it the body would grow with content and the whole
+   page would scroll instead of each pane scrolling independently.
+   The 240px subtraction accounts for: project banner (~3rem) +
+   dashboard title (~3.5rem) + tab bar (~2.5rem) + frame padding +
+   gaps. Approximate; adjust if the surrounding chrome changes. */
+.cr-body {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(360px, 1fr);
+  flex: 1 1 auto;
+  min-height: 560px;
+  max-height: calc(100vh - 240px);
+}
+
+.cr-left {
+  display: flex;
+  flex-direction: column;
+  /* Transparent — the .cr-file-block cards inside carry their
+     own bg-elevated, so they read as standalone panels on the
+     dashboard's dot-grid backdrop. */
+  background: transparent;
+  min-height: 0;
+  min-width: 0;
+}
+
+.cr-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 14px 16px;
+}
+
+.cr-files-section {
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.cr-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.cr-section-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.cr-section-count {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 0.62rem;
+  padding: 1px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+}
+
+.cr-empty-state {
+  padding: 18px 8px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+/* ── File list (combined: file identity + inline versions) ─────────── */
+/* Each .cr-file-block packs three rows: header (thumbnail + name +
+   meta + staged dot), a divider, and a row of author-avatar
+   versions. The avatars themselves are the drag handles — drop one
+   into the New release pane to stage that author's version. */
+.cr-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cr-file-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 140ms, box-shadow 140ms;
+}
+
+.cr-file-block.is-staged {
+  border-color: color-mix(in srgb, var(--success, #16a34a) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--success, #16a34a) 25%, transparent);
+}
+
+.cr-file-block-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cr-file-block-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.cr-file-block-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cr-file-block-meta {
+  margin-top: 3px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Divider between the file's identity and its versions row.
+   Faint hairline that matches the block border. */
+.cr-file-block-divider {
+  height: 1px;
+  background: var(--border);
+  width: 100%;
+}
+
+.cr-file-block-versions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.cr-staged-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--success, #16a34a);
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px var(--bg-elevated);
+}
+
+/* ── Group-by toggle ──────────────────────────────────────────────── */
+/* Pair of segmented buttons that flip the left column between the
+   file-grouped layout and the author-grouped layout. Sits above the
+   list; same dark-border shell + rounded ends as the BranchToggle on
+   the Files page so the affordance reads as a familiar segmented
+   control. */
+.cr-groupby {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px;
+  margin-bottom: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  gap: 2px;
+}
+
+.cr-groupby-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 140ms, color 140ms;
+}
+
+.cr-groupby-btn:hover {
+  color: var(--text-primary);
+}
+
+.cr-groupby-btn.is-active {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+/* ── Author-grouped versions row ──────────────────────────────────── */
+/* Same flex-wrap rhythm as the file-block versions row, but the
+   cells here are larger (file thumb + filename) instead of compact
+   avatar chips. Caps each cell width so a long filename doesn't push
+   the rest of the row off-screen. */
+.cr-author-block-versions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 14px;
+  padding-top: 2px;
+}
+
+.cr-version-card {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 84px;
+  cursor: grab;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: center;
+  transition: background 140ms, border-color 140ms, transform 120ms;
+}
+
+.cr-version-card:hover {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+
+.cr-version-card:active {
+  cursor: grabbing;
+  transform: scale(0.97);
+}
+
+.cr-version-card.is-staged {
+  border-color: color-mix(in srgb, var(--success, #16a34a) 55%, transparent);
+  background: color-mix(in srgb, var(--success, #16a34a) 8%, var(--bg-card));
+}
+
+.cr-version-card.is-focused:not(.is-staged) {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+.cr-version-card-name {
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  line-height: 1.25;
+  width: 100%;
+  /* Clamp at two lines so a long filename wraps without bloating
+     the row height. -webkit-line-clamp is supported in every
+     Chromium-based browser (Electron + the web build's target). */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+/* ── Author avatar ────────────────────────────────────────────────── */
+/* Profile picture (or initial-letter fallback) used to identify
+   the person behind every version. Draggable variant is the
+   primary drag handle in the file-block versions row; non-
+   draggable variant rides along in the staged row on the right.
+   Same person looks the same in both places. */
+.cr-author-avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--bg-page);
+  border: 2px solid var(--border);
+  overflow: hidden;
+  user-select: none;
+  flex-shrink: 0;
+  font-family: inherit;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+  transition: transform 120ms, border-color 140ms, box-shadow 140ms;
+}
+
+.cr-author-avatar.is-draggable {
+  cursor: grab;
+}
+
+.cr-author-avatar.is-draggable:active {
+  cursor: grabbing;
+  transform: scale(0.94);
+}
+
+.cr-author-avatar.is-draggable:hover {
+  border-color: var(--border-strong);
+}
+
+.cr-author-avatar.is-staged {
+  border-color: var(--success, #16a34a);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--success, #16a34a) 35%, transparent);
+}
+
+/* Clicked avatar — the inspector is currently showing this
+   version. Matches the accent ring used elsewhere for "you are
+   here" so the user can see at a glance which avatar drives the
+   right-pane content. Staged state wins (green) when both apply. */
+.cr-author-avatar.is-focused:not(.is-staged) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.cr-author-avatar.is-clickable {
+  /* Keep grab cursor on draggable variants — clicking is implicit;
+     a non-grab cursor on a draggable element would be confusing. */
+  cursor: pointer;
+}
+
+.cr-author-avatar.is-draggable.is-clickable {
+  cursor: grab;
+}
+
+.cr-author-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  object-fit: cover;
+  display: block;
+}
+
+.cr-author-avatar-fallback {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+}
+
+/* Legacy colored dot — still exported for back-compat callers. */
+.cr-author-dot {
+  display: inline-block;
+  border-radius: 999px;
+  border: 2px solid var(--bg-card);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
+}
+
+/* ── Thumbnail container ──────────────────────────────────────────── */
+/* The width/height props on the JSX side set the BOX SIZE; images
+   are then fit inside without distorting their aspect ratio
+   (object-fit: contain). Glyph spans still fill the box so the
+   SVG inside can scale to whatever box size the caller picked.
+   Background fills any letterbox/pillarbox gap a non-square image
+   leaves. */
+.cr-thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg-page);
+  border-radius: 8px;
+  overflow: hidden;
+  color: var(--accent);
+}
+
+.cr-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  display: block;
+}
+
+.cr-thumb > .project-files-icon {
+  width: 100%;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Stage pane ───────────────────────────────────────────────────── */
+.cr-stage {
+  display: flex;
+  flex-direction: column;
+  /* Transparent — see .cr-left. Staged rows inside use bg-page
+     so they remain visible on the dot-grid backdrop. */
+  background: transparent;
+  min-height: 0;
+  min-width: 0;
+  /* Dotted divider between the Files column and the New Release
+     column. */
+  border-left: 2px dotted var(--border);
+}
+
+.cr-stage-header {
+  /* Plain padded container around the heading chip. The chip
+     itself handles the flex layout for its inner text + Clear
+     button (mirrors the .updates-banner-uptodate pattern from
+     Updates.css — one bordered surface that wraps the whole
+     row). */
+  padding: 12px 16px;
+  flex-shrink: 0;
+}
+
+.cr-stage-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  /* Removed uppercase / letter-spacing to match the .updates-banner
+     `strong` style — that surface keeps the heading in natural case
+     and bold weight only. */
+}
+
+.cr-stage-subtitle {
+  font-size: 0.825rem;
+  margin-top: 0.2rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Borrows the .updates-banner-uptodate visual recipe from
+   Updates.css verbatim: multi-stop gradient with a 5/16/18/16/5%
+   alpha curve, 300% wide so the 8s ease-in-out pan never shows a
+   seam, and a soft alpha-tinted border at 40% of the same color.
+   Lifts the "New release" surface to the same "alive but calm"
+   reading the up-to-date banner uses.
+     • Empty state: muted-gray family — reads as inactive.
+     • Active (.is-active) — success-soft family — matches the
+       up-to-date banner exactly. */
+.cr-stage-header-text {
+  /* Flex row — text body on the left, Clear button on the right.
+     Same justify-content pattern as .updates-banner so the action
+     button always pins to the trailing edge. */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 40%, transparent);
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--text-muted) 5%, transparent) 0%,
+    color-mix(in srgb, var(--text-muted) 16%, transparent) 25%,
+    color-mix(in srgb, var(--text-muted) 18%, transparent) 50%,
+    color-mix(in srgb, var(--text-muted) 16%, transparent) 75%,
+    color-mix(in srgb, var(--text-muted) 5%, transparent) 100%
+  );
+  background-size: 300% 100%;
+  animation: cr-stage-shimmer 8s ease-in-out infinite;
+  transition: background 240ms, border-color 240ms;
+}
+
+.cr-stage-header-text.is-active {
+  border-color: color-mix(in srgb, var(--success-soft) 40%, transparent);
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--success-soft) 5%, transparent) 0%,
+    color-mix(in srgb, var(--success-soft) 16%, transparent) 25%,
+    color-mix(in srgb, var(--success-soft) 18%, transparent) 50%,
+    color-mix(in srgb, var(--success-soft) 16%, transparent) 75%,
+    color-mix(in srgb, var(--success-soft) 5%, transparent) 100%
+  );
+  background-size: 300% 100%;
+}
+
+.cr-stage-header-text.is-active .cr-stage-title {
+  color: var(--success-soft);
+}
+
+/* Text block inside the chip — title + subtitle stacked vertically;
+   takes the remaining flex space so the Clear button is pinned to
+   the right edge. min-width:0 lets the subtitle ellipsise on
+   narrow viewports instead of pushing the button out of the chip. */
+.cr-stage-header-text-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@keyframes cr-stage-shimmer {
+  0%   { background-position:   0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position:   0% 50%; }
+}
+
+.cr-clear-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  transition: background 150ms, color 150ms, border-color 150ms;
+}
+
+.cr-clear-btn:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  border-color: var(--danger, #dc2626);
+  color: var(--danger, #dc2626);
+}
+
+.cr-clear-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cr-stage-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: background 140ms, box-shadow 140ms;
+  box-shadow: inset 0 0 0 1px transparent;
+}
+
+.cr-stage-body.is-drag-over {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.cr-stage-body.is-empty {
+  align-items: stretch;
+  justify-content: center;
+}
+
+.cr-stage-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 32px 18px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  min-height: 120px;
+  /* Pointer-events:none so the empty hint doesn't block the
+     drag-over signal from the parent .cr-stage-body. */
+  pointer-events: none;
+}
+
+/* Stage row — thumbnail | name+meta | author dot | remove */
+.cr-stage-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  position: relative;
+}
+
+/* Kind stripe down the left edge of the staged row — matches
+   the chip-border tints in the Versions strip so the eye links
+   "I just dragged a green-bordered chip in" with "now there's a
+   green-edged row over here." */
+.cr-stage-row.is-add     { border-left-color: color-mix(in srgb, var(--success, #16a34a) 70%, transparent); border-left-width: 3px; }
+.cr-stage-row.is-edit,
+.cr-stage-row.is-replace { border-left-color: color-mix(in srgb, rgba(245, 158, 11, 0.9) 70%, transparent); border-left-width: 3px; }
+.cr-stage-row.is-delete  { border-left-color: color-mix(in srgb, var(--danger, #dc2626) 70%, transparent); border-left-width: 3px; }
+
+.cr-stage-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.cr-stage-row-name {
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cr-stage-row-meta {
+  margin-top: 3px;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cr-stage-row-remove {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+  transition: background 150ms, color 150ms, border-color 150ms;
+}
+
+.cr-stage-row-remove:hover {
+  background: var(--bg-elevated);
+  border-color: color-mix(in srgb, var(--danger, #dc2626) 40%, transparent);
+  color: var(--danger, #dc2626);
+}
+
+/* ── Stage footer ─────────────────────────────────────────────────── */
+.cr-stage-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.cr-stage-warning {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-right: auto;
+}
+
+.cr-approve-btn {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text-on-accent);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms, opacity 150ms;
+}
+
+.cr-approve-btn:hover:not(:disabled) {
+  background: var(--accent-hover, var(--accent));
+  border-color: var(--accent-hover, var(--accent));
+}
+
+.cr-approve-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Floating Approve button — pinned to the bottom-right of the
+   viewport so it stays reachable no matter how far the user has
+   scrolled inside either pane. Only rendered while
+   ChangeRequestsView is mounted (i.e. on the Version Control tab),
+   so there's no "ghost FAB" leaking onto other tabs. Higher z-index
+   than the panes but below modal overlays (FileDetailModal sits at
+   1000+ via its own backdrop). */
+.cr-approve-btn-fixed {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 100;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--text-on-accent);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.75rem 1.5rem;
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  transition: background 150ms, border-color 150ms, transform 120ms, opacity 150ms;
+}
+
+.cr-approve-btn-fixed:hover:not(:disabled) {
+  background: var(--accent-hover, var(--accent));
+  border-color: var(--accent-hover, var(--accent));
+  transform: translateY(-1px);
+}
+
+.cr-approve-btn-fixed:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Morphing tooltip-to-menu pill on version avatars ─────────────── */
+/* Mirrors `.project-files-morph-*` from ProjectFiles.css so the
+   hover-tooltip → right-click-menu morph reads identically on both
+   surfaces. Builds on the base `.tooltip` rules from Tooltip.css
+   (loaded via the Tooltip import on this view, so available even
+   when ProjectFiles isn't mounted). The JS FLIP recipe in
+   AvatarMorphPill wires its own `transition: transform` inline; the
+   CSS just owns the static shape + dimensions for each state. */
+
+/* `display: contents` collapses the wrapper to nothing in the layout
+   tree — the wrapped avatar takes the wrapper's slot in its parent's
+   flex/grid context. Means right-click + hover hit the wrapper without
+   adding a new box that could shift the avatar row. */
+.cr-morph-wrap {
+  display: contents;
+}
+
+.cr-morph-pill.is-menu {
+  padding: 4px;
+  border-radius: 10px;
+  min-width: 200px;
+  background: var(--bg-card);
+  border-color: var(--border-strong);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  white-space: normal;
+  /* No CSS transition here — the JS FLIP effect in AvatarMorphPill
+     wires its own `transition: transform 220ms` inline so it can
+     drive the morph with a transform-only animation that doesn't
+     conflict with the inline `translate(x, y)` for cursor anchoring. */
+  transition: none;
+  will-change: transform;
+}
+
+.cr-morph-text {
+  white-space: pre-line;
+}
+
+.cr-morph-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cr-morph-item {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.55rem 0.8rem;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.cr-morph-item:hover:not(:disabled),
+.cr-morph-item:focus-visible {
+  background: var(--bg-elevated);
+  outline: none;
+}
+
+.cr-morph-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cr-morph-item-danger {
+  color: var(--danger-soft);
+}
+
+.cr-morph-item-danger:hover:not(:disabled),
+.cr-morph-item-danger:focus-visible {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger-soft);
+}
+
+/* ── Narrow viewport ──────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .cr-body {
+    grid-template-columns: 1fr;
+  }
+  .cr-stage {
+    min-height: 360px;
+    border-top: 1px solid var(--border);
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+   Pannable tree (Pending edits redesign)
+   ─────────────────────────────────────────────────────────────────────
+   Mirrors the dashboard's Members tree. Fixed viewport fills the area
+   below the project tabs; inner container translates on mousedown
+   drag. Cards keep clicks live because the pan handler bails when the
+   target sits inside a `.cr-tree-card` or `button`.
+*/
+.cr-tree-viewport {
+  position: fixed;
+  left: var(--sidebar-width, 60px);
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  user-select: none;
+  cursor: grab;
+  contain: layout paint;
+}
+.cr-tree-viewport.is-dragging,
+.cr-tree-viewport:active {
+  cursor: grabbing;
+}
+
+.cr-tree {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 6rem;
+  padding: 1rem 0.5rem;
+  will-change: transform;
+}
+
+.cr-tree-edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  opacity: 0.7;
+}
+
+.cr-tree-tier {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cr-tree-tier-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: 0.2rem;
+}
+
+.cr-tree-tier-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+/* Shared card shell. Same shape as .tree-card on the Members tab so
+   the two surfaces feel like siblings. */
+.cr-tree-card {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.6rem 0.8rem;
+  min-width: 260px;
+  max-width: 320px;
+  transition: border-color 150ms, background 150ms;
+}
+.cr-tree-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg-card));
+}
+
+.cr-tree-card-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.cr-tree-card-name {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cr-tree-card-meta {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* File side carries the thumbnail; nothing else special. */
+.cr-tree-file-card { /* shared shell handles everything */ }
+
+/* Version card stacks vertically: author row on top, the target
+   file (with its new thumbnail) in the middle, action buttons at
+   the bottom-left. Wider than the file card so the file row + the
+   button row both breathe. The .cr-tree-card row layout is
+   overridden by `column` here so children stack instead of sitting
+   on one horizontal line. `position: relative` anchors the absolute-
+   positioned selection dot (`.cr-tree-version-dot`) in the top-
+   right corner. */
+.cr-tree-version-card {
+  position: relative;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 300px;
+  max-width: 360px;
+  gap: 0.7rem;
+}
+
+/* Top row — author avatar + name + change-kind badge. Carries a
+   subtle bottom border so the author block visually separates from
+   the file row below — reads as "this person submitted this
+   change" with a clear divider before the file content. The whole
+   parent card owns the click-to-toggle gesture (see
+   .cr-tree-version-card.is-clickable below), so this row stays
+   presentational. */
+.cr-tree-version-author {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.cr-tree-version-author-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.cr-tree-version-author-name {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cr-tree-version-kind {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.cr-tree-version-kind.is-add     { color: var(--success); }
+.cr-tree-version-kind.is-edit    { color: var(--info); }
+.cr-tree-version-kind.is-replace { color: var(--warning); }
+.cr-tree-version-kind.is-delete  { color: var(--danger); }
+
+/* Middle row — the file the change targets. Flush with the card
+   (no inset panel, no padding, no hover affordance). The selection
+   toggle moved to a dedicated dot in the card's top-right corner
+   (`.cr-tree-version-dot`), so the row itself is purely
+   presentational now — no interactivity, no hover state. */
+.cr-tree-version-file {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+/* Selection dot — the ONE control for picking a version as the
+   admin's preferred pick for its file. Pinned to the card's top-
+   right corner via absolute positioning (the parent .cr-tree-version-
+   card needs `position: relative`, set below). Empty / hollow when
+   unpicked; filled green with a halo when picked. */
+.cr-tree-version-dot {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--text-primary) 35%, transparent);
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  transition: background 140ms, border-color 140ms, box-shadow 140ms, transform 100ms;
+}
+.cr-tree-version-dot:hover {
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+}
+.cr-tree-version-dot:active {
+  transform: scale(0.9);
+}
+.cr-tree-version-dot.is-on {
+  background: var(--success);
+  border-color: var(--success);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 28%, transparent);
+}
+.cr-tree-version-dot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Preferred version — admin clicked the file row to pick this as
+   the version they want kept for this file. Green outline reads
+   as a positive selection (vs. accent which means "you're hovering
+   me"). Outline-offset gives it a small ring of breathing room
+   inside the canvas. */
+.cr-tree-version-card.is-preferred {
+  outline: 2px solid var(--success);
+  outline-offset: 3px;
+  border-color: color-mix(in srgb, var(--success) 50%, var(--border));
+}
+
+.cr-tree-version-file-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.cr-tree-version-file-name {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cr-tree-version-file-meta {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1.2;
+}
+
+/* Action buttons hugged to the bottom-left of the card. */
+.cr-tree-version-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+/* Tight inline action buttons. View is neutral; Approve uses the
+   accent; Decline tints danger. All three same shape so they read
+   as a row of equivalent options. */
+.cr-tree-action {
+  padding: 0.32rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms, border-color 140ms, color 140ms, transform 100ms;
+}
+.cr-tree-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 30%, transparent);
+}
+.cr-tree-action:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.cr-tree-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cr-tree-action-approve {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+}
+.cr-tree-action-approve:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.cr-tree-action-decline {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger);
+}
+.cr-tree-action-decline:hover:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* Empty / loading state inside the viewport. Centred so it reads
+   as a calm "nothing here" rather than a misaligned hint at the
+   top-left. */
+.cr-tree-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  user-select: none;
+}
+
+/* Clickable cards get a cursor + a slightly stronger border on
+   hover. The base .cr-tree-card hover already lifts the border;
+   `.is-clickable` adds the cursor and tightens the hover so the
+   user perceives the card as an interactive surface, not just a
+   read-only chip. */
+.cr-tree-card.is-clickable {
+  cursor: pointer;
+}
+.cr-tree-card.is-clickable:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+.cr-tree-card.is-clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+
+/* "Push new commit" FAB — fixed at the viewport's bottom-right.
+   Accent-coloured pill that floats above the canvas via z-index
+   higher than the pannable tree itself. Mirrors the upload FAB
+   on the Files page so the project surfaces feel like siblings. */
+.cr-push-btn-fixed {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 60;
+  padding: 0.8rem 1.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  transition: background 140ms, transform 100ms, box-shadow 140ms;
+}
+.cr-push-btn-fixed:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.36);
+}
+.cr-push-btn-fixed:active {
+  transform: scale(0.97);
+}

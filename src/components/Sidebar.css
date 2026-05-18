@@ -1,5 +1,15 @@
 ﻿.sidebar {
-  position: relative;
+  /* Fixed so hover-expansion overlays the page instead of pushing
+     it. Flex space is reserved by .main-content's
+     `margin-left: var(--sidebar-width)` (60px default, 220px only
+     when locked or picker-open) — so hover paints the wider
+     sidebar over the content without reflowing every laid-out
+     surface and reflowing again on mouseleave. The .locked /
+     .picker-open states intentionally DO push (they bump
+     --sidebar-width to 220 in AppShell.css). */
+  position: fixed;
+  top: 0;
+  left: 0;
   /* Z-index above the ProjectPickerDrawer (z-index 40) so the drawer is
      literally hidden behind the sidebar when closed â€” its open animation
      then visibly slides it out from behind. Both sit above the project
@@ -25,12 +35,7 @@
   /* `contain: layout style` isolates the sidebar's internal layout
      invalidations from the rest of the page during the width transition.
      `will-change: width` hints the compositor to promote the sidebar to
-     its own layer for the duration of the animation. Together they keep
-     the expand/collapse from triggering a full-page reflow every frame.
-     We keep `width` as the animated property (rather than `transform`)
-     because the sidebar's actual width drives `--sidebar-width` via the
-     `:has()` selector in AppShell.css, which positions the main content
-     and SwitchProjectLoader. */
+     its own layer for the duration of the animation. */
   contain: layout style;
   will-change: width;
 }

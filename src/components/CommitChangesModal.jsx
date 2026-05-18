@@ -4,13 +4,19 @@ import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { useBranch } from '../context/BranchContext';
 import {
-  computeBranchDiff,
   uploadBlobToPending,
+  uploadPendingThumbnail,
   createOrMergeChangeRequest,
   deletePendingObject,
   discardBranchChange,
 } from '../lib/branches';
+import { computeSyncState } from '../lib/syncState';
 import { readLocalBlob } from '../lib/localFolder';
+import {
+  generateThumbnail,
+  generateVideoFrames,
+  extractVideoDuration,
+} from '../lib/thumbnails';
 import Tooltip from './Tooltip';
 import './ConfirmModal.css';
 import './CommitChangesModal.css';
@@ -62,6 +68,7 @@ export default function CommitChangesModal({
   localFiles,
   cloudFiles,
   pendingChanges = [],
+  sidecar,
 }) {
   const { session } = useAuth();
   const { selectedProject } = useSelectedProject();
@@ -110,14 +117,15 @@ export default function CommitChangesModal({
       // NEW work in the modal. Anything already in flight (existing
       // submitted items) is filtered out — pushing a duplicate
       // would just no-op via createOrMergeChangeRequest, but
-      // showing it would be misleading.
-      const fsDiff = computeBranchDiff(
+      // showing it would be misleading. The sidecar drives matching;
+      // hash maps are skipped here because the parent's render
+      // already runs a fully-hashed diff against the same data.
+      const fsDiff = (computeSyncState({
         localFiles,
         cloudFiles,
-        undefined,
-        undefined,
-        openOwnRequestItems,
-      ).map((it) => ({ ...it, source: 'fs' }));
+        sidecar,
+        openRequestItems: openOwnRequestItems,
+      }).toCommit || []).map((it) => ({ ...it, source: 'fs' }));
       const cloudById = new Map();
       for (const c of cloudFiles || []) cloudById.set(c.id, c);
       const modalEdits = (pendingChanges || []).map((c) => ({
@@ -129,22 +137,21 @@ export default function CommitChangesModal({
         cloud: c.target_file_id ? cloudById.get(c.target_file_id) : null,
       }));
 
-      // A modal-driven rename creates BOTH a queued edit (proposed.name)
-      // AND — because the disk file was renamed too — an fs add(new name)
-      // + fs delete(old name). The hash-based pair detection in
-      // computeBranchDiff is skipped above (no hash maps passed), so we
-      // dedupe here using the authoritative overlay data instead:
-      //   • Drop fs 'add' items whose name matches a queued edit's
-      //     proposed.name (that's the new disk filename).
-      //   • Drop fs 'delete' items whose cloud row is the target of a
-      //     queued edit (that's the cloud file being renamed).
-      // Result: a rename surfaces as a single "Edited" entry.
+      // A modal-driven rename creates BOTH a queued edit
+      // (proposed.name) AND a sidecar entry update (same fileId,
+      // new filename). Sidecar-based matching in computeBranchDiff
+      // sees the same id on both sides → no fs 'add' is emitted
+      // for the new disk filename, so there's nothing to dedupe
+      // here in the steady state.
       //
-      // Extension-tolerant comparison: proposed.name is often the
-      // base ("bar") because the user typed it without the extension,
-      // while the on-disk filename is the base+ext ("bar.png"). Each
-      // name is normalised to a Set of {full, base} variants so a
-      // match in either form drops the fs phantom.
+      // The legacy filter below is kept defensively: if a future
+      // caller seeds fs items without sidecar coverage (e.g., a
+      // bootstrap-in-flight race where the sidecar hasn't caught
+      // up with a rename), an add for the rename's new filename
+      // would slip through. Extension-tolerant comparison: the
+      // user typed "bar" but the disk file is "bar.png", so each
+      // proposed.name is normalised to a Set of {full, base}
+      // variants.
       const stripExt = (s) => {
         const lc = (s || '').toLowerCase();
         const dot = lc.lastIndexOf('.');
@@ -180,7 +187,7 @@ export default function CommitChangesModal({
       setSubmitting(false);
       requestAnimationFrame(() => titleRef.current?.focus());
     }
-  }, [open, localFiles, cloudFiles, pendingChanges, openOwnRequestItems]);
+  }, [open, localFiles, cloudFiles, pendingChanges, openOwnRequestItems, sidecar]);
 
   // Esc closes when not mid-upload — interrupting an upload mid-PUT
   // would leak the partial pending object until the next reject.
@@ -238,10 +245,96 @@ export default function CommitChangesModal({
           blob,
           fileName: it.local.name,
           mimeType: it.local.mimeType,
+          // Thread the sidecar's id through so proposed.id matches
+          // what the local sidecar already mapped this file to —
+          // after the admin approves, project_files.id equals this
+          // id and no re-link is needed on either side. `it.fileId`
+          // came from computeBranchDiff, which read it from the
+          // sidecar; falls back to a fresh UUID if absent (legacy
+          // diff items without a sidecar id).
+          fileId: it.fileId,
         });
         if (upErr || !meta) throw upErr || new Error('Upload failed');
         uploadedPendingPaths.push(meta.pendingPath);
-        uploadedById.set(it, meta);
+
+        // Generate + upload thumbnail assets in parallel with the next
+        // item's main upload. Image / PDF: single _thumb.jpg. Video:
+        // up to 5 frames (_thumb_0..4.jpg) for the slideshow + a
+        // duration probe for the runtime badge. All best-effort —
+        // a failure here leaves thumbnail_path null and the card
+        // falls back to the MIME glyph, same as the regular upload
+        // pipeline (lib/uploadProjectFile.js). The same generators
+        // are reused so the branch flow produces visually identical
+        // thumbs to a direct upload.
+        const mime = (it.local.mimeType || blob.type || '').toLowerCase();
+        const isVideo = mime.startsWith('video/');
+        // The generators accept anything `File`-shaped; wrap the blob
+        // with a name + type so `file.type` checks inside the
+        // generators don't fall through to "unknown MIME → skip".
+        const blobAsFile = (blob instanceof File && blob.type)
+          ? blob
+          : new File([blob], it.local.name, { type: mime || 'application/octet-stream' });
+        let thumbnailPath = null;
+        let thumbnailPendingPath = null;
+        let thumbnailFrames = null;
+        let durationSeconds = null;
+        try {
+          if (isVideo) {
+            const [frames, dur] = await Promise.all([
+              generateVideoFrames(blobAsFile),
+              extractVideoDuration(blobAsFile),
+            ]);
+            durationSeconds = Number.isFinite(dur) ? Math.round(dur) : null;
+            if (Array.isArray(frames) && frames.length > 0) {
+              const framePaths = [];
+              const framePendingPaths = [];
+              for (let f = 0; f < frames.length; f++) {
+                const { data: tMeta, error: tErr } = await uploadPendingThumbnail({
+                  projectId,
+                  userId,
+                  fileId: meta.fileId,
+                  blob: frames[f],
+                  suffix: `_${f}`,
+                });
+                if (tErr || !tMeta) continue;
+                uploadedPendingPaths.push(tMeta.pendingPath);
+                framePaths.push(tMeta.canonicalPath);
+                framePendingPaths.push(tMeta.pendingPath);
+              }
+              if (framePaths.length > 0) {
+                thumbnailFrames = framePaths;
+                // Frame 0 doubles as the poster (matches uploadProjectFile.js).
+                thumbnailPath = framePaths[0];
+                thumbnailPendingPath = framePendingPaths[0];
+              }
+            }
+          } else {
+            const tBlob = await generateThumbnail(blobAsFile);
+            if (tBlob) {
+              const { data: tMeta, error: tErr } = await uploadPendingThumbnail({
+                projectId,
+                userId,
+                fileId: meta.fileId,
+                blob: tBlob,
+              });
+              if (!tErr && tMeta) {
+                uploadedPendingPaths.push(tMeta.pendingPath);
+                thumbnailPath = tMeta.canonicalPath;
+                thumbnailPendingPath = tMeta.pendingPath;
+              }
+            }
+          }
+        } catch {
+          // Thumbnail generation / upload failed — leave the row
+          // without one. Non-fatal.
+        }
+        uploadedById.set(it, {
+          ...meta,
+          thumbnailPath,
+          thumbnailPendingPath,
+          thumbnailFrames,
+          durationSeconds,
+        });
       }
       setProgress(null);
 
@@ -250,6 +343,26 @@ export default function CommitChangesModal({
       // RPC can write it into project_files.content_hash on merge —
       // future diffs (UI + sync) compare hashes when both sides have
       // them, catching same-size content edits.
+      // Build the thumbnail-related half of `proposed` per item.
+      // Keys are OMITTED (not set to null) when the value isn't
+      // meaningful — the approve RPC's `proposed ? 'thumbnail_frames'`
+      // guard treats a present-but-null key as "frames present" and
+      // then calls jsonb_array_elements_text(null), which raises a
+      // SQL error and 400s the whole RPC. Same shape avoidance for
+      // thumbnail_path / pending / duration so the merge step
+      // doesn't insert spurious nulls into project_files columns.
+      const buildThumbProposed = (meta) => {
+        const t = {};
+        if (meta.thumbnailPath) t.thumbnail_path = meta.thumbnailPath;
+        if (meta.thumbnailPendingPath) t.thumbnail_pending_path = meta.thumbnailPendingPath;
+        if (Array.isArray(meta.thumbnailFrames) && meta.thumbnailFrames.length > 0) {
+          t.thumbnail_frames = meta.thumbnailFrames;
+        }
+        if (typeof meta.durationSeconds === 'number' && Number.isFinite(meta.durationSeconds)) {
+          t.duration_seconds = meta.durationSeconds;
+        }
+        return t;
+      };
       const items = snapshot.map((it) => {
         // Filesystem-sourced add: new bytes that were just uploaded.
         if (it.source === 'fs' && it.kind === 'add') {
@@ -266,6 +379,7 @@ export default function CommitChangesModal({
               content_hash: meta.contentHash,
               storage_path: meta.canonicalPath,
               pending_storage_path: meta.pendingPath,
+              ...buildThumbProposed(meta),
             },
           };
         }
@@ -285,6 +399,7 @@ export default function CommitChangesModal({
               content_hash: meta.contentHash,
               storage_path: meta.canonicalPath,
               pending_storage_path: meta.pendingPath,
+              ...buildThumbProposed(meta),
             },
           };
         }
@@ -424,12 +539,37 @@ export default function CommitChangesModal({
                 || it.proposed?.name
                 || `Item ${i + 1}`;
               const size = it.local?.sizeBytes ?? it.cloud?.size_bytes ?? null;
+              // Rename detection — show "old → new" only for modal-
+              // driven edits where the user explicitly typed a new
+              // name. Fs-source replaces also carry proposed.name
+              // (it's the local filename being uploaded), but that's
+              // a storage-name mirror, not a user-typed rename, so
+              // they keep the normal single-name render. Description-
+              // only edits also fall through (no proposed.name).
+              const oldName = it.cloud?.name;
+              const newName = it.proposed?.name;
+              const isRename = it.source === 'modal'
+                && it.kind === 'edit'
+                && Boolean(oldName)
+                && Boolean(newName)
+                && oldName !== newName;
               return (
                 <li key={`${it.source || 'fs'}:${it.kind}:${name}:${i}`} className="commit-modal-item">
                   <span className={`commit-modal-kind is-${KIND_TONE[it.kind] || 'edit'}`}>
                     {KIND_LABEL[it.kind] || it.kind}
                   </span>
-                  <span className="commit-modal-item-name" title={name}>{name}</span>
+                  {isRename ? (
+                    <span
+                      className="commit-modal-item-name commit-modal-item-name-rename"
+                      title={`${oldName} → ${newName}`}
+                    >
+                      <span className="commit-modal-item-name-old">{oldName}</span>
+                      <span className="commit-modal-item-name-arrow" aria-hidden="true">→</span>
+                      <span className="commit-modal-item-name-new">{newName}</span>
+                    </span>
+                  ) : (
+                    <span className="commit-modal-item-name" title={name}>{name}</span>
+                  )}
                   {size != null && (
                     <span className="commit-modal-item-size">{formatBytes(size)}</span>
                   )}

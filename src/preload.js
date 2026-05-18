@@ -102,5 +102,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('local-folder:changed', listener);
       return () => ipcRenderer.removeListener('local-folder:changed', listener);
     },
+    // Per-folder sidecar (.docvex.json) — persists the unique-ID
+    // mapping for each file alongside the files themselves. Survives
+    // browser-storage clears and syncs across teammates via
+    // Dropbox/iCloud. See lib/localBranchMeta.js for the data shape
+    // and reconciliation logic.
+    readSidecar: (dir) => ipcRenderer.invoke('local-folder:read-sidecar', dir),
+    writeSidecar: (payload) => ipcRenderer.invoke('local-folder:write-sidecar', payload),
   },
 });

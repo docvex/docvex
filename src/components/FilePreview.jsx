@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getCachedPdf } from '../lib/pdfCache';
+import { DOCX_MIME, getRichDocxThumbnail } from '../lib/thumbnails';
 import Tooltip from './Tooltip';
 
 // Preview renderer for the FileDetailModal's preview pane.
@@ -37,7 +38,13 @@ const OpenIcon = (
 // hover hint, focus ring, and keyboard semantics. The hint pill is
 // pinned in the corner via the stylesheet — only visible on hover or
 // keyboard focus so it doesn't clutter the preview itself.
+//
+// When `onOpen` is null (e.g. DOCX in the version-control inspector,
+// where opening the file would trigger a browser download rather than
+// an inline view), render children directly with no button wrapper —
+// the preview pane stays purely visual.
 function ClickablePreview({ onOpen, children, ariaLabel }) {
+  if (!onOpen) return children;
   return (
     <Tooltip content="Click to open">
       <button
@@ -60,12 +67,14 @@ function ClickablePreview({ onOpen, children, ariaLabel }) {
 // error fallback for the type-specific renderers when something goes
 // wrong (pdf.js worker fails, video codec unsupported, etc.). Hint
 // directs the user to the right-pane View action.
-function NoPreview({ reason }) {
+function NoPreview({ reason, canOpen = true }) {
   return (
     <div className="file-preview-empty">
       <p className="file-preview-empty-title">No preview available</p>
       {reason && <p className="file-preview-empty-reason">{reason}</p>}
-      <p className="file-preview-empty-hint">Use the <strong>View</strong> button to open the file in a new tab.</p>
+      {canOpen && (
+        <p className="file-preview-empty-hint">Use the <strong>View</strong> button to open the file in a new tab.</p>
+      )}
     </div>
   );
 }
@@ -318,11 +327,86 @@ function TextPreview({ signedUrl, file }) {
   );
 }
 
+// ── DOCX ─────────────────────────────────────────────────────────────────
+// .docx has no native browser renderer. We reuse the same paper-styled
+// thumbnail already generated at upload time (a 600×800 PNG of the
+// document's text on a white page with a Word-blue ribbon) — fetched
+// via a fresh signed URL and displayed scaled-to-fit in the preview
+// pane. The View button still opens the actual file in Word /
+// LibreOffice for the formatted version.
+//
+// Regenerates the DOCX preview locally on every open — fetches the
+// source bytes (via the already-signed `signedUrl` the modal passes
+// down for the source file) and runs them through `generateThumbnail`
+// so the rendered preview ALWAYS reflects the current renderer
+// (alignment, fonts, colors, sizes — everything `parseDocxStructure`
+// captures). The cloud-stored thumbnail_path is ignored here: it may
+// be a stale baked image from an earlier renderer version, and using
+// it would mean some DOCX files render plain while newly uploaded
+// ones render rich.
+//
+// Side benefit: this also fixes the version-card "old thumb flashes
+// for a frame" bug — there's no intermediate "sign the cloud thumb"
+// step anymore. We wait for signedUrl, fetch, generate, show. No
+// crossfade between an old and new image.
+//
+// Cached by content_hash so re-opens hit the cached blob URL instead
+// of re-fetching + re-rendering the docx.
+function DocxPreview({ file, signedUrl, onOpen }) {
+  const [thumbUrl, setThumbUrl] = useState(null);
+  const [error, setError] = useState(null);
+  const [imgErrored, setImgErrored] = useState(false);
+
+  useEffect(() => {
+    setError(null);
+    setImgErrored(false);
+    setThumbUrl(null);
+    if (!signedUrl) {
+      // Modal hasn't signed the source-bytes URL yet — stay in the
+      // loading state instead of erroring.
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      const url = await getRichDocxThumbnail({
+        signedUrl,
+        contentHash: file?.content_hash,
+        fileName: file?.name,
+        mimeType: file?.mime_type,
+      });
+      if (cancelled) return;
+      if (!url) {
+        setError('Could not generate preview.');
+        return;
+      }
+      setThumbUrl(url);
+    })();
+    return () => { cancelled = true; };
+  }, [signedUrl, file?.content_hash, file?.name, file?.mime_type]);
+
+  if (error)             return <NoPreview reason={error} />;
+  if (imgErrored)        return <NoPreview reason="Preview image failed to load." />;
+  if (thumbUrl == null)  return <div className="file-preview-loading">Loading preview…</div>;
+  return (
+    <ClickablePreview onOpen={onOpen} ariaLabel={`Open ${file.name}`}>
+      <div className="file-preview-image">
+        <img
+          src={thumbUrl}
+          alt={file.name}
+          onError={() => setImgErrored(true)}
+          draggable={false}
+        />
+      </div>
+    </ClickablePreview>
+  );
+}
+
 // ── Dispatcher ───────────────────────────────────────────────────────────
 export default function FilePreview({ file, signedUrl, onOpen }) {
   if (!file) return null;
 
   const t = file.mime_type || '';
+  const name = (file.name || '').toLowerCase();
 
   // Both PDF and Video wait on signedUrl internally — PdfPreview gates
   // its pdf.js parse on it; VideoPreview shows a loading message until
@@ -336,5 +420,12 @@ export default function FilePreview({ file, signedUrl, onOpen }) {
   }
   if (t.startsWith('image/'))  return <ImagePreview file={file} signedUrl={signedUrl} onOpen={onOpen} />;
   if (t.startsWith('text/'))   return <TextPreview  file={file} signedUrl={signedUrl} />;
-  return <NoPreview reason={`No preview for ${t || 'this file type'}.`} />;
+  // DOCX recognition: prefer the canonical MIME but accept the .docx
+  // extension too — files uploaded via the Files page sometimes land
+  // with mime_type='application/octet-stream' when the OS didn't
+  // resolve the type before upload.
+  if (t === DOCX_MIME || name.endsWith('.docx')) {
+    return <DocxPreview file={file} signedUrl={signedUrl} onOpen={onOpen} />;
+  }
+  return <NoPreview reason={`No preview for ${t || 'this file type'}.`} canOpen={Boolean(onOpen)} />;
 }

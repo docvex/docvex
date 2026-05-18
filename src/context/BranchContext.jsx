@@ -99,10 +99,35 @@ export function BranchProvider({ children }) {
   const [openOwnRequestItems, setOpenOwnRequestItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Admin's "preferred version" selections on the Pending Edits
+  // tree — Map<fileKey, versionKey>. One preferred version per
+  // file; toggling the same key clears it. Lifted into context so
+  // the selection persists across tab switches and component
+  // remounts inside the dashboard. Cleared automatically on
+  // project switch via the reset effect below.
+  const [preferredVersions, setPreferredVersions] = useState(new Map());
+
+  const togglePreferredVersion = useCallback((fileKey, versionKey) => {
+    if (!fileKey || !versionKey) return;
+    setPreferredVersions((prev) => {
+      const next = new Map(prev);
+      if (next.get(fileKey) === versionKey) next.delete(fileKey);
+      else next.set(fileKey, versionKey);
+      return next;
+    });
+  }, []);
+
+  const clearPreferredVersions = useCallback(() => {
+    setPreferredVersions(new Map());
+  }, []);
+
   // Re-read the cached view whenever the project changes — the key
   // is per-project so two projects can have different defaults.
+  // Also clear any "preferred version" picks; those are per-project
+  // and meaningless against the new project's open requests.
   useEffect(() => {
     setViewRaw(readCachedView(projectId));
+    setPreferredVersions(new Map());
   }, [projectId]);
 
   const setView = useCallback((next) => {
@@ -280,7 +305,7 @@ export function BranchProvider({ children }) {
 
   // ── Action wrappers ──────────────────────────────────────────────────
   // Thin wrappers around the lib calls. Centralised here so each
-  // surface (Files page, FileDetailModal, ChangeRequestsPanel) calls
+  // surface (Files page, FileDetailModal, ChangeRequestsView) calls
   // through the same path and we can layer cross-cutting concerns
   // (notify on failure, optimistic updates) in one place.
   //
@@ -440,6 +465,7 @@ export function BranchProvider({ children }) {
     isAdmin,
     isMember,
     loading,
+    preferredVersions,
     // Actions
     queueChange,
     discardChange,
@@ -451,13 +477,16 @@ export function BranchProvider({ children }) {
     acknowledgeSync,
     refreshOpenRequestItems,
     refresh,
+    togglePreferredVersion,
+    clearPreferredVersions,
   }), [
     view, setView, branchState, mainVersion, pendingChanges,
     overlayByFileId, addedChanges, requests, openOwnRequestItems,
-    isBehindMain, isAdmin, isMember, loading,
+    isBehindMain, isAdmin, isMember, loading, preferredVersions,
     queueChange, discardChange, discardAll, pushRequest, withdrawRequest,
     approveRequest, rejectRequest, acknowledgeSync,
     refreshOpenRequestItems, refresh,
+    togglePreferredVersion, clearPreferredVersions,
   ]);
 
   return (

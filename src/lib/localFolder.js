@@ -22,6 +22,77 @@ const electronApi = typeof window !== 'undefined' ? window.electronAPI?.localFol
 const hasElectron = Boolean(electronApi);
 const hasWebFs    = typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
 
+// ── IndexedDB persistence for the web's FileSystemDirectoryHandle ───────
+// The File System Access API hands back an opaque handle each pick,
+// which we used to drop on page reload. IDB can structured-clone the
+// handle, so persisting it across sessions costs almost nothing —
+// the only catch is permission: the user must regrant via a user
+// gesture each session (queryPermission returns 'prompt' on cold
+// load). That's surfaced in the UI as a "Reconnect" button.
+//
+// Keyed by projectId so different projects can each remember their
+// own folder. localStorage stores Electron paths (path-as-string is
+// useful there); IDB stores the actual handle here on web.
+const IDB_NAME = 'docvex-fs-handles';
+const IDB_STORE = 'handles';
+const IDB_VERSION = 1;
+
+function openIdb() {
+  if (typeof indexedDB === 'undefined') return Promise.reject(new Error('No IndexedDB'));
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+        req.result.createObjectStore(IDB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbGet(projectId) {
+  try {
+    const db = await openIdb();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get(projectId);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function idbPut(projectId, value) {
+  try {
+    const db = await openIdb();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(value, projectId);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function idbDelete(projectId) {
+  try {
+    const db = await openIdb();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).delete(projectId);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    });
+  } catch {
+    return false;
+  }
+}
+
 // Web-backend module-level state. The dirHandle is the chosen
 // directory; handlesByName maps each top-level filename to its
 // FileSystemFileHandle so subsequent reads/writes don't have to
@@ -30,6 +101,12 @@ const hasWebFs    = typeof window !== 'undefined' && typeof window.showDirectory
 const webState = {
   dirHandle: null,
   handlesByName: new Map(),
+  // Separate one-slot handle for `.docvex.json` — kept out of
+  // handlesByName because that map is filtered to non-dotfiles
+  // (see listWeb). Cached so back-to-back writeSidecar calls skip
+  // the per-write directory walk. Cleared on pick / restore /
+  // forget so a folder switch can't reuse the previous sidecar.
+  sidecarHandle: null,
   lastSnapshot: null,
   pollTimer: null,
   changeHandlers: [],
@@ -49,7 +126,8 @@ function guessMimeFromName(name) {
   if (ext === 'pdf') return 'application/pdf';
   if (ext === 'md') return 'text/markdown';
   if (['txt', 'log', 'json', 'csv', 'xml', 'html', 'css', 'js', 'ts'].includes(ext)) return 'text/plain';
-  if (['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'application/octet-stream';
+  if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (['doc', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'application/octet-stream';
   return '';
 }
 
@@ -137,6 +215,7 @@ export const localFolderApi = {
       // mode: 'readwrite' so download() can write via createWritable.
       const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
       webState.dirHandle = handle;
+      webState.sidecarHandle = null;
       webState.lastSnapshot = null;
       return handle.name;
     } catch (err) {
@@ -349,6 +428,157 @@ export const localFolderApi = {
     return () => {
       webState.changeHandlers = webState.changeHandlers.filter((h) => h !== handler);
     };
+  },
+
+  // ── Web folder persistence ────────────────────────────────────────
+  // Electron persists the chosen folder as a path string in
+  // localStorage (handled by the caller, see ProjectFiles.jsx).
+  // Web can't — `showDirectoryPicker` returns an opaque handle, no
+  // path. IDB structured-clones the handle so we can carry it
+  // across page reloads; permission grants don't persist by
+  // default, hence the reconnect step below.
+  //
+  // All four are no-ops on Electron so callers can fire them
+  // unconditionally without branching.
+
+  // Save the currently-picked handle to IDB keyed by projectId.
+  // Call this right after a successful `pick()` so the next visit
+  // can find it. Failure is silent — folder still works this session;
+  // the user just has to pick again next time.
+  persistPickedHandle: async (projectId) => {
+    if (hasElectron) return;
+    if (!hasWebFs || !projectId || !webState.dirHandle) return;
+    await idbPut(projectId, {
+      handle: webState.dirHandle,
+      name: webState.dirHandle.name,
+      savedAt: Date.now(),
+    });
+  },
+
+  // Look up the persisted handle for a project. Returns
+  // `{ name, needsPermission }` when one exists, `null` otherwise.
+  // Side-effect: when found, the handle is hot-loaded into
+  // webState so subsequent operations (after permission is granted
+  // via `reconnectHandle`) work without further setup.
+  //
+  // `needsPermission` distinguishes the two restore outcomes:
+  //   • false → permission still 'granted' (rare; only when the
+  //             browser remembered the grant from a prior session,
+  //             which Chromium 122+ allows for some flows). The
+  //             caller can list/read immediately.
+  //   • true  → permission is 'prompt' or 'denied'. The caller
+  //             should show a Reconnect affordance; the user's
+  //             click on it must be the gesture that drives
+  //             `reconnectHandle()` below.
+  restorePersistedHandle: async (projectId) => {
+    if (hasElectron) return null;
+    if (!hasWebFs || !projectId) return null;
+    const stored = await idbGet(projectId);
+    if (!stored?.handle) return null;
+    webState.dirHandle = stored.handle;
+    webState.sidecarHandle = null;
+    webState.lastSnapshot = null;
+    let perm = 'prompt';
+    try {
+      perm = await stored.handle.queryPermission({ mode: 'readwrite' });
+    } catch { /* older browsers without queryPermission — fall through */ }
+    return {
+      name: stored.name || stored.handle.name,
+      needsPermission: perm !== 'granted',
+    };
+  },
+
+  // User-gesture-driven permission request. Returns true if the
+  // handle is now usable. MUST be called from inside a user gesture
+  // (e.g., onClick handler) — the FSA spec rejects bare programmatic
+  // calls. The caller should disable the surrounding UI while this
+  // promise is in flight.
+  reconnectHandle: async () => {
+    if (hasElectron) return true;
+    if (!hasWebFs || !webState.dirHandle) return false;
+    try {
+      const perm = await webState.dirHandle.requestPermission({ mode: 'readwrite' });
+      return perm === 'granted';
+    } catch {
+      return false;
+    }
+  },
+
+  // Drop the persisted handle for a project and clear in-memory
+  // state. Used by an explicit "forget folder" affordance or when
+  // a project gets deleted. Idempotent.
+  forgetPersistedHandle: async (projectId) => {
+    if (hasElectron) return;
+    if (!projectId) return;
+    await idbDelete(projectId);
+    if (webState.dirHandle) {
+      webState.dirHandle = null;
+      webState.handlesByName.clear();
+      webState.sidecarHandle = null;
+      webState.lastSnapshot = null;
+    }
+  },
+
+  // ── Sidecar (.docvex.json) I/O ────────────────────────────────────
+  // Reads / writes a single hidden JSON file inside the picked folder.
+  // The sidecar carries the fileId ↔ filename mapping for the local
+  // branch; storing it in-folder means the IDs survive a localStorage
+  // clear, ride along with the files when shared via Dropbox/iCloud,
+  // and re-attach automatically when the user re-picks the folder
+  // (no bootstrap window where unrecognised files briefly render as
+  // missing).
+  //
+  // Both methods are async and return { json | ok, error }. Missing
+  // files (read on a never-written folder) resolve to { json: null,
+  // error: null } — the caller treats null as "empty mapping".
+  //
+  // Web path: bypasses `webState.handlesByName` (which excludes
+  // dotfiles to keep the file grid clean). Goes straight through
+  // `dir.getFileHandle('.docvex.json', { create: true })`. A single
+  // sidecar handle is cached in `webState.sidecarHandle` to skip the
+  // per-write directory walk; cleared when the folder is forgotten /
+  // re-picked.
+  readSidecar: async (dir) => {
+    if (hasElectron) return electronApi.readSidecar(dir);
+    const dirHandle = webState.dirHandle;
+    if (!dirHandle) return { json: null, error: 'No folder picked' };
+    try {
+      // create:true so the handle always resolves — if the file
+      // doesn't exist yet we just read an empty handle and return
+      // null below (via the empty-text branch).
+      const fh = await dirHandle.getFileHandle('.docvex.json', { create: true });
+      webState.sidecarHandle = fh;
+      const file = await fh.getFile();
+      if (file.size === 0) return { json: null, error: null };
+      const text = await file.text();
+      let parsed = null;
+      try { parsed = JSON.parse(text); }
+      catch (parseErr) { return { json: null, error: `Bad JSON: ${parseErr?.message || parseErr}` }; }
+      return { json: parsed, error: null };
+    } catch (err) {
+      return { json: null, error: err?.message || String(err) };
+    }
+  },
+
+  writeSidecar: async (payload) => {
+    const dir = payload?.dir;
+    const json = payload?.json;
+    if (!dir) return { ok: false, error: 'No directory specified' };
+    if (!json || typeof json !== 'object') return { ok: false, error: 'Invalid payload' };
+    if (hasElectron) return electronApi.writeSidecar({ dir, json });
+    const dirHandle = webState.dirHandle;
+    if (!dirHandle) return { ok: false, error: 'No folder picked' };
+    try {
+      const fh = webState.sidecarHandle
+        || await dirHandle.getFileHandle('.docvex.json', { create: true });
+      webState.sidecarHandle = fh;
+      const w = await fh.createWritable();
+      await w.write(JSON.stringify(json, null, 2));
+      await w.close();
+      return { ok: true, error: null };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
   },
 };
 

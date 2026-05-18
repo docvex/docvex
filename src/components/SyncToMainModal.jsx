@@ -30,13 +30,15 @@ const CloseIcon = (
 );
 
 const KIND_LABEL = {
-  add:     'Download',
-  replace: 'Overwrite',
-  delete:  'Delete',
+  add:     'Will be added',
+  replace: 'Will replace yours',
+  rename:  'Will be renamed',
+  delete:  'Will be deleted',
 };
 const KIND_TONE = {
   add:     'add',
   replace: 'replace',
+  rename:  'replace',
   delete:  'delete',
 };
 
@@ -47,54 +49,17 @@ function formatBytes(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-// Compute the "cloud → local" diff: what would need to happen to
-// the local folder to make it match main. Note this is the inverse
-// of computeBranchDiff which is "local → cloud" (what the user
-// wants to commit). The two flows mirror each other but the
-// kind labels mean different things, so we keep them separate.
-function computeSyncDiff(cloudFiles, localFiles, localHashByName, cloudHashByFileId) {
-  const localByName = new Map();
-  for (const l of localFiles || []) {
-    if (l?.name) localByName.set(l.name.toLowerCase(), l);
-  }
-  const cloudByFilename = new Map();
-  for (const c of cloudFiles || []) {
-    const filename = (c.storage_path || '').split('/').pop();
-    if (filename) cloudByFilename.set(filename.toLowerCase(), c);
-  }
-  const items = [];
-  for (const cloud of cloudFiles || []) {
-    const filename = (cloud.storage_path || '').split('/').pop();
-    if (!filename) continue;
-    const key = filename.toLowerCase();
-    const local = localByName.get(key);
-    if (!local) {
-      items.push({ kind: 'add', cloud });
-      continue;
-    }
-    const lh = localHashByName?.get(key);
-    const ch = cloud.content_hash || cloudHashByFileId?.get(cloud.id);
-    let differs;
-    if (lh && ch) differs = lh !== ch;
-    else differs = Number(cloud.size_bytes) !== Number(local.sizeBytes);
-    if (differs) items.push({ kind: 'replace', cloud, local });
-  }
-  for (const local of localFiles || []) {
-    if (!cloudByFilename.has(local.name.toLowerCase())) {
-      items.push({ kind: 'delete', local });
-    }
-  }
-  return items;
-}
+// Snapshot is now computed upstream by computeSyncState (src/lib/
+// syncState.js) and passed in via the `snapshot` prop. The old
+// local computeSyncDiff is gone — every surface (this modal, the
+// status pills, the per-card "modified" badge) reads the same diff
+// from one source so they can't drift.
 
 export default function SyncToMainModal({
   open,
   onClose,
-  localFiles,
-  cloudFiles,
+  snapshot: snapshotProp = [],
   localFolder,
-  localHashByName,
-  cloudHashByFileId,
   onLocalListChanged,
   onSyncComplete,
 }) {
@@ -105,16 +70,19 @@ export default function SyncToMainModal({
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState(null);  // { current, total, name, kind }
   const [error, setError] = useState(null);
+  // Freeze the snapshot at open time so a parent-driven diff update
+  // (a watcher tick during the user's "are you sure?" pause) doesn't
+  // change the row list out from under them mid-confirm.
   const [snapshot, setSnapshot] = useState([]);
 
   useEffect(() => {
     if (open) {
-      setSnapshot(computeSyncDiff(cloudFiles, localFiles, localHashByName, cloudHashByFileId));
+      setSnapshot(Array.isArray(snapshotProp) ? snapshotProp : []);
       setError(null);
       setProgress(null);
       setSubmitting(false);
     }
-  }, [open, cloudFiles, localFiles, localHashByName, cloudHashByFileId]);
+  }, [open, snapshotProp]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -124,7 +92,7 @@ export default function SyncToMainModal({
   }, [open, submitting, onClose]);
 
   const counts = useMemo(() => {
-    const c = { add: 0, replace: 0, delete: 0 };
+    const c = { add: 0, replace: 0, delete: 0, rename: 0 };
     for (const it of snapshot) c[it.kind] = (c[it.kind] || 0) + 1;
     return c;
   }, [snapshot]);
@@ -181,6 +149,26 @@ export default function SyncToMainModal({
         }
       }
 
+      // 3a. Rename locally — same bytes, wrong filename. Reverting
+      // here means matching main's canonical name. Done one-by-one
+      // (no batch rename IPC); typically just a few items.
+      const renames = snapshot.filter((it) => it.kind === 'rename');
+      for (let i = 0; i < renames.length; i++) {
+        const it = renames[i];
+        setProgress({ current: i + 1, total: renames.length, kind: 'rename', name: it.targetName });
+        const { error: renErr } = await localFolderApi.renameFile({
+          dir: localFolder,
+          fromName: it.local.name,
+          toName: it.targetName,
+        });
+        // Non-fatal per-file: a rename collision with an unrelated
+        // file just leaves that one out of sync. Surface as soft
+        // error and continue so the rest of the revert can land.
+        if (renErr) {
+          throw new Error(`Rename failed for ${it.local.name} → ${it.targetName}: ${renErr}`);
+        }
+      }
+
       // 3b. Discard every queued branch_change too — "Revert to main"
       // wipes ALL local divergence, including unpushed metadata edits.
       // Best-effort: a failure here doesn't unwind the byte sync. The
@@ -200,27 +188,35 @@ export default function SyncToMainModal({
       // showing post-sync until the parent's background re-hash effect
       // catches up — which can take seconds on big files. With this,
       // the badge clears in the same render as the modal closes.
+      //
+      // syncedFileIds maps the on-disk filename to the cloud row's
+      // id. Parent uses it to populate the per-folder sidecar so
+      // post-sync matching skips the hash-bootstrap window.
       const syncedHashes = new Map();
+      const syncedFileIds = new Map();
       for (const it of snapshot) {
         if (it.kind !== 'add' && it.kind !== 'replace') continue;
         const filename = (it.cloud?.storage_path || '').split('/').pop();
+        if (!filename) continue;
+        const lcName = filename.toLowerCase();
         const hash = it.cloud?.content_hash;
-        if (filename && hash) syncedHashes.set(filename.toLowerCase(), hash);
+        if (hash) syncedHashes.set(lcName, hash);
+        if (it.cloud?.id) syncedFileIds.set(filename, it.cloud.id);
       }
       const deletedNames = new Set(
         snapshot
           .filter((it) => it.kind === 'delete' && it.local?.name)
           .map((it) => it.local.name.toLowerCase()),
       );
-      onSyncComplete?.({ syncedHashes, deletedNames });
+      onSyncComplete?.({ syncedHashes, deletedNames, syncedFileIds });
 
       onLocalListChanged?.();
       notify?.({
         category: 'file',
         variant: 'success',
         icon: 'check',
-        title: 'Reverted to main',
-        body: `Branch matches main (v${mainVersion}).`,
+        title: 'Folder matches the cloud',
+        body: `Your folder is now up to date.`,
         dedupeKey: `sync-success:${mainVersion}`,
       });
       onClose?.();
@@ -249,7 +245,7 @@ export default function SyncToMainModal({
       <div className="commit-modal-card">
         <header className="commit-modal-header">
           <h2 id="sync-modal-title" className="commit-modal-title">
-            Revert to main branch
+            Use the cloud version
           </h2>
           <Tooltip content="Close">
             <button
@@ -267,31 +263,36 @@ export default function SyncToMainModal({
         <div className="commit-modal-body">
           <p className="commit-modal-intro">
             {snapshot.length === 0 && (pendingChanges || []).length === 0
-              ? 'Your branch already matches main — nothing to revert.'
+              ? 'Your folder already matches the cloud — nothing to change.'
               : (
                 <>
-                  {counts.add     > 0 && <>{counts.add} to download · </>}
-                  {counts.replace > 0 && <>{counts.replace} to overwrite · </>}
-                  {counts.delete  > 0 && <>{counts.delete} to delete · </>}
+                  This will change your folder to match the cloud:
+                  {' '}
+                  {counts.add     > 0 && <>{counts.add} new file{counts.add === 1 ? '' : 's'} added · </>}
+                  {counts.replace > 0 && <>{counts.replace} file{counts.replace === 1 ? '' : 's'} replaced · </>}
+                  {counts.rename  > 0 && <>{counts.rename} renamed · </>}
+                  {counts.delete  > 0 && <>{counts.delete} file{counts.delete === 1 ? '' : 's'} deleted · </>}
                   {(pendingChanges || []).length > 0 && (
-                    <>{(pendingChanges || []).length} queued change{(pendingChanges || []).length === 1 ? '' : 's'} discarded · </>
+                    <>{(pendingChanges || []).length} of your unsent edits discarded · </>
                   )}
-                  applied to your folder.
                 </>
               )}
           </p>
 
           {counts.delete > 0 && (
             <div className="commit-modal-error" role="alert" style={{ color: 'var(--text-secondary)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)', borderColor: 'color-mix(in srgb, var(--accent) 35%, transparent)' }}>
-              Files only present locally will be deleted. If any are work
-              you haven't pushed yet, cancel and push first.
+              Files you've added locally but not yet sent for review will be
+              deleted. If you want to keep them, cancel and let the cloud sync
+              your edits first.
             </div>
           )}
 
           <ul className="commit-modal-items">
             {snapshot.map((it, i) => {
               const file = it.cloud || it.local;
-              const name = file?.name || `Item ${i + 1}`;
+              const name = it.kind === 'rename'
+                ? `${it.local?.name || ''} → ${it.targetName || ''}`
+                : (file?.name || `Item ${i + 1}`);
               const size = it.kind === 'delete' ? it.local?.sizeBytes : it.cloud?.size_bytes;
               return (
                 <li key={`${it.kind}:${name}:${i}`} className="commit-modal-item">
@@ -299,7 +300,7 @@ export default function SyncToMainModal({
                     {KIND_LABEL[it.kind] || it.kind}
                   </span>
                   <span className="commit-modal-item-name" title={name}>{name}</span>
-                  {size != null && (
+                  {size != null && it.kind !== 'rename' && (
                     <span className="commit-modal-item-size">{formatBytes(size)}</span>
                   )}
                 </li>
@@ -309,7 +310,11 @@ export default function SyncToMainModal({
 
           {progress && (
             <div className="commit-modal-progress" role="status" aria-live="polite">
-              {progress.kind === 'delete' ? 'Deleting…' : 'Downloading…'}
+              {progress.kind === 'delete'
+                ? 'Removing files…'
+                : progress.kind === 'rename'
+                  ? `Renaming ${progress.name || ''}…`
+                  : 'Downloading from the cloud…'}
             </div>
           )}
 
@@ -334,10 +339,10 @@ export default function SyncToMainModal({
             disabled={!canSubmit}
           >
             {submitting
-              ? 'Reverting…'
+              ? 'Working…'
               : (snapshot.length === 0 && (pendingChanges || []).length === 0
-                  ? 'Mark as synced'
-                  : 'Revert to main')}
+                  ? 'OK, all good'
+                  : 'Use cloud version')}
           </button>
         </footer>
       </div>
