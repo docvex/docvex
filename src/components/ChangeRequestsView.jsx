@@ -11,33 +11,12 @@ import {
 import {
   fetchUploaderProfile,
   listProjectFiles,
-  createSignedDownloadUrl,
 } from '../lib/projectFiles';
 import FileThumbnail from './FileThumbnail';
 import FileDetailModal from './FileDetailModal';
 import Tooltip from './Tooltip';
-import { generateThumbnail, getRichDocxThumbnail, isDocxFile } from '../lib/thumbnails';
+import { describeChangeRequestItem } from '../lib/thumbnailDescriptor';
 import './ChangeRequestsView.css';
-
-// Module-level cache for thumbnails generated on-the-fly from the
-// file bytes (when no pre-baked thumbnail_path / thumbnail_pending_path
-// is on the row). Keyed by the bytes' storage path so re-renders +
-// re-mounts of the compose view hit the cache instead of re-fetching
-// and re-running pdf.js / canvas. FIFO-capped — older entries get
-// evicted and their blob URLs revoked so we don't leak memory.
-const CR_THUMB_CACHE = new Map();
-const CR_THUMB_CACHE_MAX = 200;
-function rememberCrThumb(key, blobUrl) {
-  if (CR_THUMB_CACHE.size >= CR_THUMB_CACHE_MAX) {
-    const firstKey = CR_THUMB_CACHE.keys().next().value;
-    if (firstKey !== undefined) {
-      const old = CR_THUMB_CACHE.get(firstKey);
-      try { URL.revokeObjectURL(old); } catch { /* ignore */ }
-      CR_THUMB_CACHE.delete(firstKey);
-    }
-  }
-  CR_THUMB_CACHE.set(key, blobUrl);
-}
 
 // "Compose release" surface — embedded inside the Project Dashboard's
 // "Version control" tab. Three panes:
@@ -193,184 +172,40 @@ function authorColor(authorId) {
   return AUTHOR_COLORS[Math.abs(h) % AUTHOR_COLORS.length];
 }
 
-// MIME → fallback glyph for files without a pre-baked thumbnail.
-// Mirrors the per-card glyph map on the Files page (which lives
-// inline there); duplicated to keep this component self-contained.
-function GlyphForMime({ mime }) {
-  const stroke = 'currentColor';
-  const m = mime || '';
-  if (m === 'application/pdf') {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <text x="8" y="18" fontSize="6" fontWeight="700" fill={stroke} stroke="none">PDF</text>
-      </svg>
-    );
-  }
-  if (m.startsWith('video/')) {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <rect x="2" y="6" width="14" height="12" rx="2" ry="2" />
-        <polygon points="22 8 16 12 22 16 22 8" />
-      </svg>
-    );
-  }
-  if (m.startsWith('text/')) {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="8" y1="13" x2="16" y2="13" />
-        <line x1="8" y1="17" x2="14" y2="17" />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-    </svg>
-  );
-}
-
-// Thumbnail container that resolves the best display URL for the
-// surface, in priority order:
-//   1. Cloud `thumbnail_path`         — file already merged, pre-baked thumb.
-//   2. Pending `thumbnail_pending_path` — push uploaded a thumb alongside bytes.
-//   3. Bytes fallback — sign the file's storage path (canonical or
-//      pending), and for image MIMEs use the URL directly; for PDF /
-//      video / DOCX, fetch the bytes and run the shared
-//      `generateThumbnail` helper. Caches the result so the compose
-//      view doesn't re-fetch / re-rasterize on every render.
+// Thumbnail container for a change-request item. Build the descriptor
+// via describeChangeRequestItem + hand it to the unified Thumbnail —
+// same code path the Files page cards use, so a file shows the same
+// poster everywhere, the cache hits across surfaces, and any future
+// thumbnail improvement (DOCX renderer tweak, new MIME support) lands
+// here for free.
 //
-// The bytes fallback is what makes thumbnails appear for items pushed
-// BEFORE the upload pipeline started shipping `thumbnail_pending_path`,
-// and for items where the thumb upload itself failed (e.g., network
-// blip mid-push). FileThumbnail still handles the final display +
-// glyph fallback if even the bytes-fallback can't produce a thumb.
-function CrThumb({ cloud, item, size = 56, preferPending = false }) {
-  const [url, setUrl] = useState(null);
-  const cloudThumb       = cloud?.thumbnail_path || null;
-  const pendingThumb     = item?.proposed?.thumbnail_pending_path || null;
-  const cloudBytesPath   = cloud?.storage_path || null;
-  const pendingBytesPath = item?.proposed?.pending_storage_path || null;
-  const mime             = cloud?.mime_type || item?.proposed?.mime_type || '';
-  const fileName         = cloud?.name || item?.proposed?.name || null;
-  const contentHash      = cloud?.content_hash || item?.proposed?.content_hash || null;
-
-  // Single resolver. Tries — in order — until one of them returns a
-  // URL the renderer can paint:
-  //   1. DOCX-specific rich regen from source bytes (so every chip
-  //      shows the current renderer's styling, not a stale baked
-  //      thumb).
-  //   2. Pre-baked thumb path on the preferred bucket (pending for
-  //      version cards, cloud for file-column headers).
-  //   3. Pre-baked thumb on the other bucket.
-  //   4. Source bytes — for images the URL IS the thumb; for
-  //      everything else we fetch + run generateThumbnail.
-  // The eventual URL wins because each step only setUrl on success
-  // (no overwrite of a good URL by a later failure).
-  useEffect(() => {
-    let cancelled = false;
-    setUrl(null);
-
-    const signByKind = (kind, path) => (kind === 'pending'
-      ? createPendingSignedUrl(path, 600)
-      : createSignedDownloadUrl(path, 600));
-
-    (async () => {
-      // ── 1. DOCX rich regen from bytes ─────────────────────────
-      if (isDocxFile(mime, fileName)) {
-        const bytesPath = preferPending
-          ? (pendingBytesPath || cloudBytesPath)
-          : (cloudBytesPath || pendingBytesPath);
-        if (bytesPath) {
-          const bytesKind = bytesPath === pendingBytesPath ? 'pending' : 'cloud';
-          const { data, error } = await signByKind(bytesKind, bytesPath);
-          if (cancelled) return;
-          if (!error && data?.signedUrl) {
-            const richUrl = await getRichDocxThumbnail({
-              signedUrl: data.signedUrl,
-              contentHash,
-              fileName,
-              mimeType: mime,
-            });
-            if (cancelled) return;
-            if (richUrl) { setUrl(richUrl); return; }
-          }
-        }
-      }
-
-      // ── 2 + 3. Pre-baked thumb paths ──────────────────────────
-      const firstTry = preferPending
-        ? { kind: 'pending', path: pendingThumb }
-        : { kind: 'cloud',   path: cloudThumb };
-      const secondTry = preferPending
-        ? { kind: 'cloud',   path: cloudThumb }
-        : { kind: 'pending', path: pendingThumb };
-      for (const attempt of [firstTry, secondTry]) {
-        if (!attempt.path) continue;
-        const { data, error } = await signByKind(attempt.kind, attempt.path);
-        if (cancelled) return;
-        if (!error && data?.signedUrl) { setUrl(data.signedUrl); return; }
-      }
-
-      // ── 4. Bytes fallback ─────────────────────────────────────
-      const bytesPath = preferPending
-        ? (pendingBytesPath || cloudBytesPath)
-        : (cloudBytesPath || pendingBytesPath);
-      if (!bytesPath) return;
-      const cached = CR_THUMB_CACHE.get(bytesPath);
-      if (cached) { setUrl(cached); return; }
-      const bytesKind = bytesPath === pendingBytesPath ? 'pending' : 'cloud';
-      const { data, error } = await signByKind(bytesKind, bytesPath);
-      if (cancelled || error || !data?.signedUrl) return;
-
-      // Images: the bytes URL IS the thumb. FileThumbnail's image
-      // branch renders <img src> directly — no canvas round-trip.
-      if ((mime || '').startsWith('image/')) {
-        rememberCrThumb(bytesPath, data.signedUrl);
-        setUrl(data.signedUrl);
-        return;
-      }
-
-      // PDF / video / other: fetch bytes + run generateThumbnail.
-      try {
-        const res = await fetch(data.signedUrl);
-        if (!res.ok) return;
-        const blob = await res.blob();
-        if (cancelled) return;
-        const name = fileName || bytesPath.split('/').pop() || 'file';
-        const typed = new File([blob], name, {
-          type: mime || blob.type || 'application/octet-stream',
-        });
-        const thumbBlob = await generateThumbnail(typed);
-        if (cancelled || !thumbBlob) return;
-        const blobUrl = URL.createObjectURL(thumbBlob);
-        rememberCrThumb(bytesPath, blobUrl);
-        setUrl(blobUrl);
-      } catch {
-        // Generator failure — FileThumbnail falls back to glyph.
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [
-    cloudThumb, pendingThumb, cloudBytesPath, pendingBytesPath,
-    mime, fileName, contentHash, preferPending,
-  ]);
-
+// `preferPending` flips the descriptor's fallback chain: version chips
+// want the AUTHOR's proposed bytes (pending bucket); the file-column
+// header wants the canonical main version (cloud bucket).
+function CrThumb({ cloud, item, size = 56, preferPending = false, hovered = false }) {
+  const descriptor = useMemo(
+    () => describeChangeRequestItem({ item, cloud, preferPending }),
+    [
+      item?.id,
+      item?.proposed?.pending_storage_path,
+      item?.proposed?.thumbnail_pending_path,
+      item?.proposed?.content_hash,
+      item?.proposed?.name,
+      item?.proposed?.mime_type,
+      cloud?.id,
+      cloud?.content_hash,
+      cloud?.thumbnail_path,
+      cloud?.storage_path,
+      cloud?.mime_type,
+      preferPending,
+    ],
+  );
   return (
     <span
       className="cr-thumb"
       style={{ width: size, height: size }}
     >
-      <FileThumbnail
-        mimeType={mime}
-        posterUrl={url}
-        glyph={<GlyphForMime mime={mime} />}
-      />
+      <FileThumbnail descriptor={descriptor} hovered={hovered} />
     </span>
   );
 }
@@ -480,6 +315,17 @@ export default function ChangeRequestsView() {
   const { session } = useAuth();
   const viewerId = session?.user?.id || null;
   const navigate = useNavigate();
+
+  // Tracks which version chip the cursor is over so its CrThumb can
+  // light up the video frame slideshow (same hover-to-preview gesture
+  // the Files page cards expose, now also surfaced here so dashboard
+  // reviewers get an animated preview for video changes).
+  const [hoveredVersionKey, setHoveredVersionKey] = useState(null);
+  // Same idea for file column cards — hover lights the slideshow on
+  // the top thumbnail too. Files in the column show main's current
+  // bytes (preferPending=false), so a video that hasn't changed bytes
+  // still cycles its frames here.
+  const [hoveredFileKey, setHoveredFileKey] = useState(null);
 
   // "Push new commit" FAB jumps the user to the Files page on the
   // Yours tab — that's where the actual push button lives (next to
@@ -938,6 +784,8 @@ export default function ChangeRequestsView() {
                   className={`cr-tree-card cr-tree-file-card${hasCloud ? ' is-clickable' : ''}`}
                   data-file-key={g.key}
                   onClick={hasCloud ? () => handleOpenFileGroup(g) : undefined}
+                  onMouseEnter={() => setHoveredFileKey(g.key)}
+                  onMouseLeave={() => setHoveredFileKey((curr) => (curr === g.key ? null : curr))}
                   role={hasCloud ? 'button' : undefined}
                   tabIndex={hasCloud ? 0 : undefined}
                   onKeyDown={hasCloud ? (e) => {
@@ -947,7 +795,13 @@ export default function ChangeRequestsView() {
                     }
                   } : undefined}
                 >
-                  <CrThumb cloud={cloud} item={g.versions[0]?.item} size={44} />
+                  <CrThumb
+                    cloud={cloud}
+                    item={g.versions[0]?.item}
+                    size={44}
+                    preferPending={false}
+                    hovered={hoveredFileKey === g.key}
+                  />
                   <div className="cr-tree-card-text">
                     <div className="cr-tree-card-name" title={name}>{name}</div>
                     <div className="cr-tree-card-meta">{meta}</div>
@@ -1008,6 +862,8 @@ export default function ChangeRequestsView() {
                   tabIndex={0}
                   aria-pressed={isPreferred}
                   onClick={() => handleSelectPreferred(g.key, vKey)}
+                  onMouseEnter={() => setHoveredVersionKey(vKey)}
+                  onMouseLeave={() => setHoveredVersionKey((curr) => (curr === vKey ? null : curr))}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
@@ -1069,6 +925,7 @@ export default function ChangeRequestsView() {
                       item={v.item}
                       size={48}
                       preferPending
+                      hovered={hoveredVersionKey === vKey}
                     />
                     <div className="cr-tree-version-file-text">
                       <div

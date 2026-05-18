@@ -66,40 +66,6 @@ const LOCAL_FOLDER_KEY = (projectId) => `docvex:project-files-local-folder:${pro
 // No delete UI in v1 — the RLS for it exists (admins delete project
 // files), so the next iteration is purely a button + a confirm modal.
 
-// MIME → glyph mapping. PDFs / videos / text get distinguishable icons
-// so the user can scan the list without reading every filename. Images
-// render their actual thumbnail instead, see FileCard below.
-const PdfIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
-    <text x="8" y="18" fontSize="6" fontWeight="700" fill="currentColor" stroke="none">PDF</text>
-  </svg>
-);
-
-const VideoIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="2" y="6" width="14" height="12" rx="2" ry="2" />
-    <polygon points="22 8 16 12 22 16 22 8" />
-  </svg>
-);
-
-const TextIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
-    <line x1="8" y1="13" x2="16" y2="13" />
-    <line x1="8" y1="17" x2="14" y2="17" />
-  </svg>
-);
-
-const GenericFileIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
-  </svg>
-);
-
 // Cloud icon — used on the Cloud tab. Standard cloud silhouette so it
 // reads as "files in the cloud" without legend.
 const CloudIcon = (
@@ -130,14 +96,6 @@ const CloudDownloadIcon = (
     <line x1="12" y1="12" x2="12" y2="21" />
   </svg>
 );
-
-function iconForMime(mime) {
-  if (!mime) return GenericFileIcon;
-  if (mime === 'application/pdf') return PdfIcon;
-  if (mime.startsWith('video/')) return VideoIcon;
-  if (mime.startsWith('text/')) return TextIcon;
-  return GenericFileIcon;
-}
 
 // Top-level visual category for the section a file belongs to in the
 // grid. Anything that isn't image/* or video/* falls into 'documents'
@@ -330,31 +288,6 @@ function FileCard({ file, onOpen, branchOverlay }) {
       </button>
     </Tooltip>
   );
-}
-
-// Module-level cache of locally-extracted thumbnails — blob: URLs
-// keyed by `<path>|<mtimeIso>`. Re-mounting the same card (scroll,
-// project switch, tab toggle) hits the cache instead of re-running
-// the heavy pdf.js / canvas pipeline. Cleared by entry replacement
-// when the mtime changes — the OS-side edit produces a new key and
-// the old blob URL is revoked at that point.
-//
-// Cap mirrors FileThumbnail's frame cache: 200 entries before FIFO
-// eviction. A typical project has dozens of cards, not thousands;
-// 200 covers the working set comfortably.
-const LOCAL_THUMB_CACHE = new Map();
-const LOCAL_THUMB_CACHE_MAX = 200;
-
-function rememberLocalThumb(key, blobUrl) {
-  if (LOCAL_THUMB_CACHE.size >= LOCAL_THUMB_CACHE_MAX) {
-    const firstKey = LOCAL_THUMB_CACHE.keys().next().value;
-    if (firstKey !== undefined) {
-      const old = LOCAL_THUMB_CACHE.get(firstKey);
-      try { URL.revokeObjectURL(old); } catch { /* ignore */ }
-      LOCAL_THUMB_CACHE.delete(firstKey);
-    }
-  }
-  LOCAL_THUMB_CACHE.set(key, blobUrl);
 }
 
 // Compact card for a locally-listed file. Stripped-down sibling of

@@ -138,6 +138,72 @@ async function fetchAsFile(url, name, mime) {
   }
 }
 
+// Extract a single video frame by streaming the URL directly into a
+// hidden <video>. Critical for large videos — the alternative
+// (fetch-the-whole-file → wrap as File → URL.createObjectURL) would
+// download megabytes just to grab a poster frame, and HTTP video
+// elements already support byte-range requests for fast seek. Returns
+// a blob: URL on success, null on failure / timeout.
+function extractVideoPosterFromUrl(sourceUrl, timeoutMs = 6000) {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    if (/^https?:/i.test(sourceUrl)) {
+      // crossOrigin only set for remote sources — required so canvas
+      // reads don't taint when drawing the frame. localfile:// and
+      // blob: are same-origin and some Chromium builds reject
+      // crossOrigin='anonymous' on the custom protocol, silently
+      // aborting the load.
+      video.crossOrigin = 'anonymous';
+    }
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      video.onloadedmetadata = null;
+      video.onseeked = null;
+      video.onerror = null;
+      try {
+        video.removeAttribute('src');
+        video.load();
+      } catch { /* ignore */ }
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    video.onerror = () => finish(null);
+    video.onloadedmetadata = () => {
+      const dur = Number.isFinite(video.duration) ? video.duration : 0;
+      const target = Math.min(1, Math.max(0, dur * 0.1));
+      video.onseeked = () => {
+        try {
+          const w = video.videoWidth || 320;
+          const h = video.videoHeight || 180;
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0, w, h);
+          canvas.toBlob((blob) => {
+            if (!blob) { finish(null); return; }
+            finish(URL.createObjectURL(blob));
+          }, 'image/jpeg', 0.78);
+        } catch {
+          finish(null);
+        }
+      };
+      try {
+        video.currentTime = target;
+      } catch {
+        finish(null);
+      }
+    };
+    video.src = sourceUrl;
+  });
+}
+
 // ── Resolution pipeline ───────────────────────────────────────────────
 
 // Walks the fallback chain to produce a poster URL for the descriptor.
@@ -187,9 +253,16 @@ async function resolve(descriptor) {
     });
   }
 
-  // PDF / video / other — fetch bytes + run the shared generator,
-  // which routes by MIME to pdf.js (page 1) / a hidden <video>
-  // seek-and-snap / DOCX parse.
+  // Video fast-path: stream the source directly into a hidden <video>
+  // and snap a frame. Avoids the whole-file fetch the generic branch
+  // below would do — large videos on slow connections would otherwise
+  // hang the card while megabytes download just to grab a poster.
+  if ((mime || '').startsWith('video/')) {
+    return extractVideoPosterFromUrl(sourceUrl);
+  }
+
+  // PDF / other — fetch bytes + run the shared generator, which
+  // routes by MIME to pdf.js (page 1) / DOCX parse / etc.
   const typed = await fetchAsFile(sourceUrl, name, mime);
   if (!typed) return null;
   const blob = await generateThumbnail(typed);
