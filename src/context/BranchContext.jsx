@@ -196,29 +196,53 @@ export function BranchProvider({ children }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // The id of THIS user's open request (if any). Driven by the
-  // requests array — recomputes on every realtime change/insert.
-  const openOwnRequestId = useMemo(() => {
-    if (!userId) return null;
-    const own = requests.find((r) => r.author_id === userId && r.status === 'open');
-    return own?.id || null;
+  // Every open change_request authored by THIS user. Plural because
+  // migration 022 dropped the one-open-per-author constraint and
+  // commitFlow now creates a separate request per file, so a member
+  // with three queued edits sits on three open requests at once.
+  // Sorted (oldest first) just so consumers iterating get a stable
+  // order; the order isn't load-bearing anywhere.
+  const openOwnRequestIds = useMemo(() => {
+    if (!userId) return [];
+    return requests
+      .filter((r) => r.author_id === userId && r.status === 'open')
+      .map((r) => r.id);
   }, [requests, userId]);
 
-  // Fetch items of the open own request whenever its id changes.
-  // (When the request gets approved/rejected/withdrawn, openOwnRequestId
-  // flips to null and we clear the items.) Realtime doesn't cover
-  // change_request_items, so we also expose refreshOpenRequestItems()
-  // for callers (the commit modal post-merge push) to trigger a
-  // manual re-fetch.
+  // Stable join key so the items-fetch effect below doesn't re-fire
+  // every render with a new array reference — the IDs themselves
+  // need to change before we re-fetch.
+  const openOwnRequestIdsKey = openOwnRequestIds.join(',');
+
+  // Fetch items across ALL of the user's open requests and union
+  // them into `openOwnRequestItems`. Consumers (computeSyncState in
+  // the commit modal, the soft-hold post-approval logic in
+  // ProjectFiles) treat it as a flat list of "things already in
+  // flight" — they don't care which request each item belongs to.
+  //
+  // Realtime doesn't cover change_request_items, so we also expose
+  // refreshOpenRequestItems() for the commit modal to call after a
+  // successful push.
   const refreshOpenRequestItems = useCallback(async () => {
-    if (!openOwnRequestId) {
+    if (openOwnRequestIds.length === 0) {
       setOpenOwnRequestItems([]);
       return;
     }
-    const { data, error } = await getChangeRequest(openOwnRequestId);
-    if (error) return;
-    setOpenOwnRequestItems(data?.items || []);
-  }, [openOwnRequestId]);
+    const results = await Promise.all(
+      openOwnRequestIds.map((id) => getChangeRequest(id)),
+    );
+    const merged = [];
+    for (const { data, error } of results) {
+      if (error || !data) continue;
+      if (Array.isArray(data.items)) merged.push(...data.items);
+    }
+    setOpenOwnRequestItems(merged);
+    // openOwnRequestIdsKey is the canonical "has the set of open
+    // own requests changed?" signal — using it in the dep array
+    // means we don't refetch on every render that produces a new
+    // array reference for the same set of ids.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openOwnRequestIdsKey]);
 
   useEffect(() => { refreshOpenRequestItems(); }, [refreshOpenRequestItems]);
 

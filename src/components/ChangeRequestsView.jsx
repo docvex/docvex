@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useBranch } from '../context/BranchContext';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
@@ -11,11 +10,13 @@ import {
 import {
   fetchUploaderProfile,
   listProjectFiles,
+  createSignedDownloadUrl,
 } from '../lib/projectFiles';
 import FileThumbnail from './FileThumbnail';
-import FileDetailModal from './FileDetailModal';
 import Tooltip from './Tooltip';
+import ConfirmModal from './ConfirmModal';
 import { describeChangeRequestItem } from '../lib/thumbnailDescriptor';
+import { openFileWindow, openDocx, isDocxFile, canOpenInApp } from '../lib/platform';
 import './ChangeRequestsView.css';
 
 // "Compose release" surface — embedded inside the Project Dashboard's
@@ -82,60 +83,6 @@ function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-// Build the `file` row to hand to <FileDetailModal> when the user
-// clicks an avatar in the compose view. The modal is the same one
-// the Files page uses for its detail view — reusing it gives the
-// version inspector the same fields, preview, and metadata layout
-// the user already knows from there.
-//
-// For items with a target_file_id we OVERLAY proposed.* on top of
-// the cloud row, so the modal reflects what THIS author submitted
-// (their name, their description) rather than main's current value.
-// uploaded_by is also pinned to the version's author so the modal's
-// "By" line credits the right person.
-//
-// For pure adds there's no cloud row yet — we synthesize one from
-// proposed.*. The synthetic row's storage_path is intentionally
-// empty: the proposed bytes live in the pending bucket, which
-// FileDetailModal's preview pipeline can't sign (it's wired to the
-// canonical 'projects' bucket). The modal falls back to the MIME
-// glyph; the version's metadata still renders correctly.
-function buildVersionFile(version, cloudFilesById) {
-  const v = version.item;
-  const proposed = v.proposed || {};
-  const cloud = v.target_file_id ? cloudFilesById.get(v.target_file_id) : null;
-  if (cloud) {
-    return {
-      ...cloud,
-      name: proposed.name ?? cloud.name,
-      description: proposed.description ?? cloud.description,
-      mime_type: proposed.mime_type || cloud.mime_type,
-      size_bytes: proposed.size_bytes ?? cloud.size_bytes,
-      content_hash: proposed.content_hash || cloud.content_hash,
-      // storage_path stays the cloud's canonical path so the
-      // preview pane works for edit/delete (which don't touch
-      // bytes); replace items will show the OLD bytes since the
-      // NEW ones live in the pending bucket (see note above).
-      uploaded_by: version.authorId,
-    };
-  }
-  return {
-    id: `version-${v.id}`,
-    project_id: null,
-    name: proposed.name || '(unnamed)',
-    description: proposed.description || null,
-    mime_type: proposed.mime_type || 'application/octet-stream',
-    size_bytes: proposed.size_bytes ?? 0,
-    storage_path: '',
-    thumbnail_path: null,
-    thumbnail_frames: null,
-    duration_seconds: null,
-    content_hash: proposed.content_hash || null,
-    uploaded_by: version.authorId,
-    uploaded_at: new Date().toISOString(),
-  };
 }
 
 // Deterministic author-color picker — feeds the colored dot on every
@@ -307,14 +254,13 @@ export default function ChangeRequestsView() {
   const {
     requests,
     isAdmin,
+    approveRequest,
     rejectRequest,
-    setView,
     preferredVersions,
     togglePreferredVersion,
   } = useBranch();
   const { session } = useAuth();
   const viewerId = session?.user?.id || null;
-  const navigate = useNavigate();
 
   // Tracks which version chip the cursor is over so its CrThumb can
   // light up the video frame slideshow (same hover-to-preview gesture
@@ -326,24 +272,6 @@ export default function ChangeRequestsView() {
   // bytes (preferPending=false), so a video that hasn't changed bytes
   // still cycles its frames here.
   const [hoveredFileKey, setHoveredFileKey] = useState(null);
-
-  // "Push new commit" FAB jumps the user to the Files page on the
-  // Yours tab — that's where the actual push button lives (next to
-  // the unsaved-edits pill). setView('mine') primes the branch
-  // toggle so the Files page lands on the editable surface even if
-  // the user previously left it on the Cloud tab.
-  const handlePushNewCommit = useCallback(() => {
-    setView('mine');
-    navigate('/files');
-  }, [navigate, setView]);
-
-  // Open the file properties panel from a file card click. Uses the
-  // same FileDetailModal the Files page uses, in read-only mode so
-  // the review surface doesn't accidentally become an edit surface.
-  const [focusedFileId, setFocusedFileId] = useState(null);
-  const handleOpenFileGroup = useCallback((group) => {
-    if (group?.fileId) setFocusedFileId(group.fileId);
-  }, []);
 
   // Open-only — composing a release only makes sense for proposals
   // that haven't been decided. Past/decided requests would belong on
@@ -357,6 +285,25 @@ export default function ChangeRequestsView() {
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [authorsById, setAuthorsById] = useState({});
   const [cloudFilesById, setCloudFilesById] = useState(new Map());
+
+  // Click a file-column card → open the canonical (main-branch)
+  // bytes directly in DocVex's in-app viewer (Word for DOCX,
+  // Chromium for image/PDF/video). Read-only by design — Word /
+  // Office Online fetch the signed URL as a source. 1800 s TTL so
+  // Word and Office Online's external fetches don't race the URL's
+  // expiry (see ProjectFiles for the longer rationale).
+  const handleOpenFileGroup = useCallback(async (group) => {
+    const cloud = group?.fileId ? cloudFilesById.get(group.fileId) : null;
+    if (!cloud?.storage_path) return;
+    if (!canOpenInApp(cloud.mime_type, cloud.name)) return;
+    const { data, error } = await createSignedDownloadUrl(cloud.storage_path, 1800);
+    if (error || !data?.signedUrl) return;
+    if (isDocxFile(cloud.mime_type, cloud.name)) {
+      openDocx({ cloudUrl: data.signedUrl, fileName: cloud.name || 'file' });
+      return;
+    }
+    openFileWindow(data.signedUrl, cloud.name || 'file');
+  }, [cloudFilesById]);
   // Bumped imperatively from the items-realtime subscription below
   // (and from the approve handler post-action). The fetch effect
   // listens on it as the canonical "things changed, refetch" pulse;
@@ -491,60 +438,26 @@ export default function ChangeRequestsView() {
   // gone — the horizontal pannable tree replaced both perspectives
   // with one visual, mirroring the dashboard's Members tree.
 
-  // Inspector mode: click an avatar to surface its full version
-  // details in the right pane (file metadata, source request,
-  // preview link, "stage from inspector" action). The right pane
-  // toggles between this and the New Release drop target depending
-  // on whether something is focused. `focusedVersion` is the
-  // {requestId, item, authorId, requestTitle} snapshot the user
-  // clicked; cleared on Close, on drag-start, or when the
-  // underlying request goes away.
-  const [focusedVersion, setFocusedVersion] = useState(null);
-  // Drop the inspector if the focused version's request was just
-  // approved / withdrawn / rejected elsewhere — otherwise the user
-  // would be staring at metadata for a row that no longer exists.
-  useEffect(() => {
-    if (!focusedVersion) return;
-    const stillThere = allVersions.some(
-      (v) => v.requestId === focusedVersion.requestId
-        && v.item.id === focusedVersion.item.id,
-    );
-    if (!stillThere) setFocusedVersion(null);
-  }, [focusedVersion, allVersions]);
-
-  // Reviewing a version: View opens the file detail panel (read-
-  // only), Decline rejects the source change request. Approve is
-  // intentionally not on the card — admins make the merge decision
-  // from inside the detail panel where they can see the full
-  // proposed content first. Decline is a quick "no" that doesn't
-  // need the inspection step, so it stays inline.
-  //
-  // Decline acts at the REQUEST level (the backend rejects a whole
-  // bundle at once); same caveat as the historical "Partial
-  // selections" warning — declining one item drops the rest of
-  // that author's open bundle too.
-  const handleOpenVersion = useCallback((version) => {
-    if (version) setFocusedVersion(version);
+  // Clicking the View button on a version card opens the proposed
+  // bytes directly in the in-app viewer (Word for DOCX, Chromium for
+  // image/PDF/video). Lives below `cloudFilesById` is unnecessary
+  // here — handleOpenVersion only reads `item.proposed.pending_storage_path`
+  // off the version, no cross-state lookup. 600 s TTL matches the
+  // previous flow's inspector-side sign call.
+  const handleOpenVersion = useCallback(async (version) => {
+    const proposed = version?.item?.proposed || {};
+    const pendingPath = proposed.pending_storage_path;
+    if (!pendingPath) return;
+    const fileName = proposed.name || 'file';
+    if (!canOpenInApp(proposed.mime_type, fileName)) return;
+    const { data, error } = await createPendingSignedUrl(pendingPath, 1800);
+    if (error || !data?.signedUrl) return;
+    if (isDocxFile(proposed.mime_type, fileName)) {
+      openDocx({ cloudUrl: data.signedUrl, fileName });
+      return;
+    }
+    openFileWindow(data.signedUrl, fileName);
   }, []);
-
-  // Pre-sign the focused version's pending bytes so the detail
-  // panel can render WHAT WAS PROPOSED instead of what currently
-  // lives on main. DocxPreview regenerates from these bytes locally
-  // (always using the latest renderer) — no separate thumbnail
-  // sign is needed; the source bytes are enough.
-  const [versionPreviewUrl, setVersionPreviewUrl] = useState(null);
-  useEffect(() => {
-    setVersionPreviewUrl(null);
-    if (!focusedVersion) return undefined;
-    const pendingBytes = focusedVersion.item.proposed?.pending_storage_path;
-    if (!pendingBytes) return undefined;
-    let cancelled = false;
-    createPendingSignedUrl(pendingBytes, 600).then(({ data, error }) => {
-      if (cancelled || error || !data?.signedUrl) return;
-      setVersionPreviewUrl(data.signedUrl);
-    });
-    return () => { cancelled = true; };
-  }, [focusedVersion]);
 
   // Preferred-version selection state + toggle live in BranchContext
   // (lifted out of this view so picks survive tab switches and any
@@ -563,6 +476,72 @@ export default function ChangeRequestsView() {
       setDecliningId(null);
     }
   }, [rejectRequest, isAdmin, bumpRefresh]);
+
+  // ── Bulk approve / reject ────────────────────────────────────────────
+  //
+  // Split every open change-request into two buckets based on whether
+  // any of its versions is currently picked (via the dot on each
+  // version card). Requests with ≥1 pick → approve queue (uploads
+  // those proposed bytes into the canonical `projects` bucket and
+  // updates project_files via the approve_change_request RPC).
+  // Requests with no pick → reject queue (status → 'rejected',
+  // author can revise + resubmit).
+  //
+  // Caveat the user should know about: change_requests are
+  // approved/rejected as a unit. If a single request contains
+  // edits to three files and the admin picked only ONE version
+  // from that request, approving still pulls in the other two —
+  // and conversely, rejecting a request because none of its versions
+  // was the preferred pick discards every item in it (other files
+  // it touched lose their proposal too). The confirm modal below
+  // surfaces both counts so the admin can pause before sending.
+  const { approveRequestIds, rejectRequestIds } = useMemo(() => {
+    const pickedRequestIds = new Set();
+    const allOpenRequestIds = new Set();
+    // First pass: every request that has ≥1 version in the tree.
+    for (const v of allVersions) {
+      if (v.requestId) allOpenRequestIds.add(v.requestId);
+    }
+    // Second pass: every request a preferred version targets.
+    for (const [, vKey] of preferredVersions) {
+      // vKey shape is `${requestId}:${itemId}` — see how it's keyed
+      // where the dot toggles below.
+      const colon = vKey.indexOf(':');
+      const requestId = colon > 0 ? vKey.slice(0, colon) : null;
+      if (requestId) pickedRequestIds.add(requestId);
+    }
+    const approve = Array.from(pickedRequestIds);
+    const reject = Array.from(allOpenRequestIds).filter((id) => !pickedRequestIds.has(id));
+    return { approveRequestIds: approve, rejectRequestIds: reject };
+  }, [allVersions, preferredVersions]);
+
+  // Confirmation modal for the bulk action — admin reviews counts
+  // before triggering possibly-irreversible approves/rejects.
+  const [confirmingBulk, setConfirmingBulk] = useState(false);
+  const [bulkRunning, setBulkRunning] = useState(false);
+
+  const handleConfirmBulk = useCallback(async () => {
+    if (!isAdmin || bulkRunning) return;
+    setBulkRunning(true);
+    try {
+      // Run approves first so rejected-then-deleted change_request_items
+      // can't race the approve path's storage moves. The two queues
+      // never overlap by construction (a request is in exactly one),
+      // but running approve→reject sequentially keeps the logs
+      // chronologically sensible.
+      const approvePromises = approveRequestIds.map((id) => approveRequest(id));
+      const rejectPromises = rejectRequestIds.map((id) => rejectRequest(id));
+      await Promise.allSettled([...approvePromises, ...rejectPromises]);
+      bumpRefresh();
+    } finally {
+      setBulkRunning(false);
+      setConfirmingBulk(false);
+    }
+  }, [
+    isAdmin, bulkRunning,
+    approveRequestIds, rejectRequestIds,
+    approveRequest, rejectRequest, bumpRefresh,
+  ]);
 
   // ── Tree-pannable canvas state ────────────────────────────────────────
   // Same pattern as TeamTree: fixed viewport fills the area below the
@@ -809,7 +788,7 @@ export default function ChangeRequestsView() {
                 </div>
               );
               return hasCloud
-                ? <Tooltip key={g.key} content="Show file properties">{card}</Tooltip>
+                ? <Tooltip key={g.key} content="Open this file">{card}</Tooltip>
                 : card;
             })}
           </div>
@@ -983,50 +962,77 @@ export default function ChangeRequestsView() {
         </div>
       </div>
 
-      {/* "Push new commit" FAB — fixed at the viewport's bottom-
-          right corner. Jumps to the Files page on the Yours tab
-          (the surface that owns the actual local-edit pipeline).
-          One CTA replaces the per-version Approve / Decline
-          buttons; review now happens inside the file detail panel
-          on click. */}
-      <Tooltip content="Open your files to push a new commit">
-        <button
-          type="button"
-          className="cr-push-btn-fixed"
-          onClick={handlePushNewCommit}
-        >
-          Push new commit
-        </button>
-      </Tooltip>
+      {/* Action bar — admin-only bulk decision FAB pinned to the
+          bottom-right. Requests with ≥1 picked version get approved
+          (bytes uploaded to the `projects` bucket via the
+          approve_change_request RPC); requests with no picks get
+          rejected. Hidden when there's nothing to act on. */}
+      {isAdmin && (approveRequestIds.length > 0 || rejectRequestIds.length > 0) && (
+        <div className="cr-action-bar">
+          <Tooltip
+            content={
+              approveRequestIds.length === 0
+                ? 'Reject every open request'
+                : rejectRequestIds.length === 0
+                  ? 'Approve every open request'
+                  : 'Approve picked, reject the rest'
+            }
+          >
+            <button
+              type="button"
+              className="cr-action-fab cr-action-fab-primary"
+              onClick={() => setConfirmingBulk(true)}
+              disabled={bulkRunning}
+            >
+              {bulkRunning ? 'Working…' : (
+                <>
+                  Approve <strong>{approveRequestIds.length}</strong>
+                  {rejectRequestIds.length > 0 && (
+                    <> · Reject <strong>{rejectRequestIds.length}</strong></>
+                  )}
+                </>
+              )}
+            </button>
+          </Tooltip>
+        </div>
+      )}
 
     </div>
 
-      {/* Inspector — same FileDetailModal the Files page uses, in
-          read-only mode. Triggered either by clicking a version
-          card (shows the proposed version overlaid on the cloud
-          row) OR by clicking a file card (shows the cloud row's
-          current properties). focusedVersion wins when both are
-          set so the user's last interaction stays foregrounded.
-          Rendered OUTSIDE .cr-tree-viewport — that container uses
-          `contain: layout paint` which would otherwise create a
-          containing block for the modal's `position: fixed` backdrop
-          and clip the panel to the viewport rectangle (starting
-          below the dashboard tabs) instead of letting it fill the
-          actual screen height. */}
-      {focusedVersion ? (
-        <FileDetailModal
-          file={buildVersionFile(focusedVersion, cloudFilesById)}
-          readOnly
-          previewUrlOverride={versionPreviewUrl}
-          onClose={() => setFocusedVersion(null)}
-        />
-      ) : focusedFileId ? (
-        <FileDetailModal
-          file={cloudFilesById.get(focusedFileId) || null}
-          readOnly
-          onClose={() => setFocusedFileId(null)}
-        />
-      ) : null}
+      {/* Confirm before firing the bulk approve/reject — both are
+          irreversible at the RPC layer (an approved request becomes
+          a row in project_files; a rejected one's pending bytes get
+          cleaned up). Numbers come from the same memo the action
+          button uses, so the modal can't drift from what'll actually
+          run. */}
+      <ConfirmModal
+        open={confirmingBulk}
+        title="Apply review decisions"
+        message={(
+          <>
+            {approveRequestIds.length > 0 && (
+              <span>
+                Approve <strong>{approveRequestIds.length}</strong>{' '}
+                request{approveRequestIds.length === 1 ? '' : 's'} — bytes
+                will be uploaded to the cloud.
+              </span>
+            )}
+            {approveRequestIds.length > 0 && rejectRequestIds.length > 0 && <br />}
+            {rejectRequestIds.length > 0 && (
+              <span>
+                Reject <strong>{rejectRequestIds.length}</strong>{' '}
+                request{rejectRequestIds.length === 1 ? '' : 's'} — author
+                {rejectRequestIds.length === 1 ? '' : 's'} can revise and
+                resubmit.
+              </span>
+            )}
+          </>
+        )}
+        confirmLabel={bulkRunning ? 'Working…' : 'Apply'}
+        cancelLabel="Cancel"
+        onConfirm={handleConfirmBulk}
+        onCancel={() => setConfirmingBulk(false)}
+      />
     </>
   );
 }

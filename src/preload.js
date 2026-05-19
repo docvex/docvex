@@ -59,6 +59,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Open any URL in the user's default browser (used for release links etc.)
   openExternal: (url) => ipcRenderer.send('app:open-external', url),
 
+  // Open a signed file URL inside a dedicated in-app BrowserWindow.
+  // Used by FileDetailModal's View button + double-click handlers
+  // for image / video / PDF / text — types Chromium renders natively.
+  // DOCX has its own helper (openDocx below) because it needs more
+  // routing (Word → Office Online → OS default).
+  openFileWindow: (url, fileName) =>
+    ipcRenderer.send('app:open-file-window', { url, fileName }),
+
+  // Open a DOCX with the best-available renderer. Main walks the
+  // fallback chain: installed Word → Office Online (in-app window)
+  // → OS default. Callers pass whichever sources they have
+  // (`localPath` for My-branch files, `cloudUrl` for cloud-backed
+  // files, or BOTH when a My-branch card has a cloud counterpart so
+  // the no-Word fallback can still use Office Online with the
+  // signed cloud URL).
+  openDocx: ({ localPath, cloudUrl, fileName }) =>
+    ipcRenderer.send('app:open-docx', { localPath, cloudUrl, fileName }),
+
   // Updates
   getAppVersion: () => ipcRenderer.invoke('app:get-version'),
   isPackaged: () => ipcRenderer.invoke('app:is-packaged'),

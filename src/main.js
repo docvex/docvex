@@ -2,8 +2,77 @@ import { app, BrowserWindow, Menu, ipcMain, shell, autoUpdater, dialog, protocol
 import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import started from 'electron-squirrel-startup';
 import { updateElectronApp } from 'update-electron-app';
+
+// Resolve the path to Word's executable when Microsoft Word is
+// installed locally. Electron's `app.getApplicationNameForProtocol`
+// only finds Word when the `ms-word:` URL scheme is registered, which
+// some Office installs (Microsoft Store / Click-to-Run variants) skip
+// or strip — so we ALSO probe the well-known WINWORD.EXE locations
+// across Office versions. The first hit wins. Returns null when Word
+// can't be found by any method (Linux, macOS without Office, or a
+// Windows install we don't recognise).
+//
+// Splitting "is Word installed?" from "open with Word" means the
+// DOCX handler can branch reliably even when the protocol layer is
+// flaky: with a real .exe path we can `child_process.spawn(winword,
+// [arg])` directly, bypassing the registry entirely.
+function getWinwordPath() {
+  if (process.platform !== 'win32') return null;
+  const pf = process.env.ProgramFiles || 'C:\\Program Files';
+  const pfx86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+  // Walk the Click-to-Run layout first (current Microsoft default),
+  // then the legacy MSI layout. Office 16 covers 2016 / 2019 / 2021 /
+  // 365; 15 = 2013, 14 = 2010. Older isn't worth probing — those
+  // versions don't accept HTTPS URLs as command-line args anyway.
+  const candidates = [
+    `${pf}\\Microsoft Office\\root\\Office16\\WINWORD.EXE`,
+    `${pfx86}\\Microsoft Office\\root\\Office16\\WINWORD.EXE`,
+    `${pf}\\Microsoft Office\\Office16\\WINWORD.EXE`,
+    `${pfx86}\\Microsoft Office\\Office16\\WINWORD.EXE`,
+    `${pf}\\Microsoft Office\\Office15\\WINWORD.EXE`,
+    `${pfx86}\\Microsoft Office\\Office15\\WINWORD.EXE`,
+    `${pf}\\Microsoft Office\\Office14\\WINWORD.EXE`,
+    `${pfx86}\\Microsoft Office\\Office14\\WINWORD.EXE`,
+  ];
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) return p; }
+    catch { /* permission denied — try next */ }
+  }
+  return null;
+}
+
+// True when ANY of our Word-detection routes report it's available.
+// Falsy when neither the executable nor the protocol handler turns
+// up — at that point the DOCX flow falls back to Office Online.
+function isWordInstalled() {
+  if (getWinwordPath()) return true;
+  // Last-ditch: trust Electron's protocol-handler query. Returns
+  // empty string when nothing is registered for ms-word:.
+  return Boolean(app.getApplicationNameForProtocol('ms-word:'));
+}
+
+// Spawn Word as a detached child process. Word accepts EITHER a local
+// file path OR an http(s) URL as its first positional argument; for
+// URLs it fetches and opens the document itself (no DocVex byte
+// handling). `detached` + `unref` so the user can close DocVex without
+// killing Word, and stdio:'ignore' so DocVex doesn't accumulate a
+// pile of pipes from each Word launch.
+function spawnWord(winwordPath, arg) {
+  if (!winwordPath || !arg) return false;
+  try {
+    const child = spawn(winwordPath, [arg], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // Custom `localfile://` scheme — lets the renderer load arbitrary
 // files from the user's chosen branch folder via `<img src=…>`,
@@ -274,6 +343,144 @@ ipcMain.on('oauth:open-external', (_, url) => {
 ipcMain.on('app:open-external', (_, url) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
     shell.openExternal(url);
+  }
+});
+
+// Helper — wraps the "open this URL inside a DocVex BrowserWindow"
+// boilerplate used by every in-app viewer path (raw-load + Office
+// Online). Title is pinned against page-title-updated so Chromium's
+// PDF viewer / Office Online iframe can't overwrite our chrome.
+function openInAppWindow(url, fileName) {
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 800,
+    title: `DocVex - ${fileName}`,
+    icon: path.join(__dirname, 'favicon.ico'),
+    // No preload + sandbox defaults: this window only renders the
+    // signed file URL / external viewer page, it never needs access
+    // to electronAPI / fs.
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  win.on('page-title-updated', (event) => {
+    event.preventDefault();
+    win.setTitle(`DocVex - ${fileName}`);
+  });
+  win.setMenu(null);
+  win.loadURL(url);
+  return win;
+}
+
+// Open a file URL inside its own in-app BrowserWindow — replaces the
+// shell.openExternal path for "View" so images / videos / PDFs render
+// inside DocVex's chrome (titled "DocVex - <filename>" with the app
+// icon) instead of being handed off to the user's default browser.
+//
+// Allowed URL schemes for the file URL:
+//   • http(s)    — signed Supabase URLs for cloud-backed files.
+//   • localfile  — our own protocol handler (registered above) for
+//                  My-branch files on disk.
+// Other schemes are rejected — keeps a compromised renderer from
+// smuggling a navigation that bypasses our security model.
+//
+// DOCX has its own IPC (`app:open-docx`) because the routing fans
+// out: try Word locally → fall back to Office Online → fall back
+// to OS default. That logic doesn't belong wedged inside this
+// browser-native-types path.
+ipcMain.on('app:open-file-window', (_, payload) => {
+  const url = payload?.url;
+  const fileName = typeof payload?.fileName === 'string' ? payload.fileName : 'file';
+  if (typeof url !== 'string') return;
+  if (!/^https?:\/\//i.test(url) && !/^localfile:\/\//i.test(url)) return;
+  openInAppWindow(url, fileName);
+});
+
+// Open a DOCX, walking a fallback chain so the user always gets the
+// best available render:
+//
+//   1. WINWORD.EXE found on disk (most reliable detection — see
+//      getWinwordPath above) → spawn Word directly with the file
+//      path or URL as a positional arg. Bypasses the registry, so it
+//      works for Click-to-Run, Microsoft Store, and MSI installs
+//      even when the ms-word: protocol isn't registered.
+//
+//   2. ms-word: URL scheme registered (fallback for unusual installs
+//      where WINWORD.EXE lives somewhere we didn't probe)
+//      a. localPath → shell.openPath. Whatever app the OS has
+//         registered for .docx — Word when it's the default.
+//      b. cloudUrl → shell.openExternal('ms-word:ofe|u|<url>').
+//         Word fetches the URL itself; `ofe` = open for edit.
+//
+//   3. No Word, cloudUrl available → Office Online viewer
+//      (https://view.officeapps.live.com/op/view.aspx?src=…) rendered
+//      inside an in-app BrowserWindow. Microsoft's servers fetch the
+//      signed URL and produce a full-fidelity Word render.
+//
+//   4. No Word, only localPath → shell.openPath. OS picks whatever
+//      DOCX handler the user has, or surfaces an "Open with…" dialog.
+//
+// `ms-word:` URL grammar:
+//   ms-word:ofv|u|<url>   — open for view (read-only).
+//   ms-word:ofe|u|<url>   — open for edit (DocVex uses this so the
+//                           user can edit immediately on open).
+// Reference: https://learn.microsoft.com/office/client-developer/office-uri-schemes
+//
+// Save-back note for the cloud-URL branch: Supabase signed URLs are
+// signed for GET only, so Word's Save will fail (the PUT goes
+// nowhere). Word then falls back to Save-As, which writes a local
+// copy — the user can then re-upload through DocVex if they want
+// the changes on cloud. The local-file branch (shell.openPath) has
+// no such limitation: Word saves in place and the file watcher
+// picks the edit up into the auto-commit queue.
+ipcMain.on('app:open-docx', (_, payload) => {
+  const localPath = typeof payload?.localPath === 'string' && payload.localPath
+    ? payload.localPath
+    : null;
+  const rawCloudUrl = typeof payload?.cloudUrl === 'string' ? payload.cloudUrl : null;
+  const cloudUrl = rawCloudUrl && /^https?:\/\//i.test(rawCloudUrl) ? rawCloudUrl : null;
+  const fileName = typeof payload?.fileName === 'string' ? payload.fileName : 'file';
+  if (!localPath && !cloudUrl) return;
+
+  // Word detection: prefer the executable on disk (works on every
+  // Office install regardless of how the OS protocol layer behaves),
+  // fall back to the ms-word: URL scheme query for installs that
+  // register the protocol but live somewhere unexpected. The exec
+  // path lets us spawn Word directly with the file/URL as an
+  // argument — bypassing shell.openPath (which routes through the OS
+  // default app, not necessarily Word if a different .docx handler
+  // is registered as default) and shell.openExternal (which is at
+  // the mercy of the registry/Launch-Services state).
+  const winwordPath = getWinwordPath();
+  if (winwordPath) {
+    if (localPath && spawnWord(winwordPath, localPath)) return;
+    if (cloudUrl && spawnWord(winwordPath, cloudUrl)) return;
+  }
+  if (app.getApplicationNameForProtocol('ms-word:')) {
+    if (localPath) {
+      // OS default for .docx — Word when it's the registered handler.
+      shell.openPath(localPath);
+      return;
+    }
+    if (cloudUrl) {
+      // `ofe` = open for edit. Word fetches the URL itself.
+      shell.openExternal(`ms-word:ofe|u|${cloudUrl}`);
+      return;
+    }
+  }
+
+  // No Word — prefer Office Online when we have an HTTPS URL.
+  if (cloudUrl) {
+    const officeOnlineUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(cloudUrl)}`;
+    openInAppWindow(officeOnlineUrl, fileName);
+    return;
+  }
+
+  // Local-only DOCX without Word — let the OS pick a handler.
+  if (localPath) {
+    shell.openPath(localPath);
   }
 });
 

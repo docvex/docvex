@@ -1170,31 +1170,59 @@
 }
 
 
-/* "Push new commit" FAB — fixed at the viewport's bottom-right.
-   Accent-coloured pill that floats above the canvas via z-index
-   higher than the pannable tree itself. Mirrors the upload FAB
-   on the Files page so the project surfaces feel like siblings. */
-.cr-push-btn-fixed {
+/* Bottom-right action bar — holds the review FABs side by side.
+   Primary action ("Approve N · Reject M") gets the accent fill so
+   the eye lands on it first; "Push new commit" sits next to it as
+   a softer secondary CTA. z-index higher than the pannable tree
+   so the buttons float above the dot-grid canvas. */
+.cr-action-bar {
   position: fixed;
   bottom: 1.5rem;
   right: 1.5rem;
   z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cr-action-fab {
   padding: 0.8rem 1.4rem;
   border-radius: 999px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--text-on-accent);
   font: inherit;
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
-  transition: background 140ms, transform 100ms, box-shadow 140ms;
+  transition: background 140ms, transform 100ms, box-shadow 140ms, opacity 140ms;
+  white-space: nowrap;
 }
-.cr-push-btn-fixed:hover {
-  background: var(--accent-hover);
+.cr-action-fab:hover:not(:disabled) {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.36);
 }
-.cr-push-btn-fixed:active {
+.cr-action-fab:active:not(:disabled) {
   transform: scale(0.97);
 }
+.cr-action-fab:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.cr-action-fab-primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+.cr-action-fab-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.cr-action-fab-primary strong {
+  font-weight: 700;
+  /* Subtle pill-on-pill so the count reads out at a glance even on
+     the accent-fill background. */
+  display: inline-block;
+  padding: 0 0.35em;
+  margin: 0 0.15em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-on-accent) 18%, transparent);
+}
+

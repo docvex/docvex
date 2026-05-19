@@ -74,22 +74,11 @@ export default function CommitChangesModal({
   const { selectedProject } = useSelectedProject();
   const { notify } = useNotifications();
   const {
-    requests: changeRequests,
     openOwnRequestItems,
     refreshOpenRequestItems,
   } = useBranch();
   const userId    = session?.user?.id || null;
   const projectId = selectedProject?.id || null;
-  // Existing open request from THIS user on THIS project. When set,
-  // the submit will fold items into it (instead of trying to insert
-  // a new one and tripping the one-open-per-author unique index).
-  // Surfaces in the intro copy + button label so the user knows.
-  const openOwnRequest = useMemo(
-    () => (changeRequests || []).find(
-      (r) => r.status === 'open' && r.author_id === userId && r.project_id === projectId,
-    ),
-    [changeRequests, userId, projectId],
-  );
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -522,12 +511,6 @@ export default function CommitChangesModal({
                 </>
               )}
           </p>
-          {openOwnRequest && snapshot.length > 0 && (
-            <p className="commit-modal-intro" style={{ color: 'var(--text-muted)' }}>
-              You already have an open request <strong>"{openOwnRequest.title}"</strong>{' '}
-              — these changes will merge into it.
-            </p>
-          )}
 
           <ul className="commit-modal-items">
             {snapshot.map((it, i) => {
@@ -635,7 +618,7 @@ export default function CommitChangesModal({
           >
             {submitting
               ? (progress ? `Uploading ${progress.current}/${progress.total}…` : 'Pushing…')
-              : (openOwnRequest ? 'Merge into open commit' : 'Push for review')}
+              : 'Push for review'}
           </button>
         </footer>
       </div>

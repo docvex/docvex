@@ -87,9 +87,23 @@ module.exports = {
       },
     },
     // Fuses are used to enable/disable various Electron functionality
-    // at package time, before code signing the application
+    // at package time, before code signing the application.
+    //
+    // `resetAdHocDarwinSignature` defaults to true for darwin/arm64
+    // (the plugin's heuristic for "we just touched bytes, the signature
+    // needs to be refreshed so Gatekeeper accepts the app on M-series
+    // Macs"). That re-sign step shells out to the macOS-only `codesign`
+    // binary, so on Windows / Linux it explodes inside @electron/fuses
+    // with `Cannot read properties of undefined (reading 'toString')`
+    // when spawnSync can't find the codesign binary. We disable it
+    // when not on macOS so cross-platform `npm run make --platform=darwin`
+    // produces the zips. Users on Apple Silicon will need to right-click
+    // → Open the first time (or run `xattr -dr com.apple.quarantine`
+    // on the .app) — for properly Gatekeeper-friendly arm64 builds,
+    // run `make` on an actual Mac.
     new FusesPlugin({
       version: FuseVersion.V1,
+      resetAdHocDarwinSignature: process.platform === 'darwin',
       [FuseV1Options.RunAsNode]: false,
       [FuseV1Options.EnableCookieEncryption]: true,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,

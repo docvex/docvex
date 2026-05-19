@@ -20,7 +20,7 @@
 import {
   uploadBlobToPending,
   uploadPendingThumbnail,
-  createOrMergeChangeRequest,
+  createChangeRequest,
   deletePendingObject,
   discardBranchChange,
 } from './branches';
@@ -259,14 +259,36 @@ export async function runCommitFlow({
       };
     });
 
-    const { data: result, error: reqErr } = await createOrMergeChangeRequest({
-      projectId,
-      authorId: userId,
-      title,
-      description,
-      items,
-    });
-    if (reqErr) throw reqErr;
+    // One change_request per item — admins decide per file. Migration
+    // 022 dropped the one-open-per-author DB constraint so multiple
+    // sibling requests from the same author coexist; rejection of one
+    // no longer takes the rest down with it.
+    //
+    // Each request gets the user's typed title verbatim (no per-file
+    // mangling — admins already see the filename on the version chip,
+    // and forcing N titles on the commit modal would be unfriendly).
+    // Description ditto. They're authorial context, not per-file
+    // metadata.
+    //
+    // Promise.all over the create calls would be faster but ordering
+    // matters for the activity log; sequential keeps the requests
+    // dated in the same order the user staged them. The bottleneck
+    // here is INSERT round-trips, not local CPU — sequential cost is
+    // tens of ms per item, comparable to the user noticing the modal
+    // close.
+    const createdRequests = [];
+    for (const it of items) {
+      const { data: req, error: reqErr } = await createChangeRequest({
+        projectId,
+        authorId: userId,
+        title,
+        description,
+        items: [it],
+      });
+      if (reqErr) throw reqErr;
+      createdRequests.push(req);
+    }
+    const result = { requests: createdRequests };
 
     // Discard the modal-sourced branch_changes rows we just
     // snapshotted — they're now living inside the request's

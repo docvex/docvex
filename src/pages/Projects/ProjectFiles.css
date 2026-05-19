@@ -1197,43 +1197,6 @@
   letter-spacing: 0.02em;
 }
 
-/* Inline rename input — replaces the .project-files-name label when
-   the card is in renaming mode. Multi-line textarea that grows with
-   content up to 4 lines, then scrolls. Long filenames wrap visually
-   the same way the static name label does, so the user sees the full
-   text mid-edit instead of having to scroll a single-line input.
-   Accent border + light fill makes it read as editable, matches
-   Explorer's F2-rename affordance. */
-.project-files-name-input {
-  width: 100%;
-  max-width: 100%;
-  margin: 0;
-  padding: 2px 4px;
-  background: var(--bg-card);
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 0.82rem;
-  font-weight: 500;
-  text-align: center;
-  outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
-  /* Textarea-specific: same line-height as the static name label
-     (1.25 → ~16px at 13px font) and a 4-line max so the rename
-     box can grow vertically without pushing the rest of the page
-     around. JS auto-grow in LocalFileCard sets the inline height
-     each onChange; this max-height caps it and overflow-y handles
-     anything beyond. */
-  line-height: 1.25;
-  min-height: calc(1.25em + 6px);
-  max-height: calc(1.25em * 4 + 6px);
-  overflow-y: auto;
-  resize: none;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 /* Extension tag pinned to the top-right corner of the card. Floats
    above the thumb (z-index 1) so it stays visible whether the thumb
    resolved to an image, video frame, or fallback glyph. The dark
@@ -1268,11 +1231,20 @@
    slot dimensions via grid's default stretch — explicit `width:100%`
    / `height:100%` would create a circular percentage-against-auto
    dependency in grid's auto-sized rows and collapse the layout. */
-.project-files-local-card-wrap {
+.project-files-local-card-wrap,
+.project-files-card-wrap {
   position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+.project-files-card-wrap > .project-files-card {
+  /* Mirrors the .project-files-local-card-wrap rule below — keeps
+     cloud-tab cards growing to fill the grid cell's height when
+     they share a row with a (taller) modified-pill local card. */
+  flex: 1 1 auto;
+  width: 100%;
 }
 
 .project-files-local-card-wrap > .project-files-card {

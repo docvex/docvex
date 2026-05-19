@@ -1,0 +1,28 @@
+-- 022_drop_one_open_per_author.sql
+-- Allow multiple open change_requests per author per project, so each
+-- file edit can ride its own request and admins can approve / reject
+-- them independently.
+--
+-- Why: under the previous one-open-per-author constraint, the commit
+-- flow bundled every queued file edit into a single change_request.
+-- That meant rejecting the request — meaningful when the admin
+-- disagrees with ONE of the proposed file changes — would also drop
+-- every other file the author had bundled in, forcing them to redo
+-- the whole batch. With the constraint gone we mint one
+-- change_request per file edit at commit time (see commitFlow.js);
+-- approve / reject now operate on a single file at a time, matching
+-- the user's mental model of "this one file's edit, yes or no".
+--
+-- Scope:
+--   • SELECT / INSERT / UPDATE policies on change_requests stay
+--     identical — they already key on author_id / has_project_role.
+--   • change_request_items keeps `request_id` as a FK; one
+--     request → one item is the new norm, but the schema doesn't
+--     need to enforce that since the commit flow won't bundle.
+--   • A future "merge same-file pushes into the existing open
+--     request for that file" optimisation can land here as a
+--     trigger; not needed yet — two open requests for the same
+--     file just show up as two version chips for the admin to
+--     decide between (newer wins is a natural call).
+
+drop index if exists public.change_requests_one_open_per_author;

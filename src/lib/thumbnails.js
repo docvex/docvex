@@ -1048,20 +1048,21 @@ export function isDocxFile(mimeType, fileName) {
   return false;
 }
 
+// Thumbnails are intentionally limited to image / video / PDF. Other
+// types (DOCX, text, generic binaries) get a MIME glyph in the UI
+// instead — rasterized "previews" of document formats were misleading
+// (font fallbacks, broken layout) and the rich DOCX renderer in
+// particular was a maintenance tax for a fundamentally approximate
+// rendering. The DOCX generator is still exported below for callers
+// that explicitly opt in (none today); the dispatcher just won't
+// route to it.
 export async function generateThumbnail(file) {
   if (!file) return null;
   const t = file.type || '';
-  const name = (file.name || '').toLowerCase();
   let generator = null;
-  if (t.startsWith('image/'))   generator = generateImageThumbnail(file);
+  if (t.startsWith('image/'))      generator = generateImageThumbnail(file);
   else if (t === 'application/pdf') generator = generatePdfThumbnail(file);
-  else if (t.startsWith('video/')) generator = generateVideoThumbnail(file);
-  // DOCX dispatch is BOTH MIME and extension because the local-folder
-  // listing path (lib/localFolder.js) historically mapped .docx to
-  // application/octet-stream — the extension check covers that legacy
-  // fallback so existing local files still get a thumbnail without
-  // a guessMimeFromName change.
-  else if (t === DOCX_MIME || name.endsWith('.docx')) generator = generateDocxThumbnail(file);
+  else if (t.startsWith('video/'))  generator = generateVideoThumbnail(file);
   else return null;
   return withTimeout(generator, GENERATE_TIMEOUT_MS);
 }

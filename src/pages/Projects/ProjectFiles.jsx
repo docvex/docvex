@@ -1,16 +1,14 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { useNotifications } from '../../context/NotificationsContext';
 import { useBranch } from '../../context/BranchContext';
 import { useAuth } from '../../context/AuthContext';
 import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
-import FileDetailModal from '../../components/FileDetailModal';
 import SyncToMainModal from '../../components/SyncToMainModal';
 import { runCommitFlow, buildCommitSnapshot } from '../../lib/commitFlow';
 import FileThumbnail from '../../components/FileThumbnail';
-import Tooltip from '../../components/Tooltip';
+import { useMorphPill } from '../../components/useMorphPill';
 import { describeCloudFile, describeLocalFile } from '../../lib/thumbnailDescriptor';
 import {
   listProjectFiles,
@@ -27,11 +25,11 @@ import {
   isElectronBranch,
   readLocalBlob,
 } from '../../lib/localFolder';
+import { openFileWindow, openDocx, canOpenInApp, canViewInBrowser, isDocxFile } from '../../lib/platform';
 import {
   loadSidecar,
   saveSidecar,
   emptySidecar,
-  renameEntry as renameSidecarEntry,
   addEntry as addSidecarEntry,
   removeByFilename as removeSidecarByFilename,
   removeEntry as removeSidecarEntry,
@@ -172,11 +170,11 @@ function formatDate(iso) {
 //   3. Everything else (PDF/video/text with no thumbnail_path; failed-
 //      generation rows): MIME-keyed stroke glyph in the gold accent.
 //
-// Click → `onOpen(file)` hands the row up to the page, which mounts
-// FileDetailModal. The previous behavior (open the signed URL directly
-// in a new tab) now lives inside the modal as the View button — same
-// semantics, just one click further away.
-function FileCard({ file, onOpen, branchOverlay }) {
+// Double-click → `onDoubleOpen(file)` opens the file in DocVex's
+// in-app viewer (Word for DOCX, Chromium for image/PDF/video). The
+// `onClick` prop is only wired by the "missing on My branch" variant,
+// where single-click downloads the cloud file into the local folder.
+function FileCard({ file, onClick, onDoubleOpen, branchOverlay }) {
   const [hovered, setHovered] = useState(false);
   // One-line resolution: the descriptor packages the row's
   // thumbnail_path / thumbnail_frames / storage_path / content_hash
@@ -240,12 +238,38 @@ function FileCard({ file, onOpen, branchOverlay }) {
   const tooltipText = overlayKind === 'missing'
     ? `${file.name}\nClick to download into your branch`
     : file.name;
+
+  // Right-click → tooltip morphs into the same Open menu pattern
+  // My-branch cards expose. Open is hidden when there's no dblclick
+  // handler wired (e.g. the "missing" variant on My branch, where
+  // the card is a download CTA rather than a viewable file).
+  const morphPill = useMorphPill({
+    hoverContent: tooltipText,
+    menuItems: [
+      onDoubleOpen && {
+        key: 'open', label: 'Open', onClick: () => onDoubleOpen?.(file),
+      },
+    ],
+  });
+
   return (
-    <Tooltip content={tooltipText}>
+    <div
+      className="project-files-card-wrap"
+      onMouseMove={morphPill.handleMouseMove}
+      onMouseLeave={morphPill.handleMouseLeave}
+      onContextMenu={morphPill.handleContextMenu}
+    >
       <button
         type="button"
         className={cardClass}
-        onClick={() => onOpen?.(file)}
+        // Single-click is only wired by the "missing" variant on My
+        // branch (downloads the file into the local folder). Cloud
+        // cards leave it unset — the viewer opens on double-click.
+        onClick={onClick ? () => onClick(file) : undefined}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          onDoubleOpen?.(file);
+        }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
@@ -286,7 +310,8 @@ function FileCard({ file, onOpen, branchOverlay }) {
           <div className="project-files-name">{displayBase}</div>
         </div>
       </button>
-    </Tooltip>
+      {morphPill.node}
+    </div>
   );
 }
 
@@ -302,19 +327,14 @@ function FileCard({ file, onOpen, branchOverlay }) {
 // sync with cloud.
 function LocalFileCard({
   file,
-  onSelect,            // single-click — just highlights the card (no modal)
-  onOpen,              // menu Properties — opens the FileDetailModal (side pane)
-  onDoubleOpen,        // double-click — opens the file in its OS default app
-  onRename,            // menu Rename — flips the card into inline-rename mode
-  onRenameSubmit,      // commits the inline rename (file, newName)
-  onRenameCancel,      // dismisses inline rename mode without changes
+  onSelect,            // single-click — just highlights the card
+  onDoubleOpen,        // double-click — opens the file in its OS default app / Word / viewer
   onRevert,            // menu Revert — only shown when `modified` AND a cloud counterpart exists
   onDelete,            // menu Delete — see handleDeleteLocalCard in ProjectFiles
   modified,
   bytesChanged,        // true → local bytes diverge from cloud → regenerate thumbnail
                        //         from disk instead of showing the (now stale) cloud thumb
   selected,            // true → card paints the accent highlight ring
-  isRenaming,          // true → name slot becomes an <input> with the basename selected
   cloud,
   overlay,
   localContentHash,    // SHA-256 of the on-disk bytes (from parent's localHashByName)
@@ -415,149 +435,14 @@ function LocalFileCard({
     bytesChanged,
     localContentHash,
   ]);
-  // Morphing pill — one element that's a hover-tooltip in its calm
-  // state and a vertical context menu after a right-click. Sharing
-  // the same DOM node lets us animate between the two shapes via
-  // FLIP (see useLayoutEffect below) so the menu morphs smoothly
-  // out of the pill using GPU-composable transforms only.
-  //
-  // State model:
-  //   pillPos    — cursor coords when the pill is visible. null = hidden.
-  //   menuMode   — when true, pill is sticky (ignores mouseleave),
-  //                interactive (pointer-events:auto), and renders
-  //                the menu items instead of the text.
-  //   oldPillRectRef — bounding rect of the small tooltip pill at
-  //                the moment of right-click, so the FLIP animation
-  //                has a "from" size to scale up from.
-  const [pillPos, setPillPos] = useState(null);
-  const [menuMode, setMenuMode] = useState(false);
-  const pillRef = useRef(null);
-  const oldPillRectRef = useRef(null);
-
-  const handleMouseMove = (e) => {
-    if (menuMode) return;
-    setPillPos({ x: e.clientX, y: e.clientY });
-  };
-  const handleMouseLeave = () => {
-    if (menuMode) return;
-    setPillPos(null);
-  };
-  const handleContextMenu = (e) => {
-    e.preventDefault();
-    // Snapshot the pill's current (tooltip-size) rect BEFORE the
-    // menu-mode flip so the FLIP effect below has a "from" size to
-    // scale up from. Captured here in the event handler rather than
-    // in the effect because by the time the effect runs the DOM is
-    // already at menu-size.
-    if (pillRef.current) {
-      oldPillRectRef.current = pillRef.current.getBoundingClientRect();
-    }
-    setPillPos({ x: e.clientX, y: e.clientY });
-    setMenuMode(true);
-  };
-  const closeMenu = () => {
-    setMenuMode(false);
-    setPillPos(null);
-    oldPillRectRef.current = null;
-  };
-
-  // Sticky-mode dismissal: outside click, Escape, or scroll.
-  useEffect(() => {
-    if (!menuMode) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') closeMenu(); };
-    const onDown = (e) => {
-      if (pillRef.current && pillRef.current.contains(e.target)) return;
-      closeMenu();
-    };
-    const onScroll = () => closeMenu();
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('scroll', onScroll, true);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('scroll', onScroll, true);
-    };
-  }, [menuMode]);
-
-  // Position-clamp — same recipe as the shared Tooltip: keep the pill
-  // inside the viewport on both axes, snap on first mount so the
-  // CSS transition doesn't visibly slide in from (0,0). Re-runs on
-  // menu-mode flip too so the bigger menu shape gets re-clamped.
-  useLayoutEffect(() => {
-    if (!pillPos) return;
-    const pill = pillRef.current;
-    if (!pill) return;
-    const w = pill.offsetWidth;
-    const h = pill.offsetHeight;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const x = Math.max(8, Math.min(pillPos.x + 8, vw - 8 - w));
-    const y = Math.max(8, Math.min(pillPos.y + 8, vh - 8 - h));
-    const isFirstSet = !pill.style.transform;
-    if (isFirstSet) {
-      pill.style.transition = 'none';
-      pill.style.transform = `translate(${x}px, ${y}px)`;
-      void pill.offsetWidth;
-      pill.style.transition = '';
-    } else {
-      pill.style.transform = `translate(${x}px, ${y}px)`;
-    }
-  }, [pillPos, menuMode]);
-
-  // FLIP morph — runs once on menu-mode entry. Concept:
-  //   F (First) — captured in handleContextMenu as oldPillRectRef.
-  //   L (Last)  — measured right here, after React has committed the
-  //               .is-menu shape change.
-  //   I (Invert) — apply an inline transform that scales the pill
-  //               DOWN so it visually matches the old tooltip size.
-  //   P (Play)  — transition back to scale(1) using a transform-only
-  //               animation, which composites on the GPU and runs
-  //               without layout-thrashing repaints.
-  // The position-clamp effect above wrote `translate(x, y)` already;
-  // we extend it to `translate(x, y) scale(sx, sy)` here, then animate
-  // to `translate(x, y) scale(1)`.
-  useLayoutEffect(() => {
-    if (!menuMode) return;
-    const oldRect = oldPillRectRef.current;
-    if (!oldRect) return;
-    const pill = pillRef.current;
-    if (!pill) return;
-    const newRect = pill.getBoundingClientRect();
-    if (newRect.width === 0 || newRect.height === 0) {
-      oldPillRectRef.current = null;
-      return;
-    }
-    const sx = oldRect.width / newRect.width;
-    const sy = oldRect.height / newRect.height;
-    // Read the translate the position-clamp effect just set so we
-    // can preserve it through the scale animation.
-    const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(pill.style.transform || '');
-    const tx = m ? parseFloat(m[1]) : 0;
-    const ty = m ? parseFloat(m[2]) : 0;
-    pill.style.transformOrigin = 'top left';
-    // Step 1: snap to the inverse-scale state (visually the old pill
-    // size) with no transition so the browser doesn't animate the
-    // setup move.
-    pill.style.transition = 'none';
-    pill.style.transform = `translate(${tx}px, ${ty}px) scale(${sx}, ${sy})`;
-    // Force a reflow so the snap commits before we add the
-    // transition for the play phase.
-    void pill.offsetWidth;
-    // Step 2: animate transform back to identity scale.
-    pill.style.transition = 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)';
-    pill.style.transform = `translate(${tx}px, ${ty}px) scale(1, 1)`;
-    oldPillRectRef.current = null;
-  }, [menuMode]);
-
   // Selection fires instantly on single click — no delay. Selecting
   // and "open" don't actually conflict: double-clicking just
   // selects + opens, which matches how Explorer behaves anyway.
   // Both handlers stopPropagation so the panel's bg-click deselect
   // doesn't fire on the same event.
   //
-  // Properties (the side-pane modal) is reachable via the right-
-  // click menu item — selection alone never opens it.
+  // Single-click selects (highlight only). Double-click opens the
+  // file via the parent's onDoubleOpen handler.
   const handleCardClick = (e) => {
     e?.stopPropagation?.();
     onSelect?.(file);
@@ -567,101 +452,33 @@ function LocalFileCard({
     onDoubleOpen?.(file);
   };
 
-  const handleMenuProperties = () => {
-    closeMenu();
-    onOpen?.(file);
-  };
-  const handleMenuRename = () => {
-    closeMenu();
-    onRename?.(file);
-  };
-
-  // Inline rename — driven by the parent's `isRenaming` prop. The
-  // textarea is UNCONTROLLED (defaultValue + read-via-ref on commit)
-  // so the displayed value can never drift from the current file's
-  // name. A previous controlled-input attempt had a race where the
-  // useState initializer + delayed effect could leave renameValue
-  // out of sync with file.name (the user would type into what
-  // looked like card A's input but the bound state held card B's
-  // name, and the rename submitted with the wrong target). With
-  // defaultValue read fresh on each rename entry, there's no React
-  // state to fall out of date — the DOM input owns the value.
-  //
-  // On entering rename mode, focus the input and select just the
-  // basename (everything before the last "."), matching Windows
-  // Explorer's F2 behaviour so the user types only the new base
-  // and the extension is preserved.
-  const renameInputRef = useRef(null);
-  // Guard against commitRename firing twice (once on Enter →
-  // intentional commit; once on the resulting blur from the
-  // unmount). Reset each time the user enters rename mode.
-  const renameCommittedRef = useRef(false);
-  useEffect(() => {
-    if (!isRenaming) return;
-    renameCommittedRef.current = false;
-    const el = renameInputRef.current;
-    if (!el) return;
-    // Reset value to the current file.name so a previous edit
-    // session's stale text can't leak through (defaultValue alone
-    // only seeds on first mount). The textarea is inside an
-    // `{isRenaming ? ... : ...}` branch, so this is a fresh mount,
-    // but assigning explicitly is belt-and-suspenders against any
-    // future React reconciliation surprise.
-    el.value = file.name || '';
-    el.focus();
-    const name = file.name || '';
-    const lastDot = name.lastIndexOf('.');
-    const end = lastDot > 0 ? lastDot : name.length;
-    try { el.setSelectionRange(0, end); }
-    catch { /* legacy quirk, ignore */ }
-    // Size the textarea to fit the initial value so long names show
-    // their wrapped layout immediately rather than scrolling inside
-    // a one-line box on first paint.
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [isRenaming, file.name]);
-
-  const commitRename = () => {
-    if (!isRenaming) return;
-    if (renameCommittedRef.current) return;  // Enter already fired commit
-    renameCommittedRef.current = true;
-    const raw = renameInputRef.current?.value ?? '';
-    const next = raw.trim();
-    if (!next || next === file.name) {
-      onRenameCancel?.();
-      return;
-    }
-    onRenameSubmit?.(file, next);
-  };
-
-  const handleRenameKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      commitRename();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      onRenameCancel?.();
-    }
-  };
-  const handleMenuRevert = () => {
-    closeMenu();
-    onRevert?.(file);
-  };
-  const handleMenuShowInFolder = () => {
-    closeMenu();
-    if (file?.path) localFolderApi.showInFolder(file.path);
-  };
-  const handleMenuDelete = () => {
-    closeMenu();
-    onDelete?.(file);
-  };
+  // Right-click → tooltip morphs into a context menu via the shared
+  // useMorphPill hook. Items conditionally appear (Revert when the
+  // file diverges from cloud; Delete when the parent wired a handler).
+  const morphPill = useMorphPill({
+    hoverContent: tooltipBody,
+    menuItems: [
+      { key: 'open',     label: 'Open',             onClick: () => onDoubleOpen?.(file) },
+      (onRevert && modified && cloud) && {
+        key: 'revert',   label: 'Revert',           onClick: () => onRevert?.(file),
+      },
+      {
+        key: 'reveal',   label: 'Show in explorer', onClick: () => file?.path && localFolderApi.showInFolder(file.path),
+        disabled: !file?.path,
+      },
+      onDelete && {
+        key: 'delete',   label: 'Delete',           onClick: () => onDelete?.(file),
+        danger: true,
+      },
+    ],
+  });
 
   return (
     <div
       className="project-files-local-card-wrap"
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-      onContextMenu={handleContextMenu}
+      onMouseMove={morphPill.handleMouseMove}
+      onMouseLeave={morphPill.handleMouseLeave}
+      onContextMenu={morphPill.handleContextMenu}
     >
       {/* Outer wrapper is a div (not a button) so it can contain
           the inline rename <input> — buttons can't contain
@@ -673,11 +490,11 @@ function LocalFileCard({
           the input's blur/Esc/Enter dismisses. */}
       <div
         role="button"
-        tabIndex={isRenaming ? -1 : 0}
+        tabIndex={0}
         className={`project-files-card${selected ? ' is-selected' : ''}`}
-        onClick={isRenaming ? undefined : handleCardClick}
-        onDoubleClick={isRenaming ? undefined : handleCardDoubleClick}
-        onKeyDown={isRenaming ? undefined : (e) => {
+        onClick={handleCardClick}
+        onDoubleClick={handleCardDoubleClick}
+        onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             handleCardClick();
@@ -689,11 +506,6 @@ function LocalFileCard({
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
         >
-          {/* Single descriptor — the resolver picks cloud thumb (when
-              bytes match) or regenerates from on-disk bytes (when
-              local has diverged), with consistent caching and DOCX
-              rich-render across surfaces. The video hover slideshow
-              lights up here too when `cloud.thumbnail_frames` exist. */}
           <FileThumbnail descriptor={descriptor} hovered={hovered} />
           {ext && (
             <span className="project-files-ext" aria-hidden="true">
@@ -702,35 +514,7 @@ function LocalFileCard({
           )}
         </div>
         <div className="project-files-meta">
-          {isRenaming ? (
-            <textarea
-              ref={renameInputRef}
-              rows={1}
-              className="project-files-name-input"
-              // Uncontrolled — the DOM input owns the value. Seeded
-              // with the current file.name on mount; commit reads
-              // `renameInputRef.current.value` directly.
-              defaultValue={file.name}
-              onInput={(e) => {
-                // Auto-grow: reset height so the next scrollHeight
-                // measurement isn't capped by the previous frame.
-                // CSS max-height clips at 4 lines and switches to
-                // scroll once the textarea would exceed it.
-                const el = e.target;
-                el.style.height = 'auto';
-                el.style.height = `${el.scrollHeight}px`;
-              }}
-              onKeyDown={handleRenameKeyDown}
-              onBlur={commitRename}
-              // Swallow clicks so the card's onClick (select toggle)
-              // doesn't fire while the user is editing the name.
-              onClick={(e) => e.stopPropagation()}
-              onDoubleClick={(e) => e.stopPropagation()}
-              aria-label="Rename file"
-            />
-          ) : (
-            <div className="project-files-name">{base || file.name}</div>
-          )}
+          <div className="project-files-name">{base || file.name}</div>
         </div>
       </div>
       {modified && (
@@ -738,230 +522,8 @@ function LocalFileCard({
           Modified
         </span>
       )}
-      {pillPos && createPortal(
-        <div
-          ref={pillRef}
-          className={`tooltip project-files-morph-pill${menuMode ? ' is-menu' : ''}`}
-          role={menuMode ? 'menu' : 'tooltip'}
-          // In menu mode, cursor leaving the pill dismisses it. The
-          // base tooltip is pointer-events:none so this never fires
-          // for the non-menu state — only the `.is-menu` rule turns
-          // pointer-events on, which is what makes the menu hoverable
-          // AND what makes mouseleave fire when the cursor exits.
-          onMouseLeave={menuMode ? closeMenu : undefined}
-        >
-          {menuMode ? (
-            <ul className="project-files-morph-list">
-              <li role="none">
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="project-files-morph-item"
-                  onClick={handleMenuProperties}
-                >
-                  Properties
-                </button>
-              </li>
-              {onRename && (
-                <li role="none">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="project-files-morph-item"
-                    onClick={handleMenuRename}
-                  >
-                    Rename
-                  </button>
-                </li>
-              )}
-              {/* Revert — only when the file has been modified locally
-                  AND there's a cloud counterpart to revert to. Pulls
-                  the canonical bytes from main and overwrites the local
-                  copy. The auto-commit timer naturally clears the
-                  Modified pill afterward (the diff goes empty for
-                  this file). */}
-              {onRevert && modified && cloud && (
-                <li role="none">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="project-files-morph-item"
-                    onClick={handleMenuRevert}
-                  >
-                    Revert
-                  </button>
-                </li>
-              )}
-              <li role="none">
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="project-files-morph-item"
-                  onClick={handleMenuShowInFolder}
-                  disabled={!file?.path}
-                >
-                  Show in explorer
-                </button>
-              </li>
-              {onDelete && (
-                <li role="none">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="project-files-morph-item project-files-morph-item-danger"
-                    onClick={handleMenuDelete}
-                  >
-                    Delete
-                  </button>
-                </li>
-              )}
-            </ul>
-          ) : (
-            <span className="project-files-morph-text">{tooltipBody}</span>
-          )}
-        </div>,
-        document.body,
-      )}
+      {morphPill.node}
     </div>
-  );
-}
-
-// Inspector for a local-only My-branch file (no cloud counterpart
-// yet, so no Supabase storage_path). Resolves a preview URL pointing
-// at the on-disk bytes: `localfile://` on Electron, a blob: URL from
-// the cached FSA file handle on web. The blob URL is revoked on
-// unmount so we don't leak memory across opens. Hands the URL to
-// FileDetailModal via `previewUrlOverride` — which bypasses the
-// Supabase signing path so the modal renders the image / video / PDF
-// straight from disk.
-function LocalOnlyFileDetail({ localFile, projectId, viewerId, onClose }) {
-  const isWebPath = typeof localFile?.path === 'string' && localFile.path.startsWith('web://');
-  const mtime = localFile?.mtimeIso || null;
-  const [webBlobUrl, setWebBlobUrl] = useState(null);
-  useEffect(() => {
-    if (!isWebPath || !localFile?.path) return undefined;
-    let cancelled = false;
-    let url = null;
-    readLocalBlob(localFile.path).then((blob) => {
-      if (cancelled) return;
-      url = URL.createObjectURL(blob);
-      setWebBlobUrl(url);
-    }).catch(() => { /* handle missing — modal falls back to glyph */ });
-    return () => {
-      cancelled = true;
-      if (url) URL.revokeObjectURL(url);
-      setWebBlobUrl(null);
-    };
-    // mtime in deps so an in-place byte edit re-reads the file and
-    // recreates the blob URL — without it the preview would freeze
-    // on the bytes the modal happened to capture at mount time.
-  }, [isWebPath, localFile?.path, mtime]);
-  const previewUrl = isWebPath
-    ? webBlobUrl
-    : (localFile?.path
-        ? `localfile://local/${encodeURIComponent(localFile.path)}${mtime ? `?t=${encodeURIComponent(mtime)}` : ''}`
-        : null);
-  return (
-    <FileDetailModal
-      file={{
-        id: `local:${localFile.path}`,
-        project_id: projectId,
-        name: localFile.name,
-        description: null,
-        mime_type: localFile.mimeType || '',
-        size_bytes: localFile.sizeBytes ?? 0,
-        storage_path: '',
-        thumbnail_path: null,
-        thumbnail_frames: null,
-        duration_seconds: null,
-        content_hash: null,
-        uploaded_by: viewerId,
-        uploaded_at: localFile.mtimeIso || new Date().toISOString(),
-      }}
-      readOnly
-      previewUrlOverride={previewUrl}
-      onClose={onClose}
-    />
-  );
-}
-
-// Resolve a preview URL pointing at the on-disk bytes for a given
-// local path. Mirrors the localfile:// (Electron) / blob: (web)
-// dispatch that LocalOnlyFileDetail uses, but as a reusable hook so
-// the modal opened for a cloud-backed-but-locally-edited file can
-// share the same resolution and revocation semantics.
-//
-// `mtime` is folded in as a cache-buster so an in-place byte edit
-// (same path, new contents) breaks every layer of caching:
-//   • Electron localfile:// — Chromium caches by URL; the `?t=mtime`
-//     query string makes the URL unique per save, forcing a fresh
-//     stream off disk. The main-process handler keys off pathname
-//     only, so the suffix doesn't change resolution.
-//   • Web blob: — the underlying File object is read freshly each
-//     time the effect re-runs; `mtime` in the dep array makes that
-//     re-run on every save instead of staying pinned to the first
-//     blob URL until the path changes.
-function useLocalPreviewUrl(path, mtime) {
-  const isWebPath = typeof path === 'string' && path.startsWith('web://');
-  const [webBlobUrl, setWebBlobUrl] = useState(null);
-  useEffect(() => {
-    if (!isWebPath || !path) return undefined;
-    let cancelled = false;
-    let url = null;
-    readLocalBlob(path).then((blob) => {
-      if (cancelled) return;
-      url = URL.createObjectURL(blob);
-      setWebBlobUrl(url);
-    }).catch(() => { /* missing — modal falls back to cloud / glyph */ });
-    return () => {
-      cancelled = true;
-      if (url) URL.revokeObjectURL(url);
-      setWebBlobUrl(null);
-    };
-  }, [isWebPath, path, mtime]);
-  if (!path) return null;
-  if (isWebPath) return webBlobUrl;
-  const base = `localfile://local/${encodeURIComponent(path)}`;
-  return mtime ? `${base}?t=${encodeURIComponent(mtime)}` : base;
-}
-
-// Wraps FileDetailModal for a cloud-row whose local bytes diverge
-// from the cloud version (My-branch local edit, not yet pushed).
-// Resolves the local bytes to a preview URL and hands it to the
-// modal as `previewUrlOverride` so the preview pane reflects what
-// the file looks like NOW on disk — matching the card thumbnail's
-// behavior — instead of the stale cloud bytes from the canonical
-// bucket. Falls back to the modal's default cloud-signed flow if
-// the local path is missing.
-function MyBranchEditedFileDetail({
-  file,
-  localPath,
-  localMtime,
-  localContentHash,
-  onClose,
-  onDeleted,
-  onLocalRename,
-  readOnly,
-}) {
-  const localUrl = useLocalPreviewUrl(localPath, localMtime);
-  // The DOCX preview generator caches its rich-rendered image by
-  // `content_hash || signedUrl`. The cloud row's content_hash is the
-  // PRE-edit hash, so without override the cache returns the stale
-  // pre-edit rendering even after the URL has been busted by mtime.
-  // Swap the hash with the (post-edit) local hash when known; fall
-  // back to `null` so the cache keys on the cache-busted URL.
-  const effectiveFile = file
-    ? { ...file, content_hash: localContentHash || null }
-    : file;
-  return (
-    <FileDetailModal
-      file={effectiveFile}
-      previewUrlOverride={localUrl}
-      onClose={onClose}
-      onDeleted={onDeleted}
-      onLocalRename={onLocalRename}
-      readOnly={readOnly}
-    />
   );
 }
 
@@ -1055,29 +617,11 @@ export default function ProjectFiles() {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  // The currently-open file detail modal. Holds only the id of the
-  // selected file — the actual file row is re-resolved from `files`
-  // every render so realtime UPDATE / DELETE events automatically
-  // flow into the modal's prop (and a DELETE event reduces the prop
-  // to null, which the modal interprets as "auto-close").
-  const [openFileId, setOpenFileId] = useState(null);
-  // Local-only inspector — opened when the user clicks (or right-click →
-  // Open) a My-branch card whose file isn't yet linked to a cloud row.
-  // Holds the localFile snapshot directly; the modal mounts in readOnly
-  // mode against a synthesized cloud-row shape (no DB metadata to edit
-  // since the file hasn't been pushed).
-  const [openLocalOnlyFile, setOpenLocalOnlyFile] = useState(null);
   // Selection highlight for My-branch local cards. Single click sets
-  // this; the side-pane modal is gated on a separate state and is
-  // reached only via right-click → Properties. Keyed by `file.path`
+  // this; double-click opens the file via the OS / in-app viewer.
+  // Keyed by `file.path`
   // so a re-render with the same disk path keeps the selection.
   const [selectedLocalPath, setSelectedLocalPath] = useState(null);
-  // Inline rename — `file.path` of the card currently in rename
-  // mode, or null. Mirrors the F2-rename pattern from Explorer:
-  // right-click → Rename flips the card's name slot into an
-  // <input>; Enter commits via handleRenameSubmit, Escape / blur
-  // dismisses via handleRenameCancel.
-  const [renamingPath, setRenamingPath] = useState(null);
   // My-branch scope toggle. "all" (default) renders both the files
   // on disk AND any main-branch files missing from disk as ghost
   // cards (the existing "missing — click to download" overlay).
@@ -1695,11 +1239,36 @@ export default function ProjectFiles() {
     localFolderApi.openPath(localFolder);
   }, [localFolder]);
 
-  // Open a local file in its default OS application.
-  const handleOpenLocalFile = useCallback((file) => {
-    if (!hasLocalFolderApi || !file?.path) return;
-    localFolderApi.openPath(file.path);
-  }, []);
+  // Double-click on a cloud card. Signs a fresh URL for the canonical
+  // bytes (the modal's poster URL is too short-lived to reuse here)
+  // and pops the in-app viewer. DOCX routes through openDocx (Word →
+  // Office Online → OS default); browser-native types open in a
+  // dedicated BrowserWindow loading the signed URL directly.
+  //
+  // 1800 s (30 min) TTL: Word + Office Online may fetch the URL up
+  // to a minute after we sign it (UI handoff, app cold-start), and
+  // Office Online's servers occasionally retry. A short 5-min TTL
+  // like the modal's preview uses produced "URL expired" failures.
+  const handleOpenCloudFileViewer = useCallback(async (file) => {
+    if (!file?.storage_path) return;
+    if (!canOpenInApp(file.mime_type, file.name)) return;
+    const { data, error } = await createSignedDownloadUrl(file.storage_path, 1800);
+    if (error || !data?.signedUrl) {
+      notify({
+        category: 'file',
+        variant: 'error',
+        title: 'Could not open file',
+        body: error?.message || 'Try again in a moment.',
+        dedupeKey: `file-view-error:${file.id}`,
+      });
+      return;
+    }
+    if (isDocxFile(file.mime_type, file.name)) {
+      openDocx({ cloudUrl: data.signedUrl, fileName: file.name || 'file' });
+      return;
+    }
+    openFileWindow(data.signedUrl, file.name || 'file');
+  }, [notify]);
 
   // Pull a single cloud file into the user's branch folder. Used by
   // the "missing from branch" cards — clicking one fills the gap
@@ -2011,18 +1580,6 @@ export default function ProjectFiles() {
     return () => { cancelled = true; unsubscribe(); };
   }, [projectId]);
 
-  // Auto-close the file detail modal when its file disappears from the
-  // list — covers realtime DELETE from another device, project switch
-  // (whole `files` array replaced), or our own delete that already
-  // called `onClose`. Without this the modal lingers with a null prop
-  // (renders null visually, but `openFileId` stays set, blocking the
-  // next reopen until the user navigates away).
-  useEffect(() => {
-    if (openFileId && !files.some((f) => f.id === openFileId)) {
-      setOpenFileId(null);
-    }
-  }, [openFileId, files]);
-
   // Initial skeleton while the SelectedProjectContext is still hydrating
   // — matches the prior placeholder's pattern.
   if (projLoading && !selectedProject) {
@@ -2064,29 +1621,56 @@ export default function ProjectFiles() {
     return map;
   }, [files]);
 
-  // Click handler for cards on the My-branch (local) tab. With the
-  // sidecar in play, matching is one hop: filename → fileId → cloud.
-  // The previous filename / display-name / overlay / hash fallback
-  // chain collapsed into the sidecar reconciliation pass, so this
-  // handler stays in sync with whatever the render loop resolves.
-  // Either path opens the FileDetailModal as a side-pane inspector;
-  // we never auto-launch the OS app from a card click — the user
-  // wants the right-side info pane, not a bytes-open.
-  const handleOpenLocalCard = useCallback((localFile) => {
-    const lcName = (localFile.name || '').toLowerCase();
-    const fileId = sidecar.byFilename.get(lcName);
-    const cloud = fileId ? cloudById.get(fileId) : null;
-    if (cloud) setOpenFileId(cloud.id);
-    else setOpenLocalOnlyFile(localFile);
+  // Double-click on a local card. Lives down here (after the
+  // `cloudById` declaration) instead of up with the other handlers
+  // because the DOCX branch needs `cloudById` to look up the cloud
+  // counterpart via the sidecar — referencing it earlier hits the
+  // temporal dead zone.
+  //   • DOCX        → openDocx with both the local path and a signed
+  //                   cloud URL (when a cloud counterpart exists),
+  //                   so main can pick the best renderer: Word for
+  //                   the local file, Office Online for the cloud
+  //                   URL when Word isn't installed, OS-default as
+  //                   a last resort.
+  //   • Browser-viewable (image/video/PDF/text) → in-app BrowserWindow
+  //                   via `localfile://`.
+  //   • Anything else → OS default app via shell.openPath.
+  const handleOpenLocalFile = useCallback(async (file) => {
+    if (!hasLocalFolderApi || !file?.path) return;
+    if (isDocxFile(file.mimeType, file.name)) {
+      const lcName = (file.name || '').toLowerCase();
+      const cloudId = sidecar.byFilename.get(lcName);
+      const cloud = cloudId ? cloudById.get(cloudId) : null;
+      let cloudUrl = null;
+      if (cloud?.storage_path) {
+        // 1800 s TTL — see handleOpenCloudFileViewer for rationale.
+        const { data } = await createSignedDownloadUrl(cloud.storage_path, 1800);
+        cloudUrl = data?.signedUrl || null;
+      }
+      openDocx({ localPath: file.path, cloudUrl, fileName: file.name || 'file' });
+      return;
+    }
+    if (canViewInBrowser(file.mimeType, file.name)) {
+      const isWebPath = typeof file.path === 'string' && file.path.startsWith('web://');
+      if (!isWebPath) {
+        // Mtime as cache-buster keeps an in-place edit from serving
+        // the old bytes the OS may have cached at the same URL.
+        const suffix = file.mtimeIso ? `?t=${encodeURIComponent(file.mtimeIso)}` : '';
+        const url = `localfile://local/${encodeURIComponent(file.path)}${suffix}`;
+        openFileWindow(url, file.name || 'file');
+        return;
+      }
+    }
+    localFolderApi.openPath(file.path);
   }, [sidecar, cloudById]);
 
+  // Click handler for cards on the My-branch (local) tab. With the
   // Right-click → Delete from the My-branch card's context menu.
   // Two paths depending on whether the file has a cloud counterpart:
   //   • Cloud-backed: queue a `delete` branch_change targeting the
-  //     cloud row. Reversible until the user pushes — same flow as
-  //     the FileDetailModal's Delete button. No confirm needed; the
-  //     queued state is visible on the card (the DELETED overlay
-  //     pill) and discardable from the Commit modal.
+  //     cloud row. Reversible until the user pushes. No confirm
+  //     needed; the queued state is visible on the card (DELETED
+  //     overlay pill) and discardable from the Commit modal.
   //   • Local-only (sidecar-minted UUID, no cloud match yet): no
   //     cloud row to mark for delete, so this is a true filesystem
   //     remove. window.confirm() guards the destructive step since
@@ -2142,108 +1726,6 @@ export default function ProjectFiles() {
   const handleSelectLocalCard = useCallback((localFile) => {
     setSelectedLocalPath((prev) => (prev === localFile.path ? null : localFile.path));
   }, []);
-
-  // F2 on a selected card → enter rename mode. Matches Windows
-  // Explorer's keyboard affordance. Bailed when a card is already
-  // in rename mode (the textarea would otherwise consume the key
-  // before we see it, but we guard explicitly for completeness)
-  // and when focus is in an input / textarea / contentEditable
-  // elsewhere in the app so F2 doesn't hijack other text fields.
-  useEffect(() => {
-    if (!selectedLocalPath) return undefined;
-    const onKey = (e) => {
-      if (e.key !== 'F2') return;
-      if (renamingPath) return;
-      const target = e.target;
-      const tag = (target?.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) return;
-      e.preventDefault();
-      setRenamingPath(selectedLocalPath);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selectedLocalPath, renamingPath]);
-
-  // Right-click → Rename. Flips the card into inline-rename mode;
-  // the actual on-disk rename runs in handleRenameSubmit when the
-  // user commits via Enter / blur.
-  const handleRenameLocalCard = useCallback((localFile) => {
-    if (!localFile?.path) return;
-    setRenamingPath(localFile.path);
-  }, []);
-
-  const handleRenameCancel = useCallback(() => {
-    setRenamingPath(null);
-  }, []);
-
-  // Commits an inline rename — performs the on-disk rename, threads
-  // the change through the sidecar (same fileId, new filename) and
-  // queues a metadata edit for cloud-backed files so the rename
-  // rides into the next change request as a proper edit (not a
-  // delete-then-add). The auto-commit timer picks up the resulting
-  // branch_changes row + local diff entry on its next tick.
-  const handleRenameSubmit = useCallback(async (localFile, nextName) => {
-    setRenamingPath(null);
-    if (!hasLocalFolderApi || !localFolder || !localFile?.name) return;
-    const toName = (nextName || '').trim();
-    if (!toName || toName === localFile.name) return;
-    // Preserve the on-disk extension when the user types just the
-    // base — losing it would break the OS file-type association.
-    const lastDot = localFile.name.lastIndexOf('.');
-    const ext = lastDot > 0 ? localFile.name.slice(lastDot + 1) : '';
-    let finalName = toName;
-    if (ext && !finalName.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
-      finalName = `${finalName}.${ext}`;
-    }
-    if (finalName === localFile.name) return;
-    // Snapshot the sidecar fileId BEFORE the rename / sidecar swap.
-    // After renameSidecarEntry runs the old filename is gone from
-    // byFilename, so the cloud lookup below has to come from the
-    // pre-rename name.
-    const lcOldName = (localFile.name || '').toLowerCase();
-    const fileId = sidecar.byFilename.get(lcOldName);
-    const cloud = fileId ? cloudById.get(fileId) : null;
-    const { error } = await localFolderApi.renameFile({
-      dir: localFolder,
-      fromName: localFile.name,
-      toName: finalName,
-    });
-    if (error) {
-      notify({
-        category: 'file',
-        variant: 'error',
-        title: 'Rename failed',
-        body: error,
-        dedupeKey: `rename-local-error:${localFile.path}`,
-      });
-      return;
-    }
-    // Sidecar follows the rename — same fileId, new filename — so
-    // the next reconcile + diff match correctly. We snapshotted
-    // fileId above so the cloud queueChange below can still find
-    // the right target_file_id after the byFilename map updates.
-    setSidecar((prev) => {
-      const nextSc = renameSidecarEntry(prev, localFile.name, finalName);
-      if (nextSc !== prev) saveSidecar(nextSc);
-      return nextSc;
-    });
-    if (cloud) {
-      await queueChange({
-        kind: 'edit',
-        targetFileId: cloud.id,
-        proposed: { name: finalName },
-      });
-    }
-    await refetchLocalFiles();
-    notify({
-      category: 'file',
-      variant: 'success',
-      icon: 'check',
-      title: 'Renamed',
-      body: `${localFile.name} → ${finalName}`,
-      dedupeKey: `rename-local-ok:${localFile.path}`,
-    });
-  }, [localFolder, notify, sidecar, cloudById, queueChange, refetchLocalFiles]);
 
   // Right-click → Revert. Pulls the canonical bytes from main and
   // overwrites the local copy, dropping any in-progress local edits
@@ -2738,7 +2220,7 @@ export default function ProjectFiles() {
                       <FileCard
                         key={f.id}
                         file={f}
-                        onOpen={(file) => setOpenFileId(file.id)}
+                        onDoubleOpen={handleOpenCloudFileViewer}
                       />
                     ))}
                   </div>
@@ -2897,7 +2379,7 @@ export default function ProjectFiles() {
                           <FileCard
                             key={`missing-${entry.file.id}`}
                             file={entry.file}
-                            onOpen={(file) => handleDownloadOne(file)}
+                            onClick={(file) => handleDownloadOne(file)}
                             branchOverlay={{ kind: 'missing' }}
                           />
                         );
@@ -2945,15 +2427,10 @@ export default function ProjectFiles() {
                           key={f.path}
                           file={f}
                           onSelect={handleSelectLocalCard}
-                          onOpen={handleOpenLocalCard}
                           onDoubleOpen={handleOpenLocalFile}
-                          onRename={handleRenameLocalCard}
-                          onRenameSubmit={handleRenameSubmit}
-                          onRenameCancel={handleRenameCancel}
                           onRevert={handleRevertLocalCard}
                           onDelete={handleDeleteLocalCard}
                           selected={selectedLocalPath === f.path}
-                          isRenaming={renamingPath === f.path}
                           modified={isModified}
                           bytesChanged={bytesChanged}
                           cloud={cloud}
@@ -2994,142 +2471,6 @@ export default function ProjectFiles() {
           </div>
         )}
       </div>
-
-      {/* File detail modal. Re-resolving the file row from `files` on
-          every render is the realtime hook — when the page's existing
-          subscription updates `files` (someone edited a description,
-          someone deleted a row), the modal's `file` prop changes too.
-          A DELETE event reduces the prop to null, which the modal
-          interprets as "auto-close".
-          onDeleted fires synchronously when the user deletes a file
-          from inside the modal — drops it from local state immediately
-          so the UI updates without waiting for the Realtime echo
-          (the postgres_changes DELETE event is filtered out before
-          it reaches this client when REPLICA IDENTITY isn't FULL on
-          project_files; migration 006 fixes that for cross-device
-          updates, this callback fixes the local case unconditionally). */}
-      {openFileId && (() => {
-        const openCloudRow = files.find((f) => f.id === openFileId) || null;
-        // On My branch, when the local bytes diverge from the cloud
-        // version (queued replace / in-place edit), the cloud
-        // thumbnail + signed preview URL both point at the stale
-        // pre-edit bytes. The card already regenerates its thumbnail
-        // from disk in that case; route the modal through the same
-        // local-bytes path so the preview pane matches what the card
-        // is showing instead of paint the old version.
-        const wantLocalOverride = (
-          branchView === 'mine'
-          && openCloudRow
-          && bytesDifferCloudIds.has(openCloudRow.id)
-        );
-        let localPathForPreview = null;
-        let localMtimeForPreview = null;
-        let localHashForPreview = null;
-        if (wantLocalOverride) {
-          const sidecarEntry = sidecar.byFileId.get(openCloudRow.id);
-          const trackedFilename = sidecarEntry?.filename
-            || (openCloudRow.storage_path || '').split('/').pop();
-          if (trackedFilename) {
-            const lcTracked = trackedFilename.toLowerCase();
-            const localMatch = localFiles.find(
-              (f) => (f.name || '').toLowerCase() === lcTracked,
-            );
-            if (localMatch?.path) {
-              localPathForPreview = localMatch.path;
-              localMtimeForPreview = localMatch.mtimeIso || null;
-              localHashForPreview = localHashByName.get(trackedFilename) || null;
-            }
-          }
-        }
-        const handleModalLocalRename = async (newName) => {
-          // Rename the on-disk file that corresponds to the cloud
-          // file the modal is editing. Only fires on My branch
-          // with a folder bound; no-op otherwise.
-          if (!hasLocalFolderApi || !localFolder) return;
-          if (!openCloudRow) return;
-          // Sidecar lookup is the source of truth — find the
-          // local filename currently mapped to this cloud row's
-          // id. Falls back to the storage filename for the
-          // brief bootstrap window before the sidecar has caught
-          // up (e.g., a brand-new download on the first ever
-          // render before the reconcile pass ran).
-          const sidecarEntry = sidecar.byFileId.get(openCloudRow.id);
-          const trackedFilename = sidecarEntry?.filename
-            || (openCloudRow.storage_path || '').split('/').pop();
-          if (!trackedFilename) return;
-          const lcTracked = trackedFilename.toLowerCase();
-          const localMatch = localFiles.find(
-            (f) => (f.name || '').toLowerCase() === lcTracked,
-          );
-          if (!localMatch) return;
-          // Preserve the disk-side extension. The cloud's display
-          // name might be raw ("bar") — append the disk extension
-          // so the renamed file still opens with the right app.
-          const fromName = localMatch.name;
-          const lastDot = fromName.lastIndexOf('.');
-          const ext = lastDot > 0 ? fromName.slice(lastDot + 1) : '';
-          let toName = (newName || '').trim();
-          if (!toName) return;
-          if (ext && !toName.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
-            toName = `${toName}.${ext}`;
-          }
-          if (fromName === toName) return;
-          const { error } = await localFolderApi.renameFile({
-            dir: localFolder,
-            fromName,
-            toName,
-          });
-          if (error) return;
-          // Sidecar follows the rename — keep the same fileId,
-          // swap the filename. Done synchronously so the matching
-          // is correct in the very next render rather than
-          // waiting on the reconciliation pass to hash-detect it.
-          setSidecar((prev) => {
-            const next = renameSidecarEntry(prev, fromName, toName);
-            if (next !== prev) saveSidecar(next);
-            return next;
-          });
-          // Refresh the local listing so the renamed file appears
-          // immediately instead of waiting on the watcher poll.
-          const { files: localList, error: listErr } = await localFolderApi.list(localFolder);
-          if (!listErr) setLocalFiles(localList || []);
-        };
-        const sharedProps = {
-          file: openCloudRow,
-          onClose: () => setOpenFileId(null),
-          onDeleted: (id) => setFiles((prev) => prev.filter((f) => f.id !== id)),
-          readOnly: branchView === 'main',
-          onLocalRename: handleModalLocalRename,
-        };
-        return localPathForPreview
-          ? (
-            <MyBranchEditedFileDetail
-              {...sharedProps}
-              localPath={localPathForPreview}
-              localMtime={localMtimeForPreview}
-              localContentHash={localHashForPreview}
-            />
-          )
-          : <FileDetailModal {...sharedProps} />;
-      })()}
-
-      {/* Local-only inspector — opens when the user clicks a My-branch
-          card whose file has no cloud counterpart yet (not pushed).
-          Wrapper resolves the local preview URL (localfile:// on
-          Electron, blob: from the cached FSA handle on web) and
-          hands it to FileDetailModal as a previewUrlOverride so the
-          modal renders the on-disk bytes — image / video / PDF /
-          text — without needing a Supabase storage_path. readOnly
-          suppresses rename / delete; the FAB / commit flow is the
-          right edit surface for an un-pushed file. */}
-      {openLocalOnlyFile && (
-        <LocalOnlyFileDetail
-          localFile={openLocalOnlyFile}
-          projectId={projectId}
-          viewerId={userId}
-          onClose={() => setOpenLocalOnlyFile(null)}
-        />
-      )}
 
       {/* Branch flow modals — Revert only (pull main into local +
           discard queued changes). Commit is gone: every local edit

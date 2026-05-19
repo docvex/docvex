@@ -53,11 +53,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSignedDownloadUrl } from './projectFiles';
 import { createPendingSignedUrl } from './branches';
-import {
-  generateThumbnail,
-  getRichDocxThumbnail,
-  isDocxFile,
-} from './thumbnails';
+import { generateThumbnail } from './thumbnails';
 
 // ── Unified cache ─────────────────────────────────────────────────────
 
@@ -208,32 +204,24 @@ function extractVideoPosterFromUrl(sourceUrl, timeoutMs = 6000) {
 
 // Walks the fallback chain to produce a poster URL for the descriptor.
 // Returns null when every branch failed (component will render glyph).
+//
+// Only image / video / PDF get thumbnails. Every other MIME (DOCX,
+// text, generic binaries…) falls through to null so the component
+// renders its MIME glyph instead — a deliberate choice to stop the
+// app from showing rasterized "previews" for file types where the
+// rendering is approximate or misleading.
 async function resolve(descriptor) {
   const { name, mime, posters, source } = descriptor;
-  const docx = isDocxFile(mime, name);
+  const m = mime || '';
+  const isThumbable = m.startsWith('image/')
+    || m.startsWith('video/')
+    || m === 'application/pdf';
+  if (!isThumbable) return null;
 
   // 1. Try each poster source in order.
   for (const p of (posters || [])) {
     const url = await signSource(p);
-    if (!url) continue;
-    // DOCX: even when we got a baked thumb URL, we want to re-render
-    // from the bytes that produced it, so the rendering matches the
-    // current generator (font/alignment/spacing fixes etc.). Falls
-    // back to the baked URL if regen fails.
-    if (docx && source) {
-      const bytesUrl = await signSource(source);
-      if (bytesUrl) {
-        const rich = await getRichDocxThumbnail({
-          signedUrl: bytesUrl,
-          contentHash: descriptor.contentKey,
-          fileName: name,
-          mimeType: mime,
-        });
-        if (rich) return rich;
-      }
-      // Fall through to the baked URL if regen failed.
-    }
-    return url;
+    if (url) return url;
   }
 
   // 2. No poster. Try the source.
@@ -242,27 +230,17 @@ async function resolve(descriptor) {
   if (!sourceUrl) return null;
 
   // Image bytes ARE the poster — the renderer just <img src>s it.
-  if ((mime || '').startsWith('image/')) return sourceUrl;
-
-  if (docx) {
-    return getRichDocxThumbnail({
-      signedUrl: sourceUrl,
-      contentHash: descriptor.contentKey,
-      fileName: name,
-      mimeType: mime,
-    });
-  }
+  if (m.startsWith('image/')) return sourceUrl;
 
   // Video fast-path: stream the source directly into a hidden <video>
   // and snap a frame. Avoids the whole-file fetch the generic branch
   // below would do — large videos on slow connections would otherwise
   // hang the card while megabytes download just to grab a poster.
-  if ((mime || '').startsWith('video/')) {
+  if (m.startsWith('video/')) {
     return extractVideoPosterFromUrl(sourceUrl);
   }
 
-  // PDF / other — fetch bytes + run the shared generator, which
-  // routes by MIME to pdf.js (page 1) / DOCX parse / etc.
+  // PDF — fetch bytes + run pdf.js to raster page 1.
   const typed = await fetchAsFile(sourceUrl, name, mime);
   if (!typed) return null;
   const blob = await generateThumbnail(typed);
