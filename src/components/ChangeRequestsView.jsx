@@ -255,7 +255,7 @@ export default function ChangeRequestsView() {
     requests,
     isAdmin,
     approveRequest,
-    rejectRequest,
+    rejectRequestItem,
     preferredVersions,
     togglePreferredVersion,
   } = useBranch();
@@ -465,44 +465,37 @@ export default function ChangeRequestsView() {
   // truth). Local alias keeps the call sites short.
   const handleSelectPreferred = togglePreferredVersion;
 
-  const [decliningId, setDecliningId] = useState(null);
+  // Tracks the ITEM currently being declined (not the request). With
+  // multi-item legacy requests it's possible to fire Decline on two
+  // siblings of the same request before either round-trip completes;
+  // keying by item id keeps each chip's spinner independent.
+  const [decliningItemId, setDecliningItemId] = useState(null);
   const handleDeclineVersion = useCallback(async (version) => {
-    if (!version || !isAdmin) return;
-    setDecliningId(version.requestId);
+    if (!version?.item || !isAdmin) return;
+    setDecliningItemId(version.item.id);
     try {
-      const { error } = await rejectRequest(version.requestId);
+      const { error } = await rejectRequestItem(version.item);
       if (!error) bumpRefresh();
     } finally {
-      setDecliningId(null);
+      setDecliningItemId(null);
     }
-  }, [rejectRequest, isAdmin, bumpRefresh]);
+  }, [rejectRequestItem, isAdmin, bumpRefresh]);
 
-  // ── Bulk approve / reject ────────────────────────────────────────────
+  // ── Bulk approve ─────────────────────────────────────────────────────
   //
-  // Split every open change-request into two buckets based on whether
-  // any of its versions is currently picked (via the dot on each
-  // version card). Requests with ≥1 pick → approve queue (uploads
-  // those proposed bytes into the canonical `projects` bucket and
-  // updates project_files via the approve_change_request RPC).
-  // Requests with no pick → reject queue (status → 'rejected',
-  // author can revise + resubmit).
+  // Collect the request ids whose preferred version is picked (via the
+  // dot on each version card). Approving uploads those proposed bytes
+  // into the canonical `projects` bucket via the approve_change_request
+  // RPC. Unpicked requests are NOT auto-rejected anymore — declining
+  // happens per file via the Decline button on each version chip, so
+  // the bulk action is now strictly additive.
   //
-  // Caveat the user should know about: change_requests are
-  // approved/rejected as a unit. If a single request contains
-  // edits to three files and the admin picked only ONE version
-  // from that request, approving still pulls in the other two —
-  // and conversely, rejecting a request because none of its versions
-  // was the preferred pick discards every item in it (other files
-  // it touched lose their proposal too). The confirm modal below
-  // surfaces both counts so the admin can pause before sending.
-  const { approveRequestIds, rejectRequestIds } = useMemo(() => {
+  // Caveat that still applies: change_requests are approved as a unit.
+  // If a single (legacy bundled) request contains edits to three files
+  // and the admin picked only ONE version from that request, approving
+  // still pulls in the other two. Confirm modal surfaces the count.
+  const approveRequestIds = useMemo(() => {
     const pickedRequestIds = new Set();
-    const allOpenRequestIds = new Set();
-    // First pass: every request that has ≥1 version in the tree.
-    for (const v of allVersions) {
-      if (v.requestId) allOpenRequestIds.add(v.requestId);
-    }
-    // Second pass: every request a preferred version targets.
     for (const [, vKey] of preferredVersions) {
       // vKey shape is `${requestId}:${itemId}` — see how it's keyed
       // where the dot toggles below.
@@ -510,13 +503,11 @@ export default function ChangeRequestsView() {
       const requestId = colon > 0 ? vKey.slice(0, colon) : null;
       if (requestId) pickedRequestIds.add(requestId);
     }
-    const approve = Array.from(pickedRequestIds);
-    const reject = Array.from(allOpenRequestIds).filter((id) => !pickedRequestIds.has(id));
-    return { approveRequestIds: approve, rejectRequestIds: reject };
-  }, [allVersions, preferredVersions]);
+    return Array.from(pickedRequestIds);
+  }, [preferredVersions]);
 
-  // Confirmation modal for the bulk action — admin reviews counts
-  // before triggering possibly-irreversible approves/rejects.
+  // Confirmation modal for the bulk action — admin reviews the count
+  // before triggering possibly-irreversible approvals.
   const [confirmingBulk, setConfirmingBulk] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
 
@@ -524,24 +515,13 @@ export default function ChangeRequestsView() {
     if (!isAdmin || bulkRunning) return;
     setBulkRunning(true);
     try {
-      // Run approves first so rejected-then-deleted change_request_items
-      // can't race the approve path's storage moves. The two queues
-      // never overlap by construction (a request is in exactly one),
-      // but running approve→reject sequentially keeps the logs
-      // chronologically sensible.
-      const approvePromises = approveRequestIds.map((id) => approveRequest(id));
-      const rejectPromises = rejectRequestIds.map((id) => rejectRequest(id));
-      await Promise.allSettled([...approvePromises, ...rejectPromises]);
+      await Promise.allSettled(approveRequestIds.map((id) => approveRequest(id)));
       bumpRefresh();
     } finally {
       setBulkRunning(false);
       setConfirmingBulk(false);
     }
-  }, [
-    isAdmin, bulkRunning,
-    approveRequestIds, rejectRequestIds,
-    approveRequest, rejectRequest, bumpRefresh,
-  ]);
+  }, [isAdmin, bulkRunning, approveRequestIds, approveRequest, bumpRefresh]);
 
   // ── Tree-pannable canvas state ────────────────────────────────────────
   // Same pattern as TeamTree: fixed viewport fills the area below the
@@ -824,7 +804,7 @@ export default function ChangeRequestsView() {
               const fileSizeBytes = v.item.proposed?.size_bytes ?? cloud?.size_bytes ?? null;
               const fileSize = fileSizeBytes != null ? formatBytes(fileSizeBytes) : null;
               const vKey = `${v.requestId}:${v.item.id}`;
-              const isDeclining = decliningId === v.requestId;
+              const isDeclining = decliningItemId === v.item.id;
               const isPreferred = preferredVersions.get(g.key) === vKey;
               return (
                 <div
@@ -962,36 +942,20 @@ export default function ChangeRequestsView() {
         </div>
       </div>
 
-      {/* Action bar — admin-only bulk decision FAB pinned to the
-          bottom-right. Requests with ≥1 picked version get approved
-          (bytes uploaded to the `projects` bucket via the
-          approve_change_request RPC); requests with no picks get
-          rejected. Hidden when there's nothing to act on. */}
-      {isAdmin && (approveRequestIds.length > 0 || rejectRequestIds.length > 0) && (
+      {/* Action bar — admin-only bulk approve FAB pinned to the
+          bottom-right. Approves every request whose preferred version
+          is picked; declining is per-file via the Decline button on
+          each version chip. Hidden when no picks are staged. */}
+      {isAdmin && approveRequestIds.length > 0 && (
         <div className="cr-action-bar">
-          <Tooltip
-            content={
-              approveRequestIds.length === 0
-                ? 'Reject every open request'
-                : rejectRequestIds.length === 0
-                  ? 'Approve every open request'
-                  : 'Approve picked, reject the rest'
-            }
-          >
+          <Tooltip content="Approve picked versions">
             <button
               type="button"
               className="cr-action-fab cr-action-fab-primary"
               onClick={() => setConfirmingBulk(true)}
               disabled={bulkRunning}
             >
-              {bulkRunning ? 'Working…' : (
-                <>
-                  Approve <strong>{approveRequestIds.length}</strong>
-                  {rejectRequestIds.length > 0 && (
-                    <> · Reject <strong>{rejectRequestIds.length}</strong></>
-                  )}
-                </>
-              )}
+              {bulkRunning ? 'Working…' : 'Approve'}
             </button>
           </Tooltip>
         </div>
@@ -999,36 +963,21 @@ export default function ChangeRequestsView() {
 
     </div>
 
-      {/* Confirm before firing the bulk approve/reject — both are
-          irreversible at the RPC layer (an approved request becomes
-          a row in project_files; a rejected one's pending bytes get
-          cleaned up). Numbers come from the same memo the action
-          button uses, so the modal can't drift from what'll actually
-          run. */}
+      {/* Confirm before firing the bulk approve — irreversible at the
+          RPC layer (approved requests become rows in project_files).
+          Count comes from the same memo the action button uses so
+          the modal can't drift from what'll actually run. */}
       <ConfirmModal
         open={confirmingBulk}
-        title="Apply review decisions"
+        title="Approve picked versions"
         message={(
-          <>
-            {approveRequestIds.length > 0 && (
-              <span>
-                Approve <strong>{approveRequestIds.length}</strong>{' '}
-                request{approveRequestIds.length === 1 ? '' : 's'} — bytes
-                will be uploaded to the cloud.
-              </span>
-            )}
-            {approveRequestIds.length > 0 && rejectRequestIds.length > 0 && <br />}
-            {rejectRequestIds.length > 0 && (
-              <span>
-                Reject <strong>{rejectRequestIds.length}</strong>{' '}
-                request{rejectRequestIds.length === 1 ? '' : 's'} — author
-                {rejectRequestIds.length === 1 ? '' : 's'} can revise and
-                resubmit.
-              </span>
-            )}
-          </>
+          <span>
+            Approve <strong>{approveRequestIds.length}</strong>{' '}
+            request{approveRequestIds.length === 1 ? '' : 's'} — bytes
+            will be uploaded to the cloud.
+          </span>
         )}
-        confirmLabel={bulkRunning ? 'Working…' : 'Apply'}
+        confirmLabel={bulkRunning ? 'Working…' : 'Approve'}
         cancelLabel="Cancel"
         onConfirm={handleConfirmBulk}
         onCancel={() => setConfirmingBulk(false)}

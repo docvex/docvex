@@ -1,5 +1,12 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+// Co-located styling — every consumer of useMorphPill gets the
+// dropdown / confirm-panel CSS automatically. Previously these
+// rules lived in ProjectFiles.css, which meant the hook only looked
+// right on the Files page; consumers on other pages (Chat,
+// future surfaces) had to remember to import an unrelated CSS file
+// or the dropdown rendered with the bare tooltip styling.
+import './useMorphPill.css';
 
 // Shared morph-pill hook + portal renderer. Powers the same hover-
 // tooltip → right-click-menu interaction the file grid uses on every
@@ -8,40 +15,50 @@ import { createPortal } from 'react-dom';
 // logic stays in one place — adding a third caller is a one-line
 // change instead of another 100-line copy-paste.
 //
+// State machine:
+//   tooltip  (hover)             — pillPos set, !menuMode, !confirming
+//   menu     (right-click)       — pillPos set, menuMode, !confirming
+//   confirm  (menu item w/      — pillPos set, menuMode, confirming
+//             .confirm picked)
+//
+// Each transition runs the FLIP morph: snapshot old rect, let React
+// commit the new shape, scale-down + animate-to-1. Same recipe in
+// every direction so the visual feels uniform.
+//
 // Usage:
 //   const morphPill = useMorphPill({
-//     hoverContent: 'Tooltip text',     // shown when cursor is over card
-//     menuItems: [                       // shown after right-click
-//       { label: 'Properties', onClick: () => …, key: 'props' },
-//       { label: 'Open',       onClick: () => …, key: 'open'  },
+//     hoverContent: 'Tooltip text',
+//     menuItems: [
+//       { label: 'Open',  onClick: () => …, key: 'open' },
+//       {
+//         label: 'Hide',  onClick: () => onDelete?.(file),
+//         danger: true,
+//         confirm: {
+//           title: 'Hide this file?',
+//           message: 'The file will be removed from disk…',
+//           confirmLabel: 'Hide',
+//           cancelLabel: 'Cancel',
+//         },
+//       },
 //     ],
 //   });
-//   return (
-//     <div
-//       onMouseMove={morphPill.handleMouseMove}
-//       onMouseLeave={morphPill.handleMouseLeave}
-//       onContextMenu={morphPill.handleContextMenu}
-//     >
-//       …card content…
-//       {morphPill.node}
-//     </div>
-//   );
 //
-// State model:
-//   pillPos       — cursor coords when the pill is visible. null = hidden.
-//   menuMode      — when true, pill is sticky (ignores mouseleave),
-//                   interactive (pointer-events:auto), and renders the
-//                   menu items instead of the text.
-//   oldPillRectRef — bounding rect of the small tooltip pill at the
-//                   moment of right-click, so the FLIP animation has
-//                   a "from" size to scale up from.
+// `menuItems` entries: `{ label, onClick, key?, danger?, disabled?, confirm? }`.
+// When `confirm` is set, clicking the item morphs the pill into a
+// confirmation panel instead of firing onClick directly. Confirm
+// there runs onClick + closes; Cancel just closes.
 //
-// `menuItems` entries are `{ label, onClick, key? }`. Falsy entries
-// are filtered, so callers can write `[itemA, condition && itemB, itemC]`
-// and have the conditional collapse cleanly without per-render branching.
-export function useMorphPill({ hoverContent, menuItems }) {
+// Falsy entries in menuItems are filtered, so callers can write
+// `[itemA, condition && itemB, itemC]` and have the conditional
+// collapse cleanly without per-render branching.
+export function useMorphPill({ hoverContent, menuItems, className = '' }) {
   const [pillPos, setPillPos] = useState(null);
   const [menuMode, setMenuMode] = useState(false);
+  // Item currently in its confirmation step (or null). Holds the
+  // whole item so the panel can read title / message / labels / the
+  // onClick to fire when the user confirms. Mutually exclusive with
+  // the menu list — when this is set, the menu items aren't rendered.
+  const [confirmingItem, setConfirmingItem] = useState(null);
   const pillRef = useRef(null);
   const oldPillRectRef = useRef(null);
 
@@ -68,11 +85,38 @@ export function useMorphPill({ hoverContent, menuItems }) {
   };
   const closeMenu = () => {
     setMenuMode(false);
+    setConfirmingItem(null);
     setPillPos(null);
     oldPillRectRef.current = null;
   };
 
-  // Sticky-mode dismissal: outside click, Escape, or scroll.
+  // Click handler for an item in the menu. If the item carries a
+  // `confirm` payload, we morph the pill into a confirmation step
+  // instead of firing the action. Otherwise the action runs and the
+  // menu closes — behaviour matches the pre-confirm-step version.
+  const handleMenuItemClick = (item) => {
+    if (item.confirm) {
+      // Snapshot CURRENT (menu) rect so the menu → confirm FLIP has
+      // a "from" size. Same FLIP recipe the right-click step uses.
+      if (pillRef.current) {
+        oldPillRectRef.current = pillRef.current.getBoundingClientRect();
+      }
+      setConfirmingItem(item);
+      return;
+    }
+    closeMenu();
+    item.onClick?.();
+  };
+
+  const handleConfirmYes = () => {
+    const item = confirmingItem;
+    closeMenu();
+    item?.onClick?.();
+  };
+
+  // Sticky-mode dismissal: outside click, Escape, or scroll. Applies
+  // in BOTH menu and confirm modes — clicking outside the confirmation
+  // is the same as Cancel; Escape too.
   useEffect(() => {
     if (!menuMode) return undefined;
     const onKey = (e) => { if (e.key === 'Escape') closeMenu(); };
@@ -94,7 +138,7 @@ export function useMorphPill({ hoverContent, menuItems }) {
   // Position-clamp — same recipe as the shared Tooltip: keep the pill
   // inside the viewport on both axes, snap on first mount so the CSS
   // transition doesn't visibly slide in from (0,0). Re-runs on menu-
-  // mode flip too so the bigger menu shape gets re-clamped.
+  // mode AND confirm-mode flips too so each shape gets re-clamped.
   useLayoutEffect(() => {
     if (!pillPos) return;
     const pill = pillRef.current;
@@ -114,19 +158,23 @@ export function useMorphPill({ hoverContent, menuItems }) {
     } else {
       pill.style.transform = `translate(${x}px, ${y}px)`;
     }
-  }, [pillPos, menuMode]);
+  }, [pillPos, menuMode, confirmingItem]);
 
-  // FLIP morph — runs once on menu-mode entry. Concept:
-  //   F (First) — captured in handleContextMenu as oldPillRectRef.
-  //   L (Last)  — measured right here, after React has committed the
-  //               .is-menu shape change.
+  // FLIP morph — fires whenever the pill's RENDERED SHAPE changes,
+  // not just on menu-mode entry. Three transitions all use the same
+  // recipe:
+  //   tooltip → menu     (handleContextMenu sets oldPillRectRef)
+  //   menu    → confirm  (handleMenuItemClick sets oldPillRectRef)
+  //   confirm → menu     (Cancel — sets oldPillRectRef inside the
+  //                       confirm panel's Cancel onClick)
+  //
+  //   F (First) — captured as oldPillRectRef before the React commit.
+  //   L (Last)  — measured here, after React has rendered the new shape.
   //   I (Invert) — apply an inline transform that scales the pill
-  //               DOWN so it visually matches the old tooltip size.
+  //               DOWN/UP so it visually matches the old shape.
   //   P (Play)  — transition back to scale(1) using a transform-only
-  //               animation, which composites on the GPU and runs
-  //               without layout-thrashing repaints.
+  //               animation. Composites on the GPU, no layout thrash.
   useLayoutEffect(() => {
-    if (!menuMode) return;
     const oldRect = oldPillRectRef.current;
     if (!oldRect) return;
     const pill = pillRef.current;
@@ -148,44 +196,95 @@ export function useMorphPill({ hoverContent, menuItems }) {
     pill.style.transition = 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)';
     pill.style.transform = `translate(${tx}px, ${ty}px) scale(1, 1)`;
     oldPillRectRef.current = null;
-  }, [menuMode]);
+  }, [menuMode, confirmingItem]);
+
+  // Cancel out of the confirm step back to the menu. Snapshots the
+  // CURRENT (confirm panel) rect so the reverse FLIP shrinks the
+  // confirm shape DOWN into the menu shape just like the forward
+  // morph grew it up.
+  const handleConfirmCancel = () => {
+    if (pillRef.current) {
+      oldPillRectRef.current = pillRef.current.getBoundingClientRect();
+    }
+    setConfirmingItem(null);
+  };
 
   const filteredItems = (menuItems || []).filter(Boolean);
+
+  // Render branches: confirm > menu > tooltip. Pill className gets a
+  // modifier per state so the CSS can size + style each shape
+  // distinctly while keeping the same root element so FLIP works.
+  let content;
+  let pillClassMod;
+  if (confirmingItem) {
+    pillClassMod = ' is-menu is-confirm';
+    const c = confirmingItem.confirm || {};
+    const isDanger = Boolean(confirmingItem.danger);
+    content = (
+      <div className="project-files-morph-confirm">
+        {c.title && (
+          <div className="project-files-morph-confirm-title">{c.title}</div>
+        )}
+        {c.message && (
+          <p className="project-files-morph-confirm-message">{c.message}</p>
+        )}
+        <div className="project-files-morph-confirm-actions">
+          <button
+            type="button"
+            className="project-files-morph-confirm-btn project-files-morph-confirm-btn-cancel"
+            onClick={handleConfirmCancel}
+          >
+            {c.cancelLabel || 'Cancel'}
+          </button>
+          <button
+            type="button"
+            className={`project-files-morph-confirm-btn ${isDanger ? 'project-files-morph-confirm-btn-danger' : 'project-files-morph-confirm-btn-primary'}`}
+            onClick={handleConfirmYes}
+            autoFocus
+          >
+            {c.confirmLabel || 'Confirm'}
+          </button>
+        </div>
+      </div>
+    );
+  } else if (menuMode) {
+    pillClassMod = ' is-menu';
+    content = (
+      <ul className="project-files-morph-list">
+        {filteredItems.map((item, i) => (
+          <li key={item.key || item.label || i} role="none">
+            <button
+              type="button"
+              role="menuitem"
+              className={`project-files-morph-item${item.danger ? ' project-files-morph-item-danger' : ''}`}
+              onClick={() => handleMenuItemClick(item)}
+              disabled={item.disabled || false}
+            >
+              {item.label}
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+  } else {
+    pillClassMod = '';
+    content = <span className="project-files-morph-text">{hoverContent}</span>;
+  }
 
   const node = pillPos ? createPortal(
     <div
       ref={pillRef}
-      className={`tooltip project-files-morph-pill${menuMode ? ' is-menu' : ''}`}
-      role={menuMode ? 'menu' : 'tooltip'}
-      // In menu mode, cursor leaving the pill dismisses it. The base
-      // tooltip is pointer-events:none so this never fires for the
-      // non-menu state — only the `.is-menu` rule turns pointer-events
-      // on, which is what makes the menu hoverable AND what makes
-      // mouseleave fire when the cursor exits.
-      onMouseLeave={menuMode ? closeMenu : undefined}
+      className={`tooltip project-files-morph-pill${pillClassMod}${className ? ` ${className}` : ''}`}
+      role={confirmingItem ? 'dialog' : menuMode ? 'menu' : 'tooltip'}
+      aria-modal={confirmingItem ? 'true' : undefined}
+      // In menu mode, cursor leaving the pill dismisses it — UNLESS
+      // we're in the confirm step. The confirm panel demands an
+      // explicit choice (Cancel button, Esc, outside-click), so
+      // mouseleave is intentionally inert there: a stray cursor exit
+      // shouldn't lose the in-progress confirmation.
+      onMouseLeave={menuMode && !confirmingItem ? closeMenu : undefined}
     >
-      {menuMode ? (
-        <ul className="project-files-morph-list">
-          {filteredItems.map((item, i) => (
-            <li key={item.key || item.label || i} role="none">
-              <button
-                type="button"
-                role="menuitem"
-                className={`project-files-morph-item${item.danger ? ' project-files-morph-item-danger' : ''}`}
-                onClick={() => {
-                  closeMenu();
-                  item.onClick?.();
-                }}
-                disabled={item.disabled || false}
-              >
-                {item.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <span className="project-files-morph-text">{hoverContent}</span>
-      )}
+      {content}
     </div>,
     document.body,
   ) : null;

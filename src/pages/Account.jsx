@@ -50,7 +50,7 @@ function GoogleGlyph() {
 }
 
 export default function Account() {
-  const { session, signOut, eraseData, deleteAccount, linkGoogle } = useAuth();
+  const { session, signOut, eraseData, deleteAccount, linkGoogle, setPassword } = useAuth();
   const { notify } = useNotifications();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
@@ -62,6 +62,13 @@ export default function Account() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [linkingGoogle, setLinkingGoogle] = useState(false);
+  // Set-a-password form state. Lives on this page (vs a modal) so the
+  // user can see the surrounding "Account information" context — they
+  // typically come here looking for it after running into "I can only
+  // sign in with Google".
+  const [pwForm, setPwForm] = useState({ next: '', confirm: '', show: false });
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwError, setPwError] = useState(null);
   // Optimistic override for the active status — held locally so the UI
   // reflects the click immediately while supabase-js's USER_UPDATED event
   // round-trips. Cleared once the session's user_metadata catches up.
@@ -82,6 +89,12 @@ export default function Account() {
     (user.identities || []).map((i) => i.provider),
   );
   const googleLinked = linkedProviders.has('google');
+  // Whether an email+password identity exists on this account. Supabase
+  // adds a `provider: 'email'` entry to user.identities the moment a
+  // password is set, regardless of whether the account was originally
+  // born via Google. We use this to decide between "Set a password"
+  // (Google-only account) and "Change password" (already has one) UX.
+  const hasPassword = linkedProviders.has('email');
   const avatarUrl = user.user_metadata?.avatar_url;
   // Mirrors getDisplayName() in Sidebar.jsx — kept in sync per the
   // CLAUDE.md convention. Strips the @domain when falling back to email so
@@ -144,6 +157,42 @@ export default function Account() {
         body: err?.message || 'Try again in a moment.',
       });
     }
+  };
+
+  const handleSetPassword = async (e) => {
+    e?.preventDefault?.();
+    if (pwBusy) return;
+    setPwError(null);
+    const next = pwForm.next || '';
+    const confirm = pwForm.confirm || '';
+    // Supabase's default minimum is 6 chars, but we surface 8 to nudge
+    // toward something not trivially guessable. The server still has
+    // the final word on length / breach-list / strength rules.
+    if (next.length < 8) {
+      setPwError('Password must be at least 8 characters.');
+      return;
+    }
+    if (next !== confirm) {
+      setPwError("Passwords don't match.");
+      return;
+    }
+    setPwBusy(true);
+    const { error } = await setPassword(next);
+    setPwBusy(false);
+    if (error) {
+      setPwError(error.message || 'Could not set the password.');
+      return;
+    }
+    setPwForm({ next: '', confirm: '', show: false });
+    notify({
+      category: 'auth',
+      variant: 'success',
+      title: hasPassword ? 'Password updated' : 'Password set',
+      body: hasPassword
+        ? 'Your new password is active on all devices.'
+        : 'You can now sign in with email + password in addition to Google.',
+      dedupeKey: 'set-password-ok',
+    });
   };
 
   const handleCopyId = async () => {
@@ -282,6 +331,79 @@ export default function Account() {
           <dt>Last sign-in</dt>
           <dd>{formatDate(user.last_sign_in_at, true)}</dd>
         </dl>
+      </section>
+
+      {/* Sign-in & password — lets a Google-OAuth user add an email +
+          password as a second way to sign in. Also serves the email
+          user who wants to change their password. The card is only
+          rendered for users whose primary email is known (it always
+          is — Supabase stores the OAuth email on the auth.users row),
+          and the form gates on confirm-match + min length client-side
+          before round-tripping to updateUser. */}
+      <section className="account-card">
+        <h2 className="account-card-title">
+          {hasPassword ? 'Change password' : 'Set a password'}
+        </h2>
+        <p className="account-card-subtitle">
+          {hasPassword
+            ? 'Update the password you use for email sign-in.'
+            : `Add a password to ${user.email} so you can sign in without Google.`}
+        </p>
+        <form className="account-pw-form" onSubmit={handleSetPassword}>
+          <label className="account-pw-field">
+            <span className="account-pw-label">
+              {hasPassword ? 'New password' : 'Password'}
+            </span>
+            <input
+              type={pwForm.show ? 'text' : 'password'}
+              className="account-pw-input"
+              value={pwForm.next}
+              onChange={(e) => setPwForm((p) => ({ ...p, next: e.target.value }))}
+              autoComplete="new-password"
+              minLength={8}
+              placeholder="At least 8 characters"
+              disabled={pwBusy}
+              required
+            />
+          </label>
+          <label className="account-pw-field">
+            <span className="account-pw-label">Confirm</span>
+            <input
+              type={pwForm.show ? 'text' : 'password'}
+              className="account-pw-input"
+              value={pwForm.confirm}
+              onChange={(e) => setPwForm((p) => ({ ...p, confirm: e.target.value }))}
+              autoComplete="new-password"
+              minLength={8}
+              placeholder="Re-enter password"
+              disabled={pwBusy}
+              required
+            />
+          </label>
+          <label className="account-pw-show">
+            <input
+              type="checkbox"
+              checked={pwForm.show}
+              onChange={(e) => setPwForm((p) => ({ ...p, show: e.target.checked }))}
+              disabled={pwBusy}
+            />
+            <span>Show passwords</span>
+          </label>
+          {pwError && (
+            <div className="account-pw-error" role="alert">{pwError}</div>
+          )}
+          <div className="account-pw-actions">
+            <button
+              type="submit"
+              className="account-pw-submit"
+              disabled={pwBusy || !pwForm.next || !pwForm.confirm}
+            >
+              {pwBusy
+                ? 'Saving…'
+                : hasPassword ? 'Update password' : 'Save password'}
+            </button>
+          </div>
+        </form>
       </section>
 
       <section className="account-card">

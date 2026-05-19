@@ -54,6 +54,25 @@
   font-style: italic;
 }
 
+.project-files-main-version {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.project-files-main-version strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+.project-files-main-version-sep {
+  margin: 0 0.45rem;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
 .project-files-local-input:hover:not(:focus) {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
@@ -331,6 +350,24 @@
   background: var(--bg-card);
   color: var(--text-primary);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+/* Show-hidden affordance — visually demoted vs the two scope tabs so
+   the eye still lands on the active scope first. Sits inside the same
+   pill rail, separated by a thin divider so it reads as a sibling
+   action rather than a third scope. */
+.project-files-scope-show-hidden {
+  margin-left: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+  border-radius: 0 999px 999px 0;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.project-files-scope-show-hidden:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text-primary);
 }
 
 .project-files-branch-status-item {
@@ -845,92 +882,12 @@
   cursor: not-allowed;
 }
 
-/* ── Morphing tooltip-to-menu pill on local cards ───────────────── */
-
-/* Performance note: we *don't* CSS-transition padding / min-width /
-   border-radius / background between the tooltip and menu shapes —
-   those all force layout + paint each frame and visibly stutter
-   when the pill is a portalled element with a box-shadow. Instead
-   the shape flips instantly when `.is-menu` is added, and an
-   opacity + scale pop covers the swap. Both are GPU-composable,
-   so the morph reads as smooth even on weaker hardware.
-
-   We keep the cursor-chase transform transition from the base
-   `.tooltip` rules — that one is already transform-only, cheap. */
-
-.project-files-morph-pill.is-menu {
-  padding: 4px;
-  border-radius: 10px;
-  min-width: 200px;
-  background: var(--bg-card);
-  border-color: var(--border-strong);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-  pointer-events: auto;
-  white-space: normal;
-  /* No CSS transition here — the JS FLIP effect in LocalFileCard
-     wires its own `transition: transform 220ms` inline so it can
-     drive the morph with a transform-only animation that doesn't
-     conflict with the inline `translate(x, y)` for cursor anchoring.
-     A CSS `transition: transform` would race the JS one. */
-  transition: none;
-  will-change: transform;
-}
-
-.project-files-morph-text {
-  /* Preserve the explicit newline character used in the modified-
-     file tooltip body (e.g. "name\nDiffers from cloud version"). */
-  white-space: pre-line;
-}
-
-.project-files-morph-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.project-files-morph-item {
-  display: block;
-  width: 100%;
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  padding: 0.55rem 0.8rem;
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 0.85rem;
-  font-weight: 500;
-  text-align: left;
-  cursor: pointer;
-  transition: background 120ms;
-}
-
-.project-files-morph-item:hover:not(:disabled),
-.project-files-morph-item:focus-visible {
-  background: var(--bg-elevated);
-  outline: none;
-}
-
-.project-files-morph-item:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-/* Destructive variant — used by the Delete entry. Red text at rest,
-   red-tinted hover bg so the destructive nature is signalled before
-   the user commits. Matches the pattern used by modal-btn-destructive
-   in ConfirmModal.css. */
-.project-files-morph-item-danger {
-  color: var(--danger-soft);
-}
-
-.project-files-morph-item-danger:hover:not(:disabled),
-.project-files-morph-item-danger:focus-visible {
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
-  color: var(--danger-soft);
-}
+/* Morph-pill / dropdown styles moved to src/components/useMorphPill.css
+   and imported directly by the hook so every consumer (this page's
+   LocalFileCard, the Chat page's OwnBubble, and future surfaces)
+   inherits the styling automatically without each page re-importing
+   it. Nothing left to declare here — see useMorphPill.css for the
+   actual rules. */
 
 /* Panel-level action row â€” currently only used by the Local panel
    for the "Open folder" button. Right-aligned so it sits opposite

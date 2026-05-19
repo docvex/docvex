@@ -161,10 +161,19 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient('docvex');
 }
 
-// Enforce single instance so second launch delivers the OAuth URL here
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-  app.quit();
+// Enforce single instance so second launch delivers the OAuth URL here.
+// DEV ESCAPE HATCH: when DOCVEX_ALLOW_MULTI is set (used by
+// `npm run start:multi` to spin up multiple parallel dev instances
+// for testing realtime / multi-user flows from one machine), skip the
+// lock entirely so each child electron-forge process can boot its
+// own window. OAuth callbacks won't be delivered between instances
+// in this mode — that's the trade-off for parallel testing.
+const allowMulti = Boolean(process.env.DOCVEX_ALLOW_MULTI);
+if (!allowMulti) {
+  const gotLock = app.requestSingleInstanceLock();
+  if (!gotLock) {
+    app.quit();
+  }
 }
 
 let mainWindow = null;
@@ -346,16 +355,102 @@ ipcMain.on('app:open-external', (_, url) => {
   }
 });
 
+// Resolve the bundled favicon path ONCE at module load. The previous
+// inline `path.join(__dirname, 'favicon.ico')` only worked in dev mode
+// (where __dirname is the source `src/` directory). In packaged
+// builds __dirname is `app.asar/.vite/build/` and the icon doesn't
+// live there, so the BrowserWindow silently fell back to Electron's
+// generic icon. `app.getAppPath()` returns the project root in dev
+// and the app.asar root in packaged — same relative path resolves in
+// both. If the file is missing for some reason we leave it null and
+// the BrowserWindow inherits the .exe's embedded icon (which was set
+// from the same favicon by electron-packager's packagerConfig).
+const APP_ICON_PATH = (() => {
+  try {
+    const p = path.join(app.getAppPath(), 'src', 'favicon.ico');
+    return fs.existsSync(p) ? p : null;
+  } catch {
+    return null;
+  }
+})();
+
+// Floating "READ ONLY" pill injected into every cloud-URL viewer
+// window — same visual recipe as ProjectBanner.css's "Working in"
+// pill (top-centre, fixed, gold-cognac fill, rounded ends, soft
+// shadow). Colours are inlined because the loaded page is a remote
+// origin (Supabase storage, view.officeapps.live.com) where our
+// :root token variables aren't available.
+//
+// The script runs in the loaded page's main frame after every
+// successful navigation — Chromium's PDF viewer, the image/video
+// auto-wrapper, and Office Online all expose a `document.body` we
+// can append to. The dataset marker keeps the inject idempotent so
+// SPA navigations / cross-origin redirects don't stack multiple
+// pills. Office Online and the PDF viewer ARE cross-origin from
+// our window, but executeJavaScript runs in the page's own context
+// so same-origin rules don't apply.
+const READ_ONLY_PILL_INJECT = `
+(() => {
+  if (document.getElementById('docvex-read-only-pill')) return;
+  if (!document.body) {
+    document.addEventListener('DOMContentLoaded', () => {
+      window.__docvexInjectPill && window.__docvexInjectPill();
+    }, { once: true });
+    return;
+  }
+  const pill = document.createElement('div');
+  pill.id = 'docvex-read-only-pill';
+  pill.textContent = 'READ ONLY';
+  pill.setAttribute('aria-label', 'Read-only view');
+  pill.style.cssText = [
+    'position: fixed',
+    'top: 0.75rem',
+    'left: 50%',
+    'transform: translateX(-50%)',
+    'z-index: 2147483647',
+    'display: inline-flex',
+    'align-items: center',
+    'justify-content: center',
+    'background: #8B4513',
+    'color: #FFF8E7',
+    'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif',
+    'font-size: 0.78rem',
+    'font-weight: 700',
+    'letter-spacing: 0.08em',
+    'border-radius: 999px',
+    'border: 1px solid rgba(255, 248, 231, 0.18)',
+    'line-height: 1.4',
+    'padding: 0.4rem 1rem',
+    'white-space: nowrap',
+    'box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32)',
+    'pointer-events: none',
+    'user-select: none',
+  ].join(';') + ';';
+  document.body.appendChild(pill);
+})();
+`;
+
 // Helper — wraps the "open this URL inside a DocVex BrowserWindow"
 // boilerplate used by every in-app viewer path (raw-load + Office
 // Online). Title is pinned against page-title-updated so Chromium's
 // PDF viewer / Office Online iframe can't overwrite our chrome.
+//
+// Cloud-URL opens (https://…) get a "(READ ONLY)" suffix on the
+// title AND a floating pill injected into the page (see
+// READ_ONLY_PILL_INJECT above) because the signed Supabase URL is
+// GET-only — any edit attempt inside Office Online / PDF.js / a
+// video element has nowhere to save back to. localfile:// URLs
+// render the user's own local working copy, which IS editable via
+// the OS, so neither the title marker nor the pill applies there.
 function openInAppWindow(url, fileName) {
-  const win = new BrowserWindow({
+  const isCloud = /^https?:\/\//i.test(url);
+  const title = isCloud
+    ? `DocVex - ${fileName} (READ ONLY)`
+    : `DocVex - ${fileName}`;
+  const opts = {
     width: 1100,
     height: 800,
-    title: `DocVex - ${fileName}`,
-    icon: path.join(__dirname, 'favicon.ico'),
+    title,
     // No preload + sandbox defaults: this window only renders the
     // signed file URL / external viewer page, it never needs access
     // to electronAPI / fs.
@@ -364,12 +459,31 @@ function openInAppWindow(url, fileName) {
       nodeIntegration: false,
       sandbox: true,
     },
-  });
+  };
+  if (APP_ICON_PATH) opts.icon = APP_ICON_PATH;
+  const win = new BrowserWindow(opts);
   win.on('page-title-updated', (event) => {
     event.preventDefault();
-    win.setTitle(`DocVex - ${fileName}`);
+    win.setTitle(title);
   });
   win.setMenu(null);
+
+  if (isCloud) {
+    // Re-inject on every navigation — Office Online does internal
+    // redirects to its rendering host (officeapps.live.com →
+    // word-edit.officeapps.live.com), and Chromium's PDF viewer
+    // counts as its own navigation. Each navigation rebuilds
+    // document.body, dropping the previously-injected node.
+    const inject = () => {
+      win.webContents.executeJavaScript(READ_ONLY_PILL_INJECT, true)
+        .catch(() => { /* page may have torn down mid-inject; harmless */ });
+    };
+    win.webContents.on('did-finish-load', inject);
+    win.webContents.on('did-frame-finish-load', (_e, isMainFrame) => {
+      if (isMainFrame) inject();
+    });
+  }
+
   win.loadURL(url);
   return win;
 }
@@ -428,13 +542,23 @@ ipcMain.on('app:open-file-window', (_, payload) => {
 //                           user can edit immediately on open).
 // Reference: https://learn.microsoft.com/office/client-developer/office-uri-schemes
 //
-// Save-back note for the cloud-URL branch: Supabase signed URLs are
-// signed for GET only, so Word's Save will fail (the PUT goes
-// nowhere). Word then falls back to Save-As, which writes a local
-// copy — the user can then re-upload through DocVex if they want
-// the changes on cloud. The local-file branch (shell.openPath) has
-// no such limitation: Word saves in place and the file watcher
-// picks the edit up into the auto-commit queue.
+// Routing:
+//   • cloudUrl present  → Office Online (web Word) in a new DocVex
+//                          BrowserWindow. Unconditional — no more
+//                          "try local Word first" detour. Office
+//                          Online's view UI is consistent on every
+//                          machine and matches the read-only semantics
+//                          of a signed Supabase URL (which is GET-
+//                          only — Word's local Save would fail with
+//                          a 403 anyway, then drop into a confusing
+//                          Save-As dialog). The user explicitly asked
+//                          for "the web version of Word" for cloud
+//                          DOCX, so the local-Word branch is gone.
+//   • localPath only    → local file on disk. Local Word handles
+//                          this best (in-place save + watcher picks
+//                          up the edit). Fall back to `ms-word:` URL
+//                          scheme, then to `shell.openPath` so the
+//                          OS default DOCX handler takes over.
 ipcMain.on('app:open-docx', (_, payload) => {
   const localPath = typeof payload?.localPath === 'string' && payload.localPath
     ? payload.localPath
@@ -444,44 +568,27 @@ ipcMain.on('app:open-docx', (_, payload) => {
   const fileName = typeof payload?.fileName === 'string' ? payload.fileName : 'file';
   if (!localPath && !cloudUrl) return;
 
-  // Word detection: prefer the executable on disk (works on every
-  // Office install regardless of how the OS protocol layer behaves),
-  // fall back to the ms-word: URL scheme query for installs that
-  // register the protocol but live somewhere unexpected. The exec
-  // path lets us spawn Word directly with the file/URL as an
-  // argument — bypassing shell.openPath (which routes through the OS
-  // default app, not necessarily Word if a different .docx handler
-  // is registered as default) and shell.openExternal (which is at
-  // the mercy of the registry/Launch-Services state).
-  const winwordPath = getWinwordPath();
-  if (winwordPath) {
-    if (localPath && spawnWord(winwordPath, localPath)) return;
-    if (cloudUrl && spawnWord(winwordPath, cloudUrl)) return;
-  }
-  if (app.getApplicationNameForProtocol('ms-word:')) {
-    if (localPath) {
-      // OS default for .docx — Word when it's the registered handler.
-      shell.openPath(localPath);
-      return;
-    }
-    if (cloudUrl) {
-      // `ofe` = open for edit. Word fetches the URL itself.
-      shell.openExternal(`ms-word:ofe|u|${cloudUrl}`);
-      return;
-    }
-  }
-
-  // No Word — prefer Office Online when we have an HTTPS URL.
+  // Cloud DOCX → Office Online viewer in a fresh window. The
+  // openInAppWindow helper handles the title (DocVex - <name>
+  // (READ ONLY)), the icon, and the floating READ ONLY pill inject.
   if (cloudUrl) {
     const officeOnlineUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(cloudUrl)}`;
     openInAppWindow(officeOnlineUrl, fileName);
     return;
   }
 
-  // Local-only DOCX without Word — let the OS pick a handler.
-  if (localPath) {
+  // Local DOCX → keep the Word-on-disk chain so the user can edit
+  // in place. Local Word saves directly to the file; our watcher
+  // picks the change up into the diff layer like any other edit.
+  const winwordPath = getWinwordPath();
+  if (winwordPath && spawnWord(winwordPath, localPath)) return;
+  if (app.getApplicationNameForProtocol('ms-word:')) {
     shell.openPath(localPath);
+    return;
   }
+  // No Word installed — let the OS pick whatever DOCX handler the
+  // user has registered.
+  shell.openPath(localPath);
 });
 
 // Update IPC ---------------------------------------------------------------
@@ -571,6 +678,56 @@ ipcMain.handle('local-folder:pick', async () => {
   return result.filePaths?.[0] || null;
 });
 
+// Filenames that should never surface as "your project's files" — they
+// are OS / editor bookkeeping artifacts that materialise transiently
+// next to the documents the user actually cares about. Leaving them
+// visible causes three classes of bugs:
+//   1. Word's `~$report.docx` lockfile appears as a phantom new file
+//      every time the user opens a .docx for editing, gets minted a
+//      sidecar UUID, and rides into the next commit (the bug the
+//      user explicitly hit and reported).
+//   2. Vim / IDE swap files (`.swp`, `.swo`, `*~`) flicker in and out
+//      of the list, racing the watcher debounce.
+//   3. macOS / Windows file managers drop hidden metadata (`.DS_Store`,
+//      `desktop.ini`, `Thumbs.db`) the user never agreed to share.
+//
+// The check is filename-only — we don't try to peek at file headers
+// or sizes. Anything matching one of these patterns is dropped from
+// the list before it has a chance to be hashed, reconciled with the
+// sidecar, or compared against cloud state.
+function isIgnoredLocalFilename(name) {
+  if (!name) return true;
+  // Dotfiles cover the broadest swath: .DS_Store, .git, .vscode/,
+  // .env, the sidecar's own .docvex.json, .Trashes, .Spotlight-V100,
+  // etc. The Files tab is for documents, not config.
+  if (name.startsWith('.')) return true;
+  // Office lockfiles use ~$ prefix — Word, Excel, PowerPoint all do
+  // this. The lockfile exists for the duration of the open session
+  // and is deleted on clean close. Without this filter, a user
+  // editing a .docx gets a phantom "~$Report.docx" card.
+  if (name.startsWith('~$')) return true;
+  // Vim / classic editor backup files end with ~ — e.g. `report.docx~`.
+  if (name.endsWith('~')) return true;
+  // Editor swap files — Vim / NeoVim are the dominant offenders.
+  if (/\.(swp|swo|swn|swm)$/i.test(name)) return true;
+  // Lockfile patterns from various OSes / editors (LibreOffice's
+  // `.~lock.report.docx#`, OS-level `.lock`, `.lck`). The dotfile
+  // rule catches LibreOffice's because it starts with `.`; the
+  // generic `.lock` / `.lck` extension catch covers third parties.
+  if (/\.(lock|lck)$/i.test(name)) return true;
+  // Generic temp scratch — most apps write `*.tmp` and `*.temp` next
+  // to the open file for atomic rename-on-save. They disappear after
+  // save but the watcher tick can catch them mid-flight.
+  if (/\.(tmp|temp|bak|partial|crdownload|part)$/i.test(name)) return true;
+  // Windows folder metadata (capital-T variant for older releases).
+  if (name === 'Thumbs.db' || name === 'thumbs.db') return true;
+  if (name === 'desktop.ini' || name === 'Desktop.ini') return true;
+  if (name === 'ehthumbs.db') return true;
+  // macOS quirks not always caught by the dotfile rule.
+  if (name === 'Icon\r') return true; // Finder custom-icon marker
+  return false;
+}
+
 // List regular files in `dir`. Subdirectories are filtered out — the
 // Files tab is flat by design, and recursing could surface a project's
 // node_modules. Each entry carries size + mtime so the card meta line
@@ -582,10 +739,10 @@ ipcMain.handle('local-folder:list', async (_, dir) => {
     const files = [];
     for (const entry of entries) {
       if (!entry.isFile()) continue;
-      // Skip dotfiles + the OS metadata files (Thumbs.db / .DS_Store)
-      // so the local pane reads as "your project's documents" instead
-      // of leaking OS bookkeeping.
-      if (entry.name.startsWith('.') || entry.name === 'Thumbs.db') continue;
+      // Drop OS / editor / lockfile noise so the local pane reads
+      // as "your project's documents" only. See isIgnoredLocalFilename
+      // for the exact pattern set and the rationale per pattern.
+      if (isIgnoredLocalFilename(entry.name)) continue;
       try {
         const full = path.join(dir, entry.name);
         const stat = await fsp.stat(full);

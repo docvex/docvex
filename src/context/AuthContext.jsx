@@ -267,6 +267,25 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // Set or change the password on the currently signed-in account.
+  // Wraps supabase.auth.updateUser({ password }) so callers don't have
+  // to import the supabase client directly.
+  //
+  // Use case: a user who originally signed up via Google OAuth wants to
+  // ALSO be able to sign in with email + password (e.g. when Google
+  // sign-in is unavailable or they want a fallback). Calling this with
+  // a password on a Google-only account creates the email identity
+  // server-side, so the next visit to user.identities will include a
+  // `provider: 'email'` entry alongside the existing `provider: 'google'`.
+  //
+  // Returns the raw `{ data, error }` from updateUser so the caller can
+  // distinguish "wrong format" / "too short" / "rate limited" responses.
+  // The session itself doesn't change — supabase-js emits USER_UPDATED
+  // which flows through onAuthStateChange and re-renders consumers with
+  // the fresh identity list.
+  const setPassword = (password) =>
+    supabase.auth.updateUser({ password });
+
   const signOut = () => supabase.auth.signOut();
 
   // Permanently delete the user's account (auth.users row + cascade-linked
@@ -326,7 +345,22 @@ export function AuthProvider({ children }) {
     const { error } = await supabase.auth.signOut({ scope: 'global' });
     try {
       Object.keys(localStorage)
-        .filter((k) => k.startsWith('sb-') || k.startsWith('supabase.') || isNotificationsStorageKey(k))
+        .filter((k) => (
+          k.startsWith('sb-')
+          || k.startsWith('supabase.')
+          || isNotificationsStorageKey(k)
+          // Phase 2 client-side state — pendingChanges queue,
+          // lastSeenMainVersion cursor, and the migration marker
+          // that gates the one-time DB → localStorage sweep. These
+          // are user-scoped (keyed by uid) so "erase" should wipe
+          // them along with the supabase session state. Without
+          // this filter, a user who signed out and another user
+          // who signed in on the same machine would inherit the
+          // first user's queued renames.
+          || k.startsWith('docvex:pending-changes:')
+          || k.startsWith('docvex:last-seen-main-version:')
+          || k.startsWith('docvex:branch-changes-migrated:')
+        ))
         .forEach((k) => localStorage.removeItem(k));
     } catch {
       /* localStorage may be unavailable in some contexts; non-fatal */
@@ -335,7 +369,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ session, loading, lastAuthEvent, signInWithEmail, signUpWithEmail, signInWithGoogle, linkGoogle, signOut, eraseData, deleteAccount }}>
+    <AuthContext.Provider value={{ session, loading, lastAuthEvent, signInWithEmail, signUpWithEmail, signInWithGoogle, linkGoogle, setPassword, signOut, eraseData, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );

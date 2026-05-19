@@ -36,6 +36,7 @@ import {
   LEGACY_SIDECAR_KEY,
   toPayload as sidecarToPayload,
 } from '../../lib/localBranchMeta';
+import { loadHiddenFiles, saveHiddenFiles } from '../../lib/hiddenFiles';
 import './ProjectScoped.css';
 import './ProjectFiles.css';
 
@@ -467,8 +468,28 @@ function LocalFileCard({
         disabled: !file?.path,
       },
       onDelete && {
-        key: 'delete',   label: 'Delete',           onClick: () => onDelete?.(file),
+        // "Hide" rather than "Delete" — the action removes the file
+        // from the user's local working copy, NOT from main. If the
+        // file has a cloud counterpart it re-surfaces as a "missing
+        // — download" card on the next render, so the operation
+        // really is "stop showing this here." Marked danger because
+        // for local-only files (no cloud row yet) it's still an
+        // irreversible rm.
+        //
+        // The confirm step lives INSIDE the morph pill — useMorphPill
+        // sees the `confirm` payload and morphs the menu shape into a
+        // confirmation panel via the same FLIP animation that grew
+        // the tooltip into the menu. Replaces the old window.confirm
+        // bridge, which broke the visual continuity by handing off
+        // to the OS dialog mid-interaction.
+        key: 'hide',     label: 'Hide',             onClick: () => onDelete?.(file),
         danger: true,
+        confirm: {
+          title: 'Hide this file?',
+          message: `"${file?.name}" will disappear from your view. The file stays on disk — use "Show hidden" near the tabs to bring it back.`,
+          confirmLabel: 'Hide',
+          cancelLabel: 'Cancel',
+        },
       },
     ],
   });
@@ -641,6 +662,36 @@ export default function ProjectFiles() {
     try { localStorage.setItem(MY_SCOPE_KEY, myBranchScope); }
     catch { /* private mode — fall back to in-memory only */ }
   }, [MY_SCOPE_KEY, myBranchScope]);
+
+  // Hidden filenames — per-(user, project) lowercase Set persisted in
+  // localStorage. Filtered out of the My-branch grid render below;
+  // the on-disk files stay untouched, sidecar entries stay intact,
+  // so toggling Show all (the chip near the scope buttons) restores
+  // everything without re-running any disk I/O. See src/lib/hiddenFiles.js
+  // for the storage shape.
+  const [hiddenFiles, setHiddenFiles] = useState(new Set());
+  useEffect(() => {
+    setHiddenFiles(loadHiddenFiles(userId, projectId));
+  }, [userId, projectId]);
+  const hideFilename = useCallback((name) => {
+    if (!name) return;
+    const lc = name.toLowerCase();
+    setHiddenFiles((prev) => {
+      if (prev.has(lc)) return prev;
+      const next = new Set(prev);
+      next.add(lc);
+      saveHiddenFiles(userId, projectId, next);
+      return next;
+    });
+  }, [userId, projectId]);
+  const showAllHidden = useCallback(() => {
+    setHiddenFiles((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set();
+      saveHiddenFiles(userId, projectId, next);
+      return next;
+    });
+  }, [userId, projectId]);
   // Upload modal open/close now lives in UploadsContext so drag-drop
   // events (handled in the context's window listener) can still open
   // it from any route. The FAB on this page no longer opens the
@@ -662,6 +713,8 @@ export default function ProjectFiles() {
     isAdmin: viewerIsAdmin,
     isMember: viewerIsMember,
     isBehindMain,
+    mainVersion,
+    branchState,
     refresh: refreshBranchState,
     queueChange,
     refreshOpenRequestItems,
@@ -900,17 +953,12 @@ export default function ProjectFiles() {
   // can race against the items-clear that follows.
   const lastOpenItemsRef = useRef([]);
   const [heldApprovedItems, setHeldApprovedItems] = useState([]);
-  const holdTimerRef = useRef(null);
 
   useEffect(() => {
     if ((openOwnRequestItems || []).length > 0) {
       lastOpenItemsRef.current = openOwnRequestItems;
     }
   }, [openOwnRequestItems]);
-
-  useEffect(() => () => {
-    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-  }, []);
 
   // Effective "in flight" set the diff treats as already pushed.
   // Falls back to live items when no hold is active so steady-state
@@ -1500,15 +1548,27 @@ export default function ProjectFiles() {
     }
     lastApprovedIdsRef.current = currentlyApproved;
     if (isNewApproval) {
+      // Echo-driven hold instead of a fixed 4 s timer. The old version
+      // cleared the held items via setTimeout, which leaked across
+      // back-to-back approvals: a second approval's timer would clear
+      // the FIRST approval's hold prematurely (its items had cleared)
+      // while the second's items were still mid-flight, producing a
+      // flicker. Now we snapshot the held items, immediately refetch
+      // cloud + local files + branch state, and clear the hold the
+      // moment the cloud refetch resolves — by then the just-merged
+      // items live in `files` and the diff layer no longer needs the
+      // hold to suppress them.
       if (lastOpenItemsRef.current.length > 0) {
         setHeldApprovedItems(lastOpenItemsRef.current);
-        if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-        holdTimerRef.current = setTimeout(() => {
-          setHeldApprovedItems([]);
-          holdTimerRef.current = null;
-        }, 4000);
       }
-      refetchCloudFiles();
+      // Sequential — start the cloud refetch first; once its results
+      // land in `files`, drop the hold. Local + branch refresh fire
+      // concurrently since neither feeds the hold-clear condition.
+      (async () => {
+        try { await refetchCloudFiles(); } finally {
+          setHeldApprovedItems([]);
+        }
+      })();
       refetchLocalFiles();
       refreshBranchState?.();
     }
@@ -1664,62 +1724,33 @@ export default function ProjectFiles() {
     localFolderApi.openPath(file.path);
   }, [sidecar, cloudById]);
 
-  // Click handler for cards on the My-branch (local) tab. With the
-  // Right-click → Delete from the My-branch card's context menu.
-  // Two paths depending on whether the file has a cloud counterpart:
-  //   • Cloud-backed: queue a `delete` branch_change targeting the
-  //     cloud row. Reversible until the user pushes. No confirm
-  //     needed; the queued state is visible on the card (DELETED
-  //     overlay pill) and discardable from the Commit modal.
-  //   • Local-only (sidecar-minted UUID, no cloud match yet): no
-  //     cloud row to mark for delete, so this is a true filesystem
-  //     remove. window.confirm() guards the destructive step since
-  //     the on-disk file isn't recoverable from the app.
-  const handleDeleteLocalCard = useCallback(async (localFile) => {
+  // Hide the card from the My-branch grid. Pure presentation filter —
+  // the file is NOT removed from disk, the sidecar entry stays intact,
+  // bytes stay claimable / pushable / hashable. The renderer below
+  // filters `localFiles` by `hiddenFiles` before bucketing, so a
+  // hidden card just disappears. Persists per-(user, project) in
+  // localStorage via the hideFilename helper above, so the hide
+  // sticks across reloads.
+  //
+  // The morph-pill's confirm step in LocalFileCard's menu items gates
+  // entry to this handler — by the time it runs the user has already
+  // confirmed in the in-pill panel. There's no failure path that
+  // needs an error toast: localStorage writes either succeed or
+  // silently degrade to in-memory (safeWrite swallows quota errors).
+  // The success toast keeps the user oriented when the card vanishes
+  // from the grid, and includes a "Show hidden" affordance on the
+  // scope toggle bar for unhiding.
+  const handleDeleteLocalCard = useCallback((localFile) => {
     if (!localFile?.name) return;
-    if (!hasLocalFolderApi || !localFolder) return;
-    // Local-only delete — no branch_change, no commit, no cloud
-    // side effect. Per user direction: My-branch deletes are
-    // purely "remove from my working copy", and file removal on
-    // main is handled exclusively from the Main tab (admin
-    // "Delete all files" or per-file delete via the modal).
-    //
-    // If the file had a cloud counterpart, it will re-surface as a
-    // "missing — download" card on My branch on the next render
-    // (cloud row exists, local file doesn't). That's the expected
-    // shape: the user can re-pull it or ignore it.
-    // eslint-disable-next-line no-alert
-    const ok = window.confirm(`Permanently delete "${localFile.name}" from your local folder?`);
-    if (!ok) return;
-    const { error: delErr } = await localFolderApi.deleteFiles({
-      dir: localFolder,
-      paths: [localFile.path],
-    });
-    if (delErr) {
-      notify({
-        category: 'file',
-        variant: 'error',
-        title: 'Could not delete file',
-        body: delErr,
-        dedupeKey: `delete-local-error:${localFile.path}`,
-      });
-      return;
-    }
-    setSidecar((prev) => {
-      const next = removeSidecarByFilename(prev, localFile.name);
-      if (next !== prev) saveSidecar(next);
-      return next;
-    });
-    await refetchLocalFiles();
+    hideFilename(localFile.name);
     notify({
       category: 'file',
       variant: 'success',
-      icon: 'trash',
-      title: 'File deleted',
-      body: localFile.name,
-      dedupeKey: `delete-local-ok:${localFile.path}`,
+      title: 'File hidden',
+      body: `"${localFile.name}" is hidden from your view. The file stays on disk.`,
+      dedupeKey: `hide-local-ok:${localFile.path}`,
     });
-  }, [notify, localFolder, refetchLocalFiles]);
+  }, [hideFilename, notify]);
 
   // Single-click selection — just highlights the card. Re-clicking
   // the already-selected card deselects (matches OS file managers).
@@ -1951,6 +1982,20 @@ export default function ProjectFiles() {
             </button>
           </div>
         )}
+        {/* Version readout. Lives under the folder input so the user
+            sees, at a glance, which main-branch snapshot their local
+            folder is tracking against the project's current main.
+            main bumps server-side every time approve_change_request
+            runs; local (= branch.base_version) bumps when the user
+            pulls main via SyncToMainModal. A mismatch lights up the
+            "New main branch available" chip above. */}
+        {hasLocalFolderApi && (
+          <p className="project-files-main-version">
+            Main <strong>v{mainVersion ?? 0}</strong>
+            <span className="project-files-main-version-sep" aria-hidden="true">·</span>
+            Local <strong>v{branchState?.base_version ?? 0}</strong>
+          </p>
+        )}
       </header>
 
       {error && (
@@ -2089,19 +2134,19 @@ export default function ProjectFiles() {
                 title={
                   !hasLocalFolderApi || !localFolder
                     ? 'Pick a folder so we can save the new files into it'
-                    : 'Download the latest files into your folder'
+                    : 'Pull the new main branch into your folder'
                 }
               >
                 <span className="project-files-branch-status-dot" aria-hidden="true" />
                 <div className="project-files-branch-status-text">
-                  <strong className="project-files-branch-status-label">New files from your team</strong>
+                  <strong className="project-files-branch-status-label">New main branch available</strong>
                   <p className="project-files-branch-status-sub">
                     {!hasLocalFolderApi || !localFolder
-                      ? 'Pick a folder above so we can save the new files there.'
-                      : "Someone added or changed files. Click to copy them to your folder."}
+                      ? 'Pick a folder above so we can save the new branch there.'
+                      : 'A new version of main was published. Click to pull it into your folder.'}
                   </p>
                 </div>
-                <span className="project-files-branch-status-cta" aria-hidden="true">Get them →</span>
+                <span className="project-files-branch-status-cta" aria-hidden="true">Pull →</span>
               </button>
             )}
             {hasUnpushedOrPending && (() => {
@@ -2294,6 +2339,20 @@ export default function ProjectFiles() {
                 >
                   Everything
                 </button>
+                {/* Show-hidden affordance — only appears when there's
+                    anything to unhide. Clears the entire hidden set in
+                    one click; granular per-file unhiding lives outside
+                    the scope of the current iteration. */}
+                {hiddenFiles.size > 0 && (
+                  <button
+                    type="button"
+                    className="project-files-scope-btn project-files-scope-show-hidden"
+                    onClick={showAllHidden}
+                    title={`${hiddenFiles.size} hidden file${hiddenFiles.size === 1 ? '' : 's'}. Click to show ${hiddenFiles.size === 1 ? 'it' : 'them all'} again.`}
+                  >
+                    Show {hiddenFiles.size} hidden
+                  </button>
+                )}
               </div>
               {(() => {
             // Bucket every disk file as a local card, then (when scope
@@ -2308,6 +2367,15 @@ export default function ProjectFiles() {
               if (lf?.name) localByLcName.set(lf.name.toLowerCase(), lf);
             }
             for (const f of localFiles) {
+              // Skip filenames the user hid via the morph-pill's Hide
+              // action. Pure presentation filter — the file is still
+              // on disk and still in localByLcName above, so the
+              // missing-local fallback below still sees it (and
+              // suppresses any ghost "download" card that would
+              // otherwise re-surface the hidden file under a different
+              // path). The hidden set stays in localStorage; the chip
+              // near the scope toggle exposes Show all.
+              if (hiddenFiles.has(f.name.toLowerCase())) continue;
               buckets[categorizeMime(f.mimeType)].push({ kind: 'local', file: f });
             }
             if (myBranchScope === 'all' && syncState) {
@@ -2326,6 +2394,12 @@ export default function ProjectFiles() {
                 if (cloudLcName && localByLcName.has(cloudLcName)) continue;
                 const storageFilename = (row.cloud.storage_path || '').split('/').pop()?.toLowerCase();
                 if (storageFilename && localByLcName.has(storageFilename)) continue;
+                // Also suppress when the cloud row's name matches a
+                // hidden filename — otherwise hiding a cloud-backed
+                // file would just relabel the card from "local" to
+                // "missing — download", which defeats the hide.
+                if (cloudLcName && hiddenFiles.has(cloudLcName)) continue;
+                if (storageFilename && hiddenFiles.has(storageFilename)) continue;
                 buckets[categorizeMime(row.cloud.mime_type)].push({
                   kind: 'missing',
                   file: row.cloud,

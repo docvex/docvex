@@ -68,13 +68,19 @@ export async function getMainVersion(projectId) {
 // error) when no row exists yet — the caller is a "fresh" member who
 // hasn't edited or synced. The UI treats null as base_version = the
 // project's current main_version (i.e. in sync, nothing pending).
-export async function getBranchState(projectId) {
+export async function getBranchState(projectId, userId = null) {
   if (!projectId) return { data: null, error: new Error('Missing projectId') };
-  const { data, error } = await supabase
-    .from(BRANCHES_TABLE)
-    .select(BRANCH_COLS)
-    .eq('project_id', projectId)
-    .maybeSingle();
+  // Filter by user_id when known: the RLS policy on
+  // project_member_branches lets admins / owners READ every member's
+  // row, so a project-only filter returns N rows for them and
+  // `.maybeSingle()` then errors out with "JSON object requested,
+  // multiple (or no) rows returned" → branchState stays null and the
+  // UI shows Local v0 forever. Members hit the same query and only
+  // see their own row regardless, so adding the filter is safe
+  // either way.
+  let q = supabase.from(BRANCHES_TABLE).select(BRANCH_COLS).eq('project_id', projectId);
+  if (userId) q = q.eq('user_id', userId);
+  const { data, error } = await q.maybeSingle();
   // Pass through both the row and the error. supabase-js' .maybeSingle()
   // returns data: null + error: null for "no row" — that's the fresh-
   // member case and not an error condition.
@@ -92,7 +98,9 @@ export async function ensureBranchState(projectId, userId) {
   if (!projectId || !userId) {
     return { data: null, error: new Error('Missing projectId/userId') };
   }
-  const existing = await getBranchState(projectId);
+  // Pass userId so admins/owners get their OWN row, not a multi-row
+  // result that maybeSingle() can't disambiguate.
+  const existing = await getBranchState(projectId, userId);
   if (existing.error) return existing;
   if (existing.data) return existing;
   // No row yet — read the current main_version and insert.
@@ -115,10 +123,19 @@ export async function ensureBranchState(projectId, userId) {
 // main_version. Idempotent. RLS gates this to the caller's own row.
 export async function setBaseVersion(projectId, version) {
   if (!projectId) return { error: new Error('Missing projectId') };
+  // The UPDATE policy already pins this to the caller's row
+  // (`user_id = auth.uid()`), but for an admin/owner the project-only
+  // WHERE would attempt to update every member's row before RLS
+  // filters — Supabase returns 0 rows affected silently in that
+  // case. Add the user_id filter so the update targets exactly one
+  // row regardless of who's calling.
+  const userId = (await supabase.auth.getUser()).data?.user?.id;
+  if (!userId) return { error: new Error('Not authenticated') };
   const { error } = await supabase
     .from(BRANCHES_TABLE)
     .update({ base_version: version })
-    .eq('project_id', projectId);
+    .eq('project_id', projectId)
+    .eq('user_id', userId);
   return { error };
 }
 
@@ -827,6 +844,14 @@ export async function approveChangeRequest(request) {
 
   const pendingPathsToDelete = [];        // pending bucket
   const oldCanonicalPathsToDelete = [];   // projects bucket
+  // Canonical paths we WROTE bytes to in this approve. Used below to
+  // guard the "delete old canonical bytes" sweep — if a replace item's
+  // existing project_files.storage_path is identical to the new
+  // proposed.storage_path (commitFlow reuses target_file_id for the
+  // {file_id} path segment on replaces), the post-RPC cleanup would
+  // delete the bytes we just published, leaving the file 400'ing on
+  // every signed-URL fetch from then on.
+  const writtenCanonicalPaths = new Set();
 
   // 1. + 2. Storage prep + existing-path lookups.
   for (const item of request.items) {
@@ -835,6 +860,13 @@ export async function approveChangeRequest(request) {
       const canonicalPath = item.proposed?.storage_path;
       if (!pendingPath || !canonicalPath) {
         return { data: null, error: new Error(`Item ${item.id} missing storage paths`) };
+      }
+      writtenCanonicalPaths.add(canonicalPath);
+      const thumbDest = item.proposed?.thumbnail_path;
+      if (thumbDest) writtenCanonicalPaths.add(thumbDest);
+      const framesDest = item.proposed?.thumbnail_frames;
+      if (Array.isArray(framesDest)) {
+        for (const f of framesDest) if (f) writtenCanonicalPaths.add(f);
       }
       // Best-effort destination clear so the copy below is idempotent.
       // Supabase storage's `copy()` 400s with "Duplicate" if the
@@ -910,11 +942,19 @@ export async function approveChangeRequest(request) {
         .select('storage_path, thumbnail_path, thumbnail_frames')
         .eq('id', item.target_file_id)
         .maybeSingle();
-      if (existing?.storage_path)   oldCanonicalPathsToDelete.push(existing.storage_path);
-      if (existing?.thumbnail_path) oldCanonicalPathsToDelete.push(existing.thumbnail_path);
+      // Skip any path we just wrote to in this approve — when
+      // commitFlow reuses the existing file_id for a replace, the new
+      // storage_path equals the old one and the sweep would otherwise
+      // delete the bytes we just published.
+      if (existing?.storage_path && !writtenCanonicalPaths.has(existing.storage_path)) {
+        oldCanonicalPathsToDelete.push(existing.storage_path);
+      }
+      if (existing?.thumbnail_path && !writtenCanonicalPaths.has(existing.thumbnail_path)) {
+        oldCanonicalPathsToDelete.push(existing.thumbnail_path);
+      }
       if (Array.isArray(existing?.thumbnail_frames)) {
         for (const f of existing.thumbnail_frames) {
-          if (f) oldCanonicalPathsToDelete.push(f);
+          if (f && !writtenCanonicalPaths.has(f)) oldCanonicalPathsToDelete.push(f);
         }
       }
     }
@@ -938,6 +978,55 @@ export async function approveChangeRequest(request) {
   }
 
   return { data: rpcResult, error: null };
+}
+
+// Reject ONE item out of a (possibly multi-item) open request. The
+// server-side RPC deletes the change_request_items row and only flips
+// the parent request to 'rejected' when that was the last surviving
+// item. Per-file decline lives here so admins can decline one file's
+// edit without nuking sibling items the request happened to bundle.
+//
+// `item` must include `id`, `kind`, and `proposed` (for storage
+// cleanup). Returns `{ data: { requestId, requestEmptied }, error }`
+// so the caller can refetch the parent request when it's fully
+// closed out.
+export async function rejectChangeRequestItem(item, { note = null } = {}) {
+  if (!item?.id) return { data: null, error: new Error('Missing item') };
+
+  const { data: rpcRows, error: rpcErr } = await supabase
+    .rpc('reject_change_request_item', {
+      p_item_id: item.id,
+      p_note: note,
+    });
+  if (rpcErr) return { data: null, error: rpcErr };
+
+  // Best-effort cleanup of THIS item's pending bytes only. The frames
+  // array stores canonical paths, not pending ones — the matching
+  // pending objects share a prefix with thumbnail_pending_path but
+  // aren't enumerated individually, so they leak a few hundred KB per
+  // declined video item. The approve path has the same minor leak
+  // (see approveChangeRequest); chasing it isn't worth a new column.
+  const pendingPaths = [];
+  if (item.kind === 'add' || item.kind === 'replace') {
+    const p = item.proposed?.pending_storage_path;
+    if (p) pendingPaths.push(p);
+    const t = item.proposed?.thumbnail_pending_path;
+    if (t) pendingPaths.push(t);
+  }
+  if (pendingPaths.length > 0) {
+    try {
+      await supabase.storage.from(PENDING_BUCKET).remove(pendingPaths);
+    } catch { /* swallow */ }
+  }
+
+  const row = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
+  return {
+    data: {
+      requestId: row?.request_id || null,
+      requestEmptied: Boolean(row?.request_emptied),
+    },
+    error: null,
+  };
 }
 
 // Reject an open request. Cleans up pending storage objects after

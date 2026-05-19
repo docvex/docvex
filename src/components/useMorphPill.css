@@ -1,0 +1,181 @@
+/* Styles for the shared morph-pill (useMorphPill.jsx). Owned by the
+   hook so every consumer — Files page's LocalFileCard, Chat page's
+   OwnBubble, and anything we add later — gets the dropdown / confirm
+   pane styling automatically without each page importing the same
+   rules separately.
+   The class names retain the `project-files-` prefix for backward
+   compatibility with the rules' original home (ProjectFiles.css). The
+   names are misleading now that they're shared; a future rename to
+   `.morph-pill-*` is OK but requires touching the JSX in useMorphPill
+   in lockstep. Until then, treat the prefix as a historical artifact,
+   not a hint that the styles belong to one page. */
+
+/* ── Tooltip → menu shape ───────────────────────────────────────────
+   Performance note: we *don't* CSS-transition padding / min-width /
+   border-radius / background between the tooltip and menu shapes —
+   those all force layout + paint each frame and visibly stutter
+   when the pill is a portalled element with a box-shadow. Instead
+   the shape flips instantly when `.is-menu` is added, and the JS
+   FLIP effect in useMorphPill drives a transform-only morph that
+   reads as smooth even on weaker hardware.
+   We keep the cursor-chase transform transition from the base
+   `.tooltip` rules (Tooltip.css) — that one is already transform-
+   only, cheap. */
+.project-files-morph-pill.is-menu {
+  padding: 4px;
+  border-radius: 10px;
+  min-width: 200px;
+  background: var(--bg-card);
+  border-color: var(--border-strong);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  white-space: normal;
+  /* No CSS transition here — the JS FLIP effect wires its own
+     `transition: transform 220ms` inline so it can drive the morph
+     with a transform-only animation that doesn't conflict with the
+     inline `translate(x, y)` for cursor anchoring. A CSS
+     `transition: transform` would race the JS one. */
+  transition: none;
+  will-change: transform;
+}
+
+.project-files-morph-text {
+  /* Preserve explicit newline characters in tooltip bodies
+     (e.g. "name\nDiffers from cloud version"). */
+  white-space: pre-line;
+}
+
+.project-files-morph-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-files-morph-item {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.55rem 0.8rem;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.project-files-morph-item:hover:not(:disabled),
+.project-files-morph-item:focus-visible {
+  background: var(--bg-elevated);
+  outline: none;
+}
+
+.project-files-morph-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Destructive variant — used by Delete / Hide. Red text at rest,
+   red-tinted hover bg so the destructive nature is signalled before
+   the user commits. Matches `.modal-btn-destructive` in ConfirmModal.css. */
+.project-files-morph-item-danger {
+  color: var(--danger-soft);
+}
+
+.project-files-morph-item-danger:hover:not(:disabled),
+.project-files-morph-item-danger:focus-visible {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger-soft);
+}
+
+/* ── Confirm-step panel ─────────────────────────────────────────────
+   Rendered INSIDE the same .project-files-morph-pill element so the
+   FLIP morph in useMorphPill measures one root and animates
+   menu → confirm (and back) as a single shape change. Sizing is
+   wider than the menu so a message line has room to wrap to two
+   lines without looking cramped; the menu's min-width still applies
+   so the morph never visibly SHRINKS horizontally going from menu
+   → confirm. */
+.project-files-morph-pill.is-confirm {
+  min-width: 260px;
+  max-width: 320px;
+  padding: 12px 14px 10px;
+}
+
+.project-files-morph-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-files-morph-confirm-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.project-files-morph-confirm-message {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  /* Allow wrapping inside the morph pill, which is otherwise nowrap. */
+  white-space: normal;
+}
+
+.project-files-morph-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.project-files-morph-confirm-btn {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+
+.project-files-morph-confirm-btn-cancel {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.project-files-morph-confirm-btn-cancel:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.project-files-morph-confirm-btn-primary {
+  background: var(--text-primary);
+  color: var(--bg-page);
+}
+
+.project-files-morph-confirm-btn-primary:hover {
+  opacity: 0.88;
+}
+
+.project-files-morph-confirm-btn-danger {
+  background: var(--danger-soft);
+  color: var(--text-on-accent);
+  border-color: var(--danger-soft);
+}
+
+.project-files-morph-confirm-btn-danger:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+}

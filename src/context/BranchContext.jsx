@@ -12,37 +12,58 @@ import { useSelectedProject } from './SelectedProjectContext';
 import { useNotifications } from './NotificationsContext';
 import {
   getMainVersion,
-  ensureBranchState,
-  setBaseVersion,
+  // legacy DB-side branch_changes helpers — used ONLY by the one-time
+  // migration sweep on first load post-Phase 2. Reads existing rows,
+  // dumps them into localStorage, deletes them. After that the DB
+  // table is vestigial; future reads come from src/lib/pendingChanges.
   listBranchChanges,
-  addBranchChange,
   discardBranchChange,
-  discardAllBranchChanges,
   pushChangeRequest,
   withdrawChangeRequest,
   approveChangeRequest,
   rejectChangeRequest,
+  rejectChangeRequestItem,
   listChangeRequests,
   getChangeRequest,
   subscribeChangeRequests,
-  subscribeOwnBranchChanges,
 } from '../lib/branches';
+import {
+  loadPendingChanges,
+  savePendingChanges,
+  addPendingChange,
+  discardPendingChange,
+  discardAllPendingChanges,
+  loadLastSeenMainVersion,
+  saveLastSeenMainVersion,
+  hasMigratedBranchChanges,
+  markBranchChangesMigrated,
+} from '../lib/pendingChanges';
 
 // Branch + change-request state for the currently-selected project.
+//
+// REDESIGN (Phase 2):
+// pendingChanges and the per-member version cursor moved out of the DB
+// and into per-(user, project) localStorage (see src/lib/pendingChanges.js
+// for the rationale). The realtime subscriptions now ONLY echo into
+// React state — they never write to the DB on their own. The buggy
+// auto-heal of base_version + the auto-bump on someone-else's-approval
+// are both gone; the cursor only advances when the user explicitly
+// pulls or when their OWN authored request is approved.
 //
 // View model:
 //   - `view` is 'main' or 'mine' — the branch the user is currently
 //     looking at on the Files page. Default 'main' for everyone;
 //     persists per-project in localStorage so a member toggled to
 //     'mine' stays there across reloads.
-//   - `mainVersion` is the project's current main-branch cursor.
-//     `branchState.base_version` is the version the member last
-//     pulled. When mainVersion > base_version, the UI shows a
-//     "Sync to main" affordance.
+//   - `mainVersion` is the project's current main-branch cursor
+//     (bumps server-side every time approve_change_request runs).
+//   - `branchState.base_version` is now derived from a localStorage-
+//     backed lastSeenMainVersion value. Same shape as before for
+//     consumer compat. When mainVersion > lastSeen, the UI shows the
+//     "New main branch available" chip.
 //   - `pendingChanges` is the live list of the member's queued
-//     edits (branch_changes rows). Realtime keeps it fresh across
-//     devices. The Files page applies these as overlays on top of
-//     project_files to render the member's branch view.
+//     metadata-only edits (rename / description / delete). Pure
+//     React state, persisted per-(user, project) in localStorage.
 //   - `requests` is the change_requests visible to the caller:
 //     authored by them (members) or in the project (admins).
 //     Realtime keeps the inbox / status live.
@@ -137,9 +158,21 @@ export function BranchProvider({ children }) {
     catch { /* private-mode etc. */ }
   }, [projectId]);
 
-  // Initial load + reload-on-project-change. Pulls main_version,
-  // branch row (lazy-creating it if missing), pending changes, and
-  // the requests visible to the caller in parallel.
+  // Initial load + reload-on-project-change. Pulls main_version + the
+  // change_requests visible to the caller from the server, then
+  // hydrates the local pendingChanges queue and the per-user
+  // lastSeenMainVersion cursor from localStorage. No more DB round-trip
+  // for those — see src/lib/pendingChanges.js for the Phase 2 rationale.
+  //
+  // The auto-heal of base_version is GONE. The cursor now advances
+  // ONLY on two explicit signals:
+  //   1. The user runs SyncToMainModal and acknowledgeSync() fires.
+  //   2. The realtime subscription echoes the user's OWN authored
+  //      request flipping to 'approved' — that user's own work is by
+  //      definition already in their local folder, so absorbing the
+  //      version bump silently is correct.
+  // Other users' approvals leave the cursor untouched; the chip
+  // lights up and stays lit until the user explicitly pulls.
   const refresh = useCallback(async () => {
     if (!projectId || !userId) {
       setBranchState(null);
@@ -152,49 +185,81 @@ export function BranchProvider({ children }) {
     try {
       const [
         { data: mainV },
-        { data: branch },
-        { data: changes },
         { data: reqs },
       ] = await Promise.all([
         getMainVersion(projectId),
-        // ensureBranchState only mutates when a row is missing, which
-        // is the common first-time-load case. Cheap idempotent op.
-        isMember ? ensureBranchState(projectId, userId) : Promise.resolve({ data: null }),
-        isMember ? listBranchChanges(projectId)         : Promise.resolve({ data: [] }),
         listChangeRequests(projectId),
       ]);
-      setMainVersion(mainV ?? 0);
-      setBranchState(branch);
-      setPendingChanges(changes || []);
+      const nextMain = mainV ?? 0;
+      setMainVersion(nextMain);
       setRequests(reqs || []);
 
-      // Auto-heal stale base_version. If the user has nothing pending
-      // and no open request authored by them, but DOES have at least
-      // one approved authored request, the simplest explanation for
-      // mainVersion > base_version is "my own approval bumped main
-      // and the cursor never caught up". Reconcile silently so the
-      // "New update on main" pill doesn't light up against the
-      // user's own already-merged work. Trades off accuracy in
-      // multi-author projects (someone else's approval after yours
-      // would also be skipped), but matches the user-perceived
-      // "I'm synced" reality in the typical solo flow.
-      const nextMain  = mainV ?? 0;
-      const baseVer   = branch?.base_version ?? 0;
-      const noPending = (changes || []).length === 0;
-      const hasOpenOwn     = (reqs || []).some((r) => r.author_id === userId && r.status === 'open');
-      const hasApprovedOwn = (reqs || []).some((r) => r.author_id === userId && r.status === 'approved');
-      if (branch && nextMain > baseVer && noPending && !hasOpenOwn && hasApprovedOwn) {
-        setBaseVersion(projectId, nextMain).then(({ error }) => {
-          if (error) return;
-          setBranchState((prev) => (prev ? { ...prev, base_version: nextMain } : prev));
-        });
+      // Hydrate pendingChanges from localStorage — pure client state
+      // now, no DB round-trip per project switch.
+      setPendingChanges(isMember ? loadPendingChanges(userId, projectId) : []);
+
+      // Seed lastSeenMainVersion on first ever load. A null return
+      // from loadLastSeenMainVersion means "never set" — initialise
+      // to the current main version so a brand-new user / new project
+      // doesn't see the chip light up against the full history of
+      // approvals that predate their first visit.
+      let cursor = loadLastSeenMainVersion(userId, projectId);
+      if (cursor === null) {
+        saveLastSeenMainVersion(userId, projectId, nextMain);
+        cursor = nextMain;
       }
+      // Synthesize a branchState-shaped object so existing consumers
+      // that read `branchState.base_version` (e.g. the version readout
+      // under the folder picker) keep working without changes.
+      setBranchState({ project_id: projectId, user_id: userId, base_version: cursor });
     } finally {
       setLoading(false);
     }
   }, [projectId, userId, isMember]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // One-time migration: sweep any legacy branch_changes rows that
+  // existed before Phase 2 into localStorage, then delete them from
+  // the DB. Idempotent — gates on a per-(user, project) marker so
+  // subsequent app loads skip the sweep entirely. Falls through if
+  // the marker is already set, so this costs nothing on steady state.
+  useEffect(() => {
+    if (!userId || !projectId || !isMember) return;
+    if (hasMigratedBranchChanges(userId, projectId)) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await listBranchChanges(projectId);
+      if (cancelled || error || !Array.isArray(data) || data.length === 0) {
+        markBranchChangesMigrated(userId, projectId);
+        return;
+      }
+      // Merge into the existing localStorage queue, deduping by
+      // (kind + target_file_id) so re-running on a partial sweep
+      // doesn't double-queue any single edit.
+      const existing = loadPendingChanges(userId, projectId);
+      const seen = new Set(
+        existing.map((c) => `${c.kind}:${c.target_file_id || ''}`),
+      );
+      const merged = [...existing];
+      for (const row of data) {
+        const key = `${row.kind}:${row.target_file_id || ''}`;
+        if (seen.has(key)) continue;
+        merged.push(row);
+        seen.add(key);
+      }
+      savePendingChanges(userId, projectId, merged);
+      setPendingChanges(merged);
+      // Best-effort DB cleanup — failures here just leave vestigial
+      // rows behind that won't be read on next boot.
+      for (const row of data) {
+        if (cancelled) break;
+        discardBranchChange(row.id).catch(() => { /* swallow */ });
+      }
+      markBranchChangesMigrated(userId, projectId);
+    })();
+    return () => { cancelled = true; };
+  }, [userId, projectId, isMember]);
 
   // Every open change_request authored by THIS user. Plural because
   // migration 022 dropped the one-open-per-author constraint and
@@ -247,29 +312,21 @@ export function BranchProvider({ children }) {
   useEffect(() => { refreshOpenRequestItems(); }, [refreshOpenRequestItems]);
 
   // ── Realtime ─────────────────────────────────────────────────────────
-  // Two subscriptions:
-  //   • branch_changes (own only) — keeps pendingChanges live across
-  //     the member's devices.
-  //   • change_requests (project-wide) — admins see new submissions
-  //     instantly; authors see status flips (approved/rejected) live.
-  // Both unsubscribe on project switch + unmount.
-  useEffect(() => {
-    if (!projectId || !userId || !isMember) return undefined;
-    const unsub = subscribeOwnBranchChanges(projectId, userId, (payload) => {
-      const { eventType, new: newRow, old: oldRow } = payload;
-      if (eventType === 'INSERT' && newRow) {
-        setPendingChanges((prev) => (
-          prev.some((c) => c.id === newRow.id) ? prev : [...prev, newRow]
-        ));
-      } else if (eventType === 'DELETE' && oldRow) {
-        setPendingChanges((prev) => prev.filter((c) => c.id !== oldRow.id));
-      } else if (eventType === 'UPDATE' && newRow) {
-        setPendingChanges((prev) => prev.map((c) => (c.id === newRow.id ? newRow : c)));
-      }
-    });
-    return unsub;
-  }, [projectId, userId, isMember]);
-
+  // ONE subscription now — change_requests. pendingChanges no longer
+  // lives in the DB so there's nothing to listen to for it; metadata
+  // edits are pure client state synced across the user's own sessions
+  // via localStorage only (intentional trade-off: cross-device sync
+  // for un-pushed renames isn't worth a realtime channel).
+  //
+  // The change_requests handler is now a signal handler — it updates
+  // the React `requests` list to reflect status flips and inserts /
+  // deletions, refetches `mainVersion` so the chip's derived state
+  // is current, and bumps `lastSeenMainVersion` (localStorage) only
+  // when the user's OWN authored request just got approved. Other
+  // users' approvals leave the cursor untouched so the chip lights
+  // up and stays lit until the user explicitly pulls. No more DB
+  // writes from this subscriber — that auto-write was the main
+  // "system did things on its own" complaint.
   useEffect(() => {
     if (!projectId) return undefined;
     const unsub = subscribeChangeRequests(projectId, (payload) => {
@@ -283,21 +340,20 @@ export function BranchProvider({ children }) {
       } else if (eventType === 'UPDATE' && newRow) {
         setRequests((prev) => prev.map((r) => (r.id === newRow.id ? newRow : r)));
         if (newRow.status === 'approved') {
-          // Pull the new main_version. If this approval was OUR own
-          // request, the freshly-merged main IS the state we already
-          // have locally — bump base_version to the new value so
-          // `isBehindMain` doesn't light up the "New update on main"
-          // pill against changes the user just pushed themselves.
+          // Refetch mainVersion so consumers (the version readout
+          // under the folder picker, the chip derivation) see the
+          // new value. If the approval was OUR OWN, also catch the
+          // localStorage cursor up — the local folder already has
+          // these bytes by construction, so we're "in sync with this
+          // particular bump" without any disk I/O.
           getMainVersion(projectId).then(({ data }) => {
             const nextVersion = data ?? 0;
             setMainVersion(nextVersion);
-            if (newRow.author_id === userId) {
-              setBaseVersion(projectId, nextVersion).then(({ error }) => {
-                if (error) return;
-                setBranchState((prev) => (
-                  prev ? { ...prev, base_version: nextVersion } : prev
-                ));
-              });
+            if (newRow.author_id === userId && userId) {
+              saveLastSeenMainVersion(userId, projectId, nextVersion);
+              setBranchState((prev) => (
+                prev ? { ...prev, base_version: nextVersion } : prev
+              ));
             }
           });
         }
@@ -328,68 +384,38 @@ export function BranchProvider({ children }) {
   const isBehindMain = Boolean(branchState && mainVersion > (branchState.base_version ?? 0));
 
   // ── Action wrappers ──────────────────────────────────────────────────
-  // Thin wrappers around the lib calls. Centralised here so each
-  // surface (Files page, FileDetailModal, ChangeRequestsView) calls
-  // through the same path and we can layer cross-cutting concerns
-  // (notify on failure, optimistic updates) in one place.
-  //
-  // All three writers apply OPTIMISTIC updates: the local
-  // pendingChanges state is mutated synchronously so the UI reflects
-  // the action before the server round-trip completes. The realtime
-  // subscription above acts as reconciliation — when the echo arrives
-  // it sees the row already present (matched by id after replace) and
-  // skips. On server failure the optimistic mutation is rolled back.
+  // pendingChanges now lives in localStorage (see src/lib/pendingChanges.js).
+  // Each writer mutates React state and persists in one synchronous step —
+  // no DB round-trip, no optimistic-vs-realtime reconciliation, no
+  // temp-id swap dance. Functions still return the same `{ data, error }`
+  // shape so existing call sites don't change.
   const queueChange = useCallback(async (patch) => {
     if (!projectId || !userId) return { error: new Error('No project/user') };
-
-    const tempId = `temp-${Math.random().toString(36).slice(2)}-${Date.now()}`;
-    const tentative = {
-      id: tempId,
-      project_id: projectId,
-      user_id: userId,
+    const res = addPendingChange(userId, projectId, {
       kind: patch.kind,
-      target_file_id: patch.targetFileId || null,
+      target_file_id: patch.targetFileId ?? patch.target_file_id ?? null,
       proposed: patch.proposed || null,
-      created_at: new Date().toISOString(),
-    };
-    setPendingChanges((prev) => [...prev, tentative]);
-
-    const res = await addBranchChange({ projectId, userId, ...patch });
-    if (res.error) {
-      setPendingChanges((prev) => prev.filter((c) => c.id !== tempId));
-    } else if (res.data) {
-      // Swap the temp row for the real one so a later realtime
-      // INSERT echo for the same id is a no-op (the subscribe
-      // handler skips rows it already has).
-      setPendingChanges((prev) => prev.map((c) => (c.id === tempId ? res.data : c)));
+    });
+    if (!res.error && res.data) {
+      setPendingChanges((prev) => [...prev, res.data]);
     }
     return res;
   }, [projectId, userId]);
 
   const discardChange = useCallback(async (id) => {
     if (!id) return { error: new Error('Missing id') };
-    let snapshot = null;
-    setPendingChanges((prev) => {
-      snapshot = prev.find((c) => c.id === id) || null;
-      return prev.filter((c) => c.id !== id);
-    });
-    const res = await discardBranchChange(id);
-    if (res.error && snapshot) {
-      setPendingChanges((prev) => (
-        prev.some((c) => c.id === id) ? prev : [...prev, snapshot]
-      ));
-    }
-    return res;
-  }, []);
+    if (!projectId || !userId) return { error: new Error('No project/user') };
+    discardPendingChange(userId, projectId, id);
+    setPendingChanges((prev) => prev.filter((c) => c.id !== id));
+    return { error: null };
+  }, [projectId, userId]);
 
   const discardAll = useCallback(async () => {
-    if (!projectId) return { data: [], error: new Error('No project') };
-    let snapshot = [];
-    setPendingChanges((prev) => { snapshot = prev; return []; });
-    const res = await discardAllBranchChanges(projectId);
-    if (res.error) setPendingChanges(snapshot);
-    return res;
-  }, [projectId]);
+    if (!projectId || !userId) return { data: [], error: new Error('No project/user') };
+    discardAllPendingChanges(userId, projectId);
+    setPendingChanges([]);
+    return { data: [], error: null };
+  }, [projectId, userId]);
 
   const pushRequest = useCallback(async ({ title, description }) => {
     if (!projectId || !userId) return { data: null, error: new Error('No project/user') };
@@ -445,6 +471,28 @@ export function BranchProvider({ children }) {
     return res;
   }, [notify]);
 
+  // Per-item decline. Mirrors rejectRequest's toast wiring but operates
+  // on a single change_request_items row — the parent request only
+  // flips to 'rejected' if that item was the last one in it (handled
+  // server-side by reject_change_request_item). Used by the Decline
+  // button on each version chip in the Pending Edits tree so admins
+  // can throw away one author's file without nuking the author's
+  // sibling files that happened to ride the same request.
+  const rejectRequestItem = useCallback(async (item, note) => {
+    if (!item?.id) return { data: null, error: new Error('Missing item') };
+    const res = await rejectChangeRequestItem(item, { note });
+    if (res.error) {
+      notify?.({
+        category: 'file',
+        variant: 'error',
+        title: 'Decline failed',
+        body: res.error.message || 'Try again in a moment.',
+        dedupeKey: `reject-item-error:${item.id}`,
+      });
+    }
+    return res;
+  }, [notify]);
+
   const rejectRequest = useCallback(async (requestId, note) => {
     const { data: full, error: fetchErr } = await getChangeRequest(requestId);
     if (fetchErr) return { error: fetchErr };
@@ -461,17 +509,21 @@ export function BranchProvider({ children }) {
     return res;
   }, [notify]);
 
-  // After the user's local folder has been synced to main, bump their
-  // base_version so the Sync prompt clears.
+  // After the user's local folder has been synced to main, advance
+  // the localStorage-backed cursor so the "New main branch available"
+  // chip clears. No more DB round-trip — the cursor is per-(user,
+  // project) client state. acknowledgeSync still returns the same
+  // `{ error }` shape so existing call sites (SyncToMainModal,
+  // ResetBranchModal) don't need updates.
   const acknowledgeSync = useCallback(async () => {
-    if (!projectId || !branchState) return { error: null };
+    if (!projectId || !userId) return { error: null };
     const targetVersion = mainVersion;
-    const { error } = await setBaseVersion(projectId, targetVersion);
-    if (!error) {
-      setBranchState((prev) => prev ? { ...prev, base_version: targetVersion } : prev);
-    }
-    return { error };
-  }, [projectId, branchState, mainVersion]);
+    saveLastSeenMainVersion(userId, projectId, targetVersion);
+    setBranchState((prev) => (
+      prev ? { ...prev, base_version: targetVersion } : prev
+    ));
+    return { error: null };
+  }, [projectId, userId, mainVersion]);
 
   // ── Provider value ───────────────────────────────────────────────────
   const value = useMemo(() => ({
@@ -498,6 +550,7 @@ export function BranchProvider({ children }) {
     withdrawRequest,
     approveRequest,
     rejectRequest,
+    rejectRequestItem,
     acknowledgeSync,
     refreshOpenRequestItems,
     refresh,
@@ -508,7 +561,7 @@ export function BranchProvider({ children }) {
     overlayByFileId, addedChanges, requests, openOwnRequestItems,
     isBehindMain, isAdmin, isMember, loading, preferredVersions,
     queueChange, discardChange, discardAll, pushRequest, withdrawRequest,
-    approveRequest, rejectRequest, acknowledgeSync,
+    approveRequest, rejectRequest, rejectRequestItem, acknowledgeSync,
     refreshOpenRequestItems, refresh,
     togglePreferredVersion, clearPreferredVersions,
   ]);

@@ -444,3 +444,107 @@
   color: var(--danger-soft);
   font-size: 0.85rem;
 }
+
+/* ─── Set / change password form ──────────────────────────────────── */
+
+.account-pw-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.account-pw-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.account-pw-label {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.account-pw-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 150ms, background 150ms;
+}
+
+.account-pw-input::placeholder {
+  color: var(--text-muted);
+}
+
+.account-pw-input:hover:not(:focus):not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.account-pw-input:focus {
+  border-color: var(--accent);
+  background: var(--bg-page);
+}
+
+.account-pw-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.account-pw-show {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  align-self: flex-start;
+}
+
+.account-pw-show input[type='checkbox'] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.account-pw-error {
+  padding: 0.55rem 0.8rem;
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  border-radius: 7px;
+  color: var(--danger-soft);
+  font-size: 0.85rem;
+}
+
+.account-pw-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.account-pw-submit {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.55rem 1.1rem;
+  color: var(--text-on-accent);
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms, opacity 150ms;
+}
+
+.account-pw-submit:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.account-pw-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

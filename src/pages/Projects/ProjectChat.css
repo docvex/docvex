@@ -1,0 +1,946 @@
+/* Project chat page — owns the team thread layout, composer, and
+   popovers. Reuses the project-scoped header pattern + the brand
+   token palette; nothing here introduces a new colour value, every
+   surface reads from var(--…). */
+
+.project-chat-page {
+  display: flex;
+  flex-direction: column;
+  /* Use the available viewport minus the page-shell padding —
+     keeps the messages pane fluid as the window resizes. */
+  min-height: calc(100vh - 6rem);
+}
+
+.project-chat-tabs {
+  display: inline-flex;
+  margin-top: 1rem;
+  padding: 3px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  gap: 2px;
+  align-self: flex-start;
+}
+
+.project-chat-tab {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 14px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 140ms, color 140ms;
+}
+
+.project-chat-tab:hover {
+  color: var(--text-primary);
+}
+
+.project-chat-tab.is-active {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+/* ─── Team chat surface ─────────────────────────────────────────── */
+
+.project-chat-team {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  margin-top: 1rem;
+  min-height: 0;
+}
+
+.project-chat-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 1rem 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* Custom scrollbar to match the brand surface. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.project-chat-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+/* ─── Individual message ────────────────────────────────────────── */
+
+.project-chat-msg {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  position: relative;
+  /* No row-level hover background — the hover signal lives on the
+     bubble itself for own messages (see is-mine .project-chat-msg-text:hover
+     below) and on cursor pill follows from the morph-pill tooltip for
+     interactive bubbles. A full-row brighten was just visual noise
+     stretching across empty whitespace beside the bubble. */
+}
+
+/* Follow-up rows: tighter top padding, no avatar/meta block. The
+   author column stays so the body text aligns with the previous
+   message's body. */
+.project-chat-msg.is-follow {
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
+.project-chat-msg-avatar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.chat-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+
+.chat-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-avatar-fallback {
+  width: 100%;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.project-chat-msg-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.project-chat-msg-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.78rem;
+}
+
+.project-chat-msg-author {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.project-chat-msg-time {
+  color: var(--text-muted);
+}
+
+.project-chat-msg-edited {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.74rem;
+}
+
+.project-chat-msg-text {
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ─── Own messages — right-aligned bubble ───────────────────────────
+   iMessage / WhatsApp aesthetic: the user's own messages snap to the
+   right side of the messages pane, no avatar (we know it's the user
+   without one), and the body text rides in a tinted bubble so a
+   long thread reads as a two-sided conversation at a glance.
+
+   Layout: single-column grid in this row so the body fills width;
+   its flex children align to the right. The hover actions (pencil
+   + trash) move to the left side so they don't overlap the bubble's
+   right edge. */
+.project-chat-msg.is-mine {
+  grid-template-columns: 1fr;
+}
+
+.project-chat-msg.is-mine .project-chat-msg-avatar {
+  display: none;
+}
+
+.project-chat-msg.is-mine .project-chat-msg-body {
+  align-items: flex-end;
+}
+
+.project-chat-msg.is-mine .project-chat-msg-meta {
+  justify-content: flex-end;
+}
+
+.project-chat-msg.is-mine .project-chat-msg-text {
+  /* inline-flex column lets the inline timestamp sit BELOW the body
+     text at the bubble's bottom-right while the bubble itself still
+     sizes to its content (inline-flex preserves inline-block-like
+     intrinsic sizing). */
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  max-width: 75%;
+  padding: 8px 12px 6px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  /* Slack-style asymmetric radius — the corner closest to the
+     "speaker" (right side, where your avatar would be) is cropped
+     so the bubble reads as pointing back to you. */
+  border-radius: 12px 12px 4px 12px;
+  /* Body text stays left-aligned INSIDE the bubble even though the
+     bubble itself sits at the right edge of the row — keeps long
+     paragraphs readable. */
+  text-align: left;
+  transition: background 140ms, border-color 140ms;
+  /* The bubble owns its own right-click via the morph pill — hint at
+     the context-menu affordance with the matching cursor. */
+  cursor: context-menu;
+}
+
+/* Hover lift on own bubbles — the visual replaces the old hover-only
+   edit/delete buttons. A slightly stronger accent mix tells the user
+   "this bubble is interactive" without surfacing extra UI chrome. */
+.project-chat-msg.is-mine .project-chat-msg-text:hover {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+/* Inline body wrapper — present so the bubble's flex layout has a
+   real flex item to hold the message content (vs the bare text nodes
+   that renderBody emits, which flex would otherwise leave un-aligned). */
+.project-chat-msg-text-body {
+  display: block;
+}
+
+/* Timestamp inside the own-message bubble. Drops to a small muted
+   pill at the bottom-right corner — matches the WhatsApp / Telegram
+   convention where each bubble carries its own time so a long
+   conversation reads as a stack of self-contained units. */
+.project-chat-msg-time-inline {
+  align-self: flex-end;
+  margin-top: 4px;
+  font-size: 0.68rem;
+  color: color-mix(in srgb, var(--text-primary) 50%, transparent);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  user-select: none;
+}
+
+.project-chat-msg-edited-inline {
+  font-style: italic;
+}
+
+/* Tombstone view: drop the bubble so a "Message deleted" placeholder
+   doesn't render with the same emphasis as an active message. */
+.project-chat-msg.is-mine.is-deleted .project-chat-msg-text {
+  background: transparent;
+  border-color: transparent;
+  padding: 0;
+}
+
+.project-chat-msg.is-mine .project-chat-msg-attachments {
+  justify-content: flex-end;
+}
+
+/* Edit mode within own messages — the textarea spans full width
+   inside the body block but still aligns right via the flex parent. */
+.project-chat-msg.is-mine .project-chat-msg-edit {
+  width: 75%;
+  margin-left: auto;
+}
+
+/* Actions move to the LEFT of own messages so the menu doesn't sit
+   on top of the bubble's right edge. */
+.project-chat-msg.is-mine .project-chat-msg-actions {
+  right: auto;
+  left: 10px;
+}
+
+.chat-deleted {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
+/* Mention rendered inline in the message body. No background — the
+   mention reads as bold accent-coloured text so it scans without
+   chunking the line into pill-shaped blocks. The "is-you" variant
+   (someone mentioned the viewer) bumps the weight + colour intensity
+   so the eye still catches it in a busy thread. */
+.chat-mention {
+  display: inline;
+  font-weight: 600;
+  color: var(--accent);
+  background: transparent;
+}
+
+.chat-mention.is-you {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* Message that mentions the viewer — the BUBBLE itself gets a
+   shimmering accent wash so a message addressed to the viewer
+   reads as "for you" while scrolling, without spreading the
+   highlight across the empty whitespace beside the bubble. Same
+   5-stop animated gradient recipe the rest of the app uses for
+   "live status" surfaces (updates-banner-uptodate, branch-status
+   pills, cr-stage-header-text), reused here for visual consistency
+   across the app's "this is important and live" signals. */
+.project-chat-msg.mentions-me .project-chat-msg-text {
+  /* Override the static accent-tint background applied by both the
+     non-mine bubble base and the is-mine variant. Keep the border
+     stronger than the resting state so the bubble outline still
+     reads at the edges of the gradient's faded ends. */
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background:
+    linear-gradient(
+      120deg,
+      color-mix(in srgb, var(--accent) 12%, transparent)  0%,
+      color-mix(in srgb, var(--accent) 32%, transparent) 25%,
+      color-mix(in srgb, var(--accent) 38%, transparent) 50%,
+      color-mix(in srgb, var(--accent) 32%, transparent) 75%,
+      color-mix(in srgb, var(--accent) 12%, transparent) 100%
+    );
+  /* 300% wide so the background-position pan has off-canvas runway
+     on both sides; no hard edges or repeat seams during the loop. */
+  background-size: 300% 100%;
+  animation: project-chat-mention-pan 8s ease-in-out infinite;
+}
+
+/* Hover on a mention-me bubble shouldn't overwrite the gradient —
+   replace the resting accent tint with a slightly stronger gradient
+   so the bubble still feels responsive without losing the shimmer. */
+.project-chat-msg.is-mine.mentions-me .project-chat-msg-text:hover {
+  background:
+    linear-gradient(
+      120deg,
+      color-mix(in srgb, var(--accent) 18%, transparent)  0%,
+      color-mix(in srgb, var(--accent) 42%, transparent) 25%,
+      color-mix(in srgb, var(--accent) 48%, transparent) 50%,
+      color-mix(in srgb, var(--accent) 42%, transparent) 75%,
+      color-mix(in srgb, var(--accent) 18%, transparent) 100%
+    );
+  background-size: 300% 100%;
+}
+
+@keyframes project-chat-mention-pan {
+  0%   { background-position:   0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position:   0% 50%; }
+}
+
+/* Narrower morph-pill menu inside the chat surface — the chat menu
+   only has Edit + Delete (two short labels), so the shared base
+   width of 200px feels oversized. 140px gives the items room to
+   breathe without padding the menu past its content. The base
+   .project-files-morph-pill.is-menu rule still applies; this
+   overrides just the min-width via a more-specific selector
+   (which the className prop on useMorphPill makes possible). */
+.project-chat-morph-pill.is-menu {
+  min-width: 140px;
+}
+
+/* ─── Attachments under a message ───────────────────────────────── */
+
+.project-chat-msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.project-chat-attachment-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  appearance: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 12px 6px 6px;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  max-width: 300px;
+  text-align: left;
+  transition: background 140ms, border-color 140ms;
+}
+
+.project-chat-attachment-card:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+}
+
+.project-chat-attachment-card.is-missing {
+  cursor: default;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 6px 12px;
+}
+
+/* Thumbnail slot — same square-poster aesthetic as the Files page
+   cards, just shrunken. FileThumbnail fills the slot via 100%/100%
+   inside; the slot itself owns the radius + crop so a tall poster
+   doesn't bleed outside the rounded corners. */
+.project-chat-attachment-thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  border-radius: 6px;
+  overflow: hidden;
+  color: var(--text-muted);
+}
+
+.project-chat-attachment-thumb > * {
+  width: 100%;
+  height: 100%;
+}
+
+/* Text column next to the thumb. Stacks name above size; both lines
+   stay on a single row each via white-space:nowrap + ellipsis. */
+.project-chat-attachment-text {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.project-chat-attachment-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.project-chat-attachment-size {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Hover actions on own messages ─────────────────────────────── */
+
+.project-chat-msg-actions {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  display: none;
+  gap: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.project-chat-msg:hover .project-chat-msg-actions {
+  display: inline-flex;
+}
+
+.project-chat-msg-action {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms, color 120ms;
+}
+
+.project-chat-msg-action:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.project-chat-msg-action-danger:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger-soft);
+}
+
+/* ─── Inline edit mode ──────────────────────────────────────────── */
+
+.project-chat-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.project-chat-edit-input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+  resize: vertical;
+  outline: none;
+  line-height: 1.5;
+}
+
+.project-chat-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.project-chat-edit-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+
+.project-chat-edit-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.project-chat-edit-btn-primary {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
+}
+
+.project-chat-edit-btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--text-on-accent);
+}
+
+/* ─── Composer ──────────────────────────────────────────────────── */
+
+.project-chat-composer {
+  /* Sticky-bottom: when the messages list overflows, the composer
+     pins to the bottom of the scroll viewport (.main-content owns
+     the scrolling) and the messages scroll behind it. On short
+     threads where the content fits in view, the composer sits at
+     its natural position which is already at the bottom of the
+     page area — same visual result either way.
+     z-index keeps it above the messages so a long line scrolling
+     up behind the composer can't bleed through. */
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding: 8px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-top: 8px;
+  /* Soft lift via shadow so the composer reads as a floating dock
+     rather than a flat extension of the messages list, especially
+     when content is scrolling underneath it. */
+  box-shadow: 0 -2px 12px color-mix(in srgb, var(--bg-page) 60%, transparent);
+}
+
+.project-chat-staged {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.project-chat-staged-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 6px 3px 10px;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  max-width: 240px;
+}
+
+.project-chat-staged-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.project-chat-staged-remove {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+
+.project-chat-staged-remove:hover {
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+  color: var(--danger-soft);
+}
+
+.project-chat-composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.project-chat-icon-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms, color 120ms;
+}
+
+.project-chat-icon-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.project-chat-icon-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.project-chat-input {
+  flex: 1 1 auto;
+  background: transparent;
+  border: 0;
+  padding: 8px 4px;
+  font: inherit;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+  outline: none;
+  resize: none;
+  line-height: 1.5;
+  min-height: 24px;
+  max-height: 160px;
+}
+
+.project-chat-input::placeholder {
+  color: var(--text-muted);
+}
+
+.project-chat-send {
+  appearance: none;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-on-accent);
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, opacity 120ms;
+  flex-shrink: 0;
+}
+
+.project-chat-send:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.project-chat-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─── Popovers (mention picker + file picker) ───────────────────── */
+
+.project-chat-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  /* Cap height + scroll so a long member list doesn't push the
+     composer off-screen. */
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+  padding: 4px;
+  z-index: 50;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.project-chat-popover-mentions {
+  /* Member picker — narrower, so it doesn't span the full composer
+     width when there's only 1-2 members to show. */
+  right: auto;
+  min-width: 240px;
+  max-width: 320px;
+}
+
+.project-chat-popover-search {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  outline: none;
+}
+
+.project-chat-popover-search:focus {
+  border-color: var(--accent);
+}
+
+.project-chat-popover-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 8px;
+  text-align: left;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.project-chat-popover-item:hover,
+.project-chat-popover-item.is-active {
+  background: var(--bg-elevated);
+}
+
+.project-chat-popover-item.is-picked {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.project-chat-popover-name {
+  font-weight: 600;
+}
+
+.project-chat-popover-email {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
+.project-chat-popover-file-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.project-chat-popover-file-size {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  margin-left: 8px;
+}
+
+.project-chat-popover-empty {
+  padding: 12px 10px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+/* ─── Assistant tab (placeholder) ───────────────────────────────── */
+
+.project-chat-assistant {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+
+.project-chat-assistant-card {
+  max-width: 460px;
+  text-align: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 2rem;
+}
+
+.project-chat-assistant-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  margin-bottom: 1rem;
+}
+
+.project-chat-assistant-card h2 {
+  font-size: 1.1rem;
+  margin: 0 0 0.5rem;
+  color: var(--text-primary);
+}
+
+.project-chat-assistant-card p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+/* ─── New-messages pill ─────────────────────────────────────────────
+   Floats above the composer when the user is scrolled up in history
+   AND new messages have arrived since they scrolled away. Click
+   scrolls to the bottom + clears the count. Position absolute so it
+   doesn't push the composer's height around when the pill appears /
+   disappears. */
+.project-chat-new-msg-pill {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: 1px solid color-mix(in srgb, var(--text-on-accent) 15%, transparent);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  z-index: 6;
+  transition: background 140ms, transform 100ms;
+  animation: project-chat-new-msg-pill-in 200ms ease-out;
+}
+
+.project-chat-new-msg-pill:hover {
+  filter: brightness(0.92);
+}
+
+.project-chat-new-msg-pill:active {
+  transform: translateX(-50%) translateY(1px);
+}
+
+@keyframes project-chat-new-msg-pill-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ─── Typing indicator (WhatsApp-style three-dot pulse) ─────────────
+   Sits at the top of the composer container above the textarea row.
+   Three dots fade in/out in sequence; the keyframes are intentionally
+   short (1.4 s cycle) and the dots are small (5 px) so the indicator
+   feels alive without being distracting. */
+.project-chat-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  margin-bottom: 6px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-style: italic;
+  /* Aligned LEFT so the indicator reads as "someone over there is
+     responding" — opposite side from the user's own right-aligned
+     bubble pattern. */
+  align-self: flex-start;
+}
+
+.project-chat-typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+}
+
+.project-chat-typing-dots span {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  opacity: 0.4;
+  animation: project-chat-typing-blink 1.4s infinite ease-in-out;
+}
+
+.project-chat-typing-dots span:nth-child(1) { animation-delay: 0s; }
+.project-chat-typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.project-chat-typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes project-chat-typing-blink {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30%           { opacity: 1;   transform: translateY(-2px); }
+}
+
+.project-chat-typing-text {
+  letter-spacing: 0.01em;
+}

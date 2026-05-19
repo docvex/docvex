@@ -101,6 +101,11 @@ async function idbDelete(projectId) {
 const webState = {
   dirHandle: null,
   handlesByName: new Map(),
+  // Size + mtime of each handled file, used by snapshotHandles to
+  // detect in-place byte edits in addition to add/remove/rename.
+  // Filled alongside handlesByName by listWeb; cleared in the same
+  // pick/restore/forget paths.
+  metaByName: new Map(),
   // Separate one-slot handle for `.docvex.json` — kept out of
   // handlesByName because that map is filtered to non-dotfiles
   // (see listWeb). Cached so back-to-back writeSidecar calls skip
@@ -138,20 +143,45 @@ function sanitizeFilename(name) {
   return name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 240);
 }
 
+// Filename-based ignore set for the web listing — kept in sync with
+// the Electron-side isIgnoredLocalFilename() in src/main.js. Both
+// surfaces have to filter the same way or the diff layer sees
+// different file sets depending on the build.
+function isIgnoredLocalFilenameWeb(name) {
+  if (!name) return true;
+  if (name.startsWith('.')) return true;
+  if (name.startsWith('~$')) return true;
+  if (name.endsWith('~')) return true;
+  if (/\.(swp|swo|swn|swm)$/i.test(name)) return true;
+  if (/\.(lock|lck)$/i.test(name)) return true;
+  if (/\.(tmp|temp|bak|partial|crdownload|part)$/i.test(name)) return true;
+  if (name === 'Thumbs.db' || name === 'thumbs.db') return true;
+  if (name === 'desktop.ini' || name === 'Desktop.ini') return true;
+  if (name === 'ehthumbs.db') return true;
+  if (name === 'Icon\r') return true;
+  return false;
+}
+
 async function listWeb() {
   const dir = webState.dirHandle;
   if (!dir) return { files: [], error: 'No folder picked' };
   webState.handlesByName.clear();
+  // Refresh the size/mtime fingerprint map alongside the handle map.
+  // snapshotHandles() reads from it so the poller detects in-place
+  // byte edits (e.g. Word "Save" overwriting the same file), not
+  // just adds/removes/renames.
+  webState.metaByName.clear();
   const files = [];
   try {
     for await (const entry of dir.values()) {
       if (entry.kind !== 'file') continue;
-      // Skip dotfiles + OS bookkeeping to match the Electron listing.
-      if (entry.name.startsWith('.') || entry.name === 'Thumbs.db') continue;
+      // Drop OS / editor / lockfile noise — same matrix as Electron.
+      if (isIgnoredLocalFilenameWeb(entry.name)) continue;
       let f;
       try { f = await entry.getFile(); }
       catch { continue; }  // permission revoked mid-iteration, skip
       webState.handlesByName.set(entry.name, entry);
+      webState.metaByName.set(entry.name, { size: f.size, mtime: f.lastModified });
       files.push({
         name: entry.name,
         // Synthetic path scheme so the renderer can detect web vs
@@ -171,12 +201,18 @@ async function listWeb() {
   }
 }
 
-// Snapshot the current handle set — sorted "name:size:mtime"
-// tuples joined into a single string. Cheap to compare; any
-// add/edit/delete shifts the string and triggers a change event.
+// Snapshot tuples "name:size:mtime" joined into a single string.
+// Including size + mtime (not just name) means an in-place edit
+// (Word's "Save" writing new bytes to the same path) shifts the
+// snapshot and fires the change handler. Without these fields,
+// the web watcher missed byte edits entirely — only adds, removes,
+// and renames triggered listeners.
 function snapshotHandles() {
   const items = [];
-  for (const [name, _h] of webState.handlesByName) items.push(name);
+  for (const [name] of webState.handlesByName) {
+    const m = webState.metaByName.get(name) || { size: 0, mtime: 0 };
+    items.push(`${name}:${m.size}:${m.mtime}`);
+  }
   return items.sort().join('|');
 }
 
@@ -336,6 +372,7 @@ export const localFolderApi = {
       try {
         await dir.removeEntry(name);
         webState.handlesByName.delete(name);
+        webState.metaByName.delete(name);
         results.push({ path: p, ok: true });
       } catch (err) {
         if (err?.name === 'NotFoundError') {
@@ -374,6 +411,11 @@ export const localFolderApi = {
         const newHandle = await dir.getFileHandle(toName);
         webState.handlesByName.delete(fromName);
         webState.handlesByName.set(toName, newHandle);
+        // metaByName lives next to handlesByName; carry the entry over
+        // (or drop both) so snapshotHandles stays consistent.
+        const carried = webState.metaByName.get(fromName);
+        webState.metaByName.delete(fromName);
+        if (carried) webState.metaByName.set(toName, carried);
         return { ok: true, error: null };
       }
       // Fallback: copy bytes to a fresh handle, then delete the
@@ -387,6 +429,9 @@ export const localFolderApi = {
       await dir.removeEntry(fromName);
       webState.handlesByName.delete(fromName);
       webState.handlesByName.set(toName, newHandle);
+      const carried = webState.metaByName.get(fromName);
+      webState.metaByName.delete(fromName);
+      if (carried) webState.metaByName.set(toName, carried);
       return { ok: true, error: null };
     } catch (err) {
       return { error: err?.message || String(err) };
@@ -514,6 +559,7 @@ export const localFolderApi = {
     if (webState.dirHandle) {
       webState.dirHandle = null;
       webState.handlesByName.clear();
+      webState.metaByName.clear();
       webState.sidecarHandle = null;
       webState.lastSnapshot = null;
     }
