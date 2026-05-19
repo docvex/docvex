@@ -38,6 +38,32 @@ const APP_NAME = pkg.productName || pkg.name;
 
 const ARCHES = ['x64', 'arm64'];
 
+// On non-macOS hosts, Node's `fs.lstatSync(...).mode` reports 0o666 for every
+// regular file because Windows / Linux file systems don't track macOS-style
+// executable bits the way HFS+/APFS do. If we forward those modes straight
+// into the zip, the unpacked .app on macOS has no +x on its Mach-O binaries,
+// Launch Services refuses to treat the folder as a launchable bundle, and
+// Safari shows "no available application can open it" — even though the
+// bundle's directory structure is correct. This helper restores +x for the
+// files macOS actually needs to execute.
+const isMacHost = process.platform === 'darwin';
+
+function modeForFile(rel, statMode) {
+  if (isMacHost) return statMode;
+  const needsExec =
+    // Main executable + Squirrel/CrashHelper/etc under Contents/MacOS/.
+    /(^|\/)Contents\/MacOS\//.test(rel) ||
+    // Shared libraries — dyld requires +x to map them.
+    rel.endsWith('.dylib') ||
+    // Framework binary `<Foo>.framework/Versions/<v>/<Foo>` AND the bare
+    // helpers under `<Foo>.framework/Versions/<v>/Helpers/<exe>` such as
+    // chrome_crashpad_handler — both are extension-less Mach-O binaries.
+    /\.framework\/Versions\/[^/]+\/(Helpers\/)?[^/.]+$/.test(rel);
+  // Use the file-type bits (0o100000) so unzip on macOS interprets the entry
+  // as a regular file rather than guessing from the lower 9 bits alone.
+  return needsExec ? 0o100755 : 0o100644;
+}
+
 async function zipApp(arch) {
   const appFolder = path.join(repoRoot, 'out', `${pkg.name}-darwin-${arch}`);
   const appPath = path.join(appFolder, `${APP_NAME}.app`);
@@ -89,11 +115,9 @@ async function zipApp(arch) {
         } else if (stat.isDirectory()) {
           walk(abs, rel);
         } else if (stat.isFile()) {
-          // mode preserves the executable bit on Mach-O binaries
-          // (Electron, Helper apps, codesign signatures) — without
-          // this the unzipped .app would have non-executable
-          // binaries and macOS would refuse to launch it.
-          archive.file(abs, { name: rel, mode: stat.mode });
+          // On macOS hosts stat.mode is honest; on Windows / Linux it's
+          // always 0o666 so we infer +x from the path (see modeForFile).
+          archive.file(abs, { name: rel, mode: modeForFile(rel, stat.mode) });
         }
       }
     }
