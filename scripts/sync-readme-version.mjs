@@ -35,7 +35,11 @@ const before = readFileSync(readmeUrl, 'utf8');
 
 const after = before
   .replace(/v\d+\.\d+\.\d+/g, `v${newVersion}`)
-  .replace(/docvex-\d+\.\d+\.\d+\.Setup\.exe/g, `docvex-${newVersion}.Setup.exe`);
+  .replace(/docvex-\d+\.\d+\.\d+\.Setup\.exe/g, `docvex-${newVersion}.Setup.exe`)
+  // macOS zip filenames produced by scripts/make-mac-zips.mjs +
+  // attached to the GitHub release by scripts/publish-mac-zips.mjs.
+  // Shape: docvex-darwin-{x64|arm64}-X.Y.Z.zip
+  .replace(/docvex-darwin-(x64|arm64)-\d+\.\d+\.\d+\.zip/g, `docvex-darwin-$1-${newVersion}.zip`);
 
 if (after === before) {
   log('no version-pinned references found in README — nothing to do');
