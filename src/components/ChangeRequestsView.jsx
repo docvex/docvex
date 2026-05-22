@@ -503,7 +503,9 @@ export default function ChangeRequestsView() {
   // (cloud.folder_path); a new file's folder is its proposed folder.
   // So the tree reads Folder → File → Edit, and a file whose folder
   // changed shows under its current folder with a "moved to X" edit.
-  // Root ('' folder) sorts first, then alphabetical.
+  // Named folders sort first (alphabetical) so they sit at the top of
+  // the tree; root ('' folder) files trail beneath them and render
+  // without a parent folder card (see the render below).
   const folderGroups = useMemo(() => {
     const map = new Map();
     const ensure = (folder) => {
@@ -522,8 +524,8 @@ export default function ChangeRequestsView() {
     const arr = Array.from(map.values());
     arr.sort((a, b) => {
       if (a.folder === b.folder) return 0;
-      if (a.folder === '') return -1;
-      if (b.folder === '') return 1;
+      if (a.folder === '') return 1;   // root-level files trail the folders
+      if (b.folder === '') return -1;
       return a.folder.localeCompare(b.folder, undefined, { sensitivity: 'base' });
     });
     return arr;
@@ -716,12 +718,18 @@ export default function ChangeRequestsView() {
     const recompute = () => {
       const cRect = container.getBoundingClientRect();
       const next = [];
+      // Connectors anchor near the TOP of each card (not the vertical
+      // centre) so a parent and its children line up along their tops —
+      // cleaner when cards have different heights (e.g. a short file card
+      // feeding a stack of tall version cards). The inset drops the line
+      // below the rounded corner onto the card's first content row.
+      const TOP_ANCHOR = 24;
       const measure = (node) => {
         const r = node.getBoundingClientRect();
         return {
           rx: r.right - cRect.left,
           lx: r.left - cRect.left,
-          my: (r.top + r.bottom) / 2 - cRect.top,
+          ay: r.top - cRect.top + TOP_ANCHOR,
         };
       };
       // Shared-spine connector: ONE trunk from the parent's right edge to
@@ -741,13 +749,13 @@ export default function ChangeRequestsView() {
         // Spine sits a stub's width left of the children, but never left
         // of (or on top of) the parent.
         const spineX = Math.max(p.rx + 8, childLeft - STUB);
-        let d = `M ${p.rx} ${p.my} H ${spineX}`;            // trunk
-        const ys = [p.my, ...kids.map((k) => k.my)];
+        let d = `M ${p.rx} ${p.ay} H ${spineX}`;            // trunk
+        const ys = [p.ay, ...kids.map((k) => k.ay)];
         const yTop = Math.min(...ys);
         const yBottom = Math.max(...ys);
         if (yTop !== yBottom) d += ` M ${spineX} ${yTop} V ${yBottom}`; // spine
         for (const k of kids) {
-          d += ` M ${spineX} ${k.my} H ${k.lx}`;            // branch to child
+          d += ` M ${spineX} ${k.ay} H ${k.lx}`;            // branch to child
         }
         next.push(d);
       };
@@ -902,7 +910,7 @@ export default function ChangeRequestsView() {
           <div className="cr-tree-version-file-text">
             <div className="cr-tree-version-file-name" title={fileDisplay}>{fileDisplay}</div>
             <div className="cr-tree-version-file-meta">
-              {addFolder ? `in “${addFolder}”` : 'in the main folder'}
+              {addFolder ? `in “${addFolder}”` : 'at the top level'}
               {fileSize ? ` · ${fileSize}` : ''}
             </div>
           </div>
@@ -938,7 +946,7 @@ export default function ChangeRequestsView() {
     const folderMoved = v.item.kind === 'edit'
       && proposedFolder !== null
       && proposedFolder !== (cloud?.folder_path || '');
-    const folderLabel = proposedFolder ? `“${proposedFolder}”` : 'the main folder';
+    const folderLabel = proposedFolder ? `“${proposedFolder}”` : 'the top level';
     let kindText;
     if (showRename && folderMoved) kindText = `Rename to "${proposedName}" · moved to ${folderLabel}`;
     else if (folderMoved) kindText = `Moved to ${folderLabel}`;
@@ -1062,8 +1070,35 @@ export default function ChangeRequestsView() {
         <div className="cr-tree-forest">
           {folderGroups.map((fg) => {
             const count = fg.edits.length + fg.adds.length;
+            // The file cards (+ their version chips) for this group.
+            // Shared between the foldered and root branches below.
+            const fileRows = (
+              <>
+                {fg.edits.map((g) => (
+                  <div className="cr-tree-file-row" key={g.key}>
+                    {renderEditFileCard(g)}
+                    {g.versions.length > 0 && (
+                      <div className="cr-tree-versions-block">
+                        {g.versions.map((v) => renderVersionCard(g, v))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {fg.adds.map(({ g, v }) => renderAddCard(g, v))}
+              </>
+            );
+            // Root-level files have no parent folder card — render the
+            // files block on its own so they line up in the same
+            // leftmost column as the folder cards (which sort above).
+            if (fg.folder === '') {
+              return (
+                <div className="cr-tree-files-block" key="__root__">
+                  {fileRows}
+                </div>
+              );
+            }
             return (
-              <div className="cr-tree-folder-row" key={fg.folder || '__root__'}>
+              <div className="cr-tree-folder-row" key={fg.folder}>
                 <div
                   ref={(el) => {
                     if (el) folderRefs.current[fg.folder] = el;
@@ -1073,8 +1108,8 @@ export default function ChangeRequestsView() {
                 >
                   <span className="cr-tree-folder-icon">{CrFolderGlyph}</span>
                   <div className="cr-tree-card-text">
-                    <div className="cr-tree-card-name" title={fg.folder || 'Main folder'}>
-                      {fg.folder || 'Main folder'}
+                    <div className="cr-tree-card-name" title={fg.folder}>
+                      {fg.folder}
                     </div>
                     <div className="cr-tree-card-meta">
                       {count} {count === 1 ? 'file' : 'files'}
@@ -1082,17 +1117,7 @@ export default function ChangeRequestsView() {
                   </div>
                 </div>
                 <div className="cr-tree-files-block">
-                  {fg.edits.map((g) => (
-                    <div className="cr-tree-file-row" key={g.key}>
-                      {renderEditFileCard(g)}
-                      {g.versions.length > 0 && (
-                        <div className="cr-tree-versions-block">
-                          {g.versions.map((v) => renderVersionCard(g, v))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {fg.adds.map(({ g, v }) => renderAddCard(g, v))}
+                  {fileRows}
                 </div>
               </div>
             );
