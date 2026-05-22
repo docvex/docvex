@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationsContext';
+import { useChatUnread } from '../../context/ChatUnreadContext';
 import { listMembers } from '../../lib/projects';
 import { listProjectFiles, createSignedDownloadUrl } from '../../lib/projectFiles';
 import { supabase } from '../../lib/supabaseClient';
@@ -13,9 +14,15 @@ import {
   deleteChatMessage,
   subscribeChatMessages,
 } from '../../lib/chat';
+import {
+  listPrivateMessages,
+  sendPrivateMessage,
+  subscribePrivateMessages,
+} from '../../lib/privateMessages';
 import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import Tooltip from '../../components/Tooltip';
 import FileThumbnail from '../../components/FileThumbnail';
+import StatusBadge from '../../components/StatusBadge';
 import { useMorphPill } from '../../components/useMorphPill';
 import { describeCloudFile } from '../../lib/thumbnailDescriptor';
 import { openFileWindow, openDocx, isDocxFile, canOpenInApp } from '../../lib/platform';
@@ -95,6 +102,42 @@ function formatTime(iso) {
   });
 }
 
+// Inline message timestamp — HH:MM only. The bubble carries no day
+// context now that the messages list inserts day dividers between
+// groups; the inline stamp only needs to disambiguate WHEN within a
+// day a given message landed.
+function formatTimeShort(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
+// Label for the day-section divider rendered between messages whose
+// created_at falls on different local days. Mirrors the
+// shape of formatTime but renames "today/yesterday" to the more
+// natural calendar-divider phrasing and drops the time component.
+function formatDayLabel(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return 'Today';
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  const diffDays = (now - d) / (24 * 60 * 60 * 1000);
+  if (diffDays < 7) return d.toLocaleDateString(undefined, { weekday: 'long' });
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+}
+
+// Helper for "did the calendar day flip between two messages?" Uses
+// toDateString (locale-agnostic, accounts for local timezone) so a
+// message at 23:59 and the next at 00:01 cleanly land in different
+// day sections.
+function isSameLocalDay(isoA, isoB) {
+  if (!isoA || !isoB) return false;
+  return new Date(isoA).toDateString() === new Date(isoB).toDateString();
+}
+
 function formatBytes(bytes) {
   if (!bytes) return '0 B';
   if (bytes < 1024) return `${bytes} B`;
@@ -120,10 +163,17 @@ function formatFullTime(iso) {
 
 // ───── Avatar (matches the rest of the app) ─────────────────────────
 
-function ChatAvatar({ profile, authorId, size = 32 }) {
+function ChatAvatar({ profile, authorId, size = 32, showStatus = false }) {
   const url = profile?.avatar_url;
   const initial = (displayName(profile) || '?').charAt(0).toUpperCase();
-  return (
+  const status = profile?.status;
+  // The avatar itself owns `border-radius: 50%` + `overflow: hidden`,
+  // which would clip an absolutely-positioned StatusBadge child. So
+  // the status indicator sits as a SIBLING of the avatar inside a
+  // position-relative wrap — same pattern Sidebar's AccountAvatar
+  // uses. The wrap collapses to the avatar's natural size via
+  // `display: inline-flex`.
+  const avatar = (
     <span
       className="chat-avatar"
       style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
@@ -145,6 +195,13 @@ function ChatAvatar({ profile, authorId, size = 32 }) {
           {initial}
         </span>
       )}
+    </span>
+  );
+  if (!showStatus) return avatar;
+  return (
+    <span className="chat-avatar-wrap" style={{ width: size, height: size }}>
+      {avatar}
+      <StatusBadge status={status} size="sm" ringColor="var(--bg-page)" />
     </span>
   );
 }
@@ -197,14 +254,56 @@ const SparklesIcon = (
 // Hover state lives in CSS (.project-chat-msg.is-mine .project-chat-msg-text:hover)
 // so the hook only wires the right-click path — no tooltip flash on
 // every mouse-move, no per-cursor-pixel re-render.
-function OwnBubble({ msg, renderBody, formatTime, onEdit, onDelete }) {
-  // Hover tooltip body: full absolute timestamp + edited stamp.
-  // The inline time in the bubble is relative; the cursor-following
-  // tooltip resolves the ambiguity for messages older than a few
-  // days without forcing a long-form label inside the bubble itself.
-  const tooltipBody = msg.edited_at
+function OwnBubble({ msg, renderBody, onEdit, onDelete, onMessagePrivately, attachments }) {
+  // The own bubble owns a SINGLE morph-pill for the whole message —
+  // both the send-date tooltip AND the mention name/email tooltip
+  // live in this pill, so the cursor never sees two stacked tooltips
+  // fighting for the same region. When the cursor enters a mention
+  // span (detected via `.chat-mention-interactive` + its `data-*`
+  // attributes), we swap the pill's hoverContent + menuItems to the
+  // mention-context variant; on leave, they swap back. React's
+  // re-render then morphs the existing pill in place rather than
+  // mounting a second one.
+  const [hoveredMention, setHoveredMention] = useState(null);
+
+  const sentBody = msg.edited_at
     ? `Sent ${formatFullTime(msg.created_at)}\nEdited ${formatFullTime(msg.edited_at)}`
     : `Sent ${formatFullTime(msg.created_at)}`;
+  const tooltipBody = hoveredMention
+    ? (hoveredMention.email ? `${hoveredMention.name}\n${hoveredMention.email}` : hoveredMention.name)
+    : sentBody;
+
+  const menuItems = hoveredMention
+    ? [
+        {
+          key: 'dm',
+          label: 'Message privately',
+          onClick: () => onMessagePrivately?.(
+            hoveredMention.id ? { user_id: hoveredMention.id } : null,
+            hoveredMention.name,
+          ),
+        },
+      ]
+    : [
+        {
+          key: 'edit',
+          label: 'Edit',
+          onClick: () => onEdit(msg),
+        },
+        {
+          key: 'delete',
+          label: 'Delete',
+          onClick: () => onDelete(msg),
+          danger: true,
+          confirm: {
+            title: 'Delete this message?',
+            message: 'This can\'t be undone — every member will see it disappear from the thread.',
+            confirmLabel: 'Delete',
+            cancelLabel: 'Cancel',
+          },
+        },
+      ];
+
   const morphPill = useMorphPill({
     hoverContent: tooltipBody,
     // Chat-specific class lets ProjectChat.css narrow the dropdown
@@ -213,48 +312,147 @@ function OwnBubble({ msg, renderBody, formatTime, onEdit, onDelete }) {
     // needs ~180 px to read comfortably; the chat menu has 2 short
     // items (Edit / Delete) where the default 200 px feels oversized.
     className: 'project-chat-morph-pill',
-    menuItems: [
-      {
-        key: 'edit',
-        label: 'Edit',
-        onClick: () => onEdit(msg),
-      },
-      {
-        key: 'delete',
-        label: 'Delete',
-        onClick: () => onDelete(msg),
-        danger: true,
-        confirm: {
-          title: 'Delete this message?',
-          message: 'This can\'t be undone — every member will see it disappear from the thread.',
-          confirmLabel: 'Delete',
-          cancelLabel: 'Cancel',
-        },
-      },
-    ],
+    menuItems,
   });
+
+  // Combine the morph-pill's mouse handler with a mention-detection
+  // step. closest('.chat-mention-interactive') walks up the event
+  // target's ancestors so cursor moves over the @<name> text — or
+  // any whitespace inside its padding — register as a mention hover.
+  // We only setState when the active mention identity changes so the
+  // pill doesn't re-render on every mousemove pixel.
+  const handleBubbleMouseMove = (e) => {
+    morphPill.handleMouseMove(e);
+    // Once the menu is open, the menuItems / hoverContent must stay
+    // frozen at whatever they were when the user right-clicked. Were
+    // we to keep updating hoveredMention, sliding the cursor off the
+    // mention while the dropdown is visible would silently morph
+    // "Message privately" into "Edit / Delete" mid-display.
+    if (morphPill.isMenuOpen) return;
+    const el = e.target?.closest?.('.chat-mention-interactive');
+    if (el) {
+      const id = el.dataset.mentionId || '';
+      if (!hoveredMention || hoveredMention.id !== id) {
+        setHoveredMention({
+          id,
+          name: el.dataset.mentionName || '',
+          email: el.dataset.mentionEmail || '',
+        });
+      }
+    } else if (hoveredMention) {
+      setHoveredMention(null);
+    }
+  };
+  const handleBubbleMouseLeave = (e) => {
+    morphPill.handleMouseLeave(e);
+    // Same freeze rule on leave: a cursor exit during an open menu
+    // shouldn't reset hoveredMention either, or the menu would also
+    // morph the moment the cursor drifts off the bubble.
+    if (morphPill.isMenuOpen) return;
+    setHoveredMention(null);
+  };
+  // Right-click on a mention should open the morph-pill with the
+  // mention's menu items (Message privately), not whatever the
+  // previous hoveredMention state was. We synchronously refresh
+  // hoveredMention from the click target BEFORE delegating to the
+  // morph-pill handler so the resulting re-render sees the matching
+  // menuItems. React batches both state updates into a single render
+  // — only one dropdown ever appears.
+  const handleBubbleContextMenu = (e) => {
+    const el = e.target?.closest?.('.chat-mention-interactive');
+    if (el) {
+      setHoveredMention({
+        id: el.dataset.mentionId || '',
+        name: el.dataset.mentionName || '',
+        email: el.dataset.mentionEmail || '',
+      });
+    } else {
+      setHoveredMention(null);
+    }
+    morphPill.handleContextMenu(e);
+  };
+
   return (
     <>
       <div
         className="project-chat-msg-text"
-        // Full files-tab handler set: hover follows the cursor with
-        // the tooltip pill, right-click morphs the same pill into the
-        // Edit/Delete menu, mouseleave hides it. Same trio
-        // LocalFileCard wires.
-        onMouseMove={morphPill.handleMouseMove}
-        onMouseLeave={morphPill.handleMouseLeave}
-        onContextMenu={morphPill.handleContextMenu}
+        onMouseMove={handleBubbleMouseMove}
+        onMouseLeave={handleBubbleMouseLeave}
+        onContextMenu={handleBubbleContextMenu}
       >
-        <span className="project-chat-msg-text-body">{renderBody(msg)}</span>
+        <span className="project-chat-msg-text-body">{renderBody(msg, { embedded: true })}</span>
+        {attachments}
         {!msg.deleted_at && (
           <span className="project-chat-msg-time-inline">
-            {formatTime(msg.created_at)}
+            {formatTimeShort(msg.created_at)}
             {msg.edited_at && (
               <span className="project-chat-msg-edited-inline"> · edited</span>
             )}
           </span>
         )}
       </div>
+      {morphPill.node}
+    </>
+  );
+}
+
+// ───── Mention pill (interactive for non-viewer mentions) ──────────
+//
+// Two render paths share this file:
+//   1. `MentionSpan` — embedded inside OwnBubble. No own morph-pill;
+//      the parent bubble's pill reads the `data-*` attrs off the
+//      span to morph between send-date and name/email content,
+//      keeping the surface to exactly one tooltip.
+//   2. `MentionPill` — standalone, used inside non-mine messages
+//      where there's no bubble-level morph-pill. Renders its own
+//      hover tooltip + right-click "Message privately" menu.
+function MentionSpan({ token, member }) {
+  const name = member ? displayName(member.profile) : token.replace(/^@/, '');
+  const email = member?.profile?.email || '';
+  return (
+    <span
+      className="chat-mention chat-mention-interactive"
+      data-mention-id={member?.user_id || ''}
+      data-mention-name={name}
+      data-mention-email={email}
+    >
+      {token}
+    </span>
+  );
+}
+
+function MentionPill({ token, member, onMessagePrivately }) {
+  const name = member ? displayName(member.profile) : token.replace(/^@/, '');
+  const email = member?.profile?.email || '';
+  // Same morph-pill component the own-bubble uses for "Sent <date>" —
+  // shared cursor-following tooltip styling, just fed with the
+  // mentioned member's full name + email so a hover answers
+  // "who is this @<name>?" without leaving the chat.
+  const hoverContent = email ? `${name}\n${email}` : name;
+  const morphPill = useMorphPill({
+    hoverContent,
+    className: 'chat-mention-morph-pill',
+    menuItems: [
+      {
+        key: 'dm',
+        label: 'Message privately',
+        onClick: () => onMessagePrivately?.(member, name),
+      },
+    ],
+  });
+  return (
+    <>
+      <span
+        className="chat-mention chat-mention-interactive"
+        data-mention-id={member?.user_id || ''}
+        data-mention-name={name}
+        data-mention-email={email}
+        onMouseMove={morphPill.handleMouseMove}
+        onMouseLeave={morphPill.handleMouseLeave}
+        onContextMenu={morphPill.handleContextMenu}
+      >
+        {token}
+      </span>
       {morphPill.node}
     </>
   );
@@ -284,6 +482,7 @@ export default function ProjectChat() {
   const { session } = useAuth();
   const viewerId = session?.user?.id || null;
   const { notify } = useNotifications();
+  const { markRead: markChatRead } = useChatUnread();
 
   const [tab, setTab] = useState('team');
 
@@ -298,6 +497,19 @@ export default function ProjectChat() {
   // ───── Messages ────────────────────────────────────────────────────
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // Clear the sidebar's chat-unread badge whenever the user is sitting
+  // on the Team tab — both on first mount and on every fresh message
+  // batch (messages.length is in the dep so a live arrival re-clears
+  // immediately). The badge is "messages you haven't seen", and a
+  // member with the team tab focused IS seeing them. The Assistant
+  // tab doesn't count as "seeing the chat", so we deliberately gate
+  // on tab. Placed after the messages state declaration so the dep on
+  // `messages.length` doesn't hit the TDZ.
+  useEffect(() => {
+    if (tab !== 'team' || !projectId) return;
+    markChatRead();
+  }, [tab, projectId, markChatRead, messages.length]);
 
   useEffect(() => {
     if (!projectId) { setMessages([]); return undefined; }
@@ -368,6 +580,12 @@ export default function ProjectChat() {
   const listRef = useRef(null);
   const stickToBottomRef = useRef(true);
   const [unreadCount, setUnreadCount] = useState(0);
+  // Mirror of stickToBottomRef as React state so CSS can react to
+  // it. We need both: the ref is read synchronously inside layout
+  // effects (where state would be stale), and the state drives the
+  // composer's "lift" when the user is scrolled up to leave a gap
+  // under the input field.
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const prevMessagesLenRef = useRef(0);
 
   const scrollToBottom = useCallback(() => {
@@ -375,6 +593,7 @@ export default function ProjectChat() {
     if (!el) return;
     el.scrollTop = el.scrollHeight;
     stickToBottomRef.current = true;
+    setIsAtBottom(true);
     setUnreadCount(0);
   }, []);
 
@@ -384,6 +603,10 @@ export default function ProjectChat() {
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     const atBottom = distFromBottom < 80;
     stickToBottomRef.current = atBottom;
+    // React bails out when the new state === current, so this set
+    // call only re-renders when the user crosses the threshold
+    // either way — not on every scroll pixel.
+    setIsAtBottom(atBottom);
     // Reaching the bottom clears the unread tally — the user has
     // visually caught up so the pill should go away even without an
     // explicit click on it.
@@ -439,6 +662,218 @@ export default function ProjectChat() {
   const [typingUsers, setTypingUsers] = useState(new Map());
   const typingChannelRef = useRef(null);
   const lastTypingBroadcastRef = useRef(0);
+
+  // ───── Private DM state ────────────────────────────────────────────
+  // Selected DM partner (a project member's user_id), the loaded
+  // thread between viewer + partner, and the composer state. The
+  // thread is keyed on the partner so switching members swaps the
+  // thread without leaking messages from a previous conversation.
+  const [selectedPartnerId, setSelectedPartnerId] = useState(null);
+  const [privateMessages, setPrivateMessages] = useState([]);
+  const [privateLoading, setPrivateLoading] = useState(false);
+  const [privateDraft, setPrivateDraft] = useState('');
+  const [privateSending, setPrivateSending] = useState(false);
+  const privateListRef = useRef(null);
+
+  // Load the thread when (projectId, viewerId, partner) changes.
+  useEffect(() => {
+    if (!projectId || !viewerId || !selectedPartnerId) {
+      setPrivateMessages([]);
+      return undefined;
+    }
+    let cancelled = false;
+    setPrivateLoading(true);
+    listPrivateMessages(projectId, viewerId, selectedPartnerId).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        notify?.({
+          category: 'system',
+          variant: 'error',
+          title: 'Could not load conversation',
+          body: error.message || 'Try again in a moment.',
+          dedupeKey: `pm-load-error:${selectedPartnerId}`,
+        });
+      } else {
+        setPrivateMessages(data || []);
+      }
+      setPrivateLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [projectId, viewerId, selectedPartnerId, notify]);
+
+  // Realtime: subscribe at the project level (RLS hides messages
+  // outside the viewer's threads), and filter client-side to the
+  // currently-open partner so unrelated DMs don't pollute the view.
+  useEffect(() => {
+    if (!projectId || !viewerId) return undefined;
+    const unsub = subscribePrivateMessages(projectId, ({ eventType, new: newRow, old: oldRow }) => {
+      const partner = selectedPartnerId;
+      const inThread = (row) => row && (
+        (row.sender_id === viewerId && row.recipient_id === partner)
+        || (row.sender_id === partner && row.recipient_id === viewerId)
+      );
+      if (eventType === 'INSERT' && inThread(newRow)) {
+        setPrivateMessages((prev) => (
+          prev.some((m) => m.id === newRow.id) ? prev : [...prev, newRow]
+        ));
+      } else if (eventType === 'UPDATE' && inThread(newRow)) {
+        setPrivateMessages((prev) => prev.map((m) => (m.id === newRow.id ? newRow : m)));
+      } else if (eventType === 'DELETE' && inThread(oldRow)) {
+        setPrivateMessages((prev) => prev.filter((m) => m.id !== oldRow.id));
+      }
+    });
+    return unsub;
+  }, [projectId, viewerId, selectedPartnerId]);
+
+  // Auto-scroll the DM thread to the bottom on every message change.
+  // Simpler than the Team-tab logic — DMs are short, scrolling away
+  // to read history is rare, and "yank to bottom on send/receive" is
+  // the expected behaviour for a 1:1 conversation.
+  useLayoutEffect(() => {
+    const el = privateListRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [privateMessages.length, selectedPartnerId]);
+
+  const handleSendPrivate = async () => {
+    if (privateSending || !projectId || !viewerId || !selectedPartnerId) return;
+    const body = privateDraft.trim();
+    if (!body) return;
+    setPrivateSending(true);
+    const { data, error } = await sendPrivateMessage({
+      projectId,
+      senderId: viewerId,
+      recipientId: selectedPartnerId,
+      body,
+    });
+    setPrivateSending(false);
+    if (error) {
+      notify?.({
+        category: 'system',
+        variant: 'error',
+        title: 'Send failed',
+        body: error.message || 'Try again in a moment.',
+        dedupeKey: `pm-send-error:${Date.now()}`,
+      });
+      return;
+    }
+    if (data) {
+      // Optimistic insert; Realtime will echo and dedupe by id.
+      setPrivateMessages((prev) => (prev.some((m) => m.id === data.id) ? prev : [...prev, data]));
+    }
+    setPrivateDraft('');
+  };
+
+  const handlePrivateKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendPrivate();
+    }
+  };
+
+  // ───── Snap-to-latest on tab activation ────────────────────────────
+  // Clicking the Team or Private tab buttons should always land the
+  // user at the freshest messages. We can't simply call
+  // `scrollToBottom()` inside the onClick handler because the target
+  // messages list may not be mounted yet (the tabs render their
+  // panels conditionally on `tab`, and React commits the new tree
+  // AFTER the click handler runs). Instead the click bumps this
+  // nonce; the effect below re-runs after every commit, by which
+  // point the listRef is guaranteed to point at the live DOM node.
+  const [scrollToLatestNonce, setScrollToLatestNonce] = useState(0);
+  useLayoutEffect(() => {
+    if (scrollToLatestNonce === 0) return undefined;
+    const doScroll = () => {
+      if (tab === 'team') {
+        const el = listRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      } else if (tab === 'private') {
+        const el = privateListRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      }
+    };
+    // Sync scroll first (immediate). Then re-run on the next
+    // animation frame and once more after 120 ms — these catch
+    // late layout changes from async content (image attachments
+    // resolving, fonts loading) that grow `scrollHeight` after
+    // the initial commit, which would otherwise leave the user
+    // above the real bottom.
+    doScroll();
+    if (tab === 'team') {
+      stickToBottomRef.current = true;
+      setIsAtBottom(true);
+      setUnreadCount(0);
+    }
+    const raf = requestAnimationFrame(doScroll);
+    const timeout = setTimeout(doScroll, 120);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timeout);
+    };
+  }, [scrollToLatestNonce, tab]);
+
+  // Sidebar Chat link → snap to latest. Two delivery channels:
+  //   1. window CustomEvent — fires when the user clicks the
+  //      sidebar Chat NavLink while ALREADY on /chat. NavLink to
+  //      the same route doesn't remount the page, so a fresh
+  //      `useLayoutEffect` on mount can't help.
+  //   2. location.state.focusLatest — fires when the click navigates
+  //      FROM a different route (CustomEvent would have dispatched
+  //      before this page mounted, so the listener wouldn't catch
+  //      it). The sidebar attaches a timestamped state on every
+  //      click; an effect keyed on that timestamp triggers the
+  //      scroll once the page is mounted and messages have rendered.
+  useEffect(() => {
+    const onFocusLatest = () => {
+      setTab('team');
+      setScrollToLatestNonce((n) => n + 1);
+    };
+    window.addEventListener('docvex:chat-focus-latest', onFocusLatest);
+    return () => window.removeEventListener('docvex:chat-focus-latest', onFocusLatest);
+  }, []);
+  const location = useLocation();
+  const focusLatestStamp = location?.state?.focusLatest;
+  useEffect(() => {
+    if (!focusLatestStamp) return;
+    setTab('team');
+    setScrollToLatestNonce((n) => n + 1);
+  }, [focusLatestStamp]);
+
+  // ───── Sticky-tab detection ────────────────────────────────────────
+  // CSS can't natively distinguish `position: sticky` in its at-rest
+  // vs pinned state, so a 1px sentinel sits in the document right
+  // above the tab bar; when the sentinel scrolls out of view, the
+  // tabs are pinned to the top of the scroll viewport. The class
+  // toggle drives the at-rest (transparent, in-frame) vs pinned
+  // (opaque, full-width) visual difference.
+  const tabsSentinelRef = useRef(null);
+  const [tabsStuck, setTabsStuck] = useState(false);
+  useEffect(() => {
+    const el = tabsSentinelRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return undefined;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        // intersectionRatio < 1 means the sentinel is no longer
+        // fully in view at the top edge → tab bar has pinned.
+        setTabsStuck(entry.intersectionRatio < 1);
+      },
+      { threshold: [0, 1] },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  // Typing indicators are rendered inside the messages list as
+  // message-shaped rows, so an appearing typer pushes content down
+  // the same way a new message would. Keep the bottom in view when
+  // the user is already pinned there. No unread-count bump here —
+  // a half-typed dot row isn't an unread "message", just a hint.
+  // Declared after the typingUsers state so the dep doesn't hit TDZ.
+  useLayoutEffect(() => {
+    if (!stickToBottomRef.current) return;
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [typingUsers.size]);
 
   useEffect(() => {
     if (!projectId || !viewerId) return undefined;
@@ -658,6 +1093,7 @@ export default function ProjectChat() {
     // The user explicitly clicked Send — yanking them to the bottom
     // is the expected behaviour.
     stickToBottomRef.current = true;
+    setIsAtBottom(true);
     setUnreadCount(0);
     // Optimistic insert — Realtime will echo and dedupe by id.
     if (data) {
@@ -721,6 +1157,18 @@ export default function ProjectChat() {
     }
   };
 
+  // "Message privately" handler for the mention right-click menu.
+  // Switches the chat to the Private tab and selects the mentioned
+  // member as the DM partner. The Private tab effect picks the new
+  // partnerId up, loads the thread, and the composer is ready to
+  // type into.
+  const handleMessagePrivately = useCallback((member) => {
+    const uid = member?.user_id;
+    if (!uid || uid === viewerId) return;
+    setSelectedPartnerId(uid);
+    setTab('private');
+  }, [viewerId]);
+
   // ───── Body rendering with mention highlights ──────────────────────
   // When the viewer is mentioned, every `@<viewer-display-name>` token
   // is replaced visually with `@me` so the reader sees themselves
@@ -728,7 +1176,7 @@ export default function ProjectChat() {
   // body in the DB still carries the original `@<name>` so other
   // members render the name they typed — the swap is purely a
   // presentation transformation on the reading client.
-  const renderBody = useCallback((msg) => {
+  const renderBody = useCallback((msg, { embedded = false } = {}) => {
     if (msg.deleted_at) {
       return <em className="chat-deleted">Message deleted</em>;
     }
@@ -758,18 +1206,41 @@ export default function ProjectChat() {
       if (occ.idx < cursor) continue; // overlapping match — skip
       if (occ.idx > cursor) parts.push(<React.Fragment key={key++}>{body.slice(cursor, occ.idx)}</React.Fragment>);
       const mentionsViewer = occ.userId === viewerId;
-      parts.push(
-        <span key={key++} className={`chat-mention${mentionsViewer ? ' is-you' : ''}`}>
-          {mentionsViewer ? '@me' : occ.token}
-        </span>
-      );
+      if (mentionsViewer) {
+        parts.push(
+          <span key={key++} className="chat-mention is-you">@me</span>
+        );
+      } else if (embedded) {
+        // Inside an OwnBubble — the parent's morph-pill reads the
+        // data-* attrs off this span to morph its tooltip between
+        // send-date and name/email. No own pill is rendered, so the
+        // user never sees 2 stacked tooltips.
+        parts.push(
+          <MentionSpan
+            key={key++}
+            token={occ.token}
+            member={memberById.get(occ.userId)}
+          />
+        );
+      } else {
+        // Non-mine bubble has no bubble-level morph-pill, so the
+        // mention carries its own hover tooltip + right-click menu.
+        parts.push(
+          <MentionPill
+            key={key++}
+            token={occ.token}
+            member={memberById.get(occ.userId)}
+            onMessagePrivately={handleMessagePrivately}
+          />
+        );
+      }
       cursor = occ.idx + occ.token.length;
     }
     if (cursor < body.length) {
       parts.push(<React.Fragment key={key++}>{body.slice(cursor)}</React.Fragment>);
     }
     return parts;
-  }, [memberById, viewerId]);
+  }, [memberById, viewerId, handleMessagePrivately]);
 
   // Quick check: does this message mention the viewer? The row gets
   // a tinted background so a message addressed to the viewer reads
@@ -820,27 +1291,55 @@ export default function ProjectChat() {
         <p className="project-scoped-subtitle">
           Conversation for <strong>{selectedProject.name}</strong>.
         </p>
-        <div className="project-chat-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'team'}
-            className={`project-chat-tab${tab === 'team' ? ' is-active' : ''}`}
-            onClick={() => setTab('team')}
-          >
-            Team
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'assistant'}
-            className={`project-chat-tab${tab === 'assistant' ? ' is-active' : ''}`}
-            onClick={() => setTab('assistant')}
-          >
-            {SparklesIcon} <span>Assistant</span>
-          </button>
-        </div>
       </header>
+      {/* Tab bar is intentionally OUTSIDE the .project-scoped-header
+          so sticky positioning has a tall enough containing block
+          (.project-chat-page) to stick within. If the bar lived
+          inside the header (whose height is just title + subtitle),
+          sticky would let it scroll out of view alongside the
+          header instead of pinning.
+          The 1 px sentinel above the bar lets an IntersectionObserver
+          flip an `is-stuck` class on the bar when the bar pins —
+          CSS can't natively detect the sticky-pinned state, so a
+          sentinel is the standard workaround. The bar transitions
+          to an opaque, full-width treatment in the stuck state. */}
+      <div className="project-chat-tabs-sentinel" ref={tabsSentinelRef} aria-hidden="true" />
+      <div
+        className={`project-chat-tabs${tabsStuck ? ' is-stuck' : ''}`}
+        role="tablist"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'team'}
+          className={`project-chat-tab${tab === 'team' ? ' is-active' : ''}`}
+          onClick={() => {
+            // setTab triggers the re-render that mounts/reveals the
+            // tab's messages list; the `tab`-change effect below
+            // handles the actual scroll once the list is in the DOM.
+            // We also bump a counter so consecutive clicks on the
+            // SAME (already-active) tab still snap to bottom — a
+            // bare setTab('team') from team would be a no-op state
+            // change and the effect wouldn't fire.
+            setTab('team');
+            setScrollToLatestNonce((n) => n + 1);
+          }}
+        >
+          Team
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'private'}
+          className={`project-chat-tab${tab === 'private' ? ' is-active' : ''}`}
+          onClick={() => {
+            setTab('private');
+            setScrollToLatestNonce((n) => n + 1);
+          }}
+        >
+          <span>Private</span>
+        </button>
+      </div>
 
       {tab === 'team' && (
         <section className="project-chat-team">
@@ -861,22 +1360,44 @@ export default function ProjectChat() {
               const author = memberById.get(msg.author_id);
               const isMine = msg.author_id === viewerId;
               const prev = i > 0 ? messages[i - 1] : null;
+              // Day-section divider — rendered before the first message
+              // of a new local day (and at the very top of the list).
+              // The bubbles themselves only carry HH:MM now, so the
+              // divider is what tells the reader which day they're
+              // looking at.
+              const showDayDivider = !prev || !isSameLocalDay(prev.created_at, msg.created_at);
               // Group consecutive messages by same author within 5
               // minutes — skip the author row for follow-ups so the
               // thread reads as a conversation, not a list of forms.
+              // A day divider breaks the grouping: the first message
+              // of a new day always gets its own meta/author row even
+              // if the author matches the previous message, since
+              // visually it's the start of a fresh section.
               const sameAuthorBlock = prev
                 && prev.author_id === msg.author_id
                 && !prev.deleted_at
                 && !msg.deleted_at
+                && !showDayDivider
                 && (new Date(msg.created_at) - new Date(prev.created_at)) < 5 * 60 * 1000;
               return (
+                <React.Fragment key={msg.id}>
+                  {showDayDivider && (
+                    <div
+                      className="project-chat-day-divider"
+                      role="separator"
+                      aria-label={formatDayLabel(msg.created_at)}
+                    >
+                      <span className="project-chat-day-divider-label">
+                        {formatDayLabel(msg.created_at)}
+                      </span>
+                    </div>
+                  )}
                 <div
-                  key={msg.id}
                   className={`project-chat-msg${isMine ? ' is-mine' : ''}${sameAuthorBlock ? ' is-follow' : ''}${msg.deleted_at ? ' is-deleted' : ''}${mentionsMe(msg) && !msg.deleted_at ? ' mentions-me' : ''}`}
                 >
                   <div className="project-chat-msg-avatar">
                     {!sameAuthorBlock && (
-                      <ChatAvatar profile={author?.profile} authorId={msg.author_id} size={32} />
+                      <ChatAvatar profile={author?.profile} authorId={msg.author_id} size={32} showStatus />
                     )}
                   </div>
                   <div className="project-chat-msg-body">
@@ -891,7 +1412,7 @@ export default function ProjectChat() {
                         <span className="project-chat-msg-author">
                           {displayName(author?.profile)}
                         </span>
-                        <span className="project-chat-msg-time">{formatTime(msg.created_at)}</span>
+                        <span className="project-chat-msg-time">{formatTimeShort(msg.created_at)}</span>
                         {msg.edited_at && !msg.deleted_at && (
                           <span className="project-chat-msg-edited">(edited)</span>
                         )}
@@ -923,123 +1444,152 @@ export default function ProjectChat() {
                           </button>
                         </div>
                       </div>
-                    ) : (
-                      <>
-                        {isMine && !msg.deleted_at ? (
-                          // Interactive own-bubble: hover style via
-                          // CSS, right-click opens the morph-pill
-                          // menu (Edit / Delete) sharing the same
-                          // toolkit the file grid uses. The bubble
-                          // also carries its own inline timestamp at
-                          // the bottom-right of the bubble.
-                          <OwnBubble
-                            msg={msg}
-                            renderBody={renderBody}
-                            formatTime={formatTime}
-                            onEdit={startEdit}
-                            onDelete={handleDelete}
-                          />
-                        ) : (
-                          // Other authors' messages OR deleted
-                          // tombstones: static bubble, no
-                          // interactions, no inline timestamp (the
-                          // time sits in the meta row above).
-                          <div className="project-chat-msg-text">
-                            <span className="project-chat-msg-text-body">{renderBody(msg)}</span>
-                          </div>
-                        )}
-                        {!msg.deleted_at && (msg.attached_file_ids || []).length > 0 && (
-                          <div className="project-chat-msg-attachments">
-                            {msg.attached_file_ids.map((fid) => {
-                              const file = fileById.get(fid);
-                              if (!file) {
-                                return (
-                                  <span key={fid} className="project-chat-attachment-card is-missing">
-                                    File no longer available
-                                  </span>
-                                );
-                              }
-                              // Same FileThumbnail + describeCloudFile
-                              // pipeline the Files page uses, so a file
-                              // shows the same poster everywhere — the
-                              // cache hits across surfaces, and any
-                              // future thumbnail improvement (DOCX
-                              // renderer, video frame slideshow, new
-                              // MIME) lands here for free.
+                    ) : (() => {
+                      // Attachments are rendered INSIDE the bubble
+                      // (own and non-mine) so an attached file reads
+                      // as part of the message, not a sibling chip
+                      // drifting below it. Computed once and threaded
+                      // into both branches.
+                      const attachments = !msg.deleted_at && (msg.attached_file_ids || []).length > 0 ? (
+                        <div className="project-chat-msg-attachments">
+                          {msg.attached_file_ids.map((fid) => {
+                            const file = fileById.get(fid);
+                            if (!file) {
                               return (
-                                <button
-                                  key={fid}
-                                  type="button"
-                                  className="project-chat-attachment-card"
-                                  onClick={() => handleAttachmentClick(file)}
-                                  title={file.name}
-                                >
-                                  <span className="project-chat-attachment-thumb">
-                                    <FileThumbnail descriptor={describeCloudFile(file)} />
-                                  </span>
-                                  <span className="project-chat-attachment-text">
-                                    <span className="project-chat-attachment-name">{file.name}</span>
-                                    <span className="project-chat-attachment-size">
-                                      {formatBytes(file.size_bytes)}
-                                    </span>
-                                  </span>
-                                </button>
+                                <span key={fid} className="project-chat-attachment-card is-missing">
+                                  File no longer available
+                                </span>
                               );
-                            })}
-                          </div>
-                        )}
-                      </>
-                    )}
+                            }
+                            // Extension tag mirrors the Files-tab card:
+                            // a "JPG" / "MP4" / "PDF" pill in the thumb's
+                            // top-right corner. The duration badge that
+                            // sits in the bottom-right for videos is
+                            // emitted by FileThumbnail itself, so as
+                            // long as the thumb is `position: relative`
+                            // the badge lands inside the rounded frame.
+                            const dot = (file.name || '').lastIndexOf('.');
+                            const ext = dot > 0 ? file.name.slice(dot + 1) : '';
+                            return (
+                              <button
+                                key={fid}
+                                type="button"
+                                className="project-chat-attachment-card"
+                                onClick={() => handleAttachmentClick(file)}
+                                title={file.name}
+                              >
+                                <span className="project-chat-attachment-thumb">
+                                  <FileThumbnail descriptor={describeCloudFile(file)} />
+                                  {ext && (
+                                    <span className="project-chat-attachment-ext" aria-hidden="true">
+                                      {ext.toUpperCase()}
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="project-chat-attachment-name">{file.name}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null;
+                      return isMine && !msg.deleted_at ? (
+                        // Interactive own-bubble: hover style via
+                        // CSS, right-click opens the morph-pill
+                        // menu (Edit / Delete) sharing the same
+                        // toolkit the file grid uses. The bubble
+                        // also carries its own inline timestamp at
+                        // the bottom-right of the bubble.
+                        <OwnBubble
+                          msg={msg}
+                          renderBody={renderBody}
+                          onEdit={startEdit}
+                          onDelete={handleDelete}
+                          onMessagePrivately={handleMessagePrivately}
+                          attachments={attachments}
+                        />
+                      ) : (
+                        // Other authors' messages OR deleted
+                        // tombstones: static bubble, no
+                        // interactions, no inline timestamp (the
+                        // time sits in the meta row above).
+                        <div className="project-chat-msg-text">
+                          <span className="project-chat-msg-text-body">{renderBody(msg)}</span>
+                          {attachments}
+                        </div>
+                      );
+                    })()}
                   </div>
                   {/* Hover edit/delete buttons are gone — the morph
                       pill that OwnBubble wires on right-click owns
                       that surface now, matching the right-click
                       menu pattern used on the file grid. */}
                 </div>
+                </React.Fragment>
               );
             })}
+            {/* Typing indicator — rendered as message-shaped rows
+                inside the messages list (after the last real message)
+                so each typer appears like an empty bubble from them,
+                matching the iMessage convention. One row per typing
+                user; same avatar + body grid as a regular message.
+                When multiple users are typing simultaneously, the
+                rows lay out side-by-side via the wrapping flex
+                container so the page doesn't grow vertically for
+                every keystroker. Realtime broadcast state is pruned
+                on a 500 ms timer; an entry expires 4 s after the
+                last keystroke. */}
+            {typingUsers.size > 0 && (
+              <div className="project-chat-typing-row" aria-live="polite">
+                {Array.from(typingUsers.keys()).map((uid) => {
+                  const member = memberById.get(uid);
+                  return (
+                    <div
+                      key={`typing-${uid}`}
+                      className="project-chat-msg project-chat-msg-typing"
+                    >
+                      <div className="project-chat-msg-avatar">
+                        <ChatAvatar profile={member?.profile} authorId={uid} size={32} showStatus />
+                      </div>
+                      <div className="project-chat-msg-body">
+                        <div className="project-chat-msg-meta">
+                          <span className="project-chat-msg-author">
+                            {displayName(member?.profile)}
+                          </span>
+                        </div>
+                        <div className="project-chat-msg-text project-chat-typing-bubble">
+                          <span className="project-chat-typing-dots" aria-hidden="true">
+                            <span></span><span></span><span></span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          <div className="project-chat-composer">
-            {/* New-messages pill — only renders when the user is
-                scrolled away from the bottom AND new messages have
-                arrived since they scrolled away. Click scrolls down
-                + clears the count. Sits above the composer, anchored
-                to it so it rides the sticky-bottom positioning. */}
-            {unreadCount > 0 && (
-              <button
-                type="button"
-                className="project-chat-new-msg-pill"
-                onClick={scrollToBottom}
-                aria-label={`Scroll to ${unreadCount} new message${unreadCount === 1 ? '' : 's'}`}
-              >
-                {unreadCount} new message{unreadCount === 1 ? '' : 's'} ↓
-              </button>
-            )}
+          {/* Scroll-back-to-latest pill — only surfaces when the user
+              is scrolled up AND new messages have arrived since they
+              scrolled away (unreadCount > 0 implies both, because the
+              count is reset on reaching the bottom and only bumped
+              while stickToBottomRef is false). Stays mounted always so
+              the slide-up / fade-in animation plays via class toggle.
+              Click → scrollToBottom snaps the list to the latest. */}
+          <button
+            type="button"
+            className={`project-chat-scroll-back-pill${unreadCount > 0 ? ' is-visible' : ''}`}
+            onClick={scrollToBottom}
+            aria-hidden={unreadCount === 0}
+            tabIndex={unreadCount === 0 ? -1 : 0}
+            aria-label="Scroll to latest messages"
+          >
+            {unreadCount > 0
+              ? `${unreadCount} new message${unreadCount === 1 ? '' : 's'} ↓`
+              : ''}
+          </button>
 
-            {/* Typing indicator — WhatsApp-style three-dot pulse with
-                a short label naming who's typing. Realtime broadcast
-                state is pruned on a 500 ms timer; an entry expires
-                4 s after the last keystroke. */}
-            {typingUsers.size > 0 && (() => {
-              const names = Array.from(typingUsers.keys())
-                .map((uid) => displayName(memberById.get(uid)?.profile))
-                .filter(Boolean);
-              if (names.length === 0) return null;
-              const label = names.length === 1
-                ? `${names[0]} is typing`
-                : names.length === 2
-                  ? `${names[0]} and ${names[1]} are typing`
-                  : `${names.length} people are typing`;
-              return (
-                <div className="project-chat-typing" aria-live="polite">
-                  <span className="project-chat-typing-dots" aria-hidden="true">
-                    <span></span><span></span><span></span>
-                  </span>
-                  <span className="project-chat-typing-text">{label}</span>
-                </div>
-              );
-            })()}
+          <div className="project-chat-composer">
 
             {/* Staged attachment chips — render above the textarea so
                 the user sees what they're about to send. Click ✕ to
@@ -1168,22 +1718,137 @@ export default function ProjectChat() {
         </section>
       )}
 
-      {tab === 'assistant' && (
-        <section className="project-chat-assistant">
-          <div className="project-chat-assistant-card">
-            <div className="project-chat-assistant-icon" aria-hidden="true">
-              {SparklesIcon}
+      {tab === 'private' && (() => {
+        // Project members other than the viewer — the list of
+        // possible DM partners. Sorted alphabetically by display
+        // name so the list reads predictably.
+        const otherMembers = (members || [])
+          .filter((m) => m.user_id !== viewerId)
+          .slice()
+          .sort((a, b) => displayName(a.profile).localeCompare(displayName(b.profile)));
+        const partner = selectedPartnerId ? memberById.get(selectedPartnerId) : null;
+        const partnerName = partner ? displayName(partner.profile) : '';
+        return (
+          <section className="project-chat-private">
+            <aside className="project-chat-private-members" aria-label="Project members">
+              {otherMembers.length === 0 && (
+                <div className="project-chat-private-empty">
+                  No other members yet. Invite someone to start a private conversation.
+                </div>
+              )}
+              {otherMembers.map((m) => (
+                <button
+                  type="button"
+                  key={m.user_id}
+                  className={`project-chat-private-member${m.user_id === selectedPartnerId ? ' is-active' : ''}`}
+                  onClick={() => setSelectedPartnerId(m.user_id)}
+                >
+                  <ChatAvatar profile={m.profile} authorId={m.user_id} size={28} showStatus />
+                  <span className="project-chat-private-member-name">
+                    {displayName(m.profile)}
+                  </span>
+                </button>
+              ))}
+            </aside>
+            <div className="project-chat-private-thread">
+              {!selectedPartnerId ? (
+                <div className="project-chat-empty">
+                  Select a member on the left to start a private conversation.
+                </div>
+              ) : (
+                <>
+                  <div className="project-chat-private-header">
+                    <ChatAvatar profile={partner?.profile} authorId={selectedPartnerId} size={32} showStatus />
+                    <span className="project-chat-private-header-name">{partnerName}</span>
+                  </div>
+                  <div
+                    className="project-chat-messages project-chat-private-messages"
+                    ref={privateListRef}
+                  >
+                    {privateLoading && privateMessages.length === 0 && (
+                      <div className="project-chat-empty">Loading…</div>
+                    )}
+                    {!privateLoading && privateMessages.length === 0 && (
+                      <div className="project-chat-empty">
+                        No messages yet. Say hi to {partnerName}.
+                      </div>
+                    )}
+                    {privateMessages.map((msg, i) => {
+                      const isMine = msg.sender_id === viewerId;
+                      const author = isMine ? null : partner;
+                      const prev = i > 0 ? privateMessages[i - 1] : null;
+                      const showDayDivider = !prev || !isSameLocalDay(prev.created_at, msg.created_at);
+                      const sameAuthorBlock = prev
+                        && prev.sender_id === msg.sender_id
+                        && !prev.deleted_at
+                        && !msg.deleted_at
+                        && !showDayDivider
+                        && (new Date(msg.created_at) - new Date(prev.created_at)) < 5 * 60 * 1000;
+                      return (
+                        <React.Fragment key={msg.id}>
+                          {showDayDivider && (
+                            <div className="project-chat-day-divider" role="separator">
+                              <span className="project-chat-day-divider-label">
+                                {formatDayLabel(msg.created_at)}
+                              </span>
+                            </div>
+                          )}
+                          <div
+                            className={`project-chat-msg${isMine ? ' is-mine' : ''}${sameAuthorBlock ? ' is-follow' : ''}${msg.deleted_at ? ' is-deleted' : ''}`}
+                          >
+                            <div className="project-chat-msg-avatar">
+                              {!sameAuthorBlock && !isMine && (
+                                <ChatAvatar profile={author?.profile} authorId={msg.sender_id} size={32} showStatus />
+                              )}
+                            </div>
+                            <div className="project-chat-msg-body">
+                              <div className="project-chat-msg-text">
+                                <span className="project-chat-msg-text-body">
+                                  {msg.deleted_at
+                                    ? <em className="chat-deleted">Message deleted</em>
+                                    : msg.body}
+                                </span>
+                                {!msg.deleted_at && (
+                                  <span className="project-chat-msg-time-inline">
+                                    {formatTimeShort(msg.created_at)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                  <div className="project-chat-composer">
+                    <div className="project-chat-composer-row">
+                      <textarea
+                        className="project-chat-input"
+                        value={privateDraft}
+                        onChange={(e) => setPrivateDraft(e.target.value)}
+                        onKeyDown={handlePrivateKeyDown}
+                        placeholder={`Message ${partnerName}…`}
+                        rows={Math.min(6, Math.max(1, (privateDraft.match(/\n/g) || []).length + 1))}
+                        disabled={privateSending}
+                        maxLength={4000}
+                      />
+                      <button
+                        type="button"
+                        className="project-chat-send"
+                        onClick={handleSendPrivate}
+                        disabled={privateSending || !privateDraft.trim()}
+                        aria-label="Send message"
+                      >
+                        {SendIcon}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-            <h2>Assistant — coming soon</h2>
-            <p>
-              A per-project conversation with Claude. Ask about the files in
-              <strong> {selectedProject.name}</strong>, get summaries, draft
-              follow-ups. Ships in a later build alongside the Anthropic SDK
-              integration.
-            </p>
-          </div>
-        </section>
-      )}
+          </section>
+        );
+      })()}
     </div>
   );
 }

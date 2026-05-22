@@ -97,6 +97,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   localFolder: {
     pick: () => ipcRenderer.invoke('local-folder:pick'),
     list: (dir) => ipcRenderer.invoke('local-folder:list', dir),
+    listRecursive: (dir) => ipcRenderer.invoke('local-folder:list-recursive', dir),
     download: (payload) => ipcRenderer.invoke('local-folder:download', payload),
     // Write raw bytes already held in the renderer (e.g. files the
     // user picked via <input type=file>) directly into the user's
@@ -106,6 +107,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     writeFiles: (payload) => ipcRenderer.invoke('local-folder:write-files', payload),
     deleteFiles: (payload) => ipcRenderer.invoke('local-folder:delete-files', payload),
     renameFile: (payload) => ipcRenderer.invoke('local-folder:rename-file', payload),
+    // Folder management — create / delete a subfolder, move an entry
+    // between folders. Local organisation only (the cloud stays flat).
+    createFolder: (payload) => ipcRenderer.invoke('local-folder:create-folder', payload),
+    deleteFolder: (payload) => ipcRenderer.invoke('local-folder:delete-folder', payload),
+    move: (payload) => ipcRenderer.invoke('local-folder:move', payload),
     openPath: (target) => ipcRenderer.invoke('local-folder:open-path', target),
     showInFolder: (target) => ipcRenderer.invoke('local-folder:show-in-folder', target),
     // Filesystem watcher — main wraps a single fs.watch handle around

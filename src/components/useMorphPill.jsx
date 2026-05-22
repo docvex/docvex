@@ -51,7 +51,7 @@ import './useMorphPill.css';
 // Falsy entries in menuItems are filtered, so callers can write
 // `[itemA, condition && itemB, itemC]` and have the conditional
 // collapse cleanly without per-render branching.
-export function useMorphPill({ hoverContent, menuItems, className = '' }) {
+export function useMorphPill({ hoverContent, menuItems, prompt, className = '' }) {
   const [pillPos, setPillPos] = useState(null);
   const [menuMode, setMenuMode] = useState(false);
   // Item currently in its confirmation step (or null). Holds the
@@ -59,15 +59,24 @@ export function useMorphPill({ hoverContent, menuItems, className = '' }) {
   // onClick to fire when the user confirms. Mutually exclusive with
   // the menu list — when this is set, the menu items aren't rendered.
   const [confirmingItem, setConfirmingItem] = useState(null);
+  // Prompt mode — a confirm panel that ALSO carries a free-text input
+  // (e.g. "reason for rejecting"). Opened directly via handleOpenPrompt
+  // (a left-click, not the right-click menu) so the tooltip morphs
+  // straight into the input panel. `prompt` config shape:
+  //   { title?, message?, placeholder?, confirmLabel?, cancelLabel?,
+  //     danger?, requireText?, onSubmit(text) }
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [promptText, setPromptText] = useState('');
+  const [promptBusy, setPromptBusy] = useState(false);
   const pillRef = useRef(null);
   const oldPillRectRef = useRef(null);
 
   const handleMouseMove = (e) => {
-    if (menuMode) return;
+    if (menuMode || promptOpen) return;
     setPillPos({ x: e.clientX, y: e.clientY });
   };
   const handleMouseLeave = () => {
-    if (menuMode) return;
+    if (menuMode || promptOpen) return;
     setPillPos(null);
   };
   const handleContextMenu = (e) => {
@@ -86,8 +95,45 @@ export function useMorphPill({ hoverContent, menuItems, className = '' }) {
   const closeMenu = () => {
     setMenuMode(false);
     setConfirmingItem(null);
+    setPromptOpen(false);
+    setPromptText('');
+    setPromptBusy(false);
     setPillPos(null);
     oldPillRectRef.current = null;
+  };
+
+  // Left-click entry into prompt mode. Morphs the (already-showing,
+  // from hover) tooltip straight into the input panel — snapshot the
+  // tooltip rect first so the FLIP effect has a "from" shape. Keeps
+  // the current cursor-anchored pillPos when present; falls back to
+  // the trigger's own rect for keyboard activation (which reports a
+  // 0,0 cursor).
+  const handleOpenPrompt = (e) => {
+    if (!prompt) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (pillRef.current) {
+      oldPillRectRef.current = pillRef.current.getBoundingClientRect();
+    }
+    const rect = e.currentTarget?.getBoundingClientRect?.();
+    const x = e.clientX || (rect ? rect.left : 0);
+    const y = e.clientY || (rect ? rect.bottom : 0);
+    setPromptText('');
+    setPromptBusy(false);
+    setPillPos((prev) => prev || { x, y });
+    setPromptOpen(true);
+  };
+
+  const handlePromptSubmit = async () => {
+    if (!prompt || promptBusy) return;
+    const text = promptText.trim();
+    if (prompt.requireText && !text) return;
+    setPromptBusy(true);
+    try {
+      await prompt.onSubmit?.(text);
+    } finally {
+      closeMenu();
+    }
   };
 
   // Click handler for an item in the menu. If the item carries a
@@ -118,7 +164,7 @@ export function useMorphPill({ hoverContent, menuItems, className = '' }) {
   // in BOTH menu and confirm modes — clicking outside the confirmation
   // is the same as Cancel; Escape too.
   useEffect(() => {
-    if (!menuMode) return undefined;
+    if (!menuMode && !promptOpen) return undefined;
     const onKey = (e) => { if (e.key === 'Escape') closeMenu(); };
     const onDown = (e) => {
       if (pillRef.current && pillRef.current.contains(e.target)) return;
@@ -133,7 +179,7 @@ export function useMorphPill({ hoverContent, menuItems, className = '' }) {
       window.removeEventListener('mousedown', onDown);
       window.removeEventListener('scroll', onScroll, true);
     };
-  }, [menuMode]);
+  }, [menuMode, promptOpen]);
 
   // Position-clamp — same recipe as the shared Tooltip: keep the pill
   // inside the viewport on both axes, snap on first mount so the CSS
@@ -158,7 +204,7 @@ export function useMorphPill({ hoverContent, menuItems, className = '' }) {
     } else {
       pill.style.transform = `translate(${x}px, ${y}px)`;
     }
-  }, [pillPos, menuMode, confirmingItem]);
+  }, [pillPos, menuMode, confirmingItem, promptOpen]);
 
   // FLIP morph — fires whenever the pill's RENDERED SHAPE changes,
   // not just on menu-mode entry. Three transitions all use the same
@@ -196,7 +242,7 @@ export function useMorphPill({ hoverContent, menuItems, className = '' }) {
     pill.style.transition = 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)';
     pill.style.transform = `translate(${tx}px, ${ty}px) scale(1, 1)`;
     oldPillRectRef.current = null;
-  }, [menuMode, confirmingItem]);
+  }, [menuMode, confirmingItem, promptOpen]);
 
   // Cancel out of the confirm step back to the menu. Snapshots the
   // CURRENT (confirm panel) rect so the reverse FLIP shrinks the
@@ -216,7 +262,71 @@ export function useMorphPill({ hoverContent, menuItems, className = '' }) {
   // distinctly while keeping the same root element so FLIP works.
   let content;
   let pillClassMod;
-  if (confirmingItem) {
+  if (promptOpen) {
+    // Reuses the confirm panel's chrome (.is-menu shell + confirm
+    // title/message/actions classes) and slots a textarea between the
+    // message and the action row.
+    pillClassMod = ' is-menu is-confirm is-prompt';
+    const p = prompt || {};
+    const isDanger = Boolean(p.danger);
+    const submitDisabled = promptBusy || (p.requireText && !promptText.trim());
+    content = (
+      // The pill is portalled, but React replays its events through the
+      // React tree — so without stopping them, clicks/keys here bubble to
+      // whatever element rendered the pill (e.g. a selectable card) and
+      // trigger its handlers. Stop click + keydown propagation so the
+      // panel behaves like the standalone dialog it looks like.
+      <div
+        className="project-files-morph-confirm project-files-morph-prompt"
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {p.title && (
+          <div className="project-files-morph-confirm-title">{p.title}</div>
+        )}
+        {p.message && (
+          <p className="project-files-morph-confirm-message">{p.message}</p>
+        )}
+        <textarea
+          className="project-files-morph-prompt-input"
+          value={promptText}
+          onChange={(e) => setPromptText(e.target.value)}
+          placeholder={p.placeholder || ''}
+          rows={3}
+          autoFocus
+          // Cmd/Ctrl+Enter submits; plain Enter stays a newline so the
+          // reason can be multi-line. Keystrokes are kept from bubbling
+          // to the host element (a Space/Enter there could toggle a
+          // selectable card behind the portal). Escape is the exception
+          // — it must propagate so the global dismiss handler closes us.
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape') e.stopPropagation();
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              e.preventDefault();
+              handlePromptSubmit();
+            }
+          }}
+        />
+        <div className="project-files-morph-confirm-actions">
+          <button
+            type="button"
+            className="project-files-morph-confirm-btn project-files-morph-confirm-btn-cancel"
+            onClick={closeMenu}
+          >
+            {p.cancelLabel || 'Cancel'}
+          </button>
+          <button
+            type="button"
+            className={`project-files-morph-confirm-btn ${isDanger ? 'project-files-morph-confirm-btn-danger' : 'project-files-morph-confirm-btn-primary'}`}
+            onClick={handlePromptSubmit}
+            disabled={submitDisabled}
+          >
+            {promptBusy ? '…' : (p.confirmLabel || 'Submit')}
+          </button>
+        </div>
+      </div>
+    );
+  } else if (confirmingItem) {
     pillClassMod = ' is-menu is-confirm';
     const c = confirmingItem.confirm || {};
     const isDanger = Boolean(confirmingItem.danger);
@@ -271,12 +381,26 @@ export function useMorphPill({ hoverContent, menuItems, className = '' }) {
     content = <span className="project-files-morph-text">{hoverContent}</span>;
   }
 
+  // Tooltip-mode pill grows visibly when hoverContent carries an
+  // explicit newline (e.g. `Sent <date>\nEdited <date>`). Fully-
+  // rounded ends (999px) only look right on a single-line pill; on
+  // 2+ lines the half-circles pinch the corners and the shape reads
+  // as a stretched stadium. Halving the radius for multi-line content
+  // lets the longer pill keep a soft-corner look without going
+  // sharp-rectangular. Driven by an `.is-multiline` modifier so the
+  // visual rule lives in CSS.
+  const isMultilineHover = !menuMode
+    && !confirmingItem
+    && typeof hoverContent === 'string'
+    && hoverContent.includes('\n');
+  const multilineMod = isMultilineHover ? ' is-multiline' : '';
+
   const node = pillPos ? createPortal(
     <div
       ref={pillRef}
-      className={`tooltip project-files-morph-pill${pillClassMod}${className ? ` ${className}` : ''}`}
-      role={confirmingItem ? 'dialog' : menuMode ? 'menu' : 'tooltip'}
-      aria-modal={confirmingItem ? 'true' : undefined}
+      className={`tooltip project-files-morph-pill${pillClassMod}${multilineMod}${className ? ` ${className}` : ''}`}
+      role={confirmingItem || promptOpen ? 'dialog' : menuMode ? 'menu' : 'tooltip'}
+      aria-modal={confirmingItem || promptOpen ? 'true' : undefined}
       // In menu mode, cursor leaving the pill dismisses it — UNLESS
       // we're in the confirm step. The confirm panel demands an
       // explicit choice (Cancel button, Esc, outside-click), so
@@ -293,8 +417,9 @@ export function useMorphPill({ hoverContent, menuItems, className = '' }) {
     handleMouseMove,
     handleMouseLeave,
     handleContextMenu,
+    handleOpenPrompt,
     closeMenu,
-    isMenuOpen: menuMode,
+    isMenuOpen: menuMode || promptOpen,
     node,
   };
 }

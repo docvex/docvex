@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useUpdates } from '../context/UpdatesContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
+import { useChatUnread } from '../context/ChatUnreadContext';
 import { useReportProblem } from '../context/ReportProblemContext';
 import { PLAN } from '../lib/plan';
 import StatusBadge from './StatusBadge';
@@ -73,25 +74,6 @@ const FilesIcon = (
   </svg>
 );
 
-const TodosIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="9 11 12 14 22 4"/>
-    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-  </svg>
-);
-
-// Two-person silhouette (Lucide "users" glyph) — reads as "people / contacts"
-// at a glance. Same stroke recipe as the other sidebar icons so it inherits
-// the nav-item color states (#888 idle, #e0e0e0 hover, #fff active, #555
-// disabled) via `currentColor`.
-const ClientsIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-    <circle cx="9" cy="7" r="4"/>
-    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-  </svg>
-);
 
 // Speech bubble for the Chat tab.
 const ChatIcon = (
@@ -100,19 +82,14 @@ const ChatIcon = (
   </svg>
 );
 
-// Sparkles for the Generate tab — reads as "AI / create".
-const GenerateIcon = (
+// Sparkles for the AI tab — reads as "AI / create". A single AI entry
+// hosts both the Generate and Automate sub-surfaces (ProjectAI.jsx
+// renders tabs internally) so the sidebar stays compact.
+const AIIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z"/>
     <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8z"/>
     <path d="M5 4l.7 1.9L7.6 6.6 5.7 7.3 5 9.2 4.3 7.3 2.4 6.6l1.9-.7z"/>
-  </svg>
-);
-
-// Lightning bolt for the Automate tab — universal "automation / workflow" glyph.
-const AutomateIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
   </svg>
 );
 
@@ -242,6 +219,10 @@ export default function Sidebar() {
   const { session } = useAuth();
   const { hasUpdate, currentVersion } = useUpdates();
   const { unreadCount } = useNotifications();
+  const { unreadCount: chatUnreadCount } = useChatUnread();
+  const chatBadge = chatUnreadCount > 0
+    ? (chatUnreadCount > 9 ? '9+' : String(chatUnreadCount))
+    : null;
   const {
     selectedProject,
     pickerOpen,
@@ -250,6 +231,7 @@ export default function Sidebar() {
     switching,
     switchingToName,
   } = useSelectedProject();
+  const navigate = useNavigate();
   const { captureAndOpen: openReportProblem, capturing: reportCapturing } = useReportProblem();
   const { pathname } = useLocation();
   // Status picker anchor — DOMRect of the clicked StatusBadge. null = closed.
@@ -285,16 +267,12 @@ export default function Sidebar() {
     try { localStorage.setItem(LOCK_STORAGE_KEY, String(locked)); } catch { /* ignore */ }
   }, [locked]);
 
-  // Project memory / AI usage card — two states:
-  //   - minimized (default): both progress bars stacked vertically with
-  //     no labels or percentages. Reads as a compact "health strip".
-  //   - maximized: each bar gets its own labeled row (title + percent)
-  //     and a "Configure" button appears below, linking to the Projects
-  //     list (/projects) for storage/AI-quota management.
-  // Toggle by clicking the card. Local state — no persistence yet; if the
-  // user wants this to survive reloads later, swap to a localStorage-
-  // backed initializer like LOCK_STORAGE_KEY above.
-  const [usageExpanded, setUsageExpanded] = useState(false);
+  // Project memory / AI usage card — a compact "health strip" of two
+  // stacked progress bars. It no longer expands in place: clicking it
+  // navigates to the selected project's Overview (Personal → Projects →
+  // [project], i.e. /projects/:id) where storage / AI-quota management
+  // lives. Hovering surfaces a tooltip whose percentages are colour-
+  // coded to match each bar.
 
   // Project-picker state (open/close, fetching the project list, Esc to
   // close) lives in ProjectPickerPanel.jsx now — the panel owns its own
@@ -452,17 +430,11 @@ export default function Sidebar() {
               </Tooltip>
             </li>
             {/* Project memory + AI usage card — only renders when a project
-                is selected. Two states:
-                  - minimized: both bars stacked tightly together with no
-                    labels (compact "health strip").
-                  - maximized: each bar gets a labeled row + percentage,
-                    plus a "Configure" button that navigates to /projects
-                    (the project list, where storage/quota management
-                    will live).
-                The whole card is clickable to toggle the state; the
-                Configure button has stopPropagation so its click does NOT
-                also collapse the card. Tooltip only surfaces in the
-                minimized state — labels are visible in the maximized one.
+                is selected. A compact "health strip" of two stacked bars.
+                Clicking it navigates to the project's Overview (Personal →
+                Projects → [project]) where storage / AI-quota management
+                lives — it no longer expands in place. The hover tooltip
+                colour-codes each percentage to match its bar.
                 Placeholder static percentages; wire to real per-project
                 storage + AI quota data when the schema lands. */}
             {selectedProject && (() => {
@@ -470,28 +442,30 @@ export default function Sidebar() {
               const memoryLimit = '5 GB';
               const aiPercent = 62;     // TODO: wire to real per-project AI quota
               const aiLimit = '10k tokens';
-              const minimizedHint =
-                `Project memory ${memoryPercent}% · AI usage ${aiPercent}% — click to expand`;
-              // Tooltip content must stay non-empty for BOTH states. When
-              // it goes empty, Tooltip short-circuits to `return children`
-              // and the trigger-wrap `<span>` disappears from the DOM —
-              // which remounts the button as a fresh element on every
-              // toggle. New elements skip CSS transitions on their first
-              // computed style, killing the morph animation.
-              const expandedHint = 'Click to collapse usage';
+              // Each percentage tinted to match its progress bar (memory =
+              // baby blue, AI = pink), so the hover pill reads at a glance.
+              // Colours come from CSS classes whose values are shared with
+              // the bar fills via :root vars (Sidebar.css).
+              const hint = (
+                <>
+                  Memory{' '}
+                  <span className="project-usage-hint-mem">{memoryPercent}%</span>
+                  {' · '}
+                  AI usage{' '}
+                  <span className="project-usage-hint-ai">{aiPercent}%</span>
+                </>
+              );
               return (
-                <li className={`project-usage-li${usageExpanded ? ' is-expanded' : ''}`}>
-                  <Tooltip content={usageExpanded ? expandedHint : minimizedHint}>
+                <li className="project-usage-li">
+                  <Tooltip content={hint}>
                     <button
                       type="button"
-                      className={`project-usage${usageExpanded ? ' is-expanded' : ''}`}
-                      onClick={() => setUsageExpanded((v) => !v)}
-                      aria-expanded={usageExpanded}
-                      aria-label={
-                        usageExpanded
-                          ? 'Collapse usage details'
-                          : `Project memory ${memoryPercent}% of ${memoryLimit}, AI usage ${aiPercent}% of ${aiLimit}. Click to expand.`
-                      }
+                      className="project-usage"
+                      onClick={() => {
+                        closePicker();
+                        navigate(`/projects/${selectedProject.id}`);
+                      }}
+                      aria-label={`Memory ${memoryPercent}% of ${memoryLimit}, AI usage ${aiPercent}% of ${aiLimit}. Open project overview.`}
                     >
                       {/* Memory row — label row ALWAYS renders so the
                           minimized → expanded morph can animate the label
@@ -510,7 +484,7 @@ export default function Sidebar() {
                             dedicated `.project-usage-label-row` rule in
                             Sidebar.css instead. */}
                         <span className="project-usage-label-row">
-                          <span className="project-usage-label">Project Memory</span>
+                          <span className="project-usage-label">Memory</span>
                           <span className="project-usage-value">{memoryPercent}%</span>
                         </span>
                         <span
@@ -582,52 +556,49 @@ export default function Sidebar() {
                 </li>
                 <li>
                   <NavLink
-                    to="/clients"
-                    className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-                    onClick={closePicker}
-                  >
-                    <span className="icon">{ClientsIcon}</span>
-                    <span className="label">Clients</span>
-                  </NavLink>
-                </li>
-                <li>
-                  <NavLink
-                    to="/todos"
-                    className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-                    onClick={closePicker}
-                  >
-                    <span className="icon">{TodosIcon}</span>
-                    <span className="label">To-dos</span>
-                  </NavLink>
-                </li>
-                <li>
-                  <NavLink
                     to="/chat"
+                    state={{ focusLatest: Date.now() }}
                     className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-                    onClick={closePicker}
+                    onClick={() => {
+                      closePicker();
+                      // Two delivery channels for "snap to latest" so
+                      // it works regardless of whether the chat page
+                      // is already mounted:
+                      //   1. CustomEvent — for same-route clicks
+                      //      (already on /chat). NavLink to the same
+                      //      route doesn't remount the page, so the
+                      //      chat page's own initial-mount auto-scroll
+                      //      can't fire — the event nudges it.
+                      //   2. Navigation `state.focusLatest` — for
+                      //      cross-route clicks (e.g. /files → /chat).
+                      //      The chat page reads location.state on
+                      //      mount and triggers the same scroll. The
+                      //      CustomEvent fires before the page mounts
+                      //      in that case, so the listener wouldn't
+                      //      catch it; state covers that gap.
+                      try {
+                        window.dispatchEvent(new CustomEvent('docvex:chat-focus-latest'));
+                      } catch { /* no-op */ }
+                    }}
                   >
-                    <span className="icon">{ChatIcon}</span>
-                    <span className="label">Chat</span>
+                    <span className="icon">
+                      {ChatIcon}
+                      {chatBadge && <span className="nav-badge" aria-hidden="true" />}
+                    </span>
+                    <span className="label nav-label-row">
+                      Chat
+                      {chatBadge && <span className="nav-badge-text">{chatBadge}</span>}
+                    </span>
                   </NavLink>
                 </li>
                 <li>
                   <NavLink
-                    to="/generate"
+                    to="/ai"
                     className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
                     onClick={closePicker}
                   >
-                    <span className="icon">{GenerateIcon}</span>
-                    <span className="label">Generate</span>
-                  </NavLink>
-                </li>
-                <li>
-                  <NavLink
-                    to="/automate"
-                    className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-                    onClick={closePicker}
-                  >
-                    <span className="icon">{AutomateIcon}</span>
-                    <span className="label">Automate</span>
+                    <span className="icon">{AIIcon}</span>
+                    <span className="label">AI</span>
                   </NavLink>
                 </li>
               </>
@@ -675,28 +646,12 @@ export default function Sidebar() {
                   <span className="icon">{FilesIcon}</span>
                   <span className="label">Files</span>
                 </button>
-                <button
-                  type="button"
-                  className="nav-item is-disabled"
-                  onClick={togglePicker}
-                >
-                  <span className="icon">{ClientsIcon}</span>
-                  <span className="label">Clients</span>
-                </button>
                 {/* Pill lives in its own component so it can own a
                     ResizeObserver that toggles `.is-multiline` when the
                     copy wraps — CSS then drops the fully-rounded
                     `border-radius: 999px` (stadium) to a softer corner
                     that reads correctly on multi-line content. */}
                 <LockedProjectsHint />
-                <button
-                  type="button"
-                  className="nav-item is-disabled"
-                  onClick={togglePicker}
-                >
-                  <span className="icon">{TodosIcon}</span>
-                  <span className="label">To-dos</span>
-                </button>
                 <button
                   type="button"
                   className="nav-item is-disabled"
@@ -710,16 +665,8 @@ export default function Sidebar() {
                   className="nav-item is-disabled"
                   onClick={togglePicker}
                 >
-                  <span className="icon">{GenerateIcon}</span>
-                  <span className="label">Generate</span>
-                </button>
-                <button
-                  type="button"
-                  className="nav-item is-disabled"
-                  onClick={togglePicker}
-                >
-                  <span className="icon">{AutomateIcon}</span>
-                  <span className="label">Automate</span>
+                  <span className="icon">{AIIcon}</span>
+                  <span className="label">AI</span>
                 </button>
               </li>
             )}

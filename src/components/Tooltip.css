@@ -21,7 +21,11 @@
      modals etc.) so the pill is never partially occluded by what it
      explains. Matches .locked-features-hint's z-index. */
   z-index: 10000;
-  /* Pill shape — fully rounded ends. */
+  /* Pill shape — fully rounded ends. Pills carrying 2+ lines of
+     content (e.g. "Sent <date>\nEdited <date>") use the
+     `.tooltip.is-multiline` override below to halve the radius;
+     fully-rounded ends only look right when the pill is one line
+     tall. */
   padding: 6px 12px;
   border-radius: 999px;
   background: var(--bg-elevated);
@@ -61,4 +65,12 @@
 @keyframes tooltip-in {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+
+/* Multi-line override — useMorphPill adds `.is-multiline` to the
+   tooltip pill when hoverContent contains a newline. Half the radius
+   reads cleanly on a 2-line pill while still feeling pill-shaped.
+   Single-line pills keep the 999px stadium ends from the base rule. */
+.tooltip.is-multiline {
+  border-radius: 12px;
 }

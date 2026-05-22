@@ -33,7 +33,7 @@ const TABLE = 'project_files';
 const SELECT_COLUMNS =
   'id, project_id, name, description, mime_type, size_bytes, storage_path, ' +
   'thumbnail_path, thumbnail_frames, duration_seconds, content_hash, ' +
-  'uploaded_by, uploaded_at';
+  'folder_path, uploaded_by, uploaded_at';
 
 // Newest-first list of files for a project. RLS gates by viewer+ via the
 // "viewers read project files" policy, so callers don't add a project-

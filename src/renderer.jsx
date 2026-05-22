@@ -10,6 +10,7 @@ import { NotificationsProvider } from './context/NotificationsContext';
 import { SelectedProjectProvider } from './context/SelectedProjectContext';
 import { UploadsProvider } from './context/UploadsContext';
 import { BranchProvider } from './context/BranchContext';
+import { ChatUnreadProvider } from './context/ChatUnreadContext';
 import NotificationCenter from './components/NotificationCenter';
 import App from './App';
 
@@ -41,7 +42,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <NotificationsProvider>
                 <UploadsProvider>
                   <BranchProvider>
-                    <App />
+                    <ChatUnreadProvider>
+                      <App />
+                    </ChatUnreadProvider>
                   </BranchProvider>
                 </UploadsProvider>
                 <NotificationCenter />

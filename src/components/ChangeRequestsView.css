@@ -825,26 +825,60 @@
   left: var(--sidebar-width, 60px);
   right: 0;
   bottom: 0;
-  overflow: hidden;
+  /* Native scroll: wheel scrolls vertically, scrollbar/drag pans. Far
+     cheaper than the old transform-pan (which re-rendered every card
+     per mousemove). `safe center` keeps the tree horizontally centred
+     when it fits, but falls back to start when it overflows so the
+     left edge stays reachable. */
+  overflow: auto;
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
   user-select: none;
   cursor: grab;
   contain: layout paint;
+  overscroll-behavior: contain;
 }
-.cr-tree-viewport.is-dragging,
-.cr-tree-viewport:active {
+.cr-tree-viewport.is-dragging {
   cursor: grabbing;
 }
 
 .cr-tree {
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: flex;
-  align-items: stretch;
-  gap: 6rem;
+  position: relative;
+  flex: none; /* keep natural size so it can overflow + scroll */
   padding: 1rem 0.5rem;
-  will-change: transform;
 }
+
+/* Nested tree layout. Each level is a flex ROW (parent card + a column
+   of children); align-items:flex-start pins the parent to the top of
+   its children, so a source sits level with the first item in its list.
+   Fixed card widths keep the three levels reading as aligned columns. */
+.cr-tree-forest {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+.cr-tree-folder-row,
+.cr-tree-file-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4rem;
+}
+.cr-tree-files-block {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+.cr-tree-versions-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.cr-tree-folder-card { flex: none; width: 240px; min-width: 240px; max-width: 240px; }
+.cr-tree-file-card   { flex: none; width: 300px; min-width: 300px; max-width: 300px; }
+.cr-tree-add-card    { flex: none; width: 320px; min-width: 320px; max-width: 320px; }
 
 .cr-tree-edges {
   position: absolute;
@@ -868,7 +902,9 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  justify-content: center;
+  /* Top-aligned (not centred) so the source of each change sits at the
+     top and its connector lines drop downward to the children. */
+  justify-content: flex-start;
   flex-shrink: 0;
 }
 
@@ -936,6 +972,19 @@
 
 /* File side carries the thumbnail; nothing else special. */
 .cr-tree-file-card { /* shared shell handles everything */ }
+
+/* Folder tier — a folder glyph + name, grouping the files beneath it. */
+.cr-tree-folder-card { /* shared shell */ }
+.cr-tree-folder-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cr-tree-folder-icon svg { width: 100%; height: 100%; }
 
 /* Version card stacks vertically: author row on top, the target
    file (with its new thumbnail) in the middle, action buttons at
@@ -1057,6 +1106,29 @@
   outline: 2px solid var(--success);
   outline-offset: 3px;
   border-color: color-mix(in srgb, var(--success) 50%, var(--border));
+}
+
+/* "New file" pill — pinned to the card's bottom-right corner. Absolute
+   so it overlays the corner without affecting the card's layout (it
+   sits clear of the bottom-left action row). Green to echo the "add"
+   change kind; reused on the brand-new-file cards in the "Files with
+   edits" column (they have no main-branch version to diff against). */
+.cr-tree-new-pill {
+  position: absolute;
+  right: 0.3rem;
+  bottom: 0.3rem;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--success);
+  border: 1px solid var(--success);
+  border-radius: 5px;
+  padding: 0.14rem 0.5rem;
+  pointer-events: none;
 }
 
 .cr-tree-version-file-text {

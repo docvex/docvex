@@ -1136,6 +1136,16 @@
    uses a baby-blue fill; the AI bar uses pink (see the
    `.project-usage-bar-fill-ai` variant below). Width transitions
    smoothly on data changes (future: live updates). */
+/* Categorical usage colours — baby blue for memory, pink for AI. Pinned
+   (not theme-adaptive) so the pairing stays consistent across themes.
+   Defined on :root so the hover tooltip — which is portalled to <body>,
+   outside .sidebar — can reuse the exact same colours for its colour-
+   coded percentages (.project-usage-hint-* below). */
+:root {
+  --usage-mem-color: #7DD3FC;
+  --usage-ai-color: #F472B6;
+}
+
 .project-usage-bar-fill {
   position: absolute;
   top: 0;
@@ -1143,19 +1153,30 @@
   bottom: 0;
   /* Baby blue — Tailwind sky-300 ish. Reads bright on the dark Ink
      surface AND pops against the Cream sidebar's near-white bg without
-     being garish. Pinned (not theme-adaptive) so the categorical
-     colour pairing with the pink AI bar is preserved in both themes. */
-  background: #7DD3FC;
+     being garish. */
+  background: var(--usage-mem-color);
   border-radius: 999px;
   transition: width 280ms ease;
 }
 
 /* AI usage variant — pink fill so the two stacked bars are
    instantly distinguishable in the minimized state without having to
-   read labels. Pinned (not theme-adaptive) so the categorical colour
-   pairing stays consistent across themes. */
+   read labels. */
 .project-usage-bar-fill-ai {
-  background: #F472B6;
+  background: var(--usage-ai-color);
+}
+
+/* Colour-coded percentages inside the hover tooltip — each % matches
+   its progress-bar colour. These class selectors match by name, so they
+   style the tooltip span even though it's portalled out of the sidebar. */
+.project-usage-hint-mem {
+  color: var(--usage-mem-color);
+  font-weight: 700;
+}
+
+.project-usage-hint-ai {
+  color: var(--usage-ai-color);
+  font-weight: 700;
 }
 
 

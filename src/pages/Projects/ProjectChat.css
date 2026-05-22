@@ -3,50 +3,128 @@
    token palette; nothing here introduces a new colour value, every
    surface reads from var(--…). */
 
+/* When the chat page is mounted, suppress .main-content's overflow
+   scrollbar. The chat page sizes itself to the viewport
+   (height: calc(100vh - 2rem) + margin-bottom: -2rem) so the
+   composer sits flush with the viewport bottom; that combination
+   can leak a hairline of overflow into .main-content and trigger a
+   secondary scrollbar that drags the composer with it. The chat's
+   own .project-chat-messages list is the only surface that should
+   scroll. */
+.main-content:has(.project-chat-page) {
+  overflow: hidden;
+}
+
 .project-chat-page {
   display: flex;
   flex-direction: column;
-  /* Use the available viewport minus the page-shell padding —
-     keeps the messages pane fluid as the window resizes. */
-  min-height: calc(100vh - 6rem);
+  /* Override the shared `.project-scoped-page` max-width: 820px so
+     the chat surface spans the full chat-area width (the area to
+     the right of the sidebar, owned by .main-content). Chat reads
+     better edge-to-edge than as an 820 px column. */
+  max-width: none;
+  width: 100%;
+  /* Override the page-level 1.25rem flex gap to zero so the tab
+     bar / messages list / etc. sit flush against each other with
+     no visible page background showing between them. */
+  gap: 0;
+  /* Page extends past the page-frame bottom padding so the composer
+     can sit flush with the viewport bottom. On project-scoped routes
+     `.main-content` has padding: 0 (via the legacy `--has-banner`
+     class), so only the page-frame's 2rem top + 2rem bottom padding
+     wraps the chat — total 4rem of vertical chrome. The -2rem
+     margin-bottom reclaims the page-frame's bottom padding; the
+     height accounts for the page-frame's top padding only. Net:
+     chat-page top at 2rem from viewport, bottom at viewport bottom. */
+  height: calc(100vh - 2rem);
+  margin-bottom: -2rem;
 }
 
+/* Tab bar — same underline pattern as the Dashboard's
+   `.project-tabs` / `.project-tab`. Inlined here (rather than reused
+   via the dashboard class names) because ProjectChat.css doesn't
+   import ProjectDashboard.css, so applying those class names would
+   yield unstyled elements on the chat / AI pages. Keeping the rules
+   identical in shape ensures the three tab bars (Dashboard, Chat,
+   AI) read as the same component visually. */
 .project-chat-tabs {
-  display: inline-flex;
-  margin-top: 1rem;
-  padding: 3px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  gap: 2px;
-  align-self: flex-start;
+  display: flex;
+  gap: 0;
+  /* Spacing to the header above is owned by `.project-chat-page`'s
+     flex `gap: 0.25rem`; no extra margin-top needed here so the tab
+     bar sits tight against the title + subtitle block. */
+  margin-top: 0;
+  border-bottom: 1px solid var(--border);
+  /* Sticky to the top of the scroll container (.main-content) so the
+     tab bar pins itself once the user scrolls past the page header.
+     The bar lives as a direct child of `.project-chat-page` (NOT
+     inside `.project-scoped-header`); sticky only sticks within its
+     containing block, so a short header parent would let the bar
+     scroll out of view alongside the title. */
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  /* At-rest: transparent bg so the page background reads through.
+     `transition: background, margin` lets the pinned state's
+     opaque-fill + full-width slide-out animate in smoothly. */
+  background: transparent;
+  transition: background 160ms ease, margin 160ms ease, padding 160ms ease;
+}
+
+/* 1 px sentinel placed just above the tab bar in the JSX. A
+   IntersectionObserver flips `tabsStuck` when this element scrolls
+   out of view, which adds `.is-stuck` to the bar below. Without the
+   sentinel, CSS has no way to distinguish a sticky element's
+   at-rest position from its pinned position. */
+.project-chat-tabs-sentinel {
+  width: 100%;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+
+/* Pinned state — opaque so messages scrolling underneath can't
+   bleed through, and the bar stretches `2rem` wider on each side
+   so it spans the full `.main-content` width. Horizontal padding
+   is zeroed in this state so the Team / Private buttons sit flush
+   with the new (wider) bar edges instead of staying anchored to
+   the page-frame's inner column. */
+.project-chat-tabs.is-stuck {
+  background: var(--bg-page);
+  margin-left: -2rem;
+  margin-right: -2rem;
+  padding-left: 0;
+  padding-right: 0;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--bg-page) 60%, transparent);
 }
 
 .project-chat-tab {
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.5rem;
   background: transparent;
-  border: 0;
-  border-radius: 999px;
-  padding: 5px 14px;
-  font: inherit;
-  font-size: 0.82rem;
-  font-weight: 600;
+  border: none;
+  /* -1px bottom margin pulls the active underline down on top of the
+     strip's baseline border so they merge into one indicator. */
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
   color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 500;
+  padding: 0.7rem 1rem;
   cursor: pointer;
-  transition: background 140ms, color 140ms;
+  transition: color 150ms, border-color 150ms;
 }
 
-.project-chat-tab:hover {
-  color: var(--text-primary);
+.project-chat-tab:hover:not(.is-active) {
+  color: var(--text-secondary);
 }
 
 .project-chat-tab.is-active {
-  background: var(--bg-card);
   color: var(--text-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  border-bottom-color: var(--accent);
 }
 
 /* ─── Team chat surface ─────────────────────────────────────────── */
@@ -55,20 +133,183 @@
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
-  margin-top: 1rem;
   min-height: 0;
+  /* Positioning context for the scroll-back-to-latest pill — that
+     button is absolutely-positioned just above the composer and
+     anchors to this container. */
+  position: relative;
+}
+
+/* "Viewing older messages" pill — sits above the composer when the
+   user has scrolled away from the latest. Stays mounted always so
+   the slide-up / fade-in animates via class toggle rather than
+   remounting (smooth, no flash). In the at-rest state (visible) it
+   sits a comfortable gap above the composer; in the hidden state it
+   translates down BEHIND the composer and fades out, giving the
+   visual impression of sliding out from under the input field when
+   it returns. */
+.project-chat-scroll-back-pill {
+  position: absolute;
+  /* Anchor 5rem above the chat-team's bottom edge — comfortably
+     above the composer (whose height is ~48-60px). */
+  bottom: 5rem;
+  left: 50%;
+  z-index: 6;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 18px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  /* Hidden state: shifted DOWN by more than the composer's height
+     so the pill is fully tucked behind / below the input field at
+     rest. The slide-up animation reveals it. */
+  transform: translate(-50%, 6rem);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease-out;
+}
+
+.project-chat-scroll-back-pill.is-visible {
+  transform: translate(-50%, 0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.project-chat-scroll-back-pill:hover {
+  background: var(--bg-card);
+  border-color: var(--border-strong);
+}
+
+/* ─── Private (DM) surface ──────────────────────────────────────────
+   Two-pane layout: a fixed-width column of project members on the
+   left, the active thread + composer on the right. Reuses the
+   `.project-chat-messages` / `.project-chat-msg-*` rules from the
+   Team surface so a DM bubble looks identical to a Team bubble. */
+.project-chat-private {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.project-chat-private-members {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow-y: auto;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.project-chat-private-empty {
+  padding: 1rem 0.6rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.project-chat-private-member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.86rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms, border-color 120ms;
+}
+
+.project-chat-private-member:hover:not(.is-active) {
+  background: var(--bg-elevated);
+}
+
+.project-chat-private-member.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.project-chat-private-member-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-chat-private-thread {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.project-chat-private-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.project-chat-private-header-name {
+  font-size: 0.94rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.project-chat-private-messages {
+  /* Inherits the base .project-chat-messages scroll / spacing rules.
+     Extra padding-right gives the scrollbar a small breathing gap so
+     it doesn't sit flush against the right edge of the panel. */
+  padding-right: 4px;
 }
 
 .project-chat-messages {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 1rem 0.25rem;
+  /* Stop a scroll-end from chaining into any ancestor scroller —
+     belt-and-braces with the .main-content overflow override above. */
+  overscroll-behavior: contain;
+  /* Horizontal margin pulls the messages list out by 2rem on each
+     side — the same value as the `.project-page-frame` padding it
+     lives inside — so the messages list spans the full .main-content
+     width edge-to-edge. Generous horizontal padding gives the
+     bubbles breathing room from the edges and the scrollbar
+     gutter. */
+  margin: 0 -2rem;
+  padding: 0 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  /* Tight gap between message rows — the row's own padding
+     contributes the bulk of the breathing space, so a 0 px flex
+     gap keeps successive bubbles close. */
+  gap: 0;
   /* Custom scrollbar to match the brand surface. */
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
+  /* Transparent background so the page's cursor-spotlight + dot grid
+     paints through the messages area. */
+  background: transparent;
 }
 
 .project-chat-empty {
@@ -78,13 +319,55 @@
   font-size: 0.88rem;
 }
 
+/* ─── Day divider ──────────────────────────────────────────────────
+   Sits between consecutive messages whose created_at falls on
+   different local days. A subtle hairline rule on both sides of a
+   centred day label (Today / Yesterday / weekday / Mon 5). The label
+   has its own background so the rule visually breaks at the text,
+   reading as a single horizontal divider with a tag punched through
+   it rather than a busy two-column layout. */
+.project-chat-day-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 12px 8px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+  user-select: none;
+}
+
+.project-chat-day-divider::before,
+.project-chat-day-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.project-chat-day-divider-label {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.66rem;
+}
+
 /* ─── Individual message ────────────────────────────────────────── */
 
 .project-chat-msg {
   display: grid;
   grid-template-columns: 40px 1fr auto;
   gap: 8px;
-  padding: 6px 10px;
+  /* Tight vertical padding (~1.5× the minimum-flush value) so
+     consecutive bubbles still read as a continuous conversation
+     but borders don't visually touch. Horizontal padding stays
+     generous so the message content keeps clear of the row edges. */
+  padding: 3px 10px;
   border-radius: 8px;
   position: relative;
   /* No row-level hover background — the hover signal lives on the
@@ -94,13 +377,13 @@
      stretching across empty whitespace beside the bubble. */
 }
 
-/* Follow-up rows: tighter top padding, no avatar/meta block. The
-   author column stays so the body text aligns with the previous
-   message's body. */
-.project-chat-msg.is-follow {
-  padding-top: 1px;
-  padding-bottom: 1px;
-}
+/* Follow-up rows previously had tighter top/bottom padding (1 px)
+   so messages from the same author within 5 minutes hugged each
+   other. That has been removed at the user's request — every
+   message now shares the same vertical rhythm regardless of who
+   sent it or when. The `.is-follow` class is still applied by the
+   JSX so the avatar / meta-row suppression for same-author runs
+   stays in effect, but the visual gap is uniform across the list. */
 
 .project-chat-msg-avatar {
   display: flex;
@@ -116,6 +399,19 @@
   border-radius: 50%;
   overflow: hidden;
   background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+
+/* Wrap around an avatar + status indicator pair. The avatar itself
+   clips to a circle via `overflow: hidden`, which would also clip the
+   StatusBadge; the wrap is position-relative so the badge can sit
+   absolutely-positioned on the bottom-right corner OUTSIDE the
+   circle's clip. Same pattern Sidebar's AccountAvatar uses. */
+.chat-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
@@ -165,12 +461,34 @@
   font-size: 0.74rem;
 }
 
+/* Default (non-mine) bubble — left-aligned, subtle neutral fill so
+   incoming messages read as discrete bubbles rather than free-floating
+   text against the page background. Mirrors the own-bubble's
+   asymmetric radius but with the tail on the LEFT (the author's
+   avatar side). Inline-block sizing makes it shrink to its content
+   like the own bubble does; align-self at the body level keeps the
+   bubble hugged to the left edge of the row. */
 .project-chat-msg-text {
+  display: inline-block;
+  align-self: flex-start;
+  max-width: 75%;
+  padding: 8px 12px 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 12px 4px;
   font-size: 0.92rem;
   line-height: 1.5;
   color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Deleted tombstone — drop the bubble framing so the muted "Message
+   deleted" italic doesn't look like an actual message. */
+.project-chat-msg.is-deleted .project-chat-msg-text {
+  background: transparent;
+  border-color: transparent;
+  padding: 0;
 }
 
 /* ─── Own messages — right-aligned bubble ───────────────────────────
@@ -192,7 +510,16 @@
 }
 
 .project-chat-msg.is-mine .project-chat-msg-body {
+  /* Push everything inside the body to the right edge of the row.
+     align-items handles flex children that DON'T set their own
+     align-self (the meta row, the edit form); the bubble itself
+     is inline-flex with intrinsic sizing, so flex-end on the
+     parent's cross-axis is what makes it hug the right side.
+     justify-content + text-align reinforce the alignment for any
+     descendant that flows as block content. */
   align-items: flex-end;
+  justify-content: flex-end;
+  text-align: right;
 }
 
 .project-chat-msg.is-mine .project-chat-msg-meta {
@@ -207,6 +534,10 @@
   display: inline-flex;
   flex-direction: column;
   align-items: stretch;
+  /* Override the base `.project-chat-msg-text` rule's flex-start
+     align-self so the own bubble snaps to the right edge of the
+     body column instead of the left. */
+  align-self: flex-end;
   max-width: 75%;
   padding: 8px 12px 6px;
   background: color-mix(in srgb, var(--accent) 18%, transparent);
@@ -215,10 +546,10 @@
      "speaker" (right side, where your avatar would be) is cropped
      so the bubble reads as pointing back to you. */
   border-radius: 12px 12px 4px 12px;
-  /* Body text stays left-aligned INSIDE the bubble even though the
-     bubble itself sits at the right edge of the row — keeps long
-     paragraphs readable. */
-  text-align: left;
+  /* Body text aligned right inside the bubble — mirrors the
+     right-aligned bubble position so the message reads as
+     "outgoing" end-to-end. */
+  text-align: right;
   transition: background 140ms, border-color 140ms;
   /* The bubble owns its own right-click via the morph pill — hint at
      the context-menu affordance with the matching cursor. */
@@ -307,6 +638,25 @@
   color: var(--accent);
 }
 
+/* Interactive variant — applied to mentions of OTHER members (every
+   token except the viewer's own @me). Hover paints a soft accent-
+   tinted pill behind the token so it reads as clickable; cursor
+   switches to context-menu since right-click is the action surface.
+   The base .chat-mention styling is unchanged, so messages on the
+   reading client still look identical at rest. */
+.chat-mention-interactive {
+  cursor: context-menu;
+  padding: 1px 4px;
+  margin: 0 -2px;
+  border-radius: 6px;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.chat-mention-interactive:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-hover, var(--accent));
+}
+
 /* Message that mentions the viewer — the BUBBLE itself gets a
    shimmering accent wash so a message addressed to the viewer
    reads as "for you" while scrolling, without spreading the
@@ -335,6 +685,13 @@
   background-size: 300% 100%;
   animation: project-chat-mention-pan 8s ease-in-out infinite;
 }
+
+/* Non-mine mentions-me — the base `.project-chat-msg-text` rule now
+   provides the bubble framing (padding, border, radius), so this
+   selector only needs to override the resting neutral fill with the
+   shimmering accent gradient defined in the more-general
+   `.mentions-me .project-chat-msg-text` rule above. No extra
+   per-property overrides necessary. */
 
 /* Hover on a mention-me bubble shouldn't overwrite the gradient —
    replace the resting accent tint with a slightly stronger gradient
@@ -369,36 +726,177 @@
   min-width: 140px;
 }
 
-/* ─── Attachments under a message ───────────────────────────────── */
-
+/* ─── Attachments INSIDE the message bubble ─────────────────────────
+   Cards reuse the Files-tab tile look: portrait card (2:3 aspect),
+   thumb on top with a bordered frame, centred filename below. Same
+   visual recipe as `.project-files-card` so a file attached in chat
+   reads as the same object the Files page renders. The KB size text
+   has been removed at the user's request — name + thumb are enough
+   when the file is in a chat context. */
 .project-chat-msg-attachments {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 2px;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 .project-chat-attachment-card {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 120px;
   appearance: none;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 6px 12px 6px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 6px 6px 8px;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   color: var(--text-primary);
   cursor: pointer;
-  max-width: 300px;
-  text-align: left;
-  transition: background 140ms, border-color 140ms;
+  text-align: center;
+  transition: background 120ms, border-color 120ms, transform 100ms;
 }
 
 .project-chat-attachment-card:hover {
-  background: var(--bg-elevated);
-  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.project-chat-attachment-card:active {
+  transform: scale(0.99);
+}
+
+/* Square thumb, centred horizontally inside the card. Fixed size
+   (rather than stretching to the card's full width) keeps the
+   image readable on small attachment tiles and reads as a thumbnail
+   sitting on the tile rather than filling its frame. */
+.project-chat-attachment-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 96px;
+  height: 96px;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.project-chat-attachment-thumb img,
+.project-chat-attachment-thumb video,
+.project-chat-attachment-thumb canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Extension tag — anchored to the top-right of the thumb, same
+   visual recipe as the Files-tab `.project-files-ext`. Padding +
+   font-size shaved slightly because the chat thumb (96 px) is
+   smaller than the Files-tab tile, and the Files-tab proportions
+   would otherwise crowd the thumb's corner. */
+.project-chat-attachment-ext {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* Duration badge — FileThumbnail emits
+   `<span class="project-files-duration">M:SS</span>` for any
+   descriptor with a duration_seconds. The full styling has to live
+   here in ProjectChat.css because the base rule is defined in
+   ProjectFiles.css, which the chat page does NOT import — so
+   without these rules the badge would render as plain inline text
+   inside the thumb's flex flow (which is what produced the
+   "0:0 / 5" two-line render before this fix).
+   Pinned to the bottom-right with a dark pill matching the
+   extension tag in the top-right, so a video shows both badges
+   on opposing corners. */
+.project-chat-attachment-thumb .project-files-duration {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  /* Bubble's word-break: break-word cascades to descendants; nowrap +
+     overflow-wrap: normal breaks that cascade so "0:05" stays on a
+     single line. */
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* MIME-glyph fallback (no poster available — e.g. raw DOCX before
+   its thumbnail resolves, or a file type without a rendered preview).
+   Mirrors the Files-tab `.project-files-icon` recipe: the icon
+   fills 40% of the thumb so the symbol reads at a glance but
+   doesn't crowd the rounded frame. Without these rules the bare
+   <span> wrapper from FileThumbnail's ThumbGlyph would size to the
+   icon's intrinsic width and float in the top-left corner of the
+   thumb. */
+.project-chat-attachment-thumb .project-files-icon {
+  width: 40%;
+  height: 40%;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.project-chat-attachment-thumb .project-files-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.project-chat-attachment-name {
+  /* -webkit-box + line-clamp gives a true 2-line clamp with an
+     ellipsis at the end of line 2 if content overflows. The
+     `overflow-wrap: anywhere` is critical: filenames frequently
+     contain underscore- or hyphen-joined words ("masina_daune.jpg")
+     that browsers treat as one unbreakable token by default — without
+     a forced break the text would stay on one line and get clipped
+     mid-word instead of wrapping. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.25;
+  text-align: center;
 }
 
 .project-chat-attachment-card.is-missing {
@@ -406,51 +904,6 @@
   color: var(--text-muted);
   font-style: italic;
   padding: 6px 12px;
-}
-
-/* Thumbnail slot — same square-poster aesthetic as the Files page
-   cards, just shrunken. FileThumbnail fills the slot via 100%/100%
-   inside; the slot itself owns the radius + crop so a tall poster
-   doesn't bleed outside the rounded corners. */
-.project-chat-attachment-thumb {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  background: var(--bg-elevated);
-  border-radius: 6px;
-  overflow: hidden;
-  color: var(--text-muted);
-}
-
-.project-chat-attachment-thumb > * {
-  width: 100%;
-  height: 100%;
-}
-
-/* Text column next to the thumb. Stacks name above size; both lines
-   stay on a single row each via white-space:nowrap + ellipsis. */
-.project-chat-attachment-text {
-  display: inline-flex;
-  flex-direction: column;
-  min-width: 0;
-  gap: 2px;
-}
-
-.project-chat-attachment-name {
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 200px;
-}
-
-.project-chat-attachment-size {
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
 }
 
 /* ─── Hover actions on own messages ─────────────────────────────── */
@@ -558,25 +1011,29 @@
 /* ─── Composer ──────────────────────────────────────────────────── */
 
 .project-chat-composer {
-  /* Sticky-bottom: when the messages list overflows, the composer
-     pins to the bottom of the scroll viewport (.main-content owns
-     the scrolling) and the messages scroll behind it. On short
-     threads where the content fits in view, the composer sits at
-     its natural position which is already at the bottom of the
-     page area — same visual result either way.
-     z-index keeps it above the messages so a long line scrolling
-     up behind the composer can't bleed through. */
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
+  /* Plain flex child at the bottom of `.project-chat-team` (a flex
+     column with the messages list as `flex: 1 1 auto` above). The
+     composer sits immediately below the messages list with zero
+     gap, regardless of its own height. `flex-shrink: 0` keeps the
+     composer at its natural height even when the messages list
+     grows. Combined with `.project-chat-page`'s negative
+     margin-bottom, this dock lands flush against the viewport
+     bottom. */
+  flex-shrink: 0;
   padding: 8px 10px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  margin-top: 8px;
+  /* Top corners rounded so the dock reads as a separate floating
+     pane from the messages list above; bottom corners squared off
+     since the dock meets the viewport edge there — a curve would
+     just expose a sliver of page background through the cut-away. */
+  border-radius: 12px 12px 0 0;
+  /* Horizontal margin pulls the composer out to align with the
+     messages list (which uses the same negative margin) so the
+     dock spans the full `.main-content` width. */
+  margin: 0 -2rem;
   /* Soft lift via shadow so the composer reads as a floating dock
-     rather than a flat extension of the messages list, especially
-     when content is scrolling underneath it. */
+     rather than a flat extension of the messages list. */
   box-shadow: 0 -2px 12px color-mix(in srgb, var(--bg-page) 60%, transparent);
 }
 
@@ -895,24 +1352,54 @@
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-/* ─── Typing indicator (WhatsApp-style three-dot pulse) ─────────────
-   Sits at the top of the composer container above the textarea row.
-   Three dots fade in/out in sequence; the keyframes are intentionally
-   short (1.4 s cycle) and the dots are small (5 px) so the indicator
-   feels alive without being distracting. */
-.project-chat-typing {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 10px 4px 4px;
-  margin-bottom: 6px;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  font-style: italic;
-  /* Aligned LEFT so the indicator reads as "someone over there is
-     responding" — opposite side from the user's own right-aligned
-     bubble pattern. */
+/* ─── Typing indicator (rendered as a message-shaped row) ──────────
+   Each typing user gets a row inside .project-chat-messages with the
+   same avatar + body grid as a regular message; the body holds a
+   small bubble containing the three-dot pulse. Matches the iMessage
+   convention where you see the other person's avatar with a pulsing
+   bubble while they're composing. Keyframes for the dots themselves
+   are below — 1.4 s cycle, 5 px dots, intentionally subtle. */
+.project-chat-typing-bubble {
   align-self: flex-start;
+  display: inline-block;
+  padding: 2px 0;
+  background: transparent;
+  border: 0;
+  /* Hide the default block stretching that .project-chat-msg-text
+     inherits for non-mine messages — the bubble only needs to be as
+     wide as the dots. */
+  max-width: max-content;
+}
+
+/* Whole row fades so the typing indicator reads as "transient
+   activity, not content". Opacity covers the avatar, the author
+   label, and the dots together so the row visually recedes as one
+   object instead of every piece needing its own background tweak. */
+.project-chat-msg.project-chat-msg-typing {
+  opacity: 0.6;
+}
+
+/* Multi-typer container — when more than one user is composing
+   simultaneously, the rows lay out HORIZONTALLY so the messages
+   list doesn't grow a tall stack of typing indicators. Each
+   `.project-chat-msg` inside collapses to its content width
+   (overriding the default block-row layout) and wraps to the next
+   line when the available width runs out. */
+.project-chat-typing-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  align-items: flex-start;
+}
+
+.project-chat-typing-row .project-chat-msg.project-chat-msg-typing {
+  /* Override the messages-list grid layout (1fr columns that span
+     the full row) so each typer occupies only its intrinsic width
+     and several can sit side by side. */
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: auto;
 }
 
 .project-chat-typing-dots {

@@ -25,6 +25,7 @@ const ProjectTodos = lazy(() => import('./pages/Projects/ProjectTodos'));
 const ProjectChat = lazy(() => import('./pages/Projects/ProjectChat'));
 const ProjectGenerate = lazy(() => import('./pages/Projects/ProjectGenerate'));
 const ProjectAutomate = lazy(() => import('./pages/Projects/ProjectAutomate'));
+const ProjectAI = lazy(() => import('./pages/Projects/ProjectAI'));
 const InviteAccept = lazy(() => import('./pages/Projects/InviteAccept'));
 
 // Shared full-screen spinner. Re-uses the `.spinner` class from Sidebar.css
@@ -140,6 +141,11 @@ export default function App() {
             <Route path="chat" element={<ProjectChat />} />
             <Route path="generate" element={<ProjectGenerate />} />
             <Route path="automate" element={<ProjectAutomate />} />
+            {/* Unified AI surface: a single sidebar entry hosts both
+                Generate and Automate as internal tabs. The standalone
+                /generate and /automate routes are kept above so any
+                existing bookmark / deep-link still resolves. */}
+            <Route path="ai" element={<ProjectAI />} />
           </Route>
         </Route>
       </Routes>

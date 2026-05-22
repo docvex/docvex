@@ -25,13 +25,23 @@ npm run release:major     # bump (x+1).0.0
 npm run release:status    # show working-tree status + last commit
 
 # release:* scripts run preversion (fail if dirty), `version` (sync README +
-# rebuild web bundle into docs/app/), and postversion
-# (git push --follow-tags && electron-forge publish &&
-#  node scripts/generate-release-notes.mjs). The notes script summarises
-# commits since the previous tag via the `claude` CLI and PATCHes the draft
-# release body — best-effort, never fails the release. After publish, the draft
-# release on GitHub must still be manually published for update.electronjs.org
-# to surface it.
+# rebuild web bundle into docs/app/), and postversion which delegates to
+# scripts/post-release.mjs. That orchestrator runs each step independently
+# (a failure in one doesn't skip the rest):
+#   1. git push --follow-tags
+#   2. electron-forge publish     → uploads Win Setup.exe + nupkg to a draft
+#                                   release on GitHub
+#   3. publish-mac-zips           → cross-platform packages the .app bundles
+#                                   and uploads the two darwin zips
+#   4. generate-release-notes     → summarises commits via the `claude` CLI
+#                                   and PATCHes the release body (best-effort)
+#   5. finalize-release           → PATCHes draft=false and rebinds tag_name
+#                                   from GitHub's "untagged-<sha>" placeholder
+#                                   to v<version>, so /releases/download/v<x>/*
+#                                   resolves and update.electronjs.org starts
+#                                   serving the new version. Needs GITHUB_TOKEN;
+#                                   if unset or it fails, publish the draft
+#                                   manually on github.com as a fallback.
 ```
 
 No tests, no linter (`npm run lint` is a stub).

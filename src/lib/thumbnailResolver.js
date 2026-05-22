@@ -50,7 +50,7 @@
 //   • Single in-flight Promise per contentKey — two cards mounting at
 //     once share one network round-trip + one regen pass.
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createSignedDownloadUrl } from './projectFiles';
 import { createPendingSignedUrl } from './branches';
 import { generateThumbnail } from './thumbnails';
@@ -83,6 +83,19 @@ function _remember(key, url) {
     }
   }
   _cache.set(key, url);
+}
+
+// Evict a single contentKey (revoking a blob URL if present) so the
+// next resolution re-signs from scratch. Used when an <img> built from
+// a cached — possibly expired — signed URL fails to load.
+function _evict(key) {
+  if (!key) return;
+  const old = _cache.get(key);
+  if (old && old.startsWith('blob:')) {
+    try { URL.revokeObjectURL(old); } catch { /* ignore */ }
+  }
+  _cache.delete(key);
+  _inflight.delete(key);
 }
 
 // Public eviction for debug menus / sign-out hooks. Idempotent.
@@ -287,10 +300,17 @@ export function useThumbnail(descriptor) {
   const [posterUrl, setPosterUrl] = useState(() => (key ? _cache.get(key) || null : null));
   const [loading, setLoading] = useState(() => Boolean(key) && !_cache.has(key));
   const [errored, setErrored] = useState(false);
-  // Track the descriptor identity so a fast swap (scroll, tab switch)
-  // doesn't write a stale resolution into the new descriptor's slot.
-  const descriptorRef = useRef(descriptor);
-  descriptorRef.current = descriptor;
+  // Bumping this forces a fresh resolution for the current key — see
+  // `reload` below (called when a painted thumbnail fails to load).
+  const [retryTick, setRetryTick] = useState(0);
+
+  // Drop the cached (likely expired) URL for this key and re-resolve.
+  // The component's onError calls this when an <img> fails to load.
+  const reload = useCallback(() => {
+    if (!key) return;
+    _evict(key);
+    setRetryTick((t) => t + 1);
+  }, [key]);
 
   useEffect(() => {
     if (!descriptor || !key) {
@@ -313,16 +333,24 @@ export function useThumbnail(descriptor) {
     setLoading(true);
     setErrored(false);
     resolveOnce(descriptor).then((url) => {
-      if (cancelled || descriptorRef.current !== descriptor) return;
+      // Only `cancelled` guards the write. It flips in this effect's
+      // cleanup, which runs whenever `key` changes (or on unmount), so a
+      // finished resolution always belongs to the CURRENT contentKey. We
+      // deliberately do NOT compare descriptor object identity: the memo
+      // upstream rebuilds the descriptor (same contentKey) whenever a
+      // Realtime echo or refetch hands down a fresh file object, and
+      // discarding the result in that case left thumbnails stuck on
+      // their glyph.
+      if (cancelled) return;
       setPosterUrl(url || null);
       setLoading(false);
       setErrored(!url);
     });
     return () => { cancelled = true; };
-    // Resolve depends on the descriptor's content but cache-keys on
-    // contentKey, so contentKey is the canonical dep.
+    // Resolve reads the descriptor's content but cache-keys on
+    // contentKey, so contentKey (+ the manual retry tick) are the deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, retryTick]);
 
-  return { posterUrl, loading, errored };
+  return { posterUrl, loading, errored, reload };
 }

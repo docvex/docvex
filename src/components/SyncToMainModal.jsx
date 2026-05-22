@@ -116,7 +116,9 @@ export default function SyncToMainModal({
             const { data, error: signErr } = await createSignedDownloadUrl(it.cloud.storage_path, 600);
             if (signErr || !data?.signedUrl) return null;
             const filename = (it.cloud.storage_path || '').split('/').pop() || it.cloud.name;
-            return { url: data.signedUrl, filename };
+            // subdir = the cloud file's folder_path so the download
+            // recreates the team's folder structure locally.
+            return { url: data.signedUrl, filename, subdir: it.targetFolder || it.cloud.folder_path || '' };
           }),
         );
         const filesPayload = signed.filter(Boolean);

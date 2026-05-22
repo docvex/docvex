@@ -208,13 +208,14 @@
    hierarchy. The bottom border doubles as a continuation of the
    active-tab underline across the row, giving the strip a clean
    "rails" feel. */
+/* Tab bar — same recipe as the Dashboard's `.project-tabs` /
+   `.project-tab` and the Chat / AI page's `.project-chat-tabs`. All
+   three project surfaces share the underline-style tab bar so the
+   navigation chrome reads as consistent across the app. */
 .project-files-tabs {
   display: flex;
-  align-items: stretch;
-  gap: 0.2rem;
+  gap: 0;
   border-bottom: 1px solid var(--border);
-  /* Page-level gap is 1.25rem so the tab strip already breathes from
-     the header above; no extra margin needed here. */
 }
 
 .project-files-tab {
@@ -223,23 +224,21 @@
   gap: 0.5rem;
   background: transparent;
   border: none;
-  /* 2px transparent underline that flips to accent when active. The
-     negative margin-bottom overlaps the strip's bottom border so the
-     active underline visually replaces it, not stacks on top. */
-  border-bottom: 2px solid transparent;
+  /* -1px bottom margin pulls the active underline onto the strip's
+     baseline border so the two merge into one indicator. */
   margin-bottom: -1px;
-  padding: 0.55rem 1rem;
+  border-bottom: 2px solid transparent;
+  padding: 0.7rem 1rem;
   font-family: inherit;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   cursor: pointer;
-  transition: color 150ms, border-color 150ms, background 150ms;
+  transition: color 150ms, border-color 150ms;
 }
 
-.project-files-tab:hover {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--bg-elevated) 50%, transparent);
+.project-files-tab:hover:not(.is-active) {
+  color: var(--text-secondary);
 }
 
 .project-files-tab.is-active {
@@ -1118,6 +1117,132 @@
   width: 100%;
   height: 100%;
 }
+
+/* ── Folders (My-branch local organisation) ──────────────────────────
+   Breadcrumb + New-folder bar sits above the grid; folder tiles reuse
+   the file-card shell with a folder glyph instead of a thumbnail. */
+.project-files-folderbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.project-files-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.project-files-crumb {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 0.2rem 0.5rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.project-files-crumb:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.project-files-crumb.is-current { color: var(--text-primary); cursor: default; }
+
+.project-files-crumb-sep {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  user-select: none;
+}
+
+/* Right-click-the-background menu — "Make new folder" / "Import". */
+.project-files-bg-menu {
+  position: fixed;
+  z-index: 2000;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  /* Pop in from the cursor corner — quick scale + fade so the menu
+     feels anchored to where the user clicked. */
+  transform-origin: top left;
+  animation: project-files-bg-menu-in 130ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes project-files-bg-menu-in {
+  from { opacity: 0; transform: scale(0.9) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.project-files-bg-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.55rem 0.8rem;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 120ms;
+}
+.project-files-bg-menu-item:hover,
+.project-files-bg-menu-item:focus-visible {
+  background: var(--bg-elevated);
+  outline: none;
+}
+
+/* Folder tile — no framed thumbnail background (unlike file cards): just
+   a large folder glyph floating on the grid. Empty folders render the
+   outline glyph, folders with contents the filled one (set in JSX). */
+.project-files-folder-thumb {
+  color: var(--accent);
+  background: transparent;
+  border: none;
+}
+.project-files-folder-icon {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.project-files-folder-icon svg { width: 100%; height: 100%; }
+
+/* Drop target highlight while dragging a file over a folder / crumb. */
+.project-files-local-card-wrap.is-drop-target .project-files-folder-card {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+.project-files-folder-rename-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 0.2rem 0.35rem;
+}
+.project-files-folder-rename-input:focus { outline: none; }
 
 /* Bottom metadata block — centered under the thumb, Windows-Explorer
    tile style. Name wraps to 2 lines (clamped) instead of truncating

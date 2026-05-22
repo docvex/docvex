@@ -18,13 +18,10 @@
 // user device. Trade-off: PDFs that are unusually large (>50MB) take a
 // few extra seconds to parse on slow CPUs; we cap the time spent below.
 
-// Target thumbnail dimensions. 400x300 covers the .project-files-thumb
-// box (4:3 aspect) at retina density on the grid. JPEG quality 0.85 is
-// the inflection point where artifacts become visually invisible for
-// content that isn't already JPEG-compressed; smaller than 0.8 shows
-// banding on PDF first pages with smooth gradients.
-const TARGET_W = 400;
-const TARGET_H = 300;
+// JPEG quality 0.85 is the inflection point where artifacts become
+// visually invisible for content that isn't already JPEG-compressed;
+// smaller than 0.8 shows banding on PDF first pages with smooth
+// gradients.
 const JPEG_QUALITY = 0.85;
 // Bounding box (square) for native-aspect thumbnails — used by the
 // video + PDF generators so the resulting JPEG matches the source's
@@ -67,31 +64,27 @@ function canvasToJpegBlob(canvas) {
   });
 }
 
-// Compute the destination box that fits (sourceW × sourceH) inside
-// (TARGET_W × TARGET_H) preserving aspect ratio. Used to letterbox/pillar-
-// box smaller dimensions instead of stretching them. Returns the canvas
-// dimensions and the source-to-canvas placement.
-function fitBox(sourceW, sourceH) {
-  const scale = Math.min(TARGET_W / sourceW, TARGET_H / sourceH, 1);
-  const drawW = Math.round(sourceW * scale);
-  const drawH = Math.round(sourceH * scale);
-  // Center inside the fixed-size canvas so all thumbnails have the same
-  // dimensions — keeps the .project-files-grid rows pixel-aligned.
-  const offsetX = Math.round((TARGET_W - drawW) / 2);
-  const offsetY = Math.round((TARGET_H - drawH) / 2);
-  return { drawW, drawH, offsetX, offsetY };
-}
+// Checkerboard backdrop for transparent images. JPEG has no alpha
+// channel, so a transparent PNG/WebP/GIF/SVG flattens onto whatever
+// solid colour the canvas starts with (black) when exported. Painting
+// the familiar light/grey "transparency" checker first means see-through
+// regions read as transparent in the thumbnail. Fully-opaque images draw
+// over every cell, so the checker is invisible there and costs nothing.
+const CHECKER_LIGHT = '#ffffff';
+const CHECKER_DARK = '#cfcfcf';
+const CHECKER_CELL = 12;
 
-// Black backdrop so transparent PNGs / partial-page PDFs read as
-// "deliberate thumbnails" instead of "broken images on white". Matches
-// the `.project-files-thumb` background color in ProjectFiles.css.
-const BACKDROP = '#131313';
-
-function newCanvas() {
-  const canvas = document.createElement('canvas');
-  canvas.width = TARGET_W;
-  canvas.height = TARGET_H;
-  return canvas;
+function fillCheckerboard(ctx, w, h, cell = CHECKER_CELL) {
+  ctx.fillStyle = CHECKER_LIGHT;
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = CHECKER_DARK;
+  const cols = Math.ceil(w / cell);
+  const rows = Math.ceil(h / cell);
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      if ((row + col) % 2 === 0) ctx.fillRect(col * cell, row * cell, cell, cell);
+    }
+  }
 }
 
 // Scale (sourceW × sourceH) down to fit inside a MAX_DIM square while
@@ -111,7 +104,11 @@ function nativeAspectDims(sourceW, sourceH) {
 
 // ── Image ────────────────────────────────────────────────────────────────
 // Loads the file into an <img> via an object URL, then draws it onto a
-// fixed-size canvas with letterboxing. Object URL revoked in finally so
+// native-aspect canvas (sized to the scaled image — no fixed box) so no
+// letterbox bars get baked into the JPEG; the Files grid letterboxes via
+// CSS, same as the video/PDF thumbs. A transparency checkerboard is
+// painted first so see-through images flatten onto the familiar checker
+// instead of going black on JPEG export. Object URL revoked in finally so
 // we don't leak across uploads.
 async function generateImageThumbnail(file) {
   const url = URL.createObjectURL(file);
@@ -122,12 +119,13 @@ async function generateImageThumbnail(file) {
       el.onerror = () => reject(new Error('Image load failed'));
       el.src = url;
     });
-    const canvas = newCanvas();
+    const { width, height } = nativeAspectDims(img.naturalWidth, img.naturalHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = BACKDROP;
-    ctx.fillRect(0, 0, TARGET_W, TARGET_H);
-    const { drawW, drawH, offsetX, offsetY } = fitBox(img.naturalWidth, img.naturalHeight);
-    ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
+    fillCheckerboard(ctx, width, height);
+    ctx.drawImage(img, 0, 0, width, height);
     return await canvasToJpegBlob(canvas);
   } catch {
     return null;

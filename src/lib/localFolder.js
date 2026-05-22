@@ -264,7 +264,38 @@ export const localFolderApi = {
 
   list: async (dir) => {
     if (hasElectron) return electronApi.list(dir);
-    return listWeb();
+    // Web has no in-app folder navigation (the FSA backend tracks a
+    // single flat directory handle), so it never surfaces subfolders.
+    const res = await listWeb();
+    return { ...res, dirs: [] };
+  },
+
+  // Recursive listing — the SYNC source. Every file under `dir` tagged
+  // with its `folderPath` (relative dir, '' = root). Electron walks the
+  // tree; web has no subfolders so it returns the flat listing with
+  // folderPath '' on each entry.
+  listAll: async (dir) => {
+    if (hasElectron) return electronApi.listRecursive(dir);
+    const res = await listWeb();
+    return { files: (res.files || []).map((f) => ({ ...f, folderPath: '' })), error: res.error };
+  },
+
+  // ── Folder management (Electron only) ─────────────────────────────
+  // Create / delete a subfolder and move an entry between folders.
+  // Local organisation layer; the cloud project stays flat. The web
+  // backend can't navigate subfolders, so these report unsupported
+  // rather than silently no-op'ing (callers surface the message).
+  createFolder: async (payload) => {
+    if (hasElectron) return electronApi.createFolder(payload);
+    return { error: 'Folders are available in the desktop app' };
+  },
+  deleteFolder: async (payload) => {
+    if (hasElectron) return electronApi.deleteFolder(payload);
+    return { error: 'Folders are available in the desktop app' };
+  },
+  move: async (payload) => {
+    if (hasElectron) return electronApi.move(payload);
+    return { error: 'Folders are available in the desktop app' };
   },
 
   download: async (payload) => {

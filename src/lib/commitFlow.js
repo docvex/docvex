@@ -224,6 +224,10 @@ export async function runCommitFlow({
             content_hash: meta.contentHash,
             storage_path: meta.canonicalPath,
             pending_storage_path: meta.pendingPath,
+            // Folder the file lives in (relative to the branch root, ''
+            // = root). Carries the structure through to the cloud so a
+            // teammate's download recreates the same folders.
+            folder_path: it.local?.folderPath || '',
             ...buildThumbProposed(meta),
           },
         };
@@ -241,6 +245,7 @@ export async function runCommitFlow({
             content_hash: meta.contentHash,
             storage_path: meta.canonicalPath,
             pending_storage_path: meta.pendingPath,
+            folder_path: it.local?.folderPath || '',
             ...buildThumbProposed(meta),
           },
         };

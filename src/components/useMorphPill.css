@@ -130,6 +130,40 @@
   white-space: normal;
 }
 
+/* Prompt panel — confirm chrome plus a free-text reason field. Slightly
+   wider so a sentence of reason has room to breathe. */
+.project-files-morph-pill.is-prompt {
+  min-width: 280px;
+  max-width: 340px;
+}
+
+.project-files-morph-prompt-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 60px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  padding: 0.5rem 0.6rem;
+  /* The pill is white-space:nowrap by default; let the textarea wrap. */
+  white-space: normal;
+}
+
+.project-files-morph-prompt-input::placeholder {
+  color: var(--text-muted);
+}
+
+.project-files-morph-prompt-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
 .project-files-morph-confirm-actions {
   display: flex;
   justify-content: flex-end;

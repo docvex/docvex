@@ -2,7 +2,6 @@ import React, { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import UpdateProgressBar from './UpdateProgressBar';
-import ProjectBanner from './ProjectBanner';
 import ProjectPickerPanel from './ProjectPickerPanel';
 import SwitchProjectLoader from './SwitchProjectLoader';
 import ReportProblemModal from './ReportProblemModal';
@@ -216,6 +215,7 @@ function isProjectScopedRoute(pathname) {
   if (pathname === '/chat' || pathname.startsWith('/chat/')) return true;
   if (pathname === '/generate' || pathname.startsWith('/generate/')) return true;
   if (pathname === '/automate' || pathname.startsWith('/automate/')) return true;
+  if (pathname === '/ai' || pathname.startsWith('/ai/')) return true;
   if (pathname === '/projects' || pathname === '/projects/') return false;
   if (pathname === '/projects/new') return false;
   if (pathname.startsWith('/projects/')) {
@@ -241,14 +241,14 @@ export default function AppShell() {
       <div className="app-shell">
         <Sidebar />
         <main className={`main-content${showBanner ? ' main-content--has-banner' : ''}`}>
-          {showBanner && <ProjectBanner />}
           {/* On project-scoped routes the page content is wrapped in a
-              rounded "sheet" panel that sits just under the gold "working
-              in" banner. The panel uses the existing --bg-card token so
-              its top corners curve cleanly off the page-bg behind it. On
-              non-project routes the Outlet renders bare so the existing
-              pages (Dashboard, Account, Notifications, etc.) keep their
-              current layout untouched. */}
+              rounded "sheet" panel — the "working in" banner that used
+              to sit above it has been removed. The frame is still
+              applied so project pages keep the rounded-top "sheet"
+              look against the page background. On non-project routes
+              the Outlet renders bare so the existing pages (Dashboard,
+              Account, Notifications, etc.) keep their current layout
+              untouched. */}
           {showBanner ? (
             <div className="project-page-frame">
               <Outlet />

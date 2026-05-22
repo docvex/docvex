@@ -7,13 +7,16 @@ import './VideoFrameSlideshow.css';
 //   - FileCard (active=true on hover; pinned to frame 0 otherwise)
 //   - VideoPreview inside FileDetailModal (active=true the whole time)
 //
-// Signed URLs for each frame are fetched lazily on mount + cached at
-// module level by createSignedDownloadUrl, so re-mounting on the same
-// card (scroll-in/out) is a no-op after the first pass. `posterUrl` is
-// the already-resolved URL for frame 0 — the parent has typically
-// pre-fetched it for the static thumbnail render path, so passing it in
-// avoids a redundant signed-URL round-trip + lets the slideshow show
-// frame 0 immediately while frames 1-4 are still resolving.
+// Signed URLs for frames 1-N are fetched ONLY once the slideshow goes
+// active (i.e. the card is hovered), then cached at module level by
+// createSignedDownloadUrl so a re-hover is instant. Signing eagerly on
+// mount was the wrong call: a grid of N video cards fired N×(frames)
+// signed-URL requests the moment it rendered — wasteful, and a flood of
+// 400s when a row's frames don't exist (e.g. unapproved change-request
+// proposals whose frames aren't in the canonical bucket yet). While
+// inactive the static `posterUrl` (frame 0, already resolved by the
+// parent for the thumbnail) is all that's shown, so no frame signing is
+// needed until the user actually hovers to cycle.
 export default function VideoFrameSlideshow({
   framePaths,
   active,
@@ -29,11 +32,14 @@ export default function VideoFrameSlideshow({
   const pathsRef = useRef(framePaths);
   pathsRef.current = framePaths;
 
-  // Resolve every frame's signed URL in parallel. Skip frame 0 if the
-  // caller already provided posterUrl. Failures surface as `undefined`
-  // in the array — the render path falls back to posterUrl for any
-  // index that hasn't resolved yet.
+  // Resolve every frame's signed URL in parallel — but only while the
+  // slideshow is ACTIVE (hovered). Skip frame 0 if the caller already
+  // provided posterUrl. Failures surface as `undefined` in the array —
+  // the render path falls back to posterUrl for any index that hasn't
+  // resolved yet. Gating on `active` is what stops a freshly-rendered
+  // grid from firing a frame-signing request per card on mount.
   useEffect(() => {
+    if (!active) return undefined;
     if (!Array.isArray(framePaths) || framePaths.length === 0) return undefined;
     let cancelled = false;
     const next = posterUrl ? [posterUrl] : [];
@@ -58,7 +64,7 @@ export default function VideoFrameSlideshow({
     Promise.all(tasks).catch(() => { /* swallowed — partial failures are OK */ });
 
     return () => { cancelled = true; };
-  }, [framePaths, posterUrl]);
+  }, [active, framePaths, posterUrl]);
 
   // Cycle the frame index while active. Reset to 0 on deactivation so a
   // re-hover starts the slideshow from the beginning instead of resuming

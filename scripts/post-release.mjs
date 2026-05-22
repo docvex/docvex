@@ -44,11 +44,16 @@ function run(label, cmd, args) {
 // publish-mac-zips runs AFTER publish (it needs the draft release to
 // exist so it has somewhere to upload to) but BEFORE notes (so the
 // notes patch is the last thing that touches the release body).
+// finalize-release runs LAST: it flips draft=false and rebinds the
+// tag_name from GitHub's "untagged-<sha>" placeholder to v<version>,
+// so /releases/download/v<version>/* resolves and update.electronjs.org
+// starts serving the new version to existing clients.
 const results = [
   run('git push --follow-tags', 'git', ['push', '--follow-tags']),
   run('electron-forge publish',  'electron-forge', ['publish']),
   run('publish-mac-zips',        'node', ['scripts/publish-mac-zips.mjs']),
   run('generate-release-notes',  'node', ['scripts/generate-release-notes.mjs']),
+  run('finalize-release',        'node', ['scripts/finalize-release.mjs']),
 ];
 
 const failures = results.filter((ok) => !ok).length;

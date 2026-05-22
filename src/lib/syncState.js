@@ -197,6 +197,7 @@ export function computeSyncState({
     let status;
     let bytesDiffer = false;
     let nameDiffers = false;
+    let folderDiffers = false;
     if (cloud && local) {
       if (localHash && cloudHash) {
         bytesDiffer = localHash !== cloudHash;
@@ -205,8 +206,12 @@ export function computeSyncState({
       }
       nameDiffers = (cloud.name || '').toLowerCase()
         !== (local.name || '').toLowerCase();
+      // Folder move — the file lives in a different subfolder than the
+      // cloud row records. Treated like a rename: a metadata-only edit
+      // that ships the new folder_path so the structure syncs.
+      folderDiffers = (cloud.folder_path || '') !== (local.folderPath || '');
       if (bytesDiffer) status = 'replace';
-      else if (nameDiffers) status = 'rename';
+      else if (nameDiffers || folderDiffers) status = 'rename';
       else status = 'synced';
     } else if (cloud && !local) {
       status = 'missing-local';   // cloud row exists, no disk file maps to it
@@ -226,6 +231,7 @@ export function computeSyncState({
       status,
       bytesDiffer,
       nameDiffers,
+      folderDiffers,
     });
   }
 
@@ -258,16 +264,17 @@ export function computeSyncState({
         cloud: row.cloud,
       });
     } else if (row.status === 'rename') {
-      // External rename detected (in-app rename queues a
-      // branch_change directly and gets caught by the covered check
-      // above). Emit as an edit to the cloud row's name.
+      // External rename and/or folder move detected (in-app rename
+      // queues a branch_change directly and gets caught by the covered
+      // check above). Emit as an edit carrying the cloud row's new name
+      // AND folder_path so both the rename and the move sync to main.
       toCommit.push({
         kind: 'edit',
         fileId: row.fileId,
         target_file_id: row.cloud.id,
         local: row.local,
         cloud: row.cloud,
-        proposed: { name: row.local.name },
+        proposed: { name: row.local.name, folder_path: row.local.folderPath || '' },
       });
     }
     // 'missing-local' is intentionally NOT auto-committed as a
@@ -294,6 +301,7 @@ export function computeSyncState({
         fileId: row.fileId,
         cloud: row.cloud,
         targetName,
+        targetFolder: row.cloud.folder_path || '',
       });
     } else if (row.status === 'replace') {
       const targetName = row.cloud.name
@@ -305,6 +313,7 @@ export function computeSyncState({
         local: row.local,
         cloud: row.cloud,
         targetName,
+        targetFolder: row.cloud.folder_path || '',
       });
     } else if (row.status === 'rename') {
       toSync.push({
@@ -313,6 +322,7 @@ export function computeSyncState({
         local: row.local,
         cloud: row.cloud,
         targetName: row.cloud.name,
+        targetFolder: row.cloud.folder_path || '',
       });
     } else if (row.status === 'local-only') {
       toSync.push({

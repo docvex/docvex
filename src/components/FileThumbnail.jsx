@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import VideoFrameSlideshow from './VideoFrameSlideshow';
 import { useThumbnail } from '../lib/thumbnailResolver';
 import { glyphForFile } from './fileGlyph';
@@ -99,7 +99,24 @@ export default function FileThumbnail(props) {
     slideshowFrames: legacyFrames,
   });
 
-  const { posterUrl, errored } = useThumbnail(descriptor);
+  const { posterUrl, errored, reload } = useThumbnail(descriptor);
+
+  // One-shot retry guard, reset whenever the file (contentKey) changes.
+  // If a painted thumbnail's URL fails to load — most often a cached
+  // signed URL that expired (10-min TTL) before this mount — re-sign it
+  // once via reload(). Capped at a single retry per file so a genuinely
+  // broken source (e.g. deleted object) can't loop.
+  const retryRef = useRef({ key: null, count: 0 });
+  if (retryRef.current.key !== (descriptor?.contentKey || null)) {
+    retryRef.current = { key: descriptor?.contentKey || null, count: 0 };
+  }
+  const handleImgError = () => {
+    if (retryRef.current.count < 1) {
+      retryRef.current.count += 1;
+      reload();
+    }
+  };
+
   const mime = descriptor?.mime || '';
   const isVideo = mime.startsWith('video/');
   const framePaths = descriptor?.framePaths || null;
@@ -123,7 +140,7 @@ export default function FileThumbnail(props) {
       />
     );
   } else if (posterUrl) {
-    content = <ThumbImage src={posterUrl} onError={() => {}} />;
+    content = <ThumbImage src={posterUrl} onError={handleImgError} />;
   } else if (errored || !descriptor) {
     content = <ThumbGlyph icon={glyph} />;
   } else {

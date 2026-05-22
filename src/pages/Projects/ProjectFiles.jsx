@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { useNotifications } from '../../context/NotificationsContext';
@@ -115,6 +116,29 @@ const FILE_SECTIONS = [
   { key: 'videos', title: 'Videos' },
   { key: 'documents', title: 'Documents' },
 ];
+
+// Drag-and-drop payload type for moving a local file into a folder.
+// A custom MIME so our drop targets only react to in-app file drags
+// (not arbitrary OS drags or text selections).
+const MOVE_DND_TYPE = 'application/x-docvex-localpath';
+
+// Folder glyphs for the "Folders" category. Inline per the project's
+// no-icon-library convention; currentColor so they inherit hover/active.
+// Two states: OUTLINE for an empty folder, FILLED for one with contents.
+const FolderGlyph = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 7a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.6.8l.9 1.2a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+  </svg>
+);
+const FolderGlyphFilled = (
+  <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 7a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.6.8l.9 1.2a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+  </svg>
+);
+// Pick the glyph for a folder: filled when it has contents, outline when
+// empty. `empty === undefined` (e.g. cloud folders, always non-empty by
+// derivation) falls back to filled.
+const folderGlyphFor = (empty) => (empty ? FolderGlyph : FolderGlyphFilled);
 
 function formatBytes(bytes) {
   if (!bytes) return '0 B';
@@ -341,6 +365,7 @@ function LocalFileCard({
   localContentHash,    // SHA-256 of the on-disk bytes (from parent's localHashByName)
                        // — feeds into the descriptor's contentKey so an in-place
                        // edit invalidates every cache layer at once.
+  canMove,             // true → card is draggable onto a folder card to move it
 }) {
   const [hovered, setHovered] = useState(false);
   const { base: diskBase, ext } = splitNameAndExtension(file.name);
@@ -513,6 +538,11 @@ function LocalFileCard({
         role="button"
         tabIndex={0}
         className={`project-files-card${selected ? ' is-selected' : ''}`}
+        draggable={Boolean(canMove && file?.path)}
+        onDragStart={canMove && file?.path ? (e) => {
+          e.dataTransfer.setData(MOVE_DND_TYPE, file.path);
+          e.dataTransfer.effectAllowed = 'move';
+        } : undefined}
         onClick={handleCardClick}
         onDoubleClick={handleCardDoubleClick}
         onKeyDown={(e) => {
@@ -544,6 +574,132 @@ function LocalFileCard({
         </span>
       )}
       {morphPill.node}
+    </div>
+  );
+}
+
+// A subfolder tile on the My branch. Click opens it (navigation);
+// right-click morphs the tooltip into Open / Rename / Delete (Delete
+// confirms inline via the same FLIP panel the file card uses). It is
+// also a drop target — dragging a file card onto it moves that file
+// inside. Folders are a LOCAL organisation layer (the cloud stays
+// flat); these never touch Supabase.
+function LocalFolderCard({ dir, onOpen, onRename, onDelete, onMoveFile }) {
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(dir.name);
+  const [dropActive, setDropActive] = useState(false);
+
+  const commitRename = () => {
+    const next = draft.trim();
+    setRenaming(false);
+    if (next && next !== dir.name) onRename?.(dir, next);
+    else setDraft(dir.name);
+  };
+
+  const morphPill = useMorphPill({
+    hoverContent: dir.name,
+    menuItems: [
+      { key: 'open', label: 'Open', onClick: () => onOpen?.(dir) },
+      { key: 'rename', label: 'Rename', onClick: () => { setDraft(dir.name); setRenaming(true); } },
+      {
+        key: 'delete', label: 'Delete', danger: true, onClick: () => onDelete?.(dir),
+        confirm: {
+          title: 'Delete this folder?',
+          message: `"${dir.name}" and everything inside it is permanently removed from your computer. This can't be undone.`,
+          confirmLabel: 'Delete',
+          cancelLabel: 'Cancel',
+        },
+      },
+    ],
+  });
+
+  const acceptsDrop = (e) => Array.from(e.dataTransfer.types || []).includes(MOVE_DND_TYPE);
+
+  return (
+    <div
+      className={`project-files-local-card-wrap${dropActive ? ' is-drop-target' : ''}`}
+      onMouseMove={renaming ? undefined : morphPill.handleMouseMove}
+      onMouseLeave={morphPill.handleMouseLeave}
+      onContextMenu={renaming ? undefined : morphPill.handleContextMenu}
+      onDragOver={(e) => { if (acceptsDrop(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropActive(true); } }}
+      onDragLeave={() => setDropActive(false)}
+      onDrop={(e) => {
+        if (!acceptsDrop(e)) return;
+        e.preventDefault();
+        setDropActive(false);
+        const fromPath = e.dataTransfer.getData(MOVE_DND_TYPE);
+        if (fromPath) onMoveFile?.(fromPath, dir.path);
+      }}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        className="project-files-card project-files-folder-card"
+        // Open on double-click only (single click just selects / stops
+        // the panel-bg deselect). Enter is the keyboard equivalent.
+        onClick={(e) => { e.stopPropagation(); }}
+        onDoubleClick={(e) => { e.stopPropagation(); if (!renaming) onOpen?.(dir); }}
+        onKeyDown={(e) => {
+          if (renaming) return;
+          if (e.key === 'Enter') { e.preventDefault(); onOpen?.(dir); }
+        }}
+      >
+        <div className="project-files-thumb project-files-folder-thumb">
+          <span className="project-files-folder-icon">{folderGlyphFor(dir.empty)}</span>
+        </div>
+        <div className="project-files-meta">
+          {renaming ? (
+            <input
+              className="project-files-folder-rename-input"
+              value={draft}
+              autoFocus
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter') commitRename();
+                else if (e.key === 'Escape') { setRenaming(false); setDraft(dir.name); }
+              }}
+              onBlur={commitRename}
+            />
+          ) : (
+            <div className="project-files-name" title={dir.name}>{dir.name}</div>
+          )}
+        </div>
+      </div>
+      {morphPill.node}
+    </div>
+  );
+}
+
+// Inline create-folder tile rendered at the head of the Folders grid
+// while the user is naming a new folder. Enter commits, Escape cancels,
+// blur commits a non-empty name (else cancels) — Explorer-like.
+function NewFolderInput({ onCommit, onCancel }) {
+  const [name, setName] = useState('');
+  return (
+    <div className="project-files-local-card-wrap">
+      <div className="project-files-card project-files-folder-card is-creating">
+        <div className="project-files-thumb project-files-folder-thumb">
+          <span className="project-files-folder-icon">{FolderGlyph}</span>
+        </div>
+        <div className="project-files-meta">
+          <input
+            className="project-files-folder-rename-input"
+            value={name}
+            autoFocus
+            placeholder="Folder name"
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Enter') onCommit?.(name);
+              else if (e.key === 'Escape') onCancel?.();
+            }}
+            onBlur={() => { if (name.trim()) onCommit?.(name); else onCancel?.(); }}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -753,6 +909,31 @@ export default function ProjectFiles() {
   const [localFiles, setLocalFiles] = useState([]);
   const [localLoading, setLocalLoading] = useState(false);
   const [localError, setLocalError] = useState(null);
+
+  // ── Folder navigation (My-branch local organisation) ──────────────
+  // `localFiles` above stays the ROOT listing — the branch sync diffs
+  // against it, so navigating into a subfolder must NOT disturb it.
+  // Folder browsing is a separate listing layer:
+  //   • folderStack — the descended subfolders (breadcrumb), [] = root.
+  //   • browseFiles/browseDirs — listing of the CURRENT directory.
+  //   • browseTick — bumped to force a re-list after a folder action.
+  // Only the Electron backend supports in-app folder navigation; the
+  // web FSA backend tracks a single flat handle, so folders are hidden
+  // there and the grid keeps reading `localFiles` directly.
+  const supportsFolders = isElectronBranch;
+  const [folderStack, setFolderStack] = useState([]); // [{ name, path }]
+  const [browseFiles, setBrowseFiles] = useState([]);
+  const [browseDirs, setBrowseDirs] = useState([]);
+  const [browseTick, setBrowseTick] = useState(0);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  // Right-click-the-background menu (My branch): { x, y } | null.
+  const [bgMenu, setBgMenu] = useState(null);
+  const atRoot = folderStack.length === 0;
+  const currentDir = atRoot ? localFolder : folderStack[folderStack.length - 1].path;
+  // Main-branch (cloud) folder navigation — a relative path string
+  // ('' = root) since cloud files have no on-disk path, just a
+  // folder_path column. Independent of the My-branch folderStack.
+  const [mainFolderPath, setMainFolderPath] = useState('');
 
   // Background SHA-256 cache for local files — keyed by
   // `${name}|${mtimeIso}` so an Explorer edit (which bumps mtime)
@@ -1202,7 +1383,7 @@ export default function ProjectFiles() {
     localFolderDebounceRef.current = setTimeout(async () => {
       setLocalLoading(true);
       setLocalError(null);
-      const { files: localList, error: listErr } = await localFolderApi.list(localFolder);
+      const { files: localList, error: listErr } = await localFolderApi.listAll(localFolder);
       if (cancelled) return;
       setLocalLoading(false);
       if (listErr) {
@@ -1234,16 +1415,136 @@ export default function ProjectFiles() {
       // for the currently-watched dir; the changedDir argument is
       // forwarded just so future multi-watch scenarios can scope.
       if (changedDir && changedDir !== localFolder) return;
-      localFolderApi.list(localFolder).then(({ files: localList, error: listErr }) => {
+      localFolderApi.listAll(localFolder).then(({ files: localList, error: listErr }) => {
         if (listErr) return;
         setLocalFiles(localList || []);
       });
+      // Also refresh the folder-browse listing (root or subfolder) so
+      // an external add/remove shows up while navigating folders too.
+      setBrowseTick((t) => t + 1);
     });
     return () => {
       unsub?.();
       localFolderApi.unwatch();
     };
   }, [localFolder]);
+
+  // Reset folder navigation when the project / picked folder changes —
+  // a subfolder path from one folder is meaningless in another.
+  useEffect(() => {
+    setFolderStack([]);
+    setCreatingFolder(false);
+  }, [projectId, localFolder]);
+  useEffect(() => { setMainFolderPath(''); }, [projectId]);
+
+  // Browse listing — drives the displayed grid for the CURRENT directory
+  // (root or a descended subfolder). Kept separate from `localFiles`
+  // (the root listing the branch sync diffs against) so navigating into
+  // a subfolder can't make the sync think every root file was deleted.
+  useEffect(() => {
+    if (branchView !== 'mine' || !supportsFolders || !localFolder) {
+      setBrowseFiles([]);
+      setBrowseDirs([]);
+      return undefined;
+    }
+    let cancelled = false;
+    localFolderApi.list(currentDir).then(({ files: bf, dirs: bd }) => {
+      if (cancelled) return;
+      setBrowseFiles(bf || []);
+      setBrowseDirs(bd || []);
+    }).catch(() => {
+      if (!cancelled) { setBrowseFiles([]); setBrowseDirs([]); }
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchView, supportsFolders, localFolder, currentDir, browseTick]);
+
+  // ── Folder actions (local organisation layer) ─────────────────────
+  const handleEnterFolder = useCallback((dir) => {
+    if (!dir?.path) return;
+    setCreatingFolder(false);
+    setFolderStack((stack) => [...stack, { name: dir.name, path: dir.path }]);
+  }, []);
+
+  // Jump to a breadcrumb level. index === -1 → root.
+  const handleNavigateCrumb = useCallback((index) => {
+    setCreatingFolder(false);
+    setFolderStack((stack) => (index < 0 ? [] : stack.slice(0, index + 1)));
+  }, []);
+
+  const handleCreateFolder = useCallback(async (name) => {
+    setCreatingFolder(false);
+    const trimmed = (name || '').trim();
+    if (!trimmed) return;
+    const { error } = await localFolderApi.createFolder({ dir: currentDir, name: trimmed });
+    if (error) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t create folder', body: error, dedupeKey: 'folder-create-error' });
+      return;
+    }
+    setBrowseTick((t) => t + 1);
+  }, [currentDir, notify]);
+
+  const handleRenameFolder = useCallback(async (dir, newName) => {
+    const { error } = await localFolderApi.renameFile({ dir: currentDir, fromName: dir.name, toName: newName });
+    if (error) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t rename folder', body: error, dedupeKey: 'folder-rename-error' });
+      return;
+    }
+    setBrowseTick((t) => t + 1);
+  }, [currentDir, notify]);
+
+  const handleDeleteFolder = useCallback(async (dir) => {
+    const { error } = await localFolderApi.deleteFolder({ dir: currentDir, name: dir.name });
+    if (error) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t delete folder', body: error, dedupeKey: 'folder-delete-error' });
+      return;
+    }
+    setBrowseTick((t) => t + 1);
+  }, [currentDir, notify]);
+
+  // Move a file into a folder (drag-drop). `toDir` is the destination's
+  // absolute path. Refreshes BOTH the browse view and the root sync
+  // listing — a file leaving/entering the root changes what the branch
+  // diff sees (subfolder files are local-only, not part of the project).
+  const handleMoveLocalFile = useCallback(async (fromPath, toDir) => {
+    if (!fromPath || !toDir) return;
+    const { error } = await localFolderApi.move({ root: localFolder, fromPath, toDir });
+    if (error) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t move file', body: error, dedupeKey: 'file-move-error' });
+      return;
+    }
+    setBrowseTick((t) => t + 1);
+    const { files: localList, error: listErr } = await localFolderApi.listAll(localFolder);
+    if (!listErr) setLocalFiles(localList || []);
+  }, [localFolder, notify]);
+
+  // Right-click on the empty grid background (My branch) → a small menu
+  // with "Make new folder" + "Import". Ignores right-clicks that landed
+  // on a card / button (those carry their own context actions).
+  const handleBgContextMenu = useCallback((e) => {
+    if (branchView !== 'mine' || !supportsFolders || !localFolder) return;
+    if (e.target.closest?.('.project-files-local-card-wrap')
+      || e.target.closest?.('.project-files-card')
+      || e.target.closest?.('button')
+      || e.target.closest?.('input')) return;
+    e.preventDefault();
+    setBgMenu({ x: e.clientX, y: e.clientY });
+  }, [branchView, supportsFolders, localFolder]);
+
+  // Dismiss the background menu on outside click / scroll / Escape.
+  useEffect(() => {
+    if (!bgMenu) return undefined;
+    const close = () => setBgMenu(null);
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('mousedown', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [bgMenu]);
 
   // Open the native folder picker; main returns the absolute path or
   // null if the user canceled. On web the picker returns a
@@ -1339,7 +1640,7 @@ export default function ProjectFiles() {
     const filename = cloudFile.storage_path.split('/').pop() || cloudFile.name;
     const { results, error: dlErr } = await localFolderApi.download({
       dir: localFolder,
-      files: [{ url: data.signedUrl, filename }],
+      files: [{ url: data.signedUrl, filename, subdir: cloudFile.folder_path || '' }],
     });
     const ok = !dlErr && results?.[0]?.ok;
     if (!ok) {
@@ -1374,7 +1675,7 @@ export default function ProjectFiles() {
       saveSidecar(next);
       return next;
     });
-    const { files: localList } = await localFolderApi.list(localFolder);
+    const { files: localList } = await localFolderApi.listAll(localFolder);
     setLocalFiles(localList || []);
   }, [localFolder, notify]);
 
@@ -1434,7 +1735,7 @@ export default function ProjectFiles() {
   // on the watcher poll.
   const refetchLocalFiles = useCallback(async () => {
     if (!hasLocalFolderApi || !localFolder) return;
-    const { files: localList, error: listErr } = await localFolderApi.list(localFolder);
+    const { files: localList, error: listErr } = await localFolderApi.listAll(localFolder);
     if (!listErr) setLocalFiles(localList || []);
   }, [localFolder]);
 
@@ -1453,8 +1754,10 @@ export default function ProjectFiles() {
     if (picked.length === 0) return;
     if (!localFolder) return;
     const payload = picked.map((file) => ({ filename: file.name, blob: file }));
+    // Import into the folder the user is currently browsing (root or a
+    // subfolder), so right-click → Import inside a folder lands there.
     const { results, error: writeErr } = await localFolderApi.writeFiles({
-      dir: localFolder,
+      dir: currentDir,
       files: payload,
     });
     if (writeErr) {
@@ -1804,7 +2107,7 @@ export default function ProjectFiles() {
     }
     const { results, error: dlErr } = await localFolderApi.download({
       dir: localFolder,
-      files: [{ url: data.signedUrl, filename: cloudFilename }],
+      files: [{ url: data.signedUrl, filename: cloudFilename, subdir: cloud.folder_path || '' }],
     });
     if (dlErr || !results?.[0]?.ok) {
       notify({
@@ -2055,7 +2358,7 @@ export default function ProjectFiles() {
               <div className="project-files-branch-status-text">
                 <strong className="project-files-branch-status-label">Waiting for review</strong>
                 <p className="project-files-branch-status-sub">
-                  {`${openRequestsCount} ${openRequestsCount === 1 ? 'person has' : 'people have'} edits waiting for approval.`}
+                  edits waiting for approval
                 </p>
               </div>
               <span className="project-files-branch-status-count">{openRequestsCount}</span>
@@ -2238,6 +2541,8 @@ export default function ProjectFiles() {
         // their own clicks so they don't accidentally clear what
         // they just selected.
         onClick={() => setSelectedLocalPath(null)}
+        // Right-click the empty background → "Make new folder" / "Import".
+        onContextMenu={handleBgContextMenu}
       >
         {branchView === 'main' ? (
           // ── Main branch — canonical cloud files. Read-only here;
@@ -2250,28 +2555,115 @@ export default function ProjectFiles() {
               <p>Drag a PDF, image, video, or text document anywhere in the app to upload it here.</p>
             </div>
           ) : (() => {
-            const buckets = bucketFiles(files, 'mime_type');
-            return FILE_SECTIONS.map(({ key, title }) => {
-              const items = buckets[key];
-              if (items.length === 0) return null;
-              return (
-                <section key={key} className="project-files-section">
-                  <h3 className="project-files-section-title">
-                    {title}
-                    <span className="project-files-section-count">{items.length}</span>
-                  </h3>
-                  <div className="project-files-grid">
-                    {items.map((f) => (
-                      <FileCard
-                        key={f.id}
-                        file={f}
-                        onDoubleOpen={handleOpenCloudFileViewer}
-                      />
-                    ))}
+            // Folder-aware cloud view. Files carry a folder_path; show
+            // only those in the current folder, plus the immediate
+            // subfolders under it (derived from every file's path).
+            const cur = mainFolderPath;
+            const prefix = cur ? `${cur}/` : '';
+            const inFolder = files.filter((f) => (f.folder_path || '') === cur);
+            const subSet = new Set();
+            for (const f of files) {
+              const fp = f.folder_path || '';
+              if (cur === '') {
+                if (fp) subSet.add(fp.split('/')[0]);
+              } else if (fp.startsWith(prefix)) {
+                subSet.add(fp.slice(prefix.length).split('/')[0]);
+              }
+            }
+            const subfolders = Array.from(subSet).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+            const crumbs = cur ? cur.split('/') : [];
+            const buckets = bucketFiles(inFolder, 'mime_type');
+            return (
+              <>
+                {(crumbs.length > 0 || subfolders.length > 0) && (
+                  <div className="project-files-folderbar">
+                    <nav className="project-files-breadcrumb" aria-label="Folder path">
+                      <button
+                        type="button"
+                        className={`project-files-crumb${cur === '' ? ' is-current' : ''}`}
+                        onClick={() => setMainFolderPath('')}
+                      >
+                        All files
+                      </button>
+                      {crumbs.map((seg, i) => (
+                        <React.Fragment key={i}>
+                          <span className="project-files-crumb-sep" aria-hidden="true">/</span>
+                          <button
+                            type="button"
+                            className={`project-files-crumb${i === crumbs.length - 1 ? ' is-current' : ''}`}
+                            onClick={() => setMainFolderPath(crumbs.slice(0, i + 1).join('/'))}
+                            title={seg}
+                          >
+                            {seg}
+                          </button>
+                        </React.Fragment>
+                      ))}
+                    </nav>
                   </div>
-                </section>
-              );
-            });
+                )}
+                {subfolders.length > 0 && (
+                  <section className="project-files-section">
+                    <h3 className="project-files-section-title">
+                      Folders
+                      <span className="project-files-section-count">{subfolders.length}</span>
+                    </h3>
+                    <div className="project-files-grid">
+                      {subfolders.map((fname) => {
+                        const go = () => setMainFolderPath(cur ? `${cur}/${fname}` : fname);
+                        return (
+                          <div key={fname} className="project-files-local-card-wrap">
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              className="project-files-card project-files-folder-card"
+                              // Open on double-click only; Enter is the
+                              // keyboard equivalent.
+                              onClick={(e) => { e.stopPropagation(); }}
+                              onDoubleClick={(e) => { e.stopPropagation(); go(); }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') { e.preventDefault(); go(); }
+                              }}
+                            >
+                              <div className="project-files-thumb project-files-folder-thumb">
+                                <span className="project-files-folder-icon">{FolderGlyphFilled}</span>
+                              </div>
+                              <div className="project-files-meta">
+                                <div className="project-files-name" title={fname}>{fname}</div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+                {inFolder.length === 0 && subfolders.length === 0 ? (
+                  <div className="project-files-empty">
+                    <h2>This folder is empty</h2>
+                  </div>
+                ) : FILE_SECTIONS.map(({ key, title }) => {
+                  const items = buckets[key];
+                  if (items.length === 0) return null;
+                  return (
+                    <section key={key} className="project-files-section">
+                      <h3 className="project-files-section-title">
+                        {title}
+                        <span className="project-files-section-count">{items.length}</span>
+                      </h3>
+                      <div className="project-files-grid">
+                        {items.map((f) => (
+                          <FileCard
+                            key={f.id}
+                            file={f}
+                            onDoubleOpen={handleOpenCloudFileViewer}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  );
+                })}
+              </>
+            );
           })()
         ) : (
           // ── My branch — the user's local folder. Members work here:
@@ -2354,19 +2746,85 @@ export default function ProjectFiles() {
                   </button>
                 )}
               </div>
+              {/* Folder breadcrumb — Electron only, shown once you've
+                  navigated into a folder (or any exist). Each crumb is a
+                  drop target so a dragged file can be moved up to that
+                  level. Creating folders / importing now lives in the
+                  right-click-the-background menu. */}
+              {supportsFolders && (!atRoot || browseDirs.length > 0) && (
+                <div className="project-files-folderbar">
+                  <nav className="project-files-breadcrumb" aria-label="Folder path">
+                    <button
+                      type="button"
+                      className={`project-files-crumb${atRoot ? ' is-current' : ''}`}
+                      onClick={() => handleNavigateCrumb(-1)}
+                      onDragOver={(e) => { if (Array.from(e.dataTransfer.types || []).includes(MOVE_DND_TYPE)) { e.preventDefault(); } }}
+                      onDrop={(e) => { const p = e.dataTransfer.getData(MOVE_DND_TYPE); if (p) { e.preventDefault(); handleMoveLocalFile(p, localFolder); } }}
+                    >
+                      {(localFolder || '').split(/[\\/]/).filter(Boolean).pop() || 'Home'}
+                    </button>
+                    {folderStack.map((seg, i) => (
+                      <React.Fragment key={seg.path}>
+                        <span className="project-files-crumb-sep" aria-hidden="true">/</span>
+                        <button
+                          type="button"
+                          className={`project-files-crumb${i === folderStack.length - 1 ? ' is-current' : ''}`}
+                          onClick={() => handleNavigateCrumb(i)}
+                          onDragOver={(e) => { if (Array.from(e.dataTransfer.types || []).includes(MOVE_DND_TYPE)) { e.preventDefault(); } }}
+                          onDrop={(e) => { const p = e.dataTransfer.getData(MOVE_DND_TYPE); if (p) { e.preventDefault(); handleMoveLocalFile(p, seg.path); } }}
+                          title={seg.name}
+                        >
+                          {seg.name}
+                        </button>
+                      </React.Fragment>
+                    ))}
+                  </nav>
+                </div>
+              )}
+              {/* Folders category — subfolders of the current directory,
+                  plus the inline create-folder tile when active. */}
+              {supportsFolders && (browseDirs.length > 0 || creatingFolder) && (
+                <section className="project-files-section">
+                  <h3 className="project-files-section-title">
+                    Folders
+                    <span className="project-files-section-count">{browseDirs.length}</span>
+                  </h3>
+                  <div className="project-files-grid">
+                    {creatingFolder && (
+                      <NewFolderInput
+                        onCommit={handleCreateFolder}
+                        onCancel={() => setCreatingFolder(false)}
+                      />
+                    )}
+                    {browseDirs.map((dir) => (
+                      <LocalFolderCard
+                        key={dir.path}
+                        dir={dir}
+                        onOpen={handleEnterFolder}
+                        onRename={handleRenameFolder}
+                        onDelete={handleDeleteFolder}
+                        onMoveFile={handleMoveLocalFile}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
               {(() => {
             // Bucket every disk file as a local card, then (when scope
             // == 'all') add ghost "missing" cards for cloud rows that
             // syncState couldn't link to a local file. The unified
             // syncState already classified every fileId; here we just
             // pluck the missing-local entries and surface them with
-            // the download overlay.
+            // the download overlay. `dispFiles` is the CURRENT directory's
+            // files (root or subfolder) on Electron, falling back to the
+            // flat root listing on web (no folder navigation there).
+            const dispFiles = supportsFolders ? browseFiles : localFiles;
             const buckets = { photos: [], videos: [], documents: [] };
             const localByLcName = new Map();
-            for (const lf of localFiles) {
+            for (const lf of dispFiles) {
               if (lf?.name) localByLcName.set(lf.name.toLowerCase(), lf);
             }
-            for (const f of localFiles) {
+            for (const f of dispFiles) {
               // Skip filenames the user hid via the morph-pill's Hide
               // action. Pure presentation filter — the file is still
               // on disk and still in localByLcName above, so the
@@ -2378,7 +2836,9 @@ export default function ProjectFiles() {
               if (hiddenFiles.has(f.name.toLowerCase())) continue;
               buckets[categorizeMime(f.mimeType)].push({ kind: 'local', file: f });
             }
-            if (myBranchScope === 'all' && syncState) {
+            // "Missing — download" ghosts are a ROOT concept (the cloud
+            // is flat). Don't surface them while browsing a subfolder.
+            if (atRoot && myBranchScope === 'all' && syncState) {
               for (const row of syncState.rows.values()) {
                 if (row.status !== 'missing-local') continue;
                 if (!row.cloud) continue;
@@ -2408,6 +2868,19 @@ export default function ProjectFiles() {
             }
             const totalItems = buckets.photos.length + buckets.videos.length + buckets.documents.length;
             if (totalItems === 0) {
+              // Folders (if any) already render in the section above, so
+              // suppress the "empty" message when this dir has subfolders
+              // or the create-folder tile is open.
+              if (supportsFolders && (browseDirs.length > 0 || creatingFolder)) return null;
+              // Inside a subfolder there's no cloud to sync — keep it simple.
+              if (!atRoot) {
+                return (
+                  <div className="project-files-empty">
+                    <h2>This folder is empty</h2>
+                    <p>Drag files here or use the + button to add some.</p>
+                  </div>
+                );
+              }
               // Empty grid — either truly nothing (no local, no
               // cloud) or "local only" scope with empty folder. Show
               // the sync-with-main prompt when there's cloud content
@@ -2468,6 +2941,11 @@ export default function ProjectFiles() {
                       // cases (rename / replace / bootstrap) into a
                       // single stable id mapping. A null cloud here
                       // means "local-only file not yet pushed".
+                      // Folders sync to the team now, so a subfolder file
+                      // maps to its cloud row by (unique) filename just
+                      // like a root file. The folder it lives in is
+                      // metadata on the row (folder_path); a mismatch
+                      // surfaces as a pending move in the diff.
                       const fileId = sidecar.byFilename.get(lcName);
                       const cloud = fileId ? cloudById.get(fileId) : null;
                       // Derive the "Modified" pill from branchDiff
@@ -2510,6 +2988,7 @@ export default function ProjectFiles() {
                           cloud={cloud}
                           overlay={overlay}
                           localContentHash={localHashByName.get(f.name) || null}
+                          canMove={supportsFolders}
                         />
                       );
                     })}
@@ -2606,7 +3085,7 @@ export default function ProjectFiles() {
           // newly-downloaded files appear and the deleted ones
           // disappear without waiting for the watcher's poll.
           if (!hasLocalFolderApi || !localFolder) return;
-          const { files: localList, error: listErr } = await localFolderApi.list(localFolder);
+          const { files: localList, error: listErr } = await localFolderApi.listAll(localFolder);
           if (!listErr) setLocalFiles(localList || []);
         }}
       />
@@ -2662,6 +3141,40 @@ export default function ProjectFiles() {
             </svg>
           </button>
         </>
+      )}
+
+      {/* Right-click-the-background menu (My branch). Portalled to body
+          so it escapes the panel's overflow; positioned at the cursor
+          (clamped to the viewport). onMouseDown stops the window
+          dismiss from closing it before an item's click fires. */}
+      {bgMenu && createPortal(
+        <div
+          className="project-files-bg-menu"
+          role="menu"
+          style={{
+            left: Math.min(bgMenu.x, window.innerWidth - 200),
+            top: Math.min(bgMenu.y, window.innerHeight - 96),
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="project-files-bg-menu-item"
+            onClick={() => { setBgMenu(null); setCreatingFolder(true); }}
+          >
+            Make new folder
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="project-files-bg-menu-item"
+            onClick={() => { setBgMenu(null); localUploadInputRef.current?.click(); }}
+          >
+            Import
+          </button>
+        </div>,
+        document.body,
       )}
     </div>
   );

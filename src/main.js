@@ -292,13 +292,15 @@ const createWindow = () => {
     // Initial title for the brief flash before the renderer mounts. The
     // page-title-updated handler below keeps it pinned after load.
     title: `DocVex - ${launchMode}`,
-    // Resolved relative to the bundled main.js location (vite.main.config.mjs
-    // copies src/favicon.ico into .vite/build/ so this works in dev *and*
+    // Application thumbnail (taskbar / Alt-Tab / window icon). Resolved
+    // relative to the bundled main.js location (vite.main.config.mjs copies
+    // src/appicon_desktop.png into .vite/build/ so this works in dev *and*
     // packaged). On Windows, the .exe's embedded icon (set via
-    // packagerConfig.icon in forge.config.js) takes priority in packaged
-    // builds — this line is what gives the dev window the right icon and
-    // what macOS/Linux WMs read.
-    icon: path.join(__dirname, 'favicon.ico'),
+    // packagerConfig.icon in forge.config.js — still the favicon) takes
+    // priority in packaged builds; this line is what gives the dev window
+    // its thumbnail and what macOS/Linux WMs read. The in-app sidebar mark
+    // is a separate renderer asset (src/favicon.ico) and is left unchanged.
+    icon: path.join(__dirname, 'appicon_desktop.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
@@ -733,11 +735,35 @@ function isIgnoredLocalFilename(name) {
 // node_modules. Each entry carries size + mtime so the card meta line
 // can show the same "size · date" pair the cloud cards use.
 ipcMain.handle('local-folder:list', async (_, dir) => {
-  if (!dir) return { files: [], error: 'No directory specified' };
+  if (!dir) return { files: [], dirs: [], error: 'No directory specified' };
   try {
     const entries = await fsp.readdir(dir, { withFileTypes: true });
     const files = [];
+    const dirs = [];
     for (const entry of entries) {
+      if (entry.isDirectory()) {
+        // Hide dotfolders (.git, .vscode, …) — same "show only the
+        // project's stuff" spirit as the file-noise filter. Visible
+        // folders are what the user organises with.
+        if (entry.name.startsWith('.')) continue;
+        try {
+          const full = path.join(dir, entry.name);
+          const stat = await fsp.stat(full);
+          // `empty` = no VISIBLE entries inside (ignoring dotfolders +
+          // noise files) — drives the outline-vs-filled folder icon.
+          let empty = true;
+          try {
+            const children = await fsp.readdir(full, { withFileTypes: true });
+            empty = !children.some((c) => (
+              c.isDirectory()
+                ? !c.name.startsWith('.')
+                : (c.isFile() && !isIgnoredLocalFilename(c.name))
+            ));
+          } catch { /* unreadable → treat as empty */ }
+          dirs.push({ name: entry.name, path: full, mtimeIso: stat.mtime.toISOString(), empty });
+        } catch { /* skip dirs we can't stat */ }
+        continue;
+      }
       if (!entry.isFile()) continue;
       // Drop OS / editor / lockfile noise so the local pane reads
       // as "your project's documents" only. See isIgnoredLocalFilename
@@ -757,9 +783,129 @@ ipcMain.handle('local-folder:list', async (_, dir) => {
     }
     // Newest first — matches the cloud list's `uploaded_at DESC` order.
     files.sort((a, b) => (a.mtimeIso < b.mtimeIso ? 1 : -1));
+    // Folders alphabetical — a stable, scannable order for navigation.
+    dirs.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    return { files, dirs, error: null };
+  } catch (err) {
+    return { files: [], dirs: [], error: err?.message || 'Could not read directory' };
+  }
+});
+
+// Recursive listing — every file anywhere under `dir`, each tagged with
+// its `folderPath` (relative dir from the root, forward-slash separated,
+// '' for root). This is the SYNC source: the branch flow needs to see
+// files in subfolders so the folder structure can sync to the team.
+// Dotfolders + noise files are skipped, same as the flat list.
+async function walkLocalDir(root, rel, out) {
+  const dir = rel ? path.join(root, rel) : root;
+  let entries;
+  try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
+  catch { return; }
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith('.')) continue;
+      const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+      await walkLocalDir(root, childRel, out);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    if (isIgnoredLocalFilename(entry.name)) continue;
+    try {
+      const full = path.join(dir, entry.name);
+      const stat = await fsp.stat(full);
+      out.push({
+        name: entry.name,
+        path: full,
+        folderPath: rel || '',
+        sizeBytes: stat.size,
+        mtimeIso: stat.mtime.toISOString(),
+        mimeType: guessMimeFromName(entry.name),
+      });
+    } catch { /* skip unstattable */ }
+  }
+}
+
+ipcMain.handle('local-folder:list-recursive', async (_, dir) => {
+  if (!dir) return { files: [], error: 'No directory specified' };
+  try {
+    const files = [];
+    await walkLocalDir(dir, '', files);
+    files.sort((a, b) => (a.mtimeIso < b.mtimeIso ? 1 : -1));
     return { files, error: null };
   } catch (err) {
     return { files: [], error: err?.message || 'Could not read directory' };
+  }
+});
+
+// ── Folder management (My-branch local organisation) ──────────────────
+// Create / delete a subfolder and move a file between folders, all
+// confined to the picked branch folder via the same resolve + prefix
+// guard the file ops use. Folders are a LOCAL organisation layer — the
+// cloud project stays flat — so these never touch Supabase.
+function sanitizeSegment(name) {
+  // Single path segment only: strip separators + illegal chars so a
+  // typed folder name can't escape the parent or break Windows.
+  return String(name).replace(/[\\/:*?"<>|]/g, '_').replace(/\.+$/, '').trim().slice(0, 120);
+}
+
+ipcMain.handle('local-folder:create-folder', async (_, payload) => {
+  const dir = payload?.dir;
+  const name = sanitizeSegment(payload?.name || '');
+  if (!dir || !name) return { error: 'Missing or invalid name' };
+  try {
+    const normalizedDir = path.resolve(dir);
+    const target = path.resolve(dir, name);
+    if (!target.startsWith(normalizedDir)) return { error: 'Path outside branch folder' };
+    await fsp.mkdir(target); // non-recursive: throws EEXIST if it exists
+    return { ok: true, name, path: target, error: null };
+  } catch (err) {
+    if (err?.code === 'EEXIST') return { error: 'A folder with that name already exists' };
+    return { error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('local-folder:delete-folder', async (_, payload) => {
+  const dir = payload?.dir;
+  const name = payload?.name;
+  if (!dir || !name) return { error: 'Missing args' };
+  try {
+    const normalizedDir = path.resolve(dir);
+    const target = path.resolve(dir, name);
+    // Must be strictly inside the parent (never the parent itself).
+    if (!target.startsWith(normalizedDir) || target === normalizedDir) {
+      return { error: 'Path outside branch folder' };
+    }
+    await fsp.rm(target, { recursive: true, force: true });
+    return { ok: true, error: null };
+  } catch (err) {
+    return { error: err?.message || String(err) };
+  }
+});
+
+// Move a file (or folder) into another folder. `root` is the branch
+// folder boundary; both source and destination must resolve inside it.
+ipcMain.handle('local-folder:move', async (_, payload) => {
+  const root = payload?.root;
+  const fromPath = payload?.fromPath;
+  const toDir = payload?.toDir;
+  if (!root || !fromPath || !toDir) return { error: 'Missing args' };
+  try {
+    const normalizedRoot = path.resolve(root);
+    const from = path.resolve(fromPath);
+    const to = path.resolve(toDir, path.basename(from));
+    if (!from.startsWith(normalizedRoot) || !to.startsWith(normalizedRoot)) {
+      return { error: 'Path outside branch folder' };
+    }
+    if (from === to) return { ok: true, error: null };
+    // Refuse to clobber an existing destination entry.
+    try {
+      await fsp.access(to);
+      return { error: 'An item with that name already exists in the destination' };
+    } catch { /* doesn't exist — safe to move */ }
+    await fsp.rename(from, to);
+    return { ok: true, path: to, error: null };
+  } catch (err) {
+    return { error: err?.message || String(err) };
   }
 });
 
@@ -789,7 +935,17 @@ ipcMain.handle('local-folder:download', async (_, payload) => {
       const res = await fetch(f.url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
-      const target = path.join(dir, sanitizeFilename(f.filename));
+      // f.subdir is the file's folder_path (relative, '' = root). Recreate
+      // the structure so a teammate's download lands files in the same
+      // folders. Each segment is sanitised + the resolved path is verified
+      // to stay inside the branch folder.
+      const relDir = (f.subdir || '').split('/').map(sanitizeSegment).filter(Boolean).join(path.sep);
+      const targetDir = relDir ? path.join(dir, relDir) : dir;
+      if (!path.resolve(targetDir).startsWith(path.resolve(dir))) {
+        throw new Error('Path outside branch folder');
+      }
+      if (relDir) await fsp.mkdir(targetDir, { recursive: true });
+      const target = path.join(targetDir, sanitizeFilename(f.filename));
       await fsp.writeFile(target, buf);
       results.push({ filename: f.filename, path: target, ok: true });
     } catch (err) {
@@ -971,7 +1127,10 @@ ipcMain.handle('local-folder:watch', (_, dir) => {
   stopWatcher();
   if (!dir) return { ok: true };
   try {
-    watcher = fs.watch(dir, { persistent: false }, () => {
+    // recursive so changes inside synced subfolders are noticed too
+    // (Windows + macOS support recursive fs.watch; on platforms that
+    // don't, it degrades to top-level only).
+    watcher = fs.watch(dir, { persistent: false, recursive: true }, () => {
       // Debounce: collapse a burst of events (rename + change pairs
       // during a save) into a single notification.
       if (watcherDebounce) clearTimeout(watcherDebounce);
