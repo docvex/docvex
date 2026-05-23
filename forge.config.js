@@ -51,6 +51,14 @@ module.exports = {
       platforms: ['darwin'],
     },
     {
+      // Real drag-to-Applications .dmg installer. appdmg is a macOS-only
+      // native module, so this maker is scoped to darwin. No `icon` here:
+      // there's no src/favicon.icns yet, and pointing appdmg at a missing
+      // file fails the build (add an .icns + `config.icon` when one exists).
+      name: '@electron-forge/maker-dmg',
+      platforms: ['darwin'],
+    },
+    {
       name: '@electron-forge/maker-deb',
       config: {},
     },
