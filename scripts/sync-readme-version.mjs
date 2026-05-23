@@ -39,7 +39,11 @@ const after = before
   // macOS zip filenames produced by scripts/make-mac-zips.mjs +
   // attached to the GitHub release by scripts/publish-mac-zips.mjs.
   // Shape: docvex-darwin-{x64|arm64}-X.Y.Z.zip
-  .replace(/docvex-darwin-(x64|arm64)-\d+\.\d+\.\d+\.zip/g, `docvex-darwin-$1-${newVersion}.zip`);
+  .replace(/docvex-darwin-(x64|arm64)-\d+\.\d+\.\d+\.zip/g, `docvex-darwin-$1-${newVersion}.zip`)
+  // macOS .dmg installers produced by @electron-forge/maker-dmg.
+  // Note the version comes BEFORE the arch here (unlike the zips above).
+  // Shape: docvex-X.Y.Z-{x64|arm64}.dmg
+  .replace(/docvex-\d+\.\d+\.\d+-(x64|arm64)\.dmg/g, `docvex-${newVersion}-$1.dmg`);
 
 if (after === before) {
   log('no version-pinned references found in README — nothing to do');
