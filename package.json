@@ -5,6 +5,9 @@
   "description": "My Electron application description",
   "main": ".vite/build/main.js",
   "private": true,
+  "workspaces": [
+    "landing"
+  ],
   "scripts": {
     "start": "electron-forge start",
     "start:multi": "node scripts/run-many.mjs",
@@ -22,6 +25,9 @@
     "web:dev": "vite --config vite.web.config.mjs --mode web",
     "web:build": "vite build --config vite.web.config.mjs --mode web && node scripts/web-deploy.mjs",
     "web:preview": "vite preview --config vite.web.config.mjs --outDir dist-web",
+    "landing:dev": "npm --prefix landing run dev",
+    "landing:build": "npm --prefix landing run build",
+    "landing:deploy": "npm --prefix landing run build && node scripts/landing-deploy.mjs",
     "lint": "echo \"No linting configured\""
   },
   "keywords": [],
