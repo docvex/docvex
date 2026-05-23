@@ -94,3 +94,7 @@ out/
 # Web build intermediate output — the deploy script copies the final
 # artifacts into docs/app/ (committed), so the staging dir is ignored.
 dist-web/
+
+# Landing site (Vite) intermediate output — scripts/landing-deploy.mjs copies
+# the final artifacts into docs/ (committed), so the staging dir is ignored.
+landing/dist/

@@ -1,5 +1,3 @@
-"use client";
-
 import { useRef } from "react";
 import { motion, useInView, useReducedMotion } from "motion/react";
 

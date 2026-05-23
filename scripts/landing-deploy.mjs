@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // scripts/landing-deploy.mjs
 //
-// Runs after `next build` (output: 'export') produces landing/out/. Merges
-// that static marketing site into docs/ — the GitHub Pages root that serves
-// docvex.ro — WITHOUT clobbering the web SPA or its routing.
+// Runs after `vite build` produces landing/dist/. Merges that static marketing
+// site into docs/ — the GitHub Pages root that serves docvex.ro — WITHOUT
+// clobbering the web SPA or its routing.
 //
 // docs/ is shared between two independently-built things:
 //   • the marketing landing page (this script's payload, at the root)
@@ -24,7 +24,7 @@ import { dirname, resolve, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
-const SRC = join(root, 'landing', 'out');
+const SRC = join(root, 'landing', 'dist');
 const DEST = join(root, 'docs');
 const PREFIX = '[landing-deploy]';
 
@@ -39,11 +39,10 @@ const PROTECTED = new Set([
   'favicon_old.ico',
 ]);
 
-// Entries Next emits that we must NOT copy into docs/:
-//   404.html  — would clobber the protected SPA-fallback above
-//   404, _not-found — Next's not-found routes; GitHub Pages uses the root
-//                     404.html for every miss, so these are dead weight.
-const SKIP_FROM_OUT = new Set(['404.html', '404', '_not-found']);
+// Entries we must NOT copy into docs/ if a build ever emits them:
+//   404.html — would clobber the protected SPA-fallback above. (Vite doesn't
+//   emit one, but guard anyway so a stray build output can't break routing.)
+const SKIP_FROM_OUT = new Set(['404.html']);
 
 async function exists(path) {
   try { await stat(path); return true; } catch { return false; }

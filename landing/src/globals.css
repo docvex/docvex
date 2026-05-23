@@ -19,6 +19,13 @@
   /* Aliases */
   --background: var(--color-cream);
   --foreground: var(--color-navy-900);
+
+  /* Font families. These were injected by next/font; now they point at the
+     families loaded via the Google Fonts <link> in index.html. The @theme
+     block and utility classes below resolve through these vars. */
+  --font-inter: "Inter";
+  --font-jakarta: "Plus Jakarta Sans";
+  --font-cinzel: "Cinzel";
 }
 
 @theme inline {

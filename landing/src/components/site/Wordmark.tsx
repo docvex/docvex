@@ -1,5 +1,3 @@
-import Image from "next/image";
-
 type Tone = "light" | "dark";
 type Size = "sm" | "md" | "lg";
 
@@ -59,11 +57,11 @@ export function Wordmark({
 
   return (
     <div className={`inline-flex items-center ${s.gap} ${className}`}>
-      <Image
+      <img
         src="/logo.png"
         alt="DOCVEX"
-        width={s.icon * 2}
-        height={s.icon * 2}
+        width={s.icon}
+        height={s.icon}
         className="shrink-0 object-contain"
         style={{ width: s.icon, height: s.icon }}
       />

@@ -1,5 +1,3 @@
-"use client";
-
 import { useDemoModal } from "./DemoModalProvider";
 
 type Variant = "primary" | "outline" | "dark" | "linkArrow";

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Wordmark } from "./Wordmark";
 
 const groups = [
@@ -72,12 +71,12 @@ export function Footer() {
               <ul className="mt-4 space-y-2.5">
                 {g.links.map((l) => (
                   <li key={l.label}>
-                    <Link
+                    <a
                       href={l.href}
                       className="text-sm text-[var(--color-cream)]/60 transition-colors hover:text-[var(--color-beige-300)]"
                     >
                       {l.label}
-                    </Link>
+                    </a>
                   </li>
                 ))}
               </ul>
