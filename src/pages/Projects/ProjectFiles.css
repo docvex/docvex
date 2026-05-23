@@ -351,6 +351,23 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
 }
 
+/* Toolbar row above the My-branch grid: the scope toggle (left) and the
+   layout toggle (right). The toggles drop their own bottom margin here so
+   the row owns the rhythm; the layout toggle is pushed to the far edge. */
+.project-files-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.project-files-toolbar .project-files-scope-toggle {
+  margin-bottom: 0;
+}
+.project-files-toolbar .project-files-view-toggle {
+  margin-left: auto;
+}
+
 /* Show-hidden affordance — visually demoted vs the two scope tabs so
    the eye still lands on the active scope first. Sits inside the same
    pill rail, separated by a thin divider so it reads as a sibling
@@ -1338,34 +1355,82 @@
   width: 100%;
 }
 
-/* "Modified" pill — straddles the bottom edge of the local card
-   (centered horizontally), so the card's bottom border runs through
-   the pill's middle. Half-sits on the card, half-hangs below —
-   visually obvious without extending the row height (the pill is
-   `position: absolute`, doesn't push neighbours or grow the
-   wrapper). Amber/warning tone keeps it distinct from the brand
-   accent and from the .project-files-ext extension tag in the
-   card's top-right corner. */
-.project-files-modified-pill {
+
+/* "Waiting for review" chip with its shortcut cards. The chip becomes a
+   full-width column: the header row (dot + text + actions) on top, the
+   small shortcut cards beneath — all inside the chip's border so they
+   read as one section rather than a pill with a detached grid below. */
+.project-files-branch-status-item.has-review-files {
+  flex: 1 1 100%;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.85rem;
+}
+
+/* The header keeps the original horizontal pill layout (dot | text |
+   actions) now that the chip itself is a column. */
+.project-files-review-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+/* Small shortcut cards. Overrides the grid's --project-files-card-size
+   so the tiles render compact (the card's 2/3 aspect-ratio scales them
+   down proportionally), with a tighter gap to suit the smaller size. */
+.project-files-review-files {
+  --project-files-card-size: 78px;
+  gap: 0.5rem;
+}
+
+/* Change-category dot — top-left corner of a changed file's thumb (any
+   added / edited / moved local file, not just review shortcuts). Color
+   encodes the kind of pending change; hovering it shows the cursor-pill
+   Tooltip with details. The wrapper is display:contents so it adds no
+   layout box (the dot positions against .project-files-thumb). */
+.project-files-change-dot-wrap {
+  display: contents;
+}
+.project-files-change-dot {
   position: absolute;
-  top: 100%;
-  left: 50%;
-  /* translateY(-50%) puts the pill's vertical center on the wrapper's
-     bottom edge (= the card's bottom border, since the button fills
-     the wrapper); translateX(-50%) centres it horizontally. */
-  transform: translate(-50%, -50%);
+  top: 5px;
+  left: 5px;
   z-index: 2;
-  background: rgba(245, 158, 11, 0.95);  /* amber-500 @ 95% */
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bg-card);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  cursor: help;
+}
+.project-files-change-dot.is-added { background: var(--success); }
+.project-files-change-dot.is-edited { background: var(--warning); }
+.project-files-change-dot.is-moved { background: var(--info); }
+
+/* Shortcut badge — bottom-left corner of a thumb, marking a card that
+   is an alias of a file living in its category section. Same chip
+   recipe as the duration badge (bottom-right) so the two read as a
+   matched pair of corner affordances. */
+.project-files-shortcut-badge {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
   color: #fff;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 2px 10px;
-  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
   pointer-events: none;
-  white-space: nowrap;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.project-files-shortcut-badge svg {
+  width: 12px;
+  height: 12px;
 }
 
 /* Video duration badge — bottom-right of the thumb, same recipe as

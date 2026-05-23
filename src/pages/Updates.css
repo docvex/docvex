@@ -365,6 +365,41 @@
   flex-wrap: wrap;
 }
 
+/* Disclosure toggle for a release's notes. Sits at the head of the version
+   line; the chevron points down when expanded and rotates to point right
+   when collapsed. */
+.release-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 140ms, color 140ms;
+}
+.release-collapse-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+.release-collapse-btn svg {
+  transition: transform 160ms ease;
+}
+.release-collapse-btn.is-collapsed svg {
+  transform: rotate(-90deg);
+}
+
+/* Collapsed card: vertically center the still-visible header content
+   (version line and date/link group) on the same line. */
+.release-card.is-collapsed .release-header {
+  align-items: center;
+}
+
 .release-version {
   font-size: 1.05rem;
   font-weight: 600;

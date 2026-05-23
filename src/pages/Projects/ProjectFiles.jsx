@@ -9,6 +9,7 @@ import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import SyncToMainModal from '../../components/SyncToMainModal';
 import { runCommitFlow, buildCommitSnapshot } from '../../lib/commitFlow';
 import FileThumbnail from '../../components/FileThumbnail';
+import Tooltip from '../../components/Tooltip';
 import { useMorphPill } from '../../components/useMorphPill';
 import { describeCloudFile, describeLocalFile } from '../../lib/thumbnailDescriptor';
 import {
@@ -26,7 +27,7 @@ import {
   isElectronBranch,
   readLocalBlob,
 } from '../../lib/localFolder';
-import { openFileWindow, openDocx, canOpenInApp, canViewInBrowser, isDocxFile } from '../../lib/platform';
+import { openFileWindow, openDocx, canOpenInApp, isDocxFile } from '../../lib/platform';
 import {
   loadSidecar,
   saveSidecar,
@@ -139,6 +140,41 @@ const FolderGlyphFilled = (
 // empty. `empty === undefined` (e.g. cloud folders, always non-empty by
 // derivation) falls back to filled.
 const folderGlyphFor = (empty) => (empty ? FolderGlyph : FolderGlyphFilled);
+
+// Shortcut overlay — marks a card in the "Waiting for review" section as
+// an alias of a file that also lives in its category section (an up-right
+// arrow, the classic OS shortcut affordance).
+const ShortcutGlyph = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M8 7h9v9" />
+    <path d="M17 7 7 17" />
+  </svg>
+);
+
+// Classify a local file's pending change into one of three buckets for the
+// color-coded corner dot + its tooltip, or null when the file is in sync
+// (no dot). Reads the unified syncState row, which still reflects the
+// local-vs-cloud diff while a change sits in an open request (cloud isn't
+// updated until approval):
+//   • local-only          → Added   (new file, no cloud row yet)
+//   • replace             → Edited  (contents changed)
+//   • rename + folderDiffers → Moved (relocated to another folder)
+//   • rename (name only)  → Edited  (renamed)
+//   • synced / missing / orphan → null (no dot)
+function describeChange(row) {
+  if (!row) return null;
+  if (row.status === 'local-only') return { category: 'added', info: 'Added · new file' };
+  if (row.status === 'replace') return { category: 'edited', info: 'Edited · contents changed' };
+  if (row.status === 'rename') {
+    if (row.folderDiffers) {
+      const folder = row.local?.folderPath || 'project root';
+      return { category: 'moved', info: `Moved · now in ${folder}` };
+    }
+    const was = row.cloud?.name;
+    return { category: 'edited', info: was ? `Renamed · was “${was}”` : 'Renamed' };
+  }
+  return null;
+}
 
 function formatBytes(bytes) {
   if (!bytes) return '0 B';
@@ -366,6 +402,12 @@ function LocalFileCard({
                        // — feeds into the descriptor's contentKey so an in-place
                        // edit invalidates every cache layer at once.
   canMove,             // true → card is draggable onto a folder card to move it
+  shortcut,            // true → this is an alias in the "Waiting for review"
+                       // section; show the shortcut badge and don't allow drag-
+                       // to-move (the real card stays in its category section)
+  changeCategory,      // 'added' | 'edited' | 'moved' | null — color-coded
+                       // change dot in the card's top-left (any changed file)
+  changeInfo,          // tooltip text shown when hovering the change dot
 }) {
   const [hovered, setHovered] = useState(false);
   const { base: diskBase, ext } = splitNameAndExtension(file.name);
@@ -538,8 +580,8 @@ function LocalFileCard({
         role="button"
         tabIndex={0}
         className={`project-files-card${selected ? ' is-selected' : ''}`}
-        draggable={Boolean(canMove && file?.path)}
-        onDragStart={canMove && file?.path ? (e) => {
+        draggable={Boolean(canMove && file?.path && !shortcut)}
+        onDragStart={canMove && file?.path && !shortcut ? (e) => {
           e.dataTransfer.setData(MOVE_DND_TYPE, file.path);
           e.dataTransfer.effectAllowed = 'move';
         } : undefined}
@@ -563,16 +605,39 @@ function LocalFileCard({
               {ext.toUpperCase()}
             </span>
           )}
+          {shortcut && (
+            <span
+              className="project-files-shortcut-badge"
+              title="Shortcut — waiting for review"
+              aria-label="Shortcut — waiting for review"
+            >
+              {ShortcutGlyph}
+            </span>
+          )}
+          {changeCategory && (
+            // Color-coded change dot, top-left. Hovering it shows the
+            // custom cursor-pill Tooltip with the change info. We hide the
+            // card's own morph-pill hover and stop the move event from
+            // bubbling to it so only the dot's tooltip shows over the dot.
+            <span
+              className="project-files-change-dot-wrap"
+              onMouseEnter={morphPill.handleMouseLeave}
+              onMouseMove={(e) => e.stopPropagation()}
+            >
+              <Tooltip content={changeInfo}>
+                <span
+                  className={`project-files-change-dot is-${changeCategory}`}
+                  role="img"
+                  aria-label={changeInfo || changeCategory}
+                />
+              </Tooltip>
+            </span>
+          )}
         </div>
         <div className="project-files-meta">
           <div className="project-files-name">{base || file.name}</div>
         </div>
       </div>
-      {modified && (
-        <span className="project-files-modified-pill" aria-label="Local changes">
-          Modified
-        </span>
-      )}
       {morphPill.node}
     </div>
   );
@@ -818,6 +883,22 @@ export default function ProjectFiles() {
     try { localStorage.setItem(MY_SCOPE_KEY, myBranchScope); }
     catch { /* private mode — fall back to in-memory only */ }
   }, [MY_SCOPE_KEY, myBranchScope]);
+
+  // My-branch layout mode: 'category' groups files into Photos / Videos /
+  // Documents sections (the default); 'all' shows one Explorer-style grid
+  // with folders first, then files, each alphabetical. Persisted per-project.
+  const MY_VIEW_KEY = projectId ? `docvex:project-files-my-view:${projectId}` : null;
+  const [myViewMode, setMyViewMode] = useState(() => {
+    if (!MY_VIEW_KEY) return 'category';
+    try {
+      return localStorage.getItem(MY_VIEW_KEY) === 'all' ? 'all' : 'category';
+    } catch { return 'category'; }
+  });
+  useEffect(() => {
+    if (!MY_VIEW_KEY) return;
+    try { localStorage.setItem(MY_VIEW_KEY, myViewMode); }
+    catch { /* private mode — fall back to in-memory only */ }
+  }, [MY_VIEW_KEY, myViewMode]);
 
   // Hidden filenames — per-(user, project) lowercase Set persisted in
   // localStorage. Filtered out of the My-branch grid render below;
@@ -1280,6 +1361,25 @@ export default function ProjectFiles() {
   // change request — the missing-card overlay suppresses these
   // because the cloud row is about to disappear.
   const openRequestDeleteIds = syncState?.openRequestDeleteIds || new Set();
+
+  // FileIds with an item in the user's open change request — work already
+  // pushed and now awaiting an admin's review. Drives the "Waiting for
+  // review" shortcut section on the My branch. Mirrors computeSyncState's
+  // covered-id derivation: an 'add' keys off the minted proposed.id,
+  // every other kind off target_file_id. Uses effectiveOpenItems so the
+  // section stays stable through the ~4s post-approval soft-hold window.
+  const waitingReviewFileIds = useMemo(() => {
+    const s = new Set();
+    for (const it of effectiveOpenItems) {
+      if (it.kind === 'add') {
+        if (it.proposed?.id) s.add(it.proposed.id);
+      } else if (it.target_file_id) {
+        s.add(it.target_file_id);
+      }
+    }
+    return s;
+  }, [effectiveOpenItems]);
+
   // Tracks which projectId has been hydrated from localStorage. Until
   // hydrate runs for the current project, the persist effect skips
   // writes — otherwise the initial render's localFolder='' would
@@ -2013,17 +2113,10 @@ export default function ProjectFiles() {
       openDocx({ localPath: file.path, cloudUrl, fileName: file.name || 'file' });
       return;
     }
-    if (canViewInBrowser(file.mimeType, file.name)) {
-      const isWebPath = typeof file.path === 'string' && file.path.startsWith('web://');
-      if (!isWebPath) {
-        // Mtime as cache-buster keeps an in-place edit from serving
-        // the old bytes the OS may have cached at the same URL.
-        const suffix = file.mtimeIso ? `?t=${encodeURIComponent(file.mtimeIso)}` : '';
-        const url = `localfile://local/${encodeURIComponent(file.path)}${suffix}`;
-        openFileWindow(url, file.name || 'file');
-        return;
-      }
-    }
+    // Open in the OS's native app for the file type rather than the in-app
+    // viewer — on the My branch users work on their real local files, so a
+    // double-click should hand off to their actual editor (Preview, Photos,
+    // Acrobat, etc.). (On web, openPath is a no-op: no native app to call.)
     localFolderApi.openPath(file.path);
   }, [sidecar, cloudById]);
 
@@ -2229,6 +2322,66 @@ export default function ProjectFiles() {
       dedupeKey: `wipe-main-result:${Date.now()}`,
     });
   }, [wipingMain, viewerIsAdmin, files, notify, refetchCloudFiles]);
+
+  // Render a single on-disk file as a LocalFileCard. Shared by the grid's
+  // category sections AND the "Waiting for review" shortcut list under the
+  // status pill, so both derive the cloud link / Modified state the same
+  // way. `shortcut` shows the alias badge + disables drag-to-move;
+  // `keyPrefix` keeps React keys unique when the same file renders twice.
+  const buildLocalCard = (f, { shortcut = false, keyPrefix = '' } = {}) => {
+    const lcName = (f.name || '').toLowerCase();
+    // Sidecar-driven cloud resolution: filename → fileId → cloud. A null
+    // cloud means "local-only file not yet pushed".
+    const fileId = sidecar.byFilename.get(lcName);
+    const cloud = fileId ? cloudById.get(fileId) : null;
+    // "Modified" mirrors the status chip's filter (open-request items
+    // hidden, soft-hold applied) via diffReplaceCloudIds.
+    const bytesDiffer = Boolean(cloud) && diffReplaceCloudIds.has(cloud.id);
+    // Bytes (not rename) diverged → regenerate thumb from disk.
+    const bytesChanged = Boolean(cloud) && bytesDifferCloudIds.has(cloud.id);
+    // Un-pushed metadata edit (rename / description).
+    const overlay = cloud ? overlayByFileId.get(cloud.id) : null;
+    const isModified = bytesDiffer || Boolean(overlay);
+    // Change-category dot — derived from the file's syncState row, so EVERY
+    // changed card (added / edited / moved) gets one, not just the review
+    // shortcuts. Unchanged (synced) files get null → no dot.
+    const change = describeChange(fileId ? syncState?.rows.get(fileId) : null);
+    return (
+      <LocalFileCard
+        key={`${keyPrefix}${f.path}`}
+        file={f}
+        onSelect={handleSelectLocalCard}
+        onDoubleOpen={handleOpenLocalFile}
+        onRevert={handleRevertLocalCard}
+        onDelete={handleDeleteLocalCard}
+        selected={selectedLocalPath === f.path}
+        modified={isModified}
+        bytesChanged={bytesChanged}
+        cloud={cloud}
+        overlay={overlay}
+        localContentHash={localHashByName.get(f.name) || null}
+        canMove={supportsFolders}
+        shortcut={shortcut}
+        changeCategory={change?.category || null}
+        changeInfo={change?.info || null}
+      />
+    );
+  };
+
+  // On-disk files that are awaiting review (have an item in the user's open
+  // change request). Pulled from syncState.rows so it's project-wide
+  // regardless of which subfolder is being browsed; deletes have no local
+  // file and drop out. Sorted by name for a stable order.
+  const waitingReviewFiles = (() => {
+    if (waitingReviewFileIds.size === 0 || !syncState) return [];
+    const out = [];
+    for (const fileId of waitingReviewFileIds) {
+      const row = syncState.rows.get(fileId);
+      if (row?.local) out.push(row.local);
+    }
+    out.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    return out;
+  })();
 
   return (
     <div
@@ -2471,12 +2624,13 @@ export default function ProjectFiles() {
               const sub = hasLocal
                 ? `${count} ${count === 1 ? 'edit' : 'edits'} ready — click Push to send`
                 : `${count} ${count === 1 ? 'edit' : 'edits'} sent. Hang tight while your team reviews.`;
-              return (
-                <span
-                  className="project-files-branch-status-item is-changes"
-                  role="status"
-                  aria-live="polite"
-                >
+              // In the waiting-for-review state the pushed files render as
+              // small shortcut cards INSIDE this chip, below the header row.
+              const showReviewFiles = !hasLocal && waitingReviewFiles.length > 0;
+              // Dot + text + actions — the chip's top row. Reused whether or
+              // not the review cards are shown (they share the same chip).
+              const header = (
+                <>
                   <span className="project-files-branch-status-dot" aria-hidden="true" />
                   <div className="project-files-branch-status-text">
                     <strong className="project-files-branch-status-label">{label}</strong>
@@ -2512,6 +2666,32 @@ export default function ProjectFiles() {
                       Discard
                     </button>
                   </span>
+                </>
+              );
+              if (!showReviewFiles) {
+                return (
+                  <span
+                    className="project-files-branch-status-item is-changes"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {header}
+                  </span>
+                );
+              }
+              // has-review-files turns the chip into a full-width column:
+              // the header row on top, the small shortcut cards beneath —
+              // all within the chip's border so they read as one section.
+              return (
+                <span
+                  className="project-files-branch-status-item is-changes has-review-files"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div className="project-files-review-header">{header}</div>
+                  <div className="project-files-review-files project-files-grid">
+                    {waitingReviewFiles.map((f) => buildLocalCard(f, { shortcut: true, keyPrefix: 'review-' }))}
+                  </div>
                 </span>
               );
             })()}
@@ -2712,6 +2892,7 @@ export default function ProjectFiles() {
             // re-appear as ghosts pulled from the cloud row instead
             // of disappearing entirely).
             <>
+              <div className="project-files-toolbar">
               <div className="project-files-scope-toggle" role="tablist" aria-label="What to show">
                 <button
                   type="button"
@@ -2745,6 +2926,29 @@ export default function ProjectFiles() {
                     Show {hiddenFiles.size} hidden
                   </button>
                 )}
+              </div>
+              {/* Layout switch — group by category (default) or one flat
+                  Explorer-style grid (folders first, then files, alpha). */}
+              <div className="project-files-scope-toggle project-files-view-toggle" role="tablist" aria-label="Layout">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={myViewMode === 'category'}
+                  className={`project-files-scope-btn${myViewMode === 'category' ? ' is-active' : ''}`}
+                  onClick={() => setMyViewMode('category')}
+                >
+                  By category
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={myViewMode === 'all'}
+                  className={`project-files-scope-btn${myViewMode === 'all' ? ' is-active' : ''}`}
+                  onClick={() => setMyViewMode('all')}
+                >
+                  All files
+                </button>
+              </div>
               </div>
               {/* Folder breadcrumb — Electron only, shown once you've
                   navigated into a folder (or any exist). Each crumb is a
@@ -2782,8 +2986,10 @@ export default function ProjectFiles() {
                 </div>
               )}
               {/* Folders category — subfolders of the current directory,
-                  plus the inline create-folder tile when active. */}
-              {supportsFolders && (browseDirs.length > 0 || creatingFolder) && (
+                  plus the inline create-folder tile when active. Only its
+                  own section in category mode; in "all" mode the folders
+                  render inside the single combined grid below. */}
+              {myViewMode === 'category' && supportsFolders && (browseDirs.length > 0 || creatingFolder) && (
                 <section className="project-files-section">
                   <h3 className="project-files-section-title">
                     Folders
@@ -2867,11 +3073,8 @@ export default function ProjectFiles() {
               }
             }
             const totalItems = buckets.photos.length + buckets.videos.length + buckets.documents.length;
-            if (totalItems === 0) {
-              // Folders (if any) already render in the section above, so
-              // suppress the "empty" message when this dir has subfolders
-              // or the create-folder tile is open.
-              if (supportsFolders && (browseDirs.length > 0 || creatingFolder)) return null;
+            const hasFolders = supportsFolders && (browseDirs.length > 0 || creatingFolder);
+            if (totalItems === 0 && !hasFolders) {
               // Inside a subfolder there's no cloud to sync — keep it simple.
               if (!atRoot) {
                 return (
@@ -2910,6 +3113,62 @@ export default function ProjectFiles() {
                 </div>
               );
             }
+            // Category mode shows folders in their own section above, so the
+            // file grid bows out when only folders exist.
+            if (totalItems === 0 && hasFolders && myViewMode === 'category') return null;
+
+            // Render one bucket entry: a "missing — download" ghost or a
+            // real on-disk card (via the shared buildLocalCard, so the
+            // grid and the "Waiting for review" shortcut list stay in
+            // lockstep on cloud-link / Modified derivation).
+            const renderEntry = (entry) => {
+              if (entry.kind === 'missing') {
+                return (
+                  <FileCard
+                    key={`missing-${entry.file.id}`}
+                    file={entry.file}
+                    onClick={(file) => handleDownloadOne(file)}
+                    branchOverlay={{ kind: 'missing' }}
+                  />
+                );
+              }
+              return buildLocalCard(entry.file);
+            };
+
+            // "All files" mode — one Explorer-style grid: folders first
+            // (alphabetical), then files (alphabetical). Folders render here
+            // rather than in their own section only in this mode.
+            if (myViewMode === 'all') {
+              const byName = (a, b) => (a || '').localeCompare(b || '', undefined, { numeric: true, sensitivity: 'base' });
+              const fileEntries = [...buckets.photos, ...buckets.videos, ...buckets.documents]
+                .sort((a, b) => byName(a.file?.name, b.file?.name));
+              const folderDirs = supportsFolders
+                ? [...browseDirs].sort((a, b) => byName(a.name, b.name))
+                : [];
+              return (
+                <div className="project-files-grid">
+                  {creatingFolder && supportsFolders && (
+                    <NewFolderInput
+                      onCommit={handleCreateFolder}
+                      onCancel={() => setCreatingFolder(false)}
+                    />
+                  )}
+                  {folderDirs.map((dir) => (
+                    <LocalFolderCard
+                      key={dir.path}
+                      dir={dir}
+                      onOpen={handleEnterFolder}
+                      onRename={handleRenameFolder}
+                      onDelete={handleDeleteFolder}
+                      onMoveFile={handleMoveLocalFile}
+                    />
+                  ))}
+                  {fileEntries.map((entry) => renderEntry(entry))}
+                </div>
+              );
+            }
+
+            // Category mode — Photos / Videos / Documents sections.
             return FILE_SECTIONS.map(({ key, title }) => {
               const items = buckets[key];
               if (items.length === 0) return null;
@@ -2920,78 +3179,7 @@ export default function ProjectFiles() {
                     <span className="project-files-section-count">{items.length}</span>
                   </h3>
                   <div className="project-files-grid">
-                    {items.map((entry) => {
-                      if (entry.kind === 'missing') {
-                        return (
-                          <FileCard
-                            key={`missing-${entry.file.id}`}
-                            file={entry.file}
-                            onClick={(file) => handleDownloadOne(file)}
-                            branchOverlay={{ kind: 'missing' }}
-                          />
-                        );
-                      }
-                      const f = entry.file;
-                      const lcName = (f.name || '').toLowerCase();
-                      // Sidecar-driven cloud resolution: filename →
-                      // fileId → cloud. One hop. The legacy
-                      // filename / display-name / proposed-name /
-                      // hash fallback stack is gone — the sidecar's
-                      // reconciliation pass absorbs all of those
-                      // cases (rename / replace / bootstrap) into a
-                      // single stable id mapping. A null cloud here
-                      // means "local-only file not yet pushed".
-                      // Folders sync to the team now, so a subfolder file
-                      // maps to its cloud row by (unique) filename just
-                      // like a root file. The folder it lives in is
-                      // metadata on the row (folder_path); a mismatch
-                      // surfaces as a pending move in the diff.
-                      const fileId = sidecar.byFilename.get(lcName);
-                      const cloud = fileId ? cloudById.get(fileId) : null;
-                      // Derive the "Modified" pill from branchDiff
-                      // directly so the per-card signal mirrors the
-                      // status chip exactly — same filter (open-
-                      // request items hidden, soft-hold applied),
-                      // same source of truth. The old per-card
-                      // bytesDiffer recomputed independently and
-                      // stayed lit after a push because it didn't
-                      // know about the open-request filter.
-                      const bytesDiffer = Boolean(cloud) && diffReplaceCloudIds.has(cloud.id);
-                      // True only when the local file's BYTES diverge
-                      // from cloud (rename-only divergence excluded).
-                      // Tells LocalFileCard the cloud-baked thumbnail
-                      // is stale and to fall back to a freshly
-                      // regenerated local thumbnail instead.
-                      const bytesChanged = Boolean(cloud) && bytesDifferCloudIds.has(cloud.id);
-                      // Queued metadata edit (rename / description)
-                      // — fires only on un-pushed pendingChanges
-                      // (overlayByFileId is built from those). After
-                      // a push, pendingChanges is cleared so the
-                      // overlay is gone; the EDITED corner pill
-                      // disappears too, which matches the "the file
-                      // is now in a request, not in your working
-                      // copy" mental model.
-                      const overlay = cloud ? overlayByFileId.get(cloud.id) : null;
-                      const hasPendingMeta = Boolean(overlay);
-                      const isModified = bytesDiffer || hasPendingMeta;
-                      return (
-                        <LocalFileCard
-                          key={f.path}
-                          file={f}
-                          onSelect={handleSelectLocalCard}
-                          onDoubleOpen={handleOpenLocalFile}
-                          onRevert={handleRevertLocalCard}
-                          onDelete={handleDeleteLocalCard}
-                          selected={selectedLocalPath === f.path}
-                          modified={isModified}
-                          bytesChanged={bytesChanged}
-                          cloud={cloud}
-                          overlay={overlay}
-                          localContentHash={localHashByName.get(f.name) || null}
-                          canMove={supportsFolders}
-                        />
-                      );
-                    })}
+                    {items.map((entry) => renderEntry(entry))}
                   </div>
                 </section>
               );

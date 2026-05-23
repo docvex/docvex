@@ -92,6 +92,14 @@ const RevertIcon = (
   </svg>
 );
 
+// Disclosure chevron for collapsing a release's notes. Points down when
+// expanded; CSS rotates it to point right when collapsed.
+const ChevronIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="6 9 12 15 18 9"/>
+  </svg>
+);
+
 // Pick the Squirrel installer asset out of a release's asset list. Skips
 // the RELEASES manifest and the per-version .nupkg deltas — those are part
 // of the auto-update protocol, not user-runnable installers. Returns null
@@ -385,6 +393,17 @@ export default function Updates() {
   // at a time and the confirm handler has direct access to the release.
   const [pendingRevert, setPendingRevert] = useState(null);
 
+  // Per-release collapse state. We track the EXPANDED ids so the default is
+  // collapsed — a card's patchnotes show only after the user opens it, and
+  // releases that load in later default collapsed too. Everything else on the
+  // card (version, tags, date, links, revert) stays visible when collapsed.
+  const [expandedIds, setExpandedIds] = useState(() => new Set());
+  const toggleCollapsed = (id) => setExpandedIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
   const requestRevert = (release) => setPendingRevert(release);
   const cancelRevert = () => setPendingRevert(null);
   const confirmRevert = () => {
@@ -396,6 +415,34 @@ export default function Updates() {
   };
 
   const pendingVer = pendingRevert ? versionTagFor(pendingRevert).replace(/^v/, '') : '';
+
+  // major/minor/patch tag per release, computed from the ORIGINAL
+  // chronological (newest-first) order — each release vs the one that
+  // preceded it — so it stays correct even after we reshuffle the list
+  // for display below.
+  const kindById = React.useMemo(() => {
+    const m = new Map();
+    releases.forEach((r, i) => {
+      const prev = releases[i + 1] ? versionTagFor(releases[i + 1]) : null;
+      m.set(r.id, releaseKind(versionTagFor(r), prev));
+    });
+    return m;
+  }, [releases]);
+
+  // Display order for the release list. Normally newest-first. But when the
+  // installed version isn't the latest, lift it to second position — so the
+  // user sees the latest update first, then the version they're on, then the
+  // rest in newest-first order.
+  const orderedReleases = React.useMemo(() => {
+    if (!currentVersion || releases.length < 2) return releases;
+    const idx = releases.findIndex(
+      (r) => versionTagFor(r).replace(/^v/, '') === currentVersion,
+    );
+    if (idx <= 0) return releases; // installed not in the list, or already latest
+    const installed = releases[idx];
+    const rest = releases.filter((_, i) => i !== 0 && i !== idx);
+    return [releases[0], installed, ...rest];
+  }, [releases, currentVersion]);
 
   const tabs = [
     { id: 'updates', label: 'Updates' },
@@ -444,23 +491,35 @@ export default function Updates() {
           <div className="updates-empty">No releases published yet.</div>
         )}
 
-        {releases.map((release, idx) => {
+        {orderedReleases.map((release) => {
           // Use the resolved version tag (falls back to release.name when
           // tag_name is the electron-forge `untagged-<sha>` placeholder).
           const tag = versionTagFor(release);
           const ver = tag.replace(/^v/, '');
           const isCurrent = ver === currentVersion;
-          // List is newest-first → the previous (older) release is the next index.
-          const kind = releaseKind(tag, releases[idx + 1] ? versionTagFor(releases[idx + 1]) : null);
+          // Kind is precomputed from the original chronological order so it
+          // survives the installed-version reshuffle above.
+          const kind = kindById.get(release.id);
+          const isCollapsed = !expandedIds.has(release.id);
           const cardClass = [
             'release-card',
             isCurrent && 'is-current',
             kind && `is-${kind}`,
+            isCollapsed && 'is-collapsed',
           ].filter(Boolean).join(' ');
           return (
             <article key={release.id} className={cardClass}>
               <header className="release-header">
                 <div className="release-version-line">
+                  <button
+                    type="button"
+                    className={`release-collapse-btn${isCollapsed ? ' is-collapsed' : ''}`}
+                    aria-expanded={!isCollapsed}
+                    aria-label={isCollapsed ? `Show notes for ${tag}` : `Hide notes for ${tag}`}
+                    onClick={() => toggleCollapsed(release.id)}
+                  >
+                    {ChevronIcon}
+                  </button>
                   <h2 className="release-version">{tag}</h2>
                   {kind && (
                     <span className={`release-tag release-tag-${kind}`}>{kind}</span>
@@ -484,24 +543,26 @@ export default function Updates() {
                 <h3 className="release-name">{release.name}</h3>
               )}
 
-              <div className="release-body">
-                {release.body ? (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      a: ({ href, children }) => (
-                        <a href={href} onClick={(e) => openExternal(e, href)}>
-                          {children}
-                        </a>
-                      ),
-                    }}
-                  >
-                    {release.body}
-                  </ReactMarkdown>
-                ) : (
-                  <p className="release-empty">No notes provided.</p>
-                )}
-              </div>
+              {!isCollapsed && (
+                <div className="release-body">
+                  {release.body ? (
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        a: ({ href, children }) => (
+                          <a href={href} onClick={(e) => openExternal(e, href)}>
+                            {children}
+                          </a>
+                        ),
+                      }}
+                    >
+                      {release.body}
+                    </ReactMarkdown>
+                  ) : (
+                    <p className="release-empty">No notes provided.</p>
+                  )}
+                </div>
+              )}
 
               {/* Revert action lives at the bottom-right of the card so it
                   doesn't compete with the release title/notes for attention.
@@ -515,7 +576,7 @@ export default function Updates() {
                   Hidden on web — web users have no local install to
                   roll back; the top-of-page CTA already covers their
                   "download the desktop app" path. */}
-              {isElectron && !isCurrent && (() => {
+              {isElectron && !isCurrent && !isCollapsed && (() => {
                 const setup = setupAssetFor(release);
                 // Button is position: absolute (see .release-revert-btn in
                 // Updates.css) so it floats over the card's bottom-right
