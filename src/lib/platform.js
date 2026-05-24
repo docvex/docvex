@@ -41,6 +41,17 @@ export async function isPackaged() {
   return false;
 }
 
+// Returns { platform, arch } for the running build.
+// Electron: IPC to main (process.platform / process.arch — e.g.
+//   { platform: 'darwin', arch: 'arm64' }).
+// Web: a synthetic 'web' marker so callers route into the no-installer path.
+// Drives the manual-download update fallback's asset selection on platforms
+// where the in-app auto-updater can't run (unsigned macOS / Linux).
+export async function getPlatformInfo() {
+  if (electronAPI?.getPlatformInfo) return electronAPI.getPlatformInfo();
+  return { platform: 'web', arch: 'web' };
+}
+
 // ── External / OAuth URLs ─────────────────────────────────────────────────
 
 // Open an arbitrary URL in the user's default browser.
@@ -198,6 +209,16 @@ export async function checkForUpdates() {
 // Trigger Squirrel's quit-and-install path. No-op on web.
 export function installUpdate() {
   electronAPI?.installUpdate?.();
+}
+
+// macOS self-update fallback (the build can't use Squirrel.Mac — see
+// UpdatesContext). Downloads the new build, swaps the .app bundle, and
+// relaunches. Resolves to { ok, error? }; on success the app quits itself.
+// Progress is reported via onUpdateStatus ('downloading' with percent →
+// 'installing'). No-op-ish on web / non-Electron.
+export async function downloadAndInstallUpdate(url) {
+  if (electronAPI?.downloadAndInstallUpdate) return electronAPI.downloadAndInstallUpdate(url);
+  return { ok: false, error: 'Not supported on this platform.' };
 }
 
 // Subscribe to autoUpdater lifecycle events. Returns an unsubscribe fn.

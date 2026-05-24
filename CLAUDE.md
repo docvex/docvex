@@ -42,7 +42,27 @@ npm run release:status    # show working-tree status + last commit
 #                                   serving the new version. Needs GITHUB_TOKEN;
 #                                   if unset or it fails, publish the draft
 #                                   manually on github.com as a fallback.
+
+# Repair an existing release's macOS assets (must run ON A MAC):
+npm run fix:mac           # rebuild + ad-hoc re-sign + re-zip + replace the
+                          # darwin .zip assets on the latest release
+npm run fix:mac -- v7.2.5 # ...on a specific tag. Needs GITHUB_TOKEN.
 ```
+
+> **macOS code-signing — read before cutting a release.** The mac build is
+> ad-hoc signed only (no Developer ID). electron-forge's FusesPlugin flips fuse
+> bytes AFTER signing, which invalidates the Electron Framework's signature; on
+> Apple Silicon the kernel then SIGKILLs the app at launch (`Code Signature
+> Invalid`, crashing in `fuses::IsRunAsNodeEnabled`). The repair is a full
+> `codesign --deep` re-sign, which **only works on macOS** — so the darwin
+> artifacts MUST be packaged/signed on a Mac. A release whose mac zips were
+> built on Windows/Linux will crash on every Apple-Silicon Mac. Use
+> `npm run fix:mac` from a Mac to replace bad assets. Two gotchas the scripts
+> already handle: codesign rejects the `com.apple.FinderInfo` xattr that an
+> iCloud-synced repo folder keeps re-applying (sign in a `/tmp` copy), and the
+> rebuilt bundle must be stamped with the release's version (`DOCVEX_APP_VERSION`)
+> or the updater re-prompts forever. The in-app self-updater also ad-hoc
+> re-signs each download on the user's Mac as a safety net (see "Auto-update").
 
 No tests, no linter (`npm run lint` is a stub).
 
@@ -128,6 +148,10 @@ Two layers running in parallel — don't confuse them:
 2. **`UpdatesContext` in renderer** — fetches `https://api.github.com/repos/petreluca1105-dotcom/docvex/releases` (cached in `sessionStorage` under `docvex:releases-cache:v1`, 1 h TTL) and subscribes to `update:status` events from main. Drives the sidebar badge + the Updates page banner.
 
 Layer 1 is the source of truth for "is an installer actually downloaded and ready to apply?" → fires `update-downloaded` → `update:status { state: 'downloaded' }` → renderer shows "Restart & install". Layer 2 is what shows release notes and the version-mismatch indicator. Works in dev too (no Squirrel needed). Web returns `state: 'web'`.
+
+**Windows-only Squirrel.** Layer 1 is gated on `AUTO_UPDATE_SUPPORTED` (`process.platform === 'win32'`) in `src/main.js` — the macOS build isn't Developer-ID signed, so Squirrel.Mac can't apply updates. `update:check` returns `{ state: 'unsupported' }` on macOS/Linux so the renderer doesn't hang on `'checking'`.
+
+**macOS self-updater.** Instead of Squirrel, macOS uses a manual one-click updater: `update:download-and-install` (main) downloads the arch-correct release zip (`installerAssetFor` in `UpdatesContext`), extracts with `ditto`, **strips xattrs + ad-hoc re-signs the bundle** (`xattr -cr` then `codesign --force --deep --sign -`) so the fuse-invalidated signature is repaired on the user's own Mac, then a detached script swaps the `.app` and relaunches (with rollback). Progress flows back as `update:status { state: 'downloading', percent }` → `'installing'`. The Updates page button becomes **"Update to vX"** → **"Downloading… N%"** → **"Installing…"**; on failure it falls back to a browser download (`downloadUpdate`). Linux falls through to the same browser-download fallback. See the macOS code-signing callout in **Commands** for why the re-sign is mandatory.
 
 Semver compare is a tiny inline `semverGT()` in `UpdatesContext.jsx` — handles `major.minor.patch` only, strips `v` prefix and pre-release suffix.
 
@@ -432,6 +456,9 @@ Dismissal: Escape, scroll (capture), outside `mousedown`, or mouseleave on the m
 | `web-deploy.mjs` | Copies `dist-web/` → `docs/app/`, renames `index.web.html` → `index.html`, writes `404.html` SPA fallback for GitHub Pages. Also runs in `version`. |
 | `post-release.mjs` | Runs after `npm version`: `git push --follow-tags`, `electron-forge publish`, `generate-release-notes.mjs`. |
 | `generate-release-notes.mjs` | Summarises commits since the previous tag via the `claude` CLI and PATCHes the draft GitHub release body. Best-effort, never fails the release. |
+| `make-mac-zips.mjs` | Zips the packaged `.app` bundles, preserving framework symlinks (archiver, not cross-zip). **On macOS** it first copies to a non-iCloud temp dir, `xattr -cr`, `codesign --force --deep --sign -`, and `--verify --strict` (fails the build if invalid). `MAC_ZIP_VERSION` overrides the filename version. Non-Mac hosts can't sign → those zips crash on Apple Silicon. |
+| `publish-mac-zips.mjs` | Release-time companion: packages both darwin arches, runs make-mac-zips, uploads the two zips to the draft release (deletes same-named assets first for idempotency). Called from `post-release.mjs`. |
+| `fix-mac-release.mjs` (`npm run fix:mac`) | One-shot repair for an existing release's macOS assets — **must run on a Mac.** Resolves the target tag (default: latest), rebuilds both arches stamped with the release version (`DOCVEX_APP_VERSION`), re-signs + verifies + zips (`MAC_ZIP_VERSION`), and replaces the release's darwin zips. Needs `GITHUB_TOKEN`. |
 
 ## Release notes style (user preference)
 

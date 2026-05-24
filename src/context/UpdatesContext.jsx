@@ -68,9 +68,50 @@ export function versionTagFor(release) {
   return release?.tag_name || release?.name || '';
 }
 
+// Pick the best downloadable installer asset for a given OS / CPU arch from a
+// release's asset list. Used by the manual-download update fallback on
+// platforms where the in-app Squirrel updater can't run (today: the unsigned
+// macOS build). Preference is most-specific first so an Apple-Silicon Mac gets
+// the arm64 build, not the Intel one. Returns null when the release shipped no
+// matching asset (callers then fall back to the release's html_url).
+export function installerAssetFor(release, osPlatform, osArch) {
+  const assets = release?.assets;
+  if (!Array.isArray(assets) || assets.length === 0) return null;
+
+  if (osPlatform === 'darwin') {
+    // Default to Apple Silicon when arch is unknown — it's the common case
+    // for current Macs, and Rosetta runs an x64 build on arm64 anyway.
+    const archRe = osArch === 'x64' ? /(x64|x86_64|intel)/i : /(arm64|aarch64)/i;
+    const isDmg = (a) => /\.dmg$/i.test(a.name || '');
+    const isDarwinZip = (a) => /darwin/i.test(a.name || '') && /\.zip$/i.test(a.name || '');
+    return (
+      assets.find((a) => isDmg(a) && archRe.test(a.name)) ||
+      assets.find((a) => isDarwinZip(a) && archRe.test(a.name)) ||
+      assets.find(isDmg) ||
+      assets.find(isDarwinZip) ||
+      null
+    );
+  }
+
+  if (osPlatform === 'win32') {
+    // Only the runnable installer — skip the RELEASES manifest + .nupkg deltas.
+    return assets.find((a) => /\.Setup\.exe$/i.test(a.name || '')) || null;
+  }
+
+  // Linux: .deb → .rpm → AppImage.
+  return (
+    assets.find((a) => /\.deb$/i.test(a.name || '')) ||
+    assets.find((a) => /\.rpm$/i.test(a.name || '')) ||
+    assets.find((a) => /\.AppImage$/i.test(a.name || '')) ||
+    null
+  );
+}
+
 export function UpdatesProvider({ children }) {
   const [currentVersion, setCurrentVersion] = useState(null);
   const [isPackaged, setIsPackaged] = useState(false);
+  const [osPlatform, setOsPlatform] = useState(null);
+  const [osArch, setOsArch] = useState(null);
   const [releases, setReleases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -83,6 +124,18 @@ export function UpdatesProvider({ children }) {
 
   const latestVersion = releases[0] ? versionTagFor(releases[0]).replace(/^v/, '') : null;
   const hasUpdate = !!(currentVersion && latestVersion && semverGT(latestVersion, currentVersion));
+
+  // Whether the in-app Squirrel updater can actually apply an update in place.
+  // Only the Windows build is signed/Squirrel-backed; macOS & Linux are
+  // unsigned, so they use the manual browser-download fallback (downloadUpdate
+  // below). Mirrors AUTO_UPDATE_SUPPORTED in src/main.js.
+  const canAutoUpdate = isPackaged && osPlatform === 'win32';
+
+  // Resolved download URL for the latest release's installer on this platform,
+  // used by the manual-download fallback. Falls back to the release page when
+  // no matching asset is found.
+  const latestAsset = osPlatform ? installerAssetFor(releases[0], osPlatform, osArch) : null;
+  const downloadUrl = latestAsset?.browser_download_url || releases[0]?.html_url || null;
 
   // fetchReleases({ force }) — when force is false (default) and a fresh
   // sessionStorage cache exists, hydrate from cache and skip the network.
@@ -156,6 +209,11 @@ export function UpdatesProvider({ children }) {
         if (!cancelled) setCurrentVersion(v);
         const p = await platform.isPackaged();
         if (!cancelled) setIsPackaged(p);
+        const info = await platform.getPlatformInfo();
+        if (!cancelled) {
+          setOsPlatform(info?.platform ?? null);
+          setOsArch(info?.arch ?? null);
+        }
       } catch {
         /* adapter / IPC missing — fall back to no version */
       }
@@ -200,13 +258,14 @@ export function UpdatesProvider({ children }) {
       await fetchReleases({ force: true });
       const s = await platform.checkForUpdates();
       await finishAfterMinDelay();
-      // On Electron dev (state: 'dev') and on the web build (state: 'web')
-      // no autoUpdater events will follow — clear the spinner ourselves so
-      // the UI quiesces instead of getting stuck on 'checking'. Packaged
-      // Electron builds short-circuit on this branch: their checkForUpdates
-      // returns a different shape and the autoUpdater status subscription
-      // drives installerState past 'checking' via update:status events.
-      if (s?.state === 'dev' || s?.state === 'web') {
+      // On Electron dev (state: 'dev'), the web build (state: 'web'), and
+      // unsigned macOS/Linux packaged builds (state: 'unsupported') no
+      // autoUpdater events will follow — clear the spinner ourselves so the
+      // UI quiesces instead of getting stuck on 'checking'. Packaged Windows
+      // builds short-circuit on this branch: their checkForUpdates returns a
+      // different shape and the autoUpdater status subscription drives
+      // installerState past 'checking' via update:status events.
+      if (s?.state === 'dev' || s?.state === 'web' || s?.state === 'unsupported') {
         setInstallerState({ state: 'idle' });
       }
     } catch {
@@ -219,10 +278,41 @@ export function UpdatesProvider({ children }) {
     platform.installUpdate();
   }, []);
 
+  // Manual-download fallback: open the new build's installer (or the release
+  // page when no matching asset exists) in the user's browser. Used as the
+  // escape hatch when the in-app self-update fails (e.g. no write access to
+  // the app bundle), so the user can still grab the build by hand.
+  const downloadUpdate = useCallback(() => {
+    if (downloadUrl) platform.openExternal(downloadUrl);
+  }, [downloadUrl]);
+
+  // One-click self-update for platforms without a working Squirrel updater
+  // (today: the unsigned macOS build). Main downloads the new build, swaps the
+  // .app bundle, and relaunches; progress flows back through the update:status
+  // subscription as { state: 'downloading', percent } → 'installing'. On
+  // success the app quits and the new version relaunches automatically; on
+  // failure we surface the error so the UI can offer the browser fallback.
+  const downloadAndInstall = useCallback(async () => {
+    if (!downloadUrl) return;
+    setInstallerState({ state: 'downloading', percent: 0 });
+    try {
+      const res = await platform.downloadAndInstallUpdate(downloadUrl);
+      if (res && res.ok === false) {
+        setInstallerState({ state: 'error', message: res.error || 'Update failed.' });
+      }
+      // On success the app is quitting — no further UI work needed.
+    } catch (e) {
+      setInstallerState({ state: 'error', message: String(e?.message || e) });
+    }
+  }, [downloadUrl]);
+
   const value = {
     currentVersion,
     latestVersion,
     isPackaged,
+    osPlatform,
+    osArch,
+    canAutoUpdate,
     releases,
     loading,
     error,
@@ -230,6 +320,9 @@ export function UpdatesProvider({ children }) {
     installerState,
     checkNow,
     installUpdate,
+    downloadUpdate,
+    downloadAndInstall,
+    downloadUrl,
   };
 
   return <UpdatesContext.Provider value={value}>{children}</UpdatesContext.Provider>;

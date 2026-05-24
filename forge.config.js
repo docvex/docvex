@@ -4,6 +4,12 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
+    // Stamp a specific version into the bundle's Info.plist when building to
+    // patch an existing release (scripts/fix-mac-release.mjs sets this to the
+    // release's tag). Without it, electron-packager uses package.json#version.
+    // Mismatched versions make the updater re-prompt forever, so the rebuilt
+    // assets for vX must report vX.
+    ...(process.env.DOCVEX_APP_VERSION ? { appVersion: process.env.DOCVEX_APP_VERSION } : {}),
     // electron-packager picks the right extension for each target by
     // appending it to this basename:
     //   - Windows:  src/favicon.ico    ← committed

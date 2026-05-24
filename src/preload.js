@@ -80,8 +80,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Updates
   getAppVersion: () => ipcRenderer.invoke('app:get-version'),
   isPackaged: () => ipcRenderer.invoke('app:is-packaged'),
+  // { platform, arch } of the running build — lets the renderer pick the
+  // correct release asset for the manual-download update fallback on
+  // platforms where the in-app updater can't run (unsigned macOS / Linux).
+  getPlatformInfo: () => ipcRenderer.invoke('app:get-platform-info'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   installUpdate: () => ipcRenderer.send('update:install'),
+  // macOS self-update: download the new build's zip, swap the .app bundle,
+  // and relaunch. Resolves to { ok, error? }; on success the app quits and
+  // the replacement relaunches automatically. Progress arrives via the
+  // update:status channel (state 'downloading' with percent → 'installing').
+  downloadAndInstallUpdate: (url) =>
+    ipcRenderer.invoke('update:download-and-install', { url }),
   onUpdateStatus: (handler) => {
     const listener = (_, payload) => handler(payload);
     ipcRenderer.on('update:status', listener);

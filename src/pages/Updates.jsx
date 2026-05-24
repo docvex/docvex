@@ -148,9 +148,13 @@ function StatusBanner() {
     error,
     releases,
     isPackaged,
+    canAutoUpdate,
     installerState,
     checkNow,
     installUpdate,
+    downloadUpdate,
+    downloadAndInstall,
+    downloadUrl,
   } = useUpdates();
 
   // Web build: no installer state to manage. Render the cross-promotion
@@ -192,6 +196,68 @@ function StatusBanner() {
         <button className="updates-btn updates-btn-primary" onClick={installUpdate}>
           {DownloadIcon} Restart & install
         </button>
+      </div>
+    );
+  }
+
+  // The in-app Squirrel updater errored (e.g. a transient network/feed
+  // failure on Windows). Don't leave the user stranded — offer the manual
+  // download of the latest build. Only surfaced when there's actually a
+  // newer version to grab.
+  if (installerState.state === 'error' && hasUpdate) {
+    return (
+      <div className="updates-banner updates-banner-error">
+        <div>
+          <strong>Couldn't install the update automatically</strong>
+          <p>
+            {installerState.message || 'The in-app updater hit an error.'}{' '}
+            You can download v{latestVersion} manually instead.
+          </p>
+        </div>
+        <button
+          className="updates-btn updates-btn-primary"
+          onClick={downloadUpdate}
+          disabled={!downloadUrl}
+        >
+          {DownloadIcon} Download v{latestVersion}
+        </button>
+      </div>
+    );
+  }
+
+  // Platforms whose packaged build can't auto-update via Squirrel (today: the
+  // unsigned macOS build) get a one-click self-update: main downloads the new
+  // build, swaps the .app bundle, and relaunches automatically. Progress shows
+  // in the button label; the browser-download fallback lives in the error
+  // banner above if the swap can't complete (e.g. no write access).
+  if (hasUpdate && isPackaged && !canAutoUpdate) {
+    const downloading = installerState.state === 'downloading';
+    const installing = installerState.state === 'installing' || installerState.state === 'ready-relaunch';
+    const busy = downloading || installing;
+    const pct = typeof installerState.percent === 'number' ? installerState.percent : null;
+    let label = `Update to v${latestVersion}`;
+    if (downloading) label = pct != null ? `Downloading… ${pct}%` : 'Downloading…';
+    else if (installing) label = 'Installing…';
+    return (
+      <div className="updates-banner updates-banner-update">
+        <div>
+          <strong>New version available: v{latestVersion}</strong>
+          <p>
+            You're on v{currentVersion}.{' '}
+            {busy
+              ? 'Downloading and installing — the app will restart automatically when it’s ready.'
+              : 'Click below to download and install it; the app restarts automatically to apply the update.'}
+          </p>
+        </div>
+        <Tooltip content={!downloadUrl ? 'No downloadable build on this release yet' : undefined}>
+          <button
+            className="updates-btn updates-btn-primary"
+            onClick={downloadAndInstall}
+            disabled={busy || !downloadUrl}
+          >
+            {DownloadIcon} {label}
+          </button>
+        </Tooltip>
       </div>
     );
   }

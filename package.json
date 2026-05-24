@@ -17,17 +17,17 @@
     "preversion": "git diff-index --quiet HEAD -- || (echo Commit or stash changes before releasing && exit 1)",
     "version": "node scripts/sync-readme-version.mjs && npm run web:build",
     "postversion": "node scripts/post-release.mjs",
+
     "release:patch": "npm version patch -m \"chore(release): %s\"",
     "release:minor": "npm version minor -m \"chore(release): %s\"",
     "release:major": "npm version major -m \"chore(release): %s\"",
-    "release:status": "git status --short && git log -1 --oneline",
-    "release:notes": "node scripts/generate-release-notes.mjs",
+
+    "fix:mac": "node scripts/fix-mac-release.mjs",    
+
     "web:dev": "vite --config vite.web.config.mjs --mode web",
-    "web:build": "vite build --config vite.web.config.mjs --mode web && node scripts/web-deploy.mjs",
-    "web:preview": "vite preview --config vite.web.config.mjs --outDir dist-web",
+
     "landing:dev": "npm --prefix landing run dev",
-    "landing:build": "npm --prefix landing run build",
-    "landing:deploy": "npm --prefix landing run build && node scripts/landing-deploy.mjs",
+
     "lint": "echo \"No linting configured\""
   },
   "keywords": [],

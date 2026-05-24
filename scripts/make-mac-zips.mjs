@@ -25,7 +25,9 @@
 // existing zips are overwritten.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ZipArchive } from 'archiver';
 
@@ -33,7 +35,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 
 const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
-const VERSION = pkg.version;
+// MAC_ZIP_VERSION lets the release-patch flow (scripts/fix-mac-release.mjs) pin
+// the zip filename to the release being fixed, which may differ from
+// package.json#version. Defaults to package.json for the normal release flow.
+const VERSION = process.env.MAC_ZIP_VERSION || pkg.version;
 const APP_NAME = pkg.productName || pkg.name;
 
 const ARCHES = ['x64', 'arm64'];
@@ -77,6 +82,44 @@ async function zipApp(arch) {
   // Wipe any half-written prior attempt so we don't append into it.
   if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
 
+  // ── macOS host: ad-hoc re-sign + verify + zip with native tools ──────────
+  // electron-forge's FusesPlugin flips fuse bytes AFTER the bundle is (linker)
+  // ad-hoc signed, leaving the Electron Framework's signature invalid; on Apple
+  // Silicon the kernel SIGKILLs such an app at launch ("Code Signature
+  // Invalid", crashing in fuses::IsRunAsNodeEnabled). A full `codesign --deep`
+  // re-sign repairs it. We do the work on a copy in a NON-iCloud temp dir
+  // because codesign rejects the com.apple.FinderInfo xattr that an
+  // iCloud-synced build folder keeps re-applying ("resource fork ... detritus
+  // not allowed"). ditto handles the copy + final zip, preserving the framework
+  // symlinks and the fresh signature.
+  if (isMacHost) {
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'docvex-sign-'));
+    try {
+      const tmpApp = path.join(work, `${APP_NAME}.app`);
+      execFileSync('ditto', [appPath, tmpApp]);
+      execFileSync('xattr', ['-cr', tmpApp]); // strip FinderInfo/resource forks
+      execFileSync('codesign', ['--force', '--deep', '--sign', '-', tmpApp], { stdio: 'inherit' });
+      // Verify before zipping so we NEVER ship a bundle Apple Silicon would
+      // kill. --strict rejects the exact modified-signature state the fuse flip
+      // produced; this throws (fails the build) on an invalid signature.
+      execFileSync('codesign', ['--verify', '--deep', '--strict', '--verbose=1', tmpApp], { stdio: 'inherit' });
+      console.log(`[make-mac-zips] ${arch}: re-signed ad-hoc + verified ✓`);
+      // --keepParent makes the archive's top entry `<AppName>.app/…`, matching
+      // what Finder / Squirrel / the auto-updater expect on extraction.
+      execFileSync('ditto', ['-c', '-k', '--keepParent', tmpApp, outPath]);
+    } finally {
+      fs.rmSync(work, { recursive: true, force: true });
+    }
+    const sizeMB = (fs.statSync(outPath).size / (1024 * 1024)).toFixed(1);
+    console.log(`[make-mac-zips] wrote ${outPath} (${sizeMB} MB)`);
+    return outPath;
+  }
+
+  // ── Non-macOS host: zip with archiver (can't sign — codesign is mac-only) ──
+  // Such a zip WILL be SIGKILLed on Apple Silicon, so always publish the macOS
+  // artifacts from a Mac. We still produce it to keep the cross-platform make
+  // path unbroken and for CI smoke tests.
+  console.warn(`[make-mac-zips] ${arch}: not on macOS — cannot ad-hoc re-sign; this zip will be killed on launch by Apple Silicon. Build/publish macOS artifacts on a Mac.`);
   console.log(`[make-mac-zips] zipping ${arch}: ${appPath} → ${outPath}`);
 
   await new Promise((resolve, reject) => {

@@ -139,10 +139,20 @@ if (started) {
 let pendingStartupDeepLink = (process.argv || [])
   .find((arg) => typeof arg === 'string' && arg.startsWith('docvex://')) || null;
 
+// Squirrel-based in-place auto-update only works on Windows for this app.
+// The macOS build is NOT Developer-ID signed (forge.config.js ad-hoc signs
+// it), so Squirrel.Mac's autoUpdater refuses to apply updates — it emits an
+// `error` ("Could not get code signature for running application") and never
+// downloads anything. On macOS (and Linux) the renderer falls back to a
+// manual browser download of the new build instead — see the `update:check`
+// handler and the Updates page's StatusBanner.
+const AUTO_UPDATE_SUPPORTED = process.platform === 'win32';
+
 // Auto-update via update.electronjs.org (free, public-repo hosted feed).
 // Polls every 10 min, downloads in the background, installs on next launch.
-// No-op in dev (`electron-forge start`) — only runs in packaged builds.
-if (app.isPackaged) {
+// No-op in dev (`electron-forge start`) — only runs in packaged builds, and
+// only on platforms where Squirrel can actually apply the update.
+if (app.isPackaged && AUTO_UPDATE_SUPPORTED) {
   updateElectronApp({
     repo: 'petreluca1105-dotcom/docvex',
     updateInterval: '10 minutes',
@@ -267,8 +277,10 @@ function buildAppMenu() {
 }
 
 // Wire autoUpdater events → renderer. update-electron-app drives the actual
-// checkForUpdates / setFeedURL calls; we just observe.
-if (app.isPackaged) {
+// checkForUpdates / setFeedURL calls; we just observe. Skipped on platforms
+// where the autoUpdater can't run (see AUTO_UPDATE_SUPPORTED) so the macOS
+// build doesn't emit spurious 'error' status events from a no-op updater.
+if (app.isPackaged && AUTO_UPDATE_SUPPORTED) {
   autoUpdater.on('checking-for-update', () => sendUpdateStatus({ state: 'checking' }));
   autoUpdater.on('update-available', () => sendUpdateStatus({ state: 'downloading' }));
   autoUpdater.on('update-not-available', () => sendUpdateStatus({ state: 'up-to-date' }));
@@ -596,6 +608,13 @@ ipcMain.on('app:open-docx', (_, payload) => {
 // Update IPC ---------------------------------------------------------------
 ipcMain.handle('app:get-version', () => app.getVersion());
 ipcMain.handle('app:is-packaged', () => app.isPackaged);
+// OS + CPU arch for the running build. The renderer uses this to pick the
+// right release asset for the manual-download update fallback (e.g. the
+// arm64 vs x64 macOS zip) — see UpdatesContext.installerAssetFor.
+ipcMain.handle('app:get-platform-info', () => ({
+  platform: process.platform,
+  arch: process.arch,
+}));
 
 // One-shot pull of a docvex:// URL captured at cold start (see argv scan
 // above). Renderer calls this once during AuthContext mount; we hand back
@@ -614,6 +633,10 @@ ipcMain.handle('update:check', async () => {
   // Return last-known status synchronously; autoUpdater.checkForUpdates is
   // a no-op in dev (Squirrel can't update an unpackaged app).
   if (!app.isPackaged) return { state: 'dev' };
+  // macOS/Linux: unsigned build — Squirrel can't apply updates in place. Tell
+  // the renderer to use its manual browser-download fallback instead of
+  // spinning forever on a 'checking' state that never resolves.
+  if (!AUTO_UPDATE_SUPPORTED) return { state: 'unsupported' };
   try {
     autoUpdater.checkForUpdates();
   } catch (err) {
@@ -625,6 +648,183 @@ ipcMain.handle('update:check', async () => {
 ipcMain.on('update:install', () => {
   if (app.isPackaged && updateStatus.state === 'downloaded') {
     autoUpdater.quitAndInstall();
+  }
+});
+
+// ── macOS self-update ──────────────────────────────────────────────────────
+// The macOS build isn't Developer-ID signed, so Squirrel.Mac's autoUpdater
+// can't apply updates (see AUTO_UPDATE_SUPPORTED). To still give Mac users a
+// one-click "update my app" button, we reimplement the essential steps that
+// Squirrel.Mac would otherwise do: download the new build's .zip, extract it,
+// swap the running .app bundle for the new one, and relaunch. No signature
+// verification — acceptable for a self-distributed app. Because we replace the
+// ENTIRE bundle (matching binary + asar together), the embedded-asar-integrity
+// fuse stays satisfied.
+
+// Resolve the running app's .app bundle from the executable path, e.g.
+// /Applications/docvex.app/Contents/MacOS/docvex → /Applications/docvex.app.
+// Returns null when not running from a bundle (dev / bare binary).
+function currentMacAppBundle() {
+  const marker = '.app/Contents/MacOS/';
+  const idx = process.execPath.indexOf(marker);
+  return idx === -1 ? null : process.execPath.slice(0, idx + 4); // keep ".app"
+}
+
+// Find the first *.app directory within `dir` (one level deep, then nested).
+async function findDotApp(dir) {
+  const entries = await fsp.readdir(dir, { withFileTypes: true });
+  for (const e of entries) {
+    if (e.isDirectory() && e.name.endsWith('.app')) return path.join(dir, e.name);
+  }
+  for (const e of entries) {
+    if (e.isDirectory()) {
+      const nested = await findDotApp(path.join(dir, e.name));
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+// Stream a URL to disk, reporting integer percent via onProgress (best-effort:
+// only fires when the server sends Content-Length).
+async function downloadToFile(url, dest, onProgress) {
+  const res = await fetch(url, { redirect: 'follow' });
+  if (!res.ok || !res.body) throw new Error(`Download failed (HTTP ${res.status})`);
+  const total = Number(res.headers.get('content-length')) || 0;
+  let received = 0;
+  let lastPct = -1;
+  const out = fs.createWriteStream(dest);
+  const reader = res.body.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.length;
+      if (!out.write(Buffer.from(value))) {
+        await new Promise((resolve) => out.once('drain', resolve));
+      }
+      if (total && onProgress) {
+        const pct = Math.floor((received / total) * 100);
+        if (pct !== lastPct) { lastPct = pct; onProgress(pct); }
+      }
+    }
+  } finally {
+    await new Promise((resolve, reject) => {
+      out.on('error', reject);
+      out.end(resolve);
+    });
+  }
+}
+
+// Run a command, resolving on exit 0 and rejecting otherwise.
+function runCommand(cmd, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: 'ignore' });
+    child.on('error', reject);
+    child.on('exit', (code) =>
+      code === 0 ? resolve() : reject(new Error(`${cmd} exited with code ${code}`)),
+    );
+  });
+}
+
+ipcMain.handle('update:download-and-install', async (_evt, payload) => {
+  const url = payload?.url;
+  if (process.platform !== 'darwin') return { ok: false, error: 'Auto-install is only supported on macOS here.' };
+  if (!app.isPackaged) return { ok: false, error: 'Auto-install only works in the installed app.' };
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+    return { ok: false, error: 'No valid download URL for this build.' };
+  }
+  const currentApp = currentMacAppBundle();
+  if (!currentApp) return { ok: false, error: "Couldn't locate the installed app bundle." };
+
+  let work;
+  try {
+    work = await fsp.mkdtemp(path.join(app.getPath('temp'), 'docvex-update-'));
+    const zipPath = path.join(work, 'update.zip');
+    const extractDir = path.join(work, 'extracted');
+    await fsp.mkdir(extractDir, { recursive: true });
+
+    // 1. Download the new build.
+    sendUpdateStatus({ state: 'downloading', percent: 0 });
+    await downloadToFile(url, zipPath, (percent) => {
+      sendUpdateStatus({ state: 'downloading', percent });
+    });
+
+    // 2. Extract. ditto restores the framework symlinks + exec bits the zip
+    //    stored (make-mac-zips.mjs preserves them as real symlinks).
+    sendUpdateStatus({ state: 'installing' });
+    await runCommand('/usr/bin/ditto', ['-x', '-k', zipPath, extractDir]);
+
+    // 3. Locate the new bundle.
+    const newApp = await findDotApp(extractDir);
+    if (!newApp) throw new Error('No .app found inside the downloaded archive.');
+
+    // 4. Stage the new bundle right next to the target (same volume → atomic
+    //    rename later) BEFORE we touch the installed app. Doing the copy now
+    //    means a permission failure (e.g. no write access to /Applications)
+    //    surfaces here, harmlessly, instead of mid-swap.
+    const stagedApp = `${currentApp}.docvex-new`;
+    const backupApp = `${currentApp}.docvex-old`;
+    await fsp.rm(stagedApp, { recursive: true, force: true });
+    await runCommand('/usr/bin/ditto', [newApp, stagedApp]);
+
+    // 4b. Ad-hoc re-sign the staged bundle. The published macOS builds have
+    //     their Electron fuses flipped AFTER the (linker) ad-hoc signature is
+    //     applied — which happens whenever packaging runs on a non-macOS host,
+    //     where forge.config.js's resetAdHocDarwinSignature can't run. That
+    //     leaves the Electron Framework's signature invalid, so on Apple
+    //     Silicon the kernel SIGKILLs the app at launch ("Code Signature
+    //     Invalid", crashing inside fuses::IsRunAsNodeEnabled). A fresh ad-hoc
+    //     re-sign on the user's own Mac makes the on-disk bytes match the
+    //     signature again. Done BEFORE the swap so any failure aborts without
+    //     touching the installed app. codesign ships with macOS itself, so
+    //     this needs no Xcode install. Strip extended attributes first —
+    //     codesign rejects FinderInfo / resource-fork "detritus" with
+    //     "resource fork ... not allowed".
+    await runCommand('/usr/bin/xattr', ['-cr', stagedApp]);
+    await runCommand('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', stagedApp]);
+
+    // 5. Hand off to a detached script that waits for THIS process to quit,
+    //    swaps the bundle, and relaunches. A running process can't reliably
+    //    replace its own bundle, so the script does it once we're gone. Paths
+    //    are passed as argv (not interpolated into the script body) so they're
+    //    injection-safe even with spaces / special chars.
+    const scriptPath = path.join(work, 'apply-update.sh');
+    const sh = [
+      '#!/bin/bash',
+      'set -e',
+      'PID="$1"; CURRENT="$2"; STAGED="$3"; BACKUP="$4"; WORK="$5"',
+      // Wait up to ~30s for the old app to exit so the swap is safe.
+      'for i in $(seq 1 150); do kill -0 "$PID" 2>/dev/null || break; sleep 0.2; done',
+      'rm -rf "$BACKUP"',
+      'mv "$CURRENT" "$BACKUP"',
+      // Roll back if the swap fails, so the user is never left without an app.
+      'if ! mv "$STAGED" "$CURRENT"; then mv "$BACKUP" "$CURRENT"; exit 1; fi',
+      '/usr/bin/xattr -dr com.apple.quarantine "$CURRENT" 2>/dev/null || true',
+      'rm -rf "$BACKUP"',
+      'open "$CURRENT"',
+      'rm -rf "$WORK"',
+      '',
+    ].join('\n');
+    await fsp.writeFile(scriptPath, sh, { mode: 0o755 });
+
+    sendUpdateStatus({ state: 'ready-relaunch' });
+    const child = spawn(
+      '/bin/bash',
+      [scriptPath, String(process.pid), currentApp, stagedApp, backupApp, work],
+      { detached: true, stdio: 'ignore' },
+    );
+    child.unref();
+
+    // Give the renderer a beat to paint the relaunch state, then quit so the
+    // handoff script can replace the bundle.
+    setTimeout(() => app.quit(), 600);
+    return { ok: true };
+  } catch (err) {
+    const message = String(err?.message || err);
+    sendUpdateStatus({ state: 'error', message });
+    if (work) fsp.rm(work, { recursive: true, force: true }).catch(() => {});
+    return { ok: false, error: message };
   }
 });
 // --------------------------------------------------------------------------
