@@ -53,7 +53,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createSignedDownloadUrl } from './projectFiles';
 import { createPendingSignedUrl } from './branches';
-import { generateThumbnail } from './thumbnails';
+import { generateThumbnail, isPptxFile } from './thumbnails';
 
 // ── Unified cache ─────────────────────────────────────────────────────
 
@@ -226,9 +226,13 @@ function extractVideoPosterFromUrl(sourceUrl, timeoutMs = 6000) {
 async function resolve(descriptor) {
   const { name, mime, posters, source } = descriptor;
   const m = mime || '';
+  // PPTX is thumbable via its embedded first-slide preview (extracted in
+  // generateThumbnail). Detected by name too, since the local-folder MIME
+  // guesser reports .pptx as application/octet-stream.
   const isThumbable = m.startsWith('image/')
     || m.startsWith('video/')
-    || m === 'application/pdf';
+    || m === 'application/pdf'
+    || isPptxFile(m, name);
   if (!isThumbable) return null;
 
   // 1. Try each poster source in order.
@@ -253,7 +257,8 @@ async function resolve(descriptor) {
     return extractVideoPosterFromUrl(sourceUrl);
   }
 
-  // PDF — fetch bytes + run pdf.js to raster page 1.
+  // PDF / PPTX — fetch bytes and let generateThumbnail produce the
+  // poster (pdf.js rasters page 1; PPTX yields its embedded slide preview).
   const typed = await fetchAsFile(sourceUrl, name, mime);
   if (!typed) return null;
   const blob = await generateThumbnail(typed);

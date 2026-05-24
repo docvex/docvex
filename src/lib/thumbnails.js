@@ -957,6 +957,100 @@ async function generateDocxThumbnail(file) {
   return await canvasToJpegBlob(canvas);
 }
 
+// ── PPTX ───────────────────────────────────────────────────────────────────
+// PowerPoint .pptx is an OOXML package — a ZIP — and PowerPoint embeds a
+// rasterized preview of the first slide (the same image Explorer / Finder
+// show) at docProps/thumbnail.jpeg. We lift that image straight out of the
+// package rather than rendering slides ourselves: a faithful client-side
+// slide renderer would need a full OOXML layout engine, whereas the
+// embedded thumbnail is already exactly what we want. Reuses the same
+// hand-rolled zip reader (findEocd / findZipEntry / readZipEntry) the DOCX
+// path uses — no heavyweight dep.
+export const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+
+// "Is this a PowerPoint .pptx?" — by MIME or by extension. The local-
+// folder MIME guesser reports .pptx as application/octet-stream, so the
+// filename check is what catches presentations on the My branch.
+export function isPptxFile(mimeType, fileName) {
+  if ((mimeType || '') === PPTX_MIME) return true;
+  if ((fileName || '').toLowerCase().endsWith('.pptx')) return true;
+  return false;
+}
+
+// Map a packaged-image filename to a browser-renderable image MIME, or
+// null for vector formats (.emf / .wmf) an <img> can't paint.
+function _packagedImageMime(name) {
+  const lc = (name || '').toLowerCase();
+  if (lc.endsWith('.png')) return 'image/png';
+  if (lc.endsWith('.jpeg') || lc.endsWith('.jpg')) return 'image/jpeg';
+  if (lc.endsWith('.gif')) return 'image/gif';
+  return null;
+}
+
+// Pull the thumbnail Target out of an OPC _rels/.rels document. The
+// package records the preview as a relationship whose Type ends in
+// `/metadata/thumbnail`; its Target is the in-zip path of the image.
+function _thumbnailRelTarget(relsXml) {
+  const re = /<Relationship\b[^>]*>/gi;
+  let m;
+  while ((m = re.exec(relsXml)) !== null) {
+    const tag = m[0];
+    if (!/Type\s*=\s*"[^"]*\/thumbnail"/i.test(tag)) continue;
+    const t = tag.match(/Target\s*=\s*"([^"]+)"/i);
+    if (t) return t[1].replace(/^\/+/, ''); // OPC targets can be absolute
+  }
+  return null;
+}
+
+// Returns the embedded slide preview as an image Blob, or null when the
+// package carries no raster thumbnail (caller falls back to the glyph).
+async function generatePptxThumbnail(file) {
+  try {
+    const buf = await file.arrayBuffer();
+    const view = new DataView(buf);
+    const uint8 = new Uint8Array(buf);
+    const eocd = findEocd(view);
+    if (eocd < 0) return null;
+    const cdEntries = view.getUint16(eocd + 10, true);
+    const cdOffset  = view.getUint32(eocd + 16, true);
+
+    // The well-known names cover virtually every producer; the
+    // relationship target is a fallback for the rare package that
+    // stores the preview elsewhere or under a different extension.
+    let entry = null;
+    let entryName = null;
+    for (const name of ['docProps/thumbnail.jpeg', 'docProps/thumbnail.jpg', 'docProps/thumbnail.png']) {
+      const e = findZipEntry(view, uint8, cdOffset, cdEntries, name);
+      if (e) { entry = e; entryName = name; break; }
+    }
+    if (!entry) {
+      const relsEntry = findZipEntry(view, uint8, cdOffset, cdEntries, '_rels/.rels');
+      if (relsEntry) {
+        const relsBytes = await readZipEntry(view, uint8, relsEntry);
+        if (relsBytes) {
+          const target = _thumbnailRelTarget(new TextDecoder().decode(relsBytes));
+          if (target) {
+            const e = findZipEntry(view, uint8, cdOffset, cdEntries, target);
+            if (e) { entry = e; entryName = target; }
+          }
+        }
+      }
+    }
+    if (!entry) return null;
+
+    const mime = _packagedImageMime(entryName);
+    if (!mime) return null; // vector thumbnail — can't paint in <img>
+
+    const bytes = await readZipEntry(view, uint8, entry);
+    if (!bytes || bytes.length === 0) return null;
+    // The embedded image is already a small first-slide raster — ship it
+    // as-is (no canvas re-encode); the grid letterboxes via CSS.
+    return new Blob([bytes], { type: mime });
+  } catch {
+    return null;
+  }
+}
+
 // ── Dispatcher ───────────────────────────────────────────────────────────
 // Returns a Blob (image/jpeg) on success, null on:
 //   - unsupported MIME (text/* and anything else)
@@ -1061,6 +1155,7 @@ export async function generateThumbnail(file) {
   if (t.startsWith('image/'))      generator = generateImageThumbnail(file);
   else if (t === 'application/pdf') generator = generatePdfThumbnail(file);
   else if (t.startsWith('video/'))  generator = generateVideoThumbnail(file);
+  else if (isPptxFile(t, file.name)) generator = generatePptxThumbnail(file);
   else return null;
   return withTimeout(generator, GENERATE_TIMEOUT_MS);
 }

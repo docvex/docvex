@@ -786,6 +786,14 @@ export async function createPendingSignedUrl(storagePath, expiresIn = 300) {
 // PUT target here rather than using supabase-js' .upload().
 export async function createPendingUploadTarget(storagePath) {
   if (!storagePath) return { data: null, error: new Error('Missing storagePath') };
+  // Idempotency: pending paths are keyed by the stable sidecar fileId, so
+  // re-pushing the same file (after a withdraw, or a second edit while a
+  // request is still open) targets the same path. createSignedUploadUrl
+  // 400s with "Duplicate" when an object already lives there, which strands
+  // the push. Our fresh bytes are authoritative, so clear any stale
+  // occupant first. Best-effort — the common case (no object yet) no-ops,
+  // and RLS lets the uploader remove their own pending object.
+  await supabase.storage.from(PENDING_BUCKET).remove([storagePath]).catch(() => { /* none to clear */ });
   const { data, error } = await supabase
     .storage
     .from(PENDING_BUCKET)
@@ -834,14 +842,16 @@ export async function deletePendingObject(storagePath) {
 //
 // Caller passes a snapshot of the request with its items
 // (getChangeRequest returns exactly that shape).
-export async function approveChangeRequest(request) {
-  if (!request?.id || !request?.items) {
-    return { data: null, error: new Error('Missing request or items') };
-  }
-  if (request.status !== 'open') {
-    return { data: null, error: new Error(`Request is not open (status: ${request.status})`) };
-  }
-
+// Storage prep for ONE request's approve (steps 1 + 2): copy each
+// add/replace item's pending bytes (plus thumbnail + video frames) into
+// the canonical bucket, and record which pending / old-canonical objects
+// to sweep afterwards. Returns the two path lists, or `error` set when a
+// required copy failed (the caller aborts before any RPC runs).
+//
+// Extracted so the single-request approve AND the release batch share one
+// byte-moving implementation — only the DB merge differs (per-request
+// +1 vs one bump per release).
+async function prepareRequestStorage(request) {
   const pendingPathsToDelete = [];        // pending bucket
   const oldCanonicalPathsToDelete = [];   // projects bucket
   // Canonical paths we WROTE bytes to in this approve. Used below to
@@ -960,23 +970,85 @@ export async function approveChangeRequest(request) {
     }
   }
 
-  // 3. The atomic DB-side merge.
+  return { pendingPathsToDelete, oldCanonicalPathsToDelete, error: null };
+}
+
+// Best-effort post-merge cleanup shared by the single + batch approve.
+// Failures here only leak storage (a sweeper / admin can mop up), so they
+// are swallowed.
+async function cleanupApprovedStorage(pendingPaths, oldCanonicalPaths) {
+  if (pendingPaths.length > 0) {
+    try { await supabase.storage.from(PENDING_BUCKET).remove(pendingPaths); }
+    catch { /* swallow */ }
+  }
+  if (oldCanonicalPaths.length > 0) {
+    try { await supabase.storage.from('projects').remove(oldCanonicalPaths); }
+    catch { /* swallow */ }
+  }
+}
+
+// Approve a SINGLE change request → merge its items + bump main_version
+// by one. Used by the per-chip "Approve" action in the Version Control
+// view. (One approval action = +1 main version.)
+export async function approveChangeRequest(request) {
+  if (!request?.id || !request?.items) {
+    return { data: null, error: new Error('Missing request or items') };
+  }
+  if (request.status !== 'open') {
+    return { data: null, error: new Error(`Request is not open (status: ${request.status})`) };
+  }
+
+  const prep = await prepareRequestStorage(request);
+  if (prep.error) return { data: null, error: prep.error };
+
+  // The atomic DB-side merge (+1 to main_version).
   const { data: rpcResult, error: rpcErr } = await supabase
     .rpc('approve_change_request', { p_request_id: request.id });
-  if (rpcErr) {
-    return { data: null, error: rpcErr };
+  if (rpcErr) return { data: null, error: rpcErr };
+
+  await cleanupApprovedStorage(prep.pendingPathsToDelete, prep.oldCanonicalPathsToDelete);
+  return { data: rpcResult, error: null };
+}
+
+// Approve a COMPOSED RELEASE — several requests merged together but a
+// SINGLE main_version bump. Preps storage for every request first (abort
+// on the first hard failure so we don't half-publish), then one batch RPC
+// (approve_change_requests) that applies all items and increments
+// main_version exactly once. So "compose a new main branch" advances the
+// version by one regardless of how many authors' requests it bundles.
+export async function approveChangeRequests(requests) {
+  const list = (requests || []).filter(Boolean);
+  if (list.length === 0) {
+    return { data: null, error: new Error('No requests to approve') };
+  }
+  // A release of one is just the single path — keeps that branch warm and
+  // avoids the array round-trip for the common per-author case.
+  if (list.length === 1) return approveChangeRequest(list[0]);
+
+  for (const r of list) {
+    if (!r?.id || !r?.items) {
+      return { data: null, error: new Error('Missing request or items') };
+    }
+    if (r.status !== 'open') {
+      return { data: null, error: new Error(`Request is not open (status: ${r.status})`) };
+    }
   }
 
-  // 4. Best-effort cleanup. Failures here only leak storage.
-  if (pendingPathsToDelete.length > 0) {
-    try { await supabase.storage.from(PENDING_BUCKET).remove(pendingPathsToDelete); }
-    catch { /* swallow */ }
-  }
-  if (oldCanonicalPathsToDelete.length > 0) {
-    try { await supabase.storage.from('projects').remove(oldCanonicalPathsToDelete); }
-    catch { /* swallow */ }
+  const allPending = [];
+  const allOldCanonical = [];
+  for (const r of list) {
+    const prep = await prepareRequestStorage(r);
+    if (prep.error) return { data: null, error: prep.error };
+    allPending.push(...prep.pendingPathsToDelete);
+    allOldCanonical.push(...prep.oldCanonicalPathsToDelete);
   }
 
+  // One atomic merge for the whole release (+1 to main_version, total).
+  const { data: rpcResult, error: rpcErr } = await supabase
+    .rpc('approve_change_requests', { p_request_ids: list.map((r) => r.id) });
+  if (rpcErr) return { data: null, error: rpcErr };
+
+  await cleanupApprovedStorage(allPending, allOldCanonical);
   return { data: rpcResult, error: null };
 }
 

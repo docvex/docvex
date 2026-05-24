@@ -21,6 +21,7 @@ import {
   pushChangeRequest,
   withdrawChangeRequest,
   approveChangeRequest,
+  approveChangeRequests,
   rejectChangeRequest,
   rejectChangeRequestItem,
   listChangeRequests,
@@ -471,6 +472,44 @@ export function BranchProvider({ children }) {
     return res;
   }, [notify]);
 
+  // Approve a COMPOSED RELEASE — all the picked requests merged together
+  // with a SINGLE main_version bump (so the version goes up by one per
+  // release, not once per bundled request). Fetches each request's full
+  // item snapshot, hands the batch to approveChangeRequests, and toasts
+  // the combined result.
+  const approveRelease = useCallback(async (requestIds) => {
+    const ids = Array.from(new Set((requestIds || []).filter(Boolean)));
+    if (ids.length === 0) return { data: null, error: new Error('No requests to approve') };
+    const fetched = await Promise.all(ids.map((id) => getChangeRequest(id)));
+    const requests = [];
+    for (const { data, error } of fetched) {
+      if (error) return { data: null, error };
+      if (data) requests.push(data);
+    }
+    const res = await approveChangeRequests(requests);
+    if (res.error) {
+      notify?.({
+        category: 'file',
+        variant: 'error',
+        title: 'Approval failed',
+        body: res.error.message || 'Try again in a moment.',
+        dedupeKey: `approve-release-error:${ids.join(',')}`,
+      });
+    } else {
+      const n = requests.length;
+      notify?.({
+        category: 'file',
+        variant: 'success',
+        title: n === 1 ? 'Changes approved' : 'Release approved',
+        body: n === 1
+          ? `"${requests[0].title}" was merged into main.`
+          : `${n} requests were merged into main.`,
+        dedupeKey: `approve-release-success:${ids.join(',')}`,
+      });
+    }
+    return res;
+  }, [notify]);
+
   // Per-item decline. Mirrors rejectRequest's toast wiring but operates
   // on a single change_request_items row — the parent request only
   // flips to 'rejected' if that item was the last one in it (handled
@@ -549,6 +588,7 @@ export function BranchProvider({ children }) {
     pushRequest,
     withdrawRequest,
     approveRequest,
+    approveRelease,
     rejectRequest,
     rejectRequestItem,
     acknowledgeSync,
@@ -561,7 +601,7 @@ export function BranchProvider({ children }) {
     overlayByFileId, addedChanges, requests, openOwnRequestItems,
     isBehindMain, isAdmin, isMember, loading, preferredVersions,
     queueChange, discardChange, discardAll, pushRequest, withdrawRequest,
-    approveRequest, rejectRequest, rejectRequestItem, acknowledgeSync,
+    approveRequest, approveRelease, rejectRequest, rejectRequestItem, acknowledgeSync,
     refreshOpenRequestItems, refresh,
     togglePreferredVersion, clearPreferredVersions,
   ]);

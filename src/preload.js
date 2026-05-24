@@ -67,6 +67,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFileWindow: (url, fileName) =>
     ipcRenderer.send('app:open-file-window', { url, fileName }),
 
+  // Open a self-contained HTML string in its own in-app window. Used by
+  // the .docx viewer — the renderer turns the document into HTML via
+  // docx-preview and hands the markup here (main stages it to a temp
+  // file and loads it).
+  openHtmlWindow: (html, fileName) =>
+    ipcRenderer.send('app:open-html-window', { html, fileName }),
+
   // Open a DOCX with the best-available renderer. Main walks the
   // fallback chain: installed Word → Office Online (in-app window)
   // → OS default. Callers pass whichever sources they have

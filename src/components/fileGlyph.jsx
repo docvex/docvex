@@ -1,5 +1,5 @@
 import React from 'react';
-import { DOCX_MIME } from '../lib/thumbnails';
+import { DOCX_MIME, PPTX_MIME } from '../lib/thumbnails';
 
 // Single MIME → SVG glyph map for the whole app. Replaces the two
 // parallel maps that used to live in ProjectFiles.jsx and
@@ -42,6 +42,13 @@ const DocxGlyph = (
   </svg>
 );
 
+const PptxGlyph = (
+  <svg {...COMMON_PROPS}>
+    {PaperBase}
+    <text x="7.6" y="18" fontSize="5.4" fontWeight="700" fill="currentColor" stroke="none">PPT</text>
+  </svg>
+);
+
 const VideoGlyph = (
   <svg {...COMMON_PROPS}>
     <rect x="2" y="6" width="14" height="12" rx="2" ry="2" />
@@ -80,6 +87,7 @@ export function glyphForFile(mime, name) {
   const lcName = (name || '').toLowerCase();
   if (m === 'application/pdf') return PdfGlyph;
   if (m === DOCX_MIME || lcName.endsWith('.docx')) return DocxGlyph;
+  if (m === PPTX_MIME || lcName.endsWith('.pptx')) return PptxGlyph;
   if (m.startsWith('image/')) return ImageGlyph;
   if (m.startsWith('video/')) return VideoGlyph;
   if (m.startsWith('text/')) return TextGlyph;

@@ -526,6 +526,57 @@ ipcMain.on('app:open-file-window', (_, payload) => {
   openInAppWindow(url, fileName);
 });
 
+// Open an arbitrary HTML string in its own in-app window. Used by the
+// .docx viewer: Chromium can't render .docx bytes natively, so the
+// renderer rasterizes the document to self-contained HTML via
+// docx-preview (styles inlined, images base64) and hands the markup
+// here. We stage it to a temp file and loadFile() it — top-level data:
+// URL navigation is blocked by Chromium, and the sandboxed renderer
+// can't write files itself. The temp file is deleted once the window has
+// parsed it (the inlined assets mean nothing references it afterwards).
+async function openHtmlContentWindow(html, fileName) {
+  const title = `DocVex - ${fileName} (READ ONLY)`;
+  const opts = {
+    width: 1100,
+    height: 800,
+    title,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  };
+  if (APP_ICON_PATH) opts.icon = APP_ICON_PATH;
+  const win = new BrowserWindow(opts);
+  win.on('page-title-updated', (event) => {
+    event.preventDefault();
+    win.setTitle(title);
+  });
+  win.setMenu(null);
+
+  const tmpFile = path.join(
+    app.getPath('temp'),
+    `docvex-docx-${Date.now()}-${Math.random().toString(36).slice(2)}.html`,
+  );
+  try {
+    await fsp.writeFile(tmpFile, html, 'utf8');
+  } catch {
+    win.destroy();
+    return;
+  }
+  const cleanup = () => { fsp.unlink(tmpFile).catch(() => { /* temp dir self-cleans */ }); };
+  win.webContents.once('did-finish-load', cleanup);
+  win.on('closed', cleanup);
+  win.loadFile(tmpFile);
+}
+
+ipcMain.on('app:open-html-window', (_, payload) => {
+  const html = typeof payload?.html === 'string' ? payload.html : null;
+  const fileName = typeof payload?.fileName === 'string' ? payload.fileName : 'file';
+  if (!html) return;
+  openHtmlContentWindow(html, fileName);
+});
+
 // Open a DOCX, walking a fallback chain so the user always gets the
 // best available render:
 //

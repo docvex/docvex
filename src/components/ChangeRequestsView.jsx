@@ -304,7 +304,7 @@ export default function ChangeRequestsView() {
   const {
     requests,
     isAdmin,
-    approveRequest,
+    approveRelease,
     rejectRequestItem,
     preferredVersions,
     togglePreferredVersion,
@@ -609,13 +609,16 @@ export default function ChangeRequestsView() {
     if (!isAdmin || bulkRunning) return;
     setBulkRunning(true);
     try {
-      await Promise.allSettled(approveRequestIds.map((id) => approveRequest(id)));
+      // One release = one main_version bump. approveRelease merges every
+      // picked request together server-side and increments main exactly
+      // once (vs the old per-request loop, which bumped once per request).
+      await approveRelease(approveRequestIds);
       bumpRefresh();
     } finally {
       setBulkRunning(false);
       setConfirmingBulk(false);
     }
-  }, [isAdmin, bulkRunning, approveRequestIds, approveRequest, bumpRefresh]);
+  }, [isAdmin, bulkRunning, approveRequestIds, approveRelease, bumpRefresh]);
 
   // ── Tree canvas state ────────────────────────────────────────────────
   // Fixed viewport fills the area below the tabs and scrolls NATIVELY

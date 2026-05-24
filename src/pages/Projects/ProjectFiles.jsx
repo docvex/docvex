@@ -7,6 +7,7 @@ import { useBranch } from '../../context/BranchContext';
 import { useAuth } from '../../context/AuthContext';
 import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import SyncToMainModal from '../../components/SyncToMainModal';
+import { openDocxInWindow } from '../../lib/openDocxWindow';
 import { runCommitFlow, buildCommitSnapshot } from '../../lib/commitFlow';
 import FileThumbnail from '../../components/FileThumbnail';
 import Tooltip from '../../components/Tooltip';
@@ -148,6 +149,14 @@ const ShortcutGlyph = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M8 7h9v9" />
     <path d="M17 7 7 17" />
+  </svg>
+);
+
+// Chevron — collapse/expand affordance on the unsaved-edits chip. Points
+// down when collapsed; rotated 180° via CSS when the file list is open.
+const ChevronDownIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="6 9 12 15 18 9" />
   </svg>
 );
 
@@ -402,9 +411,12 @@ function LocalFileCard({
                        // — feeds into the descriptor's contentKey so an in-place
                        // edit invalidates every cache layer at once.
   canMove,             // true → card is draggable onto a folder card to move it
-  shortcut,            // true → this is an alias in the "Waiting for review"
-                       // section; show the shortcut badge and don't allow drag-
-                       // to-move (the real card stays in its category section)
+  shortcut,            // true → this is an alias (the real card lives in its
+                       // category section); don't allow drag-to-move.
+  shortcutBadge = shortcut, // whether to paint the corner shortcut arrow.
+                       // Defaults to `shortcut` but can be turned off so an
+                       // alias renders without the badge (e.g. the unsaved-
+                       // edits chip, where "waiting for review" framing is wrong).
   changeCategory,      // 'added' | 'edited' | 'moved' | null — color-coded
                        // change dot in the card's top-left (any changed file)
   changeInfo,          // tooltip text shown when hovering the change dot
@@ -438,11 +450,9 @@ function LocalFileCard({
   const displaySize = cloud?.size_bytes ?? file.sizeBytes;
   const displayDate = cloud?.uploaded_at || file.mtimeIso;
   // Tooltip shows just the basename (no extension) — mirrors the
-  // card title. Optional "differs from cloud" line below it on
-  // modified cards.
-  const tooltipBody = modified
-    ? `${base}\nDiffers from cloud version`
-    : base;
+  // card title. The change dot already signals "differs from cloud",
+  // so the tooltip doesn't repeat it.
+  const tooltipBody = base;
   // Build the URL for the on-disk bytes — used as the descriptor's
   // `source` so the unified resolver can fetch + regenerate when the
   // cloud thumbnail is missing OR stale (after a local edit).
@@ -605,7 +615,7 @@ function LocalFileCard({
               {ext.toUpperCase()}
             </span>
           )}
-          {shortcut && (
+          {shortcutBadge && (
             <span
               className="project-files-shortcut-badge"
               title="Shortcut — waiting for review"
@@ -614,26 +624,28 @@ function LocalFileCard({
               {ShortcutGlyph}
             </span>
           )}
-          {changeCategory && (
-            // Color-coded change dot, top-left. Hovering it shows the
-            // custom cursor-pill Tooltip with the change info. We hide the
-            // card's own morph-pill hover and stop the move event from
-            // bubbling to it so only the dot's tooltip shows over the dot.
-            <span
-              className="project-files-change-dot-wrap"
-              onMouseEnter={morphPill.handleMouseLeave}
-              onMouseMove={(e) => e.stopPropagation()}
-            >
-              <Tooltip content={changeInfo}>
-                <span
-                  className={`project-files-change-dot is-${changeCategory}`}
-                  role="img"
-                  aria-label={changeInfo || changeCategory}
-                />
-              </Tooltip>
-            </span>
-          )}
         </div>
+        {changeCategory && (
+          // Color-coded change dot pinned to the thumbnail's top-left
+          // corner. Lives OUTSIDE .project-files-thumb (which clips with
+          // overflow:hidden) so it can sit right on the edge / overhang the
+          // corner. Hovering it shows the cursor-pill Tooltip; we hide the
+          // card's own morph-pill hover and stop the move event from
+          // bubbling so only the dot's tooltip shows over the dot.
+          <span
+            className="project-files-change-dot-wrap"
+            onMouseEnter={morphPill.handleMouseLeave}
+            onMouseMove={(e) => e.stopPropagation()}
+          >
+            <Tooltip content={changeInfo}>
+              <span
+                className={`project-files-change-dot is-${changeCategory}`}
+                role="img"
+                aria-label={changeInfo || changeCategory}
+              />
+            </Tooltip>
+          </span>
+        )}
         <div className="project-files-meta">
           <div className="project-files-name">{base || file.name}</div>
         </div>
@@ -954,6 +966,7 @@ export default function ProjectFiles() {
     branchState,
     refresh: refreshBranchState,
     queueChange,
+    withdrawRequest,
     refreshOpenRequestItems,
   } = useBranch();
   // Modals: revert-to-main (SyncToMainModal — pulls main into local
@@ -1003,14 +1016,30 @@ export default function ProjectFiles() {
   // there and the grid keeps reading `localFiles` directly.
   const supportsFolders = isElectronBranch;
   const [folderStack, setFolderStack] = useState([]); // [{ name, path }]
-  const [browseFiles, setBrowseFiles] = useState([]);
-  const [browseDirs, setBrowseDirs] = useState([]);
+  // Per-directory listing cache (dir path → { files, dirs }). `atRoot`
+  // flips synchronously on navigation, but a fresh listing only lands after
+  // the async list() resolves. Caching lets navigation to an already-visited
+  // folder (e.g. back to root) paint instantly from the cached listing —
+  // no async-list lag and, crucially, no stale-subfolder-then-root reflow,
+  // which is what made folder navigation jutter. The effect still re-lists
+  // the current dir in the background on every visit so the cache self-heals
+  // if the folder changed while we were away. A dir being present in the
+  // cache also means "this listing is real" (not navigation-in-flight), so
+  // the grid won't render root's missing-download ghosts against a stale set.
+  const [browseCache, setBrowseCache] = useState(() => new Map());
   const [browseTick, setBrowseTick] = useState(0);
   const [creatingFolder, setCreatingFolder] = useState(false);
   // Right-click-the-background menu (My branch): { x, y } | null.
   const [bgMenu, setBgMenu] = useState(null);
   const atRoot = folderStack.length === 0;
   const currentDir = atRoot ? localFolder : folderStack[folderStack.length - 1].path;
+  // Listing for the directory we're viewing, derived from the cache so a
+  // revisit is synchronous. `browseFresh` is false only on a first visit
+  // while the async list is still in flight.
+  const browseListing = browseCache.get(currentDir);
+  const browseFiles = browseListing?.files || [];
+  const browseDirs = browseListing?.dirs || [];
+  const browseFresh = !supportsFolders || browseCache.has(currentDir);
   // Main-branch (cloud) folder navigation — a relative path string
   // ('' = root) since cloud files have no on-disk path, just a
   // folder_path column. Independent of the My-branch folderStack.
@@ -1025,6 +1054,13 @@ export default function ProjectFiles() {
   // second or two on first load.
   const [localHashByName, setLocalHashByName] = useState(new Map());
   const hashCacheRef = useRef(new Map()); // `${name}|${mtime}` → hex
+  // Has the first hashing pass over the current folder finished? Until it
+  // has, a same-size content edit isn't detected yet (the diff is still
+  // size-based), so the status pill would briefly read "Up to date" before
+  // flipping to "unsaved edits". We hold the "Up to date" claim until this
+  // is true and show a neutral "Checking…" state instead — no false-synced
+  // flash on entry. Reset when the folder changes; set when a pass completes.
+  const [hashPassDone, setHashPassDone] = useState(false);
   // Cloud-side hash backfill — for `project_files` rows whose
   // `content_hash` column is null (legacy rows uploaded before
   // migration 014), the renderer fetches the file via signed URL,
@@ -1138,7 +1174,13 @@ export default function ProjectFiles() {
           // Skip — diff falls back to size comparison for this file.
         }
       }
-      if (!cancelled && dirty) setLocalHashByName(next);
+      if (cancelled) return;
+      if (dirty) setLocalHashByName(next);
+      // Pass finished over the current localFiles — the hash-based diff is
+      // now trustworthy, so "Up to date" can be shown without risking the
+      // false-synced flash. Not reset per-pass (only on folder change), so
+      // a watcher-triggered re-hash doesn't blink the pill.
+      setHashPassDone(true);
     })();
     return () => { cancelled = true; };
     // localHashByName is intentionally NOT a dep — that would loop
@@ -1281,6 +1323,17 @@ export default function ProjectFiles() {
   // `openOwnRequestItems` after success makes the pill flip from
   // "unsaved" to "waiting for review" in the same render.
   const [pushing, setPushing] = useState(false);
+  // Per-file send progress while a push is in flight: { current, total }
+  // (from runCommitFlow's onProgress) or null before the first file /
+  // when there are no byte uploads (metadata-only push). Drives the
+  // progress bar at the bottom of the unsaved-edits chip.
+  const [pushProgress, setPushProgress] = useState(null);
+  // The unsaved-edits / waiting-for-review chip lists the affected files
+  // beneath its header. That list is collapsed by default (just the
+  // summary line shows); the chevron toggles it open with an animated
+  // height transition. Kept here at the page level so it survives the
+  // chip re-rendering as the diff updates.
+  const [unsavedExpanded, setUnsavedExpanded] = useState(false);
   const handlePush = useCallback(async () => {
     if (pushing) return;
     if (branchView !== 'mine') return;
@@ -1291,6 +1344,7 @@ export default function ProjectFiles() {
     });
     if (snapshot.length === 0) return;
     setPushing(true);
+    setPushProgress(null);
     try {
       const dateStr = new Date().toLocaleDateString(undefined, {
         month: 'short', day: 'numeric', year: 'numeric',
@@ -1301,6 +1355,7 @@ export default function ProjectFiles() {
         snapshot,
         title: `Changes — ${dateStr}`,
         description: '',
+        onProgress: ({ current, total }) => setPushProgress({ current, total }),
       });
       if (pushErr) {
         notify?.({
@@ -1323,8 +1378,47 @@ export default function ProjectFiles() {
       }
     } finally {
       setPushing(false);
+      setPushProgress(null);
     }
   }, [pushing, branchView, projectId, userId, branchDiff, pendingChanges, notify, refreshOpenRequestItems]);
+
+  // ── Unpublish (withdraw) ────────────────────────────────────────────
+  // The "Discard" action on the Waiting-for-review chip. Pulls the user's
+  // own open change request(s) back to 'withdrawn' WITHOUT touching the
+  // local folder — the edited files stay on disk. Once the request is no
+  // longer open the diff stops treating those items as "in review", so
+  // they re-surface as unsaved local edits (the chip flips back to "You
+  // have unsaved edits", Push available again). Distinct from the
+  // unsaved-state Discard, which reverts the folder to the cloud version.
+  const [withdrawing, setWithdrawing] = useState(false);
+  const handleWithdrawOwnRequests = useCallback(async () => {
+    if (withdrawing) return;
+    const openOwn = (changeRequests || []).filter(
+      (r) => r.author_id === userId && r.status === 'open',
+    );
+    if (openOwn.length === 0) return;
+    setWithdrawing(true);
+    try {
+      const results = await Promise.all(openOwn.map((r) => withdrawRequest(r.id)));
+      const failed = results.filter((r) => r?.error).length;
+      notify?.({
+        category: 'file',
+        variant: failed > 0 ? 'error' : 'success',
+        title: failed > 0 ? 'Couldn’t unpublish everything' : 'Edits unpublished',
+        body: failed > 0
+          ? `${openOwn.length - failed} of ${openOwn.length} pulled back — try again.`
+          : 'Your edits are back as unsaved changes — still in your folder, just not sent for review.',
+        dedupeKey: 'withdraw-own-result',
+      });
+      // Reload the request list (don't wait on Realtime). That drops the
+      // withdrawn request from the open set, which cascades: openOwnRequestIds
+      // recomputes → open items refetch → the diff re-surfaces the edits →
+      // the chip flips from "Waiting for review" to "You have unsaved edits".
+      await refreshBranchState?.();
+    } finally {
+      setWithdrawing(false);
+    }
+  }, [withdrawing, changeRequests, userId, withdrawRequest, notify, refreshBranchState]);
 
   // Per-card "modified" indicator: derived from syncState.rows so it
   // mirrors the status pill exactly. Includes BOTH 'replace' (bytes
@@ -1534,6 +1628,8 @@ export default function ProjectFiles() {
   useEffect(() => {
     setFolderStack([]);
     setCreatingFolder(false);
+    setBrowseCache(new Map());
+    setHashPassDone(false);
   }, [projectId, localFolder]);
   useEffect(() => { setMainFolderPath(''); }, [projectId]);
 
@@ -1543,17 +1639,21 @@ export default function ProjectFiles() {
   // a subfolder can't make the sync think every root file was deleted.
   useEffect(() => {
     if (branchView !== 'mine' || !supportsFolders || !localFolder) {
-      setBrowseFiles([]);
-      setBrowseDirs([]);
       return undefined;
     }
     let cancelled = false;
+    const writeCache = (files, dirs) => {
+      setBrowseCache((prev) => {
+        const next = new Map(prev);
+        next.set(currentDir, { files: files || [], dirs: dirs || [] });
+        return next;
+      });
+    };
     localFolderApi.list(currentDir).then(({ files: bf, dirs: bd }) => {
       if (cancelled) return;
-      setBrowseFiles(bf || []);
-      setBrowseDirs(bd || []);
+      writeCache(bf, bd);
     }).catch(() => {
-      if (!cancelled) { setBrowseFiles([]); setBrowseDirs([]); }
+      if (!cancelled) writeCache([], []);
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1713,7 +1813,21 @@ export default function ProjectFiles() {
       return;
     }
     if (isDocxFile(file.mime_type, file.name)) {
-      openDocx({ cloudUrl: data.signedUrl, fileName: file.name || 'file' });
+      // View .docx in a separate window, rendered via docx-preview.
+      // On render failure, fall back to opening in Word / Office Online.
+      const fname = file.name || 'file';
+      openDocxInWindow({ signedUrl: data.signedUrl, fileName: fname }).then((res) => {
+        if (res?.error) {
+          notify({
+            category: 'file',
+            variant: 'error',
+            title: 'Couldn’t render document',
+            body: 'Opening it in Word instead.',
+            dedupeKey: `docx-render-fallback:${file.id}`,
+          });
+          openDocx({ cloudUrl: data.signedUrl, fileName: fname });
+        }
+      });
       return;
     }
     openFileWindow(data.signedUrl, file.name || 'file');
@@ -1912,7 +2026,9 @@ export default function ProjectFiles() {
       });
     }
     await refetchLocalFiles();
-  }, [localFolder, notify, refetchLocalFiles]);
+    // currentDir MUST be in deps — without it the callback closes over the
+    // root and imports land there even after navigating into a subfolder.
+  }, [localFolder, currentDir, notify, refetchLocalFiles]);
 
   // Tab-change handler — flips the branch view AND fans out a fresh
   // fetch on every relevant data source so the user always lands on
@@ -2328,7 +2444,7 @@ export default function ProjectFiles() {
   // status pill, so both derive the cloud link / Modified state the same
   // way. `shortcut` shows the alias badge + disables drag-to-move;
   // `keyPrefix` keeps React keys unique when the same file renders twice.
-  const buildLocalCard = (f, { shortcut = false, keyPrefix = '' } = {}) => {
+  const buildLocalCard = (f, { shortcut = false, shortcutBadge = shortcut, keyPrefix = '' } = {}) => {
     const lcName = (f.name || '').toLowerCase();
     // Sidecar-driven cloud resolution: filename → fileId → cloud. A null
     // cloud means "local-only file not yet pushed".
@@ -2362,6 +2478,7 @@ export default function ProjectFiles() {
         localContentHash={localHashByName.get(f.name) || null}
         canMove={supportsFolders}
         shortcut={shortcut}
+        shortcutBadge={shortcutBadge}
         changeCategory={change?.category || null}
         changeInfo={change?.info || null}
       />
@@ -2378,6 +2495,32 @@ export default function ProjectFiles() {
     for (const fileId of waitingReviewFileIds) {
       const row = syncState.rows.get(fileId);
       if (row?.local) out.push(row.local);
+    }
+    out.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    return out;
+  })();
+
+  // On-disk files with unsaved local edits (not yet pushed). Mirrors
+  // waitingReviewFiles so the "You have unsaved edits" chip can list the
+  // same shortcut cards as the "Waiting for review" chip. Sources both
+  // detected filesystem diffs (branchDiff) and queued metadata changes
+  // (pendingChanges → resolved to their on-disk file via syncState.rows);
+  // deletes have no local file and drop out. Deduped + name-sorted.
+  const unsavedEditFiles = (() => {
+    if (!syncState) return [];
+    const seen = new Set();
+    const out = [];
+    for (const it of branchDiff) {
+      const fid = it.fileId;
+      if (!fid || seen.has(fid)) continue;
+      const local = it.local || syncState.rows.get(fid)?.local;
+      if (local) { seen.add(fid); out.push(local); }
+    }
+    for (const c of pendingChanges) {
+      const fid = c.target_file_id;
+      if (!fid || seen.has(fid)) continue;
+      const local = syncState.rows.get(fid)?.local;
+      if (local) { seen.add(fid); out.push(local); }
     }
     out.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     return out;
@@ -2576,6 +2719,14 @@ export default function ProjectFiles() {
         // there's truly nothing pending.
         const hasUnpushedOrPending = hasLocalChanges || hasOpenOwnRequest;
         const inSync = !isBehindMain && !hasUnpushedOrPending;
+        // Hold the calm "Up to date" claim until the first hashing pass over
+        // the folder is done — otherwise a same-size content edit reads as
+        // synced for a beat before the hash-based diff catches up. While not
+        // ready, show a neutral "Checking…" pill in the same slot so there's
+        // no false-synced flash and the status area keeps a stable height.
+        const branchReady = hashPassDone || !localFolder;
+        const checking = inSync && !branchReady;
+        const showSynced = inSync && branchReady;
         return (
           <div className="project-files-branch-status" role="status" aria-live="polite">
             {isBehindMain && (
@@ -2621,12 +2772,37 @@ export default function ProjectFiles() {
               const label = hasLocal
                 ? 'You have unsaved edits'
                 : 'Waiting for review';
-              const sub = hasLocal
-                ? `${count} ${count === 1 ? 'edit' : 'edits'} ready — click Push to send`
-                : `${count} ${count === 1 ? 'edit' : 'edits'} sent. Hang tight while your team reviews.`;
-              // In the waiting-for-review state the pushed files render as
-              // small shortcut cards INSIDE this chip, below the header row.
-              const showReviewFiles = !hasLocal && waitingReviewFiles.length > 0;
+              // While a push is in flight the sub turns into a live count
+              // ("Sending 2 of 5…") to match the progress bar below.
+              const sub = pushing
+                ? (pushProgress && pushProgress.total > 0
+                    ? `Sending ${pushProgress.current} of ${pushProgress.total}…`
+                    : 'Sending your edits for review…')
+                : (hasLocal
+                    ? `${count} ${count === 1 ? 'edit' : 'edits'} ready — click Push to send`
+                    : `${count} ${count === 1 ? 'edit' : 'edits'} sent. Hang tight while your team reviews.`);
+              // Progress bar pinned to the bottom edge of the chip while
+              // sending. Determinate once per-file progress lands; an
+              // indeterminate sweep covers the request-creation phase (and
+              // metadata-only pushes that upload no bytes).
+              const sendBar = pushing ? (
+                <span className="project-files-send-progress" aria-hidden="true">
+                  <span
+                    className={`project-files-send-progress-fill${
+                      pushProgress && pushProgress.total > 0 ? '' : ' is-indeterminate'
+                    }`}
+                    style={pushProgress && pushProgress.total > 0
+                      ? { width: `${Math.min(100, Math.round((pushProgress.current / pushProgress.total) * 100))}%` }
+                      : undefined}
+                  />
+                </span>
+              ) : null;
+              // Both states render their files as small shortcut cards
+              // INSIDE this chip, below the header row: the unsaved local
+              // edits when there are local changes, otherwise the pushed
+              // files awaiting review.
+              const reviewFiles = hasLocal ? unsavedEditFiles : waitingReviewFiles;
+              const showReviewFiles = reviewFiles.length > 0;
               // Dot + text + actions — the chip's top row. Reused whether or
               // not the review cards are shown (they share the same chip).
               const header = (
@@ -2651,20 +2827,41 @@ export default function ProjectFiles() {
                         {pushing ? 'Sending…' : 'Push'}
                       </button>
                     )}
-                    <button
-                      type="button"
-                      className="project-files-branch-status-action"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSyncModalOpen(true);
-                      }}
-                      disabled={!hasLocalFolderApi || !localFolder || pushing}
-                      title={!hasLocalFolderApi || !localFolder
-                        ? 'Pick a folder above so we can put the cloud version into it'
-                        : 'Throw away your edits and use the cloud version instead'}
-                    >
-                      Discard
-                    </button>
+                    {hasLocal ? (
+                      // Unsaved-edits state: Discard = revert the folder to
+                      // the cloud version (throws the local edits away).
+                      <button
+                        type="button"
+                        className="project-files-branch-status-action"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSyncModalOpen(true);
+                        }}
+                        disabled={!hasLocalFolderApi || !localFolder || pushing}
+                        title={!hasLocalFolderApi || !localFolder
+                          ? 'Pick a folder above so we can put the cloud version into it'
+                          : 'Throw away your edits and use the cloud version instead'}
+                      >
+                        Discard
+                      </button>
+                    ) : (
+                      // Waiting-for-review state: Discard = unpublish (pull
+                      // the open request back to withdrawn) but KEEP the
+                      // edited files on disk. They re-appear as unsaved
+                      // changes, ready to keep working or re-push.
+                      <button
+                        type="button"
+                        className="project-files-branch-status-action"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleWithdrawOwnRequests();
+                        }}
+                        disabled={withdrawing}
+                        title="Unpublish your sent edits — they stay in your folder as unsaved changes"
+                      >
+                        {withdrawing ? 'Unpublishing…' : 'Discard'}
+                      </button>
+                    )}
                   </span>
                 </>
               );
@@ -2676,26 +2873,64 @@ export default function ProjectFiles() {
                     aria-live="polite"
                   >
                     {header}
+                    {sendBar}
                   </span>
                 );
               }
               // has-review-files turns the chip into a full-width column:
-              // the header row on top, the small shortcut cards beneath —
-              // all within the chip's border so they read as one section.
+              // the header row on top, the file cards beneath in a wrapper
+              // that animates open/closed. Collapsed by default — the
+              // chevron (and clicking the header) toggles it; the cards
+              // stay mounted so the height transition has something to
+              // measure both ways.
               return (
                 <span
-                  className="project-files-branch-status-item is-changes has-review-files"
+                  className={`project-files-branch-status-item is-changes has-review-files${unsavedExpanded ? ' is-expanded' : ''}`}
                   role="status"
                   aria-live="polite"
                 >
-                  <div className="project-files-review-header">{header}</div>
-                  <div className="project-files-review-files project-files-grid">
-                    {waitingReviewFiles.map((f) => buildLocalCard(f, { shortcut: true, keyPrefix: 'review-' }))}
+                  <div
+                    className="project-files-review-header is-toggle"
+                    onClick={() => setUnsavedExpanded((v) => !v)}
+                  >
+                    {header}
+                    <button
+                      type="button"
+                      className={`project-files-review-chevron${unsavedExpanded ? ' is-open' : ''}`}
+                      onClick={(e) => { e.stopPropagation(); setUnsavedExpanded((v) => !v); }}
+                      aria-expanded={unsavedExpanded}
+                      aria-label={unsavedExpanded ? 'Hide the files' : 'Show the files'}
+                      title={unsavedExpanded ? 'Hide the files' : 'Show the files'}
+                    >
+                      {ChevronDownIcon}
+                    </button>
                   </div>
+                  <div className="project-files-review-collapse">
+                    <div className="project-files-review-collapse-inner">
+                      <div className="project-files-review-files project-files-grid">
+                        {/* Alias cards (non-draggable). The shortcut badge only
+                            makes sense in the "waiting for review" framing — hide
+                            it for the unsaved-edits list. */}
+                        {reviewFiles.map((f) => buildLocalCard(f, { shortcut: true, shortcutBadge: !hasLocal, keyPrefix: 'review-' }))}
+                      </div>
+                    </div>
+                  </div>
+                  {sendBar}
                 </span>
               );
             })()}
-            {inSync && (
+            {checking && (
+              <span className="project-files-branch-status-item is-synced">
+                <span className="project-files-branch-status-dot" aria-hidden="true" />
+                <div className="project-files-branch-status-text">
+                  <strong className="project-files-branch-status-label">Checking your files…</strong>
+                  <p className="project-files-branch-status-sub">
+                    Looking for changes since you last synced.
+                  </p>
+                </div>
+              </span>
+            )}
+            {showSynced && (
               <span className="project-files-branch-status-item is-synced">
                 <span className="project-files-branch-status-dot" aria-hidden="true" />
                 <div className="project-files-branch-status-text">
@@ -3044,7 +3279,7 @@ export default function ProjectFiles() {
             }
             // "Missing — download" ghosts are a ROOT concept (the cloud
             // is flat). Don't surface them while browsing a subfolder.
-            if (atRoot && myBranchScope === 'all' && syncState) {
+            if (atRoot && browseFresh && myBranchScope === 'all' && syncState) {
               for (const row of syncState.rows.values()) {
                 if (row.status !== 'missing-local') continue;
                 if (!row.cloud) continue;
@@ -3074,7 +3309,11 @@ export default function ProjectFiles() {
             }
             const totalItems = buckets.photos.length + buckets.videos.length + buckets.documents.length;
             const hasFolders = supportsFolders && (browseDirs.length > 0 || creatingFolder);
-            if (totalItems === 0 && !hasFolders) {
+            // While a navigation re-list is in flight (browseFresh === false),
+            // an apparent "0 items" is just the listing not having landed yet
+            // — don't flash the "Folder is empty" prompt; render an empty grid
+            // until the real listing arrives.
+            if (totalItems === 0 && !hasFolders && browseFresh) {
               // Inside a subfolder there's no cloud to sync — keep it simple.
               if (!atRoot) {
                 return (
@@ -3277,6 +3516,7 @@ export default function ProjectFiles() {
           if (!listErr) setLocalFiles(localList || []);
         }}
       />
+
 
       {/* Floating action button — bottom-right of the viewport. Only
           shown on 'mine' branch (Main is read-only; adding files

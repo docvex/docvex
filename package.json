@@ -55,6 +55,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",
+    "docx-preview": "^0.3.7",
     "electron-squirrel-startup": "^1.0.1",
     "html2canvas": "^1.4.1",
     "pdfjs-dist": "^5.7.284",

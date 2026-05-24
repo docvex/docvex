@@ -121,6 +121,25 @@ export function openFileWindow(url, fileName) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+// Open a self-contained HTML string in its own window. Used by the
+// .docx viewer (the document is rendered to HTML via docx-preview in the
+// renderer). Electron stages it to a temp file + native window; web opens
+// a blank tab and writes the markup in (no `noopener` here — we need the
+// handle to write).
+export function openHtmlWindow(html, fileName) {
+  if (electronAPI?.openHtmlWindow) {
+    electronAPI.openHtmlWindow(html, fileName);
+    return;
+  }
+  const w = window.open('', '_blank');
+  if (w) {
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    try { w.document.title = fileName || 'Document'; } catch { /* cross-origin guard, n/a here */ }
+  }
+}
+
 // Open a DOCX with the best-available renderer. Pass whichever
 // sources you have — local disk path (My-branch files) and/or a
 // signed cloud URL (Cloud-tab files, or My-branch files that have
