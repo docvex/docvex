@@ -10,11 +10,11 @@ Built with Electron + React + Supabase, distributed via auto-updating installers
 [![Downloads](https://img.shields.io/github/downloads/petreluca1105-dotcom/docvex/total?label=downloads&color=6366f1)](https://github.com/petreluca1105-dotcom/docvex/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue)](#install)
 
-### ⬇️ Download Docvex (macOS v7.2.6 · Windows v7.2.6)
+### ⬇️ Download Docvex (macOS v7.2.7 · Windows v7.2.7)
 
-- **Windows:** [docvex-7.2.6.Setup.exe](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-7.2.6.Setup.exe)
-- **macOS (Apple Silicon):** [docvex-7.2.6-arm64.dmg](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-7.2.6-arm64.dmg) installer · [portable .zip](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-darwin-arm64-7.2.6.zip)
-- **macOS (Intel):** [docvex-7.2.6-x64.dmg](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-7.2.6-x64.dmg) installer · [portable .zip](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-darwin-x64-7.2.6.zip)
+- **Windows:** [docvex-7.2.7.Setup.exe](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-7.2.7.Setup.exe)
+- **macOS (Apple Silicon):** [docvex-7.2.7-arm64.dmg](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-7.2.7-arm64.dmg) installer · [portable .zip](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-darwin-arm64-7.2.7.zip)
+- **macOS (Intel):** [docvex-7.2.7-x64.dmg](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-7.2.7-x64.dmg) installer · [portable .zip](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-darwin-x64-7.2.7.zip)
 
 [Browse all releases](https://github.com/petreluca1105-dotcom/docvex/releases) · [Latest (auto-redirect)](https://github.com/petreluca1105-dotcom/docvex/releases/latest)
 
@@ -27,9 +27,9 @@ Built with Electron + React + Supabase, distributed via auto-updating installers
 The newest installer is always at **[github.com/petreluca1105-dotcom/docvex/releases/latest](https://github.com/petreluca1105-dotcom/docvex/releases/latest)** — that URL is a GitHub-managed redirect that follows whichever tag was published most recently.
 
 > **Direct links for the current version:**
-> - Windows installer: [docvex-7.2.6.Setup.exe](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-7.2.6.Setup.exe)
-> - macOS Apple Silicon (M-series): [docvex-7.2.6-arm64.dmg](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-7.2.6-arm64.dmg) (or [portable .zip](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-darwin-arm64-7.2.6.zip))
-> - macOS Intel: [docvex-7.2.6-x64.dmg](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-7.2.6-x64.dmg) (or [portable .zip](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-darwin-x64-7.2.6.zip))
+> - Windows installer: [docvex-7.2.7.Setup.exe](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-7.2.7.Setup.exe)
+> - macOS Apple Silicon (M-series): [docvex-7.2.7-arm64.dmg](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-7.2.7-arm64.dmg) (or [portable .zip](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-darwin-arm64-7.2.7.zip))
+> - macOS Intel: [docvex-7.2.7-x64.dmg](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-7.2.7-x64.dmg) (or [portable .zip](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-darwin-x64-7.2.7.zip))
 
 Once installed, Docvex auto-updates in the background on Windows (polls `update.electronjs.org` every 10 minutes) and applies the new version on next launch. On macOS the app ships as a `.dmg` installer (drag to Applications) or a portable `.zip`; new versions can be downloaded from the in-app **Updates** tab or the [Releases page](https://github.com/petreluca1105-dotcom/docvex/releases).
 
@@ -48,7 +48,7 @@ Once installed, Docvex auto-updates in the background on Windows (polls `update.
 ## 💾 Install
 
 ### Windows
-1. Click **[Download docvex-7.2.6.Setup.exe](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-7.2.6.Setup.exe)** (or [grab the latest](https://github.com/petreluca1105-dotcom/docvex/releases/latest)).
+1. Click **[Download docvex-7.2.7.Setup.exe](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-7.2.7.Setup.exe)** (or [grab the latest](https://github.com/petreluca1105-dotcom/docvex/releases/latest)).
 2. Run `Setup.exe`. Docvex installs to `%LocalAppData%\docvex` and adds itself to the Start menu.
 3. Sign in with email + password or Google OAuth on first launch.
 
@@ -58,8 +58,8 @@ Pick the build that matches your chip:
 
 | Mac | Installer (.dmg) | Portable (.zip) |
 | --- | --- | --- |
-| **Apple Silicon** (M1 / M2 / M3 / M4) — most Macs since late 2020 | [docvex-7.2.6-arm64.dmg](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-7.2.6-arm64.dmg) | [docvex-darwin-arm64-7.2.6.zip](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-darwin-arm64-7.2.6.zip) |
-| **Intel** — Macs from 2020 and earlier | [docvex-7.2.6-x64.dmg](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-7.2.6-x64.dmg) | [docvex-darwin-x64-7.2.6.zip](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.6/docvex-darwin-x64-7.2.6.zip) |
+| **Apple Silicon** (M1 / M2 / M3 / M4) — most Macs since late 2020 | [docvex-7.2.7-arm64.dmg](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-7.2.7-arm64.dmg) | [docvex-darwin-arm64-7.2.7.zip](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-darwin-arm64-7.2.7.zip) |
+| **Intel** — Macs from 2020 and earlier | [docvex-7.2.7-x64.dmg](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-7.2.7-x64.dmg) | [docvex-darwin-x64-7.2.7.zip](https://github.com/petreluca1105-dotcom/docvex/releases/download/v7.2.7/docvex-darwin-x64-7.2.7.zip) |
 
 > Not sure which chip you have? Apple menu → **About This Mac**. If it says "Apple M1/M2/M3/M4", grab the arm64 build.
 
