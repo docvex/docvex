@@ -3,10 +3,13 @@
    so they don't depend on the sibling stylesheet being loaded). */
 
 .project-dashboard {
-  max-width: 820px;
+  /* Full-width (was max-width: 820px) so the tab-bar underline spans the
+     whole content area edge-to-edge like the Files tab, instead of stopping
+     at an 820px column. */
+  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 14px;
 }
 
 .project-dashboard-loading,
@@ -68,15 +71,17 @@
 }
 
 .project-dashboard-title {
-  font-size: 1.6rem;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
   color: var(--text-primary);
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
 .project-dashboard-description {
-  color: var(--text-secondary);
-  font-size: 0.95rem;
+  color: var(--text-muted);
+  font-size: 13px;
   line-height: 1.5;
   margin: 0;
 }
@@ -740,9 +745,11 @@
   display: flex;
   gap: 0;
   border-bottom: 1px solid var(--border);
-  /* Pull up against the header so the bar reads as an extension of it
-     rather than a floating control. */
-  margin-top: -0.25rem;
+  /* Full-bleed like the Files tab strip: break out of the page's 22px
+     frame inset so the bar (and its underline) sit flush to the content-
+     area edges, while the title + content above/below stay inset 22px. */
+  margin-left: -22px;
+  margin-right: -22px;
 }
 
 .project-tab {

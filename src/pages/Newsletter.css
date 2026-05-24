@@ -1,0 +1,347 @@
+/* Newsletter — Legal Newsfeed v2 "Editorial" (ported from the Claude
+   Design handoff `docvex-newsfeed`). Readability through typographic
+   hierarchy + whitespace, not chrome: no card backgrounds, no boxes,
+   no glyph squares. Categories are small-caps eyebrows tinted in their
+   hue; the AI summary is the lead paragraph; impact + areas merge into
+   one quiet meta line. Reads like a daily briefing.
+
+   All `ed-` classes are scoped to this page. Colours route through
+   docvex's tokens.css; the legal-category hues reuse the existing
+   `--cat-*` notification palette, and the impact palette is defined
+   here (cream defaults + ink overrides) so it isn't a global token. */
+
+.ed-page {
+  /* Legal category hues — reuse the notification --cat-* palette so the
+     feed shares the visual vocabulary the user already knows. These flip
+     with the theme automatically because --cat-* are theme-scoped. */
+  --legal-employment: var(--cat-member);   /* cyan — people */
+  --legal-corporate:  var(--cat-project);  /* indigo — workspace */
+  --legal-gdpr:       var(--cat-role);     /* pink — privacy */
+  --legal-litigation: var(--cat-file);     /* amber — disputes */
+  --legal-tax:        var(--cat-update);   /* violet — fiscal */
+  --legal-compliance: var(--cat-auth);     /* emerald — safety */
+
+  /* Impact palette — semantic + subtle (cream values). */
+  --impact-low:  #15803D;
+  --impact-med:  #B45309;
+  --impact-high: #B91C1C;
+
+  width: 100%;
+  max-width: 760px;
+  /* Left-aligned (was margin: 0 auto) so the masthead title sits at the
+     same 22px inset as every other tab instead of floating centred. */
+  margin: 0;
+  padding-bottom: 60px;
+}
+[data-theme="ink"] .ed-page {
+  --impact-low:  #4ADE80;
+  --impact-med:  #FBBF24;
+  --impact-high: #F87171;
+}
+
+/* ── Masthead ──────────────────────────────────────────────────── */
+.ed-masthead {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 8px 0 18px;
+  border-bottom: 1px solid var(--text-primary);
+  margin-bottom: 14px;
+}
+.ed-mast-left { display: flex; flex-direction: column; gap: 4px; }
+.ed-mast-eyebrow {
+  font-family: var(--font-display);
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--accent);
+}
+.ed-mast-title {
+  font-family: var(--font-display);
+  font-size: 22px; font-weight: 700;
+  margin: 0; letter-spacing: -0.01em;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+.ed-mast-meta {
+  display: flex; align-items: center; gap: 14px;
+  font-size: 12px; color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.ed-mast-meta-num { font-family: var(--font-display); font-size: 20px; font-weight: 600; color: var(--text-primary); }
+.ed-mast-meta-sep { width: 1px; height: 22px; background: var(--border); }
+
+/* ── Quiet filter row — text-button style, no segmented controls ─ */
+.ed-filters {
+  display: flex; align-items: center; gap: 24px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 40px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+}
+.ed-filter-group { display: inline-flex; align-items: center; gap: 14px; }
+.ed-filter-label {
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ed-filter-btn {
+  background: transparent; border: none;
+  color: var(--text-muted);
+  font-family: inherit; font-size: 13px; font-weight: 500;
+  padding: 4px 0; cursor: pointer;
+  border-bottom: 1.5px solid transparent;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.ed-filter-btn:hover:not(.is-active) { color: var(--text-secondary); }
+.ed-filter-btn.is-active { color: var(--text-primary); border-bottom-color: var(--accent); }
+.ed-filter-btn[data-cat="employment"].is-active { border-bottom-color: var(--legal-employment); }
+.ed-filter-btn[data-cat="corporate"].is-active   { border-bottom-color: var(--legal-corporate); }
+.ed-filter-btn[data-cat="gdpr"].is-active        { border-bottom-color: var(--legal-gdpr); }
+.ed-filter-btn[data-cat="litigation"].is-active  { border-bottom-color: var(--legal-litigation); }
+.ed-filter-btn[data-cat="tax"].is-active         { border-bottom-color: var(--legal-tax); }
+.ed-filter-btn[data-cat="compliance"].is-active  { border-bottom-color: var(--legal-compliance); }
+
+.ed-search {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--text-muted);
+}
+.ed-search input {
+  background: transparent; border: none; outline: none;
+  font-family: inherit; font-size: 13px; color: var(--text-primary);
+  width: 180px; padding: 4px 0;
+  border-bottom: 1px solid transparent;
+  transition: border-color 120ms;
+}
+.ed-search input::placeholder { color: var(--text-muted); }
+.ed-search input:focus { border-bottom-color: var(--accent); }
+
+/* ── Day section — a single dateline running across the page ───── */
+.ed-section { margin-bottom: 48px; }
+.ed-section-head {
+  display: flex; align-items: baseline; gap: 16px;
+  margin-bottom: 28px;
+}
+.ed-section-date {
+  font-family: var(--font-display);
+  font-size: 1.7rem; font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  margin: 0;
+}
+.ed-section-meta {
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ed-section-rule {
+  flex: 1; height: 1px;
+  background: linear-gradient(90deg, var(--border), transparent);
+  align-self: center; margin-top: 4px;
+}
+
+/* ── Article ───────────────────────────────────────────────────── */
+.ed-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.ed-article {
+  padding: 0 0 36px;
+  margin: 0 0 36px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 86px 1fr;
+  gap: 28px;
+}
+.ed-article:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.ed-article:hover .ed-headline { color: var(--accent); }
+.ed-article.is-read .ed-headline,
+.ed-article.is-read .ed-lead { opacity: 0.55; }
+
+/* Left rail — sparse vertical meta column, like a magazine sidebar */
+.ed-rail {
+  display: flex; flex-direction: column; gap: 12px;
+  padding-top: 4px;
+}
+.ed-rail-category {
+  font-family: var(--font-display);
+  font-size: 10.5px; font-weight: 800;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--cat-system);
+  position: relative;
+  padding-left: 14px;
+}
+.ed-rail-category::before {
+  content: ''; position: absolute;
+  left: 0; top: 50%; transform: translateY(-50%);
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+}
+.ed-article[data-cat="employment"] .ed-rail-category { color: var(--legal-employment); }
+.ed-article[data-cat="corporate"]   .ed-rail-category { color: var(--legal-corporate); }
+.ed-article[data-cat="gdpr"]        .ed-rail-category { color: var(--legal-gdpr); }
+.ed-article[data-cat="litigation"]  .ed-rail-category { color: var(--legal-litigation); }
+.ed-article[data-cat="tax"]         .ed-rail-category { color: var(--legal-tax); }
+.ed-article[data-cat="compliance"]  .ed-rail-category { color: var(--legal-compliance); }
+
+.ed-rail-time {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Impact — drawn as 3 thin vertical strokes (low fills 1, med fills 2,
+   high fills 3). No box, no fill, no pill. Just a typographic notation. */
+.ed-impact-mark {
+  display: inline-flex; gap: 3px; align-items: end;
+  margin-top: 4px;
+}
+.ed-impact-mark span {
+  width: 4px; background: var(--text-muted); border-radius: 1px;
+  opacity: 0.18;
+}
+.ed-impact-mark span:nth-child(1) { height: 8px; }
+.ed-impact-mark span:nth-child(2) { height: 12px; }
+.ed-impact-mark span:nth-child(3) { height: 16px; }
+.ed-impact-mark[data-level="low"]  span:nth-child(1) { opacity: 1; background: var(--impact-low); }
+.ed-impact-mark[data-level="med"]  span:nth-child(1),
+.ed-impact-mark[data-level="med"]  span:nth-child(2) { opacity: 1; background: var(--impact-med); }
+.ed-impact-mark[data-level="high"] span { opacity: 1; background: var(--impact-high); }
+.ed-impact-label {
+  font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-top: 2px;
+}
+.ed-impact-label[data-level="low"]  { color: var(--impact-low); }
+.ed-impact-label[data-level="med"]  { color: var(--impact-med); }
+.ed-impact-label[data-level="high"] { color: var(--impact-high); }
+
+/* Body */
+.ed-body { min-width: 0; }
+.ed-headline {
+  font-family: var(--font-display);
+  font-size: 1.5rem; font-weight: 700;
+  line-height: 1.2; letter-spacing: -0.015em;
+  color: var(--text-primary);
+  margin: 0 0 14px;
+  text-wrap: pretty;
+  transition: color 150ms;
+}
+.ed-source {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  margin-bottom: 14px;
+  font-style: italic;
+}
+.ed-source-strong { font-style: normal; color: var(--text-secondary); font-weight: 600; }
+
+.ed-lead {
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  margin: 0 0 18px;
+  text-wrap: pretty;
+  max-width: 62ch;
+  font-family: var(--font-body);
+}
+/* The AI badge sits unobtrusively at the start of the lead — reads as a byline. */
+.ed-ai-byline {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-right: 8px;
+  padding-right: 10px;
+  border-right: 1px solid var(--border);
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--accent);
+  vertical-align: 2px;
+}
+.ed-ai-byline svg { width: 11px; height: 11px; }
+
+/* Meta footer — one quiet line: "Affects: a, b, c · Touches N matters" */
+.ed-meta {
+  display: flex; align-items: center; gap: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+.ed-meta-label {
+  font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+.ed-meta-areas { color: var(--text-secondary); }
+.ed-meta-areas span:not(:last-child)::after { content: ' · '; color: var(--text-muted); padding: 0 2px; }
+.ed-meta-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--border-strong); flex-shrink: 0; }
+.ed-meta-insight {
+  color: var(--accent);
+  font-weight: 600;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.ed-meta-insight strong { font-weight: 700; }
+
+/* Hover row — actions appear only when the cursor is on the article */
+.ed-actions {
+  display: flex; gap: 18px; margin-top: 14px;
+  opacity: 0; transform: translateY(-2px);
+  transition: opacity 150ms, transform 150ms;
+}
+.ed-article:hover .ed-actions { opacity: 1; transform: translateY(0); }
+.ed-action {
+  background: transparent; border: none; padding: 0;
+  font-family: inherit; font-size: 12.5px; font-weight: 500;
+  color: var(--text-muted); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+  border-bottom: 1px solid transparent;
+}
+.ed-action:hover { color: var(--text-primary); border-bottom-color: var(--accent); }
+.ed-action.is-primary { color: var(--accent); font-weight: 600; }
+
+/* Pinned indicator */
+.ed-pinned-mark {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--accent);
+  margin-left: 8px;
+  vertical-align: 3px;
+}
+
+/* AI weekly note — a single italic line above the first section, NO box */
+.ed-weekly {
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  font-style: italic;
+  color: var(--text-secondary);
+  padding: 16px 0 18px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 36px;
+  display: flex; align-items: baseline; gap: 14px;
+  text-wrap: pretty;
+}
+.ed-weekly-mark {
+  font-size: 10px; font-weight: 800;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--accent);
+  font-style: normal;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+.ed-weekly strong { color: var(--accent); font-weight: 700; font-style: normal; }
+
+/* Empty state */
+.ed-empty {
+  text-align: center; padding: 80px 24px;
+  color: var(--text-muted);
+}
+.ed-empty-title { font-family: var(--font-display); font-size: 1.2rem; color: var(--text-secondary); margin-bottom: 6px; }
+
+@media (max-width: 880px) {
+  .ed-article { grid-template-columns: 1fr; gap: 14px; }
+  .ed-rail { flex-direction: row; align-items: center; gap: 14px; padding: 0; }
+  .ed-mast-title { font-size: 22px; }
+  .ed-section-date { font-size: 1.3rem; }
+  .ed-headline { font-size: 1.25rem; }
+  .ed-lead { font-size: 1rem; }
+}

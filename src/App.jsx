@@ -11,10 +11,12 @@ import AppShell from './components/AppShell';
 // while a chunk loads. AppShell stays eager because it owns the layout that
 // surrounds every route and would itself appear "flashy" if lazy-loaded.
 const AuthPage = lazy(() => import('./components/AuthPage'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
+// Activity = merged home of the old (empty) "/" dashboard + the
+// "/notifications" inbox — one feed of everything across the user's projects.
+const Activity = lazy(() => import('./pages/Activity'));
 const Account = lazy(() => import('./pages/Account'));
 const Updates = lazy(() => import('./pages/Updates'));
-const Notifications = lazy(() => import('./pages/Notifications'));
+const Newsletter = lazy(() => import('./pages/Newsletter'));
 const ProjectList = lazy(() => import('./pages/Projects/ProjectList'));
 const ProjectCreate = lazy(() => import('./pages/Projects/ProjectCreate'));
 const ProjectOverview = lazy(() => import('./pages/Projects/ProjectOverview'));
@@ -107,9 +109,12 @@ export default function App() {
       <Routes>
         <Route path="/auth" element={<AuthPage />} />
         <Route path="/" element={<AppShell />}>
-          <Route index element={<Dashboard />} />
+          <Route index element={<Activity />} />
           <Route path="updates" element={<Updates />} />
-          <Route path="notifications" element={<Notifications />} />
+          <Route path="newsletter" element={<Newsletter />} />
+          {/* Notifications merged into Activity ("/"); keep the path as a
+              redirect so old links / OS notification deep-links still land. */}
+          <Route path="notifications" element={<Navigate to="/" replace />} />
           {/* Invite-accept is intentionally PUBLIC (not behind ProtectedRoute) —
               an invitee clicking the email link before signing in needs the
               page to render so it can stash the token and walk them through

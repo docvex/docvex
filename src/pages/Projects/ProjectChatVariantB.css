@@ -1,0 +1,1824 @@
+/* Chat tab — Variant B "Split Pane".
+   Ported from the Claude Design handoff (docvex-chat-redesign):
+   chat-shared.css (the dvx- primitives) + chat-variant-b.css (the vb-
+   layout) merged here, plus the docvex page-frame integration and a
+   few interaction styles the prototype left to the implementer
+   (emoji picker, scroll-back pill, typing dots, composer popovers,
+   staged-attachment chips, inline edit). Every colour routes through
+   tokens.css — no hex literals beyond the design's avatar/file accents. */
+
+/* ───── Page-frame integration ───────────────────────────────────────
+   The chat fills the area to the right of the sidebar, edge-to-edge and
+   full-height, with only the inner panes scrolling. Mirrors the
+   FilesWorkspace approach: make the frame definite-height + flush, and
+   suppress the outer .main-content scrollbar. Top padding is kept so the
+   floating "Working in …" banner pill doesn't sit on the header. */
+.main-content:has(.dvx-chat.vb-chat) {
+  overflow: hidden;
+}
+.project-page-frame:has(.dvx-chat.vb-chat) {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 2rem 0 0;
+  background: none;
+  border-radius: 0;
+}
+.dvx-chat.vb-chat {
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  max-width: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Shared primitives (from chat-shared.css)
+   ═══════════════════════════════════════════════════════════════════ */
+
+.dvx-chat {
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  /* Transparent (was a solid var(--bg-page) + its own static dot grid) so the
+     app's real cursor-spotlight background from .main-content shows through
+     unobstructed — same treatment as the other pages' transparent surfaces. */
+  background: transparent;
+  position: relative;
+  overflow: hidden;
+}
+
+.dvx-chat > * { position: relative; z-index: 1; }
+
+/* ───── Avatar ───────────────────────────────────────────────────── */
+.dvx-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.dvx-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+}
+.dvx-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.dvx-avatar-status {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid;
+  box-sizing: content-box;
+}
+
+/* ───── Mention chip ─────────────────────────────────────────────── */
+.dvx-mention {
+  display: inline;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 1px 4px;
+  margin: 0 -1px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  white-space: nowrap;
+}
+.dvx-mention.is-me {
+  /* The viewer's own mention reads as plain (borderless) bold accent text —
+     no chip background. */
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font-weight: 700;
+}
+
+/* ───── Status dot ───────────────────────────────────────────────── */
+.dvx-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ───── Reaction strip ───────────────────────────────────────────── */
+.dvx-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.dvx-reactions-right { justify-content: flex-end; }
+
+.dvx-reaction {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, transform 80ms;
+  line-height: 1.4;
+}
+.dvx-reaction:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+.dvx-reaction.is-mine {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 36%, transparent);
+  color: var(--accent);
+}
+.dvx-reaction-emoji {
+  font-size: 0.92rem;
+  line-height: 1;
+}
+.dvx-reaction-count {
+  font-variant-numeric: tabular-nums;
+}
+.dvx-reaction-add {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 160ms, color 120ms, border-color 120ms;
+}
+.dvx-msg-row:hover .dvx-reaction-add,
+.dvx-msg-row.has-reactions:hover .dvx-reaction-add {
+  opacity: 1;
+}
+.dvx-reaction-add:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+/* ───── Day divider ──────────────────────────────────────────────── */
+.dvx-day-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 18px 0 10px;
+  user-select: none;
+}
+.dvx-day-divider::before,
+.dvx-day-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  max-width: 240px;
+}
+.dvx-day-divider-label {
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+
+/* ───── Attachment — thumb card ──────────────────────────────────── */
+.dvx-attach-card {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 8px 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background 120ms, border-color 120ms, transform 80ms;
+  min-width: 0;
+  max-width: 280px;
+}
+.dvx-attach-card:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+}
+.dvx-attach-card:active { transform: scale(0.99); }
+.dvx-attach-thumb {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 44px;
+  border-radius: 6px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 4px;
+  position: relative;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.12), inset 0 0 0 1px rgba(255,255,255,0.18);
+}
+.dvx-attach-thumb::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  background: rgba(0,0,0,0.18);
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+  border-bottom-left-radius: 2px;
+}
+.dvx-attach-ext {
+  font-family: var(--font-display);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.3);
+}
+.dvx-attach-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.dvx-attach-name {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dvx-attach-size {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ───── Attachment — compact pill ────────────────────────────────── */
+.dvx-attach-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 2px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  max-width: 260px;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+.dvx-attach-pill:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+}
+.dvx-attach-pill-ext {
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+.dvx-attach-pill-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* Missing-file placeholder — no ext-badge / remove button, just text, so it
+   needs even padding (the base pill insets the left for the badge). */
+.dvx-attach-pill.is-missing {
+  padding: 5px 12px;
+  cursor: default;
+  font-style: italic;
+  color: var(--text-muted);
+}
+.dvx-attach-pill.is-missing .dvx-attach-pill-name {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.dvx-attach-pill-size {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ───── Composer (shared) ────────────────────────────────────────── */
+.dvx-composer {
+  position: relative;
+  /* Own stacking context so the ::before/::after layers sit behind the input
+     content predictably. */
+  isolation: isolate;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  /* Fill + blur live on the ::before layer (below) — keeping them OFF this
+     element means typing (which repaints the textarea) no longer re-runs the
+     expensive backdrop blur, which was the cause of the typing lag. */
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px 10px;
+  box-shadow: var(--shadow-card);
+  transition: border-color 120ms;
+}
+/* Frosted glass — same transparent-blur look as the Files footer
+   (.fx-bottombar). The blur lives on this pseudo (which has NO content) rather
+   than on .dvx-composer itself, so the textarea's per-keystroke repaints don't
+   force the backdrop blur to re-run — that was the cause of the typing lag.
+   backdrop-filter already isolates this onto its own compositor layer. */
+.dvx-composer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg-page) 82%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+/* Cursor-following spotlight glow (tracks --spot-x/--spot-y set on mousemove
+   in the JSX), painted over the frosted fill but behind the input content. */
+.dvx-composer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    180px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 5%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 2%, transparent) 40%,
+    transparent 72%
+  );
+  opacity: 0;
+  transition: opacity 260ms ease;
+}
+.dvx-composer:hover::after,
+.dvx-composer:focus-within::after { opacity: 0.6; }
+.dvx-composer > * { position: relative; z-index: 1; }
+.dvx-composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow-card);
+}
+.dvx-composer-textarea {
+  appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  padding: 6px 4px;
+  min-height: 24px;
+  max-height: 120px;
+  width: 100%;
+}
+.dvx-composer-textarea::placeholder { color: var(--text-muted); }
+.dvx-composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.dvx-composer-toolbar-spacer { flex: 1; }
+.dvx-composer-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.dvx-composer-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+.dvx-composer-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.dvx-composer-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.dvx-composer-send {
+  width: auto;
+  padding: 0 14px;
+  height: 32px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.84rem;
+}
+.dvx-composer-send:hover {
+  background: var(--accent-hover);
+  color: var(--text-on-accent);
+}
+.dvx-composer-send:disabled {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* ───── Page header shared ───────────────────────────────────────── */
+.dvx-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* 22px horizontal inset matches the Files tab header so the chat title
+     lines up with every other tab's title. */
+  padding: 14px 22px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px 14px 0 0;
+  border-bottom: none;
+}
+.dvx-header-title-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.dvx-header-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dvx-header-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ───── Tabs (Team / Private) ────────────────────────────────────── */
+.dvx-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  /* stretch so the header section tabs (.vb-htab) match the Team/Private
+     tab height and their underlines land on the same baseline. */
+  align-items: stretch;
+  gap: 0;
+  /* Full-bleed like the Files tab strip: tabs touch the edge (x=0) while
+     the page title above stays inset 22px. The chat frame is already
+     full-bleed (no side padding), so zero padding here puts the tabs
+     flush to the edge. */
+  padding: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-bottom: 1px solid var(--border);
+}
+.dvx-tab {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 0.7rem 1rem;
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 150ms, border-color 150ms;
+}
+.dvx-tab:hover:not(.is-active) { color: var(--text-secondary); }
+.dvx-tab.is-active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+.dvx-tab svg { width: 16px; height: 16px; }
+.dvx-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 0.66rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ───── Rail section tabs, relocated into the header nav bar ──────────
+   Pinned / Threads / Mentions / Files sit on the right of the Team/Private
+   strip and drive the right rail panel below. */
+.vb-header-sections {
+  margin-left: auto;
+  display: flex;
+  align-items: stretch;
+}
+.vb-htab {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 0 12px;
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 140ms, border-color 140ms;
+}
+.vb-htab:hover:not(.is-active) { color: var(--text-secondary); }
+.vb-htab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+.vb-htab svg { width: 14px; height: 14px; }
+.vb-htab-count {
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 1px 6px;
+  border-radius: 999px;
+  min-width: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.vb-htab.is-active .vb-htab-count {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.vb-htab-collapse {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 140ms;
+}
+.vb-htab-collapse:hover { color: var(--text-secondary); }
+.vb-htab-collapse svg { width: 14px; height: 14px; }
+
+/* ───── Generic search field ─────────────────────────────────────── */
+.dvx-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: var(--text-muted);
+  transition: border-color 120ms, background 120ms;
+  min-width: 0;
+}
+.dvx-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: var(--bg-card);
+}
+.dvx-search input {
+  appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: 0.84rem;
+  color: var(--text-primary);
+  width: 100%;
+  min-width: 0;
+}
+.dvx-search input::placeholder { color: var(--text-muted); }
+
+/* ───── Header action button ─────────────────────────────────────── */
+.dvx-action-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, color 120ms;
+  white-space: nowrap;
+}
+.dvx-action-btn:hover {
+  background: var(--bg-card);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.dvx-action-btn.is-accent {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  color: var(--accent);
+}
+.dvx-action-btn.is-accent:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.dvx-action-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.dvx-action-btn:disabled:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  color: var(--accent);
+}
+
+/* ───── Generic icon button ──────────────────────────────────────── */
+.dvx-icon-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+  flex-shrink: 0;
+}
+.dvx-icon-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+/* ───── Scrollbar ────────────────────────────────────────────────── */
+.dvx-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+.dvx-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.dvx-scroll::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+.dvx-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Variant B layout (from chat-variant-b.css)
+   ═══════════════════════════════════════════════════════════════════ */
+
+.vb-chat {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  /* No master fill — let the app's cursor-spotlight background show through. */
+  background: transparent;
+}
+
+.vb-header {
+  /* Plain page header like every other tab — no card fill / border, just
+     the title block on the page background, inset 22px and 14px above the
+     tab bar (matches .fx-page-head on the Files tab). */
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  padding: 0 22px;
+  margin-bottom: 14px;
+}
+.vb-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.vb-search {
+  width: 320px;
+  max-width: 38vw;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.vb-search input {
+  flex: 1;
+}
+
+.vb-tabs {
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+
+/* Split layout */
+.vb-split {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 0;
+  transition: grid-template-columns 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.vb-split.rail-collapsed {
+  /* Rail panel isn't rendered when collapsed (its tabs live in the header),
+     so the thread fills the full width. */
+  grid-template-columns: 1fr;
+}
+
+/* ── Collapsed rail ────────────────────────────────────────────── */
+.vb-rail-collapsed {
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 8px 6px;
+}
+.vb-rail-collapsed-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.vb-rail-collapsed-tab {
+  appearance: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.vb-rail-collapsed-tab:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+.vb-rail-collapsed-tab.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+.vb-rail-collapsed-tab svg { width: 16px; height: 16px; }
+.vb-rail-collapsed-tab-label {
+  font-size: 0.58rem;
+  letter-spacing: 0.02em;
+}
+.vb-rail-collapsed-tab-count {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 0.56rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.vb-rail-collapse-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+  align-self: center;
+}
+.vb-rail-collapse-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+.vb-rail-collapse-btn svg { width: 14px; height: 14px; }
+.vb-rail-collapse-btn-inline {
+  flex: 0 0 auto;
+  margin: 0 6px;
+  align-self: center;
+}
+
+.vb-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Intentionally NOT position:relative — so the floating composer anchors to
+     the full chat container (.dvx-chat) and spans the whole width, not just
+     this thread column. Divider is drawn by the drag splitter instead. */
+}
+
+/* Drag splitter between the thread and the panel (the 6px grid column). */
+.vb-rail-resizer {
+  position: relative;
+  cursor: col-resize;
+  align-self: stretch;
+}
+.vb-rail-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border);
+  transition: background 120ms, width 120ms;
+}
+.vb-rail-resizer:hover::after,
+.vb-rail-resizer:active::after {
+  width: 2px;
+  background: var(--accent);
+}
+
+/* Messages */
+.vb-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  /* Extra bottom padding so the last message clears the floating composer,
+     with added breathing room below it. */
+  padding: 14px 20px 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vb-msg {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 10px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  position: relative;
+}
+.vb-msg.is-mine {
+  grid-template-columns: 1fr;
+}
+.vb-msg-avatar {
+  padding-top: 2px;
+}
+.vb-msg-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* flex-start so incoming bubbles shrink to fit their text (like own
+     messages, which override this to flex-end) instead of stretching to the
+     body width. max-width on the bubble still caps long messages. */
+  align-items: flex-start;
+  gap: 3px;
+}
+.vb-msg.is-mine .vb-msg-body {
+  align-items: flex-end;
+}
+
+.vb-msg-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.76rem;
+}
+.vb-msg-author {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+}
+.vb-msg-role {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.vb-msg-time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.vb-msg-pin {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+}
+.vb-msg-pin svg { width: 12px; height: 12px; }
+
+.vb-msg-bubble {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 86%;
+  padding: 9px 13px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 12px 4px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.vb-msg.is-mine .vb-msg-bubble {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 12px 12px 4px 12px;
+}
+.vb-msg-text {
+  white-space: pre-wrap;
+}
+.vb-msg-deleted { color: var(--text-muted); font-style: italic; }
+.vb-msg-time-inline {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.66rem;
+  color: color-mix(in srgb, var(--text-primary) 55%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.vb-msg-time-inline svg { width: 12px; height: 12px; color: var(--accent); }
+.vb-msg-edited { color: var(--text-muted); }
+
+.vb-msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.vb-msg.mentions-me .vb-msg-bubble {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background:
+    linear-gradient(120deg,
+      color-mix(in srgb, var(--accent) 10%, var(--bg-card)) 0%,
+      color-mix(in srgb, var(--accent) 26%, var(--bg-card)) 50%,
+      color-mix(in srgb, var(--accent) 10%, var(--bg-card)) 100%
+    );
+  background-size: 300% 100%;
+  animation: vb-mention-pan 8s ease-in-out infinite;
+}
+@keyframes vb-mention-pan {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Quick-reaction emoji strip in the morph pill's menu header (the chat's
+   per-message dropdown reuses the Files-tab morph pill; this row sits above
+   the Reply / Pin / Copy / Edit / Delete items). A hairline separates it
+   from the item list below. */
+.vb-morph-reactions {
+  display: flex;
+  gap: 1px;
+  padding: 2px 1px 5px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--border);
+}
+.vb-morph-emoji {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1.05rem;
+  line-height: 1;
+  padding: 5px 6px;
+  border-radius: 6px;
+  flex: 1;
+  transition: background 110ms, transform 110ms;
+}
+.vb-morph-emoji:hover {
+  background: var(--bg-elevated);
+  transform: scale(1.18);
+}
+
+/* Thread pill */
+.vb-thread-pill {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+.vb-msg.is-mine .vb-thread-pill { align-self: flex-end; }
+.vb-thread-pill:hover {
+  background: var(--bg-card);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  color: var(--accent);
+}
+.vb-thread-pill svg {
+  width: 12px;
+  height: 12px;
+}
+.vb-thread-pill-last {
+  color: var(--text-muted);
+}
+
+.vb-msg.is-mine .dvx-reactions { justify-content: flex-end; }
+
+/* Inline edit */
+.vb-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 86%;
+  /* Edit only happens on your own messages → align the bubble + actions to
+     the right, same side as the own-message bubble. */
+  align-items: flex-end;
+}
+.vb-msg.is-mine .vb-edit { align-self: flex-end; }
+/* The edit box reuses the real .vb-msg-bubble element so its chrome (accent
+   tint, border, corner radius, padding) is byte-for-byte the view-mode
+   bubble — nothing changes when you enter edit mode. It shrinks to its text
+   (max-width caps it at the edit column) instead of stretching full width. */
+.vb-edit-bubble {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+/* Auto-grow box: a hidden ::after replicates the typed text and sizes the
+   grid cell, and the textarea overlays it — so the box (and the bubble
+   around it) grows with the content in both width and height. */
+.vb-edit-grow {
+  display: inline-grid;
+  max-width: 100%;
+  min-width: 2ch;
+  /* Don't stretch to the bubble width — size to the text so the bubble can
+     scale with content even with the action row sharing the bubble. */
+  align-self: flex-start;
+}
+.vb-edit-grow::after {
+  content: attr(data-value) ' ';
+  visibility: hidden;
+}
+.vb-edit-grow > .vb-edit-textarea,
+.vb-edit-grow::after {
+  grid-area: 1 / 1;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.vb-edit-textarea {
+  appearance: none;
+  resize: none;
+  overflow: hidden;
+  width: 100%;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+}
+
+/* Action row — Cancel + Save sit inside the bubble (same section as the
+   input), right-aligned. Plain row (no pill background); the buttons carry
+   their own standalone styling. */
+.vb-edit-actions {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-end;
+  gap: 6px;
+}
+.vb-edit-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border-radius: 7px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.vb-edit-btn:hover { background: var(--bg-card); color: var(--text-primary); }
+.vb-edit-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+}
+.vb-edit-btn-primary:hover { background: var(--accent-hover); color: var(--text-on-accent); }
+
+/* Jump-to-message flash */
+.vb-msg.is-jump-flash .vb-msg-bubble {
+  animation: vb-jump 1.4s ease;
+}
+@keyframes vb-jump {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  25% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); }
+}
+
+/* Typing indicator */
+.vb-typing { padding: 2px 6px; grid-template-columns: 32px 1fr; }
+.vb-typing-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 12px 4px;
+  width: max-content;
+}
+.vb-typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: vb-typing 1.2s infinite ease-in-out;
+}
+.vb-typing-dot:nth-child(2) { animation-delay: 0.18s; }
+.vb-typing-dot:nth-child(3) { animation-delay: 0.36s; }
+@keyframes vb-typing {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+/* Empty state */
+.vb-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  padding: 40px 20px;
+}
+
+/* Scroll-back-to-latest pill */
+.vb-scroll-back {
+  position: absolute;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: none;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-elev);
+}
+
+/* Composer */
+.vb-composer-wrap {
+  /* Floats over the bottom of the message thread, stretched left-to-right.
+     The input box (.dvx-composer) keeps its own rounded surface + shadow. */
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  /* Full chat width, floating above the bottom, with left/right margins so
+     the frosted input sits inset from the edges. */
+  padding: 10px 18px 12px;
+  background: transparent;
+  /* The transparent padding lets clicks fall through to the messages behind;
+     the input box, staged chips, and popovers re-enable pointer events. */
+  pointer-events: none;
+}
+.vb-composer-wrap > * { pointer-events: auto; }
+
+/* Staged attachment chips above the composer */
+.vb-staged {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.vb-staged-remove {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px;
+}
+.vb-staged-remove:hover { color: var(--danger); }
+.vb-staged-remove svg { width: 12px; height: 12px; }
+
+/* Composer popovers (mention / attach) */
+.vb-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 20px;
+  right: 20px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-elev);
+  z-index: 8;
+  padding: 6px;
+}
+.vb-popover-search {
+  width: 100%;
+  appearance: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.84rem;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  outline: none;
+}
+.vb-popover-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 8px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+.vb-popover-item:hover,
+.vb-popover-item.is-active { background: var(--bg-elevated); }
+.vb-popover-item.is-picked {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.vb-popover-name { font-size: 0.85rem; font-weight: 600; }
+.vb-popover-email,
+.vb-popover-size {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  margin-left: auto;
+  white-space: nowrap;
+}
+.vb-popover-empty {
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+/* Rail */
+.vb-rail {
+  display: flex;
+  flex-direction: column;
+  /* Transparent — the section cards inside keep their own surfaces. */
+  background: transparent;
+  min-height: 0;
+}
+
+.vb-rail-tabs {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+}
+.vb-rail-tab {
+  appearance: none;
+  flex: 1 1 0;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 10px 4px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 140ms, background 140ms;
+}
+.vb-rail-tab:hover:not(.is-active) {
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+.vb-rail-tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.vb-rail-tab svg { width: 14px; height: 14px; }
+.vb-rail-tab-count {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.vb-rail-tab.is-active .vb-rail-tab-count { color: var(--accent); }
+
+.vb-rail-content {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  /* Extra bottom padding so panel items clear the full-width floating composer. */
+  padding: 12px 12px 92px;
+  background: transparent;
+}
+
+.vb-rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vb-rail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.vb-rail-card-button {
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+.vb-rail-card-button:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+}
+.vb-rail-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vb-rail-card-author {
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+}
+.vb-rail-card-time {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+.vb-rail-card-action {
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.vb-rail-card-action:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+.vb-rail-card-action svg { width: 12px; height: 12px; }
+.vb-rail-card-body {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+.vb-rail-card-foot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+.vb-rail-card-foot svg { width: 11px; height: 11px; }
+button.vb-rail-card-foot {
+  appearance: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  align-self: flex-start;
+}
+button.vb-rail-card-foot:hover { text-decoration: underline; }
+.vb-rail-card-attach { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+
+.vb-rail-thread-item {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+.vb-rail-thread-item:hover {
+  background: var(--bg-elevated);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.vb-rail-thread-item-body {
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.vb-rail-thread-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+.vb-rail-thread-item-meta svg { width: 10px; height: 10px; color: var(--accent); }
+
+/* Open thread within rail */
+.vb-rail-back {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: background 120ms;
+}
+.vb-rail-back:hover { background: var(--bg-elevated); }
+.vb-rail-back svg { width: 12px; height: 12px; }
+
+.vb-rail-thread-root {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+.vb-rail-thread-root-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.vb-rail-thread-root-body {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  line-height: 1.45;
+}
+.vb-rail-thread-count {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 8px 4px 6px;
+}
+.vb-rail-thread-reply {
+  display: flex;
+  gap: 8px;
+  padding: 8px 4px;
+}
+.vb-rail-thread-reply-body {
+  flex: 1;
+  min-width: 0;
+}
+.vb-rail-thread-reply-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.74rem;
+  margin-bottom: 1px;
+}
+.vb-rail-thread-reply-meta > span:first-child {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.vb-rail-thread-reply-text {
+  font-size: 0.83rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  word-break: break-word;
+}
+.vb-rail-thread-composer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 6px 4px 12px;
+}
+.vb-rail-thread-composer textarea {
+  appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  font: inherit;
+  font-size: 0.84rem;
+  color: var(--text-primary);
+  flex: 1;
+  padding: 6px 0;
+  max-height: 80px;
+}
+.vb-rail-thread-composer textarea::placeholder { color: var(--text-muted); }
+.vb-rail-thread-send {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.vb-rail-thread-send:disabled { background: var(--bg-elevated); color: var(--text-muted); cursor: not-allowed; }
+.vb-rail-thread-send svg { width: 15px; height: 15px; }
+
+/* Rail files (list of attachment rows) */
+.vb-rail-file-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vb-rail-file-meta {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding-left: 4px;
+}
+
+.vb-rail-empty {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+/* ───── Private pane ─────────────────────────────────────────────── */
+.vb-private {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 240px 1fr 240px;
+  gap: 0;
+}
+.vb-private-list {
+  border-right: 1px solid var(--border);
+  background: var(--bg-card);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+}
+.vb-private-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 10px;
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.vb-private-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: background 120ms;
+  position: relative;
+}
+.vb-private-item:hover:not(.is-active) {
+  background: var(--bg-elevated);
+}
+.vb-private-item.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+.vb-private-item-text { flex: 1; min-width: 0; }
+.vb-private-item-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+.vb-private-item-name {
+  font-weight: 600;
+  font-size: 0.83rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vb-private-item-time {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.vb-private-item-snippet {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.vb-private-thread {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  position: relative;
+}
+.vb-private-thread-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.vb-private-thread-header-name {
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.vb-private-thread-header-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.vb-private-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 14px 18px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vb-private-empty {
+  margin: auto;
+  text-align: center;
+  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.vb-private-empty h3 {
+  font-family: var(--font-display);
+  margin: 8px 0 0;
+  color: var(--text-primary);
+}
+.vb-private-empty p {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  margin: 0;
+}
+
+.vb-private-rail {
+  background: var(--bg-card);
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vb-rail-section-title {
+  font-family: var(--font-display);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+.vb-rail-section-title:first-child { margin-top: 0; }
+
+/* ───── Narrow viewports: let the rail collapse gracefully ───────── */
+@media (max-width: 1080px) {
+  .vb-search { width: 200px; }
+}
+@media (max-width: 920px) {
+  .vb-private { grid-template-columns: 200px 1fr; }
+  .vb-private-rail { display: none; }
+}

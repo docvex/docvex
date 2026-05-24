@@ -1,24 +1,28 @@
 ﻿.updates-page {
-  max-width: 820px;
+  /* Full-width (was max-width: 820px) so the tab-bar underline spans the
+     whole content area edge-to-edge like the Files tab. */
+  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 14px;
 }
 
 .updates-header {
-  margin-bottom: 0.25rem;
+  margin-bottom: 0;
 }
 
 .updates-title {
-  font-size: 1.5rem;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
   color: var(--text-primary);
+  letter-spacing: -0.01em;
   margin: 0 0 0.25rem;
 }
 
 .updates-subtitle {
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: 13px;
   margin: 0;
 }
 
@@ -32,7 +36,10 @@
   display: flex;
   gap: 0;
   border-bottom: 1px solid var(--border);
-  margin-top: -0.25rem;
+  /* Full-bleed like the Files tab strip — break out of the page's 22px
+     inset so the bar reaches the content-area edges; title stays inset. */
+  margin-left: -22px;
+  margin-right: -22px;
 }
 
 .updates-tab {

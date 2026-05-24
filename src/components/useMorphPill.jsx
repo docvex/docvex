@@ -51,7 +51,7 @@ import './useMorphPill.css';
 // Falsy entries in menuItems are filtered, so callers can write
 // `[itemA, condition && itemB, itemC]` and have the conditional
 // collapse cleanly without per-render branching.
-export function useMorphPill({ hoverContent, menuItems, prompt, className = '' }) {
+export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, className = '' }) {
   const [pillPos, setPillPos] = useState(null);
   const [menuMode, setMenuMode] = useState(false);
   // Item currently in its confirmation step (or null). Holds the
@@ -359,22 +359,30 @@ export function useMorphPill({ hoverContent, menuItems, prompt, className = '' }
     );
   } else if (menuMode) {
     pillClassMod = ' is-menu';
+    // Optional header slot above the item list (e.g. the chat's quick-
+    // reaction emoji strip). A render-prop form receives closeMenu so
+    // header controls can dismiss the pill after acting. Files passes
+    // nothing, so this is inert there.
+    const header = typeof menuHeader === 'function' ? menuHeader(closeMenu) : menuHeader;
     content = (
-      <ul className="project-files-morph-list">
-        {filteredItems.map((item, i) => (
-          <li key={item.key || item.label || i} role="none">
-            <button
-              type="button"
-              role="menuitem"
-              className={`project-files-morph-item${item.danger ? ' project-files-morph-item-danger' : ''}`}
-              onClick={() => handleMenuItemClick(item)}
-              disabled={item.disabled || false}
-            >
-              {item.label}
-            </button>
-          </li>
-        ))}
-      </ul>
+      <>
+        {header}
+        <ul className="project-files-morph-list">
+          {filteredItems.map((item, i) => (
+            <li key={item.key || item.label || i} role="none">
+              <button
+                type="button"
+                role="menuitem"
+                className={`project-files-morph-item${item.danger ? ' project-files-morph-item-danger' : ''}`}
+                onClick={() => handleMenuItemClick(item)}
+                disabled={item.disabled || false}
+              >
+                {item.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </>
     );
   } else {
     pillClassMod = '';

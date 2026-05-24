@@ -1,0 +1,375 @@
+/* PendingEditsDesk — the "Document Desk" compose-release surface for the
+   Project Dashboard's "Pending edits" tab. Ported from the Claude Design
+   handoff (docvex-dashboard-redesign, Direction B "Document Desk") and wired
+   to the real change-request data. Plain-language, no git words: every team
+   draft for a file shows side-by-side; the admin picks which version becomes
+   the official one, then Publishes. Tokens only (cream / ink). All classes
+   prefixed rb-/dv- (unique to this surface) + a .pe-desk root scope. */
+
+.pe-desk {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 90px; /* clear the fixed Publish bar */
+  color: var(--text-primary);
+}
+
+/* ─── Primitives ──────────────────────────────────────────────────────── */
+.dv-avatar {
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 700;
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+  position: relative;
+  flex-shrink: 0;
+  user-select: none;
+  overflow: hidden;
+}
+.dv-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.dv-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.72rem; font-weight: 600;
+  line-height: 1; white-space: nowrap;
+}
+.dv-pill.is-ok {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 35%, transparent);
+}
+
+.dv-btn {
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: inherit; font-weight: 600; font-size: 0.84rem;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  transition: background 120ms, border-color 120ms, transform 120ms;
+}
+.dv-btn:hover:not(:disabled) { background: var(--bg-elevated); }
+.dv-btn:active:not(:disabled) { transform: translateY(1px); }
+.dv-btn.is-primary { background: var(--accent); color: var(--text-on-accent); border-color: transparent; }
+.dv-btn.is-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.dv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.dv-btn.is-danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 38%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+.dv-btn.is-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+
+/* ─── Top header ──────────────────────────────────────────────────────── */
+.rb-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
+.rb-eyebrow {
+  font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.12em; color: var(--text-muted);
+}
+.rb-title {
+  margin: 6px 0 4px;
+  font-family: var(--font-display);
+  font-size: 1.5rem; font-weight: 800; line-height: 1.2;
+  letter-spacing: -0.01em; color: var(--text-primary);
+  max-width: 800px;
+}
+.rb-title-accent { color: var(--accent); }
+.rb-summary { margin-top: 12px; display: flex; gap: 18px; font-size: 0.8rem; color: var(--text-secondary); flex-wrap: wrap; }
+.rb-summary-item { display: inline-flex; align-items: center; gap: 6px; }
+.rb-summary-dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+
+.rb-top-pub { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.rb-pub-label { font-size: 0.78rem; color: var(--text-secondary); }
+.rb-pub-label strong { color: var(--text-primary); font-weight: 700; }
+.rb-publish-btn { padding: 11px 18px; font-size: 0.92rem; }
+
+/* ─── File picker (kanban chip row) ───────────────────────────────────── */
+.rb-files { overflow-x: auto; margin: 0 -4px; padding: 4px; scrollbar-width: thin; }
+.rb-files-track { display: flex; gap: 8px; width: max-content; }
+.rb-chip {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex; align-items: center; gap: 10px;
+  cursor: pointer; font: inherit; color: var(--text-primary); text-align: left;
+  min-width: 220px; max-width: 280px;
+  transition: border-color 120ms, transform 120ms, box-shadow 120ms;
+}
+.rb-chip:hover { border-color: var(--border-strong); transform: translateY(-1px); box-shadow: var(--shadow-card); }
+.rb-chip.is-active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
+.rb-chip-icon {
+  width: 28px; height: 28px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-elevated); color: var(--text-secondary); flex-shrink: 0;
+}
+.rb-chip-conflict .rb-chip-icon { background: color-mix(in srgb, var(--warning) 22%, transparent); color: var(--warning); }
+.rb-chip-decided .rb-chip-icon { background: var(--success); color: #fff; }
+.rb-chip-new .rb-chip-icon     { background: color-mix(in srgb, var(--info) 16%, transparent);        color: var(--info); }
+.rb-chip-rename .rb-chip-icon  { background: color-mix(in srgb, var(--cat-project) 16%, transparent); color: var(--cat-project); }
+.rb-chip-move .rb-chip-icon    { background: color-mix(in srgb, var(--cat-member) 16%, transparent);  color: var(--cat-member); }
+.rb-chip-delete .rb-chip-icon  { background: color-mix(in srgb, var(--danger) 16%, transparent);      color: var(--danger); }
+.rb-chip-replace .rb-chip-icon { background: color-mix(in srgb, var(--warning) 18%, transparent);     color: var(--warning); }
+.rb-chip-mixed .rb-chip-icon   { background: color-mix(in srgb, var(--danger) 16%, transparent);      color: var(--danger); }
+.rb-chip-edit .rb-chip-icon    { background: var(--bg-elevated); color: var(--text-secondary); }
+
+.rb-chip-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rb-chip-name { font-size: 0.78rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rb-chip-meta { margin-top: 2px; font-size: 0.68rem; color: var(--text-muted); text-transform: lowercase; }
+.rb-chip-new .rb-chip-meta     { color: var(--info); font-weight: 600; }
+.rb-chip-rename .rb-chip-meta  { color: var(--cat-project); font-weight: 600; }
+.rb-chip-move .rb-chip-meta    { color: var(--cat-member); font-weight: 600; }
+.rb-chip-delete .rb-chip-meta  { color: var(--danger); font-weight: 600; }
+.rb-chip-replace .rb-chip-meta { color: var(--warning); font-weight: 600; }
+.rb-chip-mixed .rb-chip-meta,
+.rb-chip-conflict .rb-chip-meta { color: var(--warning); font-weight: 600; }
+.rb-chip-decided .rb-chip-meta { color: var(--success); font-weight: 600; }
+.rb-chip-authors { display: flex; flex-shrink: 0; }
+.rb-chip-authors .dv-avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--bg-card); }
+.rb-chip-authors .dv-avatar:first-child { margin-left: 0; }
+
+/* ─── Desk ────────────────────────────────────────────────────────────── */
+.rb-desk {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px 18px 18px;
+  display: flex; flex-direction: column;
+}
+.rb-desk-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 14px; gap: 16px; flex-wrap: wrap; }
+.rb-desk-eyebrow { font-size: 0.7rem; text-transform: uppercase; font-weight: 700; letter-spacing: 0.1em; color: var(--text-muted); display: inline-flex; align-items: center; gap: 5px; }
+.rb-desk-title { font-family: var(--font-display); font-size: 1.1rem; font-weight: 700; margin: 3px 0 0; }
+.rb-desk-meta { margin-top: 3px; font-size: 0.78rem; color: var(--text-muted); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.rb-desk-meta strong { color: var(--text-secondary); font-weight: 600; }
+.rb-desk-tag.is-eyebrow {
+  display: inline-flex; align-items: center;
+  background: var(--bg-elevated); border-radius: 4px; padding: 2px 6px;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; color: var(--accent);
+}
+.rb-desk-instr { margin-top: 6px; font-size: 0.82rem; color: var(--text-secondary); max-width: 64ch; }
+
+.rb-tabs { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--text-muted); flex-wrap: wrap; }
+.rb-tabs-label { margin-right: 4px; }
+.rb-tab {
+  appearance: none; background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px 10px 3px 4px;
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer; font: inherit; font-size: 0.74rem; color: var(--text-secondary);
+}
+.rb-tab.is-on { background: var(--accent); color: var(--text-on-accent); border-color: transparent; }
+
+/* Body: two panes + a thin VS column between them */
+.rb-desk-body { display: grid; grid-template-columns: 1fr 80px 1fr; gap: 12px; align-items: start; }
+.rb-desk-body.rb-desk-single { grid-template-columns: 1fr; max-width: 760px; margin: 0 auto; width: 100%; }
+
+.rb-pane {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 140ms, box-shadow 140ms, transform 140ms;
+}
+.rb-pane.is-picked {
+  border-color: color-mix(in srgb, var(--success) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 28%, transparent);
+}
+.rb-pane.is-fullwidth { max-width: 760px; margin: 0 auto; width: 100%; }
+
+.rb-pane-head { display: flex; align-items: center; gap: 10px; }
+.rb-pane-text { min-width: 0; flex: 1; }
+.rb-pane-author { font-size: 0.85rem; font-weight: 700; color: var(--text-primary); }
+.rb-pane-when { font-size: 0.72rem; color: var(--text-muted); }
+.rb-pane-summary { margin: 0; font-size: 0.82rem; color: var(--text-secondary); line-height: 1.45; }
+.rb-pane-pickpill { margin-left: 4px; }
+
+.rb-kindbadge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 9px; border-radius: 999px;
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  white-space: nowrap;
+  background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary);
+}
+.rb-kindbadge.is-new     { color: var(--info);        border-color: color-mix(in srgb, var(--info) 35%, transparent);        background: color-mix(in srgb, var(--info) 12%, transparent); }
+.rb-kindbadge.is-rename  { color: var(--cat-project); border-color: color-mix(in srgb, var(--cat-project) 35%, transparent); background: color-mix(in srgb, var(--cat-project) 12%, transparent); }
+.rb-kindbadge.is-move    { color: var(--cat-member);  border-color: color-mix(in srgb, var(--cat-member) 35%, transparent);  background: color-mix(in srgb, var(--cat-member) 12%, transparent); }
+.rb-kindbadge.is-delete  { color: var(--danger);      border-color: color-mix(in srgb, var(--danger) 35%, transparent);      background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.rb-kindbadge.is-replace { color: var(--warning);     border-color: color-mix(in srgb, var(--warning) 35%, transparent);     background: color-mix(in srgb, var(--warning) 12%, transparent); }
+
+/* Real-file preview box (replaces the prototype's fake serif page) */
+.rb-preview {
+  position: relative;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 14px;
+  display: flex; align-items: center; gap: 14px;
+}
+.rb-preview .cr-thumb,
+.rb-preview .pe-thumb {
+  width: 84px; height: 84px; flex-shrink: 0;
+  border-radius: 8px; overflow: hidden;
+  background: var(--bg-elevated);
+  display: grid; place-items: center;
+}
+.rb-preview .pe-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.rb-preview .pe-thumb .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent); }
+.rb-preview-text { min-width: 0; }
+.rb-preview-name { font-family: var(--font-display); font-weight: 700; font-size: 0.9rem; color: var(--text-primary); word-break: break-word; }
+.rb-preview-note { margin-top: 4px; font-size: 0.78rem; color: var(--text-muted); line-height: 1.45; }
+
+.rb-pane-foot { display: flex; gap: 8px; }
+.rb-pane-foot-center { justify-content: center; }
+.rb-pick-btn { flex: 1; justify-content: center; padding: 10px; }
+.rb-reject-btn { flex: 0 0 auto; }
+
+/* VS column */
+.rb-vs { display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; gap: 10px; align-self: stretch; min-height: 140px; }
+.rb-vs-line { flex: 1; width: 1px; background: var(--border); }
+.rb-vs-badge {
+  width: 52px; height: 52px; border-radius: 999px;
+  background: var(--bg-card); border: 1px solid var(--border-strong);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 800; font-size: 0.92rem; letter-spacing: 0.04em;
+  color: var(--accent); box-shadow: var(--shadow-card);
+}
+.rb-vs-diff {
+  position: absolute; bottom: 6px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 8px 10px; font-size: 0.7rem; color: var(--text-secondary);
+  display: flex; flex-direction: column; gap: 4px; box-shadow: var(--shadow-card); white-space: nowrap;
+}
+.rb-vs-diffrow { display: flex; align-items: center; gap: 6px; }
+.rb-vs-dot { width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0; }
+.rb-vs-dot.is-edit { background: var(--success); }
+.rb-vs-dot.is-new { background: var(--info); }
+.rb-vs-dot.is-rename { background: var(--cat-project); }
+.rb-vs-dot.is-move { background: var(--cat-member); }
+.rb-vs-dot.is-delete { background: var(--danger); }
+.rb-vs-dot.is-replace { background: var(--warning); }
+
+/* Small info row used by rename / move / replace panes */
+.rb-noteline {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-card); border: 1px dashed var(--border-strong);
+  border-radius: 8px; font-size: 0.78rem; color: var(--text-secondary);
+}
+
+/* NEW file banner */
+.rb-newfile-banner {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--info) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--info) 30%, transparent);
+  border-radius: 10px;
+}
+.rb-newfile-icon {
+  width: 40px; height: 40px; border-radius: 8px;
+  background: color-mix(in srgb, var(--info) 18%, transparent); color: var(--info);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.rb-newfile-name { font-family: var(--font-display); font-size: 0.95rem; font-weight: 700; color: var(--text-primary); word-break: break-word; }
+.rb-newfile-meta { margin-top: 3px; display: flex; gap: 8px; font-size: 0.74rem; color: var(--text-muted); align-items: center; flex-wrap: wrap; }
+.rb-newfile-meta span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* RENAME pane */
+.rb-namechange { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: stretch; }
+.rb-namechange-side { padding: 14px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-card); display: flex; flex-direction: column; gap: 8px; }
+.rb-namechange-side.is-old { border-style: dashed; opacity: 0.85; }
+.rb-namechange-side.is-new { border-color: color-mix(in srgb, var(--cat-project) 45%, transparent); background: color-mix(in srgb, var(--cat-project) 10%, transparent); }
+.rb-namechange-label { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
+.rb-namechange-side.is-new .rb-namechange-label { color: var(--cat-project); }
+.rb-namechange-value { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-display); font-weight: 700; font-size: 1rem; color: var(--text-primary); word-break: break-all; }
+.rb-namechange-side.is-old .rb-namechange-value { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text-muted) 60%, transparent); text-decoration-thickness: 1.5px; }
+.rb-namechange-arrow { display: flex; align-items: center; justify-content: center; color: var(--cat-project); }
+
+/* MOVE pane */
+.rb-folder-move { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: stretch; }
+.rb-folder-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.rb-folder-card.is-old { border-style: dashed; opacity: 0.85; }
+.rb-folder-card.is-new { border-color: color-mix(in srgb, var(--cat-member) 45%, transparent); background: color-mix(in srgb, var(--cat-member) 10%, transparent); }
+.rb-folder-label { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); margin-bottom: 8px; }
+.rb-folder-card.is-new .rb-folder-label { color: var(--cat-member); }
+.rb-folder-stack { display: flex; flex-direction: column; gap: 3px; }
+.rb-folder-row { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--text-secondary); padding: 3px 0; }
+.rb-folder-row.is-file { color: var(--text-primary); font-weight: 600; }
+.rb-folder-row.is-file svg { color: var(--accent); }
+.rb-folder-arrow { display: flex; align-items: center; justify-content: center; color: var(--cat-member); }
+
+/* DELETE pane */
+.rb-delete-banner {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-left-width: 4px; border-radius: 10px; color: var(--danger);
+}
+.rb-delete-banner-h { font-family: var(--font-display); font-size: 0.95rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.rb-delete-banner-sub { color: var(--text-secondary); font-size: 0.82rem; line-height: 1.45; }
+.rb-delete-banner-sub strong { color: var(--text-primary); }
+
+/* REPLACE pane */
+.rb-replace { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: stretch; }
+.rb-replace-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; position: relative; }
+.rb-replace-card.is-old { border-style: dashed; opacity: 0.78; }
+.rb-replace-card.is-new { border-color: color-mix(in srgb, var(--warning) 50%, transparent); background: color-mix(in srgb, var(--warning) 10%, transparent); }
+.rb-replace-badge { position: absolute; top: 12px; right: 12px; padding: 3px 8px; border-radius: 4px; background: var(--bg-elevated); font-family: var(--font-display); font-weight: 800; font-size: 0.7rem; letter-spacing: 0.08em; color: var(--text-secondary); }
+.rb-replace-badge.is-new { background: var(--warning); color: #fff; }
+.rb-replace-label { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
+.rb-replace-card.is-new .rb-replace-label { color: var(--warning); }
+.rb-replace-name { font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; color: var(--text-primary); word-break: break-all; }
+.rb-replace-meta { font-size: 0.78rem; color: var(--text-secondary); }
+.rb-replace-size { font-size: 0.72rem; color: var(--text-muted); }
+.rb-replace-arrow { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--warning); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
+
+/* ─── Tray (sealed for tonight) ───────────────────────────────────────── */
+.rb-tray { display: flex; align-items: center; gap: 14px; padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-card); }
+.rb-tray-label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); flex-shrink: 0; padding-right: 14px; border-right: 1px solid var(--border); }
+.rb-tray-items { flex: 1; display: flex; gap: 6px; flex-wrap: wrap; }
+.rb-tray-item { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 5px 5px; border-radius: 999px; font-size: 0.74rem; color: var(--text-primary); border: 1px solid var(--border); background: var(--bg-elevated); }
+.rb-tray-item-name { font-weight: 600; white-space: nowrap; }
+.rb-tray-item.is-empty { padding: 7px; background: transparent; border: 1px dashed var(--border); color: var(--text-muted); }
+.rb-tray-item-edit    { background: color-mix(in srgb, var(--success) 12%, transparent); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
+.rb-tray-item-new     { background: color-mix(in srgb, var(--info) 14%, transparent);    border-color: color-mix(in srgb, var(--info) 40%, transparent); }
+.rb-tray-item-rename  { background: color-mix(in srgb, var(--cat-project) 14%, transparent); border-color: color-mix(in srgb, var(--cat-project) 38%, transparent); }
+.rb-tray-item-move    { background: color-mix(in srgb, var(--cat-member) 14%, transparent);  border-color: color-mix(in srgb, var(--cat-member) 38%, transparent); }
+.rb-tray-item-delete  { background: color-mix(in srgb, var(--danger) 12%, transparent);   border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.rb-tray-item-replace { background: color-mix(in srgb, var(--warning) 14%, transparent);  border-color: color-mix(in srgb, var(--warning) 40%, transparent); }
+.rb-tray-item-kind { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 3px; padding-left: 6px; margin-left: 2px; border-left: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
+
+/* ─── Empty / loading ─────────────────────────────────────────────────── */
+.pe-empty {
+  padding: 60px 24px;
+  text-align: center;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  font-size: 0.9rem;
+}
+
+/* ─── Fixed Publish bar at the bottom of the surface ──────────────────── */
+.pe-publishbar {
+  position: fixed;
+  left: var(--sidebar-width, 60px);
+  right: 0; bottom: 0;
+  z-index: 20;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-page) 85%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  transition: left 250ms ease;
+}
+.pe-publishbar-text { font-size: 0.82rem; color: var(--text-secondary); }
+.pe-publishbar-text strong { color: var(--text-primary); font-weight: 700; }

@@ -7,6 +7,7 @@ import { useBranch } from '../../context/BranchContext';
 import { useAuth } from '../../context/AuthContext';
 import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import SyncToMainModal from '../../components/SyncToMainModal';
+import FilesWorkspace from '../../components/FilesWorkspace';
 import { openDocxInWindow } from '../../lib/openDocxWindow';
 import { runCommitFlow, buildCommitSnapshot } from '../../lib/commitFlow';
 import FileThumbnail from '../../components/FileThumbnail';
@@ -1901,6 +1902,17 @@ export default function ProjectFiles() {
   const pageRef = useRef(null);
   const [cardSize, setCardSize] = useState(readCachedCardSize);
 
+  // Files-tab redesign: which plain-language tab is active. team = cloud
+  // (Team files); drafts/review/trash are status-filtered branch views.
+  // Declared up here (with the other hooks) so it sits ABOVE the
+  // selectedProject early-return guards — Rules of Hooks.
+  const [filesTab, setFilesTab] = useState('team');
+  // The redesign drops the Main/Yours toggle, but the branch derivations
+  // (syncState, hashing, browse listing) only run when branchView==='mine'.
+  // Force it so drafts/review/trash always have data, while cloud files
+  // (loaded independently of branchView) still power the Team tab.
+  useEffect(() => { setBranchViewRaw('mine'); }, [setBranchViewRaw]);
+
   useEffect(() => {
     const el = pageRef.current;
     if (!el) return undefined;
@@ -2526,1084 +2538,452 @@ export default function ProjectFiles() {
     return out;
   })();
 
+  // ════════════════════════════════════════════════════════════════════
+  // Files-tab redesign — builds the data model + handlers that drive the
+  // <FilesWorkspace> presentational component (the File-Explorer UI from
+  // the Claude Design handoff). All the heavy branch/sync logic above is
+  // reused as-is; this section just maps it onto the new UI's shape.
+  // The legacy render lives in _LegacyFilesRender_ below (not in the path).
+  // ════════════════════════════════════════════════════════════════════
+
+  const fileExtOf = (name) => (splitNameAndExtension(name).ext || '').toLowerCase();
+
+  // Build a workspace item from a cloud row.
+  const cloudItem = (row, status) => ({
+    id: row.id,
+    kind: 'file',
+    name: row.name,
+    ext: fileExtOf(row.name),
+    sizeLabel: formatBytes(row.size_bytes),
+    modifiedLabel: formatDate(row.uploaded_at),
+    author: '',
+    status: status || 'synced',
+    descriptor: describeCloudFile(row),
+    _raw: row,
+    _isCloud: true,
+  });
+
+  // Build a workspace item from an on-disk file (My-branch).
+  const localItem = (lf, status) => {
+    const lcName = (lf.name || '').toLowerCase();
+    const fid = sidecar.byFilename.get(lcName);
+    const cloud = fid ? cloudById.get(fid) : null;
+    const bytesChanged = Boolean(cloud) && bytesDifferCloudIds.has(cloud.id);
+    const isWeb = typeof lf.path === 'string' && lf.path.startsWith('web://');
+    const localUrl = (!isWeb && lf.path)
+      ? `localfile://local/${encodeURIComponent(lf.path)}${lf.mtimeIso ? `?t=${encodeURIComponent(lf.mtimeIso)}` : ''}`
+      : null;
+    return {
+      id: fid || lf.path || lf.name,
+      kind: 'file',
+      name: lf.name,
+      ext: fileExtOf(lf.name),
+      sizeLabel: lf.sizeBytes != null ? formatBytes(lf.sizeBytes) : (cloud ? formatBytes(cloud.size_bytes) : ''),
+      modifiedLabel: formatDate(lf.mtimeIso),
+      author: 'You',
+      status,
+      descriptor: describeLocalFile({ localFile: lf, localUrl, cloud, bytesChanged, localContentHash: localHashByName.get(lf.name) || null }),
+      _raw: lf,
+      _isCloud: false,
+    };
+  };
+
+  const draftStatusFor = (lf) => {
+    const fid = sidecar.byFilename.get((lf.name || '').toLowerCase());
+    const ch = describeChange(fid ? syncState?.rows.get(fid) : null);
+    return ch?.category === 'added' ? 'new' : 'edited';
+  };
+
+  // Sync status for an on-disk file (used in the Team tab's local browse).
+  const statusForLocal = (lf) => {
+    const fid = sidecar.byFilename.get((lf.name || '').toLowerCase());
+    const cloud = fid ? cloudById.get(fid) : null;
+    if ((cloud && waitingReviewFileIds.has(cloud.id)) || (fid && waitingReviewFileIds.has(fid))) return 'waiting';
+    const row = fid ? syncState?.rows.get(fid) : null;
+    if (row && row.status && row.status !== 'synced') {
+      return describeChange(row)?.category === 'added' ? 'new' : 'edited';
+    }
+    return 'synced';
+  };
+
+  const teamLocalMode = Boolean(localFolder) && supportsFolders;
+
+  // Team tab = the CLOUD / main branch (read-only): folders derived from the
+  // cloud files' folder_path + the cloud files in the current cloud folder.
+  const teamCur = mainFolderPath;
+  const teamPrefix = teamCur ? `${teamCur}/` : '';
+  const teamInFolder = files.filter((f) => (f.folder_path || '') === teamCur);
+  const teamSubSet = new Set();
+  for (const f of files) {
+    const fp = f.folder_path || '';
+    if (teamCur === '') { if (fp) teamSubSet.add(fp.split('/')[0]); }
+    else if (fp.startsWith(teamPrefix)) { teamSubSet.add(fp.slice(teamPrefix.length).split('/')[0]); }
+  }
+  // How many files live under a folder (recursive). Cloud counts come from
+  // the flat `files` list keyed by folder_path; local counts from the
+  // recursive `localFiles` listing keyed by on-disk path prefix.
+  const countCloudFilesUnder = (folderPath) => {
+    if (!folderPath) return 0;
+    const pre = `${folderPath}/`;
+    let n = 0;
+    for (const f of files) {
+      const fp = f.folder_path || '';
+      if (fp === folderPath || fp.startsWith(pre)) n += 1;
+    }
+    return n;
+  };
+  const countLocalFilesUnder = (dirPath) => {
+    if (!dirPath) return 0;
+    const sep = dirPath.includes('\\') ? '\\' : '/';
+    const prefix = dirPath.endsWith(sep) ? dirPath : dirPath + sep;
+    let n = 0;
+    for (const lf of localFiles) {
+      if (typeof lf.path === 'string' && lf.path.startsWith(prefix)) n += 1;
+    }
+    return n;
+  };
+  const fileCountLabel = (n) => `${n} ${n === 1 ? 'file' : 'files'}`;
+
+  const cloudFolders = Array.from(teamSubSet)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+    .map((name) => {
+      const path = teamCur ? `${teamCur}/${name}` : name;
+      return { id: `teamfold:${name}`, kind: 'folder', name, sizeLabel: fileCountLabel(countCloudFilesUnder(path)), modifiedLabel: '', path };
+    });
+  const cloudFiles = teamInFolder.map((row) => {
+    let st = 'synced';
+    if (waitingReviewFileIds.has(row.id)) st = 'waiting';
+    else if (diffReplaceCloudIds.has(row.id)) st = 'edited';
+    return cloudItem(row, st);
+  }).sort((a, b) => a.name.localeCompare(b.name));
+
+  // My drafts / Waiting for review browse the local working folder (Finder-
+  // style: folders from the disk listing + files filtered by status). This
+  // is where folders show + navigate; the Team tab stays the cloud view.
+  const fxLocalFolders = teamLocalMode
+    ? browseDirs
+      .map((d) => ({ id: `dir:${d.path}`, kind: 'folder', name: d.name, sizeLabel: fileCountLabel(countLocalFilesUnder(d.path)), modifiedLabel: '', path: d.path, _dir: d }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+    : [];
+  const fxLocalFiles = teamLocalMode
+    ? browseFiles.map((lf) => localItem(lf, statusForLocal(lf))).sort((a, b) => a.name.localeCompare(b.name))
+    : [];
+
+  // Queued deletions (cloud rows the user marked for removal).
+  const deletedItems = (() => {
+    const out = [];
+    const seen = new Set();
+    for (const c of pendingChanges) {
+      if (c.kind !== 'delete' || !c.target_file_id) continue;
+      const row = cloudById.get(c.target_file_id);
+      if (row && !seen.has(row.id)) { seen.add(row.id); out.push(cloudItem(row, 'deleted')); }
+    }
+    for (const it of branchDiff) {
+      if (it.kind !== 'delete' || !it.cloud || seen.has(it.cloud.id)) continue;
+      seen.add(it.cloud.id); out.push(cloudItem(it.cloud, 'deleted'));
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
+  const draftsItems = [
+    ...unsavedEditFiles.map((lf) => localItem(lf, draftStatusFor(lf))),
+    ...deletedItems,
+  ].sort((a, b) => a.name.localeCompare(b.name));
+  const reviewItems = waitingReviewFiles.map((lf) => localItem(lf, 'waiting')).sort((a, b) => a.name.localeCompare(b.name));
+  const trashItems = deletedItems;
+
+  const fxCounts = {
+    team: cloudFolders.length + cloudFiles.length,
+    drafts: draftsItems.length,
+    review: reviewItems.length,
+    trash: trashItems.length,
+  };
+
+  // Branch state → drives the inline pill, status bar, and toolbar CTA.
+  const fxLocalChangeCount = branchDiff.length + pendingChanges.length;
+  const fxHasOpenOwnReq = (changeRequests || []).some((r) => r.author_id === userId && r.status === 'open');
+  let fxBranchState = 'synced';
+  if (isBehindMain) fxBranchState = 'behind';
+  else if (fxLocalChangeCount > 0) fxBranchState = 'changes';
+  else if (fxHasOpenOwnReq) fxBranchState = 'waiting';
+  const FX_BRANCH = {
+    synced: { title: 'Up to date with team', detail: 'Everyone sees the same files.' },
+    changes: { title: 'You have unpublished work', detail: 'Send it to the team for approval.' },
+    waiting: { title: 'Waiting for approval', detail: 'Sent — the team will accept or send back.' },
+    behind: { title: 'Team has new updates', detail: 'Get the latest to keep working.' },
+  };
+  const fxBranch = { state: fxBranchState, title: FX_BRANCH[fxBranchState].title, detail: FX_BRANCH[fxBranchState].detail, workspaceLabel: '' };
+
+  // Drafts / Waiting browse the local folder (so folders show + navigate);
+  // Team is the cloud view; Removed is the flat deletions list.
+  const fxBrowsable = teamLocalMode && (filesTab === 'drafts' || filesTab === 'review');
+
+  // Active tab's folders/files.
+  let fxFolders = [];
+  let fxItems = [];
+  if (filesTab === 'team') {
+    fxFolders = cloudFolders; fxItems = cloudFiles;
+  } else if (fxBrowsable) {
+    fxFolders = fxLocalFolders;
+    fxItems = filesTab === 'drafts'
+      // My drafts is the whole working folder: every file on disk —
+      // committed (synced), uncommitted (new/edited), and in-review
+      // (waiting) — each tagged with its status ribbon.
+      ? fxLocalFiles
+      // Waiting for review: only the files in an open change request.
+      : fxLocalFiles.filter((f) => f.status === 'waiting');
+  } else if (filesTab === 'drafts') {
+    fxItems = draftsItems;
+  } else if (filesTab === 'review') {
+    fxItems = reviewItems;
+  } else if (filesTab === 'trash') {
+    fxItems = trashItems;
+  }
+
+  // Breadcrumb.
+  let fxCrumbs;
+  let fxCanUp = false;
+  if (filesTab === 'team') {
+    const segs = mainFolderPath ? mainFolderPath.split('/') : [];
+    fxCrumbs = [{ label: selectedProject.name || 'Project', path: '' }, ...segs.map((seg, i) => ({ label: seg, path: segs.slice(0, i + 1).join('/') }))];
+    fxCanUp = mainFolderPath !== '';
+  } else if (fxBrowsable) {
+    fxCrumbs = [
+      { label: selectedProject.name || 'Project', path: '__root' },
+      ...folderStack.map((seg, i) => ({ label: seg.name, path: `__stack:${i}` })),
+    ];
+    fxCanUp = folderStack.length > 0;
+  } else {
+    const sectionLabel = filesTab === 'drafts' ? 'My drafts' : filesTab === 'review' ? 'Waiting for review' : 'Removed';
+    fxCrumbs = [{ label: selectedProject.name || 'Project', path: '' }, { label: sectionLabel, path: '__section' }];
+  }
+
+  // Draft change list for the publish drawer (id = fileId, used to filter
+  // the commit snapshot down to the selected subset).
+  const fxDraftChanges = (() => {
+    const out = [];
+    const seen = new Set();
+    for (const it of branchDiff) {
+      const fid = it.fileId || it.cloud?.id;
+      if (!fid || seen.has(fid)) continue;
+      seen.add(fid);
+      out.push({ id: fid, name: it.local?.name || it.cloud?.name || 'file', status: it.kind === 'add' ? 'new' : it.kind === 'delete' ? 'deleted' : 'edited' });
+    }
+    for (const c of pendingChanges) {
+      const fid = c.target_file_id;
+      if (!fid || seen.has(fid)) continue;
+      seen.add(fid);
+      const name = c.proposed?.name || cloudById.get(fid)?.name || syncState?.rows.get(fid)?.local?.name || 'file';
+      out.push({ id: fid, name, status: c.kind === 'delete' ? 'deleted' : 'edited' });
+    }
+    return out;
+  })();
+
+  // ── Workspace action handlers ───────────────────────────────────────
+  const fxOpen = (item) => {
+    if (item.kind === 'folder') {
+      if (fxBrowsable && item._dir) handleEnterFolder(item._dir);
+      else if (filesTab === 'team' && item.path != null) setMainFolderPath(item.path);
+      return;
+    }
+    if (item._isCloud) handleOpenCloudFileViewer(item._raw);
+    else handleOpenLocalFile(item._raw);
+  };
+  // Right-click → "Edit": open the file to work on it. Local files hand off
+  // to the OS's native editor; cloud files open the in-app viewer (there's
+  // no local copy to edit until it's downloaded into drafts).
+  const fxEdit = (item) => {
+    if (!item || item.kind === 'folder') return;
+    if (item._isCloud) handleOpenCloudFileViewer(item._raw);
+    else handleOpenLocalFile(item._raw);
+  };
+  // Breadcrumb / up navigation — local folder stack when browsing, cloud
+  // folder path on the cloud-fallback team view.
+  const fxCrumbNav = (path) => {
+    if (fxBrowsable) {
+      if (path === '__root') handleNavigateCrumb(-1);
+      else if (typeof path === 'string' && path.startsWith('__stack:')) handleNavigateCrumb(Number(path.slice(8)));
+    } else if (filesTab === 'team') {
+      setMainFolderPath(path || '');
+    }
+  };
+  const fxUp = () => {
+    if (fxBrowsable) {
+      handleNavigateCrumb(folderStack.length - 2);
+    } else if (filesTab === 'team' && mainFolderPath) {
+      const p = mainFolderPath.split('/');
+      p.pop();
+      setMainFolderPath(p.join('/'));
+    }
+  };
+  const fxDelete = (item) => {
+    if (item.kind === 'folder') return;
+    if (item._isCloud) {
+      queueChange({ kind: 'delete', target_file_id: item._raw.id, proposed: null });
+      notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Marked for removal', body: `"${item._raw.name}" will be removed once you publish for review.`, dedupeKey: `fx-del:${item._raw.id}` });
+    } else {
+      handleDeleteLocalCard(item._raw);
+    }
+  };
+  const fxRename = async (item) => {
+    if (item.kind === 'folder') return;
+    const next = (typeof window !== 'undefined' && window.prompt('Rename file', item.name)) || '';
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === item.name) return;
+    if (item._isCloud) {
+      queueChange({ kind: 'edit', target_file_id: item._raw.id, proposed: { name: trimmed } });
+      notify({ category: 'file', variant: 'success', icon: 'edit', title: 'Rename queued', body: `Publish for review to apply the new name.`, dedupeKey: `fx-rename:${item._raw.id}` });
+    } else if (item._raw.path) {
+      const { error } = await localFolderApi.renameFile({ dir: currentDir, fromName: item._raw.name, toName: trimmed });
+      if (error) notify({ category: 'file', variant: 'error', title: 'Couldn’t rename', body: error, dedupeKey: 'fx-rename-err' });
+      else refetchLocalFiles();
+    }
+  };
+  const fxMove = () => {
+    notify({ category: 'file', variant: 'info', title: 'Moving files', body: 'To reorganise files, move them in your connected folder on your computer — changes sync automatically.', dedupeKey: 'fx-move-hint' });
+  };
+  // Right-click → "Open file location": reveal the on-disk file/folder in
+  // the OS file manager. Only meaningful for local items (cloud rows have
+  // no path; the menu hides the entry for those).
+  const fxOpenLocation = (item) => {
+    const p = item?.kind === 'folder' ? item?._dir?.path : item?._raw?.path;
+    if (p) localFolderApi.showInFolder(p);
+  };
+  const fxNewFolder = async () => {
+    if (!localFolder) {
+      notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then you can organise it.', dedupeKey: 'fx-newfolder-nofolder' });
+      return;
+    }
+    const name = (typeof window !== 'undefined' && window.prompt('New folder name')) || '';
+    if (name.trim()) handleCreateFolder(name.trim());
+  };
+  const fxUpload = () => {
+    if (!localFolder) { handleBrowseFolder(); return; }
+    localUploadInputRef.current?.click();
+  };
+
+  // Publish the selected subset of drafts as a change request.
+  const fxPublish = async (selectedIds, title, note) => {
+    if (pushing) return { error: new Error('A publish is already in progress') };
+    if (!projectId || !userId) return { error: new Error('No project') };
+    const idSet = new Set(selectedIds || []);
+    const full = buildCommitSnapshot({ fsDiff: branchDiff, pendingChanges });
+    const snapshot = idSet.size === 0
+      ? full
+      : full.filter((it) => idSet.has(it.fileId || it.target_file_id || it.cloud?.id));
+    if (snapshot.length === 0) return { error: new Error('Nothing selected to send') };
+    setPushing(true);
+    setPushProgress(null);
+    try {
+      const dateStr = new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      const { error: pushErr } = await runCommitFlow({
+        projectId,
+        userId,
+        snapshot,
+        title: title || `Changes — ${dateStr}`,
+        description: note || '',
+        onProgress: ({ current, total }) => setPushProgress({ current, total }),
+      });
+      if (pushErr) {
+        notify({ category: 'file', variant: 'error', title: 'Could not send', body: pushErr.message || String(pushErr), dedupeKey: `fx-push-fail:${Date.now()}` });
+      } else {
+        await refreshOpenRequestItems?.();
+        notify({ category: 'file', variant: 'success', icon: 'check', title: 'Sent for review', body: 'Your team will see these changes and approve or send them back.', dedupeKey: `fx-push-ok:${Date.now()}` });
+        setFilesTab('review');
+      }
+      return { error: pushErr };
+    } finally {
+      setPushing(false);
+      setPushProgress(null);
+    }
+  };
+
+  // Header count = ALL the user's files: the full local working-folder
+  // listing when a folder is connected (committed + uncommitted + in-review),
+  // otherwise the cloud/team file count (e.g. viewers with no local folder).
+  const fxTotalFiles = teamLocalMode ? localFiles.length : files.length;
+
+  const filesWorkspaceProps = {
+    projectName: selectedProject.name,
+    summaryText: `${fxTotalFiles} ${fxTotalFiles === 1 ? 'file' : 'files'}`,
+    tab: filesTab,
+    onTabChange: setFilesTab,
+    counts: fxCounts,
+    draftDot: fxCounts.drafts > 0,
+    branch: fxBranch,
+    canEdit: viewerIsMember || viewerIsAdmin,
+    hasLocalFolder: Boolean(localFolder),
+    onPickFolder: handleBrowseFolder,
+    hasLocalFolderApi,
+    localFolder,
+    onFolderChange: setLocalFolder,
+    folderEditable: isElectronBranch,
+    crumbs: fxCrumbs,
+    onCrumb: fxCrumbNav,
+    onBack: fxUp,
+    onUp: fxUp,
+    canBack: fxCanUp,
+    canUp: fxCanUp,
+    folders: fxFolders,
+    items: fxItems,
+    loading: filesTab === 'team' ? loading : false,
+    onOpen: fxOpen,
+    onEdit: fxEdit,
+    onRename: fxRename,
+    onMove: fxMove,
+    onOpenLocation: fxOpenLocation,
+    onDelete: fxDelete,
+    onNewFolder: fxNewFolder,
+    onUpload: fxUpload,
+    onGetUpdates: () => setSyncModalOpen(true),
+    draftChanges: fxDraftChanges,
+    adminNames: null,
+    publishing: pushing,
+    publishProgress: pushProgress,
+    onPublish: fxPublish,
+  };
+
+  const fxSyncModalEl = (
+    <SyncToMainModal
+      open={syncModalOpen}
+      onClose={() => setSyncModalOpen(false)}
+      snapshot={syncState?.toSync || []}
+      localFolder={localFolder}
+      onSyncComplete={({ syncedHashes, deletedNames, syncedFileIds }) => {
+        setLocalHashByName((prev) => {
+          const next = new Map(prev);
+          for (const [name, hash] of syncedHashes) next.set(name, hash);
+          for (const name of deletedNames) next.delete(name);
+          return next;
+        });
+        setSidecar((prev) => {
+          let next = prev;
+          for (const [filename, fileId] of (syncedFileIds || new Map())) {
+            next = addSidecarEntry(next, fileId, { filename, contentHash: syncedHashes.get(filename) || null, mtime: new Date().toISOString() });
+          }
+          if (next !== prev) saveSidecar(next);
+          return next;
+        });
+      }}
+      onLocalListChanged={async () => {
+        if (!hasLocalFolderApi || !localFolder) return;
+        const { files: localList, error: listErr } = await localFolderApi.listAll(localFolder);
+        if (!listErr) setLocalFiles(localList || []);
+      }}
+    />
+  );
+
   return (
-    <div
-      className="project-scoped-page project-files-page"
-      ref={pageRef}
-      style={{ '--project-files-card-size': `${cardSize}px` }}
-    >
-      <header className="project-scoped-header">
-        <h1 className="project-scoped-title">Files</h1>
-        <p className="project-scoped-subtitle">
-          Drag files anywhere in the window to add them to <strong>{selectedProject.name}</strong>.
-        </p>
-
-        {/* Local-folder bar — rendered in Electron + on Chromium-based
-            web browsers (where the File System Access API is
-            available). On Electron the input is editable (paste a
-            path or use Browse); on web it's read-only — the only way
-            to bind a folder is the Browse picker, since the browser
-            doesn't expose typed paths. */}
-        {hasLocalFolderApi && (
-          <div className="project-files-local-bar">
-            <input
-              type="text"
-              className="project-files-local-input"
-              value={localFolder}
-              onChange={(e) => setLocalFolder(e.target.value)}
-              placeholder={isElectronBranch
-                ? "C:\\Users\\you\\Documents\\project-files"
-                : 'Click Browse to pick a folder'}
-              readOnly={!isElectronBranch}
-              spellCheck={false}
-              aria-label="Local download folder"
-            />
-            {/* Web restore window: handle is loaded but permission
-                hasn't been granted yet this session. Show Reconnect
-                as the primary action; Browse stays available for
-                picking a different folder. */}
-            {needsReconnect && (
-              <button
-                type="button"
-                className="project-files-local-btn"
-                onClick={handleReconnect}
-                title="Grant access to the remembered folder"
-              >
-                Reconnect
-              </button>
-            )}
-            <button
-              type="button"
-              className="project-files-local-btn"
-              onClick={handleBrowseFolder}
-            >
-              Browse…
-            </button>
-          </div>
-        )}
-        {/* Version readout. Lives under the folder input so the user
-            sees, at a glance, which main-branch snapshot their local
-            folder is tracking against the project's current main.
-            main bumps server-side every time approve_change_request
-            runs; local (= branch.base_version) bumps when the user
-            pulls main via SyncToMainModal. A mismatch lights up the
-            "New main branch available" chip above. */}
-        {hasLocalFolderApi && (
-          <p className="project-files-main-version">
-            Main <strong>v{mainVersion ?? 0}</strong>
-            <span className="project-files-main-version-sep" aria-hidden="true">·</span>
-            Local <strong>v{branchState?.base_version ?? 0}</strong>
-          </p>
-        )}
-      </header>
-
-      {error && (
-        <div className="project-files-error" role="alert">{error}</div>
-      )}
-
-      {/* Tab strip — Main (canonical, read-only) | My branch (private
-          working copy, editable). The tabs ARE the branch-view
-          selector: clicking flips BranchContext.view. "My branch" is
-          hidden for viewers (no editable surface to show) and shows
-          a pending-count chip when the member has queued edits. */}
-      <div className="project-files-tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          id="project-files-tab-main"
-          aria-selected={branchView === 'main'}
-          aria-controls="project-files-panel"
-          className={`project-files-tab${branchView === 'main' ? ' is-active' : ''}`}
-          onClick={() => setBranchView('main')}
-        >
-          {CloudIcon}
-          <span>Cloud</span>
-        </button>
-        {viewerIsMember && (
-          <button
-            type="button"
-            role="tab"
-            id="project-files-tab-mine"
-            aria-selected={branchView === 'mine'}
-            aria-controls="project-files-panel"
-            className={`project-files-tab${branchView === 'mine' ? ' is-active' : ''}`}
-            onClick={() => setBranchView('mine')}
-          >
-            {HardDriveIcon}
-            <span>Yours</span>
-          </button>
-        )}
-      </div>
-
-      {/* Cloud-tab status row — quiet when there's nothing to do,
-          renders the "Waiting for review" pill only when somebody
-          has edits awaiting approval, and surfaces the admin's
-          destructive "Wipe everything" escape hatch. Hiding the
-          empty pill keeps the page calm for first-time / non-tech
-          users — every visible element has a real signal. */}
-      {(viewerIsMember || viewerIsAdmin) && branchView === 'main' && (openRequestsCount > 0 || viewerIsAdmin) && (
-        <div className="project-files-branch-status">
-          {openRequestsCount > 0 && (
-            <button
-              type="button"
-              className="project-files-branch-status-item is-interactive is-requests"
-              onClick={openVersionControl}
-              title="See the edits your team is waiting on"
-            >
-              <span className="project-files-branch-status-dot" aria-hidden="true" />
-              <div className="project-files-branch-status-text">
-                <strong className="project-files-branch-status-label">Waiting for review</strong>
-                <p className="project-files-branch-status-sub">
-                  edits waiting for approval
-                </p>
-              </div>
-              <span className="project-files-branch-status-count">{openRequestsCount}</span>
-              <span className="project-files-branch-status-cta" aria-hidden="true">Review →</span>
-            </button>
-          )}
-          {viewerIsAdmin && (
-            <button
-              type="button"
-              className="project-files-branch-status-item is-danger is-interactive"
-              onClick={handleWipeMain}
-              disabled={wipingMain || files.length === 0}
-              title={files.length === 0
-                ? 'No files to delete'
-                : 'Delete every file in the cloud — cannot be undone'}
-            >
-              <span className="project-files-branch-status-dot" aria-hidden="true" />
-              <div className="project-files-branch-status-text">
-                <strong className="project-files-branch-status-label">
-                  {wipingMain ? 'Deleting…' : 'Wipe everything'}
-                </strong>
-                <p className="project-files-branch-status-sub">
-                  {files.length === 0
-                    ? 'Nothing to delete — the cloud is empty.'
-                    : `Permanently remove all ${files.length} file${files.length === 1 ? '' : 's'}. Cannot be undone.`}
-                </p>
-              </div>
-              <span className="project-files-branch-status-cta" aria-hidden="true">Delete →</span>
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Branch status — sits between the tab strip and the file grid.
-          Four independent signals can light up:
-            • "New update on main"  — base_version is behind main_version.
-            • "Changes made"        — local edits or queued metadata
-                                       changes vs main, not yet pushed.
-            • "Awaiting review"     — pushed already, change_request is
-                                       still open. Without this signal
-                                       the chip falsely falls to
-                                       "Synced with main" between push
-                                       and admin approval (computeBranchDiff
-                                       filters out submitted items, and
-                                       main_version hasn't bumped yet).
-            • "Synced with main"    — everything else (the calm state).
-          Only the active signals are shown. Strictly informational —
-          the action lives in the "Revert to main branch" button at
-          the bottom of the file grid. */}
-      {(viewerIsMember || viewerIsAdmin) && branchView === 'mine' && (() => {
-        const hasLocalChanges = branchDiff.length + pendingChanges.length > 0;
-        // True the moment the request row is known (rather than
-        // when its items finish loading) so the pill doesn't flicker
-        // off between "auto-commit pushed" and "items refetched".
-        const hasOpenOwnRequest = (changeRequests || []).some(
-          (r) => r.author_id === userId && r.status === 'open',
-        );
-        // "Awaiting review" as a separate pill is gone; the Changes-
-        // made pill stays visible while a push is in flight so the
-        // user always knows their work is somewhere along the
-        // local → review → main pipeline. Synced only fires when
-        // there's truly nothing pending.
-        const hasUnpushedOrPending = hasLocalChanges || hasOpenOwnRequest;
-        const inSync = !isBehindMain && !hasUnpushedOrPending;
-        // Hold the calm "Up to date" claim until the first hashing pass over
-        // the folder is done — otherwise a same-size content edit reads as
-        // synced for a beat before the hash-based diff catches up. While not
-        // ready, show a neutral "Checking…" pill in the same slot so there's
-        // no false-synced flash and the status area keeps a stable height.
-        const branchReady = hashPassDone || !localFolder;
-        const checking = inSync && !branchReady;
-        const showSynced = inSync && branchReady;
-        return (
-          <div className="project-files-branch-status" role="status" aria-live="polite">
-            {isBehindMain && (
-              // Interactive when main has moved ahead — clicking opens
-              // the sync/revert modal so the user can pull main's
-              // bytes down without hunting for the bottom button.
-              <button
-                type="button"
-                className="project-files-branch-status-item is-update is-interactive"
-                onClick={() => setSyncModalOpen(true)}
-                disabled={!hasLocalFolderApi || !localFolder}
-                title={
-                  !hasLocalFolderApi || !localFolder
-                    ? 'Pick a folder so we can save the new files into it'
-                    : 'Pull the new main branch into your folder'
-                }
-              >
-                <span className="project-files-branch-status-dot" aria-hidden="true" />
-                <div className="project-files-branch-status-text">
-                  <strong className="project-files-branch-status-label">New main branch available</strong>
-                  <p className="project-files-branch-status-sub">
-                    {!hasLocalFolderApi || !localFolder
-                      ? 'Pick a folder above so we can save the new branch there.'
-                      : 'A new version of main was published. Click to pull it into your folder.'}
-                  </p>
-                </div>
-                <span className="project-files-branch-status-cta" aria-hidden="true">Pull →</span>
-              </button>
-            )}
-            {hasUnpushedOrPending && (() => {
-              // Two distinct states share this pill:
-              //   • Unsaved local edits → primary action is [Push]
-              //     so the user explicitly sends work for review.
-              //   • Already pushed, waiting on a reviewer → no
-              //     primary action; subtitle becomes "waiting for
-              //     review" and the only escape is the "Use cloud
-              //     version" link which throws away the pending
-              //     request and re-syncs from main.
-              const localChangeCount = branchDiff.length + pendingChanges.length;
-              const openItemCount = (openOwnRequestItems || []).length;
-              const hasLocal = localChangeCount > 0;
-              const count = hasLocal ? localChangeCount : openItemCount;
-              const label = hasLocal
-                ? 'You have unsaved edits'
-                : 'Waiting for review';
-              // While a push is in flight the sub turns into a live count
-              // ("Sending 2 of 5…") to match the progress bar below.
-              const sub = pushing
-                ? (pushProgress && pushProgress.total > 0
-                    ? `Sending ${pushProgress.current} of ${pushProgress.total}…`
-                    : 'Sending your edits for review…')
-                : (hasLocal
-                    ? `${count} ${count === 1 ? 'edit' : 'edits'} ready — click Push to send`
-                    : `${count} ${count === 1 ? 'edit' : 'edits'} sent. Hang tight while your team reviews.`);
-              // Progress bar pinned to the bottom edge of the chip while
-              // sending. Determinate once per-file progress lands; an
-              // indeterminate sweep covers the request-creation phase (and
-              // metadata-only pushes that upload no bytes).
-              const sendBar = pushing ? (
-                <span className="project-files-send-progress" aria-hidden="true">
-                  <span
-                    className={`project-files-send-progress-fill${
-                      pushProgress && pushProgress.total > 0 ? '' : ' is-indeterminate'
-                    }`}
-                    style={pushProgress && pushProgress.total > 0
-                      ? { width: `${Math.min(100, Math.round((pushProgress.current / pushProgress.total) * 100))}%` }
-                      : undefined}
-                  />
-                </span>
-              ) : null;
-              // Both states render their files as small shortcut cards
-              // INSIDE this chip, below the header row: the unsaved local
-              // edits when there are local changes, otherwise the pushed
-              // files awaiting review.
-              const reviewFiles = hasLocal ? unsavedEditFiles : waitingReviewFiles;
-              const showReviewFiles = reviewFiles.length > 0;
-              // Dot + text + actions — the chip's top row. Reused whether or
-              // not the review cards are shown (they share the same chip).
-              const header = (
-                <>
-                  <span className="project-files-branch-status-dot" aria-hidden="true" />
-                  <div className="project-files-branch-status-text">
-                    <strong className="project-files-branch-status-label">{label}</strong>
-                    <p className="project-files-branch-status-sub">{sub}</p>
-                  </div>
-                  <span className="project-files-branch-status-action-group">
-                    {hasLocal && (
-                      <button
-                        type="button"
-                        className="project-files-branch-status-action project-files-branch-status-action-primary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handlePush();
-                        }}
-                        disabled={pushing}
-                        title="Send your edits for review"
-                      >
-                        {pushing ? 'Sending…' : 'Push'}
-                      </button>
-                    )}
-                    {hasLocal ? (
-                      // Unsaved-edits state: Discard = revert the folder to
-                      // the cloud version (throws the local edits away).
-                      <button
-                        type="button"
-                        className="project-files-branch-status-action"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSyncModalOpen(true);
-                        }}
-                        disabled={!hasLocalFolderApi || !localFolder || pushing}
-                        title={!hasLocalFolderApi || !localFolder
-                          ? 'Pick a folder above so we can put the cloud version into it'
-                          : 'Throw away your edits and use the cloud version instead'}
-                      >
-                        Discard
-                      </button>
-                    ) : (
-                      // Waiting-for-review state: Discard = unpublish (pull
-                      // the open request back to withdrawn) but KEEP the
-                      // edited files on disk. They re-appear as unsaved
-                      // changes, ready to keep working or re-push.
-                      <button
-                        type="button"
-                        className="project-files-branch-status-action"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleWithdrawOwnRequests();
-                        }}
-                        disabled={withdrawing}
-                        title="Unpublish your sent edits — they stay in your folder as unsaved changes"
-                      >
-                        {withdrawing ? 'Unpublishing…' : 'Discard'}
-                      </button>
-                    )}
-                  </span>
-                </>
-              );
-              if (!showReviewFiles) {
-                return (
-                  <span
-                    className="project-files-branch-status-item is-changes"
-                    role="status"
-                    aria-live="polite"
-                  >
-                    {header}
-                    {sendBar}
-                  </span>
-                );
-              }
-              // has-review-files turns the chip into a full-width column:
-              // the header row on top, the file cards beneath in a wrapper
-              // that animates open/closed. Collapsed by default — the
-              // chevron (and clicking the header) toggles it; the cards
-              // stay mounted so the height transition has something to
-              // measure both ways.
-              return (
-                <span
-                  className={`project-files-branch-status-item is-changes has-review-files${unsavedExpanded ? ' is-expanded' : ''}`}
-                  role="status"
-                  aria-live="polite"
-                >
-                  <div
-                    className="project-files-review-header is-toggle"
-                    onClick={() => setUnsavedExpanded((v) => !v)}
-                  >
-                    {header}
-                    <button
-                      type="button"
-                      className={`project-files-review-chevron${unsavedExpanded ? ' is-open' : ''}`}
-                      onClick={(e) => { e.stopPropagation(); setUnsavedExpanded((v) => !v); }}
-                      aria-expanded={unsavedExpanded}
-                      aria-label={unsavedExpanded ? 'Hide the files' : 'Show the files'}
-                      title={unsavedExpanded ? 'Hide the files' : 'Show the files'}
-                    >
-                      {ChevronDownIcon}
-                    </button>
-                  </div>
-                  <div className="project-files-review-collapse">
-                    <div className="project-files-review-collapse-inner">
-                      <div className="project-files-review-files project-files-grid">
-                        {/* Alias cards (non-draggable). The shortcut badge only
-                            makes sense in the "waiting for review" framing — hide
-                            it for the unsaved-edits list. */}
-                        {reviewFiles.map((f) => buildLocalCard(f, { shortcut: true, shortcutBadge: !hasLocal, keyPrefix: 'review-' }))}
-                      </div>
-                    </div>
-                  </div>
-                  {sendBar}
-                </span>
-              );
-            })()}
-            {checking && (
-              <span className="project-files-branch-status-item is-synced">
-                <span className="project-files-branch-status-dot" aria-hidden="true" />
-                <div className="project-files-branch-status-text">
-                  <strong className="project-files-branch-status-label">Checking your files…</strong>
-                  <p className="project-files-branch-status-sub">
-                    Looking for changes since you last synced.
-                  </p>
-                </div>
-              </span>
-            )}
-            {showSynced && (
-              <span className="project-files-branch-status-item is-synced">
-                <span className="project-files-branch-status-dot" aria-hidden="true" />
-                <div className="project-files-branch-status-text">
-                  <strong className="project-files-branch-status-label">Up to date</strong>
-                  <p className="project-files-branch-status-sub">
-                    Your folder matches the cloud — nothing to send.
-                  </p>
-                </div>
-              </span>
-            )}
-          </div>
-        );
-      })()}
-
-      <div
-        id="project-files-panel"
-        role="tabpanel"
-        aria-labelledby={branchView === 'mine' ? 'project-files-tab-mine' : 'project-files-tab-main'}
-        className="project-files-panel"
-        // Clicking the empty space inside the grid panel clears the
-        // current card selection — matches Explorer's "click the
-        // background to deselect" affordance. Cards stopPropagation
-        // their own clicks so they don't accidentally clear what
-        // they just selected.
-        onClick={() => setSelectedLocalPath(null)}
-        // Right-click the empty background → "Make new folder" / "Import".
-        onContextMenu={handleBgContextMenu}
-      >
-        {branchView === 'main' ? (
-          // ── Main branch — canonical cloud files. Read-only here;
-          // editing happens on My branch (local folder).
-          loading ? (
-            <ProjectFilesGridSkeleton count={readCachedFilesCount(projectId)} />
-          ) : files.length === 0 ? (
-            <div className="project-files-empty">
-              <h2>No files yet</h2>
-              <p>Drag a PDF, image, video, or text document anywhere in the app to upload it here.</p>
-            </div>
-          ) : (() => {
-            // Folder-aware cloud view. Files carry a folder_path; show
-            // only those in the current folder, plus the immediate
-            // subfolders under it (derived from every file's path).
-            const cur = mainFolderPath;
-            const prefix = cur ? `${cur}/` : '';
-            const inFolder = files.filter((f) => (f.folder_path || '') === cur);
-            const subSet = new Set();
-            for (const f of files) {
-              const fp = f.folder_path || '';
-              if (cur === '') {
-                if (fp) subSet.add(fp.split('/')[0]);
-              } else if (fp.startsWith(prefix)) {
-                subSet.add(fp.slice(prefix.length).split('/')[0]);
-              }
-            }
-            const subfolders = Array.from(subSet).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-            const crumbs = cur ? cur.split('/') : [];
-            const buckets = bucketFiles(inFolder, 'mime_type');
-            return (
-              <>
-                {(crumbs.length > 0 || subfolders.length > 0) && (
-                  <div className="project-files-folderbar">
-                    <nav className="project-files-breadcrumb" aria-label="Folder path">
-                      <button
-                        type="button"
-                        className={`project-files-crumb${cur === '' ? ' is-current' : ''}`}
-                        onClick={() => setMainFolderPath('')}
-                      >
-                        All files
-                      </button>
-                      {crumbs.map((seg, i) => (
-                        <React.Fragment key={i}>
-                          <span className="project-files-crumb-sep" aria-hidden="true">/</span>
-                          <button
-                            type="button"
-                            className={`project-files-crumb${i === crumbs.length - 1 ? ' is-current' : ''}`}
-                            onClick={() => setMainFolderPath(crumbs.slice(0, i + 1).join('/'))}
-                            title={seg}
-                          >
-                            {seg}
-                          </button>
-                        </React.Fragment>
-                      ))}
-                    </nav>
-                  </div>
-                )}
-                {subfolders.length > 0 && (
-                  <section className="project-files-section">
-                    <h3 className="project-files-section-title">
-                      Folders
-                      <span className="project-files-section-count">{subfolders.length}</span>
-                    </h3>
-                    <div className="project-files-grid">
-                      {subfolders.map((fname) => {
-                        const go = () => setMainFolderPath(cur ? `${cur}/${fname}` : fname);
-                        return (
-                          <div key={fname} className="project-files-local-card-wrap">
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              className="project-files-card project-files-folder-card"
-                              // Open on double-click only; Enter is the
-                              // keyboard equivalent.
-                              onClick={(e) => { e.stopPropagation(); }}
-                              onDoubleClick={(e) => { e.stopPropagation(); go(); }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') { e.preventDefault(); go(); }
-                              }}
-                            >
-                              <div className="project-files-thumb project-files-folder-thumb">
-                                <span className="project-files-folder-icon">{FolderGlyphFilled}</span>
-                              </div>
-                              <div className="project-files-meta">
-                                <div className="project-files-name" title={fname}>{fname}</div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                )}
-                {inFolder.length === 0 && subfolders.length === 0 ? (
-                  <div className="project-files-empty">
-                    <h2>This folder is empty</h2>
-                  </div>
-                ) : FILE_SECTIONS.map(({ key, title }) => {
-                  const items = buckets[key];
-                  if (items.length === 0) return null;
-                  return (
-                    <section key={key} className="project-files-section">
-                      <h3 className="project-files-section-title">
-                        {title}
-                        <span className="project-files-section-count">{items.length}</span>
-                      </h3>
-                      <div className="project-files-grid">
-                        {items.map((f) => (
-                          <FileCard
-                            key={f.id}
-                            file={f}
-                            onDoubleOpen={handleOpenCloudFileViewer}
-                          />
-                        ))}
-                      </div>
-                    </section>
-                  );
-                })}
-              </>
-            );
-          })()
-        ) : (
-          // ── My branch — the user's local folder. Members work here:
-          // edit a file in its OS app, rename / delete on disk, or
-          // click a card whose cloud counterpart exists to edit the
-          // metadata via the modal (those edits queue branch_changes).
-          // The "modified" pill (size mismatch vs cloud) is the
-          // visual diff cue per card.
-          !hasLocalFolderApi ? (
-            <div className="project-files-empty">
-              <h2>Local branch unavailable</h2>
-              <p>This build has no filesystem access. Use the desktop app to manage your branch.</p>
-            </div>
-          ) : !localFolder ? (
-            <div className="project-files-empty">
-              <h2>Pick a folder</h2>
-              <p>Choose a folder on your computer. That folder becomes your workspace — anything you put there gets sent to your team after they approve it.</p>
-            </div>
-          ) : needsReconnect ? (
-            // Web restore: the FileSystemDirectoryHandle is hot-
-            // loaded from IndexedDB, but the browser requires a fresh
-            // user-gesture permission grant each session. Show the
-            // remembered folder name + a primary Reconnect button so
-            // the user understands why the grid is empty.
-            <div className="project-files-empty">
-              <h2>Open "{localFolder}" again</h2>
-              <p>Your browser needs you to grant access to this folder each time you visit.</p>
-              <button
-                type="button"
-                className="project-scoped-cta"
-                style={{ marginTop: '1rem' }}
-                onClick={handleReconnect}
-              >
-                Open folder
-              </button>
-            </div>
-          ) : localError ? (
-            <div className="project-files-error" role="alert">{localError}</div>
-          ) : localLoading ? (
-            <ProjectFilesGridSkeleton count={null} />
-          ) : (
-            // Scope toggle + grid. "Local only" hides ghost cards
-            // for main-branch files that aren't on disk; "All from
-            // main" surfaces them so the user can see what's missing
-            // (including files they just deleted locally — those now
-            // re-appear as ghosts pulled from the cloud row instead
-            // of disappearing entirely).
-            <>
-              <div className="project-files-toolbar">
-              <div className="project-files-scope-toggle" role="tablist" aria-label="What to show">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={myBranchScope === 'local'}
-                  className={`project-files-scope-btn${myBranchScope === 'local' ? ' is-active' : ''}`}
-                  onClick={() => setMyBranchScope('local')}
-                >
-                  Just mine
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={myBranchScope === 'all'}
-                  className={`project-files-scope-btn${myBranchScope === 'all' ? ' is-active' : ''}`}
-                  onClick={() => setMyBranchScope('all')}
-                >
-                  Everything
-                </button>
-                {/* Show-hidden affordance — only appears when there's
-                    anything to unhide. Clears the entire hidden set in
-                    one click; granular per-file unhiding lives outside
-                    the scope of the current iteration. */}
-                {hiddenFiles.size > 0 && (
-                  <button
-                    type="button"
-                    className="project-files-scope-btn project-files-scope-show-hidden"
-                    onClick={showAllHidden}
-                    title={`${hiddenFiles.size} hidden file${hiddenFiles.size === 1 ? '' : 's'}. Click to show ${hiddenFiles.size === 1 ? 'it' : 'them all'} again.`}
-                  >
-                    Show {hiddenFiles.size} hidden
-                  </button>
-                )}
-              </div>
-              {/* Layout switch — group by category (default) or one flat
-                  Explorer-style grid (folders first, then files, alpha). */}
-              <div className="project-files-scope-toggle project-files-view-toggle" role="tablist" aria-label="Layout">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={myViewMode === 'category'}
-                  className={`project-files-scope-btn${myViewMode === 'category' ? ' is-active' : ''}`}
-                  onClick={() => setMyViewMode('category')}
-                >
-                  By category
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={myViewMode === 'all'}
-                  className={`project-files-scope-btn${myViewMode === 'all' ? ' is-active' : ''}`}
-                  onClick={() => setMyViewMode('all')}
-                >
-                  All files
-                </button>
-              </div>
-              </div>
-              {/* Folder breadcrumb — Electron only, shown once you've
-                  navigated into a folder (or any exist). Each crumb is a
-                  drop target so a dragged file can be moved up to that
-                  level. Creating folders / importing now lives in the
-                  right-click-the-background menu. */}
-              {supportsFolders && (!atRoot || browseDirs.length > 0) && (
-                <div className="project-files-folderbar">
-                  <nav className="project-files-breadcrumb" aria-label="Folder path">
-                    <button
-                      type="button"
-                      className={`project-files-crumb${atRoot ? ' is-current' : ''}`}
-                      onClick={() => handleNavigateCrumb(-1)}
-                      onDragOver={(e) => { if (Array.from(e.dataTransfer.types || []).includes(MOVE_DND_TYPE)) { e.preventDefault(); } }}
-                      onDrop={(e) => { const p = e.dataTransfer.getData(MOVE_DND_TYPE); if (p) { e.preventDefault(); handleMoveLocalFile(p, localFolder); } }}
-                    >
-                      {(localFolder || '').split(/[\\/]/).filter(Boolean).pop() || 'Home'}
-                    </button>
-                    {folderStack.map((seg, i) => (
-                      <React.Fragment key={seg.path}>
-                        <span className="project-files-crumb-sep" aria-hidden="true">/</span>
-                        <button
-                          type="button"
-                          className={`project-files-crumb${i === folderStack.length - 1 ? ' is-current' : ''}`}
-                          onClick={() => handleNavigateCrumb(i)}
-                          onDragOver={(e) => { if (Array.from(e.dataTransfer.types || []).includes(MOVE_DND_TYPE)) { e.preventDefault(); } }}
-                          onDrop={(e) => { const p = e.dataTransfer.getData(MOVE_DND_TYPE); if (p) { e.preventDefault(); handleMoveLocalFile(p, seg.path); } }}
-                          title={seg.name}
-                        >
-                          {seg.name}
-                        </button>
-                      </React.Fragment>
-                    ))}
-                  </nav>
-                </div>
-              )}
-              {/* Folders category — subfolders of the current directory,
-                  plus the inline create-folder tile when active. Only its
-                  own section in category mode; in "all" mode the folders
-                  render inside the single combined grid below. */}
-              {myViewMode === 'category' && supportsFolders && (browseDirs.length > 0 || creatingFolder) && (
-                <section className="project-files-section">
-                  <h3 className="project-files-section-title">
-                    Folders
-                    <span className="project-files-section-count">{browseDirs.length}</span>
-                  </h3>
-                  <div className="project-files-grid">
-                    {creatingFolder && (
-                      <NewFolderInput
-                        onCommit={handleCreateFolder}
-                        onCancel={() => setCreatingFolder(false)}
-                      />
-                    )}
-                    {browseDirs.map((dir) => (
-                      <LocalFolderCard
-                        key={dir.path}
-                        dir={dir}
-                        onOpen={handleEnterFolder}
-                        onRename={handleRenameFolder}
-                        onDelete={handleDeleteFolder}
-                        onMoveFile={handleMoveLocalFile}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
-              {(() => {
-            // Bucket every disk file as a local card, then (when scope
-            // == 'all') add ghost "missing" cards for cloud rows that
-            // syncState couldn't link to a local file. The unified
-            // syncState already classified every fileId; here we just
-            // pluck the missing-local entries and surface them with
-            // the download overlay. `dispFiles` is the CURRENT directory's
-            // files (root or subfolder) on Electron, falling back to the
-            // flat root listing on web (no folder navigation there).
-            const dispFiles = supportsFolders ? browseFiles : localFiles;
-            const buckets = { photos: [], videos: [], documents: [] };
-            const localByLcName = new Map();
-            for (const lf of dispFiles) {
-              if (lf?.name) localByLcName.set(lf.name.toLowerCase(), lf);
-            }
-            for (const f of dispFiles) {
-              // Skip filenames the user hid via the morph-pill's Hide
-              // action. Pure presentation filter — the file is still
-              // on disk and still in localByLcName above, so the
-              // missing-local fallback below still sees it (and
-              // suppresses any ghost "download" card that would
-              // otherwise re-surface the hidden file under a different
-              // path). The hidden set stays in localStorage; the chip
-              // near the scope toggle exposes Show all.
-              if (hiddenFiles.has(f.name.toLowerCase())) continue;
-              buckets[categorizeMime(f.mimeType)].push({ kind: 'local', file: f });
-            }
-            // "Missing — download" ghosts are a ROOT concept (the cloud
-            // is flat). Don't surface them while browsing a subfolder.
-            if (atRoot && browseFresh && myBranchScope === 'all' && syncState) {
-              for (const row of syncState.rows.values()) {
-                if (row.status !== 'missing-local') continue;
-                if (!row.cloud) continue;
-                // Bootstrap-window fallback: the sidecar's hash-based
-                // reconcile is async, so right after a fresh folder
-                // pick / download the user can see "download" cards
-                // for files already on disk under the canonical name.
-                // Suppress when a local filename matches either the
-                // cloud's display name or the storage-path filename
-                // (those diverge after an approved rename). The next
-                // reconcile pass with hashes wires the sidecar id.
-                const cloudLcName = (row.cloud.name || '').toLowerCase();
-                if (cloudLcName && localByLcName.has(cloudLcName)) continue;
-                const storageFilename = (row.cloud.storage_path || '').split('/').pop()?.toLowerCase();
-                if (storageFilename && localByLcName.has(storageFilename)) continue;
-                // Also suppress when the cloud row's name matches a
-                // hidden filename — otherwise hiding a cloud-backed
-                // file would just relabel the card from "local" to
-                // "missing — download", which defeats the hide.
-                if (cloudLcName && hiddenFiles.has(cloudLcName)) continue;
-                if (storageFilename && hiddenFiles.has(storageFilename)) continue;
-                buckets[categorizeMime(row.cloud.mime_type)].push({
-                  kind: 'missing',
-                  file: row.cloud,
-                });
-              }
-            }
-            const totalItems = buckets.photos.length + buckets.videos.length + buckets.documents.length;
-            const hasFolders = supportsFolders && (browseDirs.length > 0 || creatingFolder);
-            // While a navigation re-list is in flight (browseFresh === false),
-            // an apparent "0 items" is just the listing not having landed yet
-            // — don't flash the "Folder is empty" prompt; render an empty grid
-            // until the real listing arrives.
-            if (totalItems === 0 && !hasFolders && browseFresh) {
-              // Inside a subfolder there's no cloud to sync — keep it simple.
-              if (!atRoot) {
-                return (
-                  <div className="project-files-empty">
-                    <h2>This folder is empty</h2>
-                    <p>Drag files here or use the + button to add some.</p>
-                  </div>
-                );
-              }
-              // Empty grid — either truly nothing (no local, no
-              // cloud) or "local only" scope with empty folder. Show
-              // the sync-with-main prompt when there's cloud content
-              // to pull; otherwise the generic empty-project nudge.
-              return (
-                <div className="project-files-empty">
-                  <h2>Folder is empty</h2>
-                  {files.length > 0 ? (
-                    <>
-                      <p>
-                        {myBranchScope === 'local'
-                          ? `Switch to "Everything" to see the ${files.length} file${files.length === 1 ? '' : 's'} in the cloud, or download them.`
-                          : `Download ${files.length} file${files.length === 1 ? '' : 's'} from the cloud into this folder to start working.`}
-                      </p>
-                      <button
-                        type="button"
-                        className="project-scoped-cta"
-                        style={{ marginTop: '1rem' }}
-                        onClick={() => setSyncModalOpen(true)}
-                      >
-                        Get latest
-                      </button>
-                    </>
-                  ) : !loading ? (
-                    <p>This project has no files yet. Use the + button to add your first one.</p>
-                  ) : null}
-                </div>
-              );
-            }
-            // Category mode shows folders in their own section above, so the
-            // file grid bows out when only folders exist.
-            if (totalItems === 0 && hasFolders && myViewMode === 'category') return null;
-
-            // Render one bucket entry: a "missing — download" ghost or a
-            // real on-disk card (via the shared buildLocalCard, so the
-            // grid and the "Waiting for review" shortcut list stay in
-            // lockstep on cloud-link / Modified derivation).
-            const renderEntry = (entry) => {
-              if (entry.kind === 'missing') {
-                return (
-                  <FileCard
-                    key={`missing-${entry.file.id}`}
-                    file={entry.file}
-                    onClick={(file) => handleDownloadOne(file)}
-                    branchOverlay={{ kind: 'missing' }}
-                  />
-                );
-              }
-              return buildLocalCard(entry.file);
-            };
-
-            // "All files" mode — one Explorer-style grid: folders first
-            // (alphabetical), then files (alphabetical). Folders render here
-            // rather than in their own section only in this mode.
-            if (myViewMode === 'all') {
-              const byName = (a, b) => (a || '').localeCompare(b || '', undefined, { numeric: true, sensitivity: 'base' });
-              const fileEntries = [...buckets.photos, ...buckets.videos, ...buckets.documents]
-                .sort((a, b) => byName(a.file?.name, b.file?.name));
-              const folderDirs = supportsFolders
-                ? [...browseDirs].sort((a, b) => byName(a.name, b.name))
-                : [];
-              return (
-                <div className="project-files-grid">
-                  {creatingFolder && supportsFolders && (
-                    <NewFolderInput
-                      onCommit={handleCreateFolder}
-                      onCancel={() => setCreatingFolder(false)}
-                    />
-                  )}
-                  {folderDirs.map((dir) => (
-                    <LocalFolderCard
-                      key={dir.path}
-                      dir={dir}
-                      onOpen={handleEnterFolder}
-                      onRename={handleRenameFolder}
-                      onDelete={handleDeleteFolder}
-                      onMoveFile={handleMoveLocalFile}
-                    />
-                  ))}
-                  {fileEntries.map((entry) => renderEntry(entry))}
-                </div>
-              );
-            }
-
-            // Category mode — Photos / Videos / Documents sections.
-            return FILE_SECTIONS.map(({ key, title }) => {
-              const items = buckets[key];
-              if (items.length === 0) return null;
-              return (
-                <section key={key} className="project-files-section">
-                  <h3 className="project-files-section-title">
-                    {title}
-                    <span className="project-files-section-count">{items.length}</span>
-                  </h3>
-                  <div className="project-files-grid">
-                    {items.map((entry) => renderEntry(entry))}
-                  </div>
-                </section>
-              );
-            });
-          })()}
-            </>
-          )
-        )}
-
-        {/* "Revert to main branch" — the single destructive action
-            that pulls main's bytes into the local folder AND discards
-            every queued change. SyncToMainModal shows the diff first
-            so the user can back out before applying. Disabled in the
-            calm state (nothing queued, already in sync). Sits at
-            the bottom of the My branch grid so users scanning for
-            "how do I throw this all away?" find it predictably. */}
-        {branchView === 'mine' && (viewerIsMember || viewerIsAdmin) && hasLocalFolderApi && localFolder && (
-          <div className="project-files-revert-row">
-            <button
-              type="button"
-              className="project-files-revert-btn"
-              onClick={() => setSyncModalOpen(true)}
-              disabled={
-                !isBehindMain
-                && (branchDiff.length + pendingChanges.length) === 0
-              }
-            >
-              Discard my edits, use cloud version
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Branch flow modals — Revert only (pull main into local +
-          discard queued changes). Commit is gone: every local edit
-          auto-pushes via the runCommitFlow effect above, so the
-          user never opens a manual commit modal. The .jsx is kept
-          on disk in case a manual path is needed later. */}
-      <SyncToMainModal
-        open={syncModalOpen}
-        onClose={() => setSyncModalOpen(false)}
-        snapshot={syncState?.toSync || []}
-        localFolder={localFolder}
-        onSyncComplete={({ syncedHashes, deletedNames, syncedFileIds }) => {
-          // Sync just made the local folder byte-identical to main
-          // for every synced file. Prime the hash map with the known
-          // cloud hashes so the "Modified" pill clears in this render
-          // — without waiting on the background re-hash effect.
-          setLocalHashByName((prev) => {
-            const next = new Map(prev);
-            for (const [name, hash] of syncedHashes) next.set(name, hash);
-            for (const name of deletedNames) next.delete(name);
-            return next;
-          });
-          // Update sidecar: claim cloud.id for each downloaded file,
-          // drop entries for files just deleted locally. Without this
-          // the reconciliation effect would re-establish the mapping
-          // on the next pass — but only after the disk listing
-          // refreshes AND hashes catch up, leaving a window where
-          // freshly-synced files render as orphans.
-          setSidecar((prev) => {
-            let next = prev;
-            for (const [filename, fileId] of syncedFileIds || new Map()) {
-              const hash = syncedHashes.get(filename) || null;
-              next = addSidecarEntry(next, fileId, {
-                filename,
-                contentHash: hash,
-                mtime: new Date().toISOString(),
-              });
-            }
-            for (const name of deletedNames || new Set()) {
-              const fid = next.byFilename.get(name);
-              if (fid) {
-                next.byFileId.delete(fid);
-                next.byFilename.delete(name);
-                // Need a fresh reference for React to detect the change.
-                next = {
-                  projectId: next.projectId,
-                  localFolder: next.localFolder,
-                  byFileId: new Map(next.byFileId),
-                  byFilename: new Map(next.byFilename),
-                };
-              }
-            }
-            if (next !== prev) saveSidecar(next);
-            return next;
-          });
-        }}
-        onLocalListChanged={async () => {
-          // Refresh the local listing after the sync so the
-          // newly-downloaded files appear and the deleted ones
-          // disappear without waiting for the watcher's poll.
-          if (!hasLocalFolderApi || !localFolder) return;
-          const { files: localList, error: listErr } = await localFolderApi.listAll(localFolder);
-          if (!listErr) setLocalFiles(localList || []);
-        }}
+    <div className="project-scoped-page project-files-page fx-root" ref={pageRef}>
+      <FilesWorkspace {...filesWorkspaceProps} />
+      <input
+        ref={localUploadInputRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={handleLocalFilesPicked}
       />
-
-
-      {/* Floating action button — bottom-right of the viewport. Only
-          shown on 'mine' branch (Main is read-only; adding files
-          belongs to the user's local working copy). Clicking opens an
-          OS file picker; selected files are written directly to the
-          chosen local folder and appear in the grid via the next
-          list refresh. They live locally until the user pushes via
-          the Changes-made pill — no cloud round-trip on add. */}
-      {branchView === 'mine' && (viewerIsMember || viewerIsAdmin) && hasLocalFolderApi && (
-        <>
-          <input
-            ref={localUploadInputRef}
-            type="file"
-            multiple
-            style={{ display: 'none' }}
-            onChange={handleLocalFilesPicked}
-          />
-          <button
-            type="button"
-            className="project-files-fab"
-            onClick={() => {
-              if (!localFolder) {
-                notify({
-                  category: 'file',
-                  variant: 'error',
-                  title: 'Pick a folder first',
-                  body: 'Use Browse… above to choose where your branch lives.',
-                  dedupeKey: 'fab-no-folder',
-                });
-                return;
-              }
-              localUploadInputRef.current?.click();
-            }}
-            aria-label="Add files to your branch"
-            disabled={!localFolder}
-          >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-          </button>
-        </>
-      )}
-
-      {/* Right-click-the-background menu (My branch). Portalled to body
-          so it escapes the panel's overflow; positioned at the cursor
-          (clamped to the viewport). onMouseDown stops the window
-          dismiss from closing it before an item's click fires. */}
-      {bgMenu && createPortal(
-        <div
-          className="project-files-bg-menu"
-          role="menu"
-          style={{
-            left: Math.min(bgMenu.x, window.innerWidth - 200),
-            top: Math.min(bgMenu.y, window.innerHeight - 96),
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            className="project-files-bg-menu-item"
-            onClick={() => { setBgMenu(null); setCreatingFolder(true); }}
-          >
-            Make new folder
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="project-files-bg-menu-item"
-            onClick={() => { setBgMenu(null); localUploadInputRef.current?.click(); }}
-          >
-            Import
-          </button>
-        </div>,
-        document.body,
-      )}
+      {fxSyncModalEl}
     </div>
   );
 }

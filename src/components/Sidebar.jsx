@@ -47,6 +47,15 @@ const BellIcon = (
   </svg>
 );
 
+// Newspaper glyph — folded-page outline with masthead + column lines,
+// reads as "newsletter / briefing feed".
+const NewspaperIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 22h14a2 2 0 0 0 2-2V4a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v16a2 2 0 0 1-2-2V8"/>
+    <path d="M8 7h6M8 11h6M8 15h4"/>
+  </svg>
+);
+
 const BriefcaseIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
@@ -282,7 +291,25 @@ export default function Sidebar() {
   const personalSection = {
     label: 'Personal',
     items: [
-      { kind: 'link', to: '/', label: 'Activity', icon: ActivityIcon, end: true },
+      // Activity absorbs the old Notifications inbox — it carries the unread
+      // badge now (the separate Notifications row was removed).
+      {
+        kind: 'link',
+        to: '/',
+        label: 'Activity',
+        icon: ActivityIcon,
+        end: true,
+        badge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : String(unreadCount)) : null,
+      },
+      // Newsletter — the Legal Newsfeed briefing (Romanian legislation
+      // updates with AI summaries). Public personal page, like Activity.
+      {
+        kind: 'link',
+        to: '/newsletter',
+        label: 'Newsletter',
+        icon: NewspaperIcon,
+        end: true,
+      },
       // Active state is driven by `personalProjectsActive` (computed above)
       // instead of NavLink's `end` flag — `end` can only express "exact" or
       // "any descendant", but we want a custom set: the list, the create
@@ -295,15 +322,6 @@ export default function Sidebar() {
         icon: BriefcaseIcon,
         forcedActive: personalProjectsActive,
         visible: !!session,
-      },
-      {
-        kind: 'link',
-        to: '/notifications',
-        label: 'Notifications',
-        icon: BellIcon,
-        end: true,
-        visible: !!session,
-        badge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : String(unreadCount)) : null,
       },
     ].filter((i) => i.visible !== false),
   };

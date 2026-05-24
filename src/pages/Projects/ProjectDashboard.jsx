@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
 import { useBranch } from '../../context/BranchContext';
 import TeamTree from './TeamTree';
-import ChangeRequestsView from '../../components/ChangeRequestsView';
+import PendingEditsDesk from '../../components/PendingEditsDesk';
 import './ProjectDashboard.css';
 
 // Crossfade window between the loading spinner and the team tree on the
@@ -212,7 +212,7 @@ export default function ProjectDashboard() {
       )}
 
       {activeTab === 'version-control' && (
-        <ChangeRequestsView />
+        <PendingEditsDesk />
       )}
     </div>
   );

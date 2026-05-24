@@ -50,6 +50,12 @@
 .project-chat-tabs {
   display: flex;
   gap: 0;
+  /* Full-bleed like the Files tab strip — break out of the page's 22px
+     frame inset so the bar reaches the content-area edges at rest (the
+     .is-stuck state already uses the same -22px, so pinning no longer
+     shifts the tabs horizontally). */
+  margin-left: -22px;
+  margin-right: -22px;
   /* Spacing to the header above is owned by `.project-chat-page`'s
      flex `gap: 0.25rem`; no extra margin-top needed here so the tab
      bar sits tight against the title + subtitle block. */
@@ -91,8 +97,10 @@
    the page-frame's inner column. */
 .project-chat-tabs.is-stuck {
   background: var(--bg-page);
-  margin-left: -2rem;
-  margin-right: -2rem;
+  /* Pull out by the page-frame's 22px side padding (was 2rem) so the pinned
+     bar spans exactly the full .main-content width without overhanging. */
+  margin-left: -22px;
+  margin-right: -22px;
   padding-left: 0;
   padding-right: 0;
   box-shadow: 0 4px 12px color-mix(in srgb, var(--bg-page) 60%, transparent);

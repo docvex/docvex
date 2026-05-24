@@ -28,7 +28,14 @@
   isolation: isolate;
   flex: 1;
   overflow-y: auto;
-  padding: 2rem;
+  /* Suppress horizontal scroll so the full-bleed tab bars (which break out
+     of the 22px inset via negative side margins to sit flush to the edge,
+     matching the Files tab strip) can't trigger a stray horizontal
+     scrollbar when a vertical scrollbar is present. */
+  overflow-x: hidden;
+  /* 22px horizontal inset matches the Files tab header so every tab's
+     title + content line up at the same distance from the edge. */
+  padding: 2rem 22px;
   /* Reserve space for the (now-fixed) sidebar. Margin so the
      scroll-content area starts at the sidebar's right edge; flips
      between 60px and 220px in lockstep with --sidebar-width. */
@@ -93,7 +100,9 @@
     transparent 1.125rem
   );
   border-radius: 18px 18px 0 0;
-  padding: 2rem;
+  /* 22px horizontal inset to match the Files tab header (and the personal
+     pages' .main-content inset) so project tabs align with the rest. */
+  padding: 2rem 22px;
   /* Previously calc(100% - 2.35rem) — accounted for the old
      banner's vertical band + margin-top. With the banner gone
      (now a fixed-position pill), the frame can fill the full
