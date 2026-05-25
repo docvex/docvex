@@ -1,0 +1,432 @@
+/* Activity metrics — ported from the Claude Design handoff
+   (docvex-activity-notification-redesign / activity.css). All `m-*` classes;
+   every colour reads a token from src/styles/tokens.css. */
+
+.metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 24px;
+}
+.metrics-status {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+.m-empty {
+  padding: 18px 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+/* Base card surface */
+.m-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  box-shadow: var(--shadow-card);
+  min-width: 0;
+}
+.m-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.m-card-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.005em;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.m-card-title-icon {
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  display: grid; place-items: center;
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.m-card-title-icon svg { width: 13px; height: 13px; }
+.m-card-period {
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+/* ── HERO: Review pipeline ──────────────────────────────────────────── */
+.m-pipeline-body {
+  display: grid;
+  grid-template-columns: 1fr 28px 1fr 28px 1fr;
+  align-items: stretch;
+  gap: 0;
+}
+.m-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 4px 0;
+  min-width: 0;
+}
+.m-stage-head { display: flex; align-items: center; gap: 8px; }
+.m-stage-glyph {
+  width: 26px; height: 26px;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.m-stage-glyph svg { width: 14px; height: 14px; }
+.m-stage[data-tone="drafts"] .m-stage-glyph { background: color-mix(in srgb, var(--cat-file) 12%, var(--bg-card));    border-color: color-mix(in srgb, var(--cat-file) 30%, transparent);    color: var(--cat-file); }
+.m-stage[data-tone="review"] .m-stage-glyph { background: color-mix(in srgb, var(--cat-project) 12%, var(--bg-card)); border-color: color-mix(in srgb, var(--cat-project) 30%, transparent); color: var(--cat-project); }
+.m-stage[data-tone="merged"] .m-stage-glyph { background: color-mix(in srgb, var(--success-soft) 14%, var(--bg-card)); border-color: color-mix(in srgb, var(--success-soft) 32%, transparent); color: var(--success); }
+.m-stage-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.m-stage-value {
+  font-family: var(--font-display);
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 0.95;
+  color: var(--text-primary);
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+}
+.m-stage-value-row { display: flex; align-items: baseline; gap: 10px; }
+.m-stage-detail { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+.m-stage-detail strong { color: var(--text-secondary); font-weight: 600; }
+
+.m-mini-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  margin-top: 4px;
+}
+/* Descendant (not `>`) so segments still match through the Tooltip's
+   display:contents wrapper. */
+.m-mini-bar span[data-cat] { display: block; height: 100%; }
+.m-mini-bar span[data-cat="file"]    { background: var(--cat-file); }
+.m-mini-bar span[data-cat="project"] { background: var(--cat-project); }
+.m-mini-bar span[data-cat="role"]    { background: var(--cat-role); }
+.m-mini-bar span[data-cat="member"]  { background: var(--cat-member); }
+
+.m-mini-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.m-mini-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.m-mini-legend-swatch { width: 7px; height: 7px; border-radius: 2px; }
+.m-mini-legend-swatch[data-cat="file"]    { background: var(--cat-file); }
+.m-mini-legend-swatch[data-cat="project"] { background: var(--cat-project); }
+.m-mini-legend-swatch[data-cat="role"]    { background: var(--cat-role); }
+.m-mini-legend-swatch[data-cat="member"]  { background: var(--cat-member); }
+.m-mini-legend-item strong { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.m-pipe-arrow {
+  align-self: center;
+  display: grid; place-items: center;
+  position: relative;
+  height: 100%;
+  color: var(--border-strong);
+}
+.m-pipe-arrow::before {
+  content: '';
+  position: absolute;
+  left: 8%; right: 8%;
+  top: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-strong) 25%, var(--border-strong) 75%, transparent);
+}
+.m-pipe-arrow svg {
+  position: relative;
+  background: var(--bg-card);
+  padding: 0 4px;
+  color: var(--text-muted);
+  width: 18px; height: 18px;
+}
+
+/* Delta chip */
+.m-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.m-delta.is-up   { color: var(--success); background: color-mix(in srgb, var(--success-soft) 16%, transparent); }
+.m-delta.is-down { color: var(--danger);  background: color-mix(in srgb, var(--danger-soft)  16%, transparent); }
+.m-delta.is-flat { color: var(--text-muted); background: var(--bg-elevated); }
+.m-delta svg { width: 9px; height: 9px; }
+
+/* ── Row 2: 3 columns ───────────────────────────────────────────────── */
+.m-row { display: grid; grid-template-columns: 1fr 1.1fr 1fr; gap: 12px; }
+@media (max-width: 1100px) {
+  .m-row { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 720px) {
+  .m-row { grid-template-columns: 1fr; }
+  .m-pipeline-body { grid-template-columns: 1fr; }
+  .m-pipe-arrow { transform: rotate(90deg); height: 20px; }
+}
+
+/* KPI stack */
+.m-kpis { display: flex; flex-direction: column; gap: 14px; }
+.m-kpi { display: grid; grid-template-columns: 1fr auto; gap: 6px 14px; align-items: baseline; }
+.m-kpi-label {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.m-kpi-value {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-primary);
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+}
+.m-kpi-meta { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-muted); }
+.m-kpi-sub { grid-column: 1 / -1; font-size: 11.5px; color: var(--text-muted); margin-top: -2px; }
+.m-kpi-sub strong { color: var(--text-secondary); font-weight: 600; font-variant-numeric: tabular-nums; }
+.m-kpi + .m-kpi { padding-top: 14px; border-top: 1px solid var(--border); }
+
+.m-spark { width: 100%; height: 28px; display: block; grid-column: 1 / -1; margin-top: 2px; }
+.m-spark .spark-line { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.m-spark .spark-area { fill: var(--accent); opacity: 0.10; }
+.m-spark .spark-dot  { fill: var(--accent); }
+
+/* ── Heatmap ────────────────────────────────────────────────────────── */
+/* Transposed, GitHub-style: a week-label column + 7 day columns (M..S) that
+   stretch (1fr) to fill the whole card width. 4 rows = the last 4 weeks. */
+.m-heatmap-body { display: grid; grid-template-columns: 28px repeat(7, 1fr); gap: 4px; align-items: center; }
+.m-heat-col-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1;
+}
+.m-heat-row-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: right;
+  padding-right: 6px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.m-heat-cell {
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  transition: none;
+}
+/* Squares are static — never resize/scale on hover. */
+.m-heat-cell:hover { transform: none; }
+.m-heat-cell[data-level="1"] { background: color-mix(in srgb, var(--accent) 18%, var(--bg-card)); border-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+.m-heat-cell[data-level="2"] { background: color-mix(in srgb, var(--accent) 36%, var(--bg-card)); border-color: color-mix(in srgb, var(--accent) 36%, transparent); }
+.m-heat-cell[data-level="3"] { background: color-mix(in srgb, var(--accent) 60%, var(--bg-card)); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.m-heat-cell[data-level="4"] { background: var(--accent); border-color: var(--accent); }
+.m-heat-cell.is-today { box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 3px var(--accent); }
+.m-heat-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; font-size: 11px; color: var(--text-muted); }
+.m-heat-scale { display: inline-flex; align-items: center; gap: 4px; }
+.m-heat-scale-swatch { width: 11px; height: 11px; border-radius: 3px; border: 1px solid var(--border); }
+
+/* ── People I worked with ───────────────────────────────────────────── */
+.m-people-body { display: flex; flex-direction: column; gap: 12px; }
+.m-people-summary { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); }
+.m-people-stack { display: flex; flex-shrink: 0; }
+/* Descendant selectors + `> *:first-child` so the overlap survives the
+   Tooltip's display:contents wrapper around each avatar. */
+.m-people-stack .m-people-avatar { margin-left: -8px; border: 2px solid var(--bg-card); }
+.m-people-stack > *:first-child .m-people-avatar,
+.m-people-stack > .m-people-avatar:first-child { margin-left: 0; }
+.m-people-summary-text { font-size: 11.5px; color: var(--text-muted); line-height: 1.35; text-wrap: balance; }
+.m-people-summary-text strong { color: var(--text-primary); font-weight: 600; font-family: var(--font-display); font-variant-numeric: tabular-nums; }
+
+.m-people-list { display: flex; flex-direction: column; gap: 4px; }
+.m-people-row {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 10px;
+  transition: background 120ms;
+}
+.m-people-row:hover { background: var(--bg-elevated); }
+
+.m-people-avatar {
+  position: relative;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  display: grid; place-items: center;
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.m-people-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.m-people-avatar.is-online::after {
+  content: '';
+  position: absolute;
+  right: -1px; bottom: -1px;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--success-soft);
+  box-shadow: 0 0 0 2px var(--bg-card);
+}
+
+.m-people-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.m-people-name-row { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.m-people-name { font-size: 12.5px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-people-project {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--project-color, var(--accent)) 14%, transparent);
+  color: var(--project-color, var(--accent));
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.m-people-last { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-people-last strong { color: var(--text-secondary); font-weight: 500; }
+
+.m-people-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.m-people-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+.m-people-stat svg { width: 11px; height: 11px; color: var(--text-muted); }
+.m-people-stat[data-type="file"]   svg { color: var(--cat-file); }
+.m-people-stat[data-type="review"] svg { color: var(--cat-project); }
+
+/* ── Row 3 — When I work · Top files ─────────────────────────────────── */
+.m-row-3 { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+@media (max-width: 720px) {
+  .m-row-3 { grid-template-columns: 1fr; }
+}
+
+/* When I work */
+.m-when-body { display: flex; flex-direction: column; gap: 8px; }
+.m-when-bars { display: grid; grid-template-columns: repeat(24, 1fr); align-items: end; gap: 2px; height: 80px; padding-top: 2px; }
+.m-when-bar { background: var(--accent); border-radius: 2px 2px 0 0; opacity: 0.3; min-height: 2px; transition: opacity 120ms; }
+.m-when-bar.is-active { opacity: 0.85; }
+.m-when-bar.is-peak { opacity: 1; }
+.m-when-bar:hover { opacity: 1; }
+.m-when-axis {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  font-size: 9.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  margin-top: 2px;
+}
+.m-when-axis span { text-align: center; }
+.m-when-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; font-size: 11.5px; color: var(--text-muted); margin-top: 4px; }
+.m-when-stat { display: inline-flex; flex-direction: column; gap: 2px; }
+.m-when-stat-label { font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); }
+.m-when-stat-value { font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+/* Top files */
+.m-files-body { display: flex; flex-direction: column; gap: 8px; }
+.m-file-row { display: grid; grid-template-columns: 1fr 28px; gap: 8px; align-items: center; padding: 2px 0; }
+.m-file-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.m-file-name { font-size: 12px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-body); }
+.m-file-project { font-size: 10.5px; color: var(--text-muted); letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-file-edits { font-size: 12px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; text-align: right; font-family: var(--font-display); }
+.m-file-bar { grid-column: 1 / -1; height: 3px; background: var(--bg-elevated); border-radius: 999px; overflow: hidden; }
+.m-file-bar > span { display: block; height: 100%; background: var(--cat-file); border-radius: 999px; transition: width 280ms; }
+
+/* ── Compact (fit-to-screen) ─────────────────────────────────────────────
+   On the Activity page the strip shares the viewport with the feed, so it's
+   tightened: smaller paddings, shorter charts, small fixed heatmap squares,
+   and a capped (scrolling) people list — keeping all eight cards visible
+   while leaving room for ~2 notification rows beneath. Overrides the rules
+   above (same selectors, later in the cascade). */
+.metrics { gap: 8px; margin: 0 0 12px; flex: 0 0 auto; }
+.m-card { padding: 12px 14px; border-radius: 12px; }
+.m-card-head { margin-bottom: 8px; }
+.m-card-title { font-size: 12.5px; }
+.m-card-title-icon { width: 20px; height: 20px; }
+.m-card-title-icon svg { width: 12px; height: 12px; }
+.m-row, .m-row-3 { gap: 8px; }
+
+/* Pipeline hero */
+.m-stage { gap: 6px; }
+.m-stage-glyph { width: 22px; height: 22px; }
+.m-stage-value { font-size: 30px; }
+.m-mini-bar { margin-top: 2px; }
+
+/* KPI stack */
+.m-kpis { gap: 8px; }
+.m-kpi + .m-kpi { padding-top: 8px; }
+.m-kpi-value { font-size: 19px; }
+.m-spark { height: 18px; margin-top: 0; }
+
+/* Heatmap — full-width day columns, tighter gap */
+.m-heatmap-body { grid-template-columns: 26px repeat(7, 1fr); gap: 3px; }
+.m-heat-footer { margin-top: 8px; }
+
+/* People — cap the roster so it scrolls inside the card instead of growing */
+.m-people-body { gap: 8px; }
+.m-people-summary { padding-bottom: 8px; }
+.m-people-avatar { width: 28px; height: 28px; }
+.m-people-list { max-height: 132px; overflow-y: auto; }
+.m-people-row { padding: 4px 6px; }
+
+/* When I work — shorter bars */
+.m-when-bars { height: 46px; }
+
+/* Files */
+.m-files-body { gap: 6px; }
+
+/* Loading / error placeholder shouldn't reserve the full feed height */
+.metrics-status { flex: 0 0 auto; padding: 24px 0; }

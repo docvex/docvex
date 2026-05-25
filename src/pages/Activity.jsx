@@ -2,9 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotifications } from '../context/NotificationsContext';
 import { useUpdates } from '../context/UpdatesContext';
+import { useAuth } from '../context/AuthContext';
 import { buildActions } from '../notifications/actionRegistry';
 import { resolveNotificationIcon } from '../notifications/icons';
 import { formatRelativeTime, groupByDay } from '../lib/notifications';
+import ActivityMetrics from '../components/ActivityMetrics';
 import './Activity.css';
 
 // Activity = the merged home of what used to be the (empty) "/" Activity
@@ -34,16 +36,6 @@ const CATEGORY_ORDER = ['file', 'member', 'project', 'role', 'update', 'auth', '
 const CloseIcon = (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
     <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-  </svg>
-);
-const CalendarIcon = (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
-  </svg>
-);
-const LayersIcon = (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" />
   </svg>
 );
 const BellOffIcon = (
@@ -117,11 +109,12 @@ export default function ActivityPage() {
   const { notifications, unreadCount, markRead, markAllRead, remove, clearAll } = useNotifications();
   const navigate = useNavigate();
   const { installUpdate } = useUpdates();
+  const { session } = useAuth();
+  const userId = session?.user?.id || null;
 
-  // Category filter (All = union) and grouping mode (day | category). Both
-  // are in-memory page state, not persisted — matches the rest of the app.
+  // Category filter (All = union). In-memory page state, not persisted —
+  // matches the rest of the app.
   const [filter, setFilter] = useState('all');
-  const [groupBy, setGroupBy] = useState('day');
 
   const ctx = useMemo(() => ({ navigate, installUpdate }), [navigate, installUpdate]);
 
@@ -146,21 +139,11 @@ export default function ActivityPage() {
     [notifications, filter],
   );
 
-  // Group by day (default) or by category.
-  const groups = useMemo(() => {
-    if (groupBy === 'category') {
-      const byCat = new Map();
-      for (const n of filtered) {
-        const c = n.category || 'system';
-        if (!byCat.has(c)) byCat.set(c, []);
-        byCat.get(c).push(n);
-      }
-      return CATEGORY_ORDER
-        .filter((c) => byCat.has(c))
-        .map((c) => ({ key: c, label: CATEGORY_LABELS[c] || c, items: byCat.get(c) }));
-    }
-    return groupByDay(filtered).map((g) => ({ key: g.key, label: g.label, items: g.items }));
-  }, [filtered, groupBy]);
+  // Day-grouped feed.
+  const groups = useMemo(
+    () => groupByDay(filtered).map((g) => ({ key: g.key, label: g.label, items: g.items })),
+    [filtered],
+  );
 
   return (
     <div className="activity-page">
@@ -204,32 +187,12 @@ export default function ActivityPage() {
               );
             })}
           </div>
-          <div className="activity-group-toggle" role="radiogroup" aria-label="Group activity by">
-            <span className="activity-group-toggle-label">Group</span>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={groupBy === 'day'}
-              className={`activity-group-btn${groupBy === 'day' ? ' is-active' : ''}`}
-              onClick={() => setGroupBy('day')}
-            >
-              {CalendarIcon}
-              <span>Day</span>
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={groupBy === 'category'}
-              className={`activity-group-btn${groupBy === 'category' ? ' is-active' : ''}`}
-              onClick={() => setGroupBy('category')}
-            >
-              {LayersIcon}
-              <span>Category</span>
-            </button>
-          </div>
         </div>
       )}
 
+      <div className="activity-feed-scroll">
+      {/* Personal activity metrics — scroll together with the feed below. */}
+      <ActivityMetrics userId={userId} />
       {notifications.length === 0 ? (
         <div className="activity-empty">
           {BellOffIcon}
@@ -266,6 +229,7 @@ export default function ActivityPage() {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }

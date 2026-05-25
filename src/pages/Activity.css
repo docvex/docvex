@@ -5,10 +5,39 @@
    Rows use a category-tinted glyph square (the design's "log" layout) since
    notifications carry no actor avatar yet. */
 
-/* Full width — fills the whole content area (no centered max-width column). */
+/* Full width + full height — the page fills the content area and becomes a
+   flex column: the header and filter bar stay pinned at the top, while the
+   metrics strip AND the activity feed share one scroll region below them
+   (so the metrics scroll away as you move down to older notifications).
+   Height is anchored to the viewport minus .main-content's TOP 2rem padding;
+   `margin-bottom: -2rem` then cancels its bottom padding (same break-out
+   trick the tab bar uses horizontally) so the scroll region reaches the very
+   bottom edge with no leftover vertical gap. */
 .activity-page {
   width: 100%;
-  padding-bottom: 40px;
+  height: calc(100vh - 2rem);
+  margin-bottom: -2rem;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.activity-page > .activity-header,
+.activity-page > .activity-tabbar { flex: 0 0 auto; }
+
+/* The scrolling region — metrics + feed scroll together; gets the remaining
+   height below the pinned header + filter tabs. */
+.activity-feed-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: visible;
+  /* Full-bleed like the tab bar — break out of the page's 22px inset so the
+     scroll container reaches the content-area edges and its scrollbar sits
+     flush with the screen edge. The 22px side padding keeps the actual
+     content (metrics + rows) inset where it was. Top 22px matches that inset
+     so the metrics sit the same distance from the tab bar as from the sides. */
+  margin: 0 -22px;
+  padding: 22px 22px 32px;
 }
 
 /* ── Header — matches the app's standard page header (.updates-title /
@@ -61,15 +90,16 @@
 /* ── Filter tab bar — same recipe as .project-tabs / .project-tab:
        flush row, single baseline border-bottom, each tab a flat button with
        a 2px transparent bottom border that becomes category-tinted when
-       active. Group toggle sits at the right end of the same row. */
+       active. */
 .activity-tabbar {
   display: flex;
   align-items: stretch;
   gap: 0;
   border-bottom: 1px solid var(--border);
   /* Full-bleed like the Files tab strip — break out of the page's 22px
-     inset so the bar reaches the content-area edges; title stays inset. */
-  margin: 0 -22px 22px;
+     inset so the bar reaches the content-area edges; title stays inset.
+     No bottom margin: the scroll region sits flush under the tab bar. */
+  margin: 0 -22px 0;
   flex-wrap: wrap;
 }
 .activity-filters {
@@ -148,50 +178,7 @@
 .activity-filter[data-cat="auth"].is-active .activity-filter-count    { background: color-mix(in srgb, var(--cat-auth) 18%, transparent);    color: var(--cat-auth); }
 .activity-filter[data-cat="support"].is-active .activity-filter-count { background: color-mix(in srgb, var(--cat-support) 18%, transparent); color: var(--cat-support); }
 
-/* ── Group-by toggle ─────────────────────────────────────────────────── */
-.activity-group-toggle {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  align-self: center;
-  gap: 0;
-  padding: 3px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 6px;
-}
-.activity-group-toggle-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  padding: 0 10px 0 8px;
-  white-space: nowrap;
-}
-.activity-group-btn {
-  background: transparent;
-  border: none;
-  font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--text-muted);
-  padding: 5px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 120ms, color 120ms;
-  display: inline-flex; align-items: center; gap: 6px;
-}
-.activity-group-btn:hover:not(.is-active) { color: var(--text-secondary); }
-.activity-group-btn.is-active {
-  background: var(--bg-card);
-  color: var(--text-primary);
-  box-shadow: var(--shadow-card);
-}
-.activity-group-btn svg { opacity: 0.85; }
-
-/* ── Day / category groups ───────────────────────────────────────────── */
+/* ── Day groups ──────────────────────────────────────────────────────── */
 .activity-groups { display: flex; flex-direction: column; gap: 24px; }
 .activity-group { display: flex; flex-direction: column; gap: 8px; }
 .activity-group-label {

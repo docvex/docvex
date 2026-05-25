@@ -120,7 +120,7 @@ export default function ProjectDashboard() {
   const tabs = [
     { id: 'members', label: 'Members' },
     { id: 'activity', label: 'Activity' },
-    { id: 'version-control', label: 'Pending edits' },
+    { id: 'version-control', label: 'Review desk' },
   ];
 
   return (

@@ -10,8 +10,33 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding-bottom: 90px; /* clear the fixed Publish bar */
+  padding-bottom: 16px;
   color: var(--text-primary);
+  /* Fill the dashboard tab's height so the desk can stretch to the bottom
+     (see the height-chain block at the foot of this file). min-height:0 lets
+     the inner desk scroll instead of pushing the column taller. */
+  flex: 1;
+  min-height: 0;
+}
+/* Reserve room for the fixed footer only when it actually renders (admins);
+   non-admins have no footer, so they keep the small base padding. */
+.pe-desk.has-footer { padding-bottom: 84px; }
+
+/* Stretch the desk so the file-changes section reaches the bottom (just
+   above the fixed footer), instead of sitting short with empty space below.
+   Mirrors the Files page technique (FilesWorkspace.css): the shared
+   .project-page-frame grows with content by default, which breaks any
+   height:100% chain — so give it a DEFINITE height, scoped via :has() so
+   ONLY the Pending-edits tab is affected (the Members/Activity tabs and
+   every other project page keep their natural, scrollable frame). */
+.project-page-frame:has(.pe-desk) {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.project-dashboard:has(.pe-desk) {
+  height: 100%;
+  min-height: 0;
 }
 
 /* ─── Primitives ──────────────────────────────────────────────────────── */
@@ -93,14 +118,17 @@
 .rb-publish-btn { padding: 11px 18px; font-size: 0.92rem; }
 
 /* ─── File picker (kanban chip row) ───────────────────────────────────── */
-.rb-files { overflow-x: auto; margin: 0 -4px; padding: 4px; scrollbar-width: thin; }
-.rb-files-track { display: flex; gap: 8px; width: max-content; }
+/* Chips wrap and show at most TWO rows (56px chip + 8px row-gap → 120px,
+   + the 4px top/bottom padding = 128px); beyond that the row scrolls. */
+.rb-files { max-height: 128px; overflow-y: auto; margin: 0 -4px; padding: 4px; scrollbar-width: thin; }
+.rb-files-track { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 8px; }
 .rb-chip {
   appearance: none;
   border: 1px solid var(--border);
   background: var(--bg-card);
   border-radius: 12px;
   padding: 10px 12px;
+  height: 56px; /* fixed so the 2-row max-height on .rb-files is exact */
   display: flex; align-items: center; gap: 10px;
   cursor: pointer; font: inherit; color: var(--text-primary); text-align: left;
   min-width: 220px; max-width: 280px;
@@ -145,6 +173,11 @@
   border-radius: 16px;
   padding: 16px 18px 18px;
   display: flex; flex-direction: column;
+  /* Grow to fill the remaining height in .pe-desk so the file-changes card
+     stretches down to the footer; the body below becomes the scroller. */
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 .rb-desk-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 14px; gap: 16px; flex-wrap: wrap; }
 .rb-desk-eyebrow { font-size: 0.7rem; text-transform: uppercase; font-weight: 700; letter-spacing: 0.1em; color: var(--text-muted); display: inline-flex; align-items: center; gap: 5px; }
@@ -168,23 +201,45 @@
 }
 .rb-tab.is-on { background: var(--accent); color: var(--text-on-accent); border-color: transparent; }
 
-/* Body: two panes + a thin VS column between them */
-.rb-desk-body { display: grid; grid-template-columns: 1fr 80px 1fr; gap: 12px; align-items: start; }
-.rb-desk-body.rb-desk-single { grid-template-columns: 1fr; max-width: 760px; margin: 0 auto; width: 100%; }
+/* Desk-head right side: the Simple/Complex view toggle + the compare tabs. */
+.rb-desk-head-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0; }
+.rb-viewtoggle { display: inline-flex; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 999px; padding: 2px; }
+.rb-viewtoggle-btn {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-size: 0.74rem; font-weight: 600; color: var(--text-secondary);
+  padding: 4px 13px; border-radius: 999px;
+  transition: background 120ms, color 120ms;
+}
+.rb-viewtoggle-btn.is-on { background: var(--accent); color: var(--text-on-accent); }
+.rb-viewtoggle-btn:not(.is-on):hover { color: var(--text-primary); }
+
+/* Body: two panes + a thin VS column between them. Flex-fills the stretched
+   desk; the row fills the body height (grid-auto-rows 1fr + stretch) so each
+   pane reaches the bottom, and each pane's content scrolls internally when it
+   outgrows the available height. */
+.rb-desk-body { display: grid; grid-template-columns: 1fr 80px 1fr; gap: 12px; align-items: stretch; grid-auto-rows: minmax(0, 1fr); flex: 1; min-height: 0; overflow-y: auto; }
+.rb-desk-body.rb-desk-single { grid-template-columns: 1fr; max-width: 760px; margin: 0; width: 100%; }
 
 .rb-pane {
   display: flex; flex-direction: column; gap: 10px;
+  min-height: 0;
   padding: 14px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 12px;
   transition: border-color 140ms, box-shadow 140ms, transform 140ms;
 }
+/* The content block (diff / redline / docx / paper card) grows to fill the
+   pane so the footer (View / Use this version / Reject) sits at the bottom. */
+.rb-pane > .pe-diff,
+.rb-pane > .pe-redline,
+.rb-pane > .pe-docx,
+.rb-pane > .pe-doc { flex: 1; min-height: 0; }
 .rb-pane.is-picked {
   border-color: color-mix(in srgb, var(--success) 55%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 28%, transparent);
 }
-.rb-pane.is-fullwidth { max-width: 760px; margin: 0 auto; width: 100%; }
+.rb-pane.is-fullwidth { max-width: 760px; margin: 0; width: 100%; }
 
 .rb-pane-head { display: flex; align-items: center; gap: 10px; }
 .rb-pane-text { min-width: 0; flex: 1; }
@@ -206,27 +261,195 @@
 .rb-kindbadge.is-delete  { color: var(--danger);      border-color: color-mix(in srgb, var(--danger) 35%, transparent);      background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .rb-kindbadge.is-replace { color: var(--warning);     border-color: color-mix(in srgb, var(--warning) 35%, transparent);     background: color-mix(in srgb, var(--warning) 12%, transparent); }
 
-/* Real-file preview box (replaces the prototype's fake serif page) */
-.rb-preview {
+/* Paper-style document card — the file's actual contents on a white "page"
+   that fades at the bottom, from the dashboard-redesign handoff (dv-doc /
+   rb-doc). The paper is intentionally light in BOTH themes (it mimics real
+   paper); only the surrounding chrome follows the theme. The poster the
+   thumbnail resolver produces is the content (text → first lines, PDF →
+   page 1, image → the image); other types show a centred glyph. */
+.pe-doc {
   position: relative;
-  border-radius: 10px;
-  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
   border: 1px solid var(--border);
-  padding: 14px;
-  display: flex; align-items: center; gap: 14px;
+  border-radius: 10px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05), 0 8px 24px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
 }
-.rb-preview .cr-thumb,
-.rb-preview .pe-thumb {
-  width: 84px; height: 84px; flex-shrink: 0;
-  border-radius: 8px; overflow: hidden;
+[data-theme="ink"] .pe-doc { background: #faf7f0; }
+.pe-doc-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.pe-doc-head-text { min-width: 0; }
+.pe-doc-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.9rem;
+  line-height: 1.25;
+  color: #1a1a1a;
+  word-break: break-word;
+}
+.pe-doc-meta {
+  margin-top: 2px;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b7280;
+}
+.pe-doc-body {
+  position: relative;
+  flex: 1;
+  min-height: 160px;
+  overflow: hidden;
+  background: #ffffff;
+}
+[data-theme="ink"] .pe-doc-body { background: #faf7f0; }
+/* The poster fills the page, anchored to the TOP so it reads like the head
+   of a document; the bottom is cropped and faded out. */
+.pe-doc-body img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; }
+.pe-doc-body .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: #9ca3af; }
+.pe-doc-body .project-files-icon svg { width: 48px; height: 48px; }
+.pe-doc-body::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 64px;
+  background: linear-gradient(to bottom, transparent, #ffffff);
+  pointer-events: none;
+}
+[data-theme="ink"] .pe-doc-body::after { background: linear-gradient(to bottom, transparent, #faf7f0); }
+
+/* ─── GitHub-style line diff (text edits / removes / new files) ────────── */
+.pe-diff {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+}
+.pe-diff-msg { padding: 26px; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
+.pe-diff-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 12px;
   background: var(--bg-elevated);
-  display: grid; place-items: center;
+  border-bottom: 1px solid var(--border);
 }
-.rb-preview .pe-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.rb-preview .pe-thumb .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent); }
-.rb-preview-text { min-width: 0; }
-.rb-preview-name { font-family: var(--font-display); font-weight: 700; font-size: 0.9rem; color: var(--text-primary); word-break: break-word; }
-.rb-preview-note { margin-top: 4px; font-size: 0.78rem; color: var(--text-muted); line-height: 1.45; }
+.pe-diff-title { font-weight: 600; font-size: 0.8rem; color: var(--text-secondary); word-break: break-all; min-width: 0; }
+.pe-diff-stat {
+  display: inline-flex; gap: 8px; flex-shrink: 0;
+  font-size: 0.74rem; font-weight: 700;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+.pe-diff-stat .add { color: var(--success); }
+.pe-diff-stat .del { color: var(--danger); }
+.pe-diff-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  scrollbar-width: thin;
+}
+.pe-diff-empty { padding: 18px; color: var(--text-muted); font-size: 0.82rem; font-family: var(--font-body); }
+.pe-diff-row { display: grid; grid-template-columns: 42px 42px 16px 1fr; }
+.pe-diff-gutter {
+  text-align: right; padding: 0 6px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  border-right: 1px solid var(--border);
+  user-select: none; font-size: 11px;
+}
+.pe-diff-sign { text-align: center; user-select: none; color: var(--text-muted); }
+.pe-diff-code { padding: 0 10px; white-space: pre-wrap; word-break: break-word; color: var(--text-primary); }
+.pe-diff-row.is-add { background: color-mix(in srgb, var(--success) 13%, transparent); }
+.pe-diff-row.is-add .pe-diff-gutter { background: color-mix(in srgb, var(--success) 16%, transparent); color: color-mix(in srgb, var(--success) 80%, var(--text-primary)); }
+.pe-diff-row.is-add .pe-diff-sign { color: var(--success); }
+.pe-diff-row.is-remove { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.pe-diff-row.is-remove .pe-diff-gutter { background: color-mix(in srgb, var(--danger) 15%, transparent); color: color-mix(in srgb, var(--danger) 80%, var(--text-primary)); }
+.pe-diff-row.is-remove .pe-diff-sign { color: var(--danger); }
+
+/* ─── Redline document view (complex) — the dashboard-redesign paper page ──
+   Same diff data as the simple view, rendered as flowing prose on a light
+   "paper" surface: removed lines red + struck through, added lines green.
+   The paper is intentionally light in both themes (it mimics a document). */
+.pe-redline {
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05), 0 8px 24px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+[data-theme="ink"] .pe-redline { background: #faf7f0; }
+.pe-redline-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.pe-redline-title { font-family: var(--font-display); font-weight: 700; font-size: 0.9rem; color: #1a1a1a; word-break: break-word; }
+.pe-redline-meta { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; white-space: nowrap; flex-shrink: 0; }
+.pe-redline-body {
+  flex: 1; min-height: 0; overflow: auto;
+  padding: 14px 18px;
+  font-family: 'Times New Roman', Georgia, serif;
+  font-size: 13px; line-height: 1.6; color: #1a1a1a;
+  scrollbar-width: thin;
+}
+[data-theme="ink"] .pe-redline-body { color: #18181b; }
+.pe-redline-line { padding: 2px 8px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; }
+.pe-redline-line.is-context { color: #374151; }
+.pe-redline-line.is-remove {
+  margin: 2px 0;
+  background: rgba(220, 38, 38, 0.12);
+  color: #7f1d1d;
+  text-decoration: line-through;
+  text-decoration-color: rgba(220, 38, 38, 0.6);
+  box-shadow: inset 3px 0 0 #dc2626;
+  padding-left: 11px;
+}
+.pe-redline-line.is-add {
+  margin: 2px 0;
+  background: rgba(22, 163, 74, 0.14);
+  color: #14532d;
+  box-shadow: inset 3px 0 0 #16a34a;
+  padding-left: 11px;
+}
+
+/* ─── Inline .docx preview (docx-preview render) ───────────────────────── */
+.pe-docx {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-card);
+}
+.pe-docx-body {
+  position: relative;
+  flex: 1; min-height: 160px;
+  overflow: auto;
+  background: var(--bg-elevated);
+  scrollbar-width: thin;
+}
+.pe-docx-style { display: none; }
+.pe-docx-loading { padding: 26px; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
+/* docx-preview emits a wrapper > section (the page). Tame its chrome so the
+   page sits centred on the pane backdrop; `zoom` (set in JS) scales it. */
+.pe-docx-render > div { background: transparent !important; padding: 12px !important; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.pe-docx-render section {
+  margin: 0 !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.14);
+  background: #ffffff;
+}
 
 .rb-pane-foot { display: flex; gap: 8px; }
 .rb-pane-foot-center { justify-content: center; }
@@ -257,6 +480,10 @@
 .rb-vs-dot.is-move { background: var(--cat-member); }
 .rb-vs-dot.is-delete { background: var(--danger); }
 .rb-vs-dot.is-replace { background: var(--warning); }
+.rb-vs-stat { display: inline-flex; gap: 6px; font-weight: 700; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; }
+.rb-vs-stat .add { color: var(--success); }
+.rb-vs-stat .del { color: var(--danger); }
+.rb-vs-stat.is-none { font-weight: 500; font-family: var(--font-body); color: var(--text-muted); }
 
 /* Small info row used by rename / move / replace panes */
 .rb-noteline {
@@ -333,21 +560,6 @@
 .rb-replace-size { font-size: 0.72rem; color: var(--text-muted); }
 .rb-replace-arrow { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--warning); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
 
-/* ─── Tray (sealed for tonight) ───────────────────────────────────────── */
-.rb-tray { display: flex; align-items: center; gap: 14px; padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-card); }
-.rb-tray-label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); flex-shrink: 0; padding-right: 14px; border-right: 1px solid var(--border); }
-.rb-tray-items { flex: 1; display: flex; gap: 6px; flex-wrap: wrap; }
-.rb-tray-item { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 5px 5px; border-radius: 999px; font-size: 0.74rem; color: var(--text-primary); border: 1px solid var(--border); background: var(--bg-elevated); }
-.rb-tray-item-name { font-weight: 600; white-space: nowrap; }
-.rb-tray-item.is-empty { padding: 7px; background: transparent; border: 1px dashed var(--border); color: var(--text-muted); }
-.rb-tray-item-edit    { background: color-mix(in srgb, var(--success) 12%, transparent); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
-.rb-tray-item-new     { background: color-mix(in srgb, var(--info) 14%, transparent);    border-color: color-mix(in srgb, var(--info) 40%, transparent); }
-.rb-tray-item-rename  { background: color-mix(in srgb, var(--cat-project) 14%, transparent); border-color: color-mix(in srgb, var(--cat-project) 38%, transparent); }
-.rb-tray-item-move    { background: color-mix(in srgb, var(--cat-member) 14%, transparent);  border-color: color-mix(in srgb, var(--cat-member) 38%, transparent); }
-.rb-tray-item-delete  { background: color-mix(in srgb, var(--danger) 12%, transparent);   border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
-.rb-tray-item-replace { background: color-mix(in srgb, var(--warning) 14%, transparent);  border-color: color-mix(in srgb, var(--warning) 40%, transparent); }
-.rb-tray-item-kind { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 3px; padding-left: 6px; margin-left: 2px; border-left: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
-
 /* ─── Empty / loading ─────────────────────────────────────────────────── */
 .pe-empty {
   padding: 60px 24px;
@@ -358,17 +570,26 @@
   font-size: 0.9rem;
 }
 
-/* ─── Fixed Publish bar at the bottom of the surface ──────────────────── */
-.pe-publishbar {
+/* ─── Fixed footer (mirrors the Files tab's .fx-bottombar) ─────────────────
+   Docked to the bottom of the viewport, offset by the sidebar so it tracks
+   the sidebar's expand/collapse, with a translucent blurred backdrop. Holds
+   the publish text on the left and the Publish button on the right. Rendered
+   for admins only (it's the publish action's home). */
+.pe-footer {
   position: fixed;
   left: var(--sidebar-width, 60px);
-  right: 0; bottom: 0;
+  right: 0;
+  bottom: 0;
   z-index: 20;
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 10px 22px;
   border-top: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-page) 85%, transparent);
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--bg-page) 82%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   transition: left 250ms ease;
 }
 .pe-publishbar-text { font-size: 0.82rem; color: var(--text-secondary); }

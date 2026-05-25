@@ -1140,14 +1140,90 @@ export function isDocxFile(mimeType, fileName) {
   return false;
 }
 
-// Thumbnails are intentionally limited to image / video / PDF. Other
-// types (DOCX, text, generic binaries) get a MIME glyph in the UI
-// instead — rasterized "previews" of document formats were misleading
-// (font fallbacks, broken layout) and the rich DOCX renderer in
-// particular was a maintenance tax for a fundamentally approximate
-// rendering. The DOCX generator is still exported below for callers
-// that explicitly opt in (none today); the dispatcher just won't
-// route to it.
+// ── Text thumbnail ────────────────────────────────────────────────────
+// Plain-text files get a REAL preview: the first lines rendered onto a
+// white "page" canvas. This is the exception to the "no rasterized
+// document previews" rule (DOCX/PDF-of-prose are skipped because their
+// layout + fonts are only approximate) — monospaced plain text simply IS
+// the content, so the preview is faithful rather than misleading.
+const TEXT_THUMB_EXTS = new Set([
+  'txt', 'text', 'log', 'md', 'markdown', 'csv', 'tsv',
+  'json', 'xml', 'yml', 'yaml', 'ini', 'cfg', 'conf',
+]);
+
+export function isTextThumbable(mimeType, fileName) {
+  const m = (mimeType || '').toLowerCase();
+  if (m.startsWith('text/')) return true;
+  if (m === 'application/json' || m === 'application/xml') return true;
+  const lc = (fileName || '').toLowerCase();
+  const dot = lc.lastIndexOf('.');
+  const ext = dot >= 0 ? lc.slice(dot + 1) : '';
+  return TEXT_THUMB_EXTS.has(ext);
+}
+
+async function generateTextThumbnail(file) {
+  // Only read the head — a thumbnail never needs more than a screenful,
+  // and this caps memory/time on huge logs.
+  const HEAD_BYTES = 64 * 1024;
+  let text;
+  try {
+    const head = (typeof file.slice === 'function') ? file.slice(0, HEAD_BYTES) : file;
+    text = await head.text();
+  } catch {
+    return null;
+  }
+  // Normalise tabs + line endings so the canvas layout is predictable.
+  text = text.replace(/\r\n?/g, '\n').replace(/\t/g, '    ');
+  const lines = text.split('\n');
+
+  // Portrait "page" (≈ US-Letter aspect); the grid letterboxes it via
+  // object-fit: contain so it reads like a document.
+  const W = 320;
+  const H = 414;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+
+  const padX = 20;
+  const padTop = 22;
+  const fontSize = 14;
+  const lineHeight = 19;
+  ctx.fillStyle = '#222629';
+  ctx.textBaseline = 'top';
+  ctx.font = `${fontSize}px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`;
+
+  // Rough char budget from the monospace advance (~0.6em per glyph).
+  const maxChars = Math.max(1, Math.floor((W - padX * 2) / (fontSize * 0.6)));
+  const maxLines = Math.floor((H - padTop) / lineHeight);
+
+  let drawn = 0;
+  for (let i = 0; i < lines.length && drawn < maxLines; i++) {
+    // Strip control chars so binary masquerading as text doesn't draw boxes.
+    let line = Array.from(lines[i]).filter(function (ch) { return ch.charCodeAt(0) >= 32; }).join('');
+    if (line.length > maxChars) line = line.slice(0, maxChars);
+    ctx.fillText(line, padX, padTop + drawn * lineHeight);
+    drawn += 1;
+  }
+  // All-blank head → no useful preview; let the glyph show instead.
+  if (drawn === 0) return null;
+
+  return canvasToJpegBlob(canvas);
+}
+
+// Thumbnails cover image / video / PDF / PPTX / plain-text. Other types
+// (DOCX, generic binaries) get a MIME glyph in the UI instead —
+// rasterized "previews" of rich document formats were misleading (font
+// fallbacks, broken layout) and the rich DOCX renderer in particular was
+// a maintenance tax for a fundamentally approximate rendering. Plain text
+// is the exception: its first lines render faithfully (see
+// generateTextThumbnail). The DOCX generator is still exported below for
+// callers that explicitly opt in (none today); the dispatcher won't route
+// to it.
 export async function generateThumbnail(file) {
   if (!file) return null;
   const t = file.type || '';
@@ -1156,6 +1232,7 @@ export async function generateThumbnail(file) {
   else if (t === 'application/pdf') generator = generatePdfThumbnail(file);
   else if (t.startsWith('video/'))  generator = generateVideoThumbnail(file);
   else if (isPptxFile(t, file.name)) generator = generatePptxThumbnail(file);
+  else if (isTextThumbable(t, file.name)) generator = generateTextThumbnail(file);
   else return null;
   return withTimeout(generator, GENERATE_TIMEOUT_MS);
 }

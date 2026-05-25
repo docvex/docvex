@@ -683,7 +683,7 @@ export async function listOpenChangeRequestItemsForProject(projectId) {
     .from(ITEMS_TABLE)
     .select(`
       id, request_id, kind, target_file_id, proposed, seq,
-      request:change_requests!inner (id, project_id, author_id, title, status)
+      request:change_requests!inner (id, project_id, author_id, title, description, status)
     `)
     .eq('project_id', projectId)
     .eq('request.status', 'open')
@@ -692,6 +692,7 @@ export async function listOpenChangeRequestItemsForProject(projectId) {
   const flat = (data || []).map((row) => ({
     requestId: row.request_id,
     requestTitle: row.request?.title || '',
+    requestDescription: row.request?.description || '',
     authorId: row.request?.author_id || null,
     item: {
       id: row.id,

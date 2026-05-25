@@ -967,6 +967,7 @@ export default function ProjectFiles() {
     branchState,
     refresh: refreshBranchState,
     queueChange,
+    discardAll,
     withdrawRequest,
     refreshOpenRequestItems,
   } = useBranch();
@@ -2171,6 +2172,19 @@ export default function ProjectFiles() {
     return () => { cancelled = true; unsubscribe(); };
   }, [projectId]);
 
+  // Auto-update the Team (main-branch) view whenever a new version is
+  // published. BranchContext bumps `mainVersion` when a change request is
+  // approved/merged (its own change_requests realtime sub), so a version
+  // change is the signal that main's files moved — refetch the canonical
+  // list. This backstops the per-row project_files realtime above so the
+  // Team tab is always current after a merge, by anyone.
+  const lastMainVersionRef = useRef(mainVersion);
+  useEffect(() => {
+    if (lastMainVersionRef.current === mainVersion) return;
+    lastMainVersionRef.current = mainVersion;
+    refetchCloudFiles();
+  }, [mainVersion, refetchCloudFiles]);
+
   // Initial skeleton while the SelectedProjectContext is still hydrating
   // — matches the prior placeholder's pattern.
   if (projLoading && !selectedProject) {
@@ -2212,41 +2226,28 @@ export default function ProjectFiles() {
     return map;
   }, [files]);
 
-  // Double-click on a local card. Lives down here (after the
-  // `cloudById` declaration) instead of up with the other handlers
-  // because the DOCX branch needs `cloudById` to look up the cloud
-  // counterpart via the sidecar — referencing it earlier hits the
-  // temporal dead zone.
-  //   • DOCX        → openDocx with both the local path and a signed
-  //                   cloud URL (when a cloud counterpart exists),
-  //                   so main can pick the best renderer: Word for
-  //                   the local file, Office Online for the cloud
-  //                   URL when Word isn't installed, OS-default as
-  //                   a last resort.
-  //   • Browser-viewable (image/video/PDF/text) → in-app BrowserWindow
-  //                   via `localfile://`.
-  //   • Anything else → OS default app via shell.openPath.
+  // Double-click on a local card (My drafts). These are the user's real
+  // files on disk, so everything hands off to native software rather than
+  // an in-app viewer:
+  //   • DOCX        → openDocx with ONLY the local path → native Word (or
+  //                   the OS's default .docx app). We deliberately do NOT
+  //                   pass a cloud URL: main's open-docx routes any cloudUrl
+  //                   to the read-only in-app Office Online viewer, which
+  //                   isn't what "open my draft to edit it" means — and
+  //                   edits to the local file save in place + the watcher
+  //                   picks them up into the diff layer.
+  //   • Anything else → OS default app via shell.openPath, so a double-click
+  //                   hands off to the user's actual editor (Word, Preview,
+  //                   Photos, Acrobat, …). (On web, openPath / a local-only
+  //                   openDocx are both no-ops — there's no native app.)
   const handleOpenLocalFile = useCallback(async (file) => {
     if (!hasLocalFolderApi || !file?.path) return;
     if (isDocxFile(file.mimeType, file.name)) {
-      const lcName = (file.name || '').toLowerCase();
-      const cloudId = sidecar.byFilename.get(lcName);
-      const cloud = cloudId ? cloudById.get(cloudId) : null;
-      let cloudUrl = null;
-      if (cloud?.storage_path) {
-        // 1800 s TTL — see handleOpenCloudFileViewer for rationale.
-        const { data } = await createSignedDownloadUrl(cloud.storage_path, 1800);
-        cloudUrl = data?.signedUrl || null;
-      }
-      openDocx({ localPath: file.path, cloudUrl, fileName: file.name || 'file' });
+      openDocx({ localPath: file.path, fileName: file.name || 'file' });
       return;
     }
-    // Open in the OS's native app for the file type rather than the in-app
-    // viewer — on the My branch users work on their real local files, so a
-    // double-click should hand off to their actual editor (Preview, Photos,
-    // Acrobat, etc.). (On web, openPath is a no-op: no native app to call.)
     localFolderApi.openPath(file.path);
-  }, [sidecar, cloudById]);
+  }, []);
 
   // Hide the card from the My-branch grid. Pure presentation filter —
   // the file is NOT removed from disk, the sidecar entry stays intact,
@@ -2644,25 +2645,52 @@ export default function ProjectFiles() {
   };
   const fileCountLabel = (n) => `${n} ${n === 1 ? 'file' : 'files'}`;
 
+  // "Waiting for review" only lists files in an open change request, so its
+  // folder column must hide subfolders that hold none — otherwise they show
+  // as empty folders. These check the recursive waiting set by on-disk path
+  // prefix (same scheme as countLocalFilesUnder).
+  const reviewWaitingPaths = waitingReviewFiles
+    .map((f) => f.path)
+    .filter((p) => typeof p === 'string');
+  const waitingPrefixOf = (dirPath) => {
+    const sep = dirPath.includes('\\') ? '\\' : '/';
+    return dirPath.endsWith(sep) ? dirPath : dirPath + sep;
+  };
+  const folderHasWaiting = (dirPath) => {
+    if (!dirPath) return false;
+    const prefix = waitingPrefixOf(dirPath);
+    return reviewWaitingPaths.some((p) => p.startsWith(prefix));
+  };
+  const countWaitingUnder = (dirPath) => {
+    if (!dirPath) return 0;
+    const prefix = waitingPrefixOf(dirPath);
+    return reviewWaitingPaths.filter((p) => p.startsWith(prefix)).length;
+  };
+
   const cloudFolders = Array.from(teamSubSet)
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
     .map((name) => {
       const path = teamCur ? `${teamCur}/${name}` : name;
-      return { id: `teamfold:${name}`, kind: 'folder', name, sizeLabel: fileCountLabel(countCloudFilesUnder(path)), modifiedLabel: '', path };
+      const count = countCloudFilesUnder(path);
+      return { id: `teamfold:${name}`, kind: 'folder', name, sizeLabel: fileCountLabel(count), empty: count === 0, modifiedLabel: '', path };
     });
-  const cloudFiles = teamInFolder.map((row) => {
-    let st = 'synced';
-    if (waitingReviewFileIds.has(row.id)) st = 'waiting';
-    else if (diffReplaceCloudIds.has(row.id)) st = 'edited';
-    return cloudItem(row, st);
-  }).sort((a, b) => a.name.localeCompare(b.name));
+  // Team files = the canonical main branch, shown the way an admin sees it:
+  // every file as the published (synced) version, WITHOUT this user's personal
+  // in-flight state (no "Awaiting review" / "Edited" overlays — those belong on
+  // the My drafts / Waiting for review tabs).
+  const cloudFiles = teamInFolder
+    .map((row) => cloudItem(row, 'synced'))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   // My drafts / Waiting for review browse the local working folder (Finder-
   // style: folders from the disk listing + files filtered by status). This
   // is where folders show + navigate; the Team tab stays the cloud view.
   const fxLocalFolders = teamLocalMode
     ? browseDirs
-      .map((d) => ({ id: `dir:${d.path}`, kind: 'folder', name: d.name, sizeLabel: fileCountLabel(countLocalFilesUnder(d.path)), modifiedLabel: '', path: d.path, _dir: d }))
+      .map((d) => {
+        const count = countLocalFilesUnder(d.path);
+        return { id: `dir:${d.path}`, kind: 'folder', name: d.name, sizeLabel: fileCountLabel(count), empty: count === 0, modifiedLabel: '', path: d.path, _dir: d };
+      })
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
     : [];
   const fxLocalFiles = teamLocalMode
@@ -2699,12 +2727,30 @@ export default function ProjectFiles() {
     trash: trashItems.length,
   };
 
-  // Branch state → drives the inline pill, status bar, and toolbar CTA.
+  // Branch state → drives the inline pill, status bar, and toolbar CTAs.
   const fxLocalChangeCount = branchDiff.length + pendingChanges.length;
   const fxHasOpenOwnReq = (changeRequests || []).some((r) => r.author_id === userId && r.status === 'open');
+  // "Behind main" is two independent signals OR'd together:
+  //   1. isBehindMain — the version cursor (main_version advanced past the
+  //      version I last pulled).
+  //   2. missingCount — cloud files that have NO local counterpart.
+  // The cursor alone is unreliable: when a release bundles several authors'
+  // requests, MY OWN request flipping to approved auto-advances my cursor
+  // (BranchContext realtime echo) even though that same release merged the
+  // OTHER authors' files, which I don't have on disk. missingCount catches
+  // exactly that — it's the unambiguous "main has files I'm missing" signal,
+  // and it's what the Get-team-updates pull actually applies.
+  const fxMissingFromMain = (syncState?.summary?.missingCount || 0) > 0;
+  const fxBehind = isBehindMain || fxMissingFromMain;
+  // These three signals are NOT mutually exclusive — a user can be behind
+  // main AND have unpublished drafts AND have an open request all at once.
+  // The toolbar renders an independent button per active flag (see
+  // FilesWorkspace), so the single `state` below is only the dominant label
+  // for the status pill.
+  const fxHasChanges = fxLocalChangeCount > 0;
   let fxBranchState = 'synced';
-  if (isBehindMain) fxBranchState = 'behind';
-  else if (fxLocalChangeCount > 0) fxBranchState = 'changes';
+  if (fxBehind) fxBranchState = 'behind';
+  else if (fxHasChanges) fxBranchState = 'changes';
   else if (fxHasOpenOwnReq) fxBranchState = 'waiting';
   const FX_BRANCH = {
     synced: { title: 'Up to date with team', detail: 'Everyone sees the same files.' },
@@ -2712,7 +2758,15 @@ export default function ProjectFiles() {
     waiting: { title: 'Waiting for approval', detail: 'Sent — the team will accept or send back.' },
     behind: { title: 'Team has new updates', detail: 'Get the latest to keep working.' },
   };
-  const fxBranch = { state: fxBranchState, title: FX_BRANCH[fxBranchState].title, detail: FX_BRANCH[fxBranchState].detail, workspaceLabel: '' };
+  const fxBranch = {
+    state: fxBranchState,
+    title: FX_BRANCH[fxBranchState].title,
+    detail: FX_BRANCH[fxBranchState].detail,
+    workspaceLabel: '',
+    behind: fxBehind,
+    hasChanges: fxHasChanges,
+    waiting: fxHasOpenOwnReq,
+  };
 
   // Drafts / Waiting browse the local folder (so folders show + navigate);
   // Team is the cloud view; Removed is the flat deletions list.
@@ -2724,7 +2778,6 @@ export default function ProjectFiles() {
   if (filesTab === 'team') {
     fxFolders = cloudFolders; fxItems = cloudFiles;
   } else if (fxBrowsable) {
-    fxFolders = fxLocalFolders;
     fxItems = filesTab === 'drafts'
       // My drafts is the whole working folder: every file on disk —
       // committed (synced), uncommitted (new/edited), and in-review
@@ -2732,6 +2785,17 @@ export default function ProjectFiles() {
       ? fxLocalFiles
       // Waiting for review: only the files in an open change request.
       : fxLocalFiles.filter((f) => f.status === 'waiting');
+    // My drafts mirrors the working folder (show every subfolder). Waiting
+    // for review shows only folders that actually contain a waiting file,
+    // re-labelled with that count — so no empty folders appear.
+    fxFolders = filesTab === 'drafts'
+      ? fxLocalFolders
+      : fxLocalFolders
+        .filter((f) => folderHasWaiting(f.path))
+        .map((f) => {
+          const count = countWaitingUnder(f.path);
+          return { ...f, sizeLabel: fileCountLabel(count), empty: count === 0 };
+        });
   } else if (filesTab === 'drafts') {
     fxItems = draftsItems;
   } else if (filesTab === 'review') {
@@ -2826,7 +2890,17 @@ export default function ProjectFiles() {
     }
   };
   const fxRename = async (item) => {
-    if (item.kind === 'folder') return;
+    if (item.kind === 'folder') {
+      // Only local (on-disk) folders carry a _dir handle; cloud folders are
+      // read-only. Renaming the directory re-homes the files inside it, which
+      // surfaces as folder-move edits on the next publish.
+      if (!item._dir?.name) return;
+      const nextFolder = (typeof window !== 'undefined' && window.prompt('Rename folder', item.name)) || '';
+      const trimmedFolder = nextFolder.trim();
+      if (!trimmedFolder || trimmedFolder === item.name) return;
+      handleRenameFolder(item._dir, trimmedFolder);
+      return;
+    }
     const next = (typeof window !== 'undefined' && window.prompt('Rename file', item.name)) || '';
     const trimmed = next.trim();
     if (!trimmed || trimmed === item.name) return;
@@ -2898,6 +2972,18 @@ export default function ProjectFiles() {
     }
   };
 
+  // Revert team-edit-mode changes: discard every queued metadata change
+  // (the rename / delete edits made while in edit mode). Confirmed because
+  // it's destructive. Local file additions on disk aren't touched.
+  const fxRevertEdits = async () => {
+    if (pendingChanges.length === 0) return;
+    const ok = typeof window === 'undefined'
+      || window.confirm('Discard your unsaved edits to the team files?');
+    if (!ok) return;
+    await discardAll();
+    notify({ category: 'file', variant: 'success', icon: 'check', title: 'Edits reverted', body: 'Your unpublished changes were discarded.', dedupeKey: 'fx-revert-edits' });
+  };
+
   // Header count = ALL the user's files: the full local working-folder
   // listing when a folder is connected (committed + uncommitted + in-review),
   // otherwise the cloud/team file count (e.g. viewers with no local folder).
@@ -2941,6 +3027,7 @@ export default function ProjectFiles() {
     publishing: pushing,
     publishProgress: pushProgress,
     onPublish: fxPublish,
+    onRevertEdits: fxRevertEdits,
   };
 
   const fxSyncModalEl = (

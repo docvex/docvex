@@ -310,6 +310,19 @@
   color: var(--cat-update);
   font-weight: 600;
 }
+/* Get-team-updates CTA — solid update hue so it stands apart from the
+   cognac Publish button when both are visible (behind + drafts). */
+.fx-tb-btn.is-update {
+  background: var(--cat-update);
+  color: #fff;
+  font-weight: 600;
+  padding: 8px 14px;
+  box-shadow: 0 2px 0 color-mix(in srgb, var(--cat-update) 60%, black);
+}
+.fx-tb-btn.is-update:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cat-update) 88%, black);
+  color: #fff;
+}
 .fx-tb-btn .fx-icon { width: 16px; height: 16px; flex: 0 0 16px; }
 .fx-tb-btn .fx-caret { width: 10px; height: 10px; opacity: 0.6; margin-left: -2px; }
 .fx-tb-sep {
@@ -380,6 +393,9 @@
      above this surface but below the breadcrumb / search / button content. */
   position: relative;
   isolation: isolate;
+  /* Above the edit-mode pill row (z-index 2) so the pill can animate out
+     from underneath this opaque toolbar. */
+  z-index: 3;
 }
 /* Cursor-following spotlight on the toolbar background — a soft accent glow
    tracking --spot-x/--spot-y (written on mousemove in FilesWorkspace.jsx).
@@ -439,6 +455,13 @@
 
 /* ── Canvas ─────────────────────────────────────────────────────────── */
 .fx-canvas {
+  /* Pinned to the grid's 1fr cell (row 3, col 1). Explicit ROW + COLUMN so
+     the conditional edit-mode pill row (same cell) can't bump the canvas
+     into an implicit row/column — auto column placement of two row-locked
+     items would otherwise spawn a phantom 2nd column and reflow the whole
+     header. Both sharing r3c1 keeps the layout identical to non-edit mode. */
+  grid-row: 3;
+  grid-column: 1;
   /* Extra bottom padding so the last row of files clears the fixed,
      viewport-docked bottom action bar. */
   padding: 18px 22px 84px;
@@ -519,7 +542,9 @@
 .fx-tile-thumb .project-files-thumb,
 .fx-tile-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .fx-tile-thumb .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent); }
-.fx-tile-thumb .fx-folder-glyph { color: var(--accent); }
+/* Bigger folder glyph that scales with the tile zoom (overrides the svg's
+   intrinsic 42px). Near-fills the thumb box. */
+.fx-tile-thumb .fx-folder-glyph { color: var(--accent); width: 92%; height: 92%; }
 
 /* Colored ext-label glyph (from the design) — shown when a file has no
    real preview. Centered in the thumb. */
@@ -542,6 +567,8 @@
 .fx-glyph-img { background: linear-gradient(135deg, #14B8A6, #0EA5E9); }
 .fx-glyph-vid { background: #0F172A; }
 .fx-glyph-txt { background: var(--color-slate); }
+.fx-glyph-psd { background: #001E36; color: #31A8FF; }
+.fx-glyph-ai  { background: #1A0A00; color: #FF9A00; }
 .fx-glyph-gen { background: var(--text-muted); }
 
 .fx-tile-name {
@@ -591,7 +618,9 @@
   position: absolute; inset: 0;
   background: color-mix(in srgb, var(--cat-update) 18%, transparent);
 }
-.fx-tile.is-folder .fx-tile-thumb { background: color-mix(in srgb, var(--accent-soft) 35%, var(--bg-elevated)); }
+/* Folders: no tinted box behind the glyph — the (filled when non-empty)
+   folder icon carries the look on its own. */
+.fx-tile.is-folder .fx-tile-thumb { background: transparent; }
 
 /* ── List view ──────────────────────────────────────────────────────── */
 .fx-list {
@@ -645,6 +674,7 @@
 }
 /* Center + fill the thumb content (was showing the glyph anchored top). */
 .fx-list-thumb .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent); }
+.fx-list-thumb .fx-folder-glyph { color: var(--accent); }
 .fx-list-thumb .project-files-icon svg { width: 15px; height: 15px; }
 .fx-list-thumb .fx-glyph { width: 100%; height: 100%; font-size: 7px; border-radius: 5px; letter-spacing: 0.02em; }
 /* Fill the box and show the MIDDLE of the thumbnail (center-crop) so a
@@ -678,6 +708,79 @@
 .fx-list-status.is-synced  { color: var(--text-muted); background: transparent; }
 .fx-list-muted { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ── Team edit-mode pill ─────────────────────────────────────────────────
+   Sits directly under the pathbar on the Team tab while editing. Amber
+   (warning) toned + a pulsing dot so it's impossible to miss that actions
+   here land on the main branch directly (no review flow). */
+/* Shares the canvas's grid cell (row 3) instead of taking its own grid row —
+   .fx-window is `grid-template-rows: auto auto 1fr`, so a 4th in-flow child
+   would steal the 1fr and push the canvas to the bottom. Pinning both this
+   row AND the canvas to row 3 keeps the layout put; height:0 + align-self
+   start makes the pill float at the top of the canvas, centered. z-index
+   below the pathbar (3) so the entrance animation reads as sliding out from
+   under it, but above the canvas content (0). */
+.fx-editmode-row {
+  grid-row: 3;
+  grid-column: 1;
+  align-self: start;
+  height: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  z-index: 2;
+  pointer-events: none;
+}
+.fx-editmode-pill {
+  pointer-events: auto;
+  transform: translateY(8px);
+  box-shadow: var(--shadow-card);
+  animation: fx-editmode-in 320ms cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  background: color-mix(in srgb, var(--warning) 16%, var(--bg-card));
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--warning) 68%, var(--text-primary));
+  white-space: nowrap;
+}
+.fx-editmode-pill-sub {
+  font-family: var(--font-body);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+/* Slide out from under the pathbar (which paints above at z-index 3): start
+   tucked up behind it, then drop into the resting translateY(8px). */
+@keyframes fx-editmode-in {
+  from { transform: translateY(-22px); opacity: 0; }
+  to   { transform: translateY(8px); opacity: 1; }
+}
+/* Reverse on exit — tuck back up under the pathbar. `forwards` holds the
+   hidden end frame until React unmounts the row. */
+@keyframes fx-editmode-out {
+  from { transform: translateY(8px); opacity: 1; }
+  to   { transform: translateY(-22px); opacity: 0; }
+}
+.fx-editmode-row.is-closing .fx-editmode-pill {
+  animation: fx-editmode-out 260ms ease-in forwards;
+}
+.fx-editmode-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--warning);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--warning) 28%, transparent);
+  flex-shrink: 0;
+  animation: fx-pulse 1.6s ease-in-out infinite;
+}
+
 /* ── Status bar ─────────────────────────────────────────────────────── */
 /* ── Bottom action bar — file operations + status ─────────────────────
    Docked to the absolute bottom of the viewport (not just the bottom of
@@ -704,6 +807,19 @@
   color: var(--text-muted);
   transition: left 250ms ease;
 }
+/* Footer enter/exit (Team-tab edit mode only — added in JSX): slide up from
+   below the viewport on enter, slide back down on exit. The `forwards` on
+   the exit keeps it off-screen until React unmounts it after the beat. */
+@keyframes fx-bottombar-in {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes fx-bottombar-out {
+  from { transform: translateY(0);    opacity: 1; }
+  to   { transform: translateY(100%); opacity: 0; }
+}
+.fx-bottombar.fx-anim-in  { animation: fx-bottombar-in 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+.fx-bottombar.fx-anim-out { animation: fx-bottombar-out 260ms ease-in forwards; }
 .fx-bottombar-actions {
   display: flex;
   align-items: center;
@@ -991,4 +1107,9 @@
   .fx-sb-pill, .fx-branch-inline, .fx-sb-pill.is-waiting .fx-dot, .fx-branch-inline.is-waiting .fx-dot { animation: none; }
   .fx-drawer { transition: none; }
   .fx-props { animation: none; }
+  /* Keep the resting position; just skip the entrance slide + dot pulse. */
+  .fx-editmode-pill,
+  .fx-editmode-row.is-closing .fx-editmode-pill { animation: none; }
+  .fx-editmode-dot { animation: none; }
+  .fx-bottombar.fx-anim-in, .fx-bottombar.fx-anim-out { animation: none; }
 }

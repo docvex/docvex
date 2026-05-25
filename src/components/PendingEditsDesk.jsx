@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useBranch } from '../context/BranchContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import {
@@ -12,6 +12,7 @@ import {
   createSignedDownloadUrl,
 } from '../lib/projectFiles';
 import { describeChangeRequestItem } from '../lib/thumbnailDescriptor';
+import { isTextThumbable } from '../lib/thumbnails';
 import { openFileWindow, openDocx, isDocxFile, canOpenInApp } from '../lib/platform';
 import FileThumbnail from './FileThumbnail';
 import ConfirmModal from './ConfirmModal';
@@ -109,11 +110,16 @@ function fileDisplayName(group, cloudFilesById) {
 function draftKind(item, cloud) {
   if (item.kind === 'add') return 'new';
   if (item.kind === 'delete') return 'delete';
-  if (item.kind === 'replace') return 'replace';
   const p = item.proposed || {};
   const renamed = p.name && cloud?.name && cloud.name !== p.name;
   const proposedFolder = ('folder_path' in p) ? (p.folder_path || '') : null;
   const moved = proposedFolder !== null && proposedFolder !== (cloud?.folder_path || '');
+  // The DB 'replace' kind covers BOTH editing a file's content in place AND
+  // swapping in a different file — it just means "new bytes". A replace that
+  // keeps the same filename is an in-place CONTENT EDIT, so show it as an
+  // edit (matching the Files tab's "Edited" ribbon). Only a replace that also
+  // changes the name reads as a genuine file swap.
+  if (item.kind === 'replace') return renamed ? 'replace' : 'edit';
   const bytesChanged = p.content_hash && cloud?.content_hash && p.content_hash !== cloud.content_hash;
   if (!bytesChanged && renamed && !moved) return 'rename';
   if (!bytesChanged && moved && !renamed) return 'move';
@@ -131,18 +137,369 @@ function Avatar({ profile, authorId, size = 30 }) {
   );
 }
 
-// ── Real-file thumbnail (proposed bytes or live bytes) ────────────────
-function Thumb({ cloud, item, preferPending = true }) {
+// ── Paper-style content card (from the dashboard-redesign handoff) ─────
+// Shows the file's actual contents on a white "document page" that fades
+// at the bottom — the design's `dv-doc`/`rb-doc` surface. The poster the
+// thumbnail resolver produces IS the content for the previewable types
+// (text → rendered first lines, PDF → page 1, image → the image); other
+// types fall back to a centred MIME glyph on the paper.
+function DocContentCard({ file, draft, preferPending = true }) {
+  const cloud = draft.cloud;
+  const proposed = draft.item?.proposed || {};
+  const name = proposed.name || cloud?.name || file.name;
+  const sizeBytes = proposed.size_bytes ?? cloud?.size_bytes ?? null;
   const [hovered, setHovered] = useState(false);
   const descriptor = useMemo(
-    () => describeChangeRequestItem({ item, cloud, preferPending }),
-    [item, cloud, preferPending],
+    () => describeChangeRequestItem({ item: draft.item, cloud, preferPending }),
+    [draft.item, cloud, preferPending],
   );
+  const metaBits = [];
+  if (sizeBytes != null) metaBits.push(formatBytes(sizeBytes));
+  metaBits.push(extOf(name));
   return (
-    <span className="pe-thumb" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
-      <FileThumbnail descriptor={descriptor} hovered={hovered} />
-    </span>
+    <div className="pe-doc">
+      <div className="pe-doc-head">
+        <div className="pe-doc-head-text">
+          <div className="pe-doc-title">{name}</div>
+          <div className="pe-doc-meta">{metaBits.join(' · ')}</div>
+        </div>
+      </div>
+      <div
+        className="pe-doc-body"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <FileThumbnail descriptor={descriptor} hovered={hovered} />
+      </div>
+    </div>
   );
+}
+
+// ── Inline .docx preview (docx-preview render) ────────────────────────
+// Word docs can't render in <img>/pdf.js, so we rasterise the document inline
+// with docx-preview (lazy-imported, same renderer as the separate-window
+// viewer) and scale the page to fit the pane. The proposed bytes are shown for
+// an edit/new; the cloud copy for a delete. Falls back to the poster card on
+// any failure. No diff overlay — the document is shown as-is.
+function DocxPreview({ file, draft, mode }) {
+  const cloud = draft.cloud;
+  const proposed = draft.item?.proposed || {};
+  const [state, setState] = useState('loading'); // loading | ready | error
+  const scrollRef = useRef(null);
+  const renderRef = useRef(null);
+  const styleRef = useRef(null);
+  // Per-instance class so two docx panes (compare view) don't share styles.
+  const classRef = useRef(`pe-docxr-${Math.random().toString(36).slice(2, 8)}`);
+
+  // Scale the rendered page down to fit the pane width (Chromium `zoom`
+  // reflows the box, so there's no leftover whitespace like transform:scale).
+  const fit = useCallback(() => {
+    const scroll = scrollRef.current;
+    const wrapper = renderRef.current?.firstElementChild;
+    const page = wrapper?.querySelector('section');
+    if (!scroll || !wrapper || !page) return;
+    wrapper.style.zoom = '1';
+    const avail = scroll.clientWidth - 24;
+    const pageW = page.offsetWidth;
+    if (pageW > 0 && avail > 0) wrapper.style.zoom = String(Math.min(1, avail / pageW));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState('loading');
+    (async () => {
+      try {
+        let renderUrl = null;
+        const pendingPath = mode !== 'delete' ? proposed.pending_storage_path : null;
+        if (pendingPath) {
+          const { data } = await createPendingSignedUrl(pendingPath, 1800);
+          renderUrl = data?.signedUrl || null;
+        }
+        if (!renderUrl && cloud?.storage_path) {
+          const { data } = await createSignedDownloadUrl(cloud.storage_path, 1800);
+          renderUrl = data?.signedUrl || null;
+        }
+        if (!renderUrl) throw new Error('No document URL');
+        const res = await fetch(renderUrl);
+        if (!res.ok) throw new Error(`Download failed (${res.status})`);
+        const blob = await res.blob();
+        if (cancelled || !renderRef.current) return;
+        const { renderAsync } = await import('docx-preview');
+        if (cancelled || !renderRef.current) return;
+        renderRef.current.innerHTML = '';
+        if (styleRef.current) styleRef.current.innerHTML = '';
+        await renderAsync(blob, renderRef.current, styleRef.current, {
+          className: classRef.current,
+          inWrapper: true, breakPages: true, ignoreLastRenderedPageBreak: true,
+          experimental: true, useBase64URL: true,
+        });
+        if (cancelled) return;
+        setState('ready');
+        fit();
+      } catch {
+        if (!cancelled) setState('error');
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, cloud?.storage_path, proposed.pending_storage_path, fit]);
+
+  useEffect(() => {
+    if (state !== 'ready' || typeof ResizeObserver === 'undefined') return undefined;
+    const el = scrollRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(() => fit());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [state, fit]);
+
+  if (state === 'error') return <DocContentCard file={file} draft={draft} preferPending={mode !== 'delete'} />;
+
+  return (
+    <div className="pe-docx">
+      <div className="pe-docx-body" ref={scrollRef}>
+        {state === 'loading' && <div className="pe-docx-loading">Loading document…</div>}
+        <div ref={styleRef} className="pe-docx-style" />
+        <div ref={renderRef} className="pe-docx-render" />
+      </div>
+    </div>
+  );
+}
+
+// ── GitHub-style line diff ────────────────────────────────────────────
+// For TEXT files we render edits/removes/new files as a unified line diff
+// (red removed · green added · line numbers) instead of a poster — the
+// reviewer reads exactly what changed. Binary files have no meaningful
+// text diff, so ContentPane falls back to the paper card for those.
+
+const DIFF_MAX_BYTES = 256 * 1024;
+const DIFF_MAX_LINES = 1200;
+
+function splitTextLines(text) {
+  const lines = (text || '').replace(/\r\n?/g, '\n').split('\n');
+  if (lines.length && lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
+async function fetchTextCapped(url) {
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const blob = await res.blob();
+  const slice = blob.size > DIFF_MAX_BYTES ? blob.slice(0, DIFF_MAX_BYTES) : blob;
+  return slice.text();
+}
+
+// Path-keyed text cache so the pane diff AND the VS-column stats share one
+// fetch per file (pending bytes are immutable per change_id, cloud bytes
+// per storage_path, so caching by path for the desk's lifetime is safe).
+const _diffTextCache = new Map();
+function cachedCloudText(path) {
+  const key = `c:${path}`;
+  if (!_diffTextCache.has(key)) {
+    _diffTextCache.set(key, (async () => {
+      const { data } = await createSignedDownloadUrl(path, 1800);
+      if (!data?.signedUrl) return '';
+      return (await fetchTextCapped(data.signedUrl)) || '';
+    })());
+  }
+  return _diffTextCache.get(key);
+}
+function cachedPendingText(path) {
+  const key = `p:${path}`;
+  if (!_diffTextCache.has(key)) {
+    _diffTextCache.set(key, (async () => {
+      const { data } = await createPendingSignedUrl(path, 1800);
+      if (!data?.signedUrl) return '';
+      return (await fetchTextCapped(data.signedUrl)) || '';
+    })());
+  }
+  return _diffTextCache.get(key);
+}
+
+// Add/remove line counts for one draft vs main — the same numbers the pane
+// diff shows, surfaced in the VS column. null when the draft isn't a text
+// content edit (binary, rename/move, or no pending bytes).
+function useDraftDiffStats(draft) {
+  const cloud = draft?.cloud;
+  const proposed = draft?.item?.proposed || {};
+  const newName = proposed.name || cloud?.name || '';
+  const newMime = proposed.mime_type || cloud?.mime_type || '';
+  const diffable = isTextThumbable(newMime, newName) && Boolean(proposed.pending_storage_path);
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    if (!diffable) { setStats(null); return undefined; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [o, nw] = await Promise.all([
+          cloud?.storage_path ? cachedCloudText(cloud.storage_path) : Promise.resolve(''),
+          cachedPendingText(proposed.pending_storage_path),
+        ]);
+        if (cancelled) return;
+        const rows = diffLines(
+          splitTextLines(o).slice(0, DIFF_MAX_LINES),
+          splitTextLines(nw).slice(0, DIFF_MAX_LINES),
+        );
+        let add = 0; let del = 0;
+        for (const r of rows) { if (r.type === 'add') add += 1; else if (r.type === 'remove') del += 1; }
+        if (!cancelled) setStats({ add, del });
+      } catch { if (!cancelled) setStats(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [diffable, cloud?.storage_path, proposed.pending_storage_path]);
+  return diffable ? stats : null;
+}
+
+// Longest-common-subsequence line diff → unified rows. O(n·m); inputs are
+// capped to DIFF_MAX_LINES before this runs so the DP table stays bounded.
+function diffLines(oldLines, newLines) {
+  const n = oldLines.length;
+  const m = newLines.length;
+  const dp = [];
+  for (let i = 0; i <= n; i++) dp.push(new Int32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = oldLines[i] === newLines[j]
+        ? dp[i + 1][j + 1] + 1
+        : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const rows = [];
+  let i = 0; let j = 0; let oldNo = 1; let newNo = 1;
+  while (i < n && j < m) {
+    if (oldLines[i] === newLines[j]) {
+      rows.push({ type: 'context', text: oldLines[i], oldNo: oldNo++, newNo: newNo++ });
+      i++; j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      rows.push({ type: 'remove', text: oldLines[i], oldNo: oldNo++ });
+      i++;
+    } else {
+      rows.push({ type: 'add', text: newLines[j], newNo: newNo++ });
+      j++;
+    }
+  }
+  while (i < n) { rows.push({ type: 'remove', text: oldLines[i], oldNo: oldNo++ }); i++; }
+  while (j < m) { rows.push({ type: 'add', text: newLines[j], newNo: newNo++ }); j++; }
+  return rows;
+}
+
+function DiffView({ file, draft, mode, contentView = 'simple' }) {
+  const cloud = draft.cloud;
+  const proposed = draft.item?.proposed || {};
+  const name = proposed.name || cloud?.name || file.name;
+  const sizeBytes = proposed.size_bytes ?? cloud?.size_bytes ?? null;
+  const [state, setState] = useState('loading'); // loading | ready | error
+  const [oldText, setOldText] = useState('');
+  const [newText, setNewText] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setState('loading');
+    (async () => {
+      try {
+        let o = '';
+        let nw = '';
+        if (mode !== 'new' && cloud?.storage_path) o = await cachedCloudText(cloud.storage_path);
+        if (mode !== 'delete' && proposed.pending_storage_path) nw = await cachedPendingText(proposed.pending_storage_path);
+        if (cancelled) return;
+        setOldText(o); setNewText(nw); setState('ready');
+      } catch {
+        if (!cancelled) setState('error');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [mode, cloud?.storage_path, proposed.pending_storage_path]);
+
+  const rows = useMemo(() => {
+    if (state !== 'ready') return [];
+    let oldLines = splitTextLines(oldText);
+    let newLines = splitTextLines(newText);
+    const truncated = oldLines.length > DIFF_MAX_LINES || newLines.length > DIFF_MAX_LINES;
+    if (truncated) { oldLines = oldLines.slice(0, DIFF_MAX_LINES); newLines = newLines.slice(0, DIFF_MAX_LINES); }
+    let r;
+    if (mode === 'delete') r = oldLines.map((t, k) => ({ type: 'remove', text: t, oldNo: k + 1 }));
+    else if (mode === 'new') r = newLines.map((t, k) => ({ type: 'add', text: t, newNo: k + 1 }));
+    else r = diffLines(oldLines, newLines);
+    if (truncated) r.push({ type: 'context', text: '⋯ diff truncated ⋯', oldNo: '', newNo: '' });
+    return r;
+  }, [state, oldText, newText, mode]);
+
+  if (state === 'loading') {
+    return <div className={`${contentView === 'complex' ? 'pe-redline' : 'pe-diff'} pe-diff-msg`}>Loading diff…</div>;
+  }
+  // Couldn't read the bytes as text — show the poster instead.
+  if (state === 'error') return <DocContentCard file={file} draft={draft} preferPending={mode !== 'delete'} />;
+
+  const addCount = rows.reduce((a, r) => a + (r.type === 'add' ? 1 : 0), 0);
+  const delCount = rows.reduce((a, r) => a + (r.type === 'remove' ? 1 : 0), 0);
+
+  // ── Complex: redline document view (the dashboard-redesign paper page) ──
+  if (contentView === 'complex') {
+    const metaBits = [];
+    if (sizeBytes != null) metaBits.push(formatBytes(sizeBytes));
+    metaBits.push(extOf(name));
+    return (
+      <div className="pe-redline">
+        <div className="pe-redline-head">
+          <span className="pe-redline-title">{name}</span>
+          <span className="pe-redline-meta">{metaBits.join(' · ')}</span>
+        </div>
+        <div className="pe-redline-body">
+          {rows.length === 0 ? (
+            <div className="pe-diff-empty">No textual changes.</div>
+          ) : rows.map((r, k) => (
+            <div key={k} className={`pe-redline-line is-${r.type}`}>{r.text === '' ? ' ' : r.text}</div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Simple: GitHub-style unified line diff ─────────────────────────────
+  return (
+    <div className="pe-diff">
+      <div className="pe-diff-head">
+        <span className="pe-diff-title">{name}</span>
+        <span className="pe-diff-stat">
+          {addCount > 0 && <span className="add">+{addCount}</span>}
+          {delCount > 0 && <span className="del">−{delCount}</span>}
+        </span>
+      </div>
+      <div className="pe-diff-body">
+        {rows.length === 0 ? (
+          <div className="pe-diff-empty">No textual changes.</div>
+        ) : rows.map((r, k) => (
+          <div key={k} className={`pe-diff-row is-${r.type}`}>
+            <span className="pe-diff-gutter">{r.oldNo || ''}</span>
+            <span className="pe-diff-gutter">{r.newNo || ''}</span>
+            <span className="pe-diff-sign">{r.type === 'add' ? '+' : r.type === 'remove' ? '−' : ''}</span>
+            <span className="pe-diff-code">{r.text === '' ? ' ' : r.text}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Decide between the GitHub-style text diff and the paper poster. Pure
+// gate (no hooks) so each branch's component owns its own hooks.
+function ContentPane({ file, draft, mode, contentView }) {
+  const cloud = draft.cloud;
+  const proposed = draft.item?.proposed || {};
+  const newName = proposed.name || cloud?.name || file.name;
+  const newMime = proposed.mime_type || cloud?.mime_type || '';
+  const oldName = cloud?.name || file.name;
+  const oldMime = cloud?.mime_type || '';
+  // Word docs get a real inline render (docx-preview), shown as-is.
+  const isDocx = mode === 'delete'
+    ? isDocxFile(oldMime, oldName)
+    : isDocxFile(newMime, newName);
+  if (isDocx) return <DocxPreview file={file} draft={draft} mode={mode} />;
+  let diffable;
+  if (mode === 'delete') diffable = isTextThumbable(oldMime, oldName);
+  else diffable = isTextThumbable(newMime, newName) && Boolean(proposed.pending_storage_path);
+  if (diffable) return <DiffView file={file} draft={draft} mode={mode} contentView={contentView} />;
+  return <DocContentCard file={file} draft={draft} preferPending={mode !== 'delete'} />;
 }
 
 // ── Reject (admin) — hover tooltip morphs into a reason prompt ─────────
@@ -178,18 +535,28 @@ function RejectButton({ draft, onReject }) {
 // ── Pane shell ────────────────────────────────────────────────────────
 function PaneHeader({ file, draft, author, picked }) {
   const meta = KIND_META[draft.kind] || KIND_META.edit;
+  // The request's note (description) is the author's plain-language summary of
+  // what they changed — shown under the byline like the design mock.
+  const summary = (draft.requestDescription || '').trim();
   return (
-    <div className="rb-pane-head">
-      <Avatar profile={author} authorId={draft.authorId} size={30} />
-      <div className="rb-pane-text">
-        <div className="rb-pane-author">{authorDisplayName(author)}</div>
-        <div className="rb-pane-when">{draft.requestTitle || 'Submitted for review'}</div>
+    <>
+      <div className="rb-pane-head">
+        <Avatar profile={author} authorId={draft.authorId} size={30} />
+        <div className="rb-pane-text">
+          <div className="rb-pane-author">{authorDisplayName(author)}</div>
+          <div className="rb-pane-when">{draft.requestTitle || 'Submitted for review'}</div>
+        </div>
+        {picked && (
+          <span className="dv-pill is-ok rb-pane-pickpill"><Icon name="check" size={10} /> Picked</span>
+        )}
+        {/* The "edit" kind is self-evident from the diff below, so its badge is
+            omitted; other kinds keep theirs for at-a-glance context. */}
+        {draft.kind !== 'edit' && (
+          <span className={`rb-kindbadge is-${meta.tone}`}><Icon name={meta.glyph} size={12} /> {meta.label}</span>
+        )}
       </div>
-      {picked && (
-        <span className="dv-pill is-ok rb-pane-pickpill"><Icon name="check" size={10} /> Picked</span>
-      )}
-      <span className={`rb-kindbadge is-${meta.tone}`}><Icon name={meta.glyph} size={12} /> {meta.label}</span>
-    </div>
+      {summary && <p className="rb-pane-summary">{summary}</p>}
+    </>
   );
 }
 
@@ -214,7 +581,7 @@ function PaneFooter({ file, draft, picked, onPick, onView, canReject, onReject, 
 }
 
 // ── Per-kind pane bodies ──────────────────────────────────────────────
-function PaneBody({ file, draft }) {
+function PaneBody({ file, draft, contentView }) {
   const cloud = draft.cloud;
   const p = draft.item.proposed || {};
   const meta = KIND_META[draft.kind] || KIND_META.edit;
@@ -234,13 +601,7 @@ function PaneBody({ file, draft }) {
             </div>
           </div>
         </div>
-        <div className="rb-preview">
-          <Thumb cloud={null} item={draft.item} preferPending />
-          <div className="rb-preview-text">
-            <div className="rb-preview-name">{p.name || file.name}</div>
-            <div className="rb-preview-note">A brand-new file proposed by {authorDisplayName(null)}. Open it to read the full document before adding it.</div>
-          </div>
-        </div>
+        <ContentPane file={file} draft={draft} mode="new" contentView={contentView} />
       </>
     );
   }
@@ -298,13 +659,7 @@ function PaneBody({ file, draft }) {
             <div className="rb-delete-banner-sub">If you approve this, <strong>{file.name}</strong> disappears from the project once you publish. Your team and clients will no longer see it.</div>
           </div>
         </div>
-        <div className="rb-preview">
-          <Thumb cloud={cloud} item={draft.item} preferPending={false} />
-          <div className="rb-preview-text">
-            <div className="rb-preview-name">{file.name}</div>
-            <div className="rb-preview-note">{file.folder ? `In “${file.folder}”` : 'At the top level'}{cloud?.size_bytes != null ? ` · ${formatBytes(cloud.size_bytes)}` : ''}</div>
-          </div>
-        </div>
+        <ContentPane file={file} draft={draft} mode="delete" contentView={contentView} />
       </>
     );
   }
@@ -334,41 +689,57 @@ function PaneBody({ file, draft }) {
     );
   }
 
-  // edit (default)
-  return (
-    <div className="rb-preview">
-      <Thumb cloud={cloud} item={draft.item} preferPending />
-      <div className="rb-preview-text">
-        <div className="rb-preview-name">{p.name || file.name}</div>
-        <div className="rb-preview-note">
-          Edited version of the live file{p.size_bytes != null ? ` · ${formatBytes(p.size_bytes)}` : ''}. Open it to compare against what's published.
-        </div>
-      </div>
-    </div>
-  );
+  // edit (default) — docx redline / line diff (simple) / redline doc
+  // (complex) for text, paper page otherwise.
+  return <ContentPane file={file} draft={draft} mode="edit" contentView={contentView} />;
 }
 
-function Pane({ file, draft, authorsById, picked, onPick, onView, canReject, onReject, fullWidth }) {
+function Pane({ file, draft, authorsById, picked, onPick, onView, canReject, onReject, fullWidth, contentView }) {
   return (
     <section className={`rb-pane${fullWidth ? ' is-fullwidth' : ''}${picked ? ' is-picked' : ''}`}>
       <PaneHeader file={file} draft={draft} author={authorsById[draft.authorId]} picked={picked} />
-      <PaneBody file={file} draft={draft} />
+      <PaneBody file={file} draft={draft} contentView={contentView} />
       <PaneFooter file={file} draft={draft} picked={picked} onPick={onPick} onView={onView} canReject={canReject} onReject={onReject} fullWidth={fullWidth} />
     </section>
   );
 }
 
 // ── VS column ─────────────────────────────────────────────────────────
+// One VS-column row: the kind dot + that side's diff data. For a text
+// content edit it's the +added / −removed line counts (vs main); otherwise
+// it falls back to the kind label (rename/move/binary have no line diff).
+function VsDiffRow({ kind, stats }) {
+  return (
+    <div className="rb-vs-diffrow">
+      <span className={`rb-vs-dot is-${kind}`} />
+      {stats ? (
+        (stats.add === 0 && stats.del === 0)
+          ? <span className="rb-vs-stat is-none">no change</span>
+          : (
+            <span className="rb-vs-stat">
+              {stats.add > 0 && <span className="add">+{stats.add}</span>}
+              {stats.del > 0 && <span className="del">−{stats.del}</span>}
+            </span>
+          )
+      ) : (
+        (KIND_META[kind] || {}).label
+      )}
+    </div>
+  );
+}
+
 function VsColumn({ left, right }) {
   const mixed = left.kind !== right.kind;
+  const leftStats = useDraftDiffStats(left);
+  const rightStats = useDraftDiffStats(right);
   return (
     <div className="rb-vs">
       <div className="rb-vs-line" />
       <div className="rb-vs-badge">{mixed ? '!' : 'VS'}</div>
       <div className="rb-vs-line" />
       <div className="rb-vs-diff">
-        <div className="rb-vs-diffrow"><span className={`rb-vs-dot is-${left.kind}`} />{(KIND_META[left.kind] || {}).label}</div>
-        <div className="rb-vs-diffrow"><span className={`rb-vs-dot is-${right.kind}`} />{(KIND_META[right.kind] || {}).label}</div>
+        <VsDiffRow kind={left.kind} stats={leftStats} />
+        <VsDiffRow kind={right.kind} stats={rightStats} />
       </div>
     </div>
   );
@@ -399,21 +770,6 @@ function FileChip({ file, tone, decided, authorsById, active, onClick }) {
   );
 }
 
-// ── Tray pill ─────────────────────────────────────────────────────────
-function TrayPill({ file, draft, authorsById }) {
-  if (!draft) {
-    return <div className="rb-tray-item is-empty" title={`${file.name} — awaiting decision`}><Icon name="doc" size={16} /></div>;
-  }
-  const meta = KIND_META[draft.kind] || KIND_META.edit;
-  return (
-    <div className={`rb-tray-item rb-tray-item-${meta.tone}`} title={`${file.name} · ${authorDisplayName(authorsById[draft.authorId])} · ${meta.label}`}>
-      <Avatar profile={authorsById[draft.authorId]} authorId={draft.authorId} size={18} />
-      <span className="rb-tray-item-name">{file.name.length > 22 ? `${file.name.slice(0, 22)}…` : file.name}</span>
-      <span className="rb-tray-item-kind"><Icon name={meta.glyph} size={11} /> {meta.label}</span>
-    </div>
-  );
-}
-
 // ════════════════════════════════════════════════════════════════════════
 export default function PendingEditsDesk() {
   const { selectedProject } = useSelectedProject();
@@ -438,6 +794,9 @@ export default function PendingEditsDesk() {
 
   const [selectedKey, setSelectedKey] = useState(null);
   const [rightDraftIdx, setRightDraftIdx] = useState(1);
+  // How a text change is rendered: 'simple' = GitHub-style line diff (default),
+  // 'complex' = redline document view (paper page, removed/added inline).
+  const [contentView, setContentView] = useState('simple');
   const [confirmingBulk, setConfirmingBulk] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
 
@@ -511,6 +870,7 @@ export default function PendingEditsDesk() {
         vKey: `${v.requestId}:${v.item.id}`,
         requestId: v.requestId,
         requestTitle: v.requestTitle,
+        requestDescription: v.requestDescription,
         authorId: v.authorId,
         item: v.item,
         cloud,
@@ -626,7 +986,7 @@ export default function PendingEditsDesk() {
   else { eyebrow = 'SINGLE EDIT'; instruction = `Only ${leftAuthorName} worked on this — approve it as-is or reject it.`; }
 
   return (
-    <div className="pe-desk">
+    <div className={`pe-desk${isAdmin ? ' has-footer' : ''}`}>
       <header className="rb-top">
         <div>
           <div className="rb-eyebrow">Review desk · {selectedProject?.name || 'this project'}</div>
@@ -673,47 +1033,45 @@ export default function PendingEditsDesk() {
             </div>
             <div className="rb-desk-instr">{instruction}</div>
           </div>
-          {hasComparison && drafts.length > 2 && (
-            <div className="rb-tabs">
-              <span className="rb-tabs-label">Compare with:</span>
-              {drafts.slice(1).map((d, i) => (
-                <button key={d.vKey} type="button" className={`rb-tab${rightDraftIdx === i + 1 ? ' is-on' : ''}`} onClick={() => setRightDraftIdx(i + 1)}>
-                  <Avatar profile={authorsById[d.authorId]} authorId={d.authorId} size={18} />
-                  <span>{authorDisplayName(authorsById[d.authorId]).split(' ')[0]}</span>
-                </button>
-              ))}
+          <div className="rb-desk-head-actions">
+            {/* View mode for text changes — Simple = line diff, Complex =
+                redline document. (Binary files ignore this and show a poster.) */}
+            <div className="rb-viewtoggle" role="tablist" aria-label="Diff view mode">
+              <button type="button" className={`rb-viewtoggle-btn${contentView === 'simple' ? ' is-on' : ''}`} aria-pressed={contentView === 'simple'} onClick={() => setContentView('simple')}>Simple</button>
+              <button type="button" className={`rb-viewtoggle-btn${contentView === 'complex' ? ' is-on' : ''}`} aria-pressed={contentView === 'complex'} onClick={() => setContentView('complex')}>Complex</button>
             </div>
-          )}
+            {hasComparison && drafts.length > 2 && (
+              <div className="rb-tabs">
+                <span className="rb-tabs-label">Compare with:</span>
+                {drafts.slice(1).map((d, i) => (
+                  <button key={d.vKey} type="button" className={`rb-tab${rightDraftIdx === i + 1 ? ' is-on' : ''}`} onClick={() => setRightDraftIdx(i + 1)}>
+                    <Avatar profile={authorsById[d.authorId]} authorId={d.authorId} size={18} />
+                    <span>{authorDisplayName(authorsById[d.authorId]).split(' ')[0]}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {!hasComparison ? (
           <div className="rb-desk-body rb-desk-single">
-            <Pane file={file} draft={leftDraft} authorsById={authorsById} picked={pickedVKey === leftDraft.vKey} onPick={togglePreferredVersion} onView={handleView} canReject={isAdmin} onReject={handleReject} fullWidth />
+            <Pane file={file} draft={leftDraft} authorsById={authorsById} picked={pickedVKey === leftDraft.vKey} onPick={togglePreferredVersion} onView={handleView} canReject={isAdmin} onReject={handleReject} contentView={contentView} fullWidth />
           </div>
         ) : (
           <div className="rb-desk-body">
-            <Pane file={file} draft={leftDraft} authorsById={authorsById} picked={pickedVKey === leftDraft.vKey} onPick={togglePreferredVersion} onView={handleView} canReject={isAdmin} onReject={handleReject} />
+            <Pane file={file} draft={leftDraft} authorsById={authorsById} picked={pickedVKey === leftDraft.vKey} onPick={togglePreferredVersion} onView={handleView} canReject={isAdmin} onReject={handleReject} contentView={contentView} />
             <VsColumn left={leftDraft} right={rightDraft} />
-            <Pane file={file} draft={rightDraft} authorsById={authorsById} picked={pickedVKey === rightDraft.vKey} onPick={togglePreferredVersion} onView={handleView} canReject={isAdmin} onReject={handleReject} />
+            <Pane file={file} draft={rightDraft} authorsById={authorsById} picked={pickedVKey === rightDraft.vKey} onPick={togglePreferredVersion} onView={handleView} canReject={isAdmin} onReject={handleReject} contentView={contentView} />
           </div>
         )}
       </main>
 
-      {/* Sealed-for-tonight tray */}
-      <footer className="rb-tray">
-        <div className="rb-tray-label"><Icon name="stamp" size={14} /> Picked for this release</div>
-        <div className="rb-tray-items">
-          {files.map((f) => {
-            const vKey = preferredVersions.get(f.key);
-            const draft = vKey ? f.drafts.find((d) => d.vKey === vKey) : null;
-            return <TrayPill key={f.key} file={f} draft={draft} authorsById={authorsById} />;
-          })}
-        </div>
-      </footer>
-
-      {/* Fixed publish bar */}
+      {/* Fixed footer (mirrors the Files tab's bottom bar): publish text on
+          the left, the Publish button on the right. Sidebar-offset, blurred
+          backdrop. Admin-only — publishing the release is its sole purpose. */}
       {isAdmin && (
-        <div className="pe-publishbar">
+        <footer className="pe-footer">
           <div className="pe-publishbar-text">
             {pickedCount > 0
               ? <><strong>{pickedCount}</strong> {pickedCount === 1 ? 'file' : 'files'} picked — publishing composes a new official version.</>
@@ -722,7 +1080,7 @@ export default function PendingEditsDesk() {
           <button type="button" className="dv-btn is-primary rb-publish-btn" disabled={approveRequestIds.length === 0 || bulkRunning} onClick={() => setConfirmingBulk(true)}>
             <Icon name="send" size={14} /> {bulkRunning ? 'Publishing…' : `Publish · ${pickedCount} ${pickedCount === 1 ? 'file' : 'files'}`}
           </button>
-        </div>
+        </footer>
       )}
 
       <ConfirmModal

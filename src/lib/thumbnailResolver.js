@@ -53,7 +53,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createSignedDownloadUrl } from './projectFiles';
 import { createPendingSignedUrl } from './branches';
-import { generateThumbnail, isPptxFile } from './thumbnails';
+import { generateThumbnail, isPptxFile, isTextThumbable } from './thumbnails';
 
 // ── Unified cache ─────────────────────────────────────────────────────
 
@@ -218,11 +218,12 @@ function extractVideoPosterFromUrl(sourceUrl, timeoutMs = 6000) {
 // Walks the fallback chain to produce a poster URL for the descriptor.
 // Returns null when every branch failed (component will render glyph).
 //
-// Only image / video / PDF get thumbnails. Every other MIME (DOCX,
-// text, generic binaries…) falls through to null so the component
-// renders its MIME glyph instead — a deliberate choice to stop the
-// app from showing rasterized "previews" for file types where the
-// rendering is approximate or misleading.
+// Image / video / PDF / PPTX / plain-text get thumbnails. Every other
+// MIME (DOCX, generic binaries…) falls through to null so the component
+// renders its MIME glyph instead — a deliberate choice to stop the app
+// from showing rasterized "previews" for file types where the rendering
+// is approximate or misleading. Plain text is exempt: rendering its first
+// lines is faithful (the text IS the content), not an approximation.
 async function resolve(descriptor) {
   const { name, mime, posters, source } = descriptor;
   const m = mime || '';
@@ -232,7 +233,8 @@ async function resolve(descriptor) {
   const isThumbable = m.startsWith('image/')
     || m.startsWith('video/')
     || m === 'application/pdf'
-    || isPptxFile(m, name);
+    || isPptxFile(m, name)
+    || isTextThumbable(m, name);
   if (!isThumbable) return null;
 
   // 1. Try each poster source in order.
