@@ -9,7 +9,7 @@ import './ActivityMetrics.css';
 // projects ("my activity").
 //
 // Layout (all charts inline SVG / CSS — no chart lib):
-//   Row 1 (hero) : Review pipeline — Drafts → In review → Merged
+//   Row 1 (hero) : This week at a glance — headline + verb tiles + 14-day trend
 //   Row 2 (3col) : File-activity KPIs | 28-day heatmap | People I worked with
 //   Row 3 (3col) : Streak | When I work (24h) | Files I touched
 
@@ -23,10 +23,8 @@ const IconFile = ic(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0
 const IconSend = ic(<><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></>, 11);
 const ArrowUp = ic(<polyline points="6 15 12 9 18 15" />, 9);
 const ArrowDown = ic(<polyline points="6 9 12 15 18 9" />, 9);
-const ChevRight = ic(<polyline points="9 6 15 12 9 18" />, 18);
-const GlyphDraft = ic(<><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" /></>, 14);
-const GlyphReview = ic(<><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></>, 14);
-const GlyphMerged = ic(<><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M6 9v6a6 6 0 0 0 6 6h3" /></>, 14);
+const GlyphPipeline = ic(<polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />, 14);
+const GlyphFlame = ic(<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />, 14);
 const GlyphHeatmap = ic(<><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></>);
 const GlyphPeople = ic(<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>);
 const GlyphClock = ic(<><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></>);
@@ -62,52 +60,123 @@ function Delta({ value }) {
   );
 }
 
-// ── HERO: review pipeline ─────────────────────────────────────────────
-function PipelineCard({ m }) {
-  const p = m.pipeline;
-  const draftTotal = p.drafts.breakdown.reduce((s, b) => s + b.value, 0);
+// ── HERO: This week at a glance ───────────────────────────────────────
+// Panoramic personal summary: headline total + 2×2 verb tiles on the left,
+// a 14-day area trend (with a "this week" divider) on the right.
+function ThisWeekCard({ m }) {
+  const w = m.thisWeek;
+  const delta = pctDelta(w.total, w.prev);
+
+  // 14-day area chart geometry — normalized viewBox so it scales fluidly.
+  const V_W = 520; const V_H = 160; const PAD_T = 16; const PAD_B = 8;
+  const max = Math.max(...w.trend, 1);
+  const step = V_W / (w.trend.length - 1 || 1);
+  const pts = w.trend.map((v, i) => [i * step, PAD_T + (1 - v / max) * (V_H - PAD_T - PAD_B)]);
+  const linePath = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
+  const areaPath = `${linePath} L${V_W} ${V_H} L0 ${V_H} Z`;
+
+  const todayIdx = w.trend.length - 1;
+  const [todayX, todayY] = pts[todayIdx];
+  const bestIdx = w.trend.reduce((best, v, i) => (v > w.trend[best] ? i : best), 0);
+  const [bestX, bestY] = pts[bestIdx];
+  const gridY = (frac) => PAD_T + (1 - frac) * (V_H - PAD_T - PAD_B);
+  const weekCutX = 7 * step;
+
   return (
     <div className="m-card">
-      <div className="m-pipeline-body">
-        <div className="m-stage" data-tone="drafts">
-          <div className="m-stage-head"><span className="m-stage-glyph">{GlyphDraft}</span><span className="m-stage-label">My drafts</span></div>
-          <div className="m-stage-value-row"><span className="m-stage-value">{p.drafts.count}</span></div>
-          <div className="m-stage-detail"><strong>{p.drafts.detail}</strong> · {draftTotal} pending edits</div>
-          {draftTotal > 0 && (
-            <>
-              <div className="m-mini-bar">
-                {p.drafts.breakdown.map((b) => (
-                  <Tooltip key={b.label} content={`${b.label}: ${b.value}`}>
-                    <span data-cat={b.cat} style={{ width: `${(b.value / draftTotal) * 100}%` }} />
-                  </Tooltip>
-                ))}
+      <div className="m-card-head">
+        <h3 className="m-card-title"><span className="m-card-title-icon">{GlyphPipeline}</span>This week at a glance</h3>
+        <span className="m-card-period">Mon – today</span>
+      </div>
+
+      <div className="m-week">
+        {/* LEFT — headline + verb tiles */}
+        <div className="m-week-left">
+          <div className="m-week-hero">
+            <div className="m-week-hero-row">
+              <span className="m-week-hero-value">{w.total}</span>
+              <span className="m-week-hero-unit">things I did</span>
+              <Delta value={delta} />
+            </div>
+            <span className="m-week-hero-prev">
+              Up from <strong>{w.prev}</strong> last week · Best day <strong>{w.bestDay.label}</strong> ({w.bestDay.value} event{w.bestDay.value === 1 ? '' : 's'})
+            </span>
+          </div>
+
+          <div className="m-week-verbs">
+            {w.verbs.map((v) => (
+              <div key={v.label} className="m-week-verb" data-cat={v.cat}>
+                <div className="m-week-verb-row">
+                  <span className="m-week-verb-value">{v.value}</span>
+                  <span className="m-week-verb-label">{v.label}</span>
+                </div>
+                <span className="m-week-verb-sub">{v.sub}</span>
               </div>
-              <div className="m-mini-legend">
-                {p.drafts.breakdown.map((b) => (
-                  <span key={b.label} className="m-mini-legend-item">
-                    <span className="m-mini-legend-swatch" data-cat={b.cat} />{b.label} <strong>{b.value}</strong>
-                  </span>
-                ))}
-              </div>
-            </>
-          )}
+            ))}
+          </div>
         </div>
 
-        <div className="m-pipe-arrow">{ChevRight}</div>
+        {/* RIGHT — 14-day area trend */}
+        <div className="m-week-right">
+          <div className="m-week-right-head">
+            <h4>Last 14 days</h4>
+            <span className="m-week-right-head-foot">
+              Peak <strong>{w.bestDay.value}</strong> · Quiet <strong>{w.quietDay.value}</strong>
+            </span>
+          </div>
 
-        <div className="m-stage" data-tone="review">
-          <div className="m-stage-head"><span className="m-stage-glyph">{GlyphReview}</span><span className="m-stage-label">In review</span></div>
-          <div className="m-stage-value-row"><span className="m-stage-value">{p.inReview.count}</span></div>
-          <div className="m-stage-detail">{p.inReview.detail}</div>
-          {p.inReview.oldest && <div className="m-stage-detail" style={{ fontSize: 11 }}>{p.inReview.oldest}</div>}
+          <div className="m-week-chart">
+            <svg viewBox={`0 0 ${V_W} ${V_H + 4}`} preserveAspectRatio="none">
+              {[0.25, 0.5, 0.75, 1].map((f) => (
+                <line key={f} className="area-grid" x1="0" x2={V_W} y1={gridY(f)} y2={gridY(f)} />
+              ))}
+              <line className="area-week-cut" x1={weekCutX} x2={weekCutX} y1={PAD_T - 6} y2={V_H} />
+              <text className="area-week-cut-label" x={weekCutX + 6} y={PAD_T - 4}>This week →</text>
+              <path className="area-fill" d={areaPath} />
+              <path className="area-line" d={linePath} />
+              <circle className="area-dot-best" cx={bestX} cy={bestY} r="4.5" />
+              <text className="area-callout-value" x={bestX} y={bestY - 10} textAnchor="middle">{w.trend[bestIdx]}</text>
+              <circle className="area-dot" cx={todayX} cy={todayY} r="4.5" />
+              <text className="area-callout" x={todayX} y={todayY - 12} textAnchor="end" dx="-6">Today</text>
+            </svg>
+          </div>
+
+          <div className="m-week-axis" aria-hidden="true">
+            {w.days.map((d, i) => (
+              <span key={i} className={i === todayIdx ? 'is-today' : ''}>{i === todayIdx ? 'Now' : d[0]}</span>
+            ))}
+          </div>
         </div>
+      </div>
+    </div>
+  );
+}
 
-        <div className="m-pipe-arrow">{ChevRight}</div>
-
-        <div className="m-stage" data-tone="merged">
-          <div className="m-stage-head"><span className="m-stage-glyph">{GlyphMerged}</span><span className="m-stage-label">Merged into main</span></div>
-          <div className="m-stage-value-row"><span className="m-stage-value">{p.merged.count}</span><Delta value={p.merged.delta} /></div>
-          <div className="m-stage-detail">{p.merged.detail} · was <strong>{p.merged.prev}</strong> prior week</div>
+// ── Streak counter ────────────────────────────────────────────────────
+function StreakCard({ m }) {
+  const s = m.streak;
+  const todayIdx = s.last14.length - 1;
+  return (
+    <div className="m-card">
+      <div className="m-card-head">
+        <h3 className="m-card-title"><span className="m-card-title-icon">{GlyphFlame}</span>Current streak</h3>
+        <span className="m-card-period">14 d</span>
+      </div>
+      <div className="m-streak-body">
+        <div className="m-streak-hero">
+          <span className="m-streak-value">{s.current}</span>
+          <span className="m-streak-unit">day{s.current === 1 ? '' : 's'} active</span>
+        </div>
+        <div className="m-streak-dots" aria-label="Last 14 days">
+          {s.last14.map((on, i) => (
+            <Tooltip key={i} content={`${i === todayIdx ? 'Today' : `${todayIdx - i} d ago`} — ${on ? 'active' : 'idle'}`}>
+              <span className={`m-streak-dot${on ? ' is-on' : ''}${i === todayIdx ? ' is-today' : ''}`} />
+            </Tooltip>
+          ))}
+        </div>
+        <div className="m-streak-foot">
+          <span>Longest <strong>{s.longest} days</strong></span>
+          <span>Keep it going →</span>
         </div>
       </div>
     </div>
@@ -371,13 +440,14 @@ export default function ActivityMetrics({ userId }) {
 
   return (
     <div className="metrics">
-      <PipelineCard m={metrics} />
+      <ThisWeekCard m={metrics} />
       <div className="m-row">
         <KpiStackCard m={metrics} />
         <HeatmapCard m={metrics} />
         <PeopleCard m={metrics} />
       </div>
       <div className="m-row-3">
+        <StreakCard m={metrics} />
         <WhenIWorkCard m={metrics} />
         <TopFilesCard m={metrics} />
       </div>

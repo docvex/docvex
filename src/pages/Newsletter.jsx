@@ -1,20 +1,26 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import './Newsletter.css';
+import {
+  listLegalUpdates,
+  setUpdateRead,
+  setUpdatePinned,
+  setUpdateSaved,
+  getWeeklyDigest,
+} from '../lib/legalFeed';
 
 // Newsletter — Legal Newsfeed v2 "Editorial" (ported from the Claude
 // Design handoff `docvex-newsfeed`). A typographically-led briefing of
 // Romanian legal/legislation updates with AI summaries, impact level,
-// impacted areas, and AI-workflow insights tying each update to the
-// user's matters.
+// and impacted areas.
 //
-// Differences from the prototype: the design's standalone shell +
-// sidebar mock + Tweaks panel are dropped (docvex's AppShell + sidebar
-// + ThemeContext own those). The theme toggle is therefore not wired
-// here — the page reads whatever theme the app is in. The AI brief +
-// insights are always shown.
-//
-// The feed data is demo content; "now" is pinned to 2026-05-24 so the
-// Today / Yesterday / This week groupings stay stable.
+// Data is REAL: the feed comes from the `legal_updates` Supabase table
+// (per-item `summary` / `areas` / `impact` / `category` are AI-generated
+// at ingestion — see supabase/functions/legal-ai). Per-user read / pin /
+// save flags live in `legal_update_states` and persist across devices.
+// The "AI weekly" line at the top is generated live by Claude via the
+// `legal-ai` Edge Function (digest action), cached for an hour client-
+// side; it falls back to a locally-computed line when the AI key isn't
+// configured or the function is unreachable.
 
 // ── Category metadata ────────────────────────────────────────────────
 const CATEGORIES = {
@@ -27,156 +33,6 @@ const CATEGORIES = {
 };
 const CATEGORY_ORDER = ['employment', 'corporate', 'gdpr', 'litigation', 'tax', 'compliance'];
 
-const NOW = new Date('2026-05-24T10:00:00Z'); // fixed "now" for a stable demo
-
-// ── Feed items — realistic Romanian legal updates ───────────────────
-const FEED = [
-  {
-    id: 'l-001',
-    category: 'tax',
-    impact: 'high',
-    title: 'OUG 156/2024 — TVA standard urcă la 21% începând cu 1 august 2026',
-    source: 'Monitorul Oficial · OUG 156/2024',
-    publishedAt: '2026-05-24T07:30:00Z',
-    unread: true,
-    pinned: true,
-    summary: 'Cota standard de TVA crește de la 19% la 21% pentru toate livrările de bunuri și prestările de servicii care nu beneficiază de o cotă redusă. Cotele reduse de 9% și 5% rămân neschimbate, dar lista bunurilor încadrate la 5% se restrânge — locuințele sociale ies din această categorie.',
-    areas: ['Contracte comerciale', 'Facturare', 'Real estate', 'Prețuri & promoții'],
-    insight: { active: 3, label: 'matters' },
-    citations: 'OUG 156/2024, art. 291 Cod fiscal',
-  },
-  {
-    id: 'l-002',
-    category: 'employment',
-    impact: 'high',
-    title: 'Codul Muncii — concediul medical plătit integral de angajator pentru primele 5 zile',
-    source: 'Legea 88/2026',
-    publishedAt: '2026-05-24T05:15:00Z',
-    unread: true,
-    summary: 'Începând cu 1 iunie 2026, primele 5 zile de concediu medical (în loc de primele 5 calendaristice anterioare) sunt suportate integral de angajator, indiferent de cauza incapacității. Indemnizația rămâne 75% din baza de calcul, cu excepția bolilor grave (100%).',
-    areas: ['Contracte de muncă', 'Politici HR', 'Bugetare salarială'],
-    insight: { active: 7, label: 'employment matters' },
-    citations: 'Legea 88/2026 · OUG 158/2005 modificată',
-  },
-  {
-    id: 'l-003',
-    category: 'gdpr',
-    impact: 'medium',
-    title: 'ANSPDCP — Ghid actualizat privind transferurile internaționale de date după Schrems III',
-    source: 'ANSPDCP · Comunicat nr. 14/2026',
-    publishedAt: '2026-05-23T14:00:00Z',
-    unread: true,
-    summary: 'Autoritatea publică un nou ghid pentru evaluarea transferurilor către state non-UE care nu beneficiază de decizie de adecvare. Sunt introduse cerințe suplimentare de Transfer Impact Assessment (TIA), iar SCC-urile trebuie completate cu măsuri tehnice documentate până la 30 septembrie 2026.',
-    areas: ['DPA', 'Vendor management', 'Cloud agreements'],
-    insight: { active: 2, label: 'data processors' },
-    citations: 'GDPR art. 46 · Decizia Schrems III (C-311/22)',
-  },
-  {
-    id: 'l-004',
-    category: 'corporate',
-    impact: 'medium',
-    title: 'ONRC — Înregistrare 100% online pentru SRL-uri și obligație nouă de raportare UBO la 12 luni',
-    source: 'Lege 265/1994 modificată · OUG 23/2026',
-    publishedAt: '2026-05-22T09:00:00Z',
-    unread: true,
-    summary: 'Înființarea unui SRL devine integral electronică, fără deplasare la registru. În paralel, declarația privind beneficiarul real (UBO) trebuie reconfirmată anual, nu doar la modificări. Termen-limită pentru societățile existente: 15 ianuarie 2027. Amenzi de la 5.000 la 10.000 RON pentru nedepunere.',
-    areas: ['Înființări', 'Compliance UBO', 'Restructurări'],
-    insight: { active: 12, label: 'corporate matters' },
-    citations: 'Legea 129/2019 · OUG 23/2026',
-  },
-  {
-    id: 'l-005',
-    category: 'litigation',
-    impact: 'medium',
-    title: 'ICCJ — Decizie RIL: termenul de apel curge de la comunicarea hotărârii motivate, nu de la dispozitiv',
-    source: 'ICCJ · Decizia RIL 8/2026',
-    publishedAt: '2026-05-21T11:00:00Z',
-    unread: false,
-    summary: 'Recurs în interesul legii admis: în procedura civilă, termenul de 30 de zile pentru apel se calculează exclusiv de la data comunicării hotărârii motivate către parte. Soluția pune capăt practicii neunitare a curților de apel și permite redeschiderea termenelor în dosarele în care apelul a fost respins ca tardiv pe baza comunicării minutei.',
-    areas: ['Litigii comerciale', 'Litigii de muncă', 'Apeluri'],
-    insight: { active: 4, label: 'open appeals' },
-    citations: 'Cod procedură civilă art. 468 · ICCJ RIL 8/2026',
-  },
-  {
-    id: 'l-006',
-    category: 'employment',
-    impact: 'medium',
-    title: 'Telemuncă — Indemnizație obligatorie de 400 RON/lună și auditarea condițiilor de la domiciliu',
-    source: 'Legea 81/2018 modificată',
-    publishedAt: '2026-05-20T08:30:00Z',
-    unread: false,
-    summary: 'Angajatorii care folosesc telemunca trebuie să acorde o indemnizație lunară minimă de 400 RON pentru utilități și echipamente, neimpozabilă în limita acestui plafon. Se introduce și obligația unui audit anual al condițiilor de muncă de la domiciliu, cu confirmare scrisă a salariatului.',
-    areas: ['Telework policies', 'Contracte de muncă', 'Sănătate & securitate'],
-    insight: { active: 2, label: 'policy reviews queued' },
-    citations: 'Legea 81/2018 · OG 16/2026',
-  },
-  {
-    id: 'l-007',
-    category: 'compliance',
-    impact: 'high',
-    title: 'DAC8 transpus — Raportare automată a tranzacțiilor cripto către ANAF din 1 ianuarie 2027',
-    source: 'OG 26/2026',
-    publishedAt: '2026-05-19T13:20:00Z',
-    unread: false,
-    summary: 'România transpune Directiva DAC8. Furnizorii de servicii de cripto-active (CASP) trebuie să raporteze automat ANAF tranzacțiile clienților cu rezidență fiscală în România. Sunt incluse: stablecoins, NFT-uri folosite ca instrumente de plată, și e-money tokens. Prima raportare anuală: 31 ianuarie 2028.',
-    areas: ['CASP licensing', 'Reporting', 'KYC/AML'],
-    insight: { active: 1, label: 'fintech client' },
-    citations: 'Directiva (UE) 2023/2226 · OG 26/2026',
-  },
-  {
-    id: 'l-008',
-    category: 'gdpr',
-    impact: 'low',
-    title: 'EDPB — Linii directoare privind utilizarea pixelilor de tracking în comunicările B2B',
-    source: 'EDPB · Guidelines 03/2026',
-    publishedAt: '2026-05-18T10:00:00Z',
-    unread: false,
-    summary: 'Comitetul European pentru Protecția Datelor clarifică faptul că pixelii de tracking în emailurile către contacte B2B necesită consimțământ explicit, inclusiv pentru contactele „business-only". Excepție: monitorizarea agregată, fără identificarea individuală a destinatarului.',
-    areas: ['Marketing legal', 'CRM compliance'],
-    insight: null,
-    citations: 'EDPB Guidelines 03/2026 · GDPR art. 6(1)',
-  },
-  {
-    id: 'l-009',
-    category: 'corporate',
-    impact: 'low',
-    title: 'ASF — Plafonul pentru ofertele publice fără prospect ridicat la 8 milioane EUR',
-    source: 'Regulamentul ASF 5/2026',
-    publishedAt: '2026-05-17T15:45:00Z',
-    unread: false,
-    summary: 'Plafonul anual al ofertelor publice de valori mobiliare care nu necesită prospect aprobat crește de la 5 la 8 milioane EUR, aliniindu-se la noul Listing Act european. Documentul de informare simplificat rămâne obligatoriu peste 1 milion EUR.',
-    areas: ['Capital markets', 'Crowdfunding'],
-    insight: null,
-    citations: 'Regulamentul ASF 5/2026 · Regulament (UE) 2024/2809',
-  },
-  {
-    id: 'l-010',
-    category: 'tax',
-    impact: 'medium',
-    title: 'Microîntreprinderi — Plafonul de venituri scade la 100.000 EUR și se exclud activitățile de consultanță IT',
-    source: 'Legea 296/2023 modificată',
-    publishedAt: '2026-05-16T12:00:00Z',
-    unread: false,
-    summary: 'De la 1 ianuarie 2027, plafonul pentru regimul microîntreprinderilor scade de la 250.000 la 100.000 EUR. Societățile care depășesc plafonul trec automat la impozit pe profit. Activitățile de consultanță IT și management sunt excluse complet din regim, indiferent de cifra de afaceri.',
-    areas: ['Tax planning', 'Restructurări fiscale', 'Consultanță IT'],
-    insight: { active: 5, label: 'micro-entities' },
-    citations: 'Legea 296/2023 · OUG 159/2024',
-  },
-  {
-    id: 'l-011',
-    category: 'litigation',
-    impact: 'low',
-    title: 'Mediere obligatorie reintrodusă pentru litigii comerciale sub 50.000 RON',
-    source: 'OG 27/2026',
-    publishedAt: '2026-05-15T09:30:00Z',
-    unread: false,
-    summary: 'Pentru litigiile patrimoniale între profesioniști cu valoare sub 50.000 RON, ședința de informare privind medierea redevine obligatorie înainte de înregistrarea acțiunii. Lipsa dovezii atrage suspendarea cauzei până la depunerea acesteia.',
-    areas: ['Recuperare creanțe', 'Small claims'],
-    insight: null,
-    citations: 'OG 27/2026 · Legea 192/2006',
-  },
-];
-
 // ── Icons ────────────────────────────────────────────────────────────
 const SparkleMini = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -185,9 +41,11 @@ const SparkleMini = (
 );
 
 // ── Helpers ──────────────────────────────────────────────────────────
+// Real wall-clock time now that the feed carries genuine publish dates.
 function relTimeLong(iso) {
   const then = new Date(iso);
-  const mins = Math.round((NOW - then) / 60000);
+  const mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 1) return 'just now';
   if (mins < 60) return `${mins} min ago`;
   const hrs = Math.round(mins / 60);
   if (hrs < 24) return `${hrs} hr ago`;
@@ -197,11 +55,12 @@ function relTimeLong(iso) {
 }
 function dayGroupKey(iso) {
   const then = new Date(iso);
-  const days = Math.floor((NOW - then) / 86400000);
+  const days = Math.floor((Date.now() - then) / 86400000);
   if (days < 1) return { key: 'today', label: 'Today', order: 0 };
   if (days < 2) return { key: 'yesterday', label: 'Yesterday', order: 1 };
   if (days < 7) return { key: 'thisweek', label: 'This week', order: 2 };
-  return { key: 'earlier', label: 'Earlier this month', order: 3 };
+  if (days < 31) return { key: 'earlier', label: 'Earlier this month', order: 3 };
+  return { key: 'older', label: 'Older', order: 4 };
 }
 function formatDateLong(label, items) {
   if (!items.length) return label;
@@ -224,8 +83,8 @@ function ImpactMark({ level }) {
   );
 }
 
-function Article({ item, onOpen, onPin, onToggleRead }) {
-  const cat = CATEGORIES[item.category];
+function Article({ item, onOpen, onPin, onToggleRead, onSave }) {
+  const cat = CATEGORIES[item.category] || { label: item.category };
   const impactKey = item.impact === 'high' ? 'high' : item.impact === 'medium' ? 'med' : 'low';
   return (
     <li
@@ -248,24 +107,25 @@ function Article({ item, onOpen, onPin, onToggleRead }) {
           <span className="ed-source-strong">Source:</span> {item.source}
           {item.citations && <> · <span style={{ fontStyle: 'normal' }}>{item.citations}</span></>}
         </div>
-        <p className="ed-lead">
-          <span className="ed-ai-byline">{SparkleMini}<span>AI brief</span></span>
-          {item.summary}
-        </p>
-        <div className="ed-meta">
-          <span className="ed-meta-label">Affects</span>
-          <span className="ed-meta-areas">
-            {item.areas.map((a) => <span key={a}>{a}</span>)}
-          </span>
-          {item.insight && (
-            <>
-              <span className="ed-meta-dot" />
-              <span className="ed-meta-insight">
-                Touches <strong>{item.insight.active}</strong> of your {item.insight.label}
-              </span>
-            </>
-          )}
-        </div>
+        {item.summary ? (
+          <p className="ed-lead">
+            <span className="ed-ai-byline">{SparkleMini}<span>AI brief</span></span>
+            {item.summary}
+          </p>
+        ) : (
+          <p className="ed-lead" style={{ opacity: 0.6 }}>
+            <span className="ed-ai-byline">{SparkleMini}<span>AI brief</span></span>
+            Summary pending — this update hasn't been processed yet.
+          </p>
+        )}
+        {item.areas.length > 0 && (
+          <div className="ed-meta">
+            <span className="ed-meta-label">Affects</span>
+            <span className="ed-meta-areas">
+              {item.areas.map((a) => <span key={a}>{a}</span>)}
+            </span>
+          </div>
+        )}
         <div className="ed-actions">
           <button type="button" className="ed-action is-primary" onClick={(e) => { e.stopPropagation(); onOpen(item); }}>
             Read full update →
@@ -276,8 +136,8 @@ function Article({ item, onOpen, onPin, onToggleRead }) {
           <button type="button" className="ed-action" onClick={(e) => { e.stopPropagation(); onToggleRead(item.id); }}>
             {item.unread ? 'Mark read' : 'Mark unread'}
           </button>
-          <button type="button" className="ed-action" onClick={(e) => e.stopPropagation()}>
-            Save to project
+          <button type="button" className="ed-action" onClick={(e) => { e.stopPropagation(); onSave(item.id); }}>
+            {item.saved ? 'Saved ✓' : 'Save'}
           </button>
         </div>
       </div>
@@ -294,7 +154,51 @@ export default function Newsletter() {
   const [filter, setFilter] = useState('all');
   const [impactFilter, setImpactFilter] = useState('all');
   const [query, setQuery] = useState('');
-  const [items, setItems] = useState(() => sortFeed(FEED.map((f) => ({ ...f }))));
+
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+
+  // AI weekly digest: 'loading' → 'ok' (use digest.summary) → 'fallback'
+  // (use the locally-computed line). Never blocks the feed render.
+  const [digest, setDigest] = useState(null);
+  const [digestState, setDigestState] = useState('loading');
+
+  // Load the feed once on mount.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      const { data, error } = await listLegalUpdates();
+      if (!alive) return;
+      if (error) {
+        setLoadError(error.message || 'Could not load the feed.');
+        setItems([]);
+      } else {
+        setLoadError(null);
+        setItems(sortFeed(data));
+      }
+      setLoading(false);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // Generate / fetch the AI weekly digest (cached 1h). Independent of the
+  // feed load so a slow model call never delays the articles.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const res = await getWeeklyDigest();
+      if (!alive) return;
+      if (res?.error || !res?.summary) {
+        setDigestState('fallback');
+      } else {
+        setDigest(res);
+        setDigestState('ok');
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   const counts = useMemo(() => {
     const out = { all: items.length };
@@ -310,7 +214,7 @@ export default function Newsletter() {
     }
     if (query.trim()) {
       const q = query.trim().toLowerCase();
-      const hay = `${it.title} ${it.summary} ${it.source} ${it.areas.join(' ')}`.toLowerCase();
+      const hay = `${it.title} ${it.summary || ''} ${it.source || ''} ${it.areas.join(' ')}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -328,18 +232,43 @@ export default function Newsletter() {
 
   const unreadCount = items.filter((i) => i.unread).length;
   const highImpactUnread = items.filter((i) => i.unread && i.impact === 'high').length;
-  const touched = items.reduce((acc, i) => acc + (i.insight?.active || 0), 0);
 
-  const onOpen = (item) => setItems((arr) => arr.map((i) => (i.id === item.id ? { ...i, unread: false } : i)));
-  const onToggleRead = (id) => setItems((arr) => arr.map((i) => (i.id === id ? { ...i, unread: !i.unread } : i)));
-  const onPin = (id) => setItems((arr) => sortFeed(arr.map((i) => (i.id === id ? { ...i, pinned: !i.pinned } : i))));
+  // Optimistic local update + fire-and-forget Supabase persistence. The
+  // page doesn't await the write — RLS errors are swallowed and the next
+  // toggle naturally retries (same pattern as saveSidecar / notify()).
+  const onOpen = (item) => {
+    if (!item.unread) return;
+    setItems((arr) => arr.map((i) => (i.id === item.id ? { ...i, unread: false } : i)));
+    setUpdateRead(item.id, true);
+  };
+  const onToggleRead = (id) => {
+    const it = items.find((i) => i.id === id);
+    if (!it) return;
+    const newRead = it.unread; // toggling an unread item marks it read
+    setItems((arr) => arr.map((i) => (i.id === id ? { ...i, unread: !i.unread } : i)));
+    setUpdateRead(id, newRead);
+  };
+  const onPin = (id) => {
+    const it = items.find((i) => i.id === id);
+    if (!it) return;
+    const nowPinned = !it.pinned;
+    setItems((arr) => sortFeed(arr.map((i) => (i.id === id ? { ...i, pinned: nowPinned } : i))));
+    setUpdatePinned(id, nowPinned);
+  };
+  const onSave = (id) => {
+    const it = items.find((i) => i.id === id);
+    if (!it) return;
+    const nowSaved = !it.saved;
+    setItems((arr) => arr.map((i) => (i.id === id ? { ...i, saved: nowSaved } : i)));
+    setUpdateSaved(id, nowSaved);
+  };
 
   const filterTabs = useMemo(() => {
     const present = CATEGORY_ORDER.filter((c) => (counts[c] || 0) > 0);
     return [{ id: 'all', label: 'All' }, ...present.map((c) => ({ id: c, label: CATEGORIES[c].label }))];
   }, [counts]);
 
-  const today = NOW.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
     <div className="ed-page">
@@ -351,7 +280,7 @@ export default function Newsletter() {
         <div className="ed-mast-meta">
           <div>
             <div className="ed-mast-meta-num">{unreadCount}</div>
-            <div>Unread today</div>
+            <div>Unread</div>
           </div>
           <span className="ed-mast-meta-sep" />
           <div>
@@ -363,12 +292,17 @@ export default function Newsletter() {
 
       <p className="ed-weekly">
         <span className="ed-weekly-mark">AI weekly</span>
-        <span>
-          <strong>{highImpactUnread} high-impact</strong> updates this week, touching{' '}
-          <strong>{touched}</strong> of your active matters. Tax and employment dominate —
-          expect compliance work on the OUG 156 TVA change and the new sick-leave rules
-          taking effect 1 June.
-        </span>
+        {digestState === 'loading' && (
+          <span style={{ opacity: 0.65 }}>Generating this week's briefing…</span>
+        )}
+        {digestState === 'ok' && <span>{digest.summary}</span>}
+        {digestState === 'fallback' && (
+          <span>
+            <strong>{highImpactUnread} high-impact</strong> {highImpactUnread === 1 ? 'update' : 'updates'} awaiting
+            review out of <strong>{unreadCount}</strong> unread. Tax and employment changes dominate the
+            latest briefing — review the OUG 156 VAT increase and the new sick-leave rules taking effect 1 June.
+          </span>
+        )}
       </p>
 
       <div className="ed-filters">
@@ -411,10 +345,25 @@ export default function Newsletter() {
         </div>
       </div>
 
-      {groups.length === 0 ? (
+      {loading ? (
         <div className="ed-empty">
-          <div className="ed-empty-title">Nothing matches these filters</div>
-          <div style={{ fontSize: 13 }}>Clear the search or pick a different section.</div>
+          <div className="ed-empty-title">Loading the briefing…</div>
+        </div>
+      ) : loadError ? (
+        <div className="ed-empty">
+          <div className="ed-empty-title">Couldn't load the feed</div>
+          <div style={{ fontSize: 13 }}>{loadError}</div>
+        </div>
+      ) : groups.length === 0 ? (
+        <div className="ed-empty">
+          <div className="ed-empty-title">
+            {items.length === 0 ? 'No updates yet' : 'Nothing matches these filters'}
+          </div>
+          <div style={{ fontSize: 13 }}>
+            {items.length === 0
+              ? 'New legal updates will appear here as they are published.'
+              : 'Clear the search or pick a different section.'}
+          </div>
         </div>
       ) : (
         groups.map((g) => (
@@ -432,6 +381,7 @@ export default function Newsletter() {
                   onOpen={onOpen}
                   onPin={onPin}
                   onToggleRead={onToggleRead}
+                  onSave={onSave}
                 />
               ))}
             </ul>

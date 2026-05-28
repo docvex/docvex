@@ -276,6 +276,31 @@ export default function Sidebar() {
     try { localStorage.setItem(LOCK_STORAGE_KEY, String(locked)); } catch { /* ignore */ }
   }, [locked]);
 
+  // Marquee the selected project name in the picker trigger when it's wider
+  // than the (expanded) button. A ResizeObserver re-checks as the sidebar
+  // widens/narrows; the overflow state is written straight to the element as
+  // a class + CSS vars (not React state) so the rapid resize callbacks during
+  // the width transition don't churn renders.
+  const projectNameRef = useRef(null);
+  useEffect(() => {
+    const el = projectNameRef.current;
+    if (!el) return undefined;
+    const measure = () => {
+      const overflow = el.scrollWidth - el.clientWidth;
+      if (overflow > 4) {
+        el.classList.add('is-scrolling');
+        el.style.setProperty('--marquee-shift', `-${overflow + 8}px`);
+        el.style.setProperty('--marquee-duration', `${Math.min(12, Math.max(3, (overflow + 8) / 30)).toFixed(1)}s`);
+      } else {
+        el.classList.remove('is-scrolling');
+      }
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [selectedProject?.name]);
+
   // Project memory / AI usage card — a compact "health strip" of two
   // stacked progress bars. It no longer expands in place: clicking it
   // navigates to the selected project's Overview (Personal → Projects →
@@ -440,8 +465,12 @@ export default function Sidebar() {
                 <span className="label">
                   {switching ? (
                     <span className="project-picker-trigger-spinner" aria-label="Switching project" />
+                  ) : selectedProject ? (
+                    <span className="project-picker-name" ref={projectNameRef}>
+                      <span className="project-picker-name-inner">{selectedProject.name}</span>
+                    </span>
                   ) : (
-                    selectedProject ? selectedProject.name : 'Select a project'
+                    'Select a project'
                   )}
                 </span>
               </button>

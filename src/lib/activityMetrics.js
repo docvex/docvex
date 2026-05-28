@@ -7,8 +7,8 @@
 //
 // Every number is derived from real docvex data (RLS scopes each table to the
 // projects the caller belongs to; the personal rows are scoped to auth.uid()):
-//   • branch_changes (mine)        → un-pushed drafts + breakdown
-//   • change_requests (mine)       → in review / merged + deltas
+//   • branch_changes (mine)        → file-activity breakdown (added/edited/removed)
+//   • change_requests (mine)       → merged + reviewed verbs, this-week totals
 //   • project_files (mine)         → files I synced, file-activity spark
 //   • change_request_items (mine)  → files I touched most
 //   • project_invitations (mine)   → invites I sent
@@ -64,14 +64,6 @@ export function relTime(input) {
   if (d === 1) return 'yesterday';
   return `${d} d ago`;
 }
-
-// Kind → label/category for the drafts breakdown bar.
-const KIND_META = {
-  add:     { label: 'Added',    cat: 'file' },
-  edit:    { label: 'Edited',   cat: 'file' },
-  replace: { label: 'Replaced', cat: 'member' },
-  delete:  { label: 'Removed',  cat: 'role' },
-};
 
 // ── Shared time-series builders (pure functions of an event-time list) ──
 function buildHeatmap(eventTimes, now) {
@@ -131,11 +123,11 @@ export async function fetchPersonalActivityMetrics({ userId }) {
     listMyProjects().catch(fail),
     supabase.from('project_files').select('id, name, project_id, uploaded_by, uploaded_at')
       .order('uploaded_at', { ascending: false }).limit(2000).then(ok, fail),
-    supabase.from('change_requests').select('id, project_id, author_id, title, status, submitted_at, decided_at')
+    supabase.from('change_requests').select('id, project_id, author_id, title, status, submitted_at, decided_at, decided_by')
       .order('submitted_at', { ascending: false }).limit(2000).then(ok, fail),
     supabase.from('branch_changes').select('kind, target_file_id, project_id, created_at')
       .eq('user_id', userId).then(ok, fail),
-    supabase.from('project_invitations').select('id, accepted_at')
+    supabase.from('project_invitations').select('id, accepted_at, created_at')
       .eq('invited_by', userId).then(ok, fail),
   ]);
 
@@ -169,36 +161,6 @@ export async function fetchPersonalActivityMetrics({ userId }) {
     ...branchChanges.map((c) => ({ t: ts(c.created_at), pid: c.project_id })),
   ].filter((e) => e.t != null);
   const eventTimes = myEvents.map((e) => e.t);
-
-  // ── Pipeline: Drafts → In review → Merged ────────────────────────────
-  const draftCounts = {};
-  for (const c of branchChanges) {
-    const k = KIND_META[c.kind] ? c.kind : 'edit';
-    draftCounts[k] = (draftCounts[k] || 0) + 1;
-  }
-  const breakdown = Object.entries(draftCounts)
-    .map(([k, v]) => ({ label: KIND_META[k].label, value: v, cat: KIND_META[k].cat }))
-    .sort((a, b) => b.value - a.value);
-
-  const decidedTime = (r) => ts(r.decided_at) ?? ts(r.submitted_at);
-  const mergedThisWeek = myApproved.filter((r) => (decidedTime(r) ?? 0) >= week1).length;
-  const mergedPrevWeek = myApproved.filter((r) => { const t = decidedTime(r) ?? 0; return within(t, week2, week1); }).length;
-  const mergedDelta = mergedPrevWeek ? (mergedThisWeek - mergedPrevWeek) / mergedPrevWeek : 0;
-  const oldestOpen = myOpenReqs.reduce((min, r) => { const t = ts(r.submitted_at) ?? Infinity; return t < min ? t : min; }, Infinity);
-
-  const pipeline = {
-    drafts: {
-      count: branchChanges.length,
-      detail: branchChanges.length ? 'ready to send' : 'nothing staged',
-      breakdown,
-    },
-    inReview: {
-      count: myOpenReqs.length,
-      detail: myOpenReqs.length ? 'opened by you' : 'nothing in review',
-      oldest: myOpenReqs.length && oldestOpen !== Infinity ? `oldest ${relTime(oldestOpen)}` : '',
-    },
-    merged: { count: mergedThisWeek, detail: 'this week', delta: mergedDelta, prev: mergedPrevWeek },
-  };
 
   // ── KPI tiles ────────────────────────────────────────────────────────
   const myUploadTimes = myFiles.map((f) => ts(f.uploaded_at)).filter((t) => t != null);
@@ -234,6 +196,59 @@ export async function fetchPersonalActivityMetrics({ userId }) {
       prev: 0,
       detail: pendingInvites.length ? 'pending acceptance' : 'none pending',
     },
+  };
+
+  // ── This week at a glance (hero) ─────────────────────────────────────
+  // All Monday-based so the headline, verb tiles and best/quiet day agree.
+  // verbs use docvex's real action vocabulary:
+  //   Synced   = files I uploaded this week
+  //   Merged   = my change requests approved this week
+  //   Reviewed = change requests I decided (approved/rejected) this week
+  //   Invited  = invites I sent this week
+  const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const monThis = mondayStart(now);
+  const monNext = monThis + 7 * DAY;
+  const monPrev = monThis - 7 * DAY;
+  const decidedTime = (r) => ts(r.decided_at) ?? ts(r.submitted_at);
+
+  const eventsThisWeek = eventTimes.filter((t) => within(t, monThis, monNext)).length;
+  const eventsPrevWeek = eventTimes.filter((t) => within(t, monPrev, monThis)).length;
+
+  const dayCounts = new Array(7).fill(0);
+  for (const t of eventTimes) if (within(t, monThis, monNext)) dayCounts[weekdayMon(t)] += 1;
+  const todayWd = weekdayMon(now);
+  let bestI = 0; let quietI = 0;
+  for (let i = 0; i <= todayWd; i += 1) {
+    if (dayCounts[i] > dayCounts[bestI]) bestI = i;
+    if (dayCounts[i] < dayCounts[quietI]) quietI = i;
+  }
+
+  // 14-day daily series (oldest → today) for the area trend.
+  const trend = []; const trendDays = [];
+  for (let i = 13; i >= 0; i -= 1) {
+    const lo = startOfDay(now - i * DAY);
+    trend.push(eventTimes.filter((t) => within(t, lo, lo + DAY)).length);
+    trendDays.push(WEEKDAYS[weekdayMon(lo)]);
+  }
+
+  const syncedThisWeek = myUploadTimes.filter((t) => within(t, monThis, monNext)).length;
+  const mergedThisWeek = myApproved.filter((r) => within(decidedTime(r) ?? 0, monThis, monNext)).length;
+  const reviewedThisWeek = allReqs.filter((r) => r.decided_by === userId && within(decidedTime(r) ?? 0, monThis, monNext)).length;
+  const invitedThisWeek = invites.filter((i) => within(ts(i.created_at) ?? 0, monThis, monNext)).length;
+
+  const thisWeek = {
+    total: eventsThisWeek,
+    prev: eventsPrevWeek,
+    bestDay: { label: WEEKDAYS[bestI], value: dayCounts[bestI] },
+    quietDay: { label: WEEKDAYS[quietI], value: dayCounts[quietI] },
+    verbs: [
+      { label: 'Synced', value: syncedThisWeek, cat: 'file', sub: 'files' },
+      { label: 'Merged', value: mergedThisWeek, cat: 'project', sub: 'into main' },
+      { label: 'Reviewed', value: reviewedThisWeek, cat: 'project', sub: 'CRs' },
+      { label: 'Invited', value: invitedThisWeek, cat: 'member', sub: 'member' },
+    ],
+    trend,
+    days: trendDays,
   };
 
   // ── Time series ──────────────────────────────────────────────────────
@@ -295,5 +310,5 @@ export async function fetchPersonalActivityMetrics({ userId }) {
     topFiles = myFiles.slice(0, 5).map((f) => ({ name: f.name, project: projectNameById.get(f.project_id) || '', edits: 1 }));
   }
 
-  return { pipeline, kpis, heatmap, collaborators, streak, whenIWork, topFiles };
+  return { thisWeek, kpis, heatmap, collaborators, streak, whenIWork, topFiles };
 }

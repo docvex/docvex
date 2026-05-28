@@ -149,6 +149,7 @@ export default function ActivityPage() {
     <div className="activity-page">
       <header className="activity-header">
         <div className="activity-title-block">
+          <span className="activity-eyebrow">Live feed</span>
           <h1 className="activity-title">Activity</h1>
           <p className="activity-subtitle">
             A running record of everything happening across every project you're part of —

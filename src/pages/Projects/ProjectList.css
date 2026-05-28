@@ -1,326 +1,373 @@
-﻿/* Projects list & cards â€” matches the dark theme used elsewhere
-   (bg var(--bg-page), card var(--bg-card), border var(--border), accent var(--accent)). */
+/* =========================================================================
+   Projects list — "Editorial Dossier" redesign
+   (Claude Design handoff `docvex-project-redesign`).
+   All classes are pjx-prefixed to avoid colliding with the generic class
+   names elsewhere in the app. Colours come exclusively from the semantic
+   tokens in src/styles/tokens.css — no hex literals.
+   ========================================================================= */
 
-.projects-page {
-  max-width: 920px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+.pjx-page {
+  /* Full-width + left-aligned so the listing spans the content area (all
+     three thirds) when the screen is wide enough, matching Activity and
+     Newsletter. Horizontal inset comes from the shell's .main-content. */
+  width: 100%;
+  margin: 0;
+  padding: 0 0 80px;
 }
 
-.projects-header {
+/* On a wide window, occupy three of four horizontal sections (75%), left-
+   aligned; full width below the breakpoint. Shared across Activity /
+   Newsletter / Projects. */
+@media (min-width: 1280px) {
+  .pjx-page { width: 75%; }
+}
+
+/* ---------- Masthead — copies the project-dossier hero styling
+     (ProjectDossier.css .pjd-hero*): accent eyebrow + muted tail, big display
+     title, secondary kicker. CTA sits at the baseline of the title block. ---------- */
+.pjx-masthead {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 28px;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 26px;
 }
-
-.projects-title {
-  font-family: var(--font-display);
-  font-size: 22px;
+.pjx-mh-left { display: flex; flex-direction: column; gap: 18px; flex: 1 1 auto; min-width: 0; }
+.pjx-mh-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
   font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-  margin: 0 0 0.25rem;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
-
-.projects-subtitle {
-  color: var(--text-muted);
-  font-size: 13px;
+.pjx-mh-eyebrow .pjx-mh-muted { color: var(--text-muted); font-weight: 500; }
+.pjx-mh-title {
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--text-primary);
+  text-wrap: pretty;
+  max-width: 720px;
   margin: 0;
 }
+.pjx-mh-kicker {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 580px;
+}
+.pjx-mh-kicker strong { color: var(--text-primary); font-weight: 600; }
+.pjx-mh-cta-row { display: flex; gap: 10px; align-items: center; }
 
-/* Primary CTA â€” reused by the header and the empty-state. Matches the
-   .updates-btn-primary style from Updates.css (indigo fill, white text). */
-.projects-cta {
+/* ---------- Buttons ---------- */
+.pjx-btn-primary {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 7px;
   background: var(--accent);
-  border: 1px solid var(--accent);
-  border-radius: 6px;
   color: var(--text-on-accent);
-  font-size: 0.85rem;
-  font-weight: 500;
-  padding: 0.5rem 1rem;
-  text-decoration: none;
-  transition: background 150ms, border-color 150ms;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.projects-cta:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
-/* Error / empty banners */
-.projects-error,
-.projects-empty {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1.5rem;
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-}
-
-.projects-error {
-  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-  background: color-mix(in srgb, var(--danger) 7%, transparent);
-  color: var(--danger-soft);
-}
-
-.projects-empty {
-  text-align: center;
-  padding: 3rem 1.5rem;
-}
-
-.projects-empty h2 {
-  margin: 0 0 0.5rem;
-  font-size: 1.1rem;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
   font-weight: 600;
+  font-size: 13px;
+  padding: 10px 16px;
+  text-decoration: none;
+  transition: background 120ms, transform 80ms;
+  white-space: nowrap;
+}
+.pjx-btn-primary svg { width: 14px; height: 14px; }
+.pjx-btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.pjx-btn-primary:active { transform: translateY(1px); }
+
+/* ---------- Section heading ---------- */
+.pjx-section { margin-top: 34px; }
+.pjx-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.pjx-section-title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
   color: var(--text-primary);
 }
-
-.projects-empty p {
-  margin: 0 0 1.5rem;
+.pjx-section-title em {
+  font-style: normal;
   color: var(--text-muted);
+  font-weight: 500;
+  margin-left: 8px;
+  letter-spacing: 0.08em;
 }
 
-/* Card grid â€” auto-fit so it stays usable from ~600px to wide windows. */
-.projects-grid {
+/* ---------- Role pills (shared) ---------- */
+.pjx-pill {
+  align-self: start;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: 4px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+.pjx-pill.is-owner  { color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, transparent); border-color: color-mix(in srgb, var(--warning) 35%, transparent); }
+.pjx-pill.is-admin  { color: var(--accent);  background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.pjx-pill.is-member { color: var(--text-secondary); background: color-mix(in srgb, var(--text-primary) 5%, transparent); border-color: color-mix(in srgb, var(--text-primary) 12%, transparent); }
+.pjx-pill.is-viewer { color: var(--text-muted); background: color-mix(in srgb, var(--text-primary) 3%, transparent); border-color: color-mix(in srgb, var(--text-primary) 10%, transparent); }
+
+/* ---------- Member avatar stack ---------- */
+.pjx-avatars { display: inline-flex; align-items: center; }
+.pjx-avatar {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  margin-left: -8px;
+  border: 2px solid var(--bg-card);
+  background: var(--bg-elevated);
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  display: grid; place-items: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.pjx-avatar:first-child { margin-left: 0; }
+.pjx-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.pjx-al-member-count { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+
+/* ---------- Pinned grid (featured cards) ---------- */
+/* Three across ("three thirds") on a wide screen; steps down to 2 then 1
+   on narrower viewports (see the responsive block at the bottom). */
+.pjx-pinned-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
 }
-
-.project-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+.pjx-pinned-card {
+  position: relative;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1.1rem 1.25rem;
+  border-radius: 14px;
+  padding: 22px 24px 18px;
+  text-align: left;
   text-decoration: none;
   color: inherit;
-  transition: border-color 150ms, background 150ms, transform 80ms;
-  /* Containing block for the absolutely-positioned "Most recent" tab
-     that hangs off the bottom-right edge — overflow is intentionally
-     left visible so the tab can extend past the card boundary. */
-  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 6px;
+  min-height: 176px;
+  overflow: hidden;
+  transition: transform 120ms, box-shadow 160ms, border-color 160ms;
 }
-
-/* When the card has the "Most recent" tab hanging off its bottom edge,
-   add a little extra bottom margin so the tab doesn't overlap the next
-   row of cards in the grid. */
-.project-card.is-most-recent {
-  margin-bottom: 0.6rem;
-}
-
-.project-card:hover {
+.pjx-pinned-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-elev);
   border-color: var(--border-strong);
-  background: var(--bg-elevated);
 }
-
-.project-card:active {
-  transform: translateY(1px);
+/* The "Recent" eyebrow + dot and the card's left bar use the pale-yellow
+   brand accent (--color-sand) rather than the per-project hash colour. */
+.pjx-pinned-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--color-sand);
 }
-
-.project-card-header {
+.pjx-pc-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--color-sand);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
+  gap: 8px;
 }
-
-/* Wraps the role pill + the optional "Most recent" badge on the right side
-   of the card header so they stack cleanly together. flex-shrink:0 inherits
-   from each pill — the title (left) gets all the spare horizontal room and
-   ellipsizes when it has to. */
-.project-card-badges {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-shrink: 0;
-}
-
-/* "Most recent" tab — hangs off the bottom-right edge of the project
-   card like a bookmark tab. Position-absolute with a negative bottom
-   offset so the pill clears the card's bottom border and sits below it.
-   Visual style matches .project-picker-panel-row-recent in the secondary
-   sidebar so both "most recent" surfaces share one visual language: small
-   uppercase letter-spaced label, theme-adaptive var(--accent-soft) fill
-   with var(--accent) text, and a warm accent-tinted halo shadow. */
-.project-card-recent {
-  position: absolute;
-  right: 1rem;
-  bottom: -0.65rem;
-  font-size: 0.6rem;
+.pjx-pc-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-sand); }
+.pjx-pc-title {
+  grid-column: 1 / -1;
+  font-family: var(--font-display);
+  font-size: 23px;
   font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  border-radius: 999px;
-  padding: 0.18rem 0.6rem;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent);
-  white-space: nowrap;
-  box-shadow: 0 1px 6px color-mix(in srgb, var(--accent-soft) 65%, transparent);
-}
-
-.project-card-name {
-  font-size: 1rem;
-  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
   color: var(--text-primary);
-  margin: 0;
-  /* Long names ellipsize so the role pill stays visible. */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  margin-top: 2px;
 }
-
-.project-card-description {
-  margin: 0;
+.pjx-pc-desc {
+  grid-column: 1 / -1;
   color: var(--text-secondary);
-  font-size: 0.85rem;
-  line-height: 1.45;
-  /* Limit to 2 lines so cards stay similar height. */
+  font-size: 13.5px;
+  line-height: 1.5;
+  max-width: 460px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  margin: 6px 0 14px;
 }
-
-.project-card-description-empty {
-  color: var(--text-muted);
-  font-style: italic;
-}
-
-.project-card-meta {
+.pjx-pc-foot {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 1rem;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  margin-top: auto;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
-
-.project-card-meta-item {
+.pjx-pc-meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 4px;
 }
+.pjx-pc-meta strong { color: var(--text-secondary); font-weight: 600; }
+.pjx-sep { margin: 0 6px; opacity: 0.4; }
 
-/* Role pills â€” same shape language as Updates page's release-tag pills.
-   Reusing palettes from existing CSS:
-     owner  â†’ wood-ish amber (the "this is mine" emphasis)
-     admin  â†’ indigo (matches brand accent)
-     member â†’ muted neutral
-     viewer â†’ softer muted */
-.project-card-role {
-  flex-shrink: 0;
-  font-size: 0.65rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  border-radius: 999px;
-  padding: 0.15rem 0.55rem;
-  border: 1px solid transparent;
+/* ---------- Recent rail ---------- */
+.pjx-recent-rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
 }
-
-.role-owner {
-  color: var(--warning-soft);
-  background: color-mix(in srgb, var(--warning-soft) 12%, transparent);
-  border-color: color-mix(in srgb, var(--warning-soft) 35%, transparent);
+.pjx-recent-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 140ms, background 140ms;
 }
-
-.role-admin {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
-}
-
-.role-member {
-  color: var(--text-secondary);
-  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
-  border-color: color-mix(in srgb, var(--text-primary) 15%, transparent);
-}
-
-.role-viewer {
+.pjx-recent-card:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
+.pjx-recent-head { display: flex; align-items: center; gap: 8px; }
+.pjx-recent-id {
+  font-size: 10px;
+  letter-spacing: 0.16em;
   color: var(--text-muted);
-  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
-  border-color: color-mix(in srgb, var(--text-primary) 10%, transparent);
+  font-weight: 600;
+  text-transform: uppercase;
 }
+.pjx-recent-time { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+.pjx-recent-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+.pjx-recent-meta { display: flex; gap: 12px; font-size: 11.5px; color: var(--text-muted); margin-top: auto; padding-top: 6px; flex-wrap: wrap; }
+.pjx-recent-meta strong { color: var(--text-secondary); font-weight: 600; }
 
-/* Skeleton cards — same outer shape as .project-card so the real grid
-   drops in without layout shift. Inner placeholders are .skel-bar with
-   per-piece width/height classes below. .skel-bar + @keyframes
-   skel-shimmer are duplicated per CSS file in this codebase so each
-   component renders correctly when loaded alone — same pattern as
-   ProjectDashboardSkeleton.css / ProjectScopedSkeleton.css.
-
-   .skel-bar comes first so the per-piece classes below win on
-   border-radius via source order (e.g. .skel-card-role's 999px). */
-.skel-bar {
-  background: var(--bg-elevated);
-  position: relative;
+/* ---------- All projects — table-ish list ---------- */
+.pjx-all-list {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
   overflow: hidden;
-  border-radius: 6px;
 }
-
-.skel-bar::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--text-primary) 4%, transparent),
-    transparent
-  );
-  transform: translateX(-100%);
-  animation: skel-shimmer 1.4s ease-in-out infinite;
-  will-change: transform;
+.pjx-all-row {
+  display: grid;
+  grid-template-columns: 1fr 110px 150px 120px 62px;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--border);
+  transition: background 100ms;
+  text-decoration: none;
+  color: inherit;
 }
-
-@keyframes skel-shimmer {
-  to { transform: translateX(100%); }
+.pjx-all-row:last-child { border-bottom: none; }
+.pjx-all-row:hover { background: var(--bg-elevated); }
+.pjx-al-name { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pjx-al-name-main {
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
-
-.project-card-skeleton {
-  cursor: default;
-  pointer-events: none;
+.pjx-al-name-main > :first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pjx-al-name-sub { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pjx-al-recent-tag {
+  flex-shrink: 0;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
 }
+.pjx-al-members { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+.pjx-al-updated { font-size: 12px; color: var(--text-muted); line-height: 1.3; }
+.pjx-al-updated strong { color: var(--text-secondary); font-weight: 600; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+.pjx-al-end { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
+.pjx-al-caret { color: var(--text-muted); display: grid; place-items: center; }
+.pjx-al-caret svg { width: 16px; height: 16px; }
 
-.project-card-skeleton:hover {
-  border-color: var(--border);
+/* ---------- States ---------- */
+.pjx-error {
+  margin-top: 24px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--danger);
+  font-size: 13px;
+}
+.pjx-empty {
+  margin-top: 40px;
+  text-align: center;
+  padding: 64px 24px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 14px;
   background: var(--bg-card);
 }
+.pjx-empty h2 { font-family: var(--font-display); font-size: 22px; color: var(--text-primary); margin-bottom: 8px; }
+.pjx-empty p { color: var(--text-muted); font-size: 14px; margin: 0 0 18px; }
+.pjx-empty .pjx-btn-primary { display: inline-flex; }
 
-.skel-card-name {
-  width: 60%;
-  height: 1rem;
+/* ---------- Responsive ---------- */
+@media (max-width: 1100px) {
+  .pjx-pinned-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-
-.skel-card-role {
-  width: 3rem;
-  height: 0.9rem;
-  border-radius: 999px;
+@media (max-width: 1024px) {
+  .pjx-page { padding: 0 0 64px; }
+  .pjx-mh-title { font-size: 42px; }
 }
-
-.skel-card-desc-1 {
-  width: 95%;
-  height: 0.85rem;
-}
-
-.skel-card-desc-2 {
-  width: 70%;
-  height: 0.85rem;
-}
-
-.skel-card-meta {
-  width: 5rem;
-  height: 0.78rem;
+@media (max-width: 760px) {
+  .pjx-masthead { flex-direction: column; align-items: stretch; }
+  .pjx-pinned-grid { grid-template-columns: 1fr; }
+  .pjx-all-row { grid-template-columns: 1fr auto; }
+  .pjx-all-row > .pjx-pill,
+  .pjx-al-members,
+  .pjx-al-updated { display: none; }
 }

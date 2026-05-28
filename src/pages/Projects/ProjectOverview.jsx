@@ -14,6 +14,8 @@ import {
   updateProject,
 } from '../../lib/projects';
 import { deleteCustomRole } from '../../lib/customRoles';
+import { listChangeRequests } from '../../lib/branches';
+import { supabase } from '../../lib/supabaseClient';
 import { useHasCapability } from '../../hooks/useHasCapability';
 import DeleteProjectModal from '../../components/DeleteProjectModal';
 import InviteMemberModal from '../../components/InviteMemberModal';
@@ -23,10 +25,11 @@ import RoleLocked from '../../components/RoleLocked';
 import RoleBadge, { builtInLabel } from '../../components/RoleBadge';
 import CustomRoleEditor from '../../components/CustomRoleEditor';
 import ConfirmModal from '../../components/ConfirmModal';
-import RoleCapabilityMatrix from '../../components/RoleCapabilityMatrix';
+import RolesDossier from '../../components/RolesDossier';
 import Tooltip from '../../components/Tooltip';
 import StatusBadge from '../../components/StatusBadge';
 import './ProjectDashboard.css';
+import './ProjectDossier.css';
 
 // Chevron-left icon for the "< Back" link — inline SVG so we don't pull in an
 // icon library, consistent with the sidebar icon convention (currentColor
@@ -65,6 +68,45 @@ const UsersIcon = (
     <path d="M16 3.13a4 4 0 0 1 0 7.75" />
   </svg>
 );
+
+// Check glyph for the AI-context Save button.
+const CheckIcon = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+// Small generic usage gauge for the dossier Overview. Most gauges are
+// static placeholders (no data source yet); "Active members" is real.
+function UsageGauge({ label, used, total, unit, tint, hint }) {
+  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+  return (
+    <div className="pjd-usage-row">
+      <div className="pjd-usage-head">
+        <span className="pjd-usage-label">{label}</span>
+        <span className="pjd-usage-value">{used}<span className="pjd-usage-of"> / {total} {unit}</span></span>
+      </div>
+      <div className="pjd-usage-bar"><span className="pjd-usage-fill" style={{ width: pct + '%', background: tint }} /></div>
+      <div className="pjd-usage-hint">{hint}</div>
+    </div>
+  );
+}
+
+// Compact relative-time for the activity timeline ("12m", "3h", "2d", …).
+function relTime(iso) {
+  if (!iso) return '';
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (Number.isNaN(mins)) return '';
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const h = Math.round(mins / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.round(h / 24);
+  if (d === 1) return '1d';
+  if (d < 7) return `${d}d`;
+  if (d < 30) return `${Math.round(d / 7)}w`;
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
 
 // Project Overview — the landing page for /projects/:id. Reached by clicking
 // a card in the Projects list. Focus: "who's on this project" + "manage it".
@@ -237,8 +279,21 @@ export default function ProjectOverview() {
   // Every role sees every tab now: the role-gating contract is "render the
   // feature for everyone, lay a RoleLocked overlay over it for non-matching
   // viewers." So no auto-switch on role — even a viewer can browse to the
-  // Project tab and see the locked details/danger zone.
-  const [activeTab, setActiveTab] = useState('project');
+  // Settings tab and see the locked details/danger zone.
+  const [activeTab, setActiveTab] = useState('overview');
+
+  // AI project-context textarea. Local-only for now — the dossier's AI tab
+  // is a placeholder surface; wiring this to a project_ai_context store is a
+  // follow-up. Seeded empty so the user sees the helper placeholder.
+  const [aiContext, setAiContext] = useState('');
+
+  // Recent change requests for this project — the real feed behind the
+  // Overview activity timeline (merged with member-join events below).
+  const [changeRequests, setChangeRequests] = useState([]);
+
+  // Real file count for the meta strip — a head/count query so we don't
+  // pull every row just to show a number. null until it resolves.
+  const [fileCount, setFileCount] = useState(null);
 
   // ── Project (name + description) edit form ──────────────────────────────
   // Local form state mirrors the server's project row, synced from useProject()
@@ -345,6 +400,33 @@ export default function ProjectOverview() {
     })();
     return () => { cancelled = true; };
   }, [project?.id, isAdmin]);
+
+  // Fetch recent change requests for the activity timeline. Visible to all
+  // members (migration 017 widened change_requests visibility), so no role
+  // gate. Limited to the most recent 20 — we only render the top few.
+  useEffect(() => {
+    if (!project?.id) { setChangeRequests([]); return; }
+    let cancelled = false;
+    (async () => {
+      const { data } = await listChangeRequests(project.id, { limit: 20 });
+      if (!cancelled) setChangeRequests(data || []);
+    })();
+    return () => { cancelled = true; };
+  }, [project?.id]);
+
+  // File count for the meta strip — head/count query (no rows fetched).
+  useEffect(() => {
+    if (!project?.id) { setFileCount(null); return; }
+    let cancelled = false;
+    (async () => {
+      const { count } = await supabase
+        .from('project_files')
+        .select('id', { count: 'exact', head: true })
+        .eq('project_id', project.id);
+      if (!cancelled) setFileCount(typeof count === 'number' ? count : null);
+    })();
+    return () => { cancelled = true; };
+  }, [project?.id]);
 
   const handleInviteSent = (newInvitation) => {
     // Prepend so the freshest invite reads first (matches the API's order-by
@@ -575,7 +657,7 @@ export default function ProjectOverview() {
   // wrapped in RoleLocked so it's previewable-but-uninteractive for users
   // who don't meet the role requirement.
   const tabs = [
-    { id: 'project', label: 'Project' },
+    { id: 'overview', label: 'Overview' },
     { id: 'members', label: 'Members', count: members.length },
     // Roles tab — visible to every viewer+ so they can see the role catalog
     // for the project, but only admins can create/edit/delete custom roles
@@ -583,78 +665,196 @@ export default function ProjectOverview() {
     // (built-ins + customs) so it's clear how many roles are defined.
     { id: 'roles',   label: 'Roles',   count: 4 + customRoles.length },
     { id: 'ai',      label: 'AI' },
+    // "Settings" hosts the old "Project" tab content (details form + danger
+    // zone) — renamed to match the dossier's tab set.
+    { id: 'settings', label: 'Settings' },
   ];
 
+  // AI-context token/char estimate for the live counter in the AI tab.
+  const aiTokens = Math.round(aiContext.length / 4);
+
+  // The caller's member row — used for the "Joined" meta cell (added_at).
+  const me = currentUserId ? members.find((m) => m.user_id === currentUserId) : null;
+
+  // Real activity feed for the Overview timeline: change-request submissions
+  // + decisions (from the fetched `changeRequests`) merged with member-join
+  // events (from context `members`), newest first. Actor names resolve via
+  // the member roster; unknown actors (e.g. a since-removed member) fall back
+  // to "A teammate". Plain computation (not a hook) because it runs after the
+  // early returns above.
+  const activity = (() => {
+    const firstNameById = new Map(
+      members.map((m) => [m.user_id, getMemberName(m.profile).split(' ')[0]]),
+    );
+    const actor = (id) => firstNameById.get(id) || 'A teammate';
+    const events = [];
+    for (const cr of changeRequests) {
+      if (cr.submitted_at) {
+        events.push({ ts: cr.submitted_at, kind: 'file', who: actor(cr.author_id), text: `submitted a change request — ${cr.title}` });
+      }
+      if (cr.decided_at && (cr.status === 'approved' || cr.status === 'rejected')) {
+        events.push({ ts: cr.decided_at, kind: 'update', who: actor(cr.decided_by), text: `${cr.status === 'approved' ? 'approved' : 'rejected'} — ${cr.title}` });
+      }
+    }
+    for (const m of members) {
+      if (m.added_at) events.push({ ts: m.added_at, kind: 'member', who: actor(m.user_id), text: 'joined the project' });
+    }
+    events.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+    return events.slice(0, 7);
+  })();
+
   return (
-    <div className="project-dashboard">
-      <header className="project-dashboard-header">
-        <Link to="/projects" className="project-dashboard-back">
-          {ChevronLeftIcon}
-          <span>Back</span>
-        </Link>
-        <div className="project-dashboard-title-row">
-          <h1 className="project-dashboard-title">{project.name}</h1>
-          {/* Header pill — looks up the caller's row in `members` to resolve
-              their custom role (if any) so the pill reflects the assignment
-              not just the enum tier. RoleBadge applies the viewer→Client
-              rename uniformly. */}
-          {(() => {
-            const me = currentUserId
-              ? members.find((m) => m.user_id === currentUserId)
-              : null;
-            const myCustomRole = me?.custom_role_id
-              ? customRoles.find((cr) => cr.id === me.custom_role_id)
-              : null;
-            return <RoleBadge role={role} customRole={myCustomRole} />;
-          })()}
+    <div className="project-dashboard pjd-page">
+      <Link to="/projects" className="pjd-back">{ChevronLeftIcon}<span>All projects</span></Link>
+
+      {/* Hero — real project name / description / role; status pill is a
+          static "synced" treatment (no live branch state on this surface). */}
+      <header className="pjd-hero">
+        <div>
+          <div className="pjd-hero-eyebrow">
+            <span>{role} access</span>
+            <span className="pjd-muted">· {project.description ? 'project dossier' : 'project'}</span>
+          </div>
+          <h1 className="pjd-hero-title">{project.name}</h1>
+          {project.description && <p className="pjd-hero-desc">{project.description}</p>}
         </div>
       </header>
 
-      {/* Tab bar — visual nav between the two panels. role="tablist" so
-          screen readers announce the relationship; each button is a tab
-          whose pressed state mirrors activeTab. */}
-      <div className="project-tabs" role="tablist" aria-label="Project sections">
+      {/* Meta strip — Files (real count), Members (real), Joined (the caller's
+          join date), and Last activity (newest event from the activity feed). */}
+      <div className="pjd-meta-strip">
+        <div className="pjd-meta-cell">
+          <span className="pjd-meta-label">Files</span>
+          <span className="pjd-meta-value">{fileCount ?? '—'}</span>
+          <span className="pjd-meta-sub">In this project</span>
+        </div>
+        <div className="pjd-meta-cell">
+          <span className="pjd-meta-label">Members</span>
+          <span className="pjd-meta-value">{members.length}</span>
+          <span className="pjd-meta-sub">With access</span>
+        </div>
+        <div className="pjd-meta-cell">
+          <span className="pjd-meta-label">Joined</span>
+          <span className="pjd-meta-value" style={{ fontSize: 16 }}>
+            {me?.added_at ? new Date(me.added_at).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) : '—'}
+          </span>
+          <span className="pjd-meta-sub">When you joined</span>
+        </div>
+        <div className="pjd-meta-cell">
+          <span className="pjd-meta-label">Last activity</span>
+          <span className="pjd-meta-value" style={{ fontSize: 16 }}>
+            {activity.length ? relTime(activity[0].ts) : '—'}
+          </span>
+          <span className="pjd-meta-sub">{activity.length ? `by ${activity[0].who}` : 'No activity yet'}</span>
+        </div>
+      </div>
+
+      {/* Tab bar — dossier styling. role="tablist" so screen readers announce
+          the relationship; pressed state mirrors activeTab. */}
+      <div className="pjd-tabs" role="tablist" aria-label="Project sections">
         {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
             role="tab"
             aria-selected={activeTab === t.id}
-            className={`project-tab ${activeTab === t.id ? 'is-active' : ''}`}
+            className={`pjd-tab ${activeTab === t.id ? 'is-active' : ''}`}
             onClick={() => setActiveTab(t.id)}
           >
             <span>{t.label}</span>
-            {typeof t.count === 'number' && (
-              <span className="project-tab-count">{t.count}</span>
-            )}
+            {typeof t.count === 'number' && <span className="pjd-tab-count">{t.count}</span>}
           </button>
         ))}
       </div>
 
-      {/* Project tab — both children are owner-only features, so each is
-          wrapped in a RoleLocked overlay for non-owners. Wrapping the
-          individual cards (rather than the whole tab) keeps the radius +
-          backdrop fitted to each card's edge instead of one giant overlay
-          covering both. */}
-      {activeTab === 'project' && (
-        <>
-          <RoleLocked locked={!isOwner} requiredRole="owner">
-            <section className="project-dashboard-card">
-              <div className="project-dashboard-card-header">
-                <h2 className="project-dashboard-card-title">Project details</h2>
+      {/* Overview — real Activity timeline takes the big left panel; the
+          right rail holds the real Team list and the (stretched, mostly
+          placeholder) Usage gauges. */}
+      {activeTab === 'overview' && (
+        <div className="pjd-grid">
+          <section className="pjd-panel">
+            <div className="pjd-panel-head">
+              <div className="pjd-panel-title">Activity timeline</div>
+              <button type="button" className="pjd-panel-link" onClick={() => navigate(`/projects/${project.id}/dashboard`)}>Open full log →</button>
+            </div>
+            {activity.length === 0 ? (
+              <div className="pjd-activity-empty">No activity yet.</div>
+            ) : (
+              <div className="pjd-activity-list">
+                {activity.map((a, i) => (
+                  <div key={i} className="pjd-activity-row">
+                    <div className="pjd-activity-dot-col">
+                      <span className={`pjd-activity-dot ${a.kind}`} />
+                      {i < activity.length - 1 && <span className="pjd-activity-stem" />}
+                    </div>
+                    <div className="pjd-activity-body"><strong>{a.who}</strong> {a.text}</div>
+                    <div className="pjd-activity-time">{relTime(a.ts)}</div>
+                  </div>
+                ))}
               </div>
-              <p className="project-dashboard-card-subtitle">
-                Change the project name and description. Visible to every member.
-              </p>
+            )}
+          </section>
 
-              <form className="project-edit-form" onSubmit={handleSaveProject} noValidate>
-                <label className="project-edit-field">
-                  <span className="project-edit-label">
-                    Name <span className="project-edit-required">*</span>
-                  </span>
+          <div className="pjd-rail">
+            <section className="pjd-panel">
+              <div className="pjd-panel-head">
+                <div className="pjd-panel-title">Team · {members.length}</div>
+                <button type="button" className="pjd-panel-link" onClick={() => setActiveTab('members')}>Manage →</button>
+              </div>
+              <div className="pjd-members-list">
+                {orderedMembers.slice(0, 6).map((m) => {
+                  const mCustom = m.custom_role_id ? customRoles.find((cr) => cr.id === m.custom_role_id) : null;
+                  return (
+                    <div key={m.user_id} className="pjd-member-row">
+                      <MemberAvatar profile={m.profile} />
+                      <div style={{ minWidth: 0 }}>
+                        <div className="pjd-mr-name">{getMemberName(m.profile)}</div>
+                        {m.profile?.email && <div className="pjd-mr-sub">{m.profile.email}</div>}
+                      </div>
+                      <RoleBadge role={m.role} customRole={mCustom} showBase />
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="pjd-panel">
+              <div className="pjd-panel-head">
+                <div className="pjd-panel-title">Usage</div>
+                <button type="button" className="pjd-panel-link" onClick={() => setActiveTab('ai')}>View AI usage →</button>
+              </div>
+              <div className="pjd-usage-grid">
+                <UsageGauge label="Active members" used={members.length} total={10} unit="seats" tint="var(--cat-file)" hint={`${members.length} of 10 seats on the Free plan.`} />
+                <UsageGauge label="Project memory" used={2.4} total={5} unit="GB" tint="var(--accent)" hint="Placeholder — wired to storage later." />
+                <UsageGauge label="AI requests" used={418} total={1000} unit="this month" tint="var(--cat-update)" hint="Placeholder — wired to billing later." />
+                <UsageGauge label="AI context tokens" used={6.2} total={12} unit="K tokens" tint="var(--cat-member)" hint="Configure context in the AI tab →" />
+              </div>
+            </section>
+          </div>
+        </div>
+      )}
+
+      {/* Settings tab (formerly "Project") — restyled into dossier panels to
+          match the rest of the detail view. Both panels are owner-only, so
+          each is wrapped in a RoleLocked overlay for non-owners. All the real
+          handlers (rename/description save + delete) are unchanged. */}
+      {activeTab === 'settings' && (
+        <div className="pjd-settings">
+          <RoleLocked locked={!isOwner} requiredRole="owner">
+            <section className="pjd-panel">
+              <div className="pjd-panel-head">
+                <div>
+                  <div className="pjd-panel-title">Project details</div>
+                  <p className="pjd-panel-sub">Change the project name and description. Visible to every member.</p>
+                </div>
+              </div>
+
+              <form className="pjd-form" onSubmit={handleSaveProject} noValidate>
+                <label className="pjd-field">
+                  <span className="pjd-field-label">Name <span className="pjd-req">*</span></span>
                   <input
                     type="text"
-                    className="project-edit-input"
+                    className="pjd-input"
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
                     maxLength={80}
@@ -663,30 +863,26 @@ export default function ProjectOverview() {
                   />
                 </label>
 
-                <label className="project-edit-field">
-                  <span className="project-edit-label">Description</span>
+                <label className="pjd-field">
+                  <span className="pjd-field-label">Description <span className="pjd-field-optional">optional</span></span>
                   <textarea
-                    className="project-edit-textarea"
+                    className="pjd-input pjd-textarea"
                     value={editDescription}
                     onChange={(e) => setEditDescription(e.target.value)}
-                    placeholder="What is this project about? (optional)"
+                    placeholder="What is this project about?"
                     rows={4}
                     maxLength={500}
                     disabled={savingProject}
                   />
                 </label>
 
-                {projectFormError && (
-                  <div className="project-edit-error">{projectFormError}</div>
-                )}
+                {projectFormError && <div className="pjd-form-error">{projectFormError}</div>}
 
-                <div className="project-edit-actions">
+                <div className="pjd-form-actions">
                   <button
                     type="button"
-                    className="project-edit-cancel"
+                    className="pjd-btn-ghost"
                     onClick={() => {
-                      // Snap the form back to the server's current values so
-                      // the user can abandon edits without reloading.
                       setEditName(project.name ?? '');
                       setEditDescription(project.description ?? '');
                       setProjectFormError(null);
@@ -697,7 +893,7 @@ export default function ProjectOverview() {
                   </button>
                   <button
                     type="submit"
-                    className="project-edit-submit"
+                    className="pjd-btn-primary"
                     disabled={savingProject || !projectFormDirty || editName.trim().length === 0}
                   >
                     {savingProject ? 'Saving…' : 'Save changes'}
@@ -708,33 +904,33 @@ export default function ProjectOverview() {
           </RoleLocked>
 
           <RoleLocked locked={!isOwner} requiredRole="owner">
-            <section className="project-dashboard-danger">
-              <h2>Danger zone</h2>
-              <div className="project-dashboard-danger-row">
-                <div className="project-dashboard-danger-text">
-                  <p className="project-dashboard-danger-title">Delete this project</p>
-                  <p className="project-dashboard-danger-desc">
-                    Once deleted, you can't recover it. All members, pending
-                    invites, and uploaded files will be removed.
+            <section className="pjd-panel pjd-danger-panel">
+              <div className="pjd-panel-head">
+                <div>
+                  <div className="pjd-panel-title">Danger zone</div>
+                  <p className="pjd-panel-sub">Irreversible actions for this project.</p>
+                </div>
+              </div>
+              <div className="pjd-danger-row">
+                <div>
+                  <p className="pjd-danger-title">Delete this project</p>
+                  <p className="pjd-danger-desc">
+                    Once deleted, you can't recover it. All members, pending invites, and uploaded files will be removed.
                   </p>
                 </div>
                 <button
                   type="button"
-                  className="project-dashboard-danger-btn"
+                  className="pjd-btn-ghost pjd-btn-danger"
                   onClick={() => { setDeleteError(null); setDeleteOpen(true); }}
                   disabled={deleting}
                 >
                   Delete project
                 </button>
               </div>
-              {deleteError && (
-                <div className="project-dashboard-danger-error" role="alert">
-                  {deleteError}
-                </div>
-              )}
+              {deleteError && <div className="pjd-form-error" role="alert">{deleteError}</div>}
             </section>
           </RoleLocked>
-        </>
+        </div>
       )}
 
       {activeTab === 'members' && (
@@ -946,27 +1142,86 @@ export default function ProjectOverview() {
           drive the same editorTarget / roleDeleteTarget state that the
           modals below already consume. */}
       {activeTab === 'roles' && (
-        <RoleCapabilityMatrix
+        <RolesDossier
           isAdmin={isAdmin}
+          members={members}
           onCreateRole={() => setEditorTarget(null)}
           onEditRole={(cr) => setEditorTarget(cr)}
           onDeleteRole={(cr) => setRoleDeleteTarget(cr)}
         />
       )}
 
+      {/* AI tab — dossier layout. The usage stats are static placeholders
+          (no billing data wired yet); the project-context textarea is live
+          local state (persisting it to a project_ai_context store is a
+          follow-up). */}
       {activeTab === 'ai' && (
-        <section className="project-dashboard-card">
-          <div className="project-dashboard-card-header">
-            <h2 className="project-dashboard-card-title">AI</h2>
-          </div>
-          {/* Placeholder copy — real AI surface (summaries, draft suggestions,
-              project Q&A, …) lands when the AI backend is wired up. Keeping
-              the tab live now so the IA reads "here's where AI will live"
-              instead of users guessing whether the feature exists at all. */}
-          <p className="project-dashboard-card-subtitle">
-            Here will be displayed all AI-related data for this project.
-          </p>
-        </section>
+        <div className="pjd-ai-grid">
+          <section className="pjd-panel">
+            <div className="pjd-panel-head">
+              <div className="pjd-panel-title">AI usage</div>
+              <span className="pjd-placeholder-note">Sample</span>
+            </div>
+            <div className="pjd-ai-stats">
+              <div className="pjd-ai-stat">
+                <span className="pjd-ai-stat-label">Requests</span>
+                <span className="pjd-ai-stat-value">418<span className="pjd-ai-stat-sub">/1,000</span></span>
+                <div className="pjd-ai-stat-bar"><span style={{ width: '41.8%', background: 'var(--accent)' }} /></div>
+                <span className="pjd-ai-stat-hint">Resets monthly</span>
+              </div>
+              <div className="pjd-ai-stat">
+                <span className="pjd-ai-stat-label">Input tokens</span>
+                <span className="pjd-ai-stat-value">214K<span className="pjd-ai-stat-sub">/500K</span></span>
+                <div className="pjd-ai-stat-bar"><span style={{ width: '42.8%', background: 'var(--cat-update)' }} /></div>
+                <span className="pjd-ai-stat-hint">≈ from project context</span>
+              </div>
+              <div className="pjd-ai-stat">
+                <span className="pjd-ai-stat-label">Output tokens</span>
+                <span className="pjd-ai-stat-value">82K<span className="pjd-ai-stat-sub">/250K</span></span>
+                <div className="pjd-ai-stat-bar"><span style={{ width: '32.8%', background: 'var(--cat-member)' }} /></div>
+                <span className="pjd-ai-stat-hint">Avg. 2.1 K per response</span>
+              </div>
+              <div className="pjd-ai-stat">
+                <span className="pjd-ai-stat-label">Sessions</span>
+                <span className="pjd-ai-stat-value">39<span className="pjd-ai-stat-sub">this month</span></span>
+                <div className="pjd-ai-stat-bar"><span style={{ width: '65%', background: 'var(--cat-file)' }} /></div>
+                <span className="pjd-ai-stat-hint">Last session: 2 h ago</span>
+              </div>
+            </div>
+          </section>
+
+          <section className="pjd-panel pjd-ai-context-panel">
+            <div className="pjd-panel-head">
+              <div className="pjd-panel-title">Project AI context</div>
+              <span className="pjd-ai-token-count">
+                <span className="pjd-ai-token-dot" />
+                ≈ {aiTokens.toLocaleString()} tokens · {aiContext.length} chars
+              </span>
+            </div>
+            <p className="pjd-ai-help">
+              Persistent instructions prepended to every AI request in this project.
+              Use it for tone, terminology, document conventions, and citation rules.
+            </p>
+            <textarea
+              className="pjd-ai-input"
+              value={aiContext}
+              onChange={(e) => setAiContext(e.target.value)}
+              placeholder="Describe how you want the AI to behave inside this project — terminology, tone, citation conventions, anything it should always remember…"
+              rows={10}
+            />
+            <div className="pjd-ai-foot">
+              <div className="pjd-ai-tags">
+                <span className="pjd-ai-tag">+ Add tone preset</span>
+                <span className="pjd-ai-tag">+ Pin a file as reference</span>
+                <span className="pjd-ai-tag">+ Reference a glossary</span>
+              </div>
+              <div className="pjd-ai-actions">
+                <button type="button" className="pjd-btn-ghost" onClick={() => setAiContext('')}>Discard</button>
+                <button type="button" className="pjd-btn-primary">{CheckIcon} Save context</button>
+              </div>
+            </div>
+          </section>
+        </div>
       )}
 
       <DeleteProjectModal

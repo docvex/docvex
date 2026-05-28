@@ -27,6 +27,12 @@ export function notifyProjectsChanged() {
   } catch { /* non-browser context */ }
 }
 
+// Up-to-two-letter initials from a display name, for avatar fallbacks.
+function initialsOf(name) {
+  const parts = String(name || '?').trim().split(/\s+/).slice(0, 2);
+  return parts.map((p) => p[0]?.toUpperCase() || '').join('') || '?';
+}
+
 // ── Projects ──────────────────────────────────────────────────────────────
 
 // All projects the caller is a member of, newest-active first, with their
@@ -78,7 +84,44 @@ export async function listMyProjects() {
       ...r.project,
       role: r.role,
       member_count: r.project.member_count?.[0]?.count ?? 1,
+      members: [],
     }));
+
+  // Best-effort: attach a few member profiles per project so the card grid can
+  // render an avatar stack instead of a bare count. RLS lets a member read
+  // every project_members row for projects they belong to, so one batched
+  // query covers all the caller's projects; the profiles (incl. avatar_url)
+  // come from the SECURITY DEFINER get_member_profiles RPC because auth.users
+  // is blocked from direct client reads. A failure here leaves members: []
+  // and the count still renders — never blanks the list.
+  const projectIds = flat.map((p) => p.id);
+  if (projectIds.length) {
+    const { data: memberRows } = await supabase
+      .from('project_members')
+      .select('project_id, user_id, added_at')
+      .in('project_id', projectIds)
+      .order('added_at', { ascending: true });
+
+    if (memberRows?.length) {
+      const uniqueIds = [...new Set(memberRows.map((m) => m.user_id))];
+      const { data: profiles } = await supabase.rpc('get_member_profiles', { p_user_ids: uniqueIds });
+      const profileById = new Map((profiles || []).map((p) => [p.id, p]));
+      const byProject = new Map();
+      for (const m of memberRows) {
+        if (!byProject.has(m.project_id)) byProject.set(m.project_id, []);
+        const prof = profileById.get(m.user_id) || null;
+        const name = prof?.full_name || prof?.name || prof?.email || 'Member';
+        byProject.get(m.project_id).push({
+          userId: m.user_id,
+          name,
+          initials: initialsOf(name),
+          avatarUrl: prof?.avatar_url || null,
+        });
+      }
+      for (const p of flat) p.members = byProject.get(p.id) || [];
+    }
+  }
+
   return { data: flat, error: null };
 }
 

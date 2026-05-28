@@ -794,10 +794,42 @@
 }
 
 /* Stack the label above ::before so the (animated) surface never paints
-   over the trigger text or the in-flight spinner. */
+   over the trigger text or the in-flight spinner. flex:1 + min-width:0 lets
+   the label claim the button's inner width so the name can clip + scroll. */
 .project-picker-trigger > .label {
   position: relative;
   z-index: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Selected project name — clips inside the button; the inner span scrolls
+   (marquee) when the name is wider than the available width. JS adds
+   `.is-scrolling` + sets --marquee-shift / --marquee-duration when it
+   overflows; the animation only runs while the sidebar is expanded (so it
+   doesn't spin invisibly behind the collapsed rail). */
+.project-picker-name {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: center;
+}
+.project-picker-name.is-scrolling { text-align: left; }
+.project-picker-name-inner { display: inline-block; }
+
+.sidebar:hover .project-picker-name.is-scrolling .project-picker-name-inner,
+.sidebar.locked .project-picker-name.is-scrolling .project-picker-name-inner,
+.sidebar.picker-open .project-picker-name.is-scrolling .project-picker-name-inner {
+  animation: project-picker-marquee var(--marquee-duration, 6s) ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes project-picker-marquee {
+  0%, 12%   { transform: translateX(0); }
+  88%, 100% { transform: translateX(var(--marquee-shift, 0)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-picker-name-inner { animation: none !important; }
 }
 
 .project-picker-trigger:hover {
