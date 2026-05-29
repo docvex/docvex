@@ -42,6 +42,7 @@ function Icon({ name, size = 16, strokeWidth = 1.8, className = '' }) {
     case 'inbox': return <svg {...p}><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>;
     case 'open': return <svg {...p}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>;
     case 'folder-plus': return <svg {...p}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /><line x1="12" y1="11" x2="12" y2="17" /><line x1="9" y1="14" x2="15" y2="14" /></svg>;
+    case 'select': return <svg {...p}><polyline points="9 11 12 14 22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>;
     default: return null;
   }
 }
@@ -62,7 +63,7 @@ function FolderGlyph({ filled = false, size = 42 }) {
   );
 }
 
-const STATUS_LABEL = { new: 'New', edited: 'Edited', deleted: 'Removed', waiting: 'Awaiting review', synced: '' };
+const STATUS_LABEL = { new: 'New', edited: 'Edited', deleted: 'Marked for deletion', waiting: 'Awaiting review', synced: '' };
 
 // Tile-zoom bounds (px, the grid's min column width). Below the threshold
 // the tile grid gives way to the list view.
@@ -101,7 +102,7 @@ const TAB_DEFS = [
   { id: 'team',   label: 'Team files',        icon: 'users' },
   { id: 'drafts', label: 'My drafts',         icon: 'edit-pen' },
   { id: 'review', label: 'Waiting for review', icon: 'clock' },
-  { id: 'trash',  label: 'Removed',           icon: 'trash' },
+  { id: 'trash',  label: 'Marked for deletion', icon: 'trash' },
 ];
 
 // Per-tab status-dot colour (shown instead of a count when the tab has
@@ -111,43 +112,106 @@ const TAB_DOT_STATUS = { drafts: 'changes', review: 'waiting', trash: 'deleted' 
 // Right-click menu for a file / folder item. Falsy entries collapse via
 // useMorphPill's filter, so "Open file location" only appears when the
 // item has a real on-disk path (local files + local subfolders).
-function itemMenuItems(item, { onOpen, onEdit, onRename, onProperties, onOpenLocation, onDelete, canEdit }) {
+function itemMenuItems(item, { onOpen, onEdit, onRename, onProperties, onOpenLocation, onDelete, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete }) {
   const isFolder = item.kind === 'folder';
   const localPath = isFolder
     ? item._dir?.path
     : (item._isCloud === false ? item._raw?.path : null);
+  // Cloud = lives on the main branch (delete is queued until publish); local =
+  // on this computer (file hidden / folder deleted immediately).
+  const isCloud = isFolder ? !localPath : Boolean(item._isCloud);
+  // Bulk mode: right-clicking one of several selected items makes Delete act
+  // on the WHOLE selection. Single-item actions (Open / Properties) stay
+  // scoped to the right-clicked item; Rename is hidden in bulk.
+  const bulk = Boolean(selectMode && isMultiSelected && bulkCount > 1);
+
+  // Shared Delete entry (files + folders). Folder deletion removes everything
+  // inside; the confirm copy reflects cloud-vs-local and single-vs-bulk.
+  const subject = bulk
+    ? `${bulkCount} items`
+    : (isFolder ? `“${item.name}” and everything inside it` : `“${item.name}”`);
+  const deleteEntry = canEdit && {
+    key: 'delete',
+    label: bulk ? `Delete ${bulkCount} items` : (isFolder ? 'Delete folder' : 'Delete'),
+    danger: true,
+    onClick: () => (bulk ? onBulkDelete?.() : onDelete?.(item)),
+    confirm: {
+      title: bulk ? `Delete ${bulkCount} items?` : (isFolder ? 'Delete this folder?' : 'Delete this file?'),
+      message: isCloud
+        ? `${subject} will be removed from the team’s files once you publish for review.`
+        : (bulk
+          ? `${subject} will be marked for deletion. The files stay on your computer.`
+          : isFolder
+            ? `${subject} will be deleted from your computer.`
+            : `${subject} will be marked for deletion and removed from the team’s files when you publish. The file stays on your computer.`),
+      confirmLabel: bulk ? `Delete ${bulkCount}` : 'Delete',
+      cancelLabel: 'Cancel',
+    },
+  };
+
   if (isFolder) {
     return [
       { key: 'open', label: 'Open', onClick: () => onOpen?.(item) },
       // Rename is a write, and only on-disk (local) folders can be renamed —
       // Team-tab folders are derived from cloud folder_path and read-only.
-      canEdit && localPath && { key: 'rename', label: 'Rename', onClick: () => onRename?.(item) },
+      !bulk && canEdit && localPath && { key: 'rename', label: 'Rename', onClick: () => onRename?.(item) },
       localPath && { key: 'loc', label: 'Open file location', onClick: () => onOpenLocation?.(item) },
+      deleteEntry,
     ];
   }
   return [
     { key: 'open',   label: 'Open',               onClick: () => onOpen?.(item) },
     // Rename + Delete are writes — gated like the toolbar buttons.
-    canEdit && { key: 'rename', label: 'Rename',  onClick: () => onRename?.(item) },
+    !bulk && canEdit && { key: 'rename', label: 'Rename',  onClick: () => onRename?.(item) },
     { key: 'props',  label: 'Properties',         onClick: () => onProperties?.(item) },
     localPath && { key: 'loc', label: 'Open file location', onClick: () => onOpenLocation?.(item) },
-    canEdit && {
-      key: 'delete', label: 'Delete', danger: true,
-      onClick: () => onDelete?.(item),
-      confirm: {
-        title: 'Delete this file?',
-        message: item._isCloud
-          ? `“${item.name}” will be removed from the team’s files once you publish for review.`
-          : `“${item.name}” will be hidden from your drafts. The file stays on your computer.`,
-        confirmLabel: 'Delete',
-        cancelLabel: 'Cancel',
-      },
-    },
+    deleteEntry,
   ];
 }
 
+// ── Inline name input (rename + new-folder draft) ─────────────────────
+// Electron has no window.prompt, so naming happens inline. Auto-focuses +
+// selects; Enter commits, Escape cancels, blur commits (empty → cancel).
+// Stops pointer/key propagation so it doesn't trigger the host item's
+// select/open or the global Escape handlers.
+function InlineNameInput({ initial = '', placeholder, onCommit, onCancel, className = '' }) {
+  const [value, setValue] = useState(initial);
+  const ref = useRef(null);
+  const doneRef = useRef(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (el) { el.focus(); el.select(); }
+  }, []);
+  const finish = (fn) => { if (doneRef.current) return; doneRef.current = true; fn(); };
+  const commit = () => finish(() => {
+    const v = value.trim();
+    if (v) onCommit(v); else onCancel();
+  });
+  const cancel = () => finish(() => onCancel());
+  return (
+    <input
+      ref={ref}
+      className={`fx-inline-input ${className}`}
+      type="text"
+      value={value}
+      placeholder={placeholder}
+      spellCheck={false}
+      onChange={(e) => setValue(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+      }}
+      onBlur={commit}
+    />
+  );
+}
+
 // ── Tile ──────────────────────────────────────────────────────────────
-function Tile({ item, selected, onSelect, onOpen, onEdit, onRename, onProperties, onOpenLocation, onDelete, canEdit }) {
+function Tile({ item, selected, onSelect, onOpen, onEdit, onRename, onProperties, onOpenLocation, onDelete, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, renaming, onCommitName, onCancelName }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
   // Cursor-following pill shows the FULL name on hover; right-click morphs
@@ -155,8 +219,22 @@ function Tile({ item, selected, onSelect, onOpen, onEdit, onRename, onProperties
   // Delete menu.
   const morph = useMorphPill({
     hoverContent: item.name,
-    menuItems: itemMenuItems(item, { onOpen, onEdit, onRename, onProperties, onOpenLocation, onDelete, canEdit }),
+    menuItems: itemMenuItems(item, { onOpen, onEdit, onRename, onProperties, onOpenLocation, onDelete, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete }),
   });
+  // While renaming, render a non-interactive shell (no button/menu) with the
+  // name turned into an inline input.
+  if (renaming) {
+    return (
+      <div className={`fx-tile${isFolder ? ' is-folder' : ''} is-renaming`}>
+        <span className="fx-tile-thumb">
+          {isFolder ? <FolderGlyph filled={!item.empty} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
+        </span>
+        <span>
+          <InlineNameInput className="fx-tile-name" initial={item.name} onCommit={(name) => onCommitName(name)} onCancel={onCancelName} />
+        </span>
+      </div>
+    );
+  }
   return (
     <>
       <button
@@ -169,7 +247,9 @@ function Tile({ item, selected, onSelect, onOpen, onEdit, onRename, onProperties
         // stopPropagation so the canvas's background menu doesn't also fire.
         onContextMenu={(e) => { e.stopPropagation(); morph.handleContextMenu(e); }}
       >
-        {!isFolder && status !== 'synced' && (
+        {/* Status ribbon — files use the full set (New / Edited / Awaiting /
+            Marked for deletion); folders only ever carry the deletion pill. */}
+        {status !== 'synced' && (isFolder ? status === 'deleted' : true) && (
           <span className={`fx-ribbon is-${status}`}>{STATUS_LABEL[status]}</span>
         )}
         <span className="fx-tile-thumb">
@@ -190,14 +270,39 @@ function Tile({ item, selected, onSelect, onOpen, onEdit, onRename, onProperties
   );
 }
 
+// New-folder draft tile — a folder placeholder whose name is an inline input.
+function NewFolderTile({ onCommit, onCancel }) {
+  return (
+    <div className="fx-tile is-folder is-renaming">
+      <span className="fx-tile-thumb"><FolderGlyph filled={false} /></span>
+      <span>
+        <InlineNameInput className="fx-tile-name" placeholder="new folder" onCommit={onCommit} onCancel={onCancel} />
+      </span>
+    </div>
+  );
+}
+
 // ── List row ──────────────────────────────────────────────────────────
-function Row({ item, selected, onSelect, onOpen, onEdit, onRename, onProperties, onOpenLocation, onDelete, canEdit }) {
+function Row({ item, selected, onSelect, onOpen, onEdit, onRename, onProperties, onOpenLocation, onDelete, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, renaming, onCommitName, onCancelName }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
   const morph = useMorphPill({
     hoverContent: item.name,
-    menuItems: itemMenuItems(item, { onOpen, onEdit, onRename, onProperties, onOpenLocation, onDelete, canEdit }),
+    menuItems: itemMenuItems(item, { onOpen, onEdit, onRename, onProperties, onOpenLocation, onDelete, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete }),
   });
+  if (renaming) {
+    return (
+      <div className="fx-list-row is-renaming">
+        <span className="fx-list-name">
+          <span className="fx-list-thumb">
+            {isFolder ? <FolderGlyph filled={!item.empty} size={20} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
+          </span>
+          <InlineNameInput className="fx-name" initial={item.name} onCommit={(name) => onCommitName(name)} onCancel={onCancelName} />
+        </span>
+        <span /><span /><span /><span />
+      </div>
+    );
+  }
   return (
     <>
       <button
@@ -228,8 +333,21 @@ function Row({ item, selected, onSelect, onOpen, onEdit, onRename, onProperties,
   );
 }
 
+// New-folder draft row — a folder placeholder whose name is an inline input.
+function NewFolderRow({ onCommit, onCancel }) {
+  return (
+    <div className="fx-list-row is-renaming">
+      <span className="fx-list-name">
+        <span className="fx-list-thumb"><FolderGlyph filled={false} size={20} /></span>
+        <InlineNameInput className="fx-name" placeholder="new folder" onCommit={onCommit} onCancel={onCancel} />
+      </span>
+      <span /><span /><span /><span />
+    </div>
+  );
+}
+
 // ── Publish drawer ────────────────────────────────────────────────────
-function PublishDrawer({ open, onClose, changes, adminNames, sending, progress, onSend }) {
+function PublishDrawer({ open, onClose, changes, adminNames, sending, progress, onSend, applyMode, editContext }) {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [picked, setPicked] = useState(() => new Set());
@@ -250,40 +368,50 @@ function PublishDrawer({ open, onClose, changes, adminNames, sending, progress, 
 
   const handleSend = async () => {
     if (count === 0 || sending) return;
-    const res = await onSend(Array.from(picked), title.trim(), desc.trim());
+    const res = await onSend(Array.from(picked), title.trim(), desc.trim(), { applyDirect: applyMode, fromEdit: editContext });
     if (!res?.error) { setTitle(''); setDesc(''); onClose(); }
   };
 
   return (
     <>
       <div className={`fx-scrim${open ? ' is-open' : ''}`} onClick={sending ? undefined : onClose} />
-      <aside className={`fx-drawer${open ? ' is-open' : ''}`} role="dialog" aria-label="Send for review" aria-hidden={!open}>
+      <aside className={`fx-drawer${open ? ' is-open' : ''}`} role="dialog" aria-label={applyMode ? 'Apply changes' : 'Send for review'} aria-hidden={!open}>
         <div className="fx-drawer-head">
           <div>
-            <h2>Send your changes for review</h2>
-            <p>Your team will see these changes and either approve them or send them back. Nothing goes live until they say yes.</p>
+            <h2>{applyMode ? 'Apply your changes' : 'Send your changes for review'}</h2>
+            <p>
+              {applyMode
+                ? 'You’re editing the main branch directly — these changes go live for everyone the moment you apply them.'
+                : 'Your team will see these changes and either approve them or send them back. Nothing goes live until they say yes.'}
+            </p>
           </div>
           <button className="fx-drawer-close" onClick={onClose} aria-label="Close" disabled={sending}>
             <Icon name="close" size={16} />
           </button>
         </div>
         <div className="fx-drawer-body">
-          <div className="fx-drawer-section">
-            <div className="fx-drawer-label">What's changing</div>
-            <input
-              className="fx-drawer-input" type="text" value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Update brand assets for Q1 launch"
-            />
-          </div>
-          <div className="fx-drawer-section">
-            <div className="fx-drawer-label">A note for your team (optional)</div>
-            <textarea
-              className="fx-drawer-textarea" value={desc}
-              onChange={(e) => setDesc(e.target.value)}
-              placeholder="Anything they should know?"
-            />
-          </div>
+          {/* Title + note are for the review audience — omitted when applying
+              directly to main (no reviewer to read them). */}
+          {!applyMode && (
+            <>
+              <div className="fx-drawer-section">
+                <div className="fx-drawer-label">What's changing</div>
+                <input
+                  className="fx-drawer-input" type="text" value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Update brand assets for Q1 launch"
+                />
+              </div>
+              <div className="fx-drawer-section">
+                <div className="fx-drawer-label">A note for your team (optional)</div>
+                <textarea
+                  className="fx-drawer-textarea" value={desc}
+                  onChange={(e) => setDesc(e.target.value)}
+                  placeholder="Anything they should know?"
+                />
+              </div>
+            </>
+          )}
           <div className="fx-drawer-section">
             <div className="fx-drawer-label">{count} {count === 1 ? 'change' : 'changes'} included</div>
             {changes.length === 0 && <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: 0 }}>Nothing to send right now.</p>}
@@ -296,6 +424,17 @@ function PublishDrawer({ open, onClose, changes, adminNames, sending, progress, 
             ))}
           </div>
         </div>
+        {applyMode && (
+          // Permanent-changes warning — pinned at the bottom, just above the
+          // Apply button, since direct apply skips the review step.
+          <div className="fx-apply-warning is-foot" role="alert">
+            <span className="fx-apply-warning-dot" aria-hidden="true" />
+            <div>
+              <strong>These changes are permanent.</strong>
+              <span> They’re applied to the team’s files right away and skip the review process.</span>
+            </div>
+          </div>
+        )}
         <div className="fx-drawer-foot" style={{ position: 'relative' }}>
           {sending && (
             <span className="fx-drawer-progress" aria-hidden="true">
@@ -306,12 +445,14 @@ function PublishDrawer({ open, onClose, changes, adminNames, sending, progress, 
             </span>
           )}
           <div className="fx-summary">
-            {adminNames ? <>Will notify <strong style={{ color: 'var(--text-secondary)' }}>{adminNames}</strong>.</> : 'Your team admins will be notified.'}
+            {applyMode
+              ? 'Applied immediately — no review needed.'
+              : (adminNames ? <>Will notify <strong style={{ color: 'var(--text-secondary)' }}>{adminNames}</strong>.</> : 'Your team admins will be notified.')}
           </div>
           <button className="fx-btn-ghost" onClick={onClose} disabled={sending}>Cancel</button>
-          <button className="fx-btn-primary" onClick={handleSend} disabled={count === 0 || sending}>
-            <Icon name="send" size={14} />
-            {sending ? 'Sending…' : 'Send for review'}
+          <button className={`fx-btn-primary${applyMode ? ' fx-btn-apply' : ''}`} onClick={handleSend} disabled={count === 0 || sending}>
+            <Icon name={applyMode ? 'select' : 'send'} size={14} />
+            {applyMode ? (sending ? 'Applying…' : 'Apply changes') : (sending ? 'Sending…' : 'Send for review')}
           </button>
         </div>
       </aside>
@@ -329,6 +470,7 @@ export default function FilesWorkspace({
   draftDot,
   branch,            // { state, title, detail, workspaceLabel }
   canEdit,
+  isAdmin,           // admins can Apply directly to main (skip review) in edit mode
   hasLocalFolder,
   onPickFolder,
   // Local-folder selector (the directory on this computer where drafts live)
@@ -347,7 +489,7 @@ export default function FilesWorkspace({
   // actions
   onOpen, onEdit, onRename, onMove, onDelete, onNewFolder, onUpload, onGetUpdates, onOpenLocation,
   // publish
-  draftChanges, adminNames, publishing, publishProgress, onPublish,
+  draftChanges, editChanges, adminNames, publishing, publishProgress, onPublish,
   // team edit mode
   onRevertEdits,
 }) {
@@ -358,6 +500,11 @@ export default function FilesWorkspace({
   const view = tileSize < FX_LIST_THRESHOLD ? 'list' : 'tiles';
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState(null);
+  // Multi-select mode (the footer "Select" button). When on, clicking files
+  // toggles them into `multiSel` (a Set of item ids) instead of single-select,
+  // and right-clicking a selected file offers a bulk Delete over the whole set.
+  const [selectMode, setSelectMode] = useState(false);
+  const [multiSel, setMultiSel] = useState(() => new Set());
   const [publishOpen, setPublishOpen] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   // Team-files edit mode. The Team tab is a read-only view of the main
@@ -383,11 +530,42 @@ export default function FilesWorkspace({
     editCloseTimer.current = setTimeout(() => { setEditClosing(false); editCloseTimer.current = null; }, 320);
   };
   useEffect(() => () => { if (editCloseTimer.current) clearTimeout(editCloseTimer.current); }, []);
+
+  // Whether write actions (Rename / Delete in the item menu, Import / Make
+  // new folder in the background menu) may be offered. The Team tab is a
+  // read-only view of the main branch until the user opts into edit mode, so
+  // there those actions are withheld — the item menu collapses to Open (+
+  // Properties for files), matching the bottom action bar, which is itself
+  // hidden on the Team tab outside edit mode. Other tabs (My drafts / Waiting
+  // / Removed) stay editable per `canEdit`.
+  const menuEditable = tab === 'team' ? (canEdit && teamEditMode) : canEdit;
+
+  // Edit-mode publish context — true whenever publishing from the Team edit
+  // mode (admin or not). It selects the edit-mode change stream (editChanges)
+  // over drafts, so the two never mix. `applyMode` is the admin subset that
+  // ALSO skips review (direct merge), driving the button label + warning pill.
+  const editContext = tab === 'team' && teamEditMode;
+  const applyMode = editContext && Boolean(isAdmin);
+
   // Item whose Properties dialog is open (or null). Built entirely from
   // the item model, so no parent round-trip is needed.
   const [propsItem, setPropsItem] = useState(null);
   const newMenuRef = useRef(null);
   const canvasRef = useRef(null);
+  const searchRef = useRef(null);
+
+  // Inline name editing (Electron has no window.prompt). `renamingId` is the
+  // item whose name renders as an input in place; `creatingFolder` shows a
+  // placeholder folder tile/row with an auto-focused "new folder" input at the
+  // top of the grid. Commit hands the name to the parent; cancel just clears.
+  const [renamingId, setRenamingId] = useState(null);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const requestRename = (item) => { if (item) { setCreatingFolder(false); setRenamingId(item.id); } };
+  const requestNewFolder = () => { setRenamingId(null); setCreatingFolder(true); };
+  const commitRename = (item, name) => { setRenamingId(null); onRename?.(item, name); };
+  const cancelRename = () => setRenamingId(null);
+  const commitNewFolder = (name) => { setCreatingFolder(false); onNewFolder?.(name); };
+  const cancelNewFolder = () => setCreatingFolder(false);
 
   // Right-click on empty canvas → a morph menu with Import / New folder.
   // No hoverContent + we only wire handleContextMenu (not mouse-move), so
@@ -395,8 +573,8 @@ export default function FilesWorkspace({
   const bgMorph = useMorphPill({
     hoverContent: '',
     menuItems: [
-      canEdit && { key: 'import', label: 'Import files', onClick: () => onUpload?.() },
-      canEdit && { key: 'newfolder', label: 'Make new folder', onClick: () => onNewFolder?.() },
+      menuEditable && { key: 'import', label: 'Import files', onClick: () => onUpload?.() },
+      menuEditable && { key: 'newfolder', label: 'Make new folder', onClick: () => requestNewFolder() },
     ],
   });
 
@@ -405,6 +583,10 @@ export default function FilesWorkspace({
   // change, so reset instantly — no exit animation here.
   useEffect(() => {
     setSelectedId(null);
+    setSelectMode(false);
+    setMultiSel(new Set());
+    setRenamingId(null);
+    setCreatingFolder(false);
     setTeamEditMode(false);
     setEditClosing(false);
     if (editCloseTimer.current) { clearTimeout(editCloseTimer.current); editCloseTimer.current = null; }
@@ -417,6 +599,39 @@ export default function FilesWorkspace({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [propsItem]);
+
+  // In Team edit mode, Escape exits edit mode — but only when nothing more
+  // local should consume it first: an open publish drawer / properties dialog
+  // / New menu / right-click morph menu, or a focused text field. Those each
+  // own Esc, so we bail and let them handle it.
+  useEffect(() => {
+    if (!teamEditMode) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (publishOpen || propsItem || newMenuOpen || renamingId || creatingFolder) return;
+      if (document.querySelector('.project-files-morph-pill.is-menu')) return;
+      const el = document.activeElement;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return;
+      leaveEditMode();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [teamEditMode, publishOpen, propsItem, newMenuOpen, renamingId, creatingFolder]);
+
+  // Ctrl/Cmd+F focuses the folder search (and selects any existing query)
+  // instead of opening the browser's native find bar.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Ctrl+scroll over the canvas zooms the tiles. `{ passive: false }` so we
   // can preventDefault and suppress the browser's own ctrl+wheel page zoom.
@@ -457,7 +672,64 @@ export default function FilesWorkspace({
     () => [...(folders || []), ...(items || [])].find((f) => f.id === selectedId) || null,
     [folders, items, selectedId],
   );
-  const onSelect = (item) => setSelectedId((prev) => (prev === item.id ? null : item.id));
+
+  // id → item map across the current view, for resolving the multi-select set
+  // back to item objects (built from the UNFILTERED lists so a search filter
+  // doesn't drop already-selected files from the selection).
+  const itemById = useMemo(() => {
+    const m = new Map();
+    for (const f of (folders || [])) m.set(f.id, f);
+    for (const f of (items || [])) m.set(f.id, f);
+    return m;
+  }, [folders, items]);
+
+  // Files AND folders are bulk-selectable. Deleting a folder removes the
+  // folder and everything inside it (onDelete in the parent handles both
+  // local + cloud folders).
+  const multiSelItems = useMemo(
+    () => [...multiSel].map((id) => itemById.get(id)).filter(Boolean),
+    [multiSel, itemById],
+  );
+
+  // Single-click: toggle multi-selection in select mode, else the usual
+  // single highlight.
+  const onSelect = (item) => {
+    if (selectMode) {
+      setMultiSel((prev) => {
+        const next = new Set(prev);
+        if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+        return next;
+      });
+      return;
+    }
+    setSelectedId((prev) => (prev === item.id ? null : item.id));
+  };
+
+  const exitSelectMode = () => { setSelectMode(false); setMultiSel(new Set()); };
+  const toggleSelectMode = () => {
+    setSelectedId(null);
+    setSelectMode((on) => { if (on) setMultiSel(new Set()); return !on; });
+  };
+  // Bulk delete the current selection. onDelete already does the right thing
+  // per item (queue a cloud removal / hide a local file / delete a folder).
+  // Exit select mode afterwards so the (now-stale) ids clear.
+  const bulkDelete = () => {
+    multiSelItems.forEach((it) => onDelete?.(it));
+    exitSelectMode();
+  };
+
+  // Common props every Tile/Row needs — spread at each render site so the
+  // three call sites (folder tiles, file tiles, list rows) can't drift.
+  const itemCommon = {
+    onSelect, onOpen, onEdit,
+    onRename: requestRename,
+    onProperties: setPropsItem,
+    onOpenLocation, onDelete,
+    canEdit: menuEditable,
+    selectMode,
+    bulkCount: multiSelItems.length,
+    onBulkDelete: bulkDelete,
+  };
 
   const draftCount = counts?.drafts || 0;
   const reviewCount = counts?.review || 0;
@@ -538,9 +810,10 @@ export default function FilesWorkspace({
         {/* Pathbar — breadcrumb + search + the primary CTA / view toggle.
             File operations live in the bottom action bar. */}
         <div
-          className="fx-pathbar"
+          className={`fx-pathbar${tab === 'team' && teamEditMode ? ' is-editing' : ''}`}
           // Cursor-following spotlight: write the pointer position (local to
           // the bar) into --spot-x/--spot-y; the ::before glow reads them.
+          // `is-editing` tints that glow red while editing the main branch.
           onMouseMove={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             e.currentTarget.style.setProperty('--spot-x', `${e.clientX - r.left}px`);
@@ -570,14 +843,18 @@ export default function FilesWorkspace({
           <div style={{ flex: 1 }} />
           <div className="fx-search">
             <Icon name="search" size={14} />
-            <input placeholder="Search this folder" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <input ref={searchRef} placeholder="Search this folder" value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
           {tab === 'team' ? (
             // Team files is the read-only view of the main branch. "Edit"
             // enters edit mode (reveals the action-bar footer + the
             // IN-EDIT-MODE pill); once editing, Edit is replaced by Apply
             // (publish the changes) and Revert (discard them).
-            editUiActive ? (
+            //
+            // Keyed on teamEditMode (not editUiActive) so the swap is INSTANT
+            // on both enter and leave — it doesn't linger through the pill /
+            // footer exit animation. The background tints still fade smoothly.
+            teamEditMode ? (
               <>
                 <button
                   className="fx-tb-btn"
@@ -644,13 +921,14 @@ export default function FilesWorkspace({
 
         {/* Canvas */}
         <div
-          className="fx-canvas"
+          className={`fx-canvas${tab === 'team' && teamEditMode ? ' is-editing' : ''}`}
           ref={canvasRef}
           style={{ '--fx-tile': `${tileSize}px` }}
           onClick={(e) => { if (e.target === e.currentTarget) setSelectedId(null); }}
           // Right-click on empty space (items stopPropagation their own
-          // contextmenu) opens the Import / New-folder menu.
-          onContextMenu={canEdit ? bgMorph.handleContextMenu : undefined}
+          // contextmenu) opens the Import / New-folder menu — withheld on the
+          // read-only Team view until edit mode (same gate as the item menu).
+          onContextMenu={menuEditable ? bgMorph.handleContextMenu : undefined}
         >
           {!hasLocalFolder && (tab === 'drafts' || tab === 'trash') ? (
             <div className="fx-empty">
@@ -661,7 +939,7 @@ export default function FilesWorkspace({
             </div>
           ) : loading ? (
             <div className="fx-empty"><p>Loading…</p></div>
-          ) : totalShown === 0 ? (
+          ) : (totalShown === 0 && !creatingFolder) ? (
             <div className="fx-empty">
               <Icon name="inbox" className="fx-icon" strokeWidth={1.2} />
               <h3>{q ? 'No matches' : 'Nothing here yet'}</h3>
@@ -669,12 +947,13 @@ export default function FilesWorkspace({
             </div>
           ) : view === 'tiles' ? (
             <>
-              {shownFolders.length > 0 && (
+              {(shownFolders.length > 0 || creatingFolder) && (
                 <>
-                  <div className="fx-section-head"><h2>Folders</h2><span className="fx-count">{shownFolders.length}</span></div>
+                  <div className="fx-section-head"><h2>Folders</h2><span className="fx-count">{shownFolders.length + (creatingFolder ? 1 : 0)}</span></div>
                   <div className="fx-grid">
+                    {creatingFolder && <NewFolderTile onCommit={commitNewFolder} onCancel={cancelNewFolder} />}
                     {shownFolders.map((f) => (
-                      <Tile key={f.id} item={f} selected={selectedId === f.id} onSelect={onSelect} onOpen={onOpen} onEdit={onEdit} onRename={onRename} onProperties={setPropsItem} onOpenLocation={onOpenLocation} onDelete={onDelete} canEdit={canEdit} />
+                      <Tile key={f.id} item={f} selected={selectMode ? multiSel.has(f.id) : selectedId === f.id} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
                     ))}
                   </div>
                 </>
@@ -684,7 +963,7 @@ export default function FilesWorkspace({
                   <div className="fx-section-head"><h2>Files</h2><span className="fx-count">{shownItems.length}</span></div>
                   <div className="fx-grid">
                     {shownItems.map((f) => (
-                      <Tile key={f.id} item={f} selected={selectedId === f.id} onSelect={onSelect} onOpen={onOpen} onEdit={onEdit} onRename={onRename} onProperties={setPropsItem} onOpenLocation={onOpenLocation} onDelete={onDelete} canEdit={canEdit} />
+                      <Tile key={f.id} item={f} selected={selectMode ? multiSel.has(f.id) : selectedId === f.id} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
                     ))}
                   </div>
                 </>
@@ -695,8 +974,9 @@ export default function FilesWorkspace({
               <div className="fx-list-head">
                 <div>Name</div><div>Status</div><div>Last edited by</div><div>When</div><div>Size</div>
               </div>
+              {creatingFolder && <NewFolderRow onCommit={commitNewFolder} onCancel={cancelNewFolder} />}
               {[...shownFolders, ...shownItems].map((f) => (
-                <Row key={f.id} item={f} selected={selectedId === f.id} onSelect={onSelect} onOpen={onOpen} onEdit={onEdit} onRename={onRename} onProperties={setPropsItem} onOpenLocation={onOpenLocation} onDelete={onDelete} canEdit={canEdit} />
+                <Row key={f.id} item={f} selected={selectMode ? multiSel.has(f.id) : selectedId === f.id} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
               ))}
             </div>
           )}
@@ -707,7 +987,7 @@ export default function FilesWorkspace({
             edit mode (sliding up on enter, back down on exit); the read-only
             main view shows no footer otherwise. */}
         {(tab !== 'team' || editUiActive) && (
-        <div className={`fx-bottombar${tab === 'team' ? (editClosing ? ' fx-anim-out' : ' fx-anim-in') : ''}`}>
+        <div className={`fx-bottombar${tab === 'team' ? (editClosing ? ' fx-anim-out' : ' fx-anim-in') : ''}${tab === 'team' && teamEditMode ? ' is-editing' : ''}`}>
           <div className="fx-bottombar-actions">
             <div className="fx-menu-wrap" ref={newMenuRef}>
               <button className="fx-tb-btn" disabled={!canEdit} onClick={() => setNewMenuOpen((v) => !v)}>
@@ -717,7 +997,7 @@ export default function FilesWorkspace({
               </button>
               {newMenuOpen && (
                 <div className="fx-menu is-up" role="menu">
-                  <button onClick={() => { setNewMenuOpen(false); onNewFolder?.(); }}>
+                  <button onClick={() => { setNewMenuOpen(false); requestNewFolder(); }}>
                     <Icon name="folder-plus" className="fx-icon" /> New folder
                   </button>
                   <button onClick={() => { setNewMenuOpen(false); onUpload?.(); }}>
@@ -727,23 +1007,46 @@ export default function FilesWorkspace({
               )}
             </div>
             <button className="fx-tb-btn" disabled={!canEdit} onClick={() => onUpload?.()}>
-              <Icon name="upload" className="fx-icon" /><span>Upload</span>
+              <Icon name="upload" className="fx-icon" /><span>Import</span>
             </button>
             <div className="fx-tb-sep" />
             <button className="fx-tb-btn" disabled={!selectedItem} onClick={() => selectedItem && onOpen?.(selectedItem)}>
               <Icon name="open" className="fx-icon" /><span>Open</span>
             </button>
-            <button className="fx-tb-btn" disabled={!selectedItem || !canEdit} onClick={() => selectedItem && onRename?.(selectedItem)}>
+            <button className="fx-tb-btn" disabled={!selectedItem || !canEdit} onClick={() => selectedItem && requestRename(selectedItem)}>
               <Icon name="edit-pen" className="fx-icon" /><span>Rename</span>
             </button>
-            <button className="fx-tb-btn" disabled={!selectedItem || !canEdit} onClick={() => selectedItem && onDelete?.(selectedItem)}>
-              <Icon name="trash" className="fx-icon" /><span>Delete</span>
+            {/* Delete — single item normally; the whole selection in select
+                mode (same action the right-click "Delete N items" runs). */}
+            <button
+              className="fx-tb-btn"
+              disabled={selectMode ? (!canEdit || multiSelItems.length === 0) : (!selectedItem || !canEdit)}
+              onClick={() => (selectMode ? bulkDelete() : (selectedItem && onDelete?.(selectedItem)))}
+            >
+              <Icon name="trash" className="fx-icon" />
+              <span>Delete{selectMode && multiSelItems.length ? ` (${multiSelItems.length})` : ''}</span>
+            </button>
+            <div className="fx-tb-sep" />
+            {/* Select — toggles multi-select. Pick files, then right-click any
+                selected one (or hit Delete) to act on the whole set. */}
+            <button
+              className={`fx-tb-btn${selectMode ? ' is-active' : ''}`}
+              disabled={!canEdit}
+              onClick={toggleSelectMode}
+              aria-pressed={selectMode}
+            >
+              <Icon name="select" className="fx-icon" /><span>{selectMode ? 'Done' : 'Select'}</span>
             </button>
           </div>
           <div className="fx-bottombar-status">
             <span>{totalShown} {totalShown === 1 ? 'item' : 'items'}</span>
-            {selectedItem && <span>· 1 selected</span>}
-            {branch && (
+            {selectMode
+              ? <span>· {multiSelItems.length} selected</span>
+              : (selectedItem && <span>· 1 selected</span>)}
+            {/* Branch-state pill is hidden once more than 10 items are
+                selected — at that point the selection count is the relevant
+                signal and the pill would just crowd the status row. */}
+            {branch && multiSelItems.length <= 10 && (
               <span className={`fx-sb-pill is-${branch.state}`}>
                 <span className="fx-dot" />
                 <span>{branch.title}</span>
@@ -756,11 +1059,13 @@ export default function FilesWorkspace({
         <PublishDrawer
           open={publishOpen}
           onClose={() => setPublishOpen(false)}
-          changes={draftChanges || []}
+          changes={(editContext ? editChanges : draftChanges) || []}
           adminNames={adminNames}
           sending={publishing}
           progress={publishProgress}
           onSend={onPublish}
+          applyMode={applyMode}
+          editContext={editContext}
         />
 
         {/* Background right-click menu (Import / New folder) — portalled. */}

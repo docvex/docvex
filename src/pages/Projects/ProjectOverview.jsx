@@ -6,12 +6,14 @@ import { useNotifications } from '../../context/NotificationsContext';
 import { useAuth } from '../../context/AuthContext';
 import {
   deleteProject,
+  getProjectAiUsage,
   listInvitations,
   notifyProjectsChanged,
   removeMember,
   revokeInvite,
   sendInvite,
   updateProject,
+  updateProjectAiContext,
 } from '../../lib/projects';
 import { deleteCustomRole } from '../../lib/customRoles';
 import { listChangeRequests } from '../../lib/branches';
@@ -90,6 +92,27 @@ function UsageGauge({ label, used, total, unit, tint, hint }) {
       <div className="pjd-usage-hint">{hint}</div>
     </div>
   );
+}
+
+// Free-plan monthly allowances the AI-usage bars fill against. These are the
+// denominators ("418 / 1,000"); the numerators are real values from
+// get_project_ai_usage. When real plan tiers land (lib/plan.js), source these
+// from the active plan instead.
+const AI_MONTHLY_CAPS = { requests: 1000, inputTokens: 500000, outputTokens: 250000, sessions: 50 };
+
+// "1,240" for small counts, "214K" / "2.1M" for large ones — keeps the stat
+// values compact without losing the order of magnitude.
+function fmtTokens(n) {
+  const v = Number(n) || 0;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1)}M`;
+  if (v >= 10_000) return `${Math.round(v / 1000)}K`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}K`;
+  return v.toLocaleString();
+}
+
+// Plain thousands-separated integer for request / session counts.
+function fmtCount(n) {
+  return (Number(n) || 0).toLocaleString();
 }
 
 // Compact relative-time for the activity timeline ("12m", "3h", "2d", …).
@@ -282,10 +305,19 @@ export default function ProjectOverview() {
   // Settings tab and see the locked details/danger zone.
   const [activeTab, setActiveTab] = useState('overview');
 
-  // AI project-context textarea. Local-only for now — the dossier's AI tab
-  // is a placeholder surface; wiring this to a project_ai_context store is a
-  // follow-up. Seeded empty so the user sees the helper placeholder.
+  // AI project-context textarea — real, persisted to projects.ai_context
+  // (migration 030). Local edit buffer seeded from the project row via the
+  // effect below; only Save commits. `savingAiContext` drives the button
+  // label; admins write (RLS gates non-admins out anyway, and the UI disables
+  // editing for them).
   const [aiContext, setAiContext] = useState('');
+  const [savingAiContext, setSavingAiContext] = useState(false);
+
+  // Real monthly AI usage aggregates for this project (get_project_ai_usage
+  // RPC). null while loading / on error. Counts are genuinely zero until a
+  // project-scoped AI feature logs its first request via logProjectAiUsage.
+  const [aiUsage, setAiUsage] = useState(null);
+  const [aiUsageLoading, setAiUsageLoading] = useState(true);
 
   // Recent change requests for this project — the real feed behind the
   // Overview activity timeline (merged with member-join events below).
@@ -315,6 +347,15 @@ export default function ProjectOverview() {
     setEditDescription(project?.description ?? '');
     setProjectFormError(null);
   }, [project?.id, project?.name, project?.description]);
+
+  // Seed the AI-context buffer from the project row — initial load + any
+  // Realtime UPDATE (another admin saving elsewhere). Keyed on ai_context so a
+  // remote change refreshes the buffer; because Save writes the trimmed value,
+  // the post-save Realtime echo re-seeds to the same text rather than clobbering
+  // in-flight typing.
+  useEffect(() => {
+    setAiContext(project?.ai_context ?? '');
+  }, [project?.id, project?.ai_context]);
 
   const projectFormDirty =
     (editName.trim() !== (project?.name ?? '')) ||
@@ -366,6 +407,33 @@ export default function ProjectOverview() {
       icon: 'edit',
       title: 'Project updated',
       dedupeKey: `project-updated-${project.id}`,
+    });
+  };
+
+  // Persist the per-project AI context. Admin-gated in the UI; the underlying
+  // RLS ("admins update projects") rejects non-admins too. The Realtime UPDATE
+  // from ProjectContext re-seeds the buffer to the saved value, so no explicit
+  // local patch is needed here.
+  const handleSaveAiContext = async () => {
+    if (savingAiContext) return;
+    setSavingAiContext(true);
+    const { error: aiErr } = await updateProjectAiContext(project.id, aiContext);
+    setSavingAiContext(false);
+    if (aiErr) {
+      notify({
+        category: 'project',
+        variant: 'error',
+        title: 'Could not save AI context',
+        body: aiErr.message || 'The server rejected the request.',
+      });
+      return;
+    }
+    notify({
+      category: 'project',
+      variant: 'success',
+      icon: 'edit',
+      title: 'AI context saved',
+      dedupeKey: `ai-context-saved-${project.id}`,
     });
   };
 
@@ -424,6 +492,23 @@ export default function ProjectOverview() {
         .select('id', { count: 'exact', head: true })
         .eq('project_id', project.id);
       if (!cancelled) setFileCount(typeof count === 'number' ? count : null);
+    })();
+    return () => { cancelled = true; };
+  }, [project?.id]);
+
+  // Monthly AI usage aggregates for the AI tab. Visible to all members (the
+  // RPC's underlying RLS handles access), so no role gate — re-fetched per
+  // project. Counts are real and start at zero until a project-scoped AI
+  // feature logs a request.
+  useEffect(() => {
+    if (!project?.id) { setAiUsage(null); setAiUsageLoading(false); return; }
+    let cancelled = false;
+    setAiUsageLoading(true);
+    (async () => {
+      const { data } = await getProjectAiUsage(project.id);
+      if (cancelled) return;
+      setAiUsage(data);
+      setAiUsageLoading(false);
     })();
     return () => { cancelled = true; };
   }, [project?.id]);
@@ -672,6 +757,23 @@ export default function ProjectOverview() {
 
   // AI-context token/char estimate for the live counter in the AI tab.
   const aiTokens = Math.round(aiContext.length / 4);
+
+  // Dirty when the trimmed buffer differs from the saved value (null/'' both
+  // read as "empty"). Drives the Save/Discard enabled state.
+  const aiContextDirty = aiContext.trim() !== (project?.ai_context ?? '');
+
+  // Real AI-usage cells for the AI tab, derived from the monthly aggregate.
+  // `used` comes from get_project_ai_usage; `cap` is the plan allowance the bar
+  // fills against. Zero is honest — it means no AI feature has logged a request
+  // this month yet.
+  const usage = aiUsage || { requests: 0, input_tokens: 0, output_tokens: 0, sessions: 0, last_used_at: null };
+  const aiUsageStats = [
+    { key: 'requests', label: 'Requests', used: Number(usage.requests) || 0, cap: AI_MONTHLY_CAPS.requests, fmt: fmtCount, tint: 'var(--accent)', hint: 'Resets monthly' },
+    { key: 'input', label: 'Input tokens', used: Number(usage.input_tokens) || 0, cap: AI_MONTHLY_CAPS.inputTokens, fmt: fmtTokens, tint: 'var(--cat-update)', hint: 'Sent to the model' },
+    { key: 'output', label: 'Output tokens', used: Number(usage.output_tokens) || 0, cap: AI_MONTHLY_CAPS.outputTokens, fmt: fmtTokens, tint: 'var(--cat-member)', hint: 'Generated in responses' },
+    { key: 'sessions', label: 'Sessions', used: Number(usage.sessions) || 0, cap: AI_MONTHLY_CAPS.sessions, fmt: fmtCount, tint: 'var(--cat-file)', hint: usage.last_used_at ? `Last: ${relTime(usage.last_used_at)} ago` : 'No sessions yet' },
+  ];
+  const aiHasUsage = aiUsageStats.some((s) => s.used > 0);
 
   // The caller's member row — used for the "Joined" meta cell (added_at).
   const me = currentUserId ? members.find((m) => m.user_id === currentUserId) : null;
@@ -1151,43 +1253,38 @@ export default function ProjectOverview() {
         />
       )}
 
-      {/* AI tab — dossier layout. The usage stats are static placeholders
-          (no billing data wired yet); the project-context textarea is live
-          local state (persisting it to a project_ai_context store is a
-          follow-up). */}
+      {/* AI tab — dossier layout. Usage stats are real monthly aggregates from
+          get_project_ai_usage (zero until a project-scoped AI feature logs a
+          request); the project-context textarea persists to projects.ai_context
+          (admin-gated write). */}
       {activeTab === 'ai' && (
         <div className="pjd-ai-grid">
           <section className="pjd-panel">
             <div className="pjd-panel-head">
               <div className="pjd-panel-title">AI usage</div>
-              <span className="pjd-placeholder-note">Sample</span>
+              <span className="pjd-placeholder-note">This month</span>
             </div>
             <div className="pjd-ai-stats">
-              <div className="pjd-ai-stat">
-                <span className="pjd-ai-stat-label">Requests</span>
-                <span className="pjd-ai-stat-value">418<span className="pjd-ai-stat-sub">/1,000</span></span>
-                <div className="pjd-ai-stat-bar"><span style={{ width: '41.8%', background: 'var(--accent)' }} /></div>
-                <span className="pjd-ai-stat-hint">Resets monthly</span>
-              </div>
-              <div className="pjd-ai-stat">
-                <span className="pjd-ai-stat-label">Input tokens</span>
-                <span className="pjd-ai-stat-value">214K<span className="pjd-ai-stat-sub">/500K</span></span>
-                <div className="pjd-ai-stat-bar"><span style={{ width: '42.8%', background: 'var(--cat-update)' }} /></div>
-                <span className="pjd-ai-stat-hint">≈ from project context</span>
-              </div>
-              <div className="pjd-ai-stat">
-                <span className="pjd-ai-stat-label">Output tokens</span>
-                <span className="pjd-ai-stat-value">82K<span className="pjd-ai-stat-sub">/250K</span></span>
-                <div className="pjd-ai-stat-bar"><span style={{ width: '32.8%', background: 'var(--cat-member)' }} /></div>
-                <span className="pjd-ai-stat-hint">Avg. 2.1 K per response</span>
-              </div>
-              <div className="pjd-ai-stat">
-                <span className="pjd-ai-stat-label">Sessions</span>
-                <span className="pjd-ai-stat-value">39<span className="pjd-ai-stat-sub">this month</span></span>
-                <div className="pjd-ai-stat-bar"><span style={{ width: '65%', background: 'var(--cat-file)' }} /></div>
-                <span className="pjd-ai-stat-hint">Last session: 2 h ago</span>
-              </div>
+              {aiUsageStats.map((s) => {
+                const pct = s.cap > 0 ? Math.min(100, Math.round((s.used / s.cap) * 100)) : 0;
+                return (
+                  <div className="pjd-ai-stat" key={s.key}>
+                    <span className="pjd-ai-stat-label">{s.label}</span>
+                    <span className="pjd-ai-stat-value">
+                      {s.fmt(s.used)}<span className="pjd-ai-stat-sub">/{s.fmt(s.cap)}</span>
+                    </span>
+                    <div className="pjd-ai-stat-bar"><span style={{ width: `${pct}%`, background: s.tint }} /></div>
+                    <span className="pjd-ai-stat-hint">{s.hint}</span>
+                  </div>
+                );
+              })}
             </div>
+            {!aiUsageLoading && !aiHasUsage && (
+              <p className="pjd-ai-help" style={{ margin: '14px 0 0' }}>
+                No AI activity yet this month. Usage will populate here once the project's
+                AI tools run their first request.
+              </p>
+            )}
           </section>
 
           <section className="pjd-panel pjd-ai-context-panel">
@@ -1195,7 +1292,7 @@ export default function ProjectOverview() {
               <div className="pjd-panel-title">Project AI context</div>
               <span className="pjd-ai-token-count">
                 <span className="pjd-ai-token-dot" />
-                ≈ {aiTokens.toLocaleString()} tokens · {aiContext.length} chars
+                ≈ {aiTokens.toLocaleString()} tokens · {aiContext.length} chars{aiContextDirty ? ' · unsaved' : ''}
               </span>
             </div>
             <p className="pjd-ai-help">
@@ -1208,6 +1305,7 @@ export default function ProjectOverview() {
               onChange={(e) => setAiContext(e.target.value)}
               placeholder="Describe how you want the AI to behave inside this project — terminology, tone, citation conventions, anything it should always remember…"
               rows={10}
+              readOnly={!isAdmin}
             />
             <div className="pjd-ai-foot">
               <div className="pjd-ai-tags">
@@ -1215,10 +1313,28 @@ export default function ProjectOverview() {
                 <span className="pjd-ai-tag">+ Pin a file as reference</span>
                 <span className="pjd-ai-tag">+ Reference a glossary</span>
               </div>
-              <div className="pjd-ai-actions">
-                <button type="button" className="pjd-btn-ghost" onClick={() => setAiContext('')}>Discard</button>
-                <button type="button" className="pjd-btn-primary">{CheckIcon} Save context</button>
-              </div>
+              {isAdmin ? (
+                <div className="pjd-ai-actions">
+                  <button
+                    type="button"
+                    className="pjd-btn-ghost"
+                    onClick={() => setAiContext(project?.ai_context ?? '')}
+                    disabled={savingAiContext || !aiContextDirty}
+                  >
+                    Discard
+                  </button>
+                  <button
+                    type="button"
+                    className="pjd-btn-primary"
+                    onClick={handleSaveAiContext}
+                    disabled={savingAiContext || !aiContextDirty}
+                  >
+                    {CheckIcon} {savingAiContext ? 'Saving…' : 'Save context'}
+                  </button>
+                </div>
+              ) : (
+                <span className="pjd-ai-stat-hint">Admins manage the AI context.</span>
+              )}
             </div>
           </section>
         </div>

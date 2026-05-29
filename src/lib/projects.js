@@ -149,17 +149,21 @@ export async function createProject({ name, description = null }) {
 // user's row" requires an awkward filter.
 //
 // Field list is intentionally narrow — only what any JSX consumer reads (id,
-// name, description). `created_at`, `updated_at`, `created_by` are stored on
-// the row but never displayed; adding them here just inflates payloads. If a
-// future page needs them, widen this select and the one in updateProject()
-// below in lockstep so the two return shapes stay aligned.
+// name, description, AI context). `created_at`, `updated_at`, `created_by` are
+// stored on the row but never displayed; adding them here just inflates
+// payloads. If a future page needs them, widen this select and the one in
+// updateProject() below in lockstep so the two return shapes stay aligned.
+//
+// `ai_context` / `ai_context_updated_at` back the Project Overview AI tab —
+// included here so the textarea seeds from the project row (and stays in sync
+// via ProjectContext's Realtime UPDATE merge, which carries the new columns).
 export async function getProject(projectId) {
   const userResult = await supabase.auth.getUser();
   const userId = userResult.data.user?.id;
   if (!userId) return { data: null, error: new Error('Not signed in') };
 
   const [{ data: project, error: pErr }, { data: membership, error: mErr }] = await Promise.all([
-    supabase.from('projects').select('id, name, description').eq('id', projectId).maybeSingle(),
+    supabase.from('projects').select('id, name, description, ai_context, ai_context_updated_at').eq('id', projectId).maybeSingle(),
     supabase.from('project_members').select('role').eq('project_id', projectId).eq('user_id', userId).maybeSingle(),
   ]);
   if (pErr) return { data: null, error: pErr };
@@ -183,7 +187,75 @@ export async function updateProject(projectId, patch) {
     .from('projects')
     .update(allowed)
     .eq('id', projectId)
-    .select('id, name, description')
+    .select('id, name, description, ai_context, ai_context_updated_at')
+    .single();
+  return { data, error };
+}
+
+// ── Project AI: context + usage tracking ────────────────────────────────────
+// Backs the Project Overview "AI" tab. See migration 030.
+
+// Persist the per-project AI context (free-text instructions prepended to
+// every AI request in the project). Admin-only via the same "admins update
+// projects" RLS policy that guards name/description — a non-admin save just
+// returns zero rows (the UI gates the editor to admins anyway). Empty string
+// is stored as NULL so "configured" is a simple `is not null` check. Stamps
+// ai_context_updated_at so the usage/overview surfaces can show "updated N ago".
+export async function updateProjectAiContext(projectId, aiContext) {
+  const value = typeof aiContext === 'string' ? aiContext.trim() : '';
+  const { data, error } = await supabase
+    .from('projects')
+    .update({
+      ai_context: value.length ? value : null,
+      ai_context_updated_at: new Date().toISOString(),
+    })
+    .eq('id', projectId)
+    .select('id, ai_context, ai_context_updated_at')
+    .single();
+  return { data, error };
+}
+
+// Monthly AI usage aggregates for a project, via the get_project_ai_usage RPC
+// (SECURITY INVOKER → RLS filters to projects the caller belongs to; a
+// non-member or a project with no usage yields an all-zero row). The RPC
+// returns a single-row table, so unwrap the first element. Returns a plain
+// object { requests, input_tokens, output_tokens, sessions, last_used_at } or
+// null on error.
+export async function getProjectAiUsage(projectId) {
+  const { data, error } = await supabase.rpc('get_project_ai_usage', { p_project_id: projectId });
+  if (error) return { data: null, error };
+  const row = Array.isArray(data) ? data[0] : data;
+  return { data: row || null, error: null };
+}
+
+// Logging primitive for project-scoped AI features (Generate / Automate / chat
+// assistant / summarise / …) to record one request's token usage. Inserts a
+// row attributed to the caller; the "members insert own" RLS policy gates it to
+// project members. Fire-and-forget at call sites — a failed log shouldn't break
+// the AI feature that emitted it. Server-side emitters (Edge Functions) use the
+// service role and write to this table directly instead.
+export async function logProjectAiUsage({
+  projectId,
+  action = 'generate',
+  model = null,
+  inputTokens = 0,
+  outputTokens = 0,
+  sessionId = null,
+}) {
+  const userResult = await supabase.auth.getUser();
+  const userId = userResult.data.user?.id ?? null;
+  const { data, error } = await supabase
+    .from('project_ai_usage')
+    .insert({
+      project_id: projectId,
+      user_id: userId,
+      action,
+      model,
+      input_tokens: Math.max(0, Math.round(Number(inputTokens) || 0)),
+      output_tokens: Math.max(0, Math.round(Number(outputTokens) || 0)),
+      session_id: sessionId,
+    })
+    .select('id')
     .single();
   return { data, error };
 }

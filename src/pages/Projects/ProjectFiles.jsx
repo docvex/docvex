@@ -969,6 +969,7 @@ export default function ProjectFiles() {
     queueChange,
     discardAll,
     withdrawRequest,
+    approveRelease,
     refreshOpenRequestItems,
   } = useBranch();
   // Modals: revert-to-main (SyncToMainModal — pulls main into local
@@ -2271,9 +2272,10 @@ export default function ProjectFiles() {
     notify({
       category: 'file',
       variant: 'success',
-      title: 'File hidden',
-      body: `"${localFile.name}" is hidden from your view. The file stays on disk.`,
-      dedupeKey: `hide-local-ok:${localFile.path}`,
+      icon: 'trash',
+      title: 'Marked for deletion',
+      body: `"${localFile.name}" will be removed from the team’s files when you publish. The file stays on your computer.`,
+      dedupeKey: `mark-delete-local:${localFile.path}`,
     });
   }, [hideFilename, notify]);
 
@@ -2667,19 +2669,42 @@ export default function ProjectFiles() {
     return reviewWaitingPaths.filter((p) => p.startsWith(prefix)).length;
   };
 
+  // Cloud files the user has queued for removal (from team edit-mode deletes).
+  // These get a "Marked for deletion" pill on the Team tab so the pending
+  // removal is visible before it's applied/published.
+  const queuedDeleteIds = new Set(
+    pendingChanges
+      .filter((c) => c.kind === 'delete' && c.target_file_id)
+      .map((c) => c.target_file_id),
+  );
+  const countCloudDeletesUnder = (folderPath) => {
+    if (!folderPath) return 0;
+    const pre = `${folderPath}/`;
+    let n = 0;
+    for (const f of files) {
+      const fp = f.folder_path || '';
+      if ((fp === folderPath || fp.startsWith(pre)) && queuedDeleteIds.has(f.id)) n += 1;
+    }
+    return n;
+  };
+
   const cloudFolders = Array.from(teamSubSet)
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
     .map((name) => {
       const path = teamCur ? `${teamCur}/${name}` : name;
       const count = countCloudFilesUnder(path);
-      return { id: `teamfold:${name}`, kind: 'folder', name, sizeLabel: fileCountLabel(count), empty: count === 0, modifiedLabel: '', path };
+      // A folder reads as "marked for deletion" only when every file under it
+      // is queued for removal (i.e. the whole folder is being deleted).
+      const allDeleted = count > 0 && countCloudDeletesUnder(path) === count;
+      return { id: `teamfold:${name}`, kind: 'folder', name, sizeLabel: fileCountLabel(count), empty: count === 0, modifiedLabel: '', path, status: allDeleted ? 'deleted' : 'synced' };
     });
   // Team files = the canonical main branch, shown the way an admin sees it:
-  // every file as the published (synced) version, WITHOUT this user's personal
-  // in-flight state (no "Awaiting review" / "Edited" overlays — those belong on
-  // the My drafts / Waiting for review tabs).
+  // every file as the published (synced) version, EXCEPT files the user has
+  // queued for deletion, which carry a "Marked for deletion" pill. Other
+  // in-flight state ("Awaiting review" / "Edited") still belongs on the
+  // My drafts / Waiting for review tabs.
   const cloudFiles = teamInFolder
-    .map((row) => cloudItem(row, 'synced'))
+    .map((row) => cloudItem(row, queuedDeleteIds.has(row.id) ? 'deleted' : 'synced'))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   // My drafts / Waiting for review browse the local working folder (Finder-
@@ -2693,20 +2718,50 @@ export default function ProjectFiles() {
       })
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
     : [];
+  // Draft files the user has marked for deletion (the My-drafts Delete action).
+  // Persisted in `hiddenFiles` (lowercase names). They stay VISIBLE in the
+  // drafts grid with a "Marked for deletion" pill; on publish they propose
+  // removing the main-branch copy (or are simply dropped if never published).
+  const isMarkedDraft = (name) => {
+    const lc = (name || '').toLowerCase();
+    return lc !== '' && hiddenFiles.has(lc);
+  };
+  // Marked names that exist on main → synthetic fs delete entries in the shape
+  // computeBranchDiff / runCommitFlow expect ({ kind:'delete', cloud, fileId }).
+  const markedDraftDeletes = (() => {
+    const out = [];
+    const seen = new Set();
+    for (const lc of hiddenFiles) {
+      const fid = sidecar.byFilename.get(lc);
+      const cloud = fid ? cloudById.get(fid) : null;
+      if (cloud && !seen.has(cloud.id)) { seen.add(cloud.id); out.push({ kind: 'delete', fileId: fid, cloud }); }
+    }
+    return out;
+  })();
+  // Effective drafts change set: the filesystem diff minus anything for a
+  // marked file (so a marked file reads only as a deletion, never as edited/
+  // new), plus the explicit marked deletions. Single source for the drafts
+  // count, the publish drawer list, the Removed tab, and the publish snapshot.
+  const draftFsDiff = [
+    ...branchDiff.filter((it) => !isMarkedDraft(it.local?.name || it.cloud?.name)),
+    ...markedDraftDeletes,
+  ];
+
   const fxLocalFiles = teamLocalMode
-    ? browseFiles.map((lf) => localItem(lf, statusForLocal(lf))).sort((a, b) => a.name.localeCompare(b.name))
+    ? browseFiles
+      .map((lf) => localItem(lf, isMarkedDraft(lf.name) ? 'deleted' : statusForLocal(lf)))
+      .sort((a, b) => a.name.localeCompare(b.name))
     : [];
 
-  // Queued deletions (cloud rows the user marked for removal).
+  // Removed tab = DRAFT deletions only (files removed from the user's own
+  // working copy, or marked for deletion in My drafts → draftFsDiff). Edit-mode
+  // deletions (pendingChanges, made on the Team tab) are NOT drafts — they live
+  // on the Team tab as a "Marked for deletion" pill and publish through the
+  // edit-mode flow, so they're deliberately excluded here.
   const deletedItems = (() => {
     const out = [];
     const seen = new Set();
-    for (const c of pendingChanges) {
-      if (c.kind !== 'delete' || !c.target_file_id) continue;
-      const row = cloudById.get(c.target_file_id);
-      if (row && !seen.has(row.id)) { seen.add(row.id); out.push(cloudItem(row, 'deleted')); }
-    }
-    for (const it of branchDiff) {
+    for (const it of draftFsDiff) {
       if (it.kind !== 'delete' || !it.cloud || seen.has(it.cloud.id)) continue;
       seen.add(it.cloud.id); out.push(cloudItem(it.cloud, 'deleted'));
     }
@@ -2714,7 +2769,7 @@ export default function ProjectFiles() {
   })();
 
   const draftsItems = [
-    ...unsavedEditFiles.map((lf) => localItem(lf, draftStatusFor(lf))),
+    ...unsavedEditFiles.filter((lf) => !isMarkedDraft(lf.name)).map((lf) => localItem(lf, draftStatusFor(lf))),
     ...deletedItems,
   ].sort((a, b) => a.name.localeCompare(b.name));
   const reviewItems = waitingReviewFiles.map((lf) => localItem(lf, 'waiting')).sort((a, b) => a.name.localeCompare(b.name));
@@ -2728,7 +2783,11 @@ export default function ProjectFiles() {
   };
 
   // Branch state → drives the inline pill, status bar, and toolbar CTAs.
-  const fxLocalChangeCount = branchDiff.length + pendingChanges.length;
+  // Drafts-side only (draftFsDiff = the user's working-folder changes +
+  // marked-for-deletion files). Edit-mode changes (pendingChanges) are a
+  // separate stream surfaced on the Team tab, so they don't light up the
+  // "unpublished work" drafts indicator.
+  const fxLocalChangeCount = draftFsDiff.length;
   const fxHasOpenOwnReq = (changeRequests || []).some((r) => r.author_id === userId && r.status === 'open');
   // "Behind main" is two independent signals OR'd together:
   //   1. isBehindMain — the version cursor (main_version advanced past the
@@ -2824,15 +2883,26 @@ export default function ProjectFiles() {
 
   // Draft change list for the publish drawer (id = fileId, used to filter
   // the commit snapshot down to the selected subset).
+  // Drafts publish list — the user's local working-folder changes + files
+  // marked for deletion (draftFsDiff). Edit-mode changes are intentionally NOT
+  // folded in here so publishing drafts never sweeps up Team-tab changes.
   const fxDraftChanges = (() => {
     const out = [];
     const seen = new Set();
-    for (const it of branchDiff) {
+    for (const it of draftFsDiff) {
       const fid = it.fileId || it.cloud?.id;
       if (!fid || seen.has(fid)) continue;
       seen.add(fid);
       out.push({ id: fid, name: it.local?.name || it.cloud?.name || 'file', status: it.kind === 'add' ? 'new' : it.kind === 'delete' ? 'deleted' : 'edited' });
     }
+    return out;
+  })();
+
+  // Edit-mode "Apply" list — the cloud metadata changes queued on the Team tab
+  // (pendingChanges / branch_changes). Separate stream from drafts.
+  const fxEditChanges = (() => {
+    const out = [];
+    const seen = new Set();
     for (const c of pendingChanges) {
       const fid = c.target_file_id;
       if (!fid || seen.has(fid)) continue;
@@ -2881,7 +2951,24 @@ export default function ProjectFiles() {
     }
   };
   const fxDelete = (item) => {
-    if (item.kind === 'folder') return;
+    if (item.kind === 'folder') {
+      // Local (on-disk) folder → delete the directory and everything in it.
+      if (item._dir) { handleDeleteFolder(item._dir); return; }
+      // Team (cloud) folder → queue a removal for every file under its path;
+      // applied on the next publish, same as a single cloud-file delete.
+      if (filesTab === 'team' && item.path != null) {
+        const pre = `${item.path}/`;
+        const under = files.filter((f) => {
+          const fp = f.folder_path || '';
+          return fp === item.path || fp.startsWith(pre);
+        });
+        under.forEach((f) => queueChange({ kind: 'delete', target_file_id: f.id, proposed: null }));
+        if (under.length) {
+          notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Folder marked for removal', body: `${under.length} file${under.length === 1 ? '' : 's'} in “${item.name}” will be removed once you publish for review.`, dedupeKey: `fx-delfold:${item.path}` });
+        }
+      }
+      return;
+    }
     if (item._isCloud) {
       queueChange({ kind: 'delete', target_file_id: item._raw.id, proposed: null });
       notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Marked for removal', body: `"${item._raw.name}" will be removed once you publish for review.`, dedupeKey: `fx-del:${item._raw.id}` });
@@ -2889,21 +2976,20 @@ export default function ProjectFiles() {
       handleDeleteLocalCard(item._raw);
     }
   };
-  const fxRename = async (item) => {
+  // `newName` is collected by FilesWorkspace's in-app name modal (Electron
+  // doesn't support window.prompt, so the prompt-based version silently
+  // no-op'd). The handler just applies it.
+  const fxRename = async (item, newName) => {
+    const trimmed = (newName || '').trim();
+    if (!trimmed || trimmed === item.name) return;
     if (item.kind === 'folder') {
       // Only local (on-disk) folders carry a _dir handle; cloud folders are
       // read-only. Renaming the directory re-homes the files inside it, which
       // surfaces as folder-move edits on the next publish.
       if (!item._dir?.name) return;
-      const nextFolder = (typeof window !== 'undefined' && window.prompt('Rename folder', item.name)) || '';
-      const trimmedFolder = nextFolder.trim();
-      if (!trimmedFolder || trimmedFolder === item.name) return;
-      handleRenameFolder(item._dir, trimmedFolder);
+      handleRenameFolder(item._dir, trimmed);
       return;
     }
-    const next = (typeof window !== 'undefined' && window.prompt('Rename file', item.name)) || '';
-    const trimmed = next.trim();
-    if (!trimmed || trimmed === item.name) return;
     if (item._isCloud) {
       queueChange({ kind: 'edit', target_file_id: item._raw.id, proposed: { name: trimmed } });
       notify({ category: 'file', variant: 'success', icon: 'edit', title: 'Rename queued', body: `Publish for review to apply the new name.`, dedupeKey: `fx-rename:${item._raw.id}` });
@@ -2923,34 +3009,46 @@ export default function ProjectFiles() {
     const p = item?.kind === 'folder' ? item?._dir?.path : item?._raw?.path;
     if (p) localFolderApi.showInFolder(p);
   };
-  const fxNewFolder = async () => {
+  // `name` comes from FilesWorkspace's in-app name modal (see fxRename note).
+  const fxNewFolder = async (name) => {
     if (!localFolder) {
       notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then you can organise it.', dedupeKey: 'fx-newfolder-nofolder' });
       return;
     }
-    const name = (typeof window !== 'undefined' && window.prompt('New folder name')) || '';
-    if (name.trim()) handleCreateFolder(name.trim());
+    const trimmed = (name || '').trim();
+    if (trimmed) handleCreateFolder(trimmed);
   };
   const fxUpload = () => {
     if (!localFolder) { handleBrowseFolder(); return; }
     localUploadInputRef.current?.click();
   };
 
-  // Publish the selected subset of drafts as a change request.
-  const fxPublish = async (selectedIds, title, note) => {
+  // Publish the selected subset of drafts. Normally this creates change
+  // requests that wait for review. When `opts.applyDirect` is set (the Team
+  // edit-mode "Apply" flow, admins only) the created requests are immediately
+  // approved/merged so the changes land on main without a review round-trip.
+  const fxPublish = async (selectedIds, title, note, opts) => {
     if (pushing) return { error: new Error('A publish is already in progress') };
     if (!projectId || !userId) return { error: new Error('No project') };
     const idSet = new Set(selectedIds || []);
-    const full = buildCommitSnapshot({ fsDiff: branchDiff, pendingChanges });
+    // Two independent change streams: edit-mode (cloud metadata changes queued
+    // on the Team tab → pendingChanges) and drafts (local working-folder
+    // changes → branchDiff). Each publish flow commits ONLY its own stream, so
+    // editing the main branch never sweeps up the user's drafts and vice versa.
+    const fromEdit = Boolean(opts?.fromEdit);
+    const full = fromEdit
+      ? buildCommitSnapshot({ fsDiff: [], pendingChanges })
+      : buildCommitSnapshot({ fsDiff: draftFsDiff, pendingChanges: [] });
     const snapshot = idSet.size === 0
       ? full
       : full.filter((it) => idSet.has(it.fileId || it.target_file_id || it.cloud?.id));
     if (snapshot.length === 0) return { error: new Error('Nothing selected to send') };
+    const applyDirect = Boolean(opts?.applyDirect) && viewerIsAdmin;
     setPushing(true);
     setPushProgress(null);
     try {
       const dateStr = new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-      const { error: pushErr } = await runCommitFlow({
+      const { data: pushData, error: pushErr } = await runCommitFlow({
         projectId,
         userId,
         snapshot,
@@ -2960,12 +3058,29 @@ export default function ProjectFiles() {
       });
       if (pushErr) {
         notify({ category: 'file', variant: 'error', title: 'Could not send', body: pushErr.message || String(pushErr), dedupeKey: `fx-push-fail:${Date.now()}` });
-      } else {
-        await refreshOpenRequestItems?.();
-        notify({ category: 'file', variant: 'success', icon: 'check', title: 'Sent for review', body: 'Your team will see these changes and approve or send them back.', dedupeKey: `fx-push-ok:${Date.now()}` });
-        setFilesTab('review');
+        return { error: pushErr };
       }
-      return { error: pushErr };
+      if (applyDirect) {
+        // Merge the just-created requests straight into main. approveRelease
+        // fires its own success/error toast ("merged into main").
+        const reqIds = (pushData?.requests || []).map((r) => r?.id).filter(Boolean);
+        const { error: appErr } = await approveRelease(reqIds);
+        await refreshBranchState?.();
+        await refreshOpenRequestItems?.();
+        if (appErr) {
+          // Push succeeded but the merge didn't — the request already exists,
+          // so route it to review (a safe fallback) and close the drawer
+          // rather than risk a duplicate submit. Report success so the drawer
+          // resets; the warning toast explains where the changes went.
+          notify({ category: 'file', variant: 'warning', title: 'Saved to review instead', body: 'Your changes couldn’t be applied directly, so they’re waiting in review.', dedupeKey: `fx-apply-fallback:${Date.now()}` });
+          setFilesTab('review');
+        }
+        return { error: null };
+      }
+      await refreshOpenRequestItems?.();
+      notify({ category: 'file', variant: 'success', icon: 'check', title: 'Sent for review', body: 'Your team will see these changes and approve or send them back.', dedupeKey: `fx-push-ok:${Date.now()}` });
+      setFilesTab('review');
+      return { error: null };
     } finally {
       setPushing(false);
       setPushProgress(null);
@@ -2977,9 +3092,7 @@ export default function ProjectFiles() {
   // it's destructive. Local file additions on disk aren't touched.
   const fxRevertEdits = async () => {
     if (pendingChanges.length === 0) return;
-    const ok = typeof window === 'undefined'
-      || window.confirm('Discard your unsaved edits to the team files?');
-    if (!ok) return;
+    // No OS confirm — Revert is a deliberate button press; discard directly.
     await discardAll();
     notify({ category: 'file', variant: 'success', icon: 'check', title: 'Edits reverted', body: 'Your unpublished changes were discarded.', dedupeKey: 'fx-revert-edits' });
   };
@@ -2998,6 +3111,7 @@ export default function ProjectFiles() {
     draftDot: fxCounts.drafts > 0,
     branch: fxBranch,
     canEdit: viewerIsMember || viewerIsAdmin,
+    isAdmin: viewerIsAdmin,
     hasLocalFolder: Boolean(localFolder),
     onPickFolder: handleBrowseFolder,
     hasLocalFolderApi,
@@ -3023,6 +3137,7 @@ export default function ProjectFiles() {
     onUpload: fxUpload,
     onGetUpdates: () => setSyncModalOpen(true),
     draftChanges: fxDraftChanges,
+    editChanges: fxEditChanges,
     adminNames: null,
     publishing: pushing,
     publishProgress: pushProgress,

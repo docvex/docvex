@@ -213,6 +213,27 @@ function extractVideoPosterFromUrl(sourceUrl, timeoutMs = 6000) {
   });
 }
 
+// Some image/* MIME subtypes (and extensions) name files that <img> can't
+// actually decode in a browser — Photoshop/Illustrator/EPS, TIFF, camera RAW,
+// and HEIC/HEIF on Chromium. Treating their raw bytes as a poster paints a
+// broken (non-square) image instead of falling back to the file's glyph badge.
+// This guard keeps them out of the "bytes ARE the poster" branch so they
+// render the proper square glyph (PSD / AI / …) instead.
+const NON_RENDERABLE_IMAGE_EXTS = new Set([
+  'psd', 'ai', 'eps', 'tif', 'tiff', 'heic', 'heif',
+  'raw', 'cr2', 'cr3', 'nef', 'arw', 'dng', 'orf', 'rw2',
+]);
+function isRenderableImage(mime, name) {
+  const m = (mime || '').toLowerCase();
+  if (!m.startsWith('image/')) return false;
+  if (m.includes('photoshop') || m.includes('illustrator') || m.includes('tiff')
+      || m.includes('heic') || m.includes('heif') || m.includes('postscript')) {
+    return false;
+  }
+  const ext = (name || '').toLowerCase().split('.').pop();
+  return !NON_RENDERABLE_IMAGE_EXTS.has(ext);
+}
+
 // ── Resolution pipeline ───────────────────────────────────────────────
 
 // Walks the fallback chain to produce a poster URL for the descriptor.
@@ -248,8 +269,10 @@ async function resolve(descriptor) {
   const sourceUrl = await signSource(source);
   if (!sourceUrl) return null;
 
-  // Image bytes ARE the poster — the renderer just <img src>s it.
-  if (m.startsWith('image/')) return sourceUrl;
+  // Image bytes ARE the poster — but only for formats <img> can decode.
+  // Non-renderable image types (psd/ai/tiff/heic/raw…) return null here so
+  // the component paints the square glyph badge instead of a broken image.
+  if (m.startsWith('image/')) return isRenderableImage(m, name) ? sourceUrl : null;
 
   // Video fast-path: stream the source directly into a hidden <video>
   // and snap a frame. Avoids the whole-file fetch the generic branch
