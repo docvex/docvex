@@ -2,7 +2,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100vh;
+  /* Sit below the custom frameless title bar (--titlebar-h; 0 on web). */
+  height: calc(100vh - var(--titlebar-h));
+  margin-top: var(--titlebar-h);
   background: var(--bg-page);
 }
 

@@ -213,68 +213,11 @@ function switchAccount(account) {
   }
 }
 
-// Build a custom application menu so we can insert our "Account" item next
-// to the standard File/Edit/View/Window submenus. Uses Electron's role
-// shortcuts so we don't have to hand-author the standard items. Dev-only —
-// packaged builds keep Electron's default menu untouched.
-function buildAppMenu() {
-  const template = [
-    { role: 'fileMenu' },
-    { role: 'editMenu' },
-    { role: 'viewMenu' },
-    { role: 'windowMenu' },
-    {
-      label: 'Account',
-      submenu: ACCOUNTS.map((acc) => ({
-        label: `Switch to ${acc.email}`,
-        click: () => switchAccount(acc),
-      })),
-    },
-    {
-      // Dev-only developer aids:
-      //   - Clear all cached data: wipes the renderer's module-level caches
-      //     (signed URLs in projectFiles.js, parsed pdf.js docs in pdfCache.js).
-      //   - Send all test notifications: fires one of every entry in
-      //     TEST_NOTIFICATIONS (src/notifications/testNotifications.js) so
-      //     devs can preview the toast stack + history rows for every
-      //     category × priority × icon combo without manually triggering
-      //     the live actions.
-      // Grows as more dev surfaces appear.
-      label: 'DEBUG',
-      submenu: [
-        {
-          label: 'Clear all cached data',
-          click: () => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('debug:clear-cache');
-            }
-          },
-        },
-        {
-          label: 'Send all test notifications',
-          click: () => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('debug:send-test-notifications');
-            }
-          },
-        },
-        {
-          // Fires every transactional email template (welcome, invite,
-          // support-report) addressed to the signed-in user's own email
-          // so devs can verify each layout end-to-end without
-          // orchestrating a real signup / invite / bug-report.
-          label: 'Send all email previews to me',
-          click: () => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('debug:send-email-previews');
-            }
-          },
-        },
-      ],
-    },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
+// The previous custom application menu (File / Edit / View / Window / Account
+// / DEBUG submenus) has been removed — we now run with no native menu bar at
+// all. The dev-only DEBUG actions it used to host moved into an in-app
+// "Debug" page in the renderer's Personal sidebar section (see
+// src/pages/Debug.jsx), so they no longer need IPC round-trips through main.
 
 // Wire autoUpdater events → renderer. update-electron-app drives the actual
 // checkForUpdates / setFeedURL calls; we just observe. Skipped on platforms
@@ -292,49 +235,88 @@ if (app.isPackaged && AUTO_UPDATE_SUPPORTED) {
   });
 }
 
-const createWindow = () => {
-  // Launch-mode suffix shown in the window title bar. `app.isPackaged` is
-  // false under `electron-forge start` (npm start) and true once the app
-  // has been built and installed via Squirrel.
-  const launchMode = app.isPackaged ? 'standalone' : 'npm start';
-
-  mainWindow = new BrowserWindow({
+// Shared factory for an app window (the launch hub OR a project window). All
+// windows are frameless with the renderer-drawn title bar; `query` is appended
+// to the loaded URL (e.g. `?openProject=<id>`) so the renderer can boot
+// straight into a project. `openDevtools` only for the primary window so each
+// project window doesn't pop its own devtools.
+function createAppWindow({ query, openDevtools = false } = {}) {
+  const win = new BrowserWindow({
     width: 1200,
     height: 750,
-    // Initial title for the brief flash before the renderer mounts. The
-    // page-title-updated handler below keeps it pinned after load.
-    title: `DocVex - ${launchMode}`,
-    // Application thumbnail (taskbar / Alt-Tab / window icon). Resolved
-    // relative to the bundled main.js location (vite.main.config.mjs copies
-    // src/appicon_desktop.png into .vite/build/ so this works in dev *and*
-    // packaged). On Windows, the .exe's embedded icon (set via
-    // packagerConfig.icon in forge.config.js — still the favicon) takes
-    // priority in packaged builds; this line is what gives the dev window
-    // its thumbnail and what macOS/Linux WMs read. The in-app sidebar mark
-    // is a separate renderer asset (src/favicon.ico) and is left unchanged.
+    // Floor on how small the user can drag the window. Below this the launch
+    // hub's sidebar + layout start to crowd; 900×600 keeps the chrome usable.
+    minWidth: 900,
+    minHeight: 600,
+    title: 'DocVex',
+    // Frameless — the OS title bar (icon, text, AND its min/max/close buttons)
+    // is removed entirely. The renderer draws its own title bar with custom
+    // window controls (see src/components/TitleBar.jsx).
+    frame: false,
     icon: path.join(__dirname, 'appicon_desktop.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
 
-  // By default, Electron syncs window.title ← document.title every time
-  // the renderer's <title> changes — that would overwrite our launch-mode
-  // suffix as soon as index.html loads. preventDefault() blocks the sync;
-  // we then own the title and re-apply it so it survives a Vite HMR reload.
-  mainWindow.on('page-title-updated', (event) => {
+  // Tell this window's title bar when its OS maximized state flips (double-
+  // click drag region, Win+Up, snap, etc.) so it can swap the maximize⇄restore
+  // glyph. The renderer also queries the initial state via window:is-maximized.
+  const sendMaxState = () => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('window:maximized-changed', win.isMaximized());
+    }
+  };
+  win.on('maximize', sendMaxState);
+  win.on('unmaximize', sendMaxState);
+
+  // No native menu bar (per-window on Windows, so removeMenu each window).
+  win.removeMenu();
+
+  // Pin a stable taskbar / Alt-Tab title (there's no in-window title bar).
+  win.on('page-title-updated', (event) => {
     event.preventDefault();
-    mainWindow.setTitle(`DocVex - ${launchMode}`);
+    win.setTitle('DocVex');
   });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+    const qs = query ? `?${new URLSearchParams(query).toString()}` : '';
+    win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}${qs}`);
   } else {
-    mainWindow.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
+    win.loadFile(
+      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
+      query ? { query } : undefined,
+    );
   }
 
-  mainWindow.webContents.openDevTools();
+  if (openDevtools) win.webContents.openDevTools();
+  return win;
+}
+
+const createWindow = () => {
+  mainWindow = createAppWindow({ openDevtools: true });
 };
+
+// Project windows — one per project id, opened from the launch hub. Loads the
+// app with `?openProject=<id>` so the renderer boots straight into that
+// project's dashboard (see renderer.jsx). Re-opening an already-open project
+// focuses the existing window instead of spawning a duplicate.
+const projectWindows = new Map();
+function createProjectWindow(projectId, route) {
+  const existing = projectWindows.get(projectId);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.focus();
+    return;
+  }
+  const query = { openProject: projectId };
+  if (route) query.route = route;
+  const win = createAppWindow({ query });
+  projectWindows.set(projectId, win);
+  win.on('closed', () => {
+    if (projectWindows.get(projectId) === win) projectWindows.delete(projectId);
+  });
+}
 
 // On Windows: when the OS opens docvex:// in a second instance, argv contains the URL
 app.on('second-instance', (_, argv) => {
@@ -367,6 +349,35 @@ ipcMain.on('app:open-external', (_, url) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
     shell.openExternal(url);
   }
+});
+
+// Custom window controls — the window is frameless (frame:false), so the
+// renderer's title bar owns minimize / maximize / close. Multi-window now, so
+// each control acts on the window that SENT the event (not just mainWindow).
+// The renderer queries the current maximized state on mount and subscribes to
+// changes so it shows the right maximize⇄restore glyph.
+ipcMain.on('window:minimize', (e) => {
+  BrowserWindow.fromWebContents(e.sender)?.minimize();
+});
+ipcMain.on('window:toggle-maximize', (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  if (w.isMaximized()) w.unmaximize();
+  else w.maximize();
+});
+ipcMain.on('window:close', (e) => {
+  BrowserWindow.fromWebContents(e.sender)?.close();
+});
+ipcMain.handle('window:is-maximized', (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  return !!(w && w.isMaximized());
+});
+
+// Open a project in its own window (from the launch hub).
+ipcMain.on('window:open-project', (_e, payload) => {
+  const projectId = payload?.projectId;
+  const route = payload?.route;
+  if (typeof projectId === 'string' && projectId) createProjectWindow(projectId, route);
 });
 
 // Resolve the bundled favicon path ONCE at module load. The previous
@@ -1500,12 +1511,10 @@ app.whenReady().then(() => {
     }
   });
 
-  // Account-switcher menu is dev-only — the hardcoded ACCOUNTS list above is
-  // the developer's personal test emails, not something distributed users
-  // should see in their menu bar.
-  if (!app.isPackaged) {
-    buildAppMenu();
-  }
+  // No native application menu — File / Edit / View / Window / Account / DEBUG
+  // are all gone. setApplicationMenu(null) removes the menu bar entirely on
+  // Windows/Linux (and clears it on macOS aside from the unavoidable app menu).
+  Menu.setApplicationMenu(null);
 
   createWindow();
 

@@ -12,7 +12,30 @@ import { UploadsProvider } from './context/UploadsContext';
 import { BranchProvider } from './context/BranchContext';
 import { ChatUnreadProvider } from './context/ChatUnreadContext';
 import NotificationCenter from './components/NotificationCenter';
+import { isElectron } from './lib/platform';
+import { markLaunchConsumed } from './lib/launchGate';
 import App from './App';
+
+// Frameless Electron build draws a custom title bar — flag the document
+// BEFORE first paint so the layout reserves --titlebar-h (no startup shift).
+// Web keeps the browser chrome and skips this.
+if (isElectron) document.documentElement.classList.add('with-titlebar');
+
+// Project windows are opened from the launch hub with `?openProject=<id>`.
+// When present, boot the router straight into that project's dashboard (so the
+// window skips the launch hub entirely) and mark the launch gate consumed so a
+// later navigation home doesn't bounce back to the hub.
+const launchParams = new URLSearchParams(window.location.search);
+const openProjectId = launchParams.get('openProject');
+const openRoute = launchParams.get('route');
+// Only honor an in-app route that targets the opened project (defence against
+// a malformed query); otherwise default to that project's dashboard.
+const safeRoute =
+  openRoute && openRoute.startsWith(`/projects/${openProjectId}`) ? openRoute : null;
+const initialEntries = openProjectId
+  ? [safeRoute || `/projects/${openProjectId}/dashboard`]
+  : ['/'];
+if (openProjectId) markLaunchConsumed();
 
 // Provider order:
 //   AuthProvider                — session
@@ -34,7 +57,7 @@ import App from './App';
 //                                 toasts can pop in front of the dropzone.
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <MemoryRouter initialEntries={['/']}>
+    <MemoryRouter initialEntries={initialEntries}>
       <AuthProvider>
         <ThemeProvider>
           <SelectedProjectProvider>

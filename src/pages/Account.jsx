@@ -3,17 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { PLAN } from '../lib/plan';
+import { supabase } from '../lib/supabaseClient';
 import ConfirmModal from '../components/ConfirmModal';
 import DeleteAccountModal from '../components/DeleteAccountModal';
-import ThemePicker from '../components/ThemePicker';
 import StatusBadge from '../components/StatusBadge';
 import Tooltip from '../components/Tooltip';
 import { STATUS_OPTIONS, DEFAULT_STATUS_KEY, updateStatus } from '../lib/userStatus';
 import './Account.css';
-
-function titleCase(s = '') {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
 
 function formatDate(iso, withTime = false) {
   if (!iso) return '—';
@@ -31,6 +27,12 @@ const CopyIcon = (
 const CheckIcon = (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+
+const MailIcon = (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>
   </svg>
 );
 
@@ -69,6 +71,14 @@ export default function Account() {
   const [pwForm, setPwForm] = useState({ next: '', confirm: '', show: false });
   const [pwBusy, setPwBusy] = useState(false);
   const [pwError, setPwError] = useState(null);
+  // For accounts that already have a password, the change-password card is
+  // hidden until the user clicks "Reset password" in the danger zone.
+  const [showReset, setShowReset] = useState(false);
+  // Authoritative "does this account have a password?" — comes from a
+  // SECURITY DEFINER RPC reading auth.users.encrypted_password, because a
+  // password set on a Google account leaves NO trace in identities/providers.
+  // null = still loading.
+  const [serverHasPassword, setServerHasPassword] = useState(null);
   // Optimistic override for the active status — held locally so the UI
   // reflects the click immediately while supabase-js's USER_UPDATED event
   // round-trips. Cleared once the session's user_metadata catches up.
@@ -85,16 +95,22 @@ export default function Account() {
   // For the link-Google affordance we need the FULL list of linked identities,
   // not just the primary — Supabase exposes it under `user.identities`.
   const provider = user.app_metadata?.provider || 'email';
-  const linkedProviders = new Set(
-    (user.identities || []).map((i) => i.provider),
-  );
+  // Linked auth methods. `app_metadata.providers` is the authoritative list in
+  // the JWT; `user.identities` is a secondary source that isn't always
+  // populated (notably right after setting a password). Union both so the
+  // password/Google detection below stays correct across sessions.
+  const linkedProviders = new Set([
+    ...((user.identities || []).map((i) => i.provider)),
+    ...(user.app_metadata?.providers || []),
+  ]);
   const googleLinked = linkedProviders.has('google');
-  // Whether an email+password identity exists on this account. Supabase
-  // adds a `provider: 'email'` entry to user.identities the moment a
-  // password is set, regardless of whether the account was originally
-  // born via Google. We use this to decide between "Set a password"
-  // (Google-only account) and "Change password" (already has one) UX.
-  const hasPassword = linkedProviders.has('email');
+  // Whether the account has an email+password. The identity/provider list is
+  // only a hint (it's empty for a password set on a Google account); the
+  // server RPC is authoritative. `pwKnown` gates the UI until we know, so the
+  // "Set a password" card doesn't flash for someone who already has one.
+  const identityHasPassword = linkedProviders.has('email');
+  const hasPassword = identityHasPassword || serverHasPassword === true;
+  const pwKnown = identityHasPassword || serverHasPassword !== null;
   const avatarUrl = user.user_metadata?.avatar_url;
   // Mirrors getDisplayName() in Sidebar.jsx — kept in sync per the
   // CLAUDE.md convention. Strips the @domain when falling back to email so
@@ -130,6 +146,26 @@ export default function Account() {
       setPendingStatus(null);
     }
   }, [user.user_metadata?.status, pendingStatus]);
+
+  // Ask the server whether this account has a password (auth.users can't be
+  // read from the client, and identities/providers don't reflect a password
+  // set on an OAuth account). Skip the round-trip if identities already prove it.
+  useEffect(() => {
+    if (identityHasPassword) { setServerHasPassword(true); return; }
+    let alive = true;
+    supabase.rpc('current_user_has_password').then(({ data, error }) => {
+      if (alive && !error) setServerHasPassword(data === true);
+    });
+    return () => { alive = false; };
+  }, [user.id, identityHasPassword]);
+
+  // Esc closes the reset-password modal (unless a save is in flight).
+  useEffect(() => {
+    if (!showReset) return;
+    const onKey = (e) => { if (e.key === 'Escape' && !pwBusy) setShowReset(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showReset, pwBusy]);
 
   const handleLinkGoogle = async () => {
     if (googleLinked || linkingGoogle) return;
@@ -184,6 +220,8 @@ export default function Account() {
       return;
     }
     setPwForm({ next: '', confirm: '', show: false });
+    setShowReset(false);
+    setServerHasPassword(true); // now definitely has a password
     notify({
       category: 'auth',
       variant: 'success',
@@ -250,6 +288,53 @@ export default function Account() {
     navigate('/auth', { replace: true });
   };
 
+  const closeReset = () => { if (!pwBusy) setShowReset(false); };
+
+  // Shared password form fields — used by the inline "Set a password" card
+  // (no-password accounts) and by the reset-password modal.
+  const pwFormFields = (
+    <>
+      <label className="account-pw-field">
+        <span className="account-pw-label">{hasPassword ? 'New password' : 'Password'}</span>
+        <input
+          type={pwForm.show ? 'text' : 'password'}
+          className="account-pw-input"
+          value={pwForm.next}
+          onChange={(e) => setPwForm((p) => ({ ...p, next: e.target.value }))}
+          autoComplete="new-password"
+          minLength={8}
+          placeholder="At least 8 characters"
+          disabled={pwBusy}
+          required
+        />
+      </label>
+      <label className="account-pw-field">
+        <span className="account-pw-label">Confirm</span>
+        <input
+          type={pwForm.show ? 'text' : 'password'}
+          className="account-pw-input"
+          value={pwForm.confirm}
+          onChange={(e) => setPwForm((p) => ({ ...p, confirm: e.target.value }))}
+          autoComplete="new-password"
+          minLength={8}
+          placeholder="Re-enter password"
+          disabled={pwBusy}
+          required
+        />
+      </label>
+      <label className="account-pw-show">
+        <input
+          type="checkbox"
+          checked={pwForm.show}
+          onChange={(e) => setPwForm((p) => ({ ...p, show: e.target.checked }))}
+          disabled={pwBusy}
+        />
+        <span>Show passwords</span>
+      </label>
+      {pwError && <div className="account-pw-error" role="alert">{pwError}</div>}
+    </>
+  );
+
   return (
     <div className="account-page">
       <header className="account-header">
@@ -262,42 +347,49 @@ export default function Account() {
           <StatusBadge status={activeStatus} size="lg" />
         </div>
         <div className="account-identity">
-          <h1 className="account-name">{displayName}</h1>
+          <div className="account-name-row">
+            <h1 className="account-name">{displayName}</h1>
+            <span className="account-tier-badge">{PLAN.tier}</span>
+          </div>
           <div className="account-provider-row">
             {/* Primary provider — same info as before, just no longer
                 the only pill in the header. */}
             <span className="account-provider-badge">
-              {provider === 'google' ? 'Google' : 'Email'}
+              {provider === 'google' ? <GoogleGlyph /> : MailIcon}
+              <span>{provider === 'google' ? 'Google' : 'Email'}</span>
             </span>
-            {/* Google pill always renders. When already linked it's a
-                static badge with a checkmark; when not, it becomes a
-                button that kicks off the OAuth link flow. */}
-            <Tooltip
-              content={
-                googleLinked
-                  ? 'Google account is linked'
-                  : linkingGoogle
-                  ? 'Opening Google sign-in…'
-                  : 'Link this account with Google'
-              }
-            >
-              <button
-                type="button"
-                className={`account-provider-badge account-provider-google${googleLinked ? ' is-linked' : ' is-linkable'}`}
-                onClick={handleLinkGoogle}
-                disabled={googleLinked || linkingGoogle}
-              >
-                <GoogleGlyph />
-                <span>
-                  {googleLinked
-                    ? 'Google'
+            {/* Google pill — skip it when Google is already the PRIMARY badge
+                above (otherwise "Google" shows twice). Renders as a "Link
+                Google" button when not linked, or a linked badge when Google is
+                a secondary identity on an email-primary account. */}
+            {(provider !== 'google' || !googleLinked) && (
+              <Tooltip
+                content={
+                  googleLinked
+                    ? 'Google account is linked'
                     : linkingGoogle
-                    ? 'Linking…'
-                    : 'Link Google'}
-                </span>
-                {googleLinked && CheckIcon}
-              </button>
-            </Tooltip>
+                    ? 'Opening Google sign-in…'
+                    : 'Link this account with Google'
+                }
+              >
+                <button
+                  type="button"
+                  className={`account-provider-badge account-provider-google${googleLinked ? ' is-linked' : ' is-linkable'}`}
+                  onClick={handleLinkGoogle}
+                  disabled={googleLinked || linkingGoogle}
+                >
+                  <GoogleGlyph />
+                  <span>
+                    {googleLinked
+                      ? 'Google'
+                      : linkingGoogle
+                      ? 'Linking…'
+                      : 'Link Google'}
+                  </span>
+                  {googleLinked && CheckIcon}
+                </button>
+              </Tooltip>
+            )}
           </div>
         </div>
       </header>
@@ -322,9 +414,6 @@ export default function Account() {
             </Tooltip>
           </dd>
 
-          <dt>Provider</dt>
-          <dd>{titleCase(provider)}</dd>
-
           <dt>Joined</dt>
           <dd>{formatDate(user.created_at)}</dd>
 
@@ -333,78 +422,30 @@ export default function Account() {
         </dl>
       </section>
 
-      {/* Sign-in & password — lets a Google-OAuth user add an email +
-          password as a second way to sign in. Also serves the email
-          user who wants to change their password. The card is only
-          rendered for users whose primary email is known (it always
-          is — Supabase stores the OAuth email on the auth.users row),
-          and the form gates on confirm-match + min length client-side
-          before round-tripping to updateUser. */}
+      {/* Set a password — only for accounts that don't have one yet (e.g. a
+          Google-OAuth account adding email+password as a second sign-in). Users
+          who already have a password change it via the Reset-password modal,
+          opened from the danger zone. */}
+      {pwKnown && !hasPassword && (
       <section className="account-card">
-        <h2 className="account-card-title">
-          {hasPassword ? 'Change password' : 'Set a password'}
-        </h2>
+        <h2 className="account-card-title">Set a password</h2>
         <p className="account-card-subtitle">
-          {hasPassword
-            ? 'Update the password you use for email sign-in.'
-            : `Add a password to ${user.email} so you can sign in without Google.`}
+          Add a password to {user.email} so you can sign in without Google.
         </p>
         <form className="account-pw-form" onSubmit={handleSetPassword}>
-          <label className="account-pw-field">
-            <span className="account-pw-label">
-              {hasPassword ? 'New password' : 'Password'}
-            </span>
-            <input
-              type={pwForm.show ? 'text' : 'password'}
-              className="account-pw-input"
-              value={pwForm.next}
-              onChange={(e) => setPwForm((p) => ({ ...p, next: e.target.value }))}
-              autoComplete="new-password"
-              minLength={8}
-              placeholder="At least 8 characters"
-              disabled={pwBusy}
-              required
-            />
-          </label>
-          <label className="account-pw-field">
-            <span className="account-pw-label">Confirm</span>
-            <input
-              type={pwForm.show ? 'text' : 'password'}
-              className="account-pw-input"
-              value={pwForm.confirm}
-              onChange={(e) => setPwForm((p) => ({ ...p, confirm: e.target.value }))}
-              autoComplete="new-password"
-              minLength={8}
-              placeholder="Re-enter password"
-              disabled={pwBusy}
-              required
-            />
-          </label>
-          <label className="account-pw-show">
-            <input
-              type="checkbox"
-              checked={pwForm.show}
-              onChange={(e) => setPwForm((p) => ({ ...p, show: e.target.checked }))}
-              disabled={pwBusy}
-            />
-            <span>Show passwords</span>
-          </label>
-          {pwError && (
-            <div className="account-pw-error" role="alert">{pwError}</div>
-          )}
+          {pwFormFields}
           <div className="account-pw-actions">
             <button
               type="submit"
               className="account-pw-submit"
               disabled={pwBusy || !pwForm.next || !pwForm.confirm}
             >
-              {pwBusy
-                ? 'Saving…'
-                : hasPassword ? 'Update password' : 'Save password'}
+              {pwBusy ? 'Saving…' : 'Save password'}
             </button>
           </div>
         </form>
       </section>
+      )}
 
       <section className="account-card">
         <h2 className="account-card-title">Activity status</h2>
@@ -460,14 +501,25 @@ export default function Account() {
         </Tooltip>
       </section>
 
-      {/* Theme picker — sits between Subscription and Danger zone per the
-          plan. Lets the user toggle between Cream (light brand default) and
-          Ink (dark variant of the same brand palette). Stores per-user in
-          localStorage; see src/context/ThemeContext.jsx. */}
-      <ThemePicker />
-
       <section className="account-card account-danger">
         <h2 className="account-card-title">Danger zone</h2>
+
+        {/* Reset password — only for accounts that already have one. Opens a
+            modal with the change-password form. */}
+        {pwKnown && hasPassword && (
+          <div className="account-danger-row">
+            <div className="account-danger-text">
+              <h3 className="account-danger-label">Reset password</h3>
+              <p className="account-danger-desc">Set a new password for email sign-in.</p>
+            </div>
+            <button
+              className="account-danger-btn destructive"
+              onClick={() => { setPwForm({ next: '', confirm: '', show: false }); setPwError(null); setShowReset(true); }}
+            >
+              Reset password
+            </button>
+          </div>
+        )}
 
         <div className="account-danger-row">
           <div className="account-danger-text">
@@ -544,6 +596,34 @@ export default function Account() {
         onConfirm={handleDeleteAccount}
         onCancel={() => { if (!deleting) setDeleteOpen(false); }}
       />
+
+      {/* Reset/change-password modal. */}
+      {showReset && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) closeReset(); }}
+        >
+          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="reset-pw-title">
+            <h3 id="reset-pw-title" className="modal-title">Reset password</h3>
+            <p className="modal-message">Set a new password for email sign-in.</p>
+            <form className="account-pw-form" onSubmit={handleSetPassword}>
+              {pwFormFields}
+              <div className="modal-actions">
+                <button type="button" className="modal-btn modal-btn-cancel" onClick={closeReset} disabled={pwBusy}>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="modal-btn modal-btn-confirm"
+                  disabled={pwBusy || !pwForm.next || !pwForm.confirm}
+                >
+                  {pwBusy ? 'Saving…' : 'Update password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

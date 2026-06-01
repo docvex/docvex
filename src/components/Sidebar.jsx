@@ -63,6 +63,14 @@ const BriefcaseIcon = (
   </svg>
 );
 
+// Bug glyph — reads as "debug / developer tools". Dev-only sidebar row.
+const BugIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="8" y="6" width="8" height="14" rx="4"/>
+    <path d="M12 2v4M9 4l1.5 2M15 4l-1.5 2M3 9h3M18 9h3M2 14h4M18 14h4M4 19l3-2M20 19l-3-2"/>
+  </svg>
+);
+
 // Layout-dashboard glyph (Lucide-style) — four rectangles of unequal sizes
 // that read as "dashboard widgets". Picked specifically because the
 // equal-grid version of this icon now lives on the Activity row as the old
@@ -347,6 +355,18 @@ export default function Sidebar() {
         icon: BriefcaseIcon,
         forcedActive: personalProjectsActive,
         visible: !!session,
+      },
+      // Debug — dev-only in-app developer tools (formerly the native DEBUG
+      // menu). import.meta.env.DEV is false in packaged + web builds, so this
+      // row only appears under `npm start` / web:dev, matching the old menu's
+      // !app.isPackaged gate.
+      {
+        kind: 'link',
+        to: '/debug',
+        label: 'Debug',
+        icon: BugIcon,
+        end: true,
+        visible: import.meta.env.DEV,
       },
     ].filter((i) => i.visible !== false),
   };

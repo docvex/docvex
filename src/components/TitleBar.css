@@ -1,0 +1,174 @@
+/* Custom frameless title bar. Fixed at the very top, full width, above the
+   sidebar (z 50) but below toasts (z 9999). Height is the global
+   --titlebar-h. The whole bar is a drag region; interactive children opt out
+   with -webkit-app-region: no-drag. */
+
+.tb-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--titlebar-h);
+  z-index: 1000;
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+}
+
+.tb-drag-spacer { flex: 1; min-width: 0; }
+
+/* Brand (left). Part of the drag region — plain, non-interactive text. */
+.tb-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 14px;
+  flex-shrink: 0;
+}
+.tb-brand-icon { width: 20px; height: 20px; border-radius: 5px; }
+.tb-brand-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+}
+.tb-brand-suffix {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* ── App actions cluster ── */
+.tb-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.tb-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 11px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.tb-btn:hover,
+.tb-btn.is-open {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+
+.tb-btn-icon { display: flex; }
+.tb-btn-icon svg { width: 16px; height: 16px; }
+
+.tb-btn-chevron { display: flex; color: var(--text-muted); }
+.tb-btn-chevron svg { width: 13px; height: 13px; }
+
+/* Icon-only trigger (Theme) — tighter padding, no text label. */
+.tb-btn-icon-only { gap: 4px; padding: 0 9px; }
+
+/* ── Dropdowns ── */
+.tb-menu-wrap { position: relative; display: flex; align-items: center; }
+
+.tb-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 184px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-elev);
+  padding: 6px;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Open animation is driven by a JS FLIP (see TitleBar.jsx) that morphs the
+     menu out of the theme button's border. */
+  transform-origin: top right;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.tb-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 11px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.tb-dropdown-item:hover { background: var(--accent-tint); }
+.tb-dropdown-item.is-active { color: var(--accent); font-weight: 600; }
+
+.tb-dropdown-check { display: flex; color: var(--accent); }
+.tb-dropdown-check svg { width: 15px; height: 15px; }
+
+/* ── Divider between the Theme control and the window controls ── */
+.tb-divider {
+  align-self: center;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--border-strong);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* ── Window controls (minimize / maximize / close) ── */
+.tb-window-controls {
+  display: flex;
+  align-items: stretch;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.tb-win-btn {
+  width: 46px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.tb-win-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.tb-win-close:hover { background: #e81123; color: #fff; }

@@ -8,7 +8,8 @@
      .picker-open states intentionally DO push (they bump
      --sidebar-width to 220 in AppShell.css). */
   position: fixed;
-  top: 0;
+  /* Sits below the custom frameless title bar (--titlebar-h; 0 on web). */
+  top: var(--titlebar-h);
   left: 0;
   /* Z-index above the ProjectPickerDrawer (z-index 40) so the drawer is
      literally hidden behind the sidebar when closed â€” its open animation
@@ -18,7 +19,7 @@
   z-index: 50;
   width: 60px;
   min-width: 60px;
-  height: 100vh;
+  height: calc(100vh - var(--titlebar-h));
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border);
   display: flex;

@@ -54,10 +54,32 @@ export const THEMES = Object.freeze([
 const DEFAULT_THEME = 'cream';
 const VALID_THEMES = new Set(THEMES.map((t) => t.id));
 
+// A "preference" is what the user actually picked and what we persist. It's a
+// superset of the concrete themes: the two real themes plus the special
+// 'system' value, which means "follow the OS light/dark setting". `theme`
+// (the value consumers read + the data-theme attribute) is always a concrete
+// theme — 'system' is RESOLVED to cream/ink and re-resolved live when the OS
+// preference flips.
+const DEFAULT_PREF = 'cream';
+const VALID_PREFS = new Set([...VALID_THEMES, 'system']);
+
 const ThemeContext = createContext(null);
 
 function storageKey(userId) {
   return STORAGE_KEY_PREFIX + (userId || '_anonymous');
+}
+
+// Concrete theme implied by the OS dark-mode setting. Falls back to the brand
+// default when matchMedia isn't available.
+function systemTheme() {
+  if (typeof window === 'undefined' || !window.matchMedia) return DEFAULT_THEME;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'ink' : 'cream';
+}
+
+// Resolve a preference to a concrete theme. 'system' → live OS value; an
+// explicit theme passes through.
+function resolvePref(pref) {
+  return pref === 'system' ? systemTheme() : pref;
 }
 
 // Apply the data-theme attribute to <html>. Pulled out so it runs in both
@@ -72,6 +94,9 @@ export function ThemeProvider({ children }) {
   const userId = session?.user?.id || null;
 
   const [theme, _setTheme] = useState(DEFAULT_THEME);
+  // The user's stored preference (cream | ink | system). Distinct from `theme`:
+  // when this is 'system', `theme` is the resolved cream/ink value.
+  const [themePreference, _setPref] = useState(DEFAULT_PREF);
 
   // Tracks the user-id we last hydrated for. Prevents a re-mount from
   // clobbering the user's pick when only the auth-loading flag flickered.
@@ -85,35 +110,57 @@ export function ThemeProvider({ children }) {
     if (hydratedForUserRef.current === userId) return;
     hydratedForUserRef.current = userId;
 
-    let next = DEFAULT_THEME;
+    let nextPref = DEFAULT_PREF;
     try {
       const stored = localStorage.getItem(storageKey(userId));
-      if (stored && VALID_THEMES.has(stored)) next = stored;
+      if (stored && VALID_PREFS.has(stored)) nextPref = stored;
     } catch {
       // private mode / quota — non-fatal; we keep the default
     }
-    _setTheme(next);
-    applyThemeAttribute(next);
+    _setPref(nextPref);
+    const resolved = resolvePref(nextPref);
+    _setTheme(resolved);
+    applyThemeAttribute(resolved);
   }, [userId, authLoading]);
 
-  // Public setter — writes to localStorage AND applies the attribute. Skips
-  // gracefully if `t` isn't a known theme so a typo doesn't break the app.
-  const setTheme = useCallback((t) => {
-    if (!VALID_THEMES.has(t)) return;
-    _setTheme(t);
-    applyThemeAttribute(t);
+  // Public setter — accepts a preference (cream | ink | system), writes it to
+  // localStorage, resolves it to a concrete theme, and applies the attribute.
+  // Skips gracefully on an unknown value so a typo can't break the app.
+  const setTheme = useCallback((pref) => {
+    if (!VALID_PREFS.has(pref)) return;
+    _setPref(pref);
+    const resolved = resolvePref(pref);
+    _setTheme(resolved);
+    applyThemeAttribute(resolved);
     try {
-      localStorage.setItem(storageKey(userId), t);
+      localStorage.setItem(storageKey(userId), pref);
     } catch {
       /* private mode / quota — non-fatal */
     }
   }, [userId]);
 
+  // While the preference is 'system', track OS dark-mode changes live so the
+  // app re-paints when the user flips their system theme without reopening the
+  // picker. Listener only attaches while following the system.
+  useEffect(() => {
+    if (themePreference !== 'system') return;
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => {
+      const resolved = mq.matches ? 'ink' : 'cream';
+      _setTheme(resolved);
+      applyThemeAttribute(resolved);
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [themePreference]);
+
   const value = useMemo(() => ({
     theme,
+    themePreference,
     setTheme,
     themes: THEMES,
-  }), [theme, setTheme]);
+  }), [theme, themePreference, setTheme]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

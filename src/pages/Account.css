@@ -9,7 +9,7 @@
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 0.5rem 0 1rem;
+  padding: 0.5rem 0 0;
 }
 
 /* Positioning context for the activity-status dot on the header avatar.
@@ -55,6 +55,12 @@
   min-width: 0;
 }
 
+.account-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
 .account-name {
   font-size: 1.25rem;
   font-weight: 600;
@@ -63,6 +69,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Subscription tier pill next to the name — matches the hub sidebar pill. */
+.account-tier-badge {
+  flex-shrink: 0;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-tint);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 6px;
+  padding: 1px 6px;
 }
 
 /* Row holding the primary-provider badge + the always-visible Google pill.
@@ -266,7 +285,24 @@
 
 /* Danger zone â€” red-tinted card with destructive action rows */
 .account-danger {
-  border-color: color-mix(in srgb, var(--danger) 28%, transparent);
+  /* Matches the "no projects folder" banner — red 5-stop gradient blended on
+     the card, panning continuously. */
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--danger) 3%, transparent) 0%,
+    color-mix(in srgb, var(--danger) 9%, transparent) 25%,
+    color-mix(in srgb, var(--danger) 13%, transparent) 50%,
+    color-mix(in srgb, var(--danger) 9%, transparent) 75%,
+    color-mix(in srgb, var(--danger) 3%, transparent) 100%
+  );
+  background-size: 300% 100%;
+  animation: account-danger-shimmer 8s linear infinite;
+}
+
+@keyframes account-danger-shimmer {
+  0%   { background-position: 0% 0; }
+  100% { background-position: 300% 0; }
 }
 
 .account-danger .account-card-title {

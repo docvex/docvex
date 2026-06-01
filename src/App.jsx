@@ -1,9 +1,12 @@
 import React, { lazy, Suspense, useEffect, useRef } from 'react';
-import { Routes, Route, Navigate, Outlet, useMatch } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet, useMatch, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { useSelectedProject } from './context/SelectedProjectContext';
+import { isLaunchConsumed } from './lib/launchGate';
+import { isElectron } from './lib/platform';
 import AppShell from './components/AppShell';
+import TitleBar from './components/TitleBar';
 
 // All page modules are code-split — each becomes its own JS chunk that loads
 // only when the user navigates to that route. Keeps the cold-start bundle
@@ -11,12 +14,18 @@ import AppShell from './components/AppShell';
 // while a chunk loads. AppShell stays eager because it owns the layout that
 // surrounds every route and would itself appear "flashy" if lazy-loaded.
 const AuthPage = lazy(() => import('./components/AuthPage'));
+// Launch hub — Unity-Hub-style project launcher shown once per cold start
+// (see RootShell below). Full-screen, rendered outside AppShell.
+const Launch = lazy(() => import('./pages/Launch'));
 // Activity = merged home of the old (empty) "/" dashboard + the
 // "/notifications" inbox — one feed of everything across the user's projects.
 const Activity = lazy(() => import('./pages/Activity'));
 const Account = lazy(() => import('./pages/Account'));
 const Updates = lazy(() => import('./pages/Updates'));
 const Newsletter = lazy(() => import('./pages/Newsletter'));
+// Dev-only in-app developer tools (formerly the native DEBUG menu). Only
+// routed in dev builds — import.meta.env.DEV is false in packaged/web builds.
+const Debug = lazy(() => import('./pages/Debug'));
 const ProjectList = lazy(() => import('./pages/Projects/ProjectList'));
 const ProjectCreate = lazy(() => import('./pages/Projects/ProjectCreate'));
 const ProjectOverview = lazy(() => import('./pages/Projects/ProjectOverview'));
@@ -92,6 +101,25 @@ function ProjectAutoSelect() {
   return null;
 }
 
+// Gate in front of AppShell. On a cold app start (Electron) the MemoryRouter
+// begins at '/', and an authenticated user who hasn't yet passed through the
+// launch hub this session is redirected there ONCE — the Unity-Hub-style
+// "open a project first" screen. The redirect is scoped to the exact home
+// route (pathname === '/'):
+//   - so deep-linked / nested entries (e.g. /invite/:token from a deep link,
+//     or any later in-app navigation) are never hijacked, and
+//   - so redirecting happens BEFORE AppShell mounts — no sidebar flash.
+// Once consumed (the hub sets the flag when the user opens / creates / skips a
+// project), AppShell renders normally for every route including '/'.
+function RootShell() {
+  const { session, loading } = useAuth();
+  const { pathname } = useLocation();
+  if (!loading && isElectron && session && pathname === '/' && !isLaunchConsumed()) {
+    return <Navigate to="/launch" replace />;
+  }
+  return <AppShell />;
+}
+
 // Mounts ProjectProvider once for the /projects/:projectId subtree so the
 // nested routes (Overview, Dashboard) all share one fetch + Realtime channel.
 function ProjectShell() {
@@ -104,14 +132,27 @@ function ProjectShell() {
 }
 
 export default function App() {
+  // Electron runs frameless — the custom title bar (with window controls + the
+  // Documentation / Theme / Updates / Account actions) renders above the
+  // routes. The document's `.with-titlebar` class (set in renderer.jsx) makes
+  // the layout reserve --titlebar-h for it. Web keeps the browser chrome.
   return (
-    <Suspense fallback={<RouteFallback />}>
-      <Routes>
+    <>
+      {isElectron && <TitleBar />}
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
         <Route path="/auth" element={<AuthPage />} />
-        <Route path="/" element={<AppShell />}>
+        {/* Launch hub — full-screen, outside AppShell (like /auth). Reached via
+            the cold-start redirect in RootShell, or manually. */}
+        <Route path="/launch" element={<Launch />} />
+        <Route path="/" element={<RootShell />}>
           <Route index element={<Activity />} />
           <Route path="updates" element={<Updates />} />
           <Route path="newsletter" element={<Newsletter />} />
+          {/* Debug — dev-only developer tools page (Personal sidebar section).
+              Only mounted under import.meta.env.DEV so packaged + web builds
+              never expose it. Public personal route, like Newsletter. */}
+          {import.meta.env.DEV && <Route path="debug" element={<Debug />} />}
           {/* Notifications merged into Activity ("/"); keep the path as a
               redirect so old links / OS notification deep-links still land. */}
           <Route path="notifications" element={<Navigate to="/" replace />} />
@@ -153,7 +194,8 @@ export default function App() {
             <Route path="ai" element={<ProjectAI />} />
           </Route>
         </Route>
-      </Routes>
-    </Suspense>
+        </Routes>
+      </Suspense>
+    </>
   );
 }

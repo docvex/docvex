@@ -59,6 +59,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Open any URL in the user's default browser (used for release links etc.)
   openExternal: (url) => ipcRenderer.send('app:open-external', url),
 
+  // Custom window controls — the app runs frameless (frame:false), so the
+  // renderer's title bar draws its own minimize / maximize / close buttons
+  // and drives the window through these channels. `onWindowMaximizedChanged`
+  // lets the title bar swap the maximize⇄restore glyph when the OS state
+  // changes (e.g. the user double-clicks the drag region or uses Win+Up).
+  windowMinimize: () => ipcRenderer.send('window:minimize'),
+  windowToggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),
+  windowClose: () => ipcRenderer.send('window:close'),
+  windowIsMaximized: () => ipcRenderer.invoke('window:is-maximized'),
+  onWindowMaximizedChanged: (handler) => {
+    const listener = (_, isMax) => handler(isMax);
+    ipcRenderer.on('window:maximized-changed', listener);
+    return () => ipcRenderer.removeListener('window:maximized-changed', listener);
+  },
+
+  // Open a project in its own window (from the launch hub). The new window
+  // boots straight into `route` (defaults to the project dashboard) via the
+  // ?openProject=<id>&route=<path> query.
+  openProjectWindow: (projectId, route) =>
+    ipcRenderer.send('window:open-project', { projectId, route }),
+
   // Open a signed file URL inside a dedicated in-app BrowserWindow.
   // Used by FileDetailModal's View button + double-click handlers
   // for image / video / PDF / text — types Chromium renders natively.

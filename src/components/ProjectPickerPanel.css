@@ -17,9 +17,11 @@
 
 .project-picker-panel {
   position: fixed;
-  top: 0;
+  /* Below the custom frameless title bar (--titlebar-h; 0 on web) so its
+     header + close button aren't clipped under it. */
+  top: var(--titlebar-h);
   left: 0;
-  height: 100vh;
+  height: calc(100vh - var(--titlebar-h));
   /* Wider than the sidebar (220px) so project names have breathing room.
      Tradeoff against horizontal real estate â€” 260px reads comfortably for
      names up to ~28 chars before truncation kicks in. */

@@ -2,6 +2,14 @@
   box-sizing: border-box;
 }
 
+/* Height of the custom frameless title bar (Electron only). The bar itself is
+   fixed at top:0; surfaces reserve room for it via `.with-titlebar` offsets in
+   their own CSS (AppShell, Sidebar, Launch, AuthPage). 0 by default so nothing
+   shifts on web, where the browser draws its own chrome and the bar isn't
+   rendered. */
+:root { --titlebar-h: 0px; }
+html.with-titlebar { --titlebar-h: 44px; }
+
 html, body {
   margin: 0;
   height: 100%;
