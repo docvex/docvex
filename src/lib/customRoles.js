@@ -189,8 +189,14 @@ export async function setMemberRole({ projectId, userId, baseRole, customRoleId 
 // ProjectContext.
 export function subscribeForProjectRoles(projectId, onChange) {
   if (!projectId) return () => {};
+  // Unique topic suffix so two subscribers for the same project (e.g. the
+  // primary pane and a split-view pane both viewing it) don't collide on a
+  // fixed `custom_roles:<id>` channel name.
+  const suffix = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID().slice(0, 8)
+    : Math.random().toString(36).slice(2, 10);
   const channel = supabase
-    .channel(`custom_roles:${projectId}`)
+    .channel(`custom_roles:${projectId}:${suffix}`)
     .on(
       'postgres_changes',
       {

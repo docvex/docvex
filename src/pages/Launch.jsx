@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useUpdates, versionTagFor } from '../context/UpdatesContext';
+import { useUpdates } from '../context/UpdatesContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useNotifications } from '../context/NotificationsContext';
 import {
@@ -15,15 +15,15 @@ import { localFolderApi } from '../lib/localFolder';
 import { markProjectAccessed } from '../lib/recentProjects';
 import useCursorSpotlight from '../hooks/useCursorSpotlight';
 import DeleteProjectModal from '../components/DeleteProjectModal';
+import DangerZone, { DangerRow } from '../components/DangerZone';
 import Account from './Account';
+import Updates from './Updates';
+import Admin from './Admin';
 import StatusPicker from '../components/StatusPicker';
 import Tooltip from '../components/Tooltip';
 import { PLAN } from '../lib/plan';
 import { getStatusOption, updateStatus, DEFAULT_STATUS_KEY } from '../lib/userStatus';
 import './Launch.css';
-// Reuse the main app's Updates styling (banner + release cards) so the hub's
-// Updates view matches it. We render the cards WITHOUT the patch-notes body.
-import './Updates.css';
 
 // Per-user store for the chosen projects directory. There's no backend for
 // this preference, so it lives in localStorage like the other docvex.* keys.
@@ -114,12 +114,6 @@ const CheckCircleIcon = (
     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
   </svg>
 );
-const RefreshIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
-    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-  </svg>
-);
 const ExternalLinkIcon = (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
@@ -173,32 +167,16 @@ const LEARN_CATEGORIES = [
   ] },
 ];
 
-// Parse a GitHub tag into {major, minor, patch}; null for non-semver tags.
-function parseVersion(tag) {
-  if (!tag) return null;
-  const m = tag.replace(/^v/, '').split('-')[0].match(/^(\d+)\.(\d+)\.(\d+)$/);
-  return m ? { major: +m[1], minor: +m[2], patch: +m[3] } : null;
-}
-// Classify a release vs its predecessor (the next older tag) as major/minor/patch.
-function releaseKind(currentTag, previousTag) {
-  const c = parseVersion(currentTag);
-  if (!c) return null;
-  if (!previousTag) return 'major';
-  const p = parseVersion(previousTag);
-  if (!p) return null;
-  if (c.major !== p.major) return 'major';
-  if (c.minor !== p.minor) return 'minor';
-  if (c.patch !== p.patch) return 'patch';
-  return null;
-}
-function formatReleaseDate(iso) {
-  if (!iso) return '';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-}
 const BugNavIcon = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="8" y="6" width="8" height="14" rx="4" />
     <path d="M12 2v4M9 4l1.5 2M15 4l-1.5 2M3 9h3M18 9h3M2 14h4M18 14h4M4 19l3-2M20 19l-3-2" />
+  </svg>
+);
+// Terminal/console glyph — the Developer console (Admin) row.
+const ConsoleNavIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="4" width="20" height="16" rx="2" /><polyline points="7 9 10 12 7 15" /><line x1="13" y1="15" x2="17" y2="15" />
   </svg>
 );
 const SettingsNavIcon = (
@@ -945,18 +923,16 @@ function ProjectSettingsPanel({ open, project, onClose, onPatched, onDeleted }) 
 
         {/* ── Danger zone ── */}
         {canManage && (
-          <section className="lh-pset-card lh-pset-danger">
-            <h2 className="lh-pset-card-title">Danger zone</h2>
-            <div className="lh-pset-danger-row">
-              <div className="lh-pset-danger-text">
-                <strong>Delete this project</strong>
-                <span>Permanently removes the project, its files, and all member access.</span>
-              </div>
-              <button type="button" className="lh-pset-danger-btn" onClick={handleDelete} disabled={deleting}>
+          <DangerZone subtitle="Irreversible actions for this project.">
+            <DangerRow
+              title="Delete this project"
+              desc="Permanently removes the project, its files, and all member access."
+            >
+              <button type="button" className="dz-btn" onClick={handleDelete} disabled={deleting}>
                 {deleting ? 'Deleting…' : 'Delete project'}
               </button>
-            </div>
-          </section>
+            </DangerRow>
+          </DangerZone>
         )}
       </div>
     </div>
@@ -1000,17 +976,10 @@ function HubView({ greeting, title, hideHeadline, compactExtra, children }) {
 
 export default function Launch() {
   const { session, loading: authLoading, signOut } = useAuth();
-  const {
-    currentVersion,
-    latestVersion,
-    hasUpdate,
-    installerState,
-    checkNow,
-    installUpdate,
-    releases,
-    loading: updatesLoading,
-    downloadUrl,
-  } = useUpdates();
+  // Only the in-window update banner (top strip) reads update state now — the
+  // Updates view embeds the main app's <Updates /> page directly, which pulls
+  // its own data from useUpdates().
+  const { latestVersion, hasUpdate } = useUpdates();
   const { selectProject, beginSwitch } = useSelectedProject();
   const { notify } = useNotifications();
   const navigate = useNavigate();
@@ -1087,6 +1056,11 @@ export default function Launch() {
     );
   }, [ordered, query]);
 
+  // True once we've confirmed the user has zero projects (not just mid-load).
+  // In this state the toolbar (search / Open / New) is hidden in favour of the
+  // single first-run empty card.
+  const showEmptyState = !loading && !error && projects.length === 0;
+
   // Auth gate — a manual nav to /launch while signed-out bounces to /auth.
   if (authLoading) {
     return (
@@ -1109,7 +1083,7 @@ export default function Launch() {
     markLaunchConsumed();
     beginSwitch(project.name);
     selectProject(project.id, project);
-    navigate(`/projects/${project.id}/dashboard`);
+    navigate('/files');
   };
 
   const closeDetail = () => setDetailOpen(false);
@@ -1140,11 +1114,14 @@ export default function Launch() {
     setDetailOpen(false);
     if (project?.id && project?.name) {
       if (projectsDir) {
-        const res = await localFolderApi.createFolder({ dir: projectsDir, name: project.name });
-        if (res?.error && res.error !== 'A folder with that name already exists') {
-          notify?.({ category: 'project', variant: 'warning', icon: 'folder', title: 'Project created, but its folder couldn’t be made', body: res.error, dedupeKey: `folder-fail-${project.id}` });
-        } else if (res?.path) {
-          await localFolderApi.writeSidecar({ dir: res.path, json: { version: 1, projectId: project.id, entries: {} } });
+        // Create + REGISTER the project's folder under the chosen projects
+        // directory via the shared resolver, so the Files page later resolves
+        // to this exact same folder (project-dir registry hit).
+        const { path: dir, error } = await localFolderApi.projectDir(project.id, project.name, projectsDir);
+        if (error || !dir) {
+          notify?.({ category: 'project', variant: 'warning', icon: 'folder', title: 'Project created, but its folder couldn’t be made', body: error || 'Unknown error', dedupeKey: `folder-fail-${project.id}` });
+        } else {
+          await localFolderApi.writeSidecar({ dir, json: { version: 1, projectId: project.id, entries: {} } });
         }
       } else {
         notify?.({ category: 'project', variant: 'info', icon: 'folder', title: 'Tip: set a projects folder', body: 'Choose one in Settings to auto-create a folder for each new project.', dedupeKey: 'no-projects-dir' });
@@ -1229,50 +1206,12 @@ export default function Launch() {
 
   const showUpdateBanner = hasUpdate || debugBanner;
 
-  // Update-status derivation for the in-hub Updates view — mirrors the main
-  // app's StatusBanner (same variant classes from Updates.css).
-  const updState = installerState?.state;
-  const updChecking = updState === 'checking' || updState === 'downloading';
-  let updateTitle;
-  let updateSub;
-  let bannerVariant = 'updates-banner-uptodate';
-  let updatePrimary = null;
-  if (updState === 'downloaded') {
-    bannerVariant = 'updates-banner-success';
-    updateTitle = 'Update ready to install';
-    updateSub = `Version ${latestVersion || ''} has been downloaded. Restart to apply.`;
-    updatePrimary = (
-      <button type="button" className="updates-btn updates-btn-primary" onClick={installUpdate}>
-        {DownloadIcon} Restart &amp; install
-      </button>
-    );
-  } else if (updState === 'downloading') {
-    bannerVariant = 'updates-banner-update';
-    updateTitle = 'Downloading update…';
-    updateSub = typeof installerState?.percent === 'number'
-      ? `${Math.round(installerState.percent)}% complete`
-      : 'Please wait…';
-  } else if (hasUpdate) {
-    bannerVariant = 'updates-banner-update';
-    updateTitle = `New version available${latestVersion ? `: v${latestVersion}` : ''}`;
-    updateSub = currentVersion ? `You're on v${currentVersion}.` : 'A newer version of Docvex is available.';
-    if (downloadUrl) {
-      updatePrimary = (
-        <button type="button" className="updates-btn updates-btn-primary" onClick={() => openExternal(downloadUrl)}>
-          {DownloadIcon} Download{latestVersion ? ` v${latestVersion}` : ''}
-        </button>
-      );
-    }
-  } else {
-    updateTitle = "You're up to date";
-    updateSub = currentVersion ? `Running v${currentVersion}` : 'Running the latest version.';
-  }
-
   const navItems = [
     { id: 'projects', label: 'Projects', icon: ProjectsNavIcon, active: view === 'projects', onClick: () => selectView('projects') },
     { id: 'updates', label: 'Updates', icon: UpdatesNavIcon, active: view === 'updates', onClick: () => selectView('updates') },
     { id: 'learn', label: 'Learn', icon: LearnNavIcon, active: view === 'learn', onClick: () => selectView('learn') },
     { id: 'settings', label: 'Settings', icon: SettingsNavIcon, active: view === 'settings', onClick: () => selectView('settings') },
+    { id: 'admin', label: 'Admin', icon: ConsoleNavIcon, active: view === 'admin', onClick: () => selectView('admin') },
   ];
   // Dev-only: a Debug toggle that force-shows the update banner for previewing.
   if (import.meta.env.DEV) {
@@ -1367,7 +1306,11 @@ export default function Launch() {
       <div className="lh-pan-panel">
       <main className="lh-main">
         {view === 'projects' && (
-          <HubView greeting={`Welcome back, ${displayName}`} title="Projects">
+          <HubView
+            greeting={`Welcome back, ${displayName}`}
+            title={showEmptyState ? 'No projects yet' : 'Projects'}
+            hideHeadline={showEmptyState}
+          >
             {/* No projects folder set → can't create. Prompt the user to pick
                 one in Settings; creation stays disabled until they do. */}
             {!projectsDir && (
@@ -1381,32 +1324,36 @@ export default function Launch() {
               </button>
             )}
 
-            <div className="lh-toolbar">
-              <div className="lh-search">
-                <span className="lh-search-icon">{SearchIcon}</span>
-                <input
-                  type="text"
-                  className="lh-search-input"
-                  placeholder="Search projects…"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  autoFocus
-                />
-              </div>
-              <button type="button" className="lh-open-btn" onClick={onOpenFromDirectory}>
-                {FolderIcon} Open
-              </button>
-              <Tooltip content={!projectsDir ? 'Select a projects folder in Settings first' : undefined}>
-                <button
-                  type="button"
-                  className="lh-new-btn"
-                  onClick={onNewProject}
-                  disabled={!projectsDir}
-                >
-                  {PlusIcon} New
+            {/* Toolbar (search / Open / New) is hidden on the first-run empty
+                state — that card carries its own Create / Open actions. */}
+            {!showEmptyState && (
+              <div className="lh-toolbar">
+                <div className="lh-search">
+                  <span className="lh-search-icon">{SearchIcon}</span>
+                  <input
+                    type="text"
+                    className="lh-search-input"
+                    placeholder="Search projects…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                <button type="button" className="lh-open-btn" onClick={onOpenFromDirectory}>
+                  {FolderIcon} Open
                 </button>
-              </Tooltip>
-            </div>
+                <Tooltip content={!projectsDir ? 'Select a projects folder in Settings first' : undefined}>
+                  <button
+                    type="button"
+                    className="lh-new-btn"
+                    onClick={onNewProject}
+                    disabled={!projectsDir}
+                  >
+                    {PlusIcon} New
+                  </button>
+                </Tooltip>
+              </div>
+            )}
 
             {openMsg && <div className="lh-open-msg">{openMsg}</div>}
 
@@ -1432,7 +1379,7 @@ export default function Launch() {
                   <h2>No projects yet</h2>
                   <p>
                     {projectsDir
-                      ? 'Projects are how you share files and notes with your team.'
+                      ? 'Create your first project to start working with your team.'
                       : 'Select a projects folder in Settings to create your first project.'}
                   </p>
                   <Tooltip content={!projectsDir ? 'Select a projects folder in Settings first' : undefined}>
@@ -1445,6 +1392,10 @@ export default function Launch() {
                       {PlusIcon} Create your first project
                     </button>
                   </Tooltip>
+                  <span className="lh-empty-or">or</span>
+                  <button type="button" className="lh-open-btn lh-empty-open" onClick={onOpenFromDirectory}>
+                    {FolderIcon} Open project
+                  </button>
                 </div>
               )}
 
@@ -1516,67 +1467,15 @@ export default function Launch() {
         )}
 
         {view === 'updates' && (
-          <HubView greeting={currentVersion ? `Current version v${currentVersion}` : 'Version'} title="Updates">
-            <div className="lh-updates">
-              {/* Status banner — same variants as the main app's Updates page. */}
-              <div className={`updates-banner ${bannerVariant}`}>
-                <div>
-                  <strong>{updateTitle}</strong>
-                  <p>{updateSub}</p>
-                </div>
-                <div className="lh-update-actions">
-                  {updatePrimary}
-                  <button type="button" className="updates-btn" onClick={checkNow} disabled={updChecking}>
-                    {RefreshIcon} {updState === 'checking' ? 'Checking…' : 'Check now'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Release cards — like the main app, but WITHOUT the patch-notes
-                  body (and so without the collapse toggle). */}
-              <section className="updates-releases">
-                {updatesLoading && (!releases || releases.length === 0) && (
-                  <div className="updates-empty">Loading releases…</div>
-                )}
-                {!updatesLoading && (!releases || releases.length === 0) && (
-                  <div className="updates-empty">No releases published yet.</div>
-                )}
-                {releases?.map((release, i) => {
-                  // Resolve the real version (falls back to release.name when
-                  // tag_name is electron-forge's `untagged-<sha>` placeholder).
-                  const tag = versionTagFor(release);
-                  const ver = tag.replace(/^v/, '');
-                  const isCurrent = ver === currentVersion;
-                  const prevTag = releases[i + 1] ? versionTagFor(releases[i + 1]) : null;
-                  const kind = releaseKind(tag, prevTag);
-                  const cardClass = ['release-card', 'is-collapsed', kind && `is-${kind}`]
-                    .filter(Boolean).join(' ');
-                  return (
-                    <article key={release.id || tag} className={cardClass}>
-                      <header className="release-header">
-                        <div className="release-version-line">
-                          <h2 className="release-version">{tag}</h2>
-                          {kind && <span className={`release-tag release-tag-${kind}`}>{kind}</span>}
-                          {isCurrent && <span className="release-tag release-tag-current">Installed</span>}
-                          {release.prerelease && <span className="release-tag release-tag-pre">Pre-release</span>}
-                        </div>
-                        <div className="release-meta">
-                          <span>{formatReleaseDate(release.published_at)}</span>
-                          {release.html_url && (
-                            <a
-                              href={release.html_url}
-                              className="release-link"
-                              onClick={(e) => { e.preventDefault(); openExternal(release.html_url); }}
-                            >
-                              View on GitHub {ExternalLinkIcon}
-                            </a>
-                          )}
-                        </div>
-                      </header>
-                    </article>
-                  );
-                })}
-              </section>
+          // Embed the main app's Versions/Updates page verbatim (same as the
+          // Account view embeds <Account />), so the hub's Updates tab inherits
+          // the timeline-rail design — banner, semver-coded rail, collapsible
+          // release notes — and stays in lock-step with it. HubView supplies the
+          // scroll + compact header; the page brings its own "Versions" header,
+          // so hideHeadline avoids a duplicate title.
+          <HubView title="Updates" hideHeadline>
+            <div className="lh-updates-body">
+              <Updates />
             </div>
           </HubView>
         )}
@@ -1616,6 +1515,17 @@ export default function Launch() {
           <HubView title="Account" hideHeadline>
             <div className="lh-account-body">
               <Account />
+            </div>
+          </HubView>
+        )}
+
+        {view === 'admin' && (
+          // Embed the main app's Developer console verbatim (like Updates /
+          // Account). The Admin page brings its own masthead + gating, so
+          // hideHeadline avoids a duplicate title.
+          <HubView title="Admin" hideHeadline>
+            <div className="lh-admin-body">
+              <Admin />
             </div>
           </HubView>
         )}

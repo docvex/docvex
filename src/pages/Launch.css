@@ -89,23 +89,25 @@
   inset: 0;
   pointer-events: none;
   z-index: -1;
+  /* Brighter + slightly larger dots than the ambient grid so the spotlight
+     reads as the cursor moves (kept subtle). */
   background-image: radial-gradient(
     circle at center,
-    color-mix(in srgb, var(--text-primary) 5%, transparent) 1.4px,
-    transparent 1.8px
+    color-mix(in srgb, var(--text-primary) 11%, transparent) 1.45px,
+    transparent 1.85px
   );
   background-size: 24px 24px;
   background-position: center;
   mask-image: radial-gradient(
-    circle 200px at var(--cursor-x, 50vw) var(--cursor-y, 50vh),
+    circle 215px at var(--cursor-x, 50vw) var(--cursor-y, 50vh),
     #000 0%,
-    #000 40%,
+    #000 42%,
     transparent 100%
   );
   -webkit-mask-image: radial-gradient(
-    circle 200px at var(--cursor-x, 50vw) var(--cursor-y, 50vh),
+    circle 215px at var(--cursor-x, 50vw) var(--cursor-y, 50vh),
     #000 0%,
-    #000 40%,
+    #000 42%,
     transparent 100%
   );
 }
@@ -319,6 +321,9 @@
    Scroll + side padding come from HubView's .lh-view-scroll / .lh-view-inner;
    the account page's 720px column is left-aligned (no auto-centering). */
 .lh-account-body .account-page { margin: 0; max-width: none; }
+
+/* Developer console embedded in the hub — fill the hub column. */
+.lh-admin-body .dc-page { margin: 0; max-width: none; }
 
 /* Popover opens upward from the footer button. */
 .lh-account-menu {
@@ -960,19 +965,37 @@
 .lh-empty {
   padding: 56px 28px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Center the first-run card vertically + horizontally in the view (the
+     page headline is hidden in this state, so the card owns the space). */
+  justify-content: center;
+  min-height: 72vh;
 }
 .lh-empty h2 {
+  /* Match the main page header (.lh-title) size when projects exist. */
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1.05;
   color: var(--text-primary);
   margin: 0 0 8px;
+  padding-bottom: 10px;
 }
 .lh-empty p {
   font-size: 14px;
   color: var(--text-muted);
   margin: 0 0 20px;
 }
-.lh-empty .lh-new-btn { margin: 0 auto; }
+.lh-empty .lh-new-btn { margin: 0; }
+/* First-run empty card: Create → "or" → Open project, stacked vertically. */
+.lh-empty-or {
+  margin: 12px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.lh-empty .lh-empty-open { margin: 0; }
 
 /* ── Skeleton shimmer ── */
 .lh-row-skel { cursor: default; pointer-events: none; padding: 16px 14px; }
@@ -1169,21 +1192,12 @@ button.lh-learn-card:hover {
 .lh-tut-thumb[data-cat="member"]  { --tut-tint: var(--cat-member); }
 .lh-tut-thumb[data-cat="support"] { --tut-tint: var(--cat-support); }
 
-/* ── Updates view ── */
-.lh-updates {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-/* Banner action cluster (primary + Check now), mirroring the main app. */
-.lh-update-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-
-/* Compact release rows in the hub — shorter than the main app's cards since
-   they carry no patch-notes body. Scoped to .lh-updates so the main app's
-   Updates page keeps its roomier cards. */
-.lh-updates .updates-releases { gap: 0.5rem; }
-.lh-updates .release-card { padding: 0.6rem 0.9rem; }
-.lh-updates .release-header { margin-bottom: 0; }
+/* ── Updates view ──
+   The Updates tab embeds the main app's <Updates /> page verbatim (same as
+   the Account tab embeds <Account />). The page is self-contained and
+   left-anchors its own 940px column, so the wrapper just resets the inner
+   page's top margin to sit flush under the hub's scroll area. */
+.lh-updates-body .updates-page .page { margin: 0; }
 
 .lh-update-card {
   display: flex;

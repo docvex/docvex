@@ -21,14 +21,50 @@
 
 .tb-drag-spacer { flex: 1; min-width: 0; }
 
-/* Brand (left). Part of the drag region — plain, non-interactive text. */
+/* Brand (left). Part of the drag region — plain, non-interactive text.
+   8px left edge inset + 8px item gap = the bar's primary spacing unit. */
 .tb-brand {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 0 14px;
+  gap: 8px;
+  padding: 0 0 0 8px;
   flex-shrink: 0;
 }
+/* Icon + name — clickable link to the About DocVex / Updates tab. Opts out
+   of the drag region so the click registers. */
+.tb-brand-link {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  /* Left padding halved (8px → 4px); the other 4px is moved to margin-left
+     (-2px → 2px) so the icon stays put while the hover box hugs it tighter. */
+  padding: 4px 8px 4px 4px;
+  margin: 0 -2px 0 2px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.tb-brand-link:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+
+/* Non-interactive brand (launch hub) — plain text, stays part of the drag
+   region (no -webkit-app-region override, no hover/cursor affordance).
+   Same 8px gap as the rest of the bar; no own padding/margin so the parent's
+   8px inset is the single source of left spacing. */
+.tb-brand-static {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+}
+
 .tb-brand-icon { width: 20px; height: 20px; border-radius: 5px; }
 .tb-brand-name {
   font-family: var(--font-display);
@@ -45,12 +81,277 @@
   color: var(--text-muted);
 }
 
+/* Update badge — sits just right of the app name when an update is available.
+   Opts out of the drag region so the click registers. */
+.tb-update-badge {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  /* No own margins — the brand row's 8px flex gap spaces the badge evenly on
+     both sides, matching the bar's primary spacing unit. */
+  margin: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--cat-update) 45%, transparent);
+  background: color-mix(in srgb, var(--cat-update) 16%, transparent);
+  color: var(--cat-update);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.tb-update-badge:hover {
+  background: color-mix(in srgb, var(--cat-update) 26%, transparent);
+  border-color: color-mix(in srgb, var(--cat-update) 65%, transparent);
+}
+.tb-update-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cat-update);
+  /* --pulse-color lets each kind tint its own halo; the keyframe reads it off
+     the element so the pulse matches the pill colour. */
+  --pulse-color: var(--cat-update);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--pulse-color) 70%, transparent);
+  animation: tb-update-pulse 1.8s ease-out infinite;
+}
+@keyframes tb-update-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--pulse-color) 60%, transparent); }
+  70%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--pulse-color) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--pulse-color) 0%, transparent); }
+}
+
+/* Semver-kind colour coding — matches the Versions page release palette:
+   major → danger (red), minor → info (blue), patch → neutral grey. */
+.tb-update-badge.is-major {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger-soft);
+}
+.tb-update-badge.is-major:hover {
+  background: color-mix(in srgb, var(--danger) 25%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 65%, transparent);
+}
+.tb-update-badge.is-major .tb-update-dot { background: var(--danger-soft); --pulse-color: var(--danger); }
+
+.tb-update-badge.is-minor {
+  border-color: color-mix(in srgb, var(--info-soft) 45%, transparent);
+  background: color-mix(in srgb, var(--info-soft) 15%, transparent);
+  color: var(--info-soft);
+}
+.tb-update-badge.is-minor:hover {
+  background: color-mix(in srgb, var(--info-soft) 25%, transparent);
+  border-color: color-mix(in srgb, var(--info-soft) 65%, transparent);
+}
+.tb-update-badge.is-minor .tb-update-dot { background: var(--info-soft); --pulse-color: var(--info-soft); }
+
+.tb-update-badge.is-patch {
+  border-color: color-mix(in srgb, var(--teal-soft) 45%, transparent);
+  background: color-mix(in srgb, var(--teal-soft) 15%, transparent);
+  color: var(--teal-soft);
+}
+.tb-update-badge.is-patch:hover {
+  background: color-mix(in srgb, var(--teal-soft) 25%, transparent);
+  border-color: color-mix(in srgb, var(--teal-soft) 65%, transparent);
+}
+.tb-update-badge.is-patch .tb-update-dot { background: var(--teal-soft); --pulse-color: var(--teal-soft); }
+
+/* Up-to-date steady state — calm gray with a STATIC linear gradient (no pan),
+   and a static (non-pulsing) gray dot. */
+.tb-update-badge.is-uptodate {
+  border-color: var(--border-strong);
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--text-primary) 4%, transparent) 0%,
+    color-mix(in srgb, var(--text-primary) 11%, transparent) 50%,
+    color-mix(in srgb, var(--text-primary) 4%, transparent) 100%
+  );
+  color: var(--text-secondary);
+}
+.tb-update-badge.is-uptodate:hover {
+  border-color: var(--border-strong);
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--text-primary) 8%, transparent) 0%,
+    color-mix(in srgb, var(--text-primary) 16%, transparent) 50%,
+    color-mix(in srgb, var(--text-primary) 8%, transparent) 100%
+  );
+  color: var(--text-primary);
+}
+.tb-update-badge.is-uptodate .tb-update-dot {
+  background: var(--text-muted);
+  box-shadow: none;
+  animation: none;
+}
+
+/* Divider between the app name and the selected project name. No own margin —
+   the parent's 8px flex gap provides symmetric spacing on both sides. */
+.tb-brand-sep {
+  font-size: 14px;
+  font-weight: 300;
+  color: var(--border-strong);
+  margin: 0;
+}
+
+/* Selected-project name — clickable, opens the project dashboard. Opts out
+   of the drag region so the click registers. */
+.tb-project-name {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  color: var(--text-secondary);
+  transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+.tb-project-name:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+
+/* ── Project meta row: avatars · files · bars (next to the project name) ── */
+.tb-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 8px from the project name (which lives in the sibling .tb-brand) so the
+     leading "·" sits on the same 8px rhythm as the gaps between meta items. */
+  margin-left: 8px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.tb-meta-sep {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 13px;
+}
+.tb-meta-avatars { display: inline-flex; align-items: center; }
+.tb-member-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  overflow: hidden;
+  box-shadow: 0 0 0 2px var(--bg-sidebar);
+  margin-left: -6px;
+}
+.tb-member-avatar:first-child { margin-left: 0; }
+.tb-member-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.tb-meta-more {
+  margin-left: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.tb-meta-files {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* ── Usage meters (next to the project name) ── */
+/* Four bars laid out 2 rows × 2 columns. They carry no visible labels — the
+   info lives in the color-coded cursor tooltip on hover. */
+.tb-usage {
+  /* Center the grid in the bar instead of stretching to the full 44px height
+     (the flex parent is align-items:stretch), and pin the rows to a fixed
+     height so the bars never overflow downward. */
+  align-self: center;
+  display: grid;
+  grid-template-columns: repeat(2, 104px);
+  grid-template-rows: repeat(2, 7px);
+  gap: 3px 4px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  cursor: default;
+  flex-shrink: 0;
+  transition: background 140ms ease;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+/* Hover the whole progress-bar section (a subtle tint that won't blend into
+   the track's own --bg-elevated colour). */
+.tb-usage:hover { background: color-mix(in srgb, var(--text-primary) 9%, transparent); }
+.tb-usage-meter {
+  width: 104px;
+  height: 7px;
+  cursor: default;
+}
+.tb-usage-track {
+  /* The track is a <span>; without display:block its height/width are ignored
+     and it renders at the font line-height (tall bars overflowing the bar). */
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 7px;
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+.tb-usage-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  min-width: 2px;
+}
+/* Hovering the usage section shows all metrics as a color-coded VERTICAL
+   list. Override the pill's nowrap/stadium look for the multi-row list. */
+.tb-usage-tip-pill {
+  border-radius: 10px;
+  white-space: normal;
+  text-align: left;
+}
+.tb-usage-tip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tb-usage-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.tb-usage-tip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.tb-usage-tip-label { font-weight: 600; }
+.tb-usage-tip-value { font-weight: 600; margin-left: auto; }
+
 /* ── App actions cluster ── */
+/* Report / Split / Theme / Account live in one cluster. A tight 4px gap
+   (half the bar's 8px unit) groups the icon buttons; the 8px spacing to the
+   divider is owned by the divider's own margin, so this has no side padding. */
 .tb-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 8px;
+  gap: 4px;
+  padding: 0;
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -87,7 +388,7 @@
 .tb-btn-chevron svg { width: 13px; height: 13px; }
 
 /* Icon-only trigger (Theme) — tighter padding, no text label. */
-.tb-btn-icon-only { gap: 4px; padding: 0 9px; }
+.tb-btn-icon-only { gap: 4px; padding: 0 8px; }
 
 /* ── Dropdowns ── */
 .tb-menu-wrap { position: relative; display: flex; align-items: center; }
@@ -138,12 +439,242 @@
 .tb-dropdown-check { display: flex; color: var(--accent); }
 .tb-dropdown-check svg { width: 15px; height: 15px; }
 
-/* ── Divider between the Theme control and the window controls ── */
+/* Icon-only trigger active state (split control while a multi-pane layout is on). */
+.tb-btn-icon-only.is-active { color: var(--accent); }
+
+/* Split-view dropdown rows — layout glyph + label + check. */
+.tb-split-item { gap: 10px; }
+.tb-split-glyph { display: flex; color: var(--text-secondary); }
+.tb-split-item.is-active .tb-split-glyph { color: var(--accent); }
+.tb-split-glyph svg { width: 18px; height: 18px; }
+
+/* Rich rows inside the Split / Theme morph menus (useMorphPill). The pill
+   chrome comes from useMorphPill.css; these just lay out glyph + label +
+   the active-choice check inside each item. */
+.tb-morph-row { display: flex; align-items: center; gap: 10px; width: 100%; }
+.tb-morph-glyph { display: flex; color: var(--text-secondary); }
+.tb-morph-glyph svg { width: 18px; height: 18px; }
+.tb-morph-row-label { white-space: nowrap; }
+.tb-morph-check { margin-left: auto; display: flex; color: var(--accent); }
+.tb-morph-check svg { width: 15px; height: 15px; }
+
+/* ── Split-view menu (grid of layout tiles + custom layouts) ──
+   Rendered as the morph pill's menuHeader. The pill itself carries
+   `.tb-split-pill` so we can widen it past the default morph-menu sizing. */
+.project-files-morph-pill.tb-split-pill.is-menu { padding: 8px; }
+/* menuItems is empty for this menu (everything lives in the header) — hide the
+   empty list so it doesn't add a trailing gap. */
+.tb-split-pill .project-files-morph-list:empty { display: none; }
+.tb-split-menu { display: flex; flex-direction: column; gap: 10px; min-width: 232px; }
+
+/* 2 rows × 3 columns of icon-only layout tiles. */
+.tb-split-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 6px;
+}
+.tb-split-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 46px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.tb-split-cell:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.tb-split-cell.is-active {
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+}
+.tb-split-cell:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.tb-split-cell:disabled:hover {
+  background: var(--bg-input);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+.tb-split-cell svg { width: 22px; height: 22px; }
+.tb-split-cell-rotate svg { width: 18px; height: 18px; }
+
+.tb-split-divider { height: 1px; background: var(--border); }
+
+/* Custom (user-named) layouts. */
+.tb-split-custom { display: flex; flex-direction: column; gap: 4px; }
+.tb-split-custom-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0 2px 2px;
+}
+.tb-split-custom-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 0 2px 2px;
+}
+.tb-split-custom-row { display: flex; align-items: center; gap: 2px; }
+.tb-split-custom-apply {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.tb-split-custom-apply:hover { background: var(--accent-tint); }
+.tb-split-custom-apply.is-active { color: var(--accent); }
+.tb-split-custom-glyph { display: flex; color: var(--text-secondary); flex-shrink: 0; }
+.tb-split-custom-apply.is-active .tb-split-custom-glyph { color: var(--accent); }
+.tb-split-custom-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-split-custom-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.tb-split-custom-del:hover { background: var(--danger-soft); color: #fff; }
+
+/* "Save current layout" affordance — button → inline name form. */
+.tb-split-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+  background: none;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.tb-split-add:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--bg-elevated); }
+.tb-split-add-plus { font-size: 15px; line-height: 1; }
+.tb-split-add-form { display: flex; align-items: center; gap: 6px; }
+.tb-split-add-glyph { display: flex; color: var(--text-secondary); flex-shrink: 0; }
+.tb-split-add-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+}
+.tb-split-add-input:focus { outline: none; border-color: var(--accent); }
+.tb-split-add-save {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tb-split-add-save:disabled { opacity: 0.5; cursor: default; }
+
+/* ── Account control (rightmost, before the window buttons) ── */
+.tb-account-cluster { padding-right: 4px; }
+.tb-account {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.tb-account:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+.tb-account-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+}
+.tb-account-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+.tb-account-avatar-fallback {
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+/* Decorative status dot on the account avatar — not interactive, not
+   hoverable; just shows the current status colour in the corner. */
+.tb-account-status {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--status-color, var(--text-muted));
+  box-shadow: 0 0 0 2px var(--bg-sidebar);
+  pointer-events: none;
+}
+.tb-account-status.is-offline {
+  background: var(--bg-sidebar);
+  border: 2px solid var(--status-color, var(--text-muted));
+}
+
+/* ── Divider between the actions cluster and the window controls ──
+   Symmetric 8px margins place it on the bar's primary spacing unit: 8px after
+   the account avatar, 8px before the minimize button. */
 .tb-divider {
   align-self: center;
   width: 1px;
   height: 20px;
-  margin: 0 4px;
+  margin: 0 8px;
   background: var(--border-strong);
   -webkit-app-region: no-drag;
   app-region: no-drag;

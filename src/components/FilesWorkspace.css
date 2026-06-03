@@ -22,12 +22,18 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  /* Full-bleed horizontally: drop the frame's 2rem side padding so the
-     section reaches the screen's right edge (matching the fixed bottom bar,
-     which already runs to right:0). Inner rows keep their own ~22px inset so
-     content doesn't hug the edge. Top/bottom padding stays for banner clearance. */
-  padding-left: 0;
-  padding-right: 0;
+  /* Full-bleed: drop ALL frame padding. Sides reach the window edges, the
+     canvas sits flush under the toolbar, and the action bar sits flush on the
+     window's bottom edge (no leftover bottom gap). Inner rows keep their own
+     ~22px inset so content doesn't hug the edge. */
+  padding: 0;
+  /* Square the frame: with the workspace now full-bleed, the frame's rounded
+     top "lip" (18px) clipped the corners of the edge-to-edge list/grid. The
+     window chrome already provides the top edge, so no rounded lip is wanted. */
+  border-radius: 0;
+  /* Drop the frame's opaque top "lip" gradient too — with no rounded corner to
+     trace, it just blocked the ambient spotlight at the top of the canvas. */
+  background: none;
 }
 
 /* Files page only: drop the global edge vignette (the radial-gradient in
@@ -144,9 +150,13 @@
 
   overflow: hidden;            /* clips the off-screen (closed) publish drawer */
   display: grid;
-  /* The bottom action bar is position:fixed (docked to the viewport), so
-     it's out of grid flow — only tabs · pathbar · canvas occupy rows. */
-  grid-template-rows: auto auto 1fr;
+  /* Rows: (toolbar/tabs — now portalled to the chrome) · (pathbar) · canvas ·
+     action bar. The action bar is the 4th row, docked at the bottom of THIS
+     window (per-pane) rather than a viewport-fixed global bar. The canvas track
+     is minmax(0, 1fr) — NOT 1fr — so a tall list can't grow the track past the
+     window and push the action bar off the clipped bottom edge; instead the
+     canvas shrinks and scrolls internally, keeping the bar docked. */
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   flex: 1 1 auto;
   /* min-height:0 lets this flex child shrink to the page height so the
      canvas (the 1fr row) becomes the scroll area instead of growing the
@@ -336,6 +346,8 @@
   color: #fff;
 }
 .fx-tb-btn .fx-icon { width: 16px; height: 16px; flex: 0 0 16px; }
+/* Icon-only toolbar button (undo / redo) — square, no text label. */
+.fx-tb-btn.fx-tb-icon { padding: 7px; }
 .fx-tb-btn .fx-caret { width: 10px; height: 10px; opacity: 0.6; margin-left: -2px; }
 .fx-tb-sep {
   width: 1px; height: 22px;
@@ -451,7 +463,9 @@
 .fx-pathbar.is-editing:hover::before { opacity: 0.8; }
 .fx-pathbar-nav { display: flex; gap: 2px; margin-right: 4px; }
 .fx-pathbar-nav button {
-  width: 26px; height: 26px;
+  /* Height matches the search input so the ‹ › ↑ controls line up vertically
+     with it (both centered in the tools row). */
+  width: 28px; height: 30px;
   display: grid; place-items: center;
   background: transparent; border: 0; cursor: pointer;
   border-radius: 6px;
@@ -459,31 +473,106 @@
 }
 .fx-pathbar-nav button:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
 .fx-pathbar-nav button:disabled { color: var(--text-muted); opacity: 0.5; cursor: not-allowed; }
+/* Breadcrumb — a rooted folder path: the project folder anchors it (folder
+   icon + stronger weight), chevrons separate the segments, each clickable
+   segment lifts on hover, and the current folder is bold. Long names truncate
+   so the path never pushes the search box off the bar. */
+.fx-crumbs {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
 .fx-crumb {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 8px;
+  max-width: 200px;
+  padding: 4px 9px;
   color: var(--text-secondary);
-  border-radius: 6px;
+  border-radius: 7px;
   cursor: pointer;
-  background: transparent; border: 0; font: inherit; font-size: 12.5px;
+  background: transparent; border: 0; font: inherit; font-size: 12.5px; font-weight: 500;
+  transition: background 120ms ease, color 120ms ease;
 }
-.fx-crumb:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); color: var(--text-primary); }
-.fx-crumb.is-current { color: var(--text-primary); font-weight: 600; cursor: default; }
-.fx-crumb .fx-icon { width: 14px; height: 14px; opacity: 0.75; }
-.fx-pathbar-sep { color: var(--text-muted); opacity: 0.65; }
+.fx-crumb-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-crumb-icon { color: var(--accent); flex: 0 0 auto; }
+.fx-crumb:hover:not(.is-current) {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-primary);
+}
+/* Root (project folder) anchors the path — a touch stronger than the middle
+   segments even when it isn't the current folder. */
+.fx-crumb.is-root { color: var(--text-primary); font-weight: 600; }
+.fx-crumb.is-current { color: var(--text-primary); font-weight: 700; cursor: default; }
+.fx-crumb-sep { color: var(--text-muted); opacity: 0.55; flex: 0 0 auto; }
 .fx-search {
   display: flex; align-items: center; gap: 8px;
-  padding: 6px 12px;
+  padding: 5px 8px 5px 11px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-elevated);
-  width: 220px;
+  border-radius: 7px;
+  background: var(--bg-input);
+  width: 280px;
   font-size: 13px;
   color: var(--text-muted);
+  /* Quiet by default; widens + lifts on focus so search feels deliberate. */
+  transition: width 220ms cubic-bezier(.16, 1, .3, 1),
+              border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
+.fx-search:hover { border-color: var(--border-strong); }
+.fx-search:focus-within {
+  width: 360px;
+  border-color: var(--accent);
+  background: var(--bg-card);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+/* The magnifier picks up the accent once the field is engaged. */
+.fx-search-glyph { color: var(--text-muted); flex: 0 0 auto; transition: color 140ms ease; }
+.fx-search:focus-within .fx-search-glyph,
+.fx-search.is-active .fx-search-glyph { color: var(--accent); }
 .fx-search input {
   border: 0; background: transparent; outline: none;
-  font: inherit; color: var(--text-primary); width: 100%;
+  font: inherit; color: var(--text-primary); width: 100%; min-width: 0;
+}
+.fx-search input::placeholder { color: var(--text-muted); }
+/* Keyboard hint — each key is its own chip; the + sits between them with no
+   background. Fades out on focus to make room for typing. */
+.fx-search-kbd {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: var(--font-body);
+  transition: opacity 120ms ease;
+}
+.fx-search-kbd kbd {
+  display: inline-flex; align-items: center;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-elevated);
+  font-family: inherit;
+  font-size: 10.5px; font-weight: 600; line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+.fx-search-kbd-plus {
+  margin: 0 3px;
+  font-size: 10px; font-weight: 600;
+  color: var(--text-muted);
+}
+.fx-search:focus-within .fx-search-kbd { opacity: 0; }
+/* Clear (×) button — replaces the hint once there's a query. */
+.fx-search-clear {
+  flex: 0 0 auto;
+  display: grid; place-items: center;
+  width: 20px; height: 20px;
+  padding: 0; border: 0; cursor: pointer;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-secondary);
+  transition: background 120ms ease, color 120ms ease;
+}
+.fx-search-clear:hover {
+  background: color-mix(in srgb, var(--text-primary) 16%, transparent);
+  color: var(--text-primary);
 }
 
 /* ── Canvas ─────────────────────────────────────────────────────────── */
@@ -495,20 +584,60 @@
      header. Both sharing r3c1 keeps the layout identical to non-edit mode. */
   grid-row: 3;
   grid-column: 1;
-  /* Extra bottom padding so the last row of files clears the fixed,
-     viewport-docked bottom action bar. */
-  padding: 18px 22px 84px;
+  /* List view runs full-bleed (rows + pinned header span edge to edge). The
+     action bar is its own docked row now, so only a small bottom gutter. */
+  padding: 0 0 16px;
+  /* Shared across BOTH views (these used to live only on the tile rule, which
+     left list mode without a scroller / min-height — letting it grow and push
+     the action bar off the bottom). */
   background-color: transparent;
   overflow-y: auto;
   min-height: 0;
+  /* position context for the drag-and-drop overlay. */
+  position: relative;
   /* Smooth red wash on enter/exit of Team edit mode (see .is-editing). */
   transition: background-color 340ms ease;
+}
+/* Tile/grid view gets a comfortable gutter so the tiles don't hug the edges
+   (the list view stays full-bleed via the base rule above). Top + bottom match
+   so the grid sits symmetrically between the toolbar and the action bar. */
+.fx-canvas:has(> .fx-grid) {
+  padding: 16px 22px 16px;
 }
 /* Team edit mode → subtle red wash behind the file items, so the whole
    workspace (not just the toolbar) reads as "editing the main branch". */
 .fx-canvas.is-editing {
   background-color: color-mix(in srgb, var(--danger) 6%, transparent);
 }
+
+/* ── Drag-and-drop import ── */
+.fx-canvas--drag { background-color: var(--accent-tint); }
+.fx-drop-overlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  border: 2px dashed color-mix(in srgb, var(--accent) 60%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  pointer-events: none;
+  backdrop-filter: blur(1px);
+}
+.fx-drop-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px 28px;
+  border-radius: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-elev);
+  color: var(--accent);
+}
+.fx-drop-overlay-card strong { font-size: 15px; color: var(--text-primary); }
+.fx-drop-overlay-card span { font-size: 12.5px; color: var(--text-muted); }
 .fx-section-head {
   display: flex; align-items: baseline; gap: 10px;
   margin: 6px 4px 14px;
@@ -548,13 +677,19 @@
   background: transparent;
   border: 1px solid transparent;
   border-radius: 10px;
-  padding: 14px 12px 12px;
+  /* Tighter padding so the hover / selection fill hugs the tile content
+     (thumb + name) instead of leaving a wide halo around it. */
+  padding: 8px 8px 9px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  /* Center the thumb + name block vertically: grid rows stretch every tile to
+     the tallest one's height (e.g. a 2-line name), so centering keeps all the
+     thumbnails aligned on a common middle line instead of pinned to the top. */
+  justify-content: center;
+  gap: 8px;
   cursor: pointer;
   transition: transform 120ms, box-shadow 120ms, border-color 120ms, background 120ms;
-  text-align: left;
+  text-align: center;
   font: inherit;
 }
 .fx-tile:hover {
@@ -578,6 +713,10 @@
   overflow: hidden;
   position: relative;
 }
+/* Files shown as a type-glyph badge (PSD, MP4, TXT…) instead of a real preview
+   don't need the grey thumb box behind them — let the badge sit directly on the
+   page (like folder glyphs already do). */
+.fx-tile-thumb:has(.fx-glyph) { background: transparent; }
 /* The embedded FileThumbnail fills the box. */
 .fx-tile-thumb .project-files-thumb,
 .fx-tile-thumb img { width: 100%; height: 100%; object-fit: contain; }
@@ -585,6 +724,10 @@
 /* Bigger folder glyph that scales with the tile zoom (overrides the svg's
    intrinsic 42px). Near-fills the thumb box. */
 .fx-tile-thumb .fx-folder-glyph { color: var(--accent); width: 92%; height: 92%; }
+
+/* Recycle bin entry glyph — a trash icon where a folder glyph would sit. */
+.fx-bin-glyph { display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); }
+.fx-list-thumb .fx-bin-glyph { color: var(--text-secondary); }
 
 /* Colored ext-label glyph (from the design) — shown when a file has no
    real preview. Centered in the thumb. */
@@ -606,7 +749,9 @@
 .fx-glyph-zip { background: #7C3AED; }
 .fx-glyph-img { background: linear-gradient(135deg, #14B8A6, #0EA5E9); }
 .fx-glyph-vid { background: #0F172A; }
-.fx-glyph-txt { background: var(--color-slate); }
+/* Plain-text badge reads as a sheet of paper: white fill, black label, with a
+   border so it stays visible on the (now background-less) thumb + light page. */
+.fx-glyph-txt { background: #fff; color: #111; border: 1px solid var(--border); }
 .fx-glyph-psd { background: #001E36; color: #31A8FF; }
 .fx-glyph-ai  { background: #1A0A00; color: #FF9A00; }
 .fx-glyph-gen { background: var(--text-muted); }
@@ -620,17 +765,6 @@
   overflow: hidden;
   word-break: break-word;
 }
-.fx-tile-meta {
-  font-size: 11px;
-  color: var(--text-muted);
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-.fx-tile-meta .fx-mdot { width: 3px; height: 3px; background: currentColor; border-radius: 50%; opacity: 0.5; }
-/* Folder tiles: center the name + meta under the centered folder glyph. */
-.fx-tile.is-folder { text-align: center; }
-.fx-tile.is-folder .fx-tile-meta { justify-content: center; }
 
 /* Status corner ribbon */
 .fx-ribbon {
@@ -659,6 +793,40 @@
 .fx-ribbon.is-deleted  { background: var(--danger); }
 .fx-ribbon.is-waiting  { background: var(--cat-update); }
 
+/* Recently-deleted countdown pill — "Deletes in N days". Amber by default,
+   red in the final stretch (≤3 days). Reused in both the tile corner and the
+   list-row status column. */
+.fx-countdown-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--warning);
+  background: var(--warning-soft);
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
+  white-space: nowrap;
+  line-height: 1.2;
+}
+.fx-countdown-pill svg { flex: 0 0 auto; }
+.fx-countdown-pill.is-urgent {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 38%, transparent);
+}
+/* Tile-corner placement mirrors .fx-ribbon. */
+.fx-tile-countdown {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 1;
+  justify-content: center;
+  max-width: calc(100% - 16px);
+}
+
 .fx-tile.is-deleted .fx-tile-thumb,
 .fx-tile.is-deleted .fx-tile-name { opacity: 0.55; }
 .fx-tile.is-deleted .fx-tile-name { text-decoration: line-through; }
@@ -682,33 +850,70 @@
 .fx-list-head,
 .fx-list-row {
   display: grid;
-  /* Status column widened so "Marked for deletion" / "Awaiting review" pills
-     fit on one line instead of overflowing into the next column. */
-  grid-template-columns: minmax(0, 1.6fr) 152px 120px 120px 88px;
+  /* Name (flex) · Date · Type · Size. */
+  grid-template-columns: minmax(0, 1.6fr) 140px 90px 100px;
   gap: 0;
   align-items: center;
   padding: 9px 14px;
 }
 .fx-list-head {
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
-  font-size: 11px;
+  /* Lives INSIDE the window chrome (same section as the search bar), styled
+     like the chat tab bar: no fill of its own (the chrome bg shows through) and
+     an INSET divider above it (see ::before) rather than a full-width border.
+     Its grid columns + 14px inset come from the shared `.fx-list-head,
+     .fx-list-row` rule so it lines up with the full-bleed rows below. */
+  position: relative;
+  background: transparent;
+  font-size: 11.5px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--text-muted);
+  color: var(--text-secondary);
+}
+/* Tighter vertical rhythm for the in-chrome header (it's a bar row, not a
+   table row). */
+.fx-list-head--chrome { padding: 6px 14px 7px; }
+/* Inset divider above the header — same as the chat tab bar's: stops short of
+   the edges, centered in the gap between the tools row (12px clearance below)
+   and the header labels (6px padding above). */
+.fx-list-head--chrome::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: -3px;
+  height: 1px;
+  background: var(--border);
+}
+
+/* The nav + breadcrumb + search row inside the chrome's row 2. Extra bottom
+   padding gives the divider matching breathing room above + below (mirrors the
+   chat tools row). Small left padding so the ‹ › ↑ nav glyphs (centered ~6px
+   inside their 26px buttons) line up under the "Files" title above (~10px in). */
+.fx-chrome-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 12px 4px;
+}
+/* Tile mode (no list header after it): trim the bottom padding so the chrome
+   section ends where the divider sits in list mode (~9px below the search),
+   instead of carrying the full 12px gap that the divider+header need. */
+.fx-chrome-tools:last-child {
+  padding-bottom: 9px;
 }
 .fx-list-row {
-  border-bottom: 1px solid var(--border);
+  /* A bit more vertical room so rows breathe (no separators between them). */
+  padding-top: 8px;
+  padding-bottom: 8px;
   cursor: pointer;
   font-size: 13px;
   background: transparent;
-  border-left: 0; border-right: 0; border-top: 0;
+  border: 0;
   width: 100%;
   text-align: left;
   font-family: inherit;
 }
-.fx-list-row:last-child { border-bottom: 0; }
 .fx-list-row:hover { background: var(--bg-elevated); }
 .fx-list-row.is-selected { background: var(--accent-tint); }
 .fx-list-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -858,11 +1063,10 @@
    translucent blurred backdrop keeps the buttons legible over the
    spotlight + scrolling content while still hinting the dots behind. */
 .fx-bottombar {
-  position: fixed;
-  left: var(--sidebar-width, 60px);
-  right: 0;
-  bottom: 0;
-  z-index: 20;
+  /* Docked as the window's bottom grid row (row 4) — lives INSIDE this file
+     window/pane, not as a viewport-fixed global bar. */
+  grid-row: 4;
+  grid-column: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -874,7 +1078,7 @@
   -webkit-backdrop-filter: blur(8px);
   font-size: 11.5px;
   color: var(--text-muted);
-  transition: left 250ms ease, background-color 340ms ease, border-color 340ms ease;
+  transition: background-color 340ms ease, border-color 340ms ease;
 }
 /* Team edit mode → red-tinted footer, matching the toolbar + canvas wash so
    the whole workspace reads as "editing the main branch". */

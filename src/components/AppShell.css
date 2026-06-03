@@ -48,12 +48,21 @@
   transition: margin-left 250ms ease;
 }
 
-/* Project-scoped routes drop the .main-content padding so the inner
-   .project-page-frame can carry it instead. Without this override the
-   frame would sit inside an extra 2rem ring of page-bg, breaking the
-   "sheet flush under the banner" look. */
-.main-content--has-banner {
+/* Single-window mode — the inner .sv-single owns the scroll + padding (it
+   pins the nav chrome above an independently-scrolling content area), so the
+   shell's own scroll/padding are dropped here. Project-scoped routes used to
+   rely on .main-content--has-banner for the same padding:0; now .sv-single-scroll
+   handles the flush "sheet" via its :has(.project-page-frame) rule. */
+.main-content--single {
   padding: 0;
+  overflow: hidden;
+}
+
+/* Split mode — the content area becomes a tiling grid (SplitContainer). Drop
+   the page padding and clip overflow so each pane owns its own scroll. */
+.main-content--split {
+  padding: 8px;
+  overflow: hidden;
 }
 
 /* Inner sheet that wraps page content on project-scoped routes. Sits

@@ -8,9 +8,8 @@ import { ThemeProvider } from './context/ThemeContext';
 import { UpdatesProvider } from './context/UpdatesContext';
 import { NotificationsProvider } from './context/NotificationsContext';
 import { SelectedProjectProvider } from './context/SelectedProjectContext';
-import { UploadsProvider } from './context/UploadsContext';
-import { BranchProvider } from './context/BranchContext';
 import { ChatUnreadProvider } from './context/ChatUnreadContext';
+import { SplitViewProvider } from './context/SplitViewContext';
 import NotificationCenter from './components/NotificationCenter';
 import App from './App';
 
@@ -25,8 +24,6 @@ import App from './App';
 //   SelectedProjectProvider  — needs AuthContext (per-user storage key + auto-clear)
 //   UpdatesProvider          — independent
 //   NotificationsProvider    — needs Auth + Updates via its source hooks
-//   UploadsProvider          — needs Auth + SelectedProject + Notifications
-//                              (uses notify() for upload toasts).
 //
 // NotificationCenter is a sibling of <App /> so toasts persist across route
 // transitions; route-level visibility (hide on /auth) is handled inside the
@@ -39,13 +36,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <SelectedProjectProvider>
             <UpdatesProvider>
               <NotificationsProvider>
-                <UploadsProvider>
-                  <BranchProvider>
-                    <ChatUnreadProvider>
-                      <App />
-                    </ChatUnreadProvider>
-                  </BranchProvider>
-                </UploadsProvider>
+                <SplitViewProvider>
+                  <ChatUnreadProvider>
+                    <App />
+                  </ChatUnreadProvider>
+                </SplitViewProvider>
                 <NotificationCenter />
               </NotificationsProvider>
             </UpdatesProvider>

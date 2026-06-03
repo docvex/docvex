@@ -4,9 +4,8 @@ import Sidebar from './Sidebar';
 import UpdateProgressBar from './UpdateProgressBar';
 import ProjectPickerPanel from './ProjectPickerPanel';
 import SwitchProjectLoader from './SwitchProjectLoader';
-import ReportProblemModal from './ReportProblemModal';
-import UploadModal from './UploadModal';
-import { ReportProblemProvider } from '../context/ReportProblemContext';
+import SplitContainer from './SplitView';
+import { useSplitView } from '../context/SplitViewContext';
 import useCursorSpotlight from '../hooks/useCursorSpotlight';
 import './AppShell.css';
 
@@ -19,7 +18,7 @@ import './AppShell.css';
 // reads as noise. Sub-routes like /projects/:id/dashboard still get the pill
 // because their <h1> is generic ("Dashboard") — the pill anchors which
 // project the generic page is about.
-function isProjectScopedRoute(pathname) {
+export function isProjectScopedRoute(pathname) {
   if (pathname === '/files' || pathname.startsWith('/files/')) return true;
   if (pathname === '/clients' || pathname.startsWith('/clients/')) return true;
   if (pathname === '/todos' || pathname.startsWith('/todos/')) return true;
@@ -41,28 +40,29 @@ function isProjectScopedRoute(pathname) {
 
 export default function AppShell() {
   const { pathname } = useLocation();
+  const { paneCount } = useSplitView();
   const showBanner = isProjectScopedRoute(pathname);
+  const isSplit = paneCount > 1;
   useCursorSpotlight();
+  // Primary pane content (the live, sidebar-driven view). SplitContainer wraps
+  // it: in single mode as one pane with the in-pane nav chrome pinned above a
+  // scroll area; in split mode tiled alongside the extra panes.
+  const primary = showBanner ? (
+    <div className="project-page-frame">
+      <Outlet />
+    </div>
+  ) : (
+    <Outlet />
+  );
   return (
-    <ReportProblemProvider>
       <div className="app-shell">
         <Sidebar />
-        <main className={`main-content${showBanner ? ' main-content--has-banner' : ''}`}>
-          {/* On project-scoped routes the page content is wrapped in a
-              rounded "sheet" panel — the "working in" banner that used
-              to sit above it has been removed. The frame is still
-              applied so project pages keep the rounded-top "sheet"
-              look against the page background. On non-project routes
-              the Outlet renders bare so the existing pages (Dashboard,
-              Account, Notifications, etc.) keep their current layout
-              untouched. */}
-          {showBanner ? (
-            <div className="project-page-frame">
-              <Outlet />
-            </div>
-          ) : (
-            <Outlet />
-          )}
+        <main className={`main-content ${isSplit ? 'main-content--split' : 'main-content--single'}`}>
+          {/* On project-scoped routes the page content is wrapped in a rounded
+              "sheet" panel. In split mode the content area is tiled into
+              independent panes by SplitContainer; the primary pane keeps the
+              live (sidebar-driven) view, the rest are separately-navigable. */}
+          <SplitContainer primary={primary} />
         </main>
         {/* Secondary project-picker panel — slides out from behind the
             sidebar when SelectedProjectContext.pickerOpen flips. Mounted
@@ -79,22 +79,6 @@ export default function AppShell() {
             update is checking/downloading. Lives at the shell level so the
             user keeps the feedback even after navigating away from /updates. */}
         <UpdateProgressBar />
-        {/* Full-screen support-report modal (z-index 60, above the sidebar)
-            — opens when the sidebar's "Report a problem" button fires
-            captureAndOpen() on the ReportProblemContext. Returns null when
-            closed, so mounting unconditionally is free. */}
-        <ReportProblemModal />
-        {/* Global upload modal — open/close + drag-active state live
-            in UploadsContext. Renders for BOTH states: drag-only
-            (only the dashed dropzone is visible, chrome hidden,
-            pointer-events off so drops fall through) AND fully open
-            (after a drop or FAB click — header, dropzone, list, Send
-            button). Keeping a single component for both states means
-            the DOM tree stays put across the drop transition, so
-            there's no one-frame disappearance the previous two-
-            component setup had. */}
-        <UploadModal />
       </div>
-    </ReportProblemProvider>
   );
 }

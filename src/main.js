@@ -235,6 +235,46 @@ if (app.isPackaged && AUTO_UPDATE_SUPPORTED) {
   });
 }
 
+// Restore DevTools access on a window. The app removes the native menu
+// (setApplicationMenu(null) + per-window removeMenu()), which ALSO strips the
+// default DevTools keyboard accelerators (F12 / Ctrl+Shift+I / Cmd+Opt+I) that
+// the menu's `toggleDevTools` role provided. We re-add them per-window via the
+// raw input event, plus a right-click "Inspect element" context menu, so the
+// inspector is reachable again even without a menu bar.
+function wireDevtoolsShortcuts(win) {
+  if (!win || win.isDestroyed()) return;
+  const wc = win.webContents;
+  wc.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const key = (input.key || '').toLowerCase();
+    const isF12 = key === 'f12';
+    // Ctrl+Shift+I (Win/Linux) or Cmd+Opt+I (macOS).
+    const isInspectCombo =
+      key === 'i' &&
+      input.shift &&
+      (input.control || input.meta) &&
+      (process.platform === 'darwin' ? input.alt : true);
+    if (isF12 || isInspectCombo) {
+      event.preventDefault();
+      if (wc.isDevToolsOpened()) wc.closeDevTools();
+      else wc.openDevTools();
+    }
+  });
+  // Right-click → "Inspect element" at the cursor.
+  wc.on('context-menu', (_event, params) => {
+    const menu = Menu.buildFromTemplate([
+      {
+        label: 'Inspect element',
+        click: () => {
+          wc.inspectElement(params.x, params.y);
+          if (!wc.isDevToolsOpened()) wc.openDevTools();
+        },
+      },
+    ]);
+    menu.popup({ window: win });
+  });
+}
+
 // Shared factory for an app window (the launch hub OR a project window). All
 // windows are frameless with the renderer-drawn title bar; `query` is appended
 // to the loaded URL (e.g. `?openProject=<id>`) so the renderer can boot
@@ -272,6 +312,8 @@ function createAppWindow({ query, openDevtools = false } = {}) {
 
   // No native menu bar (per-window on Windows, so removeMenu each window).
   win.removeMenu();
+  // Removing the menu also drops the default DevTools accelerators — re-add them.
+  wireDevtoolsShortcuts(win);
 
   // Pin a stable taskbar / Alt-Tab title (there's no in-window title bar).
   win.on('page-title-updated', (event) => {
@@ -492,6 +534,7 @@ function openInAppWindow(url, fileName) {
     win.setTitle(title);
   });
   win.setMenu(null);
+  wireDevtoolsShortcuts(win);
 
   if (isCloud) {
     // Re-inject on every navigation — Office Online does internal
@@ -564,6 +607,7 @@ async function openHtmlContentWindow(html, fileName) {
     win.setTitle(title);
   });
   win.setMenu(null);
+  wireDevtoolsShortcuts(win);
 
   const tmpFile = path.join(
     app.getPath('temp'),
@@ -940,6 +984,114 @@ ipcMain.handle('local-folder:pick', async () => {
   });
   if (result.canceled) return null;
   return result.filePaths?.[0] || null;
+});
+
+// Per-project working directory. Each project auto-binds to a fixed folder
+// under the user's Documents (`Documents/Docvex/<projectId>`) — there's no
+// manual folder picking; the Files page calls this on mount to resolve (and
+// create) the directory. Returns the absolute path.
+// Resolve (and create on first use) the per-project local folder. THE SAME
+// folder is used by the launch hub (when a project is created) and by the
+// Files page — so files added in Files land in the project's own directory.
+//
+// Resolution order:
+//   1. Registry hit  — .docvex-projects.json (in Documents/Docvex) maps
+//      projectId → FULL folder path; reused even after a rename.
+//   2. Legacy "Docvex/<uuid>" folder — adopted so old files aren't orphaned.
+//   3. An existing "<baseDir>/<name>" folder whose .docvex.json claims this
+//      project — adopted (covers projects created by the old hub flow).
+//   4. New → create "<baseDir>/<name>" (baseDir = the user's chosen projects
+//      directory from the hub; falls back to Documents/Docvex), de-duping
+//      name collisions with a numeric suffix.
+//
+// Accepts a projectId string (back-compat) or { projectId, name, baseDir }.
+function sanitizeFolderName(name) {
+  if (!name || typeof name !== 'string') return '';
+  return name
+    .replace(/[\\/:*?"<>|]/g, ' ')   // strip path-illegal characters
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/, '')            // Windows: no trailing dot/space
+    .slice(0, 80)
+    .trim();
+}
+
+// Read the projectId a folder's .docvex.json sidecar claims (or null).
+async function sidecarProjectId(dirPath) {
+  try {
+    const j = JSON.parse(await fsp.readFile(path.join(dirPath, '.docvex.json'), 'utf8'));
+    return j?.projectId || null;
+  } catch { return null; }
+}
+
+ipcMain.handle('local-folder:project-dir', async (_, arg) => {
+  const projectId = typeof arg === 'string' ? arg : arg?.projectId;
+  const projectName = (arg && typeof arg === 'object') ? arg.name : undefined;
+  const baseDir = (arg && typeof arg === 'object' && arg.baseDir) ? String(arg.baseDir) : null;
+  if (!projectId) return { path: null, error: 'No project id' };
+  try {
+    const docvexRoot = path.join(app.getPath('documents'), 'Docvex');
+    await fsp.mkdir(docvexRoot, { recursive: true });
+    const registryPath = path.join(docvexRoot, '.docvex-projects.json');
+
+    let registry = {};
+    try { registry = JSON.parse(await fsp.readFile(registryPath, 'utf8')) || {}; }
+    catch { registry = {}; }
+    const writeRegistry = () => fsp.writeFile(registryPath, JSON.stringify(registry, null, 2)).catch(() => {});
+    // Resolve a registry value (full path now; bare folder name for legacy
+    // entries) to an absolute path.
+    const toAbs = (v) => (path.isAbsolute(v) ? v : path.join(docvexRoot, v));
+
+    // 1. Already mapped → reuse that folder.
+    if (registry[projectId]) {
+      const dir = toAbs(registry[projectId]);
+      await fsp.mkdir(dir, { recursive: true });
+      return { path: dir, error: null };
+    }
+
+    // 2. Legacy "<uuid>" folder under Docvex → adopt it.
+    const legacy = path.join(docvexRoot, String(projectId));
+    try {
+      if ((await fsp.stat(legacy)).isDirectory()) {
+        registry[projectId] = legacy;
+        await writeRegistry();
+        return { path: legacy, error: null };
+      }
+    } catch { /* none */ }
+
+    // 3 + 4. Resolve under the project base dir (the hub's chosen folder), or
+    // Documents/Docvex when none was given.
+    const root = baseDir || docvexRoot;
+    await fsp.mkdir(root, { recursive: true });
+    const base = sanitizeFolderName(projectName) || String(projectId);
+    const takenPaths = new Set(Object.values(registry).map(toAbs));
+
+    let folderName = base;
+    let n = 2;
+    for (;;) {
+      const dir = path.join(root, folderName);
+      let exists = false;
+      try { exists = (await fsp.stat(dir)).isDirectory(); } catch { exists = false; }
+      if (!exists && !takenPaths.has(dir)) {
+        await fsp.mkdir(dir, { recursive: true });
+        registry[projectId] = dir;
+        await writeRegistry();
+        return { path: dir, error: null };
+      }
+      // Folder already there — adopt it only if it's already THIS project's
+      // (sidecar match); otherwise try the next suffixed name so we never
+      // dump files into an unrelated folder.
+      if (exists && !takenPaths.has(dir) && (await sidecarProjectId(dir)) === projectId) {
+        registry[projectId] = dir;
+        await writeRegistry();
+        return { path: dir, error: null };
+      }
+      folderName = `${base} (${n})`;
+      n += 1;
+    }
+  } catch (err) {
+    return { path: null, error: err?.message || String(err) };
+  }
 });
 
 // Filenames that should never surface as "your project's files" — they
@@ -1455,8 +1607,230 @@ ipcMain.handle('local-folder:write-sidecar', async (_, payload) => {
   }
 });
 
-// Tear the watcher down on quit so we don't leave a handle dangling.
-app.on('before-quit', stopWatcher);
+// ── Recently deleted (local recycle bin) ─────────────────────────────
+// Deleting a file in the Files page MOVES it into a hidden `.docvex-trash/`
+// folder inside the picked project folder rather than unlinking it. Each
+// trashed file gets a `deletedAt` timestamp recorded in
+// `.docvex-trash/.trashmeta.json`, so the renderer can show a "Deletes in
+// N days" countdown and the main process can auto-purge entries older than
+// 30 days. `.docvex-trash` is a dotfolder, so it's already skipped by the
+// list/walk handlers and never leaks into "My drafts".
+const TRASH_DIRNAME = '.docvex-trash';
+const TRASH_META_FILE = '.trashmeta.json';
+const TRASH_RETENTION_DAYS = 30;
+
+function trashDir(dir) {
+  return path.join(dir, TRASH_DIRNAME);
+}
+
+async function readTrashMeta(dir) {
+  try {
+    const raw = await fsp.readFile(path.join(trashDir(dir), TRASH_META_FILE), 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeTrashMeta(dir, meta) {
+  await fsp.mkdir(trashDir(dir), { recursive: true });
+  await fsp.writeFile(
+    path.join(trashDir(dir), TRASH_META_FILE),
+    JSON.stringify(meta, null, 2),
+    'utf8',
+  );
+}
+
+// Mint a collision-proof stored name: `<epoch>__<sanitized original>`.
+// The timestamp prefix keeps repeated deletes of the same name distinct.
+function mintStoredName(originalName, nowMs) {
+  return `${nowMs}__${sanitizeFilename(originalName)}`;
+}
+
+// Core sweep used by BOTH the IPC handler and the periodic timer. Unlinks
+// every trashed entry whose deletedAt is older than the cutoff, plus orphan
+// files (in the trash dir without a meta record) older than the cutoff by
+// mtime. Returns the number of files purged.
+async function purgeTrashDir(dir, olderThanDays = TRASH_RETENTION_DAYS, nowMs = Date.now()) {
+  const tdir = trashDir(dir);
+  let entries;
+  try {
+    entries = await fsp.readdir(tdir, { withFileTypes: true });
+  } catch {
+    return 0; // no trash folder yet
+  }
+  const meta = await readTrashMeta(dir);
+  const cutoff = nowMs - olderThanDays * 86400000;
+  let purged = 0;
+  let metaDirty = false;
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.name === TRASH_META_FILE) continue;
+    const stored = entry.name;
+    const rec = meta[stored];
+    let expired = false;
+    if (rec?.deletedAt) {
+      expired = Date.parse(rec.deletedAt) <= cutoff;
+    } else {
+      // Orphan with no record — fall back to file mtime.
+      try {
+        const stat = await fsp.stat(path.join(tdir, stored));
+        expired = stat.mtimeMs <= cutoff;
+      } catch { expired = false; }
+    }
+    if (!expired) continue;
+    try {
+      await fsp.unlink(path.join(tdir, stored));
+      purged += 1;
+    } catch (err) {
+      if (err?.code !== 'ENOENT') continue;
+    }
+    if (rec) { delete meta[stored]; metaDirty = true; }
+  }
+  if (metaDirty) {
+    try { await writeTrashMeta(dir, meta); } catch { /* best-effort */ }
+  }
+  return purged;
+}
+
+// Move a single file into the bin. `path` must resolve inside `dir`.
+ipcMain.handle('local-folder:trash-file', async (_, payload) => {
+  const dir = payload?.dir;
+  const filePath = payload?.path;
+  if (!dir || !filePath) return { ok: false, error: 'Missing args' };
+  try {
+    const normalizedDir = path.resolve(dir);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(normalizedDir)) {
+      return { ok: false, error: 'Path is outside project folder' };
+    }
+    const originalName = path.basename(resolved);
+    // Record the file's location relative to the project root so a restore
+    // can put it back where it came from (subfolder included).
+    const originalRelDir = path
+      .relative(normalizedDir, path.dirname(resolved))
+      .split(path.sep).join('/');
+    const nowMs = Date.now();
+    const stored = mintStoredName(originalName, nowMs);
+    await fsp.mkdir(trashDir(dir), { recursive: true });
+    await fsp.rename(resolved, path.join(trashDir(dir), stored));
+    const meta = await readTrashMeta(dir);
+    meta[stored] = { originalName, deletedAt: new Date(nowMs).toISOString(), originalRelDir };
+    await writeTrashMeta(dir, meta);
+    return { ok: true, stored, error: null };
+  } catch (err) {
+    if (err?.code === 'ENOENT') return { ok: false, error: 'File not found' };
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+// List bin contents, joining each stored file with its meta record.
+ipcMain.handle('local-folder:list-trash', async (_, dir) => {
+  if (!dir) return { items: [], error: 'No directory specified' };
+  const tdir = trashDir(dir);
+  let entries;
+  try {
+    entries = await fsp.readdir(tdir, { withFileTypes: true });
+  } catch (err) {
+    if (err?.code === 'ENOENT') return { items: [], error: null };
+    return { items: [], error: err?.message || String(err) };
+  }
+  const meta = await readTrashMeta(dir);
+  const items = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.name === TRASH_META_FILE) continue;
+    const stored = entry.name;
+    const rec = meta[stored] || {};
+    const full = path.join(tdir, stored);
+    try {
+      const stat = await fsp.stat(full);
+      const originalName = rec.originalName || stored.replace(/^\d+__/, '');
+      items.push({
+        stored,
+        originalName,
+        deletedAt: rec.deletedAt || stat.mtime.toISOString(),
+        originalRelDir: rec.originalRelDir || '',
+        sizeBytes: stat.size,
+        mimeType: guessMimeFromName(originalName),
+        path: full,
+      });
+    } catch { /* skip unreadable */ }
+  }
+  // Most-recently-deleted first.
+  items.sort((a, b) => (a.deletedAt < b.deletedAt ? 1 : -1));
+  return { items, error: null };
+});
+
+// Restore a binned file back to its original location (subfolder included).
+ipcMain.handle('local-folder:restore-from-trash', async (_, payload) => {
+  const dir = payload?.dir;
+  const stored = payload?.stored;
+  if (!dir || !stored) return { ok: false, error: 'Missing args' };
+  try {
+    const from = path.join(trashDir(dir), stored);
+    const meta = await readTrashMeta(dir);
+    const rec = meta[stored] || {};
+    const originalName = rec.originalName || stored.replace(/^\d+__/, '');
+    const destDir = rec.originalRelDir ? path.join(dir, rec.originalRelDir) : dir;
+    await fsp.mkdir(destDir, { recursive: true });
+    let target = path.join(destDir, originalName);
+    // Collision → suffix "(restored)" before the extension.
+    try {
+      await fsp.access(target);
+      const ext = path.extname(originalName);
+      const base = originalName.slice(0, originalName.length - ext.length);
+      target = path.join(destDir, `${base} (restored)${ext}`);
+    } catch { /* no collision */ }
+    await fsp.rename(from, target);
+    if (rec) { delete meta[stored]; await writeTrashMeta(dir, meta); }
+    return { ok: true, restoredPath: target, error: null };
+  } catch (err) {
+    if (err?.code === 'ENOENT') return { ok: false, error: 'File not found in bin' };
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+// Permanently delete a single binned file ("Delete forever").
+ipcMain.handle('local-folder:delete-from-trash', async (_, payload) => {
+  const dir = payload?.dir;
+  const stored = payload?.stored;
+  if (!dir || !stored) return { ok: false, error: 'Missing args' };
+  try {
+    try { await fsp.unlink(path.join(trashDir(dir), stored)); }
+    catch (err) { if (err?.code !== 'ENOENT') throw err; }
+    const meta = await readTrashMeta(dir);
+    if (meta[stored]) { delete meta[stored]; await writeTrashMeta(dir, meta); }
+    return { ok: true, error: null };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+// Sweep entries older than `olderThanDays` (default 30). Called by the
+// renderer on folder open and by the periodic timer below.
+ipcMain.handle('local-folder:purge-trash', async (_, payload) => {
+  const dir = payload?.dir;
+  const olderThanDays = payload?.olderThanDays ?? TRASH_RETENTION_DAYS;
+  if (!dir) return { purged: 0, error: 'No directory specified' };
+  try {
+    const purged = await purgeTrashDir(dir, olderThanDays);
+    return { purged, error: null };
+  } catch (err) {
+    return { purged: 0, error: err?.message || String(err) };
+  }
+});
+
+// Periodic auto-sweep: every 6h, purge the currently-watched folder's bin.
+// Main only knows the active folder (`watchedDir`); other folders are swept
+// on open by the renderer. Cleared on before-quit alongside the watcher.
+const PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+let purgeTimer = null;
+const stopPurgeTimer = () => {
+  if (purgeTimer) { clearInterval(purgeTimer); purgeTimer = null; }
+};
+
+// Tear the watcher + purge timer down on quit so we don't leave handles dangling.
+app.on('before-quit', () => { stopWatcher(); stopPurgeTimer(); });
 // --------------------------------------------------------------------------
 
 app.whenReady().then(() => {
@@ -1517,6 +1891,16 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
 
   createWindow();
+
+  // Periodic bin auto-sweep — purge the active folder's `.docvex-trash`
+  // of entries older than 30 days every 6h while the app runs. Other
+  // folders are swept on open by the renderer.
+  stopPurgeTimer();
+  purgeTimer = setInterval(() => {
+    if (watchedDir) {
+      purgeTrashDir(watchedDir).catch(() => { /* best-effort */ });
+    }
+  }, PURGE_INTERVAL_MS);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

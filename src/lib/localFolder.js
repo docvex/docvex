@@ -244,6 +244,14 @@ export const isWebBranch      = !hasElectron && hasWebFs;
 export const hasLocalFolderApi = hasElectron || hasWebFs;
 
 export const localFolderApi = {
+  // Resolve the fixed per-project directory (Electron only). Web has no
+  // ambient filesystem path — it returns null so the caller falls back to the
+  // File System Access picker.
+  projectDir: async (projectId, name, baseDir) => {
+    if (hasElectron) return electronApi.projectDir(projectId, name, baseDir);
+    return { path: null, error: 'web' };
+  },
+
   pick: async () => {
     if (hasElectron) return electronApi.pick();
     if (!hasWebFs) return null;
@@ -657,7 +665,195 @@ export const localFolderApi = {
       return { ok: false, error: err?.message || String(err) };
     }
   },
+
+  // ── Recently deleted (local recycle bin) ───────────────────────────
+  // Electron handlers do the real work (see main.js). Web implements an
+  // equivalent over the FSA directory handle: a `.docvex-trash` subdir
+  // holding moved files + a `.trashmeta.json` map. Browsers without the
+  // FSA API (no dirHandle) get an empty, no-op bin.
+  trashFile: async (payload) => {
+    if (hasElectron) return electronApi.trashFile(payload);
+    const res = await webTrashFile(payload);
+    return res;
+  },
+  listTrash: async (dir) => {
+    if (hasElectron) return electronApi.listTrash(dir);
+    return webListTrash();
+  },
+  restoreFromTrash: async (payload) => {
+    if (hasElectron) return electronApi.restoreFromTrash(payload);
+    return webRestoreFromTrash(payload);
+  },
+  deleteFromTrash: async (payload) => {
+    if (hasElectron) return electronApi.deleteFromTrash(payload);
+    return webDeleteFromTrash(payload);
+  },
+  purgeTrash: async (payload) => {
+    if (hasElectron) return electronApi.purgeTrash(payload);
+    return webPurgeTrash(payload);
+  },
 };
+
+// ── Web recycle-bin helpers (FSA backend) ────────────────────────────
+const WEB_TRASH_DIR = '.docvex-trash';
+const WEB_TRASH_META = '.trashmeta.json';
+const WEB_TRASH_RETENTION_DAYS = 30;
+
+async function webTrashSubdir(create = false) {
+  const dir = webState.dirHandle;
+  if (!dir) return null;
+  try { return await dir.getDirectoryHandle(WEB_TRASH_DIR, { create }); }
+  catch { return null; }
+}
+
+async function webReadTrashMeta(tdir) {
+  if (!tdir) return {};
+  try {
+    const fh = await tdir.getFileHandle(WEB_TRASH_META, { create: false });
+    const file = await fh.getFile();
+    if (!file.size) return {};
+    return JSON.parse(await file.text()) || {};
+  } catch { return {}; }
+}
+
+async function webWriteTrashMeta(tdir, meta) {
+  const fh = await tdir.getFileHandle(WEB_TRASH_META, { create: true });
+  const w = await fh.createWritable();
+  await w.write(JSON.stringify(meta, null, 2));
+  await w.close();
+}
+
+async function webTrashFile(payload) {
+  const dir = webState.dirHandle;
+  if (!dir) return { ok: false, error: 'No folder picked' };
+  const p = payload?.path;
+  const name = (p || '').startsWith('web://') ? p.split('/').pop() : p;
+  if (!name) return { ok: false, error: 'Invalid path' };
+  try {
+    const handle = webState.handlesByName.get(name) || await dir.getFileHandle(name);
+    const file = await handle.getFile();
+    const tdir = await webTrashSubdir(true);
+    const nowMs = Date.now();
+    const stored = `${nowMs}__${name}`;
+    const destHandle = await tdir.getFileHandle(stored, { create: true });
+    const w = await destHandle.createWritable();
+    await w.write(file);
+    await w.close();
+    await dir.removeEntry(name);
+    webState.handlesByName.delete(name);
+    webState.metaByName.delete(name);
+    const meta = await webReadTrashMeta(tdir);
+    meta[stored] = { originalName: name, deletedAt: new Date(nowMs).toISOString(), originalRelDir: '' };
+    await webWriteTrashMeta(tdir, meta);
+    return { ok: true, stored, error: null };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
+async function webListTrash() {
+  const tdir = await webTrashSubdir(false);
+  if (!tdir) return { items: [], error: null };
+  const meta = await webReadTrashMeta(tdir);
+  const items = [];
+  try {
+    for await (const [entryName, handle] of tdir.entries()) {
+      if (handle.kind !== 'file' || entryName === WEB_TRASH_META) continue;
+      const rec = meta[entryName] || {};
+      try {
+        const file = await handle.getFile();
+        const originalName = rec.originalName || entryName.replace(/^\d+__/, '');
+        items.push({
+          stored: entryName,
+          originalName,
+          deletedAt: rec.deletedAt || new Date(file.lastModified).toISOString(),
+          originalRelDir: rec.originalRelDir || '',
+          sizeBytes: file.size,
+          mimeType: file.type || '',
+          path: `web://${WEB_TRASH_DIR}/${entryName}`,
+        });
+      } catch { /* skip */ }
+    }
+  } catch { /* iteration unsupported */ }
+  items.sort((a, b) => (a.deletedAt < b.deletedAt ? 1 : -1));
+  return { items, error: null };
+}
+
+async function webRestoreFromTrash(payload) {
+  const dir = webState.dirHandle;
+  const stored = payload?.stored;
+  if (!dir || !stored) return { ok: false, error: 'Missing args' };
+  try {
+    const tdir = await webTrashSubdir(false);
+    if (!tdir) return { ok: false, error: 'Bin not found' };
+    const meta = await webReadTrashMeta(tdir);
+    const rec = meta[stored] || {};
+    const originalName = rec.originalName || stored.replace(/^\d+__/, '');
+    const srcHandle = await tdir.getFileHandle(stored);
+    const file = await srcHandle.getFile();
+    let targetName = originalName;
+    try {
+      await dir.getFileHandle(originalName, { create: false });
+      const dot = originalName.lastIndexOf('.');
+      targetName = dot > 0
+        ? `${originalName.slice(0, dot)} (restored)${originalName.slice(dot)}`
+        : `${originalName} (restored)`;
+    } catch { /* no collision */ }
+    const destHandle = await dir.getFileHandle(targetName, { create: true });
+    const w = await destHandle.createWritable();
+    await w.write(file);
+    await w.close();
+    await tdir.removeEntry(stored);
+    if (meta[stored]) { delete meta[stored]; await webWriteTrashMeta(tdir, meta); }
+    return { ok: true, restoredPath: `web://${targetName}`, error: null };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
+async function webDeleteFromTrash(payload) {
+  const stored = payload?.stored;
+  if (!stored) return { ok: false, error: 'Missing args' };
+  try {
+    const tdir = await webTrashSubdir(false);
+    if (!tdir) return { ok: true, error: null };
+    try { await tdir.removeEntry(stored); } catch { /* already gone */ }
+    const meta = await webReadTrashMeta(tdir);
+    if (meta[stored]) { delete meta[stored]; await webWriteTrashMeta(tdir, meta); }
+    return { ok: true, error: null };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
+async function webPurgeTrash(payload) {
+  const olderThanDays = payload?.olderThanDays ?? WEB_TRASH_RETENTION_DAYS;
+  try {
+    const tdir = await webTrashSubdir(false);
+    if (!tdir) return { purged: 0, error: null };
+    const meta = await webReadTrashMeta(tdir);
+    const cutoff = Date.now() - olderThanDays * 86400000;
+    let purged = 0;
+    let dirty = false;
+    for await (const [entryName, handle] of tdir.entries()) {
+      if (handle.kind !== 'file' || entryName === WEB_TRASH_META) continue;
+      const rec = meta[entryName];
+      let expired = false;
+      if (rec?.deletedAt) expired = Date.parse(rec.deletedAt) <= cutoff;
+      else {
+        try { const f = await handle.getFile(); expired = f.lastModified <= cutoff; }
+        catch { expired = false; }
+      }
+      if (!expired) continue;
+      try { await tdir.removeEntry(entryName); purged += 1; } catch { /* skip */ }
+      if (rec) { delete meta[entryName]; dirty = true; }
+    }
+    if (dirty) await webWriteTrashMeta(tdir, meta);
+    return { purged, error: null };
+  } catch (err) {
+    return { purged: 0, error: err?.message || String(err) };
+  }
+}
 
 // Read a local file as a Blob, regardless of backend. Used by the
 // commit modal (to PUT bytes into the pending bucket) and by

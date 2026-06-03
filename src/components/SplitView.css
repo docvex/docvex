@@ -1,0 +1,381 @@
+/* Split-view tiling. The grid fills the main content area; each pane is an
+   independent, separately-scrolling surface. Layout placement is keyed off
+   the `.sv-<layout>` class set by SplitContainer. */
+
+.sv-grid {
+  display: grid;
+  gap: 8px;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+}
+
+/* 2 side-by-side */
+.sv-vertical {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr;
+}
+/* 2 stacked */
+.sv-horizontal {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+/* "T" — three panes: the PRIMARY pane spans one full edge, the other two
+   share the opposite half. The four variants are 90° rotations of each other
+   (the spanning pane points top / right / bottom / left); the two secondary
+   panes auto-flow into the remaining cells. */
+.sv-tri,
+.sv-tri-right,
+.sv-tri-bottom,
+.sv-tri-left {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+/* top: primary spans the top row, two panes share the bottom */
+.sv-tri .sv-pane-primary { grid-column: 1 / -1; grid-row: 1; }
+/* bottom: primary spans the bottom row, two panes share the top */
+.sv-tri-bottom .sv-pane-primary { grid-column: 1 / -1; grid-row: 2; }
+/* left: primary spans the left column, two panes stack on the right */
+.sv-tri-left .sv-pane-primary { grid-column: 1; grid-row: 1 / -1; }
+/* right: primary spans the right column, two panes stack on the left */
+.sv-tri-right .sv-pane-primary { grid-column: 2; grid-row: 1 / -1; }
+/* 2×2 */
+.sv-quad {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+/* ── Single-window layout — one pane with the in-pane nav chrome pinned above
+   an independently-scrolling content area. No border/focus ring (there's only
+   one surface); `.sv-single-scroll` reproduces the main window's prior
+   scroll + padding so pages render unchanged below the bar. */
+.sv-single {
+  /* Total chrome height (incl. border) — the Versions compact header reads
+     this to sit just below the bar instead of under it. */
+  --sv-chrome-h: 38px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.sv-single > .sv-chrome {
+  height: var(--sv-chrome-h);
+  box-sizing: border-box;
+  /* Sit above the page's fixed compact-header (z 30) so that header slides
+     DOWN out from under this nav bar instead of over it. Stays below the
+     chrome's own destination dropdown (z 50). */
+  position: relative;
+  z-index: 40;
+}
+.sv-single-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Reserve the scrollbar gutter so content doesn't shift between scrolling
+     and non-scrolling pages. */
+  scrollbar-gutter: stable;
+  padding: 2rem 22px;
+}
+/* Project-scoped pages bring their own rounded "sheet" frame — render flush. */
+.sv-single-scroll:has(.project-page-frame) {
+  padding: 0;
+}
+
+.sv-pane {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  /* Transparent so the ambient dot grid + cursor spotlight (painted by the
+     fixed .main-content::before/::after behind everything) show THROUGH each
+     window, instead of an opaque page fill covering them. */
+  background: transparent;
+}
+/* Selected (focused) pane reads via its accent-coloured top bar (see the
+   .sv-chrome rule below) — no border / ring on the pane itself. */
+
+.sv-pane-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sv-pane-main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 20px;
+}
+/* Project-scoped pages bring their own rounded "sheet" frame — render it
+   flush so it matches the main-window look. */
+.sv-pane-main:has(.project-page-frame) {
+  padding: 0;
+}
+
+/* Pane crash fallback (PaneErrorBoundary). */
+.sv-pane-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+}
+.sv-pane-error button {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.sv-pane-error button:hover { border-color: var(--border-strong); }
+
+/* ── In-pane navigation chrome (every pane) ──
+   A single bar that stacks up to two rows: row 1 = window nav + header +
+   destination dropdown; row 2 = the page's own toolbar (portalled in, e.g. the
+   Files folder nav + breadcrumb + search). Row 2 collapses when empty. */
+.sv-chrome {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.sv-chrome-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+}
+/* Row 2 stacks the page's toolbar bits vertically (e.g. Files: the nav/search
+   row, then the list column header) so they read as one section of the bar.
+   The toolbar rows bring their own horizontal inset. */
+.sv-chrome-row2 {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+}
+.sv-chrome-row2:empty { display: none; }
+
+/* Multi-window focus affordance (replaces the removed pane border):
+   the focused pane's topbar takes an accent tint + accent underline, so the
+   selected window reads at a glance. */
+.sv-pane.is-focused .sv-chrome {
+  /* Mix the accent into the SIDEBAR ground (not `transparent`) so the bar stays
+     fully opaque — the pane behind is now transparent, and a transparent tint
+     would let the spotlight show through the topbar. */
+  background: color-mix(in srgb, var(--accent) 28%, var(--bg-sidebar));
+  border-bottom-color: color-mix(in srgb, var(--accent) 45%, var(--bg-sidebar));
+}
+.sv-pane.is-focused .sv-chrome .sv-chrome-dest {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* ── Window footer (every pane) ──
+   Symmetric to the topbar chrome but pinned at the BOTTOM: a slot the routed
+   page portals content into via usePaneChromeFooterEl (e.g. the chat message
+   composer), so each window's footer shows what's relevant to THAT window.
+   Collapses when the page publishes nothing, and — like the Files action bar —
+   only the selected (focused) window shows its footer. */
+.sv-footer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  /* Same frosted-glass footer as the Files action bar (.fx-bottombar): a
+     translucent page wash + backdrop blur over the spotlight. */
+  background: color-mix(in srgb, var(--bg-page) 82%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.sv-footer:empty { display: none; }
+/* Footers (the chat composer footer + the Files action bar) render ONLY in the
+   selected window — the others stay clean. Single-window mode has no `.sv-pane`
+   ancestor, so the footer always shows there. */
+.sv-pane:not(.is-focused) .sv-footer,
+.sv-pane:not(.is-focused) .fx-bottombar {
+  display: none;
+}
+.sv-chrome-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+}
+.sv-chrome-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+/* Window header next to the ‹ › controls: bold page title + a muted one-line
+   description on the same row. */
+.sv-chrome-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin-left: 2px;
+  flex: 0 1 auto;
+}
+.sv-chrome-title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.sv-chrome-dot {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1;
+}
+.sv-chrome-desc {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Search box published into the chrome by the page (e.g. the Files folder
+   search). Sits between the header and the right-aligned destination control. */
+.sv-chrome-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Grows to fill the gap between the header and the right-aligned destination,
+     so the destination dropdown stays pinned right whether or not search shows. */
+  flex: 1 1 auto;
+  min-width: 60px;
+  margin: 0 4px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+}
+.sv-chrome-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+.sv-chrome-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  outline: none;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.sv-chrome-search input::placeholder { color: var(--text-muted); }
+
+/* Destination control is right-aligned in the chrome bar (pushed to the far
+   right; the ‹ › nav stays on the left). When a search box is present it sits
+   to the left of the destination via its own margin-left:auto. */
+.sv-chrome-menu-wrap {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
+  margin-left: auto;
+}
+.sv-chrome-dest {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-input);
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+/* Chevron rotates as the menu opens (part of the morph). */
+.sv-chrome-dest svg { transition: transform 200ms cubic-bezier(.16, 1, .3, 1); }
+.sv-chrome-dest.is-open svg { transform: rotate(180deg); }
+.sv-chrome-dest-label {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-body);
+}
+.sv-chrome-dest:hover,
+.sv-chrome-dest.is-open {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.sv-chrome-menu {
+  position: absolute;
+  /* Sits right under the button so it visibly grows out of it. */
+  top: calc(100% + 2px);
+  left: auto;
+  right: 0;
+  min-width: 220px;
+  max-height: 320px;
+  overflow: auto;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-elev);
+  /* Morph OUT OF the button: the menu's top-right corner sits right under the
+     button's, so scaling from that origin makes it grow out of the button. */
+  transform-origin: top right;
+  animation: sv-menu-morph 190ms cubic-bezier(.16, 1, .3, 1);
+}
+@keyframes sv-menu-morph {
+  from { opacity: 0; transform: scale(0.6); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sv-chrome-menu { animation: none; }
+  .sv-chrome-dest svg { transition: none; }
+}
+.sv-chrome-menu-item {
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+}
+.sv-chrome-menu-item:hover {
+  background: var(--accent-tint);
+}

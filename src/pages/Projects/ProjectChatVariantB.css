@@ -20,7 +20,9 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  padding: 2rem 0 0;
+  /* No top inset — the header now lives in the window topbar, so the tabs sit
+     flush beneath it (matching the Files tab). */
+  padding: 0;
   background: none;
   border-radius: 0;
 }
@@ -636,6 +638,116 @@
   min-width: 0;
 }
 .dvx-search input::placeholder { color: var(--text-muted); }
+
+/* Header lifted into the window topbar (like the Files toolbar): the huddle
+   sits on the left, the search on the right of the chrome's row-2 toolbar. */
+.dvx-chrome-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Extra bottom padding so the divider below has matching breathing room above
+     and below it (see the tab strip's ::before). */
+  padding: 0 10px 12px;
+}
+.dvx-chrome-tools .dvx-action-btn { padding: 5px 10px; }
+
+/* Search bar — same design as the Files toolbar search: squared pill that
+   widens + lifts on focus, accent magnifier, a Ctrl/⌘+F chip that swaps for a
+   clear (×) once there's a query. */
+.dvx-chrome-search {
+  margin-left: auto;        /* huddle stays left; search sits to the right */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 240px;
+  padding: 5px 8px 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-input);
+  font-size: 13px;
+  color: var(--text-muted);
+  transition: width 220ms cubic-bezier(.16, 1, .3, 1),
+              border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.dvx-chrome-search:hover { border-color: var(--border-strong); }
+.dvx-chrome-search:focus-within {
+  width: 320px;
+  border-color: var(--accent);
+  background: var(--bg-card);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+.dvx-chrome-search-glyph { color: var(--text-muted); flex: 0 0 auto; transition: color 140ms ease; }
+.dvx-chrome-search:focus-within .dvx-chrome-search-glyph,
+.dvx-chrome-search.is-active .dvx-chrome-search-glyph { color: var(--accent); }
+.dvx-chrome-search input {
+  flex: 1; min-width: 0;
+  border: 0; background: transparent; outline: none;
+  font: inherit; font-size: 13px; color: var(--text-primary);
+}
+.dvx-chrome-search input::placeholder { color: var(--text-muted); }
+.dvx-chrome-search-kbd {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 3px;
+  transition: opacity 120ms ease;
+}
+.dvx-chrome-search-kbd kbd {
+  display: inline-flex; align-items: center;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-elevated);
+  font-family: var(--font-body);
+  font-size: 10.5px; font-weight: 600; line-height: 1.5; letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+.dvx-chrome-search-plus { margin: 0 3px; font-size: 10px; font-weight: 600; color: var(--text-muted); }
+.dvx-chrome-search:focus-within .dvx-chrome-search-kbd { opacity: 0; }
+.dvx-chrome-search-clear {
+  flex: 0 0 auto;
+  display: grid; place-items: center;
+  width: 20px; height: 20px;
+  padding: 0; border: 0; cursor: pointer;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-secondary);
+  transition: background 120ms ease, color 120ms ease;
+}
+.dvx-chrome-search-clear:hover {
+  background: color-mix(in srgb, var(--text-primary) 16%, transparent);
+  color: var(--text-primary);
+}
+
+/* Tab strip portalled into the chrome, stacked under the huddle/search row. The
+   chrome already supplies the bottom border, so drop the strip's own; no
+   horizontal padding so the tabs run flush across the navbar. */
+.sv-chrome-row2 .dvx-tabs.vb-tabs {
+  position: relative;
+  border-bottom: none;
+  padding: 0;
+}
+/* Inset divider between the huddle/search row and the tab bar — stops short of
+   the edges (doesn't span the full width). Positioned at the midpoint between
+   the tools row above and the tab LABELS below: the tabs carry ~13px of their
+   own top padding, so the visual balance point sits ~at the strip's top edge
+   (the tools row supplies ~12px of clearance above via its bottom padding). */
+.sv-chrome-row2 .dvx-tabs.vb-tabs::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 1px;
+  height: 1px;
+  background: var(--border);
+}
+/* The tabs carry a 2px active underline + a -1px margin (to overlap the strip's
+   own border, which is gone here). Drop that margin and add a matching
+   transparent TOP border so the labels sit on the vertical center of the line
+   instead of being pulled toward the underline. */
+.sv-chrome-row2 .dvx-tab,
+.sv-chrome-row2 .vb-htab {
+  margin-bottom: 0;
+  border-top: 2px solid transparent;
+}
 
 /* ───── Header action button ─────────────────────────────────────── */
 .dvx-action-btn {
@@ -1260,6 +1372,69 @@
   pointer-events: none;
 }
 .vb-composer-wrap > * { pointer-events: auto; }
+
+/* ── Team tab: split (grows) + full-width composer footer ──────────────
+   The Team tab stacks the thread/rail split above a docked composer that spans
+   the FULL window width (under both the thread and the rail), mirroring the
+   full-width topbar. The Private tab keeps the floating-absolute composer via
+   the base .vb-composer-wrap rule above. */
+.vb-team {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.vb-team .vb-split { flex: 1 1 auto; min-height: 0; }
+/* Composer docked as a flat, full-width footer bar (overrides the floating
+   absolute base). The rounded input box sits inside, inset by the padding. */
+.vb-team > .vb-composer-wrap {
+  position: static;
+  flex: 0 0 auto;
+  left: auto; right: auto; bottom: auto;
+  pointer-events: auto;
+  padding: 10px 18px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+/* No longer floating over the thread → drop the big bottom clearance, and
+   anchor the scroll-back pill to the thread column instead of the overlay. */
+.vb-team .vb-messages { padding-bottom: 16px; }
+.vb-team .vb-main { position: relative; }
+.vb-team .vb-scroll-back { bottom: 16px; }
+
+/* Composer portalled into the window's app footer (.sv-footer): the input IS
+   the whole footer — it fills it edge to edge, flat (no rounded floating box,
+   shadow, frosted layers, or focus ring that would overflow / disturb the
+   surrounding layout). The footer itself supplies the top border + ground.
+   (Overrides the floating-absolute base that the Private tab still uses.) */
+.sv-footer .vb-composer-wrap {
+  position: static;
+  flex: none;
+  left: auto; right: auto; bottom: auto;
+  pointer-events: auto;
+  padding: 0;
+  background: transparent;
+}
+.sv-footer .dvx-composer {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  /* 22px horizontal inset matches the Files action bar. */
+  padding: 8px 22px;
+}
+.sv-footer .dvx-composer::before,
+.sv-footer .dvx-composer::after { display: none; }
+.sv-footer .dvx-composer:focus-within {
+  border: none;
+  box-shadow: none;
+}
+/* Cap the textarea so a long message scrolls instead of growing the footer and
+   pushing the thread — keeps the footer a stable height. */
+.sv-footer .dvx-composer-textarea {
+  max-height: 116px;
+  overflow-y: auto;
+}
 
 /* Staged attachment chips above the composer */
 .vb-staged {

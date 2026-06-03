@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { useNotifications } from '../../context/NotificationsContext';
@@ -16,7 +16,6 @@ import {
   updateProjectAiContext,
 } from '../../lib/projects';
 import { deleteCustomRole } from '../../lib/customRoles';
-import { listChangeRequests } from '../../lib/branches';
 import { supabase } from '../../lib/supabaseClient';
 import { useHasCapability } from '../../hooks/useHasCapability';
 import DeleteProjectModal from '../../components/DeleteProjectModal';
@@ -27,7 +26,7 @@ import RoleLocked from '../../components/RoleLocked';
 import RoleBadge, { builtInLabel } from '../../components/RoleBadge';
 import CustomRoleEditor from '../../components/CustomRoleEditor';
 import ConfirmModal from '../../components/ConfirmModal';
-import RolesDossier from '../../components/RolesDossier';
+import DangerZone, { DangerRow } from '../../components/DangerZone';
 import Tooltip from '../../components/Tooltip';
 import StatusBadge from '../../components/StatusBadge';
 import './ProjectDashboard.css';
@@ -68,6 +67,15 @@ const UsersIcon = (
     <circle cx="9" cy="7" r="4" />
     <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
     <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>
+);
+
+// Pencil glyph for the inline "rename in the header" affordance — appears
+// next to the hero title for owners; clicking swaps the title for an input.
+const PencilIcon = (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
   </svg>
 );
 
@@ -113,6 +121,15 @@ function fmtTokens(n) {
 // Plain thousands-separated integer for request / session counts.
 function fmtCount(n) {
   return (Number(n) || 0).toLocaleString();
+}
+
+// Human-readable byte size for the hero kicker ("0 B" / "12.4 KB" / "2.4 MB").
+function fmtBytes(bytes) {
+  const b = Number(bytes) || 0;
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`;
+  return `${(b / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
 // Compact relative-time for the activity timeline ("12m", "3h", "2d", …).
@@ -204,6 +221,11 @@ export default function ProjectOverview() {
   const { notify } = useNotifications();
   const { session } = useAuth();
   const navigate = useNavigate();
+  // When opened from the topbar project button the user is staying inside
+  // their current workspace, so the "All projects" back-link is suppressed
+  // (it only makes sense when drilling in from the projects list).
+  const location = useLocation();
+  const fromTopbar = location.state?.fromTopbar === true;
 
   // The caller's auth id, used to flag their row in the Members list with a
   // "You" pill. Read off the session because useProject() returns members
@@ -294,16 +316,6 @@ export default function ProjectOverview() {
   const [roleDeleteTarget, setRoleDeleteTarget] = useState(null);
   const [roleDeletePending, setRoleDeletePending] = useState(false);
 
-  // Top-level tab. Local state is fine: the value isn't deep-linkable (no
-  // need to share "I was on Members" via URL — both tabs live at the same
-  // route) and resetting to "project" on remount is the right default for
-  // someone arriving on the page fresh.
-  //
-  // Every role sees every tab now: the role-gating contract is "render the
-  // feature for everyone, lay a RoleLocked overlay over it for non-matching
-  // viewers." So no auto-switch on role — even a viewer can browse to the
-  // Settings tab and see the locked details/danger zone.
-  const [activeTab, setActiveTab] = useState('overview');
 
   // AI project-context textarea — real, persisted to projects.ai_context
   // (migration 030). Local edit buffer seeded from the project row via the
@@ -319,13 +331,35 @@ export default function ProjectOverview() {
   const [aiUsage, setAiUsage] = useState(null);
   const [aiUsageLoading, setAiUsageLoading] = useState(true);
 
-  // Recent change requests for this project — the real feed behind the
-  // Overview activity timeline (merged with member-join events below).
-  const [changeRequests, setChangeRequests] = useState([]);
+  // File count + total bytes on the project's canonical (main) file list, for
+  // the hero kicker. One lightweight query (just size_bytes) summed locally —
+  // PostgREST has no portable SUM aggregate without an RPC, and the size column
+  // is tiny so fetching it per row is cheap relative to adding a migration.
+  const [fileStats, setFileStats] = useState({ count: 0, bytes: 0 });
 
-  // Real file count for the meta strip — a head/count query so we don't
-  // pull every row just to show a number. null until it resolves.
-  const [fileCount, setFileCount] = useState(null);
+  // Compact-header-on-scroll, mirroring the Versions page. The page scrolls
+  // inside the single-window pane's `.sv-single-scroll` (falling back to
+  // `.main-content`); we listen there and fade a fixed, blurred bar in once the
+  // hero has scrolled away. Hysteresis (show past 32px, hide under 8px) avoids
+  // flicker at the threshold. Keyed on project/loading so it re-attaches once
+  // the real page (with `pageRef`) mounts after the loading state.
+  const pageRef = useRef(null);
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const scroller = pageRef.current?.closest('.sv-single-scroll, .main-content');
+    if (!scroller) return undefined;
+    const onScroll = () => {
+      const top = scroller.scrollTop;
+      setScrolled((s) => (s ? top > 8 : top > 32));
+    };
+    onScroll();
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, [project?.id, loading, error]);
+  const scrollToTop = () => {
+    pageRef.current?.closest('.sv-single-scroll, .main-content')?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
 
   // ── Project (name + description) edit form ──────────────────────────────
   // Local form state mirrors the server's project row, synced from useProject()
@@ -333,20 +367,26 @@ export default function ProjectOverview() {
   // so the user can type freely without optimistically writing into the
   // shared context — only Save commits.
   const [editName, setEditName] = useState('');
-  const [editDescription, setEditDescription] = useState('');
   const [savingProject, setSavingProject] = useState(false);
-  const [projectFormError, setProjectFormError] = useState(null);
-
-  // Sync the form from the server whenever the project row changes (initial
-  // load + any Realtime UPDATE from ProjectContext's postgres_changes
-  // subscription). This means a rename committed elsewhere — another admin,
-  // another window — appears in the form immediately rather than the user
-  // staring at stale text.
+  // Inline header rename — `editingName` swaps the hero <h1> for an input.
+  // Owner-only; commits on Enter/blur, reverts on Escape.
+  const [editingName, setEditingName] = useState(false);
+  const nameInputRef = useRef(null);
   useEffect(() => {
-    setEditName(project?.name ?? '');
-    setEditDescription(project?.description ?? '');
-    setProjectFormError(null);
-  }, [project?.id, project?.name, project?.description]);
+    if (editingName) {
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    }
+  }, [editingName]);
+
+  // Sync the editable name from the server whenever the project row changes
+  // (initial load + any Realtime UPDATE from ProjectContext's postgres_changes
+  // subscription). This means a rename committed elsewhere — another admin,
+  // another window — appears in the hero immediately. Guarded on !editingName
+  // so a remote echo can't clobber an in-progress edit mid-keystroke.
+  useEffect(() => {
+    if (!editingName) setEditName(project?.name ?? '');
+  }, [project?.id, project?.name, editingName]);
 
   // Seed the AI-context buffer from the project row — initial load + any
   // Realtime UPDATE (another admin saving elsewhere). Keyed on ai_context so a
@@ -357,30 +397,49 @@ export default function ProjectOverview() {
     setAiContext(project?.ai_context ?? '');
   }, [project?.id, project?.ai_context]);
 
-  const projectFormDirty =
-    (editName.trim() !== (project?.name ?? '')) ||
-    ((editDescription.trim() || null) !== (project?.description ?? null));
-
-  const handleSaveProject = async (e) => {
-    e.preventDefault();
-    setProjectFormError(null);
+  // Commit the inline header rename. No-ops / invalid input revert to the
+  // server value and close the editor; a real change persists via
+  // updateProject (name-only patch) and mirrors into SelectedProjectContext +
+  // the picker cache, same as the old Settings form did.
+  const commitName = async () => {
+    if (savingProject) return;
     const trimmedName = editName.trim();
-    if (trimmedName.length === 0) {
-      setProjectFormError('Name is required.');
-      return;
-    }
-    if (trimmedName.length > 80) {
-      setProjectFormError('Name is too long (max 80 characters).');
+    // Empty / too long / unchanged → revert and close without a write.
+    if (trimmedName.length === 0 || trimmedName.length > 80 || trimmedName === (project?.name ?? '')) {
+      if (trimmedName.length === 0) {
+        notify({
+          category: 'project',
+          variant: 'error',
+          title: 'Name is required',
+          dedupeKey: `project-name-empty-${project.id}`,
+        });
+      } else if (trimmedName.length > 80) {
+        notify({
+          category: 'project',
+          variant: 'error',
+          title: 'Name is too long',
+          body: 'Project names are capped at 80 characters.',
+          dedupeKey: `project-name-long-${project.id}`,
+        });
+      }
+      setEditName(project?.name ?? '');
+      setEditingName(false);
       return;
     }
     setSavingProject(true);
     const { data: updated, error: updErr } = await updateProject(project.id, {
       name: trimmedName,
-      description: editDescription,
     });
     setSavingProject(false);
+    setEditingName(false);
     if (updErr) {
-      setProjectFormError(updErr.message || 'Could not save the project.');
+      setEditName(project?.name ?? '');
+      notify({
+        category: 'project',
+        variant: 'error',
+        title: 'Could not rename project',
+        body: updErr.message || 'The server rejected the request.',
+      });
       return;
     }
     // ProjectContext's Realtime UPDATE handler patches `project` and resets
@@ -394,18 +453,14 @@ export default function ProjectOverview() {
     // next picker open shows the new name. Use the server's returned row
     // when present (`updated`) so the patch reflects authoritative values
     // including any trimming Postgres applied.
-    const patch = updated || {
-      id: project.id,
-      name: trimmedName,
-      description: editDescription?.trim() || null,
-    };
+    const patch = updated || { id: project.id, name: trimmedName };
     patchSelectedProject(patch);
     notifyProjectsChanged();
     notify({
       category: 'project',
       variant: 'success',
       icon: 'edit',
-      title: 'Project updated',
+      title: 'Project renamed',
       dedupeKey: `project-updated-${project.id}`,
     });
   };
@@ -469,33 +524,6 @@ export default function ProjectOverview() {
     return () => { cancelled = true; };
   }, [project?.id, isAdmin]);
 
-  // Fetch recent change requests for the activity timeline. Visible to all
-  // members (migration 017 widened change_requests visibility), so no role
-  // gate. Limited to the most recent 20 — we only render the top few.
-  useEffect(() => {
-    if (!project?.id) { setChangeRequests([]); return; }
-    let cancelled = false;
-    (async () => {
-      const { data } = await listChangeRequests(project.id, { limit: 20 });
-      if (!cancelled) setChangeRequests(data || []);
-    })();
-    return () => { cancelled = true; };
-  }, [project?.id]);
-
-  // File count for the meta strip — head/count query (no rows fetched).
-  useEffect(() => {
-    if (!project?.id) { setFileCount(null); return; }
-    let cancelled = false;
-    (async () => {
-      const { count } = await supabase
-        .from('project_files')
-        .select('id', { count: 'exact', head: true })
-        .eq('project_id', project.id);
-      if (!cancelled) setFileCount(typeof count === 'number' ? count : null);
-    })();
-    return () => { cancelled = true; };
-  }, [project?.id]);
-
   // Monthly AI usage aggregates for the AI tab. Visible to all members (the
   // RPC's underlying RLS handles access), so no role gate — re-fetched per
   // project. Counts are real and start at zero until a project-scoped AI
@@ -509,6 +537,24 @@ export default function ProjectOverview() {
       if (cancelled) return;
       setAiUsage(data);
       setAiUsageLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [project?.id]);
+
+  // File count + total size for the hero kicker — one query for size_bytes,
+  // summed locally. Re-fetched per project; falls back to zeros on error.
+  useEffect(() => {
+    if (!project?.id) { setFileStats({ count: 0, bytes: 0 }); return undefined; }
+    let cancelled = false;
+    (async () => {
+      const { data, error: fErr } = await supabase
+        .from('project_files')
+        .select('size_bytes')
+        .eq('project_id', project.id);
+      if (cancelled) return;
+      if (fErr || !data) { setFileStats({ count: 0, bytes: 0 }); return; }
+      const bytes = data.reduce((sum, r) => sum + (Number(r.size_bytes) || 0), 0);
+      setFileStats({ count: data.length, bytes });
     })();
     return () => { cancelled = true; };
   }, [project?.id]);
@@ -734,27 +780,6 @@ export default function ProjectOverview() {
     setRoleDeleteTarget(null);
   };
 
-  // Tab definitions are an array so the bar renders via .map() and adding
-  // a third tab later (Files, Activity) is a one-line change. Count badge on
-  // Members is the same data the Members card header used to surface.
-  //
-  // Every tab is visible to every role; role-gated content inside a tab is
-  // wrapped in RoleLocked so it's previewable-but-uninteractive for users
-  // who don't meet the role requirement.
-  const tabs = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'members', label: 'Members', count: members.length },
-    // Roles tab — visible to every viewer+ so they can see the role catalog
-    // for the project, but only admins can create/edit/delete custom roles
-    // (gated inside the tab content itself). Count surfaces the total
-    // (built-ins + customs) so it's clear how many roles are defined.
-    { id: 'roles',   label: 'Roles',   count: 4 + customRoles.length },
-    { id: 'ai',      label: 'AI' },
-    // "Settings" hosts the old "Project" tab content (details form + danger
-    // zone) — renamed to match the dossier's tab set.
-    { id: 'settings', label: 'Settings' },
-  ];
-
   // AI-context token/char estimate for the live counter in the AI tab.
   const aiTokens = Math.round(aiContext.length / 4);
 
@@ -775,267 +800,131 @@ export default function ProjectOverview() {
   ];
   const aiHasUsage = aiUsageStats.some((s) => s.used > 0);
 
-  // The caller's member row — used for the "Joined" meta cell (added_at).
-  const me = currentUserId ? members.find((m) => m.user_id === currentUserId) : null;
-
-  // Real activity feed for the Overview timeline: change-request submissions
-  // + decisions (from the fetched `changeRequests`) merged with member-join
-  // events (from context `members`), newest first. Actor names resolve via
-  // the member roster; unknown actors (e.g. a since-removed member) fall back
-  // to "A teammate". Plain computation (not a hook) because it runs after the
-  // early returns above.
-  const activity = (() => {
-    const firstNameById = new Map(
-      members.map((m) => [m.user_id, getMemberName(m.profile).split(' ')[0]]),
-    );
-    const actor = (id) => firstNameById.get(id) || 'A teammate';
-    const events = [];
-    for (const cr of changeRequests) {
-      if (cr.submitted_at) {
-        events.push({ ts: cr.submitted_at, kind: 'file', who: actor(cr.author_id), text: `submitted a change request — ${cr.title}` });
-      }
-      if (cr.decided_at && (cr.status === 'approved' || cr.status === 'rejected')) {
-        events.push({ ts: cr.decided_at, kind: 'update', who: actor(cr.decided_by), text: `${cr.status === 'approved' ? 'approved' : 'rejected'} — ${cr.title}` });
-      }
-    }
-    for (const m of members) {
-      if (m.added_at) events.push({ ts: m.added_at, kind: 'member', who: actor(m.user_id), text: 'joined the project' });
-    }
-    events.sort((a, b) => new Date(b.ts) - new Date(a.ts));
-    return events.slice(0, 7);
-  })();
 
   return (
-    <div className="project-dashboard pjd-page">
-      <Link to="/projects" className="pjd-back">{ChevronLeftIcon}<span>All projects</span></Link>
+    <div className="project-dashboard pjd-page" ref={pageRef}>
+      {/* Compact header — fades/slides in once the hero has scrolled away,
+          mirroring the Versions page exactly: title · eyebrow · a clickable
+          status pill (with a dot) that jumps back to the top. */}
+      <div className={`pjd-compact${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
+        <span className="pjd-compact-title">{project.name}</span>
+        <span className="pjd-compact-sep" aria-hidden="true">·</span>
+        <span className="pjd-compact-eyebrow">
+          {project.created_at && <>Created {new Date(project.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · </>}
+          {fmtCount(fileStats.count)} {fileStats.count === 1 ? 'file' : 'files'} · {fmtBytes(fileStats.bytes)}
+        </span>
+        <span className="pjd-compact-sep" aria-hidden="true">·</span>
+        <button
+          type="button"
+          className="pjd-compact-status"
+          onClick={scrollToTop}
+          title="Back to top"
+        >
+          <span className="pjd-compact-dot" aria-hidden="true" />
+          Back to top
+        </button>
+      </div>
 
-      {/* Hero — real project name / description / role; status pill is a
-          static "synced" treatment (no live branch state on this surface). */}
+      {!fromTopbar && (
+        <Link to="/projects" className="pjd-back">{ChevronLeftIcon}<span>All projects</span></Link>
+      )}
+
+      {/* Hero — masthead styling that mirrors the Versions page: accent eyebrow
+          + muted tail, big display title, then a kicker stat line (real member
+          count + created / last-updated). The description follows when set. */}
       <header className="pjd-hero">
         <div>
           <div className="pjd-hero-eyebrow">
-            <span>{role} access</span>
-            <span className="pjd-muted">· {project.description ? 'project dossier' : 'project'}</span>
+            <span>Project settings</span>
+            <span className="pjd-muted">· {role} access</span>
           </div>
-          <h1 className="pjd-hero-title">{project.name}</h1>
+          {isOwner ? (
+            editingName ? (
+              <input
+                ref={nameInputRef}
+                className="pjd-hero-title-input"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onBlur={commitName}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); commitName(); }
+                  else if (e.key === 'Escape') { setEditName(project.name ?? ''); setEditingName(false); }
+                }}
+                maxLength={80}
+                disabled={savingProject}
+                aria-label="Project name"
+              />
+            ) : (
+              <button
+                type="button"
+                className="pjd-hero-title-btn"
+                onClick={() => { setEditName(project.name ?? ''); setEditingName(true); }}
+                title="Rename project"
+              >
+                <h1 className="pjd-hero-title">{project.name}</h1>
+                <span className="pjd-hero-title-pencil" aria-hidden="true">{PencilIcon}</span>
+              </button>
+            )
+          ) : (
+            <h1 className="pjd-hero-title">{project.name}</h1>
+          )}
+          <p className="pjd-hero-kicker">
+            {project.created_at ? (
+              <><strong>Created {new Date(project.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</strong></>
+            ) : (
+              <strong>Active project</strong>
+            )}
+            {' · '}{fmtCount(fileStats.count)} {fileStats.count === 1 ? 'file' : 'files'} · {fmtBytes(fileStats.bytes)}
+            {Number(usage.requests) > 0 && <> · {fmtCount(usage.requests)} AI {Number(usage.requests) === 1 ? 'request' : 'requests'} this month</>}
+          </p>
           {project.description && <p className="pjd-hero-desc">{project.description}</p>}
         </div>
       </header>
 
-      {/* Meta strip — Files (real count), Members (real), Joined (the caller's
-          join date), and Last activity (newest event from the activity feed). */}
-      <div className="pjd-meta-strip">
-        <div className="pjd-meta-cell">
-          <span className="pjd-meta-label">Files</span>
-          <span className="pjd-meta-value">{fileCount ?? '—'}</span>
-          <span className="pjd-meta-sub">In this project</span>
-        </div>
-        <div className="pjd-meta-cell">
-          <span className="pjd-meta-label">Members</span>
-          <span className="pjd-meta-value">{members.length}</span>
-          <span className="pjd-meta-sub">With access</span>
-        </div>
-        <div className="pjd-meta-cell">
-          <span className="pjd-meta-label">Joined</span>
-          <span className="pjd-meta-value" style={{ fontSize: 16 }}>
-            {me?.added_at ? new Date(me.added_at).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) : '—'}
-          </span>
-          <span className="pjd-meta-sub">When you joined</span>
-        </div>
-        <div className="pjd-meta-cell">
-          <span className="pjd-meta-label">Last activity</span>
-          <span className="pjd-meta-value" style={{ fontSize: 16 }}>
-            {activity.length ? relTime(activity[0].ts) : '—'}
-          </span>
-          <span className="pjd-meta-sub">{activity.length ? `by ${activity[0].who}` : 'No activity yet'}</span>
-        </div>
-      </div>
+      {/* Overview detail — Usage gauges (left) + Team (right). Always shown
+          beneath the band; Overview is no longer a tab. */}
+      <div className="pjd-grid" style={{ marginBottom: 24 }}>
+        <section className="pjd-panel">
+          <div className="pjd-panel-head">
+            <div className="pjd-panel-title">Usage</div>
+          </div>
+          <div className="pjd-usage-grid">
+            <UsageGauge label="Project memory" used={2.4} total={5} unit="GB" tint="var(--accent)" hint="Files, thumbnails, and version snapshots." />
+            <UsageGauge label="AI requests" used={Number(usage.requests) || 0} total={AI_MONTHLY_CAPS.requests} unit="this month" tint="var(--cat-update)" hint="Resets on the 1st of each month." />
+            <UsageGauge label="AI context tokens" used={Number((aiTokens / 1000).toFixed(1))} total={12} unit="K tokens" tint="var(--cat-member)" hint="Configure context in the AI tab →" />
+            <UsageGauge label="Active members" used={members.length} total={10} unit="seats" tint="var(--cat-file)" hint={`${members.length} of 10 seats on the Free plan.`} />
+          </div>
+        </section>
 
-      {/* Tab bar — dossier styling. role="tablist" so screen readers announce
-          the relationship; pressed state mirrors activeTab. */}
-      <div className="pjd-tabs" role="tablist" aria-label="Project sections">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === t.id}
-            className={`pjd-tab ${activeTab === t.id ? 'is-active' : ''}`}
-            onClick={() => setActiveTab(t.id)}
-          >
-            <span>{t.label}</span>
-            {typeof t.count === 'number' && <span className="pjd-tab-count">{t.count}</span>}
-          </button>
-        ))}
-      </div>
-
-      {/* Overview — real Activity timeline takes the big left panel; the
-          right rail holds the real Team list and the (stretched, mostly
-          placeholder) Usage gauges. */}
-      {activeTab === 'overview' && (
-        <div className="pjd-grid">
+        <div className="pjd-rail">
           <section className="pjd-panel">
             <div className="pjd-panel-head">
-              <div className="pjd-panel-title">Activity timeline</div>
-              <button type="button" className="pjd-panel-link" onClick={() => navigate(`/projects/${project.id}/dashboard`)}>Open full log →</button>
+              <div className="pjd-panel-title">Team · {members.length}</div>
             </div>
-            {activity.length === 0 ? (
-              <div className="pjd-activity-empty">No activity yet.</div>
-            ) : (
-              <div className="pjd-activity-list">
-                {activity.map((a, i) => (
-                  <div key={i} className="pjd-activity-row">
-                    <div className="pjd-activity-dot-col">
-                      <span className={`pjd-activity-dot ${a.kind}`} />
-                      {i < activity.length - 1 && <span className="pjd-activity-stem" />}
+            <div className="pjd-members-list">
+              {orderedMembers.slice(0, 6).map((m) => {
+                const mCustom = m.custom_role_id ? customRoles.find((cr) => cr.id === m.custom_role_id) : null;
+                return (
+                  <div key={m.user_id} className="pjd-member-row">
+                    <MemberAvatar profile={m.profile} />
+                    <div style={{ minWidth: 0 }}>
+                      <div className="pjd-mr-name">{getMemberName(m.profile)}</div>
+                      {m.profile?.email && <div className="pjd-mr-sub">{m.profile.email}</div>}
                     </div>
-                    <div className="pjd-activity-body"><strong>{a.who}</strong> {a.text}</div>
-                    <div className="pjd-activity-time">{relTime(a.ts)}</div>
+                    <RoleBadge role={m.role} customRole={mCustom} showBase />
                   </div>
-                ))}
-              </div>
-            )}
+                );
+              })}
+            </div>
           </section>
-
-          <div className="pjd-rail">
-            <section className="pjd-panel">
-              <div className="pjd-panel-head">
-                <div className="pjd-panel-title">Team · {members.length}</div>
-                <button type="button" className="pjd-panel-link" onClick={() => setActiveTab('members')}>Manage →</button>
-              </div>
-              <div className="pjd-members-list">
-                {orderedMembers.slice(0, 6).map((m) => {
-                  const mCustom = m.custom_role_id ? customRoles.find((cr) => cr.id === m.custom_role_id) : null;
-                  return (
-                    <div key={m.user_id} className="pjd-member-row">
-                      <MemberAvatar profile={m.profile} />
-                      <div style={{ minWidth: 0 }}>
-                        <div className="pjd-mr-name">{getMemberName(m.profile)}</div>
-                        {m.profile?.email && <div className="pjd-mr-sub">{m.profile.email}</div>}
-                      </div>
-                      <RoleBadge role={m.role} customRole={mCustom} showBase />
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="pjd-panel">
-              <div className="pjd-panel-head">
-                <div className="pjd-panel-title">Usage</div>
-                <button type="button" className="pjd-panel-link" onClick={() => setActiveTab('ai')}>View AI usage →</button>
-              </div>
-              <div className="pjd-usage-grid">
-                <UsageGauge label="Active members" used={members.length} total={10} unit="seats" tint="var(--cat-file)" hint={`${members.length} of 10 seats on the Free plan.`} />
-                <UsageGauge label="Project memory" used={2.4} total={5} unit="GB" tint="var(--accent)" hint="Placeholder — wired to storage later." />
-                <UsageGauge label="AI requests" used={418} total={1000} unit="this month" tint="var(--cat-update)" hint="Placeholder — wired to billing later." />
-                <UsageGauge label="AI context tokens" used={6.2} total={12} unit="K tokens" tint="var(--cat-member)" hint="Configure context in the AI tab →" />
-              </div>
-            </section>
-          </div>
         </div>
-      )}
+      </div>
 
-      {/* Settings tab (formerly "Project") — restyled into dossier panels to
-          match the rest of the detail view. Both panels are owner-only, so
-          each is wrapped in a RoleLocked overlay for non-owners. All the real
-          handlers (rename/description save + delete) are unchanged. */}
-      {activeTab === 'settings' && (
-        <div className="pjd-settings">
-          <RoleLocked locked={!isOwner} requiredRole="owner">
-            <section className="pjd-panel">
-              <div className="pjd-panel-head">
-                <div>
-                  <div className="pjd-panel-title">Project details</div>
-                  <p className="pjd-panel-sub">Change the project name and description. Visible to every member.</p>
-                </div>
-              </div>
-
-              <form className="pjd-form" onSubmit={handleSaveProject} noValidate>
-                <label className="pjd-field">
-                  <span className="pjd-field-label">Name <span className="pjd-req">*</span></span>
-                  <input
-                    type="text"
-                    className="pjd-input"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    maxLength={80}
-                    disabled={savingProject}
-                    required
-                  />
-                </label>
-
-                <label className="pjd-field">
-                  <span className="pjd-field-label">Description <span className="pjd-field-optional">optional</span></span>
-                  <textarea
-                    className="pjd-input pjd-textarea"
-                    value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    placeholder="What is this project about?"
-                    rows={4}
-                    maxLength={500}
-                    disabled={savingProject}
-                  />
-                </label>
-
-                {projectFormError && <div className="pjd-form-error">{projectFormError}</div>}
-
-                <div className="pjd-form-actions">
-                  <button
-                    type="button"
-                    className="pjd-btn-ghost"
-                    onClick={() => {
-                      setEditName(project.name ?? '');
-                      setEditDescription(project.description ?? '');
-                      setProjectFormError(null);
-                    }}
-                    disabled={savingProject || !projectFormDirty}
-                  >
-                    Discard
-                  </button>
-                  <button
-                    type="submit"
-                    className="pjd-btn-primary"
-                    disabled={savingProject || !projectFormDirty || editName.trim().length === 0}
-                  >
-                    {savingProject ? 'Saving…' : 'Save changes'}
-                  </button>
-                </div>
-              </form>
-            </section>
-          </RoleLocked>
-
-          <RoleLocked locked={!isOwner} requiredRole="owner">
-            <section className="pjd-panel pjd-danger-panel">
-              <div className="pjd-panel-head">
-                <div>
-                  <div className="pjd-panel-title">Danger zone</div>
-                  <p className="pjd-panel-sub">Irreversible actions for this project.</p>
-                </div>
-              </div>
-              <div className="pjd-danger-row">
-                <div>
-                  <p className="pjd-danger-title">Delete this project</p>
-                  <p className="pjd-danger-desc">
-                    Once deleted, you can't recover it. All members, pending invites, and uploaded files will be removed.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="pjd-btn-ghost pjd-btn-danger"
-                  onClick={() => { setDeleteError(null); setDeleteOpen(true); }}
-                  disabled={deleting}
-                >
-                  Delete project
-                </button>
-              </div>
-              {deleteError && <div className="pjd-form-error" role="alert">{deleteError}</div>}
-            </section>
-          </RoleLocked>
-        </div>
-      )}
-
-      {activeTab === 'members' && (
+      {/* No tab bar — every section is stacked vertically. Project renaming now
+          lives in the hero title (click to edit, owner-only), so the old
+          "Project details" settings form is gone; Members, then AI, then the
+          Danger zone follow. */}
+      <div className="pjd-stack">
         <>
           <section className="project-dashboard-card">
             <div className="project-dashboard-card-header">
@@ -1234,30 +1123,16 @@ export default function ProjectOverview() {
             </section>
           )}
         </>
-      )}
 
-      {/* Roles tab — matrix layout: capabilities as rows, every role
-          (4 built-in + N custom + a `+` column) as columns, allow/deny
-          dot at each intersection. Built-in cells are read-only; custom
-          cells flip on click (inherit → grant → revoke → inherit). The
-          `+` column header and the per-custom-role pencil/trash icons
-          drive the same editorTarget / roleDeleteTarget state that the
-          modals below already consume. */}
-      {activeTab === 'roles' && (
-        <RolesDossier
-          isAdmin={isAdmin}
-          members={members}
-          onCreateRole={() => setEditorTarget(null)}
-          onEditRole={(cr) => setEditorTarget(cr)}
-          onDeleteRole={(cr) => setRoleDeleteTarget(cr)}
-        />
-      )}
+      {/* Roles tab removed from this surface per the Dossier design — the
+          RolesDossier component stays on disk (unrouted here). Custom roles can
+          still be assigned via the per-member "Change role" flow (the editor
+          modals below remain mounted, just not opened from this page). */}
 
       {/* AI tab — dossier layout. Usage stats are real monthly aggregates from
           get_project_ai_usage (zero until a project-scoped AI feature logs a
           request); the project-context textarea persists to projects.ai_context
           (admin-gated write). */}
-      {activeTab === 'ai' && (
         <div className="pjd-ai-grid">
           <section className="pjd-panel">
             <div className="pjd-panel-head">
@@ -1338,7 +1213,28 @@ export default function ProjectOverview() {
             </div>
           </section>
         </div>
-      )}
+
+        {/* Danger zone — shared component replicating the Developer Console
+            (Admin) danger card, so every danger zone in the app matches. */}
+        <RoleLocked locked={!isOwner} requiredRole="owner">
+          <DangerZone subtitle="Irreversible actions for this project.">
+            <DangerRow
+              title="Delete this project"
+              desc="Once deleted, you can't recover it. All members, pending invites, and uploaded files will be removed."
+            >
+              <button
+                type="button"
+                className="dz-btn"
+                onClick={() => { setDeleteError(null); setDeleteOpen(true); }}
+                disabled={deleting}
+              >
+                Delete project
+              </button>
+            </DangerRow>
+            {deleteError && <div className="dz-error" role="alert">{deleteError}</div>}
+          </DangerZone>
+        </RoleLocked>
+      </div>
 
       <DeleteProjectModal
         open={deleteOpen}

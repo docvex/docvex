@@ -6,7 +6,6 @@ import { useAuth } from '../context/AuthContext';
 import { buildActions } from '../notifications/actionRegistry';
 import { resolveNotificationIcon } from '../notifications/icons';
 import { formatRelativeTime, groupByDay } from '../lib/notifications';
-import ActivityMetrics from '../components/ActivityMetrics';
 import './Activity.css';
 
 // Activity = the merged home of what used to be the (empty) "/" Activity
@@ -192,8 +191,6 @@ export default function ActivityPage() {
       )}
 
       <div className="activity-feed-scroll">
-      {/* Personal activity metrics — scroll together with the feed below. */}
-      <ActivityMetrics userId={userId} />
       {notifications.length === 0 ? (
         <div className="activity-empty">
           {BellOffIcon}

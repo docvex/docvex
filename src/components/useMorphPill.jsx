@@ -51,7 +51,7 @@ import './useMorphPill.css';
 // Falsy entries in menuItems are filtered, so callers can write
 // `[itemA, condition && itemB, itemC]` and have the conditional
 // collapse cleanly without per-render branching.
-export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, className = '' }) {
+export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, className = '', placement = 'right', stickyMenu = false }) {
   const [pillPos, setPillPos] = useState(null);
   const [menuMode, setMenuMode] = useState(false);
   // Item currently in its confirmation step (or null). Holds the
@@ -70,6 +70,25 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
   const [promptBusy, setPromptBusy] = useState(false);
   const pillRef = useRef(null);
   const oldPillRectRef = useRef(null);
+  // The element that opened the menu (the trigger button / card). Tracked so
+  // the global outside-mousedown dismissal can IGNORE a press on the trigger
+  // itself — otherwise pressing an already-open trigger would close it on
+  // mousedown and the trigger's own click handler would immediately reopen it
+  // (the menu is portalled, so it never "contains" the trigger). Letting the
+  // click handler own the toggle makes a second press close-and-stay-closed.
+  const triggerElRef = useRef(null);
+  // Grace timer for menu dismissal. Rather than closing the instant the
+  // cursor leaves the pill (which made the menu vanish when crossing the
+  // small offset gap from the trigger, or skimming an edge), we wait a beat
+  // and cancel the close if the cursor comes back over the pill.
+  const closeTimerRef = useRef(null);
+  const cancelScheduledClose = () => {
+    if (closeTimerRef.current) { clearTimeout(closeTimerRef.current); closeTimerRef.current = null; }
+  };
+  const scheduleClose = () => {
+    cancelScheduledClose();
+    closeTimerRef.current = setTimeout(() => { closeTimerRef.current = null; closeMenu(); }, 280);
+  };
 
   const handleMouseMove = (e) => {
     if (menuMode || promptOpen) return;
@@ -89,10 +108,12 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     if (pillRef.current) {
       oldPillRectRef.current = pillRef.current.getBoundingClientRect();
     }
+    triggerElRef.current = e.currentTarget;
     setPillPos({ x: e.clientX, y: e.clientY });
     setMenuMode(true);
   };
   const closeMenu = () => {
+    if (closeTimerRef.current) { clearTimeout(closeTimerRef.current); closeTimerRef.current = null; }
     setMenuMode(false);
     setConfirmingItem(null);
     setPromptOpen(false);
@@ -100,6 +121,27 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     setPromptBusy(false);
     setPillPos(null);
     oldPillRectRef.current = null;
+    triggerElRef.current = null;
+  };
+
+  // LEFT-click entry into menu mode. Mirrors handleContextMenu (same FLIP
+  // snapshot + cursor anchoring) but for a normal click, so a left-click
+  // morphs the already-showing hover tooltip straight into the menu — the
+  // exact right-click feel, on the primary button. Toggles closed if the
+  // menu is already open. Used by the title bar's Split / Theme controls.
+  const handleOpenMenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (menuMode) { closeMenu(); return; }
+    if (pillRef.current) {
+      oldPillRectRef.current = pillRef.current.getBoundingClientRect();
+    }
+    triggerElRef.current = e.currentTarget;
+    const rect = e.currentTarget?.getBoundingClientRect?.();
+    const x = e.clientX || (rect ? rect.left : 0);
+    const y = e.clientY || (rect ? rect.bottom : 0);
+    setPillPos((prev) => prev || { x, y });
+    setMenuMode(true);
   };
 
   // Left-click entry into prompt mode. Morphs the (already-showing,
@@ -115,6 +157,7 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     if (pillRef.current) {
       oldPillRectRef.current = pillRef.current.getBoundingClientRect();
     }
+    triggerElRef.current = e.currentTarget;
     const rect = e.currentTarget?.getBoundingClientRect?.();
     const x = e.clientX || (rect ? rect.left : 0);
     const y = e.clientY || (rect ? rect.bottom : 0);
@@ -160,6 +203,11 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     item?.onClick?.();
   };
 
+  // Clear any pending close timer if the host unmounts mid-grace.
+  useEffect(() => () => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+  }, []);
+
   // Sticky-mode dismissal: outside click, Escape, or scroll. Applies
   // in BOTH menu and confirm modes — clicking outside the confirmation
   // is the same as Cancel; Escape too.
@@ -168,6 +216,11 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     const onKey = (e) => { if (e.key === 'Escape') closeMenu(); };
     const onDown = (e) => {
       if (pillRef.current && pillRef.current.contains(e.target)) return;
+      // A press on the trigger itself isn't an "outside" click — let the
+      // trigger's own click handler decide (it toggles the menu closed).
+      // Without this, mousedown would close the menu here and the ensuing
+      // click would reopen it, so a second press never stuck.
+      if (triggerElRef.current && triggerElRef.current.contains(e.target)) return;
       closeMenu();
     };
     const onScroll = () => closeMenu();
@@ -193,7 +246,11 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     const h = pill.offsetHeight;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const x = Math.max(8, Math.min(pillPos.x + 8, vw - 8 - w));
+    // `placement: 'left'` anchors the pill's RIGHT edge near the cursor and
+    // grows it leftward (used by the title bar's right-edge buttons so the
+    // menu doesn't run off-screen); default grows rightward from the cursor.
+    const desiredX = placement === 'left' ? pillPos.x - 8 - w : pillPos.x + 8;
+    const x = Math.max(8, Math.min(desiredX, vw - 8 - w));
     const y = Math.max(8, Math.min(pillPos.y + 8, vh - 8 - h));
     const isFirstSet = !pill.style.transform;
     if (isFirstSet) {
@@ -204,7 +261,7 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     } else {
       pill.style.transform = `translate(${x}px, ${y}px)`;
     }
-  }, [pillPos, menuMode, confirmingItem, promptOpen]);
+  }, [pillPos, menuMode, confirmingItem, promptOpen, placement]);
 
   // FLIP morph — fires whenever the pill's RENDERED SHAPE changes,
   // not just on menu-mode entry. Three transitions all use the same
@@ -235,14 +292,17 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(pill.style.transform || '');
     const tx = m ? parseFloat(m[1]) : 0;
     const ty = m ? parseFloat(m[2]) : 0;
-    pill.style.transformOrigin = 'top left';
+    // Left-placed pills share a RIGHT edge between tooltip + menu sizes, so
+    // pivot the scale there (top right) to keep the morph seamless; default
+    // pivots top left.
+    pill.style.transformOrigin = placement === 'left' ? 'top right' : 'top left';
     pill.style.transition = 'none';
     pill.style.transform = `translate(${tx}px, ${ty}px) scale(${sx}, ${sy})`;
     void pill.offsetWidth;
     pill.style.transition = 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)';
     pill.style.transform = `translate(${tx}px, ${ty}px) scale(1, 1)`;
     oldPillRectRef.current = null;
-  }, [menuMode, confirmingItem, promptOpen]);
+  }, [menuMode, confirmingItem, promptOpen, placement]);
 
   // Cancel out of the confirm step back to the menu. Snapshots the
   // CURRENT (confirm panel) rect so the reverse FLIP shrinks the
@@ -409,12 +469,19 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
       className={`tooltip project-files-morph-pill${pillClassMod}${multilineMod}${className ? ` ${className}` : ''}`}
       role={confirmingItem || promptOpen ? 'dialog' : menuMode ? 'menu' : 'tooltip'}
       aria-modal={confirmingItem || promptOpen ? 'true' : undefined}
-      // In menu mode, cursor leaving the pill dismisses it — UNLESS
-      // we're in the confirm step. The confirm panel demands an
-      // explicit choice (Cancel button, Esc, outside-click), so
-      // mouseleave is intentionally inert there: a stray cursor exit
-      // shouldn't lose the in-progress confirmation.
-      onMouseLeave={menuMode && !confirmingItem ? closeMenu : undefined}
+      // In menu mode, cursor leaving the pill dismisses it after a short
+      // grace period — UNLESS we're in the confirm step. Re-entering (or any
+      // move over) the pill cancels the pending close, so crossing the small
+      // offset gap from the trigger, or skimming an edge, no longer makes the
+      // menu vanish. The confirm panel demands an explicit choice (Cancel,
+      // Esc, outside-click), so its dismissal is intentionally inert here.
+      // `stickyMenu` opts out of mouseleave auto-dismiss — for menus with
+      // interactive content (inputs, multi-step controls) where a stray
+      // cursor exit shouldn't tear the menu down mid-interaction. Such menus
+      // close only on outside-click / Escape / a second trigger press.
+      onMouseEnter={menuMode && !confirmingItem && !stickyMenu ? cancelScheduledClose : undefined}
+      onMouseMove={menuMode && !confirmingItem && !stickyMenu ? cancelScheduledClose : undefined}
+      onMouseLeave={menuMode && !confirmingItem && !stickyMenu ? scheduleClose : undefined}
     >
       {content}
     </div>,
@@ -425,6 +492,7 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     handleMouseMove,
     handleMouseLeave,
     handleContextMenu,
+    handleOpenMenu,
     handleOpenPrompt,
     closeMenu,
     isMenuOpen: menuMode || promptOpen,

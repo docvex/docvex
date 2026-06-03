@@ -13,7 +13,7 @@
 //   edited_at     timestamptz?
 //   deleted_at    timestamptz?  — soft-delete tombstone
 
-import { supabase } from './supabaseClient';
+import { supabase, realtimeSuffix } from './supabaseClient';
 
 const TABLE = 'private_messages';
 const COLS = 'id, project_id, sender_id, recipient_id, body, created_at, edited_at, deleted_at';
@@ -100,7 +100,7 @@ export async function deletePrivateMessage(id) {
 export function subscribePrivateMessages(projectId, onChange) {
   if (!projectId) return () => {};
   const channel = supabase
-    .channel(`private_messages:${projectId}`)
+    .channel(`private_messages:${projectId}:${realtimeSuffix()}`)
     .on(
       'postgres_changes',
       {

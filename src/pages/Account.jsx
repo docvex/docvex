@@ -5,6 +5,7 @@ import { useNotifications } from '../context/NotificationsContext';
 import { PLAN } from '../lib/plan';
 import { supabase } from '../lib/supabaseClient';
 import ConfirmModal from '../components/ConfirmModal';
+import DangerZone, { DangerRow } from '../components/DangerZone';
 import DeleteAccountModal from '../components/DeleteAccountModal';
 import StatusBadge from '../components/StatusBadge';
 import Tooltip from '../components/Tooltip';
@@ -501,71 +502,32 @@ export default function Account() {
         </Tooltip>
       </section>
 
-      <section className="account-card account-danger">
-        <h2 className="account-card-title">Danger zone</h2>
-
+      <DangerZone subtitle="Irreversible actions for your account. Proceed with care.">
         {/* Reset password — only for accounts that already have one. Opens a
             modal with the change-password form. */}
         {pwKnown && hasPassword && (
-          <div className="account-danger-row">
-            <div className="account-danger-text">
-              <h3 className="account-danger-label">Reset password</h3>
-              <p className="account-danger-desc">Set a new password for email sign-in.</p>
-            </div>
+          <DangerRow title="Reset password" desc="Set a new password for email sign-in.">
             <button
-              className="account-danger-btn destructive"
+              className="dz-btn"
               onClick={() => { setPwForm({ next: '', confirm: '', show: false }); setPwError(null); setShowReset(true); }}
             >
               Reset password
             </button>
-          </div>
+          </DangerRow>
         )}
 
-        <div className="account-danger-row">
-          <div className="account-danger-text">
-            <h3 className="account-danger-label">Sign out</h3>
-            <p className="account-danger-desc">End your current session on this device.</p>
-          </div>
-          <button
-            className="account-danger-btn destructive"
-            onClick={() => setConfirm('signout')}
-          >
-            Sign out
-          </button>
-        </div>
+        <DangerRow title="Sign out" desc="End your current session on this device.">
+          <button className="dz-btn" onClick={() => setConfirm('signout')}>Sign out</button>
+        </DangerRow>
 
-        <div className="account-danger-row">
-          <div className="account-danger-text">
-            <h3 className="account-danger-label">Erase data</h3>
-            <p className="account-danger-desc">
-              Sign out from all devices and clear locally cached account data on this machine.
-            </p>
-          </div>
-          <button
-            className="account-danger-btn destructive"
-            onClick={() => setConfirm('erase')}
-          >
-            Erase data
-          </button>
-        </div>
+        <DangerRow title="Erase data" desc="Sign out from all devices and clear locally cached account data on this machine.">
+          <button className="dz-btn" onClick={() => setConfirm('erase')}>Erase data</button>
+        </DangerRow>
 
-        <div className="account-danger-row">
-          <div className="account-danger-text">
-            <h3 className="account-danger-label">Delete account</h3>
-            <p className="account-danger-desc">
-              Permanently remove your account, project memberships, and notifications.
-              This cannot be undone.
-            </p>
-          </div>
-          <button
-            className="account-danger-btn destructive"
-            onClick={() => setDeleteOpen(true)}
-            disabled={deleting}
-          >
-            Delete account
-          </button>
-        </div>
-      </section>
+        <DangerRow title="Delete account" desc="Permanently remove your account, project memberships, and notifications. This cannot be undone.">
+          <button className="dz-btn" onClick={() => setDeleteOpen(true)} disabled={deleting}>Delete account</button>
+        </DangerRow>
+      </DangerZone>
 
       <ConfirmModal
         open={confirm === 'signout'}

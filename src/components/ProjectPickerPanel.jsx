@@ -203,14 +203,11 @@ export default function ProjectPickerPanel() {
     // still keeps the transition reading as deliberate.
     selectProject(project.id, project);
     closePicker();
-    // Always land on the new project's Dashboard — that's the "working
-    // surface" (recent files + activity) and is the most useful place to
-    // start. Previously we preserved the user's prior subroute, but that
-    // meant switching from /projects/foo (Overview) bounced to
-    // /projects/bar (Overview, a static info page) instead of bar's
-    // actual workbench. Dashboard is the right default landing for a
-    // freshly-picked project.
-    navigate(`/projects/${project.id}/dashboard`);
+    // Always land on the new project's Files page — the working surface and
+    // the default project nav item. selectProject above sets the global
+    // selection synchronously (with the prefetched row), so /files resolves
+    // immediately without a round-trip.
+    navigate('/files');
   };
 
   // "Select no project" always lands the user on Activity (/) — the

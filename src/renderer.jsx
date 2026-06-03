@@ -8,9 +8,8 @@ import { ThemeProvider } from './context/ThemeContext';
 import { UpdatesProvider } from './context/UpdatesContext';
 import { NotificationsProvider } from './context/NotificationsContext';
 import { SelectedProjectProvider } from './context/SelectedProjectContext';
-import { UploadsProvider } from './context/UploadsContext';
-import { BranchProvider } from './context/BranchContext';
 import { ChatUnreadProvider } from './context/ChatUnreadContext';
+import { SplitViewProvider } from './context/SplitViewContext';
 import NotificationCenter from './components/NotificationCenter';
 import { isElectron } from './lib/platform';
 import { markLaunchConsumed } from './lib/launchGate';
@@ -29,11 +28,14 @@ const launchParams = new URLSearchParams(window.location.search);
 const openProjectId = launchParams.get('openProject');
 const openRoute = launchParams.get('route');
 // Only honor an in-app route that targets the opened project (defence against
-// a malformed query); otherwise default to that project's dashboard.
+// a malformed query); otherwise default to that project's Files page (the
+// working surface). The window hydrates its selected project from the
+// ?openProject param (see SelectedProjectContext) so /files — which reads the
+// global selection rather than a URL param — resolves to the right project.
 const safeRoute =
   openRoute && openRoute.startsWith(`/projects/${openProjectId}`) ? openRoute : null;
 const initialEntries = openProjectId
-  ? [safeRoute || `/projects/${openProjectId}/dashboard`]
+  ? [safeRoute || '/files']
   : ['/'];
 if (openProjectId) markLaunchConsumed();
 
@@ -46,15 +48,10 @@ if (openProjectId) markLaunchConsumed();
 //                                 with the wrong tokens).
 //   SelectedProjectProvider     — needs AuthContext (per-user storage key + auto-clear)
 //   UpdatesProvider             — independent
-//   NotificationsProvider       — needs Auth + Updates via its source hooks
-//   UploadsProvider             — needs Auth + SelectedProject + Notifications
-//                                 (uses notify() for rejection/error toasts).
-//                                 Sits inside NotificationsProvider so the
-//                                 toast helper is in scope; sits outside <App />
-//                                 so the AppShell-mounted UploadModal reads
-//                                 its state. NotificationCenter renders ABOVE
-//                                 the modal's z-index (9999 vs 1000) so
-//                                 toasts can pop in front of the dropzone.
+//   NotificationsProvider       — needs Auth + Updates via its source hooks.
+//                                 NotificationCenter renders inside it (toast
+//                                 stack at z 9999).
+//   ChatUnreadProvider          — chat unread badges.
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <MemoryRouter initialEntries={initialEntries}>
@@ -63,13 +60,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <SelectedProjectProvider>
             <UpdatesProvider>
               <NotificationsProvider>
-                <UploadsProvider>
-                  <BranchProvider>
-                    <ChatUnreadProvider>
-                      <App />
-                    </ChatUnreadProvider>
-                  </BranchProvider>
-                </UploadsProvider>
+                <SplitViewProvider>
+                  <ChatUnreadProvider>
+                    <App />
+                  </ChatUnreadProvider>
+                </SplitViewProvider>
                 <NotificationCenter />
               </NotificationsProvider>
             </UpdatesProvider>

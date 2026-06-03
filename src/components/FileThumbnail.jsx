@@ -1,5 +1,4 @@
 import React, { useRef } from 'react';
-import VideoFrameSlideshow from './VideoFrameSlideshow';
 import { useThumbnail } from '../lib/thumbnailResolver';
 import { glyphForFile } from './fileGlyph';
 
@@ -118,28 +117,12 @@ export default function FileThumbnail(props) {
   };
 
   const mime = descriptor?.mime || '';
-  const isVideo = mime.startsWith('video/');
-  const framePaths = descriptor?.framePaths || null;
-  const hasSlideshow = isVideo && Array.isArray(framePaths) && framePaths.length > 1;
   const duration = legacyDuration ?? descriptor?.duration ?? null;
   const glyph = legacyGlyph || glyphForFile(mime, descriptor?.name);
 
   // ── Pick the renderer ────────────────────────────────────────────
   let content;
-  if (hasSlideshow) {
-    // Video with the multi-frame teaser column populated. The
-    // slideshow component cycles the 5 frames while `active=true`
-    // and pins to frame 0 (or `posterUrl`) otherwise — so this same
-    // path doubles as the static-poster renderer when not hovered.
-    content = (
-      <VideoFrameSlideshow
-        framePaths={framePaths}
-        active={Boolean(hovered)}
-        posterUrl={posterUrl}
-        alt=""
-      />
-    );
-  } else if (posterUrl) {
+  if (posterUrl) {
     content = <ThumbImage src={posterUrl} onError={handleImgError} />;
   } else if (errored || !descriptor) {
     content = <ThumbGlyph icon={glyph} />;

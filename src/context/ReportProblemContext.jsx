@@ -24,8 +24,8 @@ import React, {
 //   - removeScreenshot()  — clear just the screenshot (user clicked X
 //                           on the thumbnail) but leave the modal open.
 //
-// Mounted by AppShell so both the Sidebar (trigger) and the
-// ReportProblemModal (consumer) can share state without prop-drilling.
+// Mounted in App (above the TitleBar) so both the title-bar trigger and
+// the ReportProblemModal (consumer) share one context instance.
 
 const ReportProblemContext = createContext(null);
 

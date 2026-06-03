@@ -1,9 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
-import { useBranch } from '../../context/BranchContext';
 import TeamTree from './TeamTree';
-import PendingEditsDesk from '../../components/PendingEditsDesk';
 import './ProjectDashboard.css';
 
 // Crossfade window between the loading spinner and the team tree on the
@@ -29,23 +27,10 @@ const MEMBERS_FADE_MS = 250;
 // Whitelist of valid tab ids — guards against arbitrary ?tab= input
 // from a malformed deep-link / paste so we never end up with a tab
 // state the renderer can't render.
-const VALID_TABS = new Set(['members', 'activity', 'version-control']);
+const VALID_TABS = new Set(['members', 'activity']);
 
 export default function ProjectDashboard() {
   const { project, members, customRoles, loading, error } = useProject();
-  // Open change-request count drives the Version control tab's
-  // count pill (moved up from the "Files with changes" header that
-  // used to live inside the compose view). Uses the BranchContext
-  // requests array directly — same source the compose view counts.
-  const {
-    requests: changeRequests,
-    refresh: refreshBranchState,
-    refreshOpenRequestItems,
-  } = useBranch();
-  const openRequestsCount = useMemo(
-    () => (changeRequests || []).filter((r) => r.status === 'open').length,
-    [changeRequests],
-  );
   // Tab state syncs to the `?tab=` query param so deep-linking into a
   // specific tab (e.g., the Push button on the Files page sending the
   // user to "Version control") works without prop drilling, AND so
@@ -63,19 +48,6 @@ export default function ProjectDashboard() {
       return params;
     }, { replace: true });
   };
-
-  // Refetch core data on every tab change so the user never sees a
-  // stale snapshot left over from the previous tab. The tab content
-  // already re-mounts (each <X /> branch above is conditional), but
-  // BranchContext + the items cache live in the parent providers
-  // and would otherwise carry the previous tab's view forward. A
-  // single refresh covers the most commonly stale surfaces; tab-
-  // specific child components run their own fetch effects on mount
-  // for everything else.
-  useEffect(() => {
-    refreshBranchState?.();
-    refreshOpenRequestItems?.();
-  }, [activeTab, refreshBranchState, refreshOpenRequestItems]);
 
   // Tracks the spinner's mounted lifetime separately from `loading` so
   // we can keep it on the page during its fade-out animation after the
@@ -120,7 +92,6 @@ export default function ProjectDashboard() {
   const tabs = [
     { id: 'members', label: 'Members' },
     { id: 'activity', label: 'Activity' },
-    { id: 'version-control', label: 'Review desk' },
   ];
 
   return (
@@ -165,9 +136,6 @@ export default function ProjectDashboard() {
                 ? <span className="project-tab-count project-tab-count-skel skel-bar" aria-hidden="true" />
                 : <span className="project-tab-count">{members.length}</span>
             )}
-            {t.id === 'version-control' && openRequestsCount > 0 && (
-              <span className="project-tab-count">{openRequestsCount}</span>
-            )}
           </button>
         ))}
       </div>
@@ -209,10 +177,6 @@ export default function ProjectDashboard() {
             Activity feed coming soon.
           </div>
         </section>
-      )}
-
-      {activeTab === 'version-control' && (
-        <PendingEditsDesk />
       )}
     </div>
   );

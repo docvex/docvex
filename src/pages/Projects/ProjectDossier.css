@@ -11,7 +11,10 @@
    placeholders" scope). Active-members / seats and the Team list are real.
    ========================================================================= */
 
-.pjd-page { max-width: 1240px; margin: 0; padding: 28px 48px 80px; }
+/* Padding matches the Versions/Updates page: the app shell's scroll area
+   provides the outer page padding (2rem 22px), so the page itself only adds
+   bottom breathing room. Left-anchored (margin: 0), no auto-centring. */
+.pjd-page { max-width: 1240px; margin: 0; padding: 0 0 3rem; }
 
 .pjd-back {
   display: inline-flex;
@@ -30,15 +33,26 @@
 .pjd-back:hover { color: var(--accent); }
 .pjd-back svg { width: 14px; height: 14px; }
 
-/* ---------- Hero ---------- */
+/* ---------- Hero — matches the Versions masthead (.updates-masthead /
+   .updates-mh-left) exactly: a flex column with an even 18px gap between the
+   eyebrow, title and kicker (no per-element margins), so the vertical rhythm
+   is identical. ---------- */
 .pjd-hero {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: end;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
   gap: 28px;
   padding-bottom: 26px;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 26px;
+  margin: 0 0 26px;
+}
+/* The content column (the hero's single child div) — mirrors .updates-mh-left. */
+.pjd-hero > div {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .pjd-hero-eyebrow {
   font-size: 11px;
@@ -46,13 +60,14 @@
   text-transform: uppercase;
   font-weight: 700;
   color: var(--accent);
-  margin-bottom: 14px;
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 .pjd-hero-eyebrow .pjd-muted { color: var(--text-muted); font-weight: 500; }
 .pjd-hero-title {
+  margin: 0;
   font-family: var(--font-display);
   font-size: 56px;
   font-weight: 700;
@@ -62,14 +77,140 @@
   text-wrap: pretty;
   max-width: 720px;
 }
+/* Owner click-to-rename: the title sits in a chromeless button with a pencil
+   that fades in on hover; clicking swaps in an input styled to match the
+   title so the rename happens in place. */
+.pjd-hero-title-btn {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: text;
+  text-align: left;
+  max-width: 100%;
+}
+.pjd-hero-title-btn .pjd-hero-title { max-width: none; }
+.pjd-hero-title-pencil {
+  display: inline-flex;
+  flex-shrink: 0;
+  /* Sits flush with the title's baseline (the button bottom-aligns its
+     children) with a small lift so the glyph optically rests on the text. */
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  transition: color 140ms ease;
+}
+.pjd-hero-title-btn:hover .pjd-hero-title-pencil,
+.pjd-hero-title-btn:focus-visible .pjd-hero-title-pencil { color: var(--accent); }
+.pjd-hero-title-input {
+  display: block;
+  width: 100%;
+  max-width: 720px;
+  margin: 0;
+  padding: 2px 8px;
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 0 0 3px var(--accent-tint);
+  outline: none;
+}
+.pjd-hero-title-input:disabled { opacity: 0.7; }
+/* Kicker stat line beneath the title — mirrors the Versions masthead's
+   `.updates-mh-kicker` (secondary text, emphasized values). */
+.pjd-hero-kicker {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 580px;
+}
+.pjd-hero-kicker strong { color: var(--text-primary); font-weight: 600; }
 .pjd-hero-desc {
-  margin-top: 16px;
+  margin: 0;
   font-size: 15px;
   line-height: 1.55;
   color: var(--text-secondary);
   max-width: 580px;
 }
 .pjd-hero-actions { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+
+/* ---------- Compact header on scroll (mirrors the Versions page) ----------
+   A blurred, translucent bar fixed to the content area that fades + slides in
+   once the hero scrolls away. Anchored via the sidebar width + titlebar height
+   so it spans exactly the page column and tracks the sidebar's expand/collapse. */
+.pjd-compact {
+  position: fixed;
+  top: calc(var(--titlebar-h, 0px) + var(--sv-chrome-h, 0px));
+  left: var(--sidebar-width, 0px);
+  right: 0;
+  z-index: 30;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 22px;
+  background: color-mix(in srgb, var(--bg-page) 62%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  /* Tucked fully up behind the nav chrome (which sits at a higher z-index),
+     so it slides DOWN out from under the navigation bar when revealed. */
+  opacity: 0;
+  transform: translateY(-100%);
+  pointer-events: none;
+  transition: opacity 220ms ease,
+              transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+              left 250ms ease;
+}
+.pjd-compact.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.pjd-compact-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 46vw;
+}
+.pjd-compact-sep { color: var(--text-muted); font-weight: 600; }
+.pjd-compact-eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+/* Status pill in the compact header — the clickable back-to-top affordance,
+   styled exactly like the Versions page's up-to-date (gray) chip. */
+.pjd-compact-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter 130ms ease, background 130ms ease, border-color 130ms ease;
+}
+.pjd-compact-status:hover {
+  filter: brightness(1.06);
+  border-color: color-mix(in srgb, currentColor 55%, transparent);
+}
+.pjd-compact-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 .pjd-status-pill {
   display: inline-flex;
   align-items: center;
@@ -134,6 +275,70 @@
 .pjd-meta-trend.warn { color: var(--warning); }
 .pjd-meta-sub { font-size: 11.5px; color: var(--text-muted); }
 
+/* ---------- OV2 stat band (always shown at the top) ----------
+   Four equal stat cells in one rounded card, each with an icon chip, a big
+   display number, and a contextual footer (trend / avatars / progress bar).
+   The per-cell accent comes from a --c custom property set inline. */
+.pjd-ov2 { margin-bottom: 24px; }
+.pjd-ov2-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.pjd-ov2-stat {
+  padding: 20px 22px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+}
+.pjd-ov2-stat:last-child { border-right: none; }
+/* Accent rail on the first cell (mirrors the design's lead-stat treatment). */
+.pjd-ov2-stat:first-child::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 20px; bottom: 20px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--c, var(--accent));
+}
+.pjd-ov2-stat-top { display: flex; align-items: center; gap: 10px; }
+.pjd-ov2-ico {
+  width: 30px; height: 30px;
+  border-radius: 9px;
+  display: grid; place-items: center;
+  color: var(--c, var(--accent));
+  background: color-mix(in srgb, var(--c, var(--accent)) 12%, transparent);
+}
+.pjd-ov2-ico svg { width: 16px; height: 16px; }
+.pjd-ov2-label { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 700; color: var(--text-muted); }
+.pjd-ov2-value {
+  font-family: var(--font-display);
+  font-size: 38px; font-weight: 700; letter-spacing: -0.04em; line-height: 0.95;
+  color: var(--text-primary);
+  display: flex; align-items: baseline; gap: 7px;
+}
+.pjd-ov2-value-unit { font-family: var(--font-body); font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--text-muted); }
+.pjd-ov2-foot { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-muted); flex-wrap: wrap; }
+.pjd-ov2-foot-sub { color: var(--text-muted); }
+.pjd-ov2-trend { font-weight: 700; font-size: 11px; }
+.pjd-ov2-trend.up { color: var(--success); }
+.pjd-ov2-trend.warn { color: var(--warning); }
+/* Overlapping member avatars in the Team cell — reuse MemberAvatar, shrink. */
+.pjd-ov2-avts { display: flex; }
+.pjd-ov2-avts .member-avatar {
+  width: 22px; height: 22px; font-size: 9px;
+  border: 2px solid var(--bg-card); margin-left: -7px;
+}
+.pjd-ov2-avts .member-avatar:first-child { margin-left: 0; }
+.pjd-ov2-foot-bar { flex-direction: column; align-items: stretch; gap: 6px; width: 100%; }
+.pjd-ov2-bar-track { height: 6px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border); overflow: hidden; }
+.pjd-ov2-bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+
 /* ---------- Tab bar ---------- */
 .pjd-tabs { display: flex; gap: 26px; border-bottom: 1px solid var(--border); margin-bottom: 24px; flex-wrap: wrap; }
 .pjd-tab {
@@ -168,7 +373,7 @@
 
 /* ---------- Usage gauges ---------- */
 /* Single column so each gauge stretches the full width of the right rail. */
-.pjd-usage-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+.pjd-usage-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 28px; }
 .pjd-usage-row { padding: 4px 0 2px; }
 .pjd-usage-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .pjd-usage-label { font-size: 12px; font-weight: 600; color: var(--text-primary); }
@@ -245,6 +450,10 @@
 /* =========================================================================
    SETTINGS TAB (project details form + danger zone)
    ========================================================================= */
+/* Stacked sections (replaces the tab bar) — Settings, Members, AI laid out
+   vertically with even spacing. */
+.pjd-stack { display: flex; flex-direction: column; gap: 28px; }
+
 .pjd-settings { display: flex; flex-direction: column; gap: 18px; }
 .pjd-form { display: flex; flex-direction: column; gap: 16px; }
 .pjd-field { display: flex; flex-direction: column; gap: 6px; }
@@ -269,10 +478,58 @@
 .pjd-form-error { font-size: 12.5px; color: var(--danger); }
 .pjd-form-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 
-.pjd-danger-panel { border-color: color-mix(in srgb, var(--danger) 30%, var(--border)); }
-.pjd-danger-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.pjd-danger-title { font-size: 13.5px; font-weight: 600; color: var(--text-primary); margin: 0 0 2px; }
-.pjd-danger-desc { font-size: 12px; color: var(--text-muted); margin: 0; max-width: 460px; line-height: 1.45; }
+/* Danger zone — mirrors the Account tab's red 5-stop shimmer card. Lives at
+   the very bottom of the page; owner-only. */
+.pjd-danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--danger) 3%, transparent) 0%,
+    color-mix(in srgb, var(--danger) 9%, transparent) 25%,
+    color-mix(in srgb, var(--danger) 13%, transparent) 50%,
+    color-mix(in srgb, var(--danger) 9%, transparent) 75%,
+    color-mix(in srgb, var(--danger) 3%, transparent) 100%
+  );
+  background-size: 300% 100%;
+  animation: pjd-danger-shimmer 8s linear infinite;
+}
+@keyframes pjd-danger-shimmer {
+  0%   { background-position: 0% 0; }
+  100% { background-position: 300% 0; }
+}
+.pjd-danger-heading {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--danger-soft);
+  margin: 0 0 14px;
+}
+.pjd-danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.pjd-danger-text { min-width: 0; }
+.pjd-danger-label { font-size: 14px; font-weight: 500; color: var(--text-primary); margin: 0 0 3px; }
+.pjd-danger-desc { font-size: 12.5px; color: var(--text-muted); margin: 0; max-width: 460px; line-height: 1.45; }
+.pjd-danger-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 15px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+.pjd-danger-btn:hover { background: var(--bg-elevated); border-color: var(--border-strong); color: var(--text-primary); }
+.pjd-danger-btn.destructive { border-color: color-mix(in srgb, var(--danger) 40%, transparent); color: var(--danger-soft); }
+.pjd-danger-btn.destructive:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); border-color: var(--danger-soft); color: var(--danger-text); }
+.pjd-danger-btn:disabled { opacity: 0.6; cursor: default; }
 
 /* =========================================================================
    ROLES TAB (catalog cards + capability matrix)
@@ -344,15 +601,20 @@
 
 /* ---------- Responsive ---------- */
 @media (max-width: 1024px) {
-  .pjd-page { padding: 24px 28px 64px; }
   .pjd-hero-title { font-size: 42px; }
+  .pjd-hero-title-input { font-size: 42px; }
   .pjd-grid { grid-template-columns: 1fr; }
   .pjd-ai-stats { grid-template-columns: repeat(2, 1fr); }
+  .pjd-ov2-bar { grid-template-columns: 1fr 1fr; }
+  .pjd-ov2-stat:nth-child(2) { border-right: none; }
+  .pjd-ov2-stat:nth-child(1), .pjd-ov2-stat:nth-child(2) { border-bottom: 1px solid var(--border); }
 }
 @media (max-width: 760px) {
-  .pjd-hero { grid-template-columns: 1fr; align-items: start; }
-  .pjd-hero-actions { align-items: flex-start; }
+  .pjd-hero { flex-direction: column; align-items: stretch; }
   .pjd-meta-strip { grid-template-columns: 1fr 1fr; }
   .pjd-meta-cell:nth-child(2) { border-right: none; }
   .pjd-usage-grid { grid-template-columns: 1fr; }
+  .pjd-ov2-bar { grid-template-columns: 1fr; }
+  .pjd-ov2-stat { border-right: none; border-bottom: 1px solid var(--border); }
+  .pjd-ov2-stat:last-child { border-bottom: none; }
 }

@@ -114,7 +114,6 @@
      content can never overflow into where the lock visually sits. */
   padding: 14px 38px 14px 18px;
   height: 64px;
-  border-bottom: 1px solid var(--border);
   /* Containing block for the absolutely-positioned .lock-btn below â€” by
      pulling the lock out of flex flow it becomes immune to any width
      fluctuation in .brand-left (NavLink .active toggles, version pill
@@ -245,10 +244,9 @@
    Still fades in/out with the rest of the .label children via opacity â€”
    not removed from the DOM so the click target persists. */
 .lock-btn {
-  position: absolute;
-  top: 50%;
-  right: 14px;
-  transform: translateY(-50%);
+  /* Lives in the sidebar footer now (was absolutely positioned in the brand
+     row). Left-aligned so it lines up with the nav icons' column. */
+  margin-left: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -393,7 +391,7 @@
 /* The first section header doesn't need extra top spacing â€” the sidebar-nav
    padding (8px) already separates it from the brand row's bottom border. */
 .sidebar-section-header:first-child {
-  padding-top: 4px !important;
+  padding-top: 0 !important;
 }
 
 .sidebar-section-label {
@@ -514,7 +512,6 @@
 /* Footer */
 .sidebar-footer {
   padding: 8px;
-  border-top: 1px solid var(--border);
 }
 
 /* "Report a problem" â€” sits BELOW the Account row in the footer.

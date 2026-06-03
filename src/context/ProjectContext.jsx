@@ -68,6 +68,18 @@ export function ProjectProvider({ children }) {
   // it. The effect captures the ref and can check `cancelledRef.current` to
   // bail out cleanly when projectId changes mid-flight.
   const cancelledRef = useRef(false);
+  // Unique-per-mount suffix for Realtime channel topics. Split view can mount
+  // TWO ProjectProviders for the same project at once (the sidebar-driven
+  // primary pane AND a secondary pane viewing the same project), so a fixed
+  // `project:<id>` topic would collide — Supabase rejects a duplicate-topic
+  // subscribe, and the resulting effect error blanks the tree. A per-instance
+  // suffix keeps each provider's channel distinct.
+  const channelSuffixRef = useRef(null);
+  if (channelSuffixRef.current === null) {
+    channelSuffixRef.current = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+  }
   // Debounce handle for the Realtime member-changes refetch. A batch of N
   // member events (e.g. an admin bulk-importing invitations that all accept
   // around the same time) coalesces into one listMembers() call instead of N.
@@ -151,7 +163,7 @@ export function ProjectProvider({ children }) {
     };
 
     const channel = supabase
-      .channel(`project:${projectId}`)
+      .channel(`project:${projectId}:${channelSuffixRef.current}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'projects', filter: `id=eq.${projectId}` },

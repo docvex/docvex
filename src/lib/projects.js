@@ -148,11 +148,10 @@ export async function createProject({ name, description = null }) {
 // the role lives in project_members and PostgREST embedding for the "current
 // user's row" requires an awkward filter.
 //
-// Field list is intentionally narrow — only what any JSX consumer reads (id,
-// name, description, AI context). `created_at`, `updated_at`, `created_by` are
-// stored on the row but never displayed; adding them here just inflates
-// payloads. If a future page needs them, widen this select and the one in
-// updateProject() below in lockstep so the two return shapes stay aligned.
+// Field list covers what the JSX consumers read: id, name, description, AI
+// context, plus the dossier-hero metadata (`created_at`, `updated_at`).
+// `created_by` is still omitted (nothing renders it). Keep this in lockstep
+// with updateProject()'s select below so the two return shapes stay aligned.
 //
 // `ai_context` / `ai_context_updated_at` back the Project Overview AI tab —
 // included here so the textarea seeds from the project row (and stays in sync
@@ -163,7 +162,7 @@ export async function getProject(projectId) {
   if (!userId) return { data: null, error: new Error('Not signed in') };
 
   const [{ data: project, error: pErr }, { data: membership, error: mErr }] = await Promise.all([
-    supabase.from('projects').select('id, name, description, ai_context, ai_context_updated_at').eq('id', projectId).maybeSingle(),
+    supabase.from('projects').select('id, name, description, ai_context, ai_context_updated_at, created_at, updated_at').eq('id', projectId).maybeSingle(),
     supabase.from('project_members').select('role').eq('project_id', projectId).eq('user_id', userId).maybeSingle(),
   ]);
   if (pErr) return { data: null, error: pErr };

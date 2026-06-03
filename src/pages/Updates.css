@@ -1,198 +1,278 @@
-﻿.updates-page {
-  /* Full-width (was max-width: 820px) so the tab-bar underline spans the
-     whole content area edge-to-edge like the Files tab. */
+/* ── Updates page — GitHub-style releases with a left timeline rail ─────────
+   Ported from the Claude Design handoff `docvex-updates-tab` (rail/label
+   variant — the design default). Selectors are scoped under `.updates-page`
+   so the generic design class names (.card, .pill, .md, .btn, .rel-list)
+   can't leak into the rest of the app's global CSS. Colour comes entirely
+   from tokens.css; only `--line` (timeline stroke) and `--mono` are defined
+   locally since the rest of the app doesn't expose them as tokens. */
+
+.updates-page {
   width: 100%;
+  /* Timeline stroke + a monospace stack scoped to this page. --line is a
+     touch stronger than --border so the vertical rail reads as a deliberate
+     line, not an incidental divider. */
+  --line: var(--border-strong);
+  --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+/* Left-aligned content column. The app shell provides the outer page
+   padding; this keeps a comfortable measure but anchors to the left (no
+   auto-centring) so the page reads like the Activity feed. */
+.updates-page .page {
+  max-width: 940px;
+  margin: 0;
+  padding: 0 0 3rem;
+}
+
+/* ── Masthead (mirrors the Projects page "Editorial Dossier" header) ─────────
+   Accent eyebrow + muted kicker on one line, a big display title, then a stat
+   line summarising the release history. Left-aligned, content stacked, with a
+   hairline divider beneath — the same shape as `.pjx-masthead`. */
+.updates-page .updates-masthead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--border);
+  margin: 0 0 26px;
+}
+
+.updates-page .updates-mh-left {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.updates-header {
-  margin-bottom: 0;
-}
-
-.updates-title {
-  font-family: var(--font-display);
-  font-size: 22px;
+.updates-page .updates-mh-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
   font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-  margin: 0 0 0.25rem;
-}
-
-.updates-subtitle {
-  color: var(--text-muted);
-  font-size: 13px;
-  margin: 0;
-}
-
-/* ── Tab bar ───────────────────────────────────────────────────────────────
-   Mirrors the ProjectDashboard's .project-tabs visual: flush-left buttons
-   with a 2px accent underline on the active tab, sitting on top of a 1px
-   page-divider border. The active tab's bottom-border merges with the
-   bar's baseline via a -1px margin-bottom so the two lines read as a
-   single indicator instead of stacking. */
-.updates-tabs {
+  color: var(--accent);
   display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--border);
-  /* Full-bleed like the Files tab strip — break out of the page's 22px
-     inset so the bar reaches the content-area edges; title stays inset. */
-  margin-left: -22px;
-  margin-right: -22px;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.updates-page .updates-mh-eyebrow .updates-mh-muted {
+  color: var(--text-muted);
+  font-weight: 500;
 }
 
-.updates-tab {
+.updates-page .updates-mh-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--text-primary);
+  text-wrap: pretty;
+  max-width: 720px;
+}
+
+.updates-page .updates-mh-kicker {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 580px;
+}
+.updates-page .updates-mh-kicker strong { color: var(--text-primary); font-weight: 600; }
+
+@media (max-width: 640px) {
+  .updates-page .updates-mh-title { font-size: 42px; }
+}
+
+/* ── Compact header on scroll (mirrors the launch hub) ──────────────────────
+   A blurred, translucent bar fixed to the content area that fades + slides in
+   once the large "Versions" title scrolls away. Anchored to the content area
+   via the sidebar width + titlebar height so it spans exactly the page column
+   and tracks the sidebar's expand/collapse. */
+.updates-page .versions-compact {
+  position: fixed;
+  /* Sit just below the title bar AND the single-window nav chrome (its height
+     is published as --sv-chrome-h on .sv-single; 0 when there's no chrome). */
+  top: calc(var(--titlebar-h, 0px) + var(--sv-chrome-h, 0px));
+  left: var(--sidebar-width, 0px);
+  right: 0;
+  z-index: 30;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 22px;
+  background: color-mix(in srgb, var(--bg-page) 62%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  opacity: 0;
+  transform: translateY(-10px);
+  pointer-events: none;
+  transition: opacity 240ms ease,
+              transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+              left 250ms ease;
+}
+.updates-page .versions-compact.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.updates-page .versions-compact-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.updates-page .versions-compact-sep {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.updates-page .versions-compact-eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Status chip in the compact header — up to date (gray) or update available
+   (colour-coded by bump kind), mirroring the status banner / topbar pill. */
+.updates-page .versions-compact-status {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  background: transparent;
-  border: none;
-  margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  font-size: 0.88rem;
-  font-weight: 500;
-  padding: 0.7rem 1rem;
-  cursor: pointer;
-  transition: color 150ms, border-color 150ms;
+  gap: 7px;
   font-family: inherit;
-}
-
-.updates-tab:hover:not(.is-active) {
-  color: var(--text-secondary);
-}
-
-.updates-tab.is-active {
-  color: var(--text-primary);
-  border-bottom-color: var(--accent);
-}
-
-/* ── About / Contact tab bodies ───────────────────────────────────────────
-   Card layout shared between the About and Contact us tabs. Same border /
-   radius / spacing recipe used elsewhere (e.g. Notifications page) so the
-   surface reads as a familiar app card rather than a one-off block. */
-.updates-about-body {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.updates-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1.25rem 1.4rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-}
-
-.updates-card-title {
-  font-size: 1rem;
+  font-size: 12.5px;
   font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.updates-card-body {
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
   color: var(--text-secondary);
-  font-size: 0.9rem;
-  line-height: 1.55;
-  margin: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter 130ms ease, background 130ms ease, border-color 130ms ease;
+}
+.updates-page .versions-compact-status:hover {
+  filter: brightness(1.06);
+  border-color: color-mix(in srgb, currentColor 55%, transparent);
+}
+.updates-page .versions-compact-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.updates-page .versions-compact-status.is-update {
+  border-color: color-mix(in srgb, var(--cat-update) 45%, transparent);
+  background: color-mix(in srgb, var(--cat-update) 12%, transparent);
+  color: var(--cat-update);
+}
+.updates-page .versions-compact-status.is-major {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger-soft);
+}
+.updates-page .versions-compact-status.is-minor {
+  border-color: color-mix(in srgb, var(--info-soft) 45%, transparent);
+  background: color-mix(in srgb, var(--info-soft) 12%, transparent);
+  color: var(--info-soft);
+}
+.updates-page .versions-compact-status.is-patch {
+  border-color: color-mix(in srgb, var(--teal-soft) 45%, transparent);
+  background: color-mix(in srgb, var(--teal-soft) 12%, transparent);
+  color: var(--teal-soft);
 }
 
-.updates-card-list {
-  margin: 0;
-  padding-left: 1.1rem;
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-  line-height: 1.7;
-}
-
-.updates-card-list li::marker {
-  color: var(--color-cognac);
-}
-
-.updates-contact-list {
-  list-style: none;
-  margin: 0.25rem 0 0;
-  padding: 0;
+.updates-page .updates-body {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 18px;
 }
 
-.updates-contact-list li {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.updates-contact-label {
-  display: inline-block;
-  min-width: 72px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.updates-about-link {
-  color: var(--color-cognac);
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 0.9rem;
-  transition: color 120ms;
-}
-
-.updates-about-link:hover {
-  color: var(--text-primary);
-  text-decoration: underline;
-}
-
-/* Filled CTA used by the "Open report form" button on the Contact tab. */
-.updates-card-cta {
-  align-self: flex-start;
+/* ── Buttons (shared header + banner + card) ────────────────────────────── */
+.updates-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  background: var(--color-cognac);
-  border: 1px solid var(--color-cognac);
+  font-family: inherit;
+  background: transparent;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: var(--text-on-accent);
-  font-size: 0.85rem;
-  font-weight: 600;
-  padding: 0.5rem 1rem;
+  color: var(--text-secondary);
+  font-size: 0.825rem;
+  font-weight: 500;
+  padding: 0.45rem 0.9rem;
   cursor: pointer;
-  transition: filter 150ms, opacity 150ms;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 150ms, border-color 150ms, color 150ms;
 }
 
-.updates-card-cta:hover:not(:disabled) {
-  filter: brightness(1.08);
+.updates-btn:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
-.updates-card-cta:disabled {
+.updates-btn:disabled {
   opacity: 0.55;
-  cursor: not-allowed;
+  cursor: default;
 }
 
-.updates-about-footer {
-  display: flex;
+.updates-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.updates-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--text-on-accent);
+}
+
+/* The design's `.btn` (revert) — scoped alias of the same vocabulary. */
+.updates-page .btn {
+  display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  padding-top: 0.25rem;
-  color: var(--text-muted);
-  font-size: 0.8rem;
+  gap: 0.4rem;
+  font-family: inherit;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.825rem;
+  font-weight: 500;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 150ms, border-color 150ms, color 150ms;
 }
 
-.updates-about-sep {
-  color: var(--text-muted);
+.updates-page .btn:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
-/* Status banner */
+.updates-page .btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.updates-page .btn-revert {
+  font-size: 0.78rem;
+  padding: 0.38rem 0.75rem;
+}
+
+/* ── Status banner ──────────────────────────────────────────────────────── */
 .updates-banner {
   display: flex;
   align-items: center;
@@ -202,6 +282,7 @@
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg-card);
+  box-shadow: var(--shadow-card);
 }
 
 .updates-banner strong {
@@ -237,45 +318,22 @@
 
 .updates-banner-error strong { color: var(--danger-soft); }
 
-.updates-banner-neutral {
-  /* default styling â€” kept as a fallback for legacy/neutral states */
-}
-
-/* "You're up to date" â€” green like the success banner, conveying "all good,
-   nothing to do". Same palette as updates-banner-success since both are
-   positive states; the heading text differentiates them.
-   The background is a slow-panning multi-stop green gradient â€” gives the
-   "all good" surface a gentle alive-but-calm motion (~8s loop) so the
-   user reads it as healthy/live rather than a static notice. Stays in
-   the same alpha range as the previous flat tint so it's just as readable. */
+/* "You're up to date" — calm gray with a STATIC linear gradient (no pan),
+   matching the topbar version pill's up-to-date style. */
 .updates-banner-uptodate {
-  border-color: color-mix(in srgb, var(--success-soft) 40%, transparent);
+  border-color: var(--border-strong);
   background: linear-gradient(
     120deg,
-    color-mix(in srgb, var(--success-soft) 5%, transparent) 0%,
-    color-mix(in srgb, var(--success-soft) 16%, transparent) 25%,
-    color-mix(in srgb, var(--success-soft) 18%, transparent) 50%,
-    color-mix(in srgb, var(--success-soft) 16%, transparent) 75%,
-    color-mix(in srgb, var(--success-soft) 5%, transparent) 100%
+    color-mix(in srgb, var(--text-primary) 4%, transparent) 0%,
+    color-mix(in srgb, var(--text-primary) 10%, transparent) 50%,
+    color-mix(in srgb, var(--text-primary) 4%, transparent) 100%
   );
-  /* 300% wide so there's enough off-screen runway for the
-     background-position pan to translate smoothly without ever showing
-     a hard edge or a repeat seam. */
-  background-size: 300% 100%;
-  animation: updates-banner-uptodate-pan 8s ease-in-out infinite;
 }
 
-@keyframes updates-banner-uptodate-pan {
-  0%   { background-position:   0% 50%; }
-  50%  { background-position: 100% 50%; }
-  100% { background-position:   0% 50%; }
-}
+.updates-banner-uptodate strong { color: var(--text-secondary); }
 
-.updates-banner-uptodate strong { color: var(--success-soft); }
-
-/* "New version available" â€” purple to grab attention without being alarming
-   (red would imply error). Distinct from indigo var(--accent) (current/installed)
-   and amber (pre-release) so the banner reads as its own state. */
+/* "New version available" — info blue by default; colour-coded by the semver
+   bump (matching the release cards) when the kind is known. */
 .updates-banner-update {
   border-color: color-mix(in srgb, var(--info) 40%, transparent);
   background: color-mix(in srgb, var(--info) 9%, transparent);
@@ -283,52 +341,56 @@
 
 .updates-banner-update strong { color: var(--info-soft); }
 
-/* Button shared with status banner + release headers */
-.updates-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 0.825rem;
-  font-weight: 500;
-  padding: 0.45rem 0.9rem;
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: background 150ms, border-color 150ms, color 150ms;
+.updates-banner-update.is-major {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+.updates-banner-update.is-major strong { color: var(--danger-soft); }
+
+.updates-banner-update.is-minor {
+  border-color: color-mix(in srgb, var(--info-soft) 40%, transparent);
+  background: color-mix(in srgb, var(--info-soft) 9%, transparent);
+}
+.updates-banner-update.is-minor strong { color: var(--info-soft); }
+
+.updates-banner-update.is-patch {
+  border-color: color-mix(in srgb, var(--teal-soft) 40%, transparent);
+  background: color-mix(in srgb, var(--teal-soft) 9%, transparent);
+}
+.updates-banner-update.is-patch strong { color: var(--teal-soft); }
+
+/* ── Banner primary button — adopts the colour of the section it sits in ─────
+   Each banner publishes a --btn-fill / --btn-text; the primary button reads
+   them (falling back to the cognac accent for banners that don't set one).
+   Cream uses the strong hue + white text; Ink uses the soft hue + ink text so
+   contrast stays readable on the lighter dark-theme colours. */
+.updates-banner-update.is-major { --btn-fill: var(--danger);  --btn-text: #fff; }
+.updates-banner-update.is-minor { --btn-fill: var(--info);    --btn-text: #fff; }
+.updates-banner-update.is-patch { --btn-fill: var(--teal);    --btn-text: #fff; }
+.updates-banner-success         { --btn-fill: var(--success); --btn-text: #fff; }
+.updates-banner-error           { --btn-fill: var(--danger);  --btn-text: #fff; }
+
+:root[data-theme="ink"] .updates-banner-update.is-major { --btn-fill: var(--danger-soft);  --btn-text: var(--color-ink); }
+:root[data-theme="ink"] .updates-banner-update.is-minor { --btn-fill: var(--info-soft);    --btn-text: var(--color-ink); }
+:root[data-theme="ink"] .updates-banner-update.is-patch { --btn-fill: var(--teal-soft);    --btn-text: var(--color-ink); }
+:root[data-theme="ink"] .updates-banner-success         { --btn-fill: var(--success-soft); --btn-text: var(--color-ink); }
+:root[data-theme="ink"] .updates-banner-error           { --btn-fill: var(--danger-soft);  --btn-text: var(--color-ink); }
+
+.updates-banner .updates-btn-primary {
+  background: var(--btn-fill, var(--accent));
+  border-color: var(--btn-fill, var(--accent));
+  color: var(--btn-text, var(--text-on-accent));
+}
+.updates-banner .updates-btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--btn-fill, var(--accent)) 82%, black);
+  border-color: color-mix(in srgb, var(--btn-fill, var(--accent)) 82%, black);
+  color: var(--btn-text, var(--text-on-accent));
 }
 
-.updates-btn:hover:not(:disabled) {
-  background: var(--bg-elevated);
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-
-.updates-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.updates-btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--text-on-accent);
-}
-
-.updates-btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  color: var(--text-on-accent);
-}
-
-/* Release list */
+/* ── Release list / timeline rail ───────────────────────────────────────── */
 .updates-releases {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
 }
 
 .updates-empty {
@@ -340,152 +402,246 @@
   border-radius: 10px;
 }
 
-.release-card {
+.updates-page .rel-list.rail {
+  display: flex;
+  flex-direction: column;
+}
+
+.updates-page .rel-list.rail .rel-row {
+  display: grid;
+  grid-template-columns: var(--railw) 1fr;
+  position: relative;
+  padding-bottom: 16px;
+  --node-top: 30px;
+}
+
+.updates-page .rail-rail .rel-row { --railw: 152px; --linex: 126px; }
+
+/* The vertical line — fills the full row height so adjacent rows connect. */
+.updates-page .rail-col { position: relative; }
+.updates-page .rail-col::before {
+  content: '';
+  position: absolute;
+  left: var(--linex);
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--line);
+}
+/* Trim the line above the first node and below the last node. */
+.updates-page .rel-row:first-child .rail-col::before {
+  background: linear-gradient(to bottom, transparent 0, transparent var(--node-top), var(--line) var(--node-top));
+}
+.updates-page .rel-row:last-child .rail-col::before {
+  background: linear-gradient(to bottom, var(--line) 0, var(--line) var(--node-top), transparent var(--node-top));
+}
+
+/* Node dot — colour-coded by semver kind. */
+.updates-page .rail-node {
+  position: absolute;
+  left: var(--linex);
+  top: var(--node-top);
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  background: var(--bg-page);
+  border: 2.5px solid var(--text-muted);
+}
+.updates-page .node-major .rail-node { border-color: var(--danger-soft); }
+.updates-page .node-minor .rail-node { border-color: var(--info-soft); }
+.updates-page .node-patch .rail-node { border-color: var(--teal-soft); }
+.updates-page .rail-col.is-latest .rail-node {
+  border-color: var(--success-soft);
+  background: var(--success-soft);
+  /* Steady inner ring + an outward pulsing halo so the newest release's node
+     reads as "live". The first box-shadow stays constant; the second animates
+     out and fades. */
+  animation: versions-latest-pulse 1.8s ease-out infinite;
+}
+@keyframes versions-latest-pulse {
+  0% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success-soft) 22%, transparent),
+                0 0 0 0 color-mix(in srgb, var(--success-soft) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success-soft) 22%, transparent),
+                0 0 0 9px color-mix(in srgb, var(--success-soft) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success-soft) 22%, transparent),
+                0 0 0 0 color-mix(in srgb, var(--success-soft) 0%, transparent);
+  }
+}
+
+/* Version + date, right-aligned beside the line. */
+.updates-page .rail-label {
+  position: absolute;
+  left: 0;
+  width: calc(var(--linex) - 18px);
+  top: var(--node-top);
+  transform: translateY(-50%);
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.updates-page .rail-tag {
+  font-family: var(--mono);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.updates-page .rail-date {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* The rail already shows the version + date, so hide the in-card copies. */
+.updates-page .rail .ver-inline { display: none; }
+.updates-page .rail-rail .meta-date { display: none; }
+
+/* ── Release card ───────────────────────────────────────────────────────── */
+.updates-page .card {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 1.25rem 1.5rem;
-  /* Containing block for the absolutely-positioned .release-revert-btn â€”
-     the button floats in the card's bottom-right corner without taking
-     layout space. */
+  padding: 1.15rem 1.4rem;
+  box-shadow: var(--shadow-card);
   position: relative;
 }
 
-/* The currently-installed release card no longer gets a distinct border â€”
-   the "Installed" pill inside the header already identifies it, and the
-   extra green outline was redundant visual weight competing with the
-   release that actually needs attention (the latest). */
-
-.release-header {
+.updates-page .card-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  margin-bottom: 0.5rem;
 }
 
-.release-version-line {
+.updates-page .card-titles {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
-/* Disclosure toggle for a release's notes. Sits at the head of the version
-   line; the chevron points down when expanded and rotates to point right
-   when collapsed. */
-.release-collapse-btn {
+.updates-page .disclose {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  margin: -2px 0 0 -4px;
+  padding: 0;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  margin-left: -4px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
   color: var(--text-muted);
-  cursor: pointer;
+  border-radius: 6px;
   transition: background 140ms, color 140ms;
 }
-.release-collapse-btn:hover {
+.updates-page .disclose:hover {
   background: var(--bg-elevated);
   color: var(--text-primary);
 }
-.release-collapse-btn svg {
+.updates-page .disclose svg {
   transition: transform 160ms ease;
-}
-.release-collapse-btn.is-collapsed svg {
   transform: rotate(-90deg);
 }
+.updates-page .disclose.open svg { transform: none; }
 
-/* Collapsed card: vertically center the still-visible header content
-   (version line and date/link group) on the same line. */
-.release-card.is-collapsed .release-header {
-  align-items: center;
+.updates-page .card-title-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
 }
 
-.release-version {
-  font-size: 1.05rem;
+.updates-page .badge-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.updates-page .ver-inline {
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-right: 0.15rem;
+}
+
+.updates-page .card-name {
+  font-family: var(--font-display);
+  font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  letter-spacing: -0.01em;
 }
 
-.release-tag {
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+.updates-page .pill {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   border-radius: 999px;
-  padding: 0.15rem 0.55rem;
+  padding: 0.16rem 0.5rem;
+  line-height: 1;
+  white-space: nowrap;
 }
-
-.release-tag-current {
-  /* Green to match .updates-banner-uptodate â€” the "Installed" pill and the
-     "You're up to date" banner now share one visual identity, including
-     the same slow-panning gradient so the eye reads them as one cue.
-     Reuses the same keyframes (updates-banner-uptodate-pan) so any future
-     tweak to the motion only happens in one place. */
-  color: var(--success-soft);
-  background: linear-gradient(
-    120deg,
-    color-mix(in srgb, var(--success-soft) 8%, transparent) 0%,
-    color-mix(in srgb, var(--success-soft) 22%, transparent) 25%,
-    color-mix(in srgb, var(--success-soft) 26%, transparent) 50%,
-    color-mix(in srgb, var(--success-soft) 22%, transparent) 75%,
-    color-mix(in srgb, var(--success-soft) 8%, transparent) 100%
-  );
-  background-size: 300% 100%;
-  animation: updates-banner-uptodate-pan 8s ease-in-out infinite;
-  border: 1px solid color-mix(in srgb, var(--success-soft) 35%, transparent);
+.updates-page .pill-latest {
+  color: #fff;
+  background: var(--success);
+  border: 1px solid var(--success);
 }
-
-.release-tag-pre {
-  color: var(--warning-soft);
-  background: color-mix(in srgb, var(--warning-soft) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--warning-soft) 35%, transparent);
+:root[data-theme="ink"] .updates-page .pill-latest {
+  color: var(--color-ink);
+  background: var(--success-soft);
+  border-color: var(--success-soft);
 }
-
-/* Semver bump pills â€” orthogonal to "Installed"/"Pre-release". Major reuses
-   the error-banner red palette, patch reuses the success-banner green, and
-   minor uses sky blue so it stays distinct from indigo (current) and amber
-   (pre-release). The card also gets a tinted left edge so users can scan
-   the list by bump type without reading the pills. */
-.release-tag-major {
+.updates-page .pill-installed {
+  color: var(--accent);
+  background: var(--accent-tint);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.updates-page .pill-kind { border: 1px solid transparent; }
+.updates-page .kind-major {
   color: var(--danger-soft);
   background: color-mix(in srgb, var(--danger) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 32%, transparent);
 }
-
-.release-tag-minor {
+.updates-page .kind-minor {
   color: var(--info-soft);
   background: color-mix(in srgb, var(--info-soft) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--info-soft) 35%, transparent);
+  border-color: color-mix(in srgb, var(--info-soft) 32%, transparent);
+}
+.updates-page .kind-patch {
+  color: var(--teal-soft);
+  background: color-mix(in srgb, var(--teal-soft) 12%, transparent);
+  border-color: color-mix(in srgb, var(--teal-soft) 32%, transparent);
+}
+.updates-page .kind-pre {
+  color: var(--warning-soft);
+  background: color-mix(in srgb, var(--warning-soft) 12%, transparent);
+  border-color: color-mix(in srgb, var(--warning-soft) 32%, transparent);
 }
 
-.release-tag-patch {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--text-primary) 28%, transparent);
-}
-
-.release-card.is-major { border-left: 3px solid color-mix(in srgb, var(--danger) 55%, transparent); }
-.release-card.is-minor { border-left: 3px solid color-mix(in srgb, var(--info-soft) 55%, transparent); }
-.release-card.is-patch { border-left: 3px solid color-mix(in srgb, var(--text-primary) 50%, transparent); }
-
-.release-meta {
+.updates-page .card-meta {
   display: flex;
   align-items: center;
   gap: 1rem;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   color: var(--text-muted);
+  flex-shrink: 0;
 }
-
-.release-link {
+.updates-page .ghlink {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -493,100 +649,48 @@
   text-decoration: none;
   transition: color 150ms;
 }
+.updates-page .ghlink:hover { color: var(--text-primary); }
 
-.release-link:hover {
-  color: var(--text-primary);
+/* ── Card body / markdown ───────────────────────────────────────────────── */
+.updates-page .card-body {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
 }
-
-/* Revert button â€” floats in the card's bottom-right corner via absolute
-   positioning so it doesn't consume layout space (release notes flow
-   under it). Outlined ghost style â€” matches the existing destructive-
-   adjacent button vocabulary but muted, since reverting is reversible.
-   Surface color is slightly darker than the card so the button stands
-   off the notes underneath without needing a heavier border. */
-.release-revert-btn {
-  position: absolute;
-  /* bottom/right 0 anchors to the card's padding-edge (= inside of the
-     border) regardless of .release-card's padding â€” absolutely positioned
-     children's containing block IS the padding box of their relative
-     ancestor, so the parent's padding has no effect on these offsets.
-     Result: the button sits flush in the bottom-right corner of the card. */
-  bottom: 0;
-  right: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: var(--bg-card);
-  /* Only the top-left corner is rounded; the right + bottom edges share
-     the card's own border (the card's outer border becomes the button's
-     visible right/bottom side), so explicit right/bottom borders are
-     dropped to avoid a double-line stack. */
-  border: 1px solid var(--border);
-  border-right: none;
-  border-bottom: none;
-  border-radius: 6px 0 0 0;
-  color: var(--text-secondary);
-  font-family: inherit;
-  font-size: 0.8rem;
-  font-weight: 500;
-  padding: 0.4rem 0.8rem;
-  cursor: pointer;
-  transition: background 150ms, border-color 150ms, color 150ms;
-}
-
-.release-revert-btn:hover:not(:disabled) {
-  background: var(--bg-elevated);
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-
-.release-revert-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.release-name {
-  font-size: 0.95rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin: 0 0 0.75rem;
-}
-
-/* Markdown body */
-.release-body {
+.updates-page .md {
   font-size: 0.875rem;
-  line-height: 1.55;
+  line-height: 1.58;
   color: var(--text-secondary);
 }
-
-.release-body h1,
-.release-body h2,
-.release-body h3 {
+.updates-page .md > :first-child { margin-top: 0; }
+.updates-page .md > :last-child { margin-bottom: 0; }
+.updates-page .md h1,
+.updates-page .md h2,
+.updates-page .md h3 {
+  font-family: var(--font-display);
   color: var(--text-primary);
-  margin: 1rem 0 0.5rem;
+  margin: 1.1rem 0 0.4rem;
   font-weight: 600;
 }
-
-.release-body h1 { font-size: 1.05rem; }
-.release-body h2 { font-size: 0.98rem; }
-.release-body h3 { font-size: 0.9rem; }
-
-.release-body p {
-  margin: 0.5rem 0;
+.updates-page .md h1 { font-size: 1.02rem; }
+.updates-page .md h2 { font-size: 0.96rem; }
+.updates-page .md h3 { font-size: 0.92rem; }
+.updates-page .md p { margin: 0.5rem 0; }
+.updates-page .md ul,
+.updates-page .md ol { margin: 0.5rem 0; padding-left: 1.2rem; }
+.updates-page .md li { margin: 0.25rem 0; }
+.updates-page .md li::marker { color: var(--accent); }
+.updates-page .md strong { color: var(--text-primary); font-weight: 600; }
+.updates-page .md em { font-style: italic; }
+.updates-page .md blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 0.75rem 0;
+  padding: 0.1rem 0 0.1rem 1rem;
+  color: var(--text-muted);
+  font-style: italic;
 }
-
-.release-body ul,
-.release-body ol {
-  margin: 0.5rem 0;
-  padding-left: 1.25rem;
-}
-
-.release-body li {
-  margin: 0.2rem 0;
-}
-
-.release-body code {
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+.updates-page .md code {
+  font-family: var(--mono);
   font-size: 0.82rem;
   background: var(--bg-input);
   border: 1px solid var(--border);
@@ -594,8 +698,7 @@
   padding: 0.05rem 0.35rem;
   color: var(--text-primary);
 }
-
-.release-body pre {
+.updates-page .md pre {
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -603,54 +706,62 @@
   overflow-x: auto;
   margin: 0.75rem 0;
 }
-
-.release-body pre code {
+.updates-page .md pre code {
   background: transparent;
   border: none;
   padding: 0;
 }
-
-.release-body a {
+.updates-page .md a {
   color: var(--accent-hover);
   text-decoration: none;
 }
-
-.release-body a:hover {
-  text-decoration: underline;
-}
-
-.release-body blockquote {
-  border-left: 3px solid var(--border);
-  margin: 0.75rem 0;
-  padding: 0.25rem 0 0.25rem 1rem;
-  color: var(--text-muted);
-}
-
-.release-body hr {
+.updates-page .md a:hover { text-decoration: underline; }
+.updates-page .md hr {
   border: none;
   border-top: 1px solid var(--border);
   margin: 1rem 0;
 }
-
-.release-body table {
+.updates-page .md table {
   border-collapse: collapse;
   margin: 0.75rem 0;
 }
-
-.release-body th,
-.release-body td {
+.updates-page .md th,
+.updates-page .md td {
   border: 1px solid var(--border);
   padding: 0.4rem 0.7rem;
   text-align: left;
 }
-
-.release-body th {
+.updates-page .md th {
   background: var(--bg-elevated);
   color: var(--text-primary);
 }
-
-.release-empty {
+.updates-page .release-empty {
   color: var(--text-muted);
   font-style: italic;
   margin: 0;
+}
+
+.updates-page .card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.updates-page .commit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .updates-page .rail-rail .rel-row { --railw: 96px; --linex: 78px; }
+  .updates-page .rail-label { width: calc(var(--linex) - 12px); }
 }

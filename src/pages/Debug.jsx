@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNotifications } from '../context/NotificationsContext';
-import { clearSignedUrlCache } from '../lib/projectFiles';
+import { useUpdates } from '../context/UpdatesContext';
+import { clearThumbnailCache } from '../lib/thumbnailResolver';
 import { clearPdfCache } from '../lib/pdfCache';
 import { sendInviteDebug } from '../lib/projects';
 import { sendSupportReport } from '../lib/support';
@@ -14,10 +15,11 @@ import './Debug.css';
 // round-trip needed since everything they touch (caches, notify(), Edge
 // Functions) is already renderer-side.
 
-// Wipes the renderer's module-level caches (signed URLs in projectFiles.js,
-// parsed pdf.js docs in pdfCache.js) and toasts so there's feedback.
+// Wipes the renderer's module-level caches (resolved thumbnails in
+// thumbnailResolver.js, parsed pdf.js docs in pdfCache.js) and toasts so
+// there's feedback.
 function clearAllCaches(notify) {
-  clearSignedUrlCache();
+  clearThumbnailCache();
   clearPdfCache();
   notify?.({
     category: 'system',
@@ -25,7 +27,7 @@ function clearAllCaches(notify) {
     priority: 'low',
     icon: 'sparkles',
     title: 'Cache cleared',
-    body: 'Signed URLs + PDF documents dropped. Reopen any file to refetch.',
+    body: 'Thumbnails + PDF documents dropped. Reopen any file to refetch.',
     dedupeKey: 'debug-cache-cleared',
   });
 }
@@ -146,6 +148,7 @@ const ACTIONS = [
 
 export default function Debug() {
   const { notify } = useNotifications();
+  const { simulateUpdate, setSimulateUpdate, simulateKind, setSimulateKind, currentVersion, latestVersion } = useUpdates();
   const [busy, setBusy] = useState(null);
 
   const handleRun = async (action) => {
@@ -169,6 +172,54 @@ export default function Debug() {
       </header>
 
       <div className="debug-actions">
+        {/* Simulate-update toggle — forces the update badge + banner on without
+            a real GitHub release (see UpdatesContext). */}
+        <section className="debug-card">
+          <div className="debug-card-text">
+            <h2 className="debug-card-title">Simulate update available</h2>
+            <p className="debug-card-body">
+              Pretends a newer version is on GitHub so the sidebar update badge and
+              the Updates banner light up — no real release needed.
+              {simulateUpdate && latestVersion
+                ? ` Currently faking v${latestVersion}${currentVersion ? ` (you’re on v${currentVersion})` : ''}.`
+                : ''}
+            </p>
+          </div>
+          <div className="debug-card-controls">
+            {/* Bump kind — drives the simulated version (major/minor/patch) so
+                the update pill + banner can be previewed in each release
+                colour. Disabled while the simulation is off. */}
+            <div
+              className={`debug-segmented${simulateUpdate ? '' : ' is-disabled'}`}
+              role="group"
+              aria-label="Simulated update kind"
+            >
+              {['major', 'minor', 'patch'].map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className={`debug-seg debug-seg-${k}${simulateKind === k ? ' is-active' : ''}`}
+                  aria-pressed={simulateKind === k}
+                  disabled={!simulateUpdate}
+                  onClick={() => setSimulateKind(k)}
+                >
+                  {k.charAt(0).toUpperCase() + k.slice(1)}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={simulateUpdate}
+              className={`debug-switch${simulateUpdate ? ' is-on' : ''}`}
+              onClick={() => setSimulateUpdate(!simulateUpdate)}
+            >
+              <span className="debug-switch-track"><span className="debug-switch-knob" /></span>
+              <span className="debug-switch-label">{simulateUpdate ? 'On' : 'Off'}</span>
+            </button>
+          </div>
+        </section>
+
         {ACTIONS.map((action) => (
           <section key={action.id} className="debug-card">
             <div className="debug-card-text">

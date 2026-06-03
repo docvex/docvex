@@ -1,5 +1,5 @@
-import React, { lazy, Suspense, useEffect, useRef } from 'react';
-import { Routes, Route, Navigate, Outlet, useMatch, useLocation } from 'react-router-dom';
+import React, { useEffect, useRef } from 'react';
+import { Navigate, Outlet, useMatch, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { useSelectedProject } from './context/SelectedProjectContext';
@@ -7,58 +7,9 @@ import { isLaunchConsumed } from './lib/launchGate';
 import { isElectron } from './lib/platform';
 import AppShell from './components/AppShell';
 import TitleBar from './components/TitleBar';
-
-// All page modules are code-split — each becomes its own JS chunk that loads
-// only when the user navigates to that route. Keeps the cold-start bundle
-// small. The Suspense fallback below covers the brief network/parse pause
-// while a chunk loads. AppShell stays eager because it owns the layout that
-// surrounds every route and would itself appear "flashy" if lazy-loaded.
-const AuthPage = lazy(() => import('./components/AuthPage'));
-// Launch hub — Unity-Hub-style project launcher shown once per cold start
-// (see RootShell below). Full-screen, rendered outside AppShell.
-const Launch = lazy(() => import('./pages/Launch'));
-// Activity = merged home of the old (empty) "/" dashboard + the
-// "/notifications" inbox — one feed of everything across the user's projects.
-const Activity = lazy(() => import('./pages/Activity'));
-const Account = lazy(() => import('./pages/Account'));
-const Updates = lazy(() => import('./pages/Updates'));
-const Newsletter = lazy(() => import('./pages/Newsletter'));
-// Dev-only in-app developer tools (formerly the native DEBUG menu). Only
-// routed in dev builds — import.meta.env.DEV is false in packaged/web builds.
-const Debug = lazy(() => import('./pages/Debug'));
-const ProjectList = lazy(() => import('./pages/Projects/ProjectList'));
-const ProjectCreate = lazy(() => import('./pages/Projects/ProjectCreate'));
-const ProjectOverview = lazy(() => import('./pages/Projects/ProjectOverview'));
-const ProjectDashboard = lazy(() => import('./pages/Projects/ProjectDashboard'));
-const ProjectFiles = lazy(() => import('./pages/Projects/ProjectFiles'));
-const ProjectClients = lazy(() => import('./pages/Projects/ProjectClients'));
-const ProjectTodos = lazy(() => import('./pages/Projects/ProjectTodos'));
-const ProjectChat = lazy(() => import('./pages/Projects/ProjectChat'));
-const ProjectGenerate = lazy(() => import('./pages/Projects/ProjectGenerate'));
-const ProjectAutomate = lazy(() => import('./pages/Projects/ProjectAutomate'));
-const ProjectAI = lazy(() => import('./pages/Projects/ProjectAI'));
-const InviteAccept = lazy(() => import('./pages/Projects/InviteAccept'));
-
-// Shared full-screen spinner. Re-uses the `.spinner` class from Sidebar.css
-// so we don't bloat the bundle with a second loader style. Used by both
-// ProtectedRoute (auth gate) and the route-level Suspense boundary.
-function RouteFallback() {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
-      <div className="spinner" />
-    </div>
-  );
-}
-
-function ProtectedRoute() {
-  const { session, loading } = useAuth();
-
-  if (loading) {
-    return <RouteFallback />;
-  }
-
-  return session ? <Outlet /> : <Navigate to="/auth" replace />;
-}
+import ReportProblemModal from './components/ReportProblemModal';
+import { ReportProblemProvider } from './context/ReportProblemContext';
+import AppRoutes from './AppRoutes';
 
 // Mirrors `useProject().project.id` into SelectedProjectContext when the
 // user is on the /dashboard sub-route — the "working in this project"
@@ -132,70 +83,36 @@ function ProjectShell() {
 }
 
 export default function App() {
+  // Guard against the window navigating to a file when an OS file drag is
+  // dropped anywhere OUTSIDE an explicit drop target (the Files canvas calls
+  // preventDefault itself). Without this, a stray drop loads file:// in the
+  // window and breaks the app. Targets that DO accept drops still work — they
+  // preventDefault on their own elements before this bubbles up.
+  useEffect(() => {
+    const prevent = (e) => {
+      // Only files; let in-app element drags (text, etc.) behave normally.
+      if (Array.from(e.dataTransfer?.types || []).includes('Files')) e.preventDefault();
+    };
+    window.addEventListener('dragover', prevent);
+    window.addEventListener('drop', prevent);
+    return () => {
+      window.removeEventListener('dragover', prevent);
+      window.removeEventListener('drop', prevent);
+    };
+  }, []);
+
   // Electron runs frameless — the custom title bar (with window controls + the
-  // Documentation / Theme / Updates / Account actions) renders above the
-  // routes. The document's `.with-titlebar` class (set in renderer.jsx) makes
-  // the layout reserve --titlebar-h for it. Web keeps the browser chrome.
+  // Theme / split-view actions) renders above the routes. The document's
+  // `.with-titlebar` class (set in renderer.jsx) makes the layout reserve
+  // --titlebar-h for it. Web keeps the browser chrome.
+  // ReportProblemProvider wraps both the TitleBar (which hosts the "Report a
+  // problem" trigger) and the routed content + the modal, so the trigger and
+  // the modal share one context instance.
   return (
-    <>
+    <ReportProblemProvider>
       {isElectron && <TitleBar />}
-      <Suspense fallback={<RouteFallback />}>
-        <Routes>
-        <Route path="/auth" element={<AuthPage />} />
-        {/* Launch hub — full-screen, outside AppShell (like /auth). Reached via
-            the cold-start redirect in RootShell, or manually. */}
-        <Route path="/launch" element={<Launch />} />
-        <Route path="/" element={<RootShell />}>
-          <Route index element={<Activity />} />
-          <Route path="updates" element={<Updates />} />
-          <Route path="newsletter" element={<Newsletter />} />
-          {/* Debug — dev-only developer tools page (Personal sidebar section).
-              Only mounted under import.meta.env.DEV so packaged + web builds
-              never expose it. Public personal route, like Newsletter. */}
-          {import.meta.env.DEV && <Route path="debug" element={<Debug />} />}
-          {/* Notifications merged into Activity ("/"); keep the path as a
-              redirect so old links / OS notification deep-links still land. */}
-          <Route path="notifications" element={<Navigate to="/" replace />} />
-          {/* Invite-accept is intentionally PUBLIC (not behind ProtectedRoute) —
-              an invitee clicking the email link before signing in needs the
-              page to render so it can stash the token and walk them through
-              /auth. The page itself branches on session presence. */}
-          <Route path="invite/:token" element={<InviteAccept />} />
-          <Route element={<ProtectedRoute />}>
-            <Route path="account" element={<Account />} />
-            {/* Projects routes — all require a session. ProjectShell wraps the
-                :projectId subtree in ProjectProvider so nested routes consume
-                one shared context. */}
-            <Route path="projects" element={<ProjectList />} />
-            <Route path="projects/new" element={<ProjectCreate />} />
-            <Route path="projects/:projectId" element={<ProjectShell />}>
-              {/* Two distinct project views with different mental models:
-                  - index (Overview): reached by clicking a card in the Projects
-                    list. Shows the project's members + management actions.
-                  - /dashboard: reached from the Projects sidebar's Dashboard
-                    sub-item. The "working in this project" surface — files. */}
-              <Route index element={<ProjectOverview />} />
-              <Route path="dashboard" element={<ProjectDashboard />} />
-            </Route>
-            {/* Project-scoped tools — pull data from SelectedProjectContext.
-                The ProjectBanner in AppShell tells the user which project is
-                active. If no project is selected, these pages prompt the user
-                to pick one from /projects. */}
-            <Route path="files" element={<ProjectFiles />} />
-            <Route path="clients" element={<ProjectClients />} />
-            <Route path="todos" element={<ProjectTodos />} />
-            <Route path="chat" element={<ProjectChat />} />
-            <Route path="generate" element={<ProjectGenerate />} />
-            <Route path="automate" element={<ProjectAutomate />} />
-            {/* Unified AI surface: a single sidebar entry hosts both
-                Generate and Automate as internal tabs. The standalone
-                /generate and /automate routes are kept above so any
-                existing bookmark / deep-link still resolves. */}
-            <Route path="ai" element={<ProjectAI />} />
-          </Route>
-        </Route>
-        </Routes>
-      </Suspense>
-    </>
+      <AppRoutes Shell={RootShell} ProjectShell={ProjectShell} />
+      <ReportProblemModal />
+    </ReportProblemProvider>
   );
 }

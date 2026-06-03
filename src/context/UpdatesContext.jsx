@@ -55,6 +55,26 @@ function semverGT(a, b) {
 
 const SEMVER_TAG_RE = /^v?\d+\.\d+\.\d+/;
 
+// Bump a version string for the "simulate update" debug toggle, by the chosen
+// semver kind — produces a plausible newer version so the update pill/banner
+// can be previewed in each colour (e.g. patch 7.3.0→7.3.1, minor 7.3.0→7.4.0,
+// major 7.3.0→8.0.0).
+function bumpVersion(v, kind = 'minor') {
+  const p = String(v || '0.0.0').replace(/^v/, '').split('-')[0].split('.').map((n) => Number(n) || 0);
+  const [maj = 0, min = 0, pat = 0] = p;
+  if (kind === 'major') return `${maj + 1}.0.0`;
+  if (kind === 'patch') return `${maj}.${min}.${pat + 1}`;
+  return `${maj}.${min + 1}.0`; // minor (default)
+}
+
+// Persisted dev toggle (Debug page) that forces hasUpdate true with a faux
+// newer version — lets devs preview the update badge + banner without a real
+// release. localStorage so it survives reloads and is shared across windows.
+const SIMULATE_UPDATE_KEY = 'docvex.debug.simulateUpdate';
+// Which semver bump the simulated update represents (major/minor/patch), so the
+// debug toggle can preview each colour-coded state. localStorage-persisted.
+const SIMULATE_KIND_KEY = 'docvex.debug.simulateUpdateKind';
+
 // Resolve the user-meaningful version string for a GitHub release. Normally
 // this is `tag_name` (e.g. "v1.1.0"), but electron-forge's publisher creates
 // drafts with `tag_name="untagged-<sha>"`; if the user clicks "Publish release"
@@ -116,14 +136,36 @@ export function UpdatesProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [installerState, setInstallerState] = useState({ state: 'idle' });
+  // Dev "simulate an update is available" toggle (Debug page).
+  const [simulateUpdate, setSimulateUpdateState] = useState(() => {
+    try { return localStorage.getItem(SIMULATE_UPDATE_KEY) === '1'; } catch { return false; }
+  });
+  const setSimulateUpdate = useCallback((on) => {
+    setSimulateUpdateState(!!on);
+    try { localStorage.setItem(SIMULATE_UPDATE_KEY, on ? '1' : '0'); } catch { /* non-fatal */ }
+  }, []);
+  // Simulated bump kind (major/minor/patch) — defaults to minor.
+  const [simulateKind, setSimulateKindState] = useState(() => {
+    try { return localStorage.getItem(SIMULATE_KIND_KEY) || 'minor'; } catch { return 'minor'; }
+  });
+  const setSimulateKind = useCallback((kind) => {
+    const k = kind === 'major' || kind === 'patch' ? kind : 'minor';
+    setSimulateKindState(k);
+    try { localStorage.setItem(SIMULATE_KIND_KEY, k); } catch { /* non-fatal */ }
+  }, []);
 
   // Tracks an in-flight fetch promise so concurrent callers (mount effect +
   // a rapid "Check now" click) share one network request instead of stacking.
   // Cleared in the finally block of the fetch.
   const inFlightRef = useRef(null);
 
-  const latestVersion = releases[0] ? versionTagFor(releases[0]).replace(/^v/, '') : null;
-  const hasUpdate = !!(currentVersion && latestVersion && semverGT(latestVersion, currentVersion));
+  const realLatestVersion = releases[0] ? versionTagFor(releases[0]).replace(/^v/, '') : null;
+  // When the dev "simulate update" toggle is on, present a faux newer version
+  // so the badge + banner light up without a real release.
+  const latestVersion = simulateUpdate ? bumpVersion(currentVersion, simulateKind) : realLatestVersion;
+  const hasUpdate = simulateUpdate
+    ? !!currentVersion
+    : !!(currentVersion && realLatestVersion && semverGT(realLatestVersion, currentVersion));
 
   // Whether the in-app Squirrel updater can actually apply an update in place.
   // Only the Windows build is signed/Squirrel-backed; macOS & Linux are
@@ -323,6 +365,10 @@ export function UpdatesProvider({ children }) {
     downloadUpdate,
     downloadAndInstall,
     downloadUrl,
+    simulateUpdate,
+    setSimulateUpdate,
+    simulateKind,
+    setSimulateKind,
   };
 
   return <UpdatesContext.Provider value={value}>{children}</UpdatesContext.Provider>;

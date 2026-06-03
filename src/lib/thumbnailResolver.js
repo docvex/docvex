@@ -24,9 +24,8 @@
 //     duration:     number | null,
 //   }
 //
-//   PosterSource = { kind: 'cloud' | 'pending', path }            // signed against the right bucket
-//                | { kind: 'url', url }                            // ready-to-use URL (blob: / localfile:// / https:)
-//   BytesSource  = same shapes as PosterSource — what to fetch when regen is needed.
+//   PosterSource = { kind: 'url', url }                            // ready-to-use URL (blob: / localfile:// / https:)
+//   BytesSource  = same shape as PosterSource — what to fetch when regen is needed.
 //
 // Fallback chain inside the hook:
 //   1. Cache hit on contentKey → return.
@@ -51,9 +50,7 @@
 //     once share one network round-trip + one regen pass.
 
 import { useCallback, useEffect, useState } from 'react';
-import { createSignedDownloadUrl } from './projectFiles';
-import { createPendingSignedUrl } from './branches';
-import { generateThumbnail, isPptxFile, isTextThumbable } from './thumbnails';
+import { generateThumbnail, isPptxFile } from './thumbnails';
 
 // ── Unified cache ─────────────────────────────────────────────────────
 
@@ -112,20 +109,11 @@ export function clearThumbnailCache() {
 // ── Source resolvers ──────────────────────────────────────────────────
 
 // Resolve a PosterSource / BytesSource shape to a usable URL string.
+// Local-only: posters are ready-to-use URLs (blob: / localfile://).
 // Returns null on failure so the caller can fall through.
 async function signSource(src) {
   if (!src) return null;
   if (src.kind === 'url') return src.url || null;
-  if (src.kind === 'cloud' && src.path) {
-    const { data, error } = await createSignedDownloadUrl(src.path, 600);
-    if (error || !data?.signedUrl) return null;
-    return data.signedUrl;
-  }
-  if (src.kind === 'pending' && src.path) {
-    const { data, error } = await createPendingSignedUrl(src.path, 600);
-    if (error || !data?.signedUrl) return null;
-    return data.signedUrl;
-  }
   return null;
 }
 
@@ -239,12 +227,11 @@ function isRenderableImage(mime, name) {
 // Walks the fallback chain to produce a poster URL for the descriptor.
 // Returns null when every branch failed (component will render glyph).
 //
-// Image / video / PDF / PPTX / plain-text get thumbnails. Every other
-// MIME (DOCX, generic binaries…) falls through to null so the component
-// renders its MIME glyph instead — a deliberate choice to stop the app
-// from showing rasterized "previews" for file types where the rendering
-// is approximate or misleading. Plain text is exempt: rendering its first
-// lines is faithful (the text IS the content), not an approximation.
+// Image / video / PDF / PPTX get thumbnails. Every other MIME (plain text,
+// DOCX, generic binaries…) falls through to null so the component renders its
+// MIME glyph instead — a deliberate choice to stop the app from showing
+// rasterized "previews" for file types where the rendering is approximate or
+// adds little over the labelled glyph (TXT/MD/RTF/LOG show the TXT badge).
 async function resolve(descriptor) {
   const { name, mime, posters, source } = descriptor;
   const m = mime || '';
@@ -254,8 +241,7 @@ async function resolve(descriptor) {
   const isThumbable = m.startsWith('image/')
     || m.startsWith('video/')
     || m === 'application/pdf'
-    || isPptxFile(m, name)
-    || isTextThumbable(m, name);
+    || isPptxFile(m, name);
   if (!isThumbable) return null;
 
   // 1. Try each poster source in order.

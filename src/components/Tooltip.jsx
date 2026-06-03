@@ -37,7 +37,7 @@ import './Tooltip.css';
 const CURSOR_OFFSET = 8;
 const EDGE_MARGIN = 8;
 
-export default function Tooltip({ content, children }) {
+export default function Tooltip({ content, children, className = '' }) {
   // `{ x, y }` while visible, null while hidden. Single source of truth
   // for both mouse-driven and focus-driven shows.
   const [pos, setPos] = useState(null);
@@ -150,7 +150,7 @@ export default function Tooltip({ content, children }) {
       {pos && createPortal(
         <div
           ref={pillRef}
-          className="tooltip"
+          className={`tooltip${className ? ` ${className}` : ''}`}
           role="tooltip"
           // No inline `transform` on render. The useLayoutEffect above
           // writes the clamped transform via the ref BEFORE the browser

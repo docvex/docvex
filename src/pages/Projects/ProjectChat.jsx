@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
+import { usePaneChromeSlot, usePaneChromePortalEl, usePaneChromeFooterEl } from '../../context/PaneChromeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationsContext';
 import { useChatUnread } from '../../context/ChatUnreadContext';
 import { listMembers } from '../../lib/projects';
-import { listProjectFiles, createSignedDownloadUrl } from '../../lib/projectFiles';
 import { supabase } from '../../lib/supabaseClient';
 import {
   listChatMessages,
@@ -30,6 +31,10 @@ import { useMorphPill } from '../../components/useMorphPill';
 import { openFileWindow, openDocx, isDocxFile, canOpenInApp } from '../../lib/platform';
 import './ProjectScoped.css';
 import './ProjectChatVariantB.css';
+
+// Platform hint for the search shortcut chip (⌘F on macOS, Ctrl F elsewhere) —
+// matches the Files toolbar search.
+const isMacPlatform = typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.platform || '');
 
 // Per-project chat — Variant B "Split Pane" (ported from the Claude
 // Design handoff). Two top tabs share the page: Team (realtime project
@@ -409,11 +414,10 @@ const TeamMessageRow = React.memo(function TeamMessageRow({
 // insert + scroll-to-bottom.
 const TeamComposer = React.memo(function TeamComposer({
   projectId, viewerId, projectName, members, memberById,
-  projectFiles, fileById, filesLoaded, notify, broadcastTyping, onSent,
+  notify, broadcastTyping, onSent,
 }) {
   const [draft, setDraft] = useState('');
   const [draftMentions, setDraftMentions] = useState(() => new Set());
-  const [draftAttached, setDraftAttached] = useState(() => new Set());
   const [sending, setSending] = useState(false);
   const textareaRef = useRef(null);
 
@@ -422,10 +426,6 @@ const TeamComposer = React.memo(function TeamComposer({
   const [mentionQuery, setMentionQuery] = useState('');
   const mentionTokenRef = useRef(null);
   const [mentionIndex, setMentionIndex] = useState(0);
-
-  // File attach popover state
-  const [attachOpen, setAttachOpen] = useState(false);
-  const [attachQuery, setAttachQuery] = useState('');
 
   // Look for an in-progress @<word> token just before the caret and, if
   // present, open the mention popover with the partial-name query.
@@ -500,29 +500,24 @@ const TeamComposer = React.memo(function TeamComposer({
       if (!m) return false;
       return body.includes(`@${displayName(m.profile)}`);
     });
-    const attachedIds = Array.from(draftAttached);
     // Clear the input up-front so you can keep typing the next message
     // immediately (the textarea isn't disabled). The send proceeds with
     // the captured body.
     setDraft('');
     setDraftMentions(new Set());
-    setDraftAttached(new Set());
     setMentionOpen(false);
-    setAttachOpen(false);
     setSending(true);
     const { data, error } = await sendChatMessage({
       projectId,
       authorId: viewerId,
       body,
       mentions: finalMentions,
-      attachedFileIds: attachedIds,
     });
     setSending(false);
     if (error) {
       // Restore the failed message — unless a new draft was started meanwhile.
       setDraft((cur) => (cur ? cur : body));
       setDraftMentions((cur) => (cur.size ? cur : new Set(finalMentions)));
-      setDraftAttached((cur) => (cur.size ? cur : new Set(attachedIds)));
       notify?.({
         category: 'system',
         variant: 'error',
@@ -565,40 +560,8 @@ const TeamComposer = React.memo(function TeamComposer({
     }
   };
 
-  const toggleAttached = (fileId) => {
-    setDraftAttached((prev) => {
-      const next = new Set(prev);
-      if (next.has(fileId)) next.delete(fileId); else next.add(fileId);
-      return next;
-    });
-  };
-
-  // Filtered project files for the attach popover.
-  const attachResults = useMemo(() => {
-    const q = (attachQuery || '').toLowerCase();
-    if (!q) return projectFiles.slice(0, 12);
-    return projectFiles
-      .filter((f) => (f.name || '').toLowerCase().includes(q))
-      .slice(0, 12);
-  }, [projectFiles, attachQuery]);
-
   return (
     <div className="vb-composer-wrap">
-      {draftAttached.size > 0 && (
-        <div className="vb-staged">
-          {Array.from(draftAttached).map((fid) => {
-            const f = fileById.get(fid);
-            return (
-              <span key={fid} className="dvx-attach-pill">
-                <span className="dvx-attach-pill-ext" style={{ background: hashColor(fid) }}>{fileExt(f?.name)}</span>
-                <span className="dvx-attach-pill-name">{f?.name || 'file'}</span>
-                <button type="button" className="vb-staged-remove" onClick={() => toggleAttached(fid)} aria-label="Remove attachment"><Icon.Close /></button>
-              </span>
-            );
-          })}
-        </div>
-      )}
-
       <div
         className="dvx-composer vb-composer"
         onMouseMove={(e) => {
@@ -621,7 +584,6 @@ const TeamComposer = React.memo(function TeamComposer({
           maxLength={4000}
         />
         <div className="dvx-composer-toolbar">
-          <button type="button" className={`dvx-composer-btn${attachOpen ? ' is-active' : ''}`} title="Attach a project file" aria-label="Attach file" onClick={() => setAttachOpen((v) => !v)}><Icon.Paperclip /></button>
           <button type="button" className="dvx-composer-btn" title="Mention someone" aria-label="Mention" onClick={() => textareaRef.current?.focus()}><Icon.At /></button>
           <button type="button" className="dvx-composer-btn" title="Emoji (coming soon)" aria-label="Emoji" disabled><Icon.Smile /></button>
           <button type="button" className="dvx-composer-btn" title="Voice note (coming soon)" aria-label="Voice note" disabled><Icon.Mic /></button>
@@ -648,33 +610,6 @@ const TeamComposer = React.memo(function TeamComposer({
         </div>
       )}
 
-      {attachOpen && (
-        <div className="vb-popover">
-          <input
-            type="text"
-            className="vb-popover-search"
-            placeholder="Search files…"
-            value={attachQuery}
-            onChange={(e) => setAttachQuery(e.target.value)}
-            autoFocus
-          />
-          {!filesLoaded && <div className="vb-popover-empty">Loading files…</div>}
-          {filesLoaded && attachResults.length === 0 && (
-            <div className="vb-popover-empty">{attachQuery ? 'No matches.' : 'No files in this project yet.'}</div>
-          )}
-          {attachResults.map((f) => (
-            <button
-              type="button"
-              key={f.id}
-              className={`vb-popover-item${draftAttached.has(f.id) ? ' is-picked' : ''}`}
-              onMouseDown={(e) => { e.preventDefault(); toggleAttached(f.id); }}
-            >
-              <span className="vb-popover-name">{f.name}</span>
-              <span className="vb-popover-size">{formatBytes(f.size_bytes)}</span>
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   );
 });
@@ -786,25 +721,11 @@ export default function ProjectChat() {
     return unsub;
   }, [projectId]);
 
-  // Project file cache for attachment cards + the attach picker.
-  // Fetched once per project on first chat-tab visit; realtime on the
-  // chat doesn't touch project_files, so we leave the freshness to
-  // the user-driven refetch path (they'll re-render after navigating
-  // away and back if files changed mid-chat).
-  const [projectFiles, setProjectFiles] = useState([]);
-  const [filesLoaded, setFilesLoaded] = useState(false);
-  useEffect(() => {
-    if (!projectId) return;
-    listProjectFiles(projectId).then(({ data }) => {
-      setProjectFiles(data || []);
-      setFilesLoaded(true);
-    });
-  }, [projectId]);
-  const fileById = useMemo(() => {
-    const m = new Map();
-    for (const f of projectFiles) m.set(f.id, f);
-    return m;
-  }, [projectFiles]);
+  // Chat file-attachments were removed with the cloud file store. Any
+  // legacy `attached_file_ids` on old messages resolve to nothing, so
+  // they render as "File no longer available". Empty map keeps the
+  // existing render paths valid without a data source.
+  const fileById = useMemo(() => new Map(), []);
 
   // ───── Variant B: reactions · threads · pins · rail · search ────────
   const [reactions, setReactions] = useState([]);       // raw reaction rows
@@ -856,6 +777,7 @@ export default function ProjectChat() {
     return () => ro.disconnect();
   }, [railUserSized, tab]);
   const [chatSearch, setChatSearch] = useState('');
+  const chatSearchRef = useRef(null);
   const [openThreadId, setOpenThreadId] = useState(null);
   const [threadDraft, setThreadDraft] = useState('');
   // Copy a message body to the clipboard (used by the morph pill's
@@ -904,7 +826,7 @@ export default function ProjectChat() {
     return map;
   }, [projectReplies]);
 
-  // Rail section data (Pinned / Threads / Mentions / Files) — lifted out of
+  // Rail section data (Pinned / Threads / Mentions) — lifted out of
   // the team-tab render so the section tabs can live in the header nav bar
   // (the rail panel below just renders the selected section's content).
   const railSections = useMemo(() => {
@@ -913,24 +835,13 @@ export default function ProjectChat() {
       .sort((a, b) => new Date(b.pinned_at) - new Date(a.pinned_at));
     const mentioned = messages.filter((m) => !m.deleted_at && (m.mentions || []).includes(viewerId));
     const threadParents = messages.filter((m) => (repliesByParent.get(m.id) || []).length > 0);
-    const fileEntries = [];
-    const seenFile = new Set();
-    for (const m of messages) {
-      for (const fid of (m.attached_file_ids || [])) {
-        if (seenFile.has(fid)) continue;
-        seenFile.add(fid);
-        const f = fileById.get(fid);
-        if (f) fileEntries.push({ file: f, msg: m });
-      }
-    }
     const sections = [
       { id: 'pinned', label: 'Pinned', icon: <Icon.Pin />, count: pinned.length },
       { id: 'threads', label: 'Threads', icon: <Icon.Thread />, count: threadParents.length },
       { id: 'mentions', label: 'Mentions', icon: <Icon.At />, count: mentioned.length },
-      { id: 'files', label: 'Files', icon: <Icon.Paperclip />, count: fileEntries.length },
     ];
-    return { pinned, mentioned, threadParents, fileEntries, sections };
-  }, [messages, repliesByParent, fileById, viewerId]);
+    return { pinned, mentioned, threadParents, sections };
+  }, [messages, repliesByParent, viewerId]);
 
   // Header search filters the team message list by body text.
   const shownMessages = useMemo(() => {
@@ -1288,8 +1199,13 @@ export default function ProjectChat() {
 
   useEffect(() => {
     if (!projectId || !viewerId) return undefined;
+    // Typing is a BROADCAST channel, so the topic is the cross-user routing
+    // key and must stay shared (no unique suffix). supabase.channel(topic)
+    // returns the SAME instance for a topic already in use, so when split view
+    // mounts two chat panes for one project they share this channel — guard
+    // the subscribe() so the second pane doesn't re-subscribe (which throws).
     const channel = supabase
-      .channel(`chat-typing:${projectId}`)
+      .channel(`chat-typing:${projectId}`, { config: { broadcast: { self: false } } })
       .on('broadcast', { event: 'typing' }, (msg) => {
         const uid = msg?.payload?.user_id;
         if (!uid || uid === viewerId) return;
@@ -1298,8 +1214,10 @@ export default function ProjectChat() {
           next.set(uid, Date.now() + 4000);
           return next;
         });
-      })
-      .subscribe();
+      });
+    if (channel.state !== 'joined' && channel.state !== 'joining') {
+      try { channel.subscribe(); } catch { /* already subscribing/joined */ }
+    }
     typingChannelRef.current = channel;
     return () => {
       try { supabase.removeChannel(channel); } catch { /* non-fatal */ }
@@ -1399,26 +1317,9 @@ export default function ProjectChat() {
     setTab('private');
   }, [viewerId]);
 
-  // ───── Attached-file card click → open viewer ──────────────────────
-  const handleAttachmentClick = useCallback(async (file) => {
-    if (!file?.storage_path) return;
-    if (!canOpenInApp(file.mime_type, file.name)) return;
-    const { data, error } = await createSignedDownloadUrl(file.storage_path, 1800);
-    if (error || !data?.signedUrl) {
-      notify?.({
-        category: 'system',
-        variant: 'error',
-        title: 'Could not open file',
-        body: error?.message || 'Try again in a moment.',
-      });
-      return;
-    }
-    if (isDocxFile(file.mime_type, file.name)) {
-      openDocx({ cloudUrl: data.signedUrl, fileName: file.name || 'file' });
-      return;
-    }
-    openFileWindow(data.signedUrl, file.name || 'file');
-  }, [notify]);
+  // Chat attachments were removed with the cloud file store; legacy
+  // attachment cards on old messages are no longer openable.
+  const handleAttachmentClick = useCallback(() => {}, []);
 
   // ───── Body rendering with mention highlights ──────────────────────
   // Stored body carries literal `@<display-name>` text; mentions[] holds
@@ -1461,6 +1362,75 @@ export default function ProjectChat() {
     return parts;
   }, [memberById, viewerId]);
 
+  // ───── Window chrome integration ───────────────────────────────────
+  // Like the Files tab: publish the header subtitle into the window topbar
+  // (next to the "Chat" title) and portal the search + huddle controls into
+  // the chrome's toolbar row, so the header reads as part of the topbar
+  // instead of a separate in-page band. Hooks run before any early return.
+  const chatChromeDesc = selectedProject
+    ? `${selectedProject.name} · ${members.length} ${members.length === 1 ? 'member' : 'members'}`
+    : null;
+  usePaneChromeSlot({ description: chatChromeDesc });
+  const chromeSlotEl = usePaneChromePortalEl();
+  // The window's footer slot — the message composer is portalled here so it
+  // docks in the app footer (relevant to this window), not inside the page.
+  const chatFooterEl = usePaneChromeFooterEl();
+  // Ctrl/⌘+F focuses the message search — only for the SELECTED window (the
+  // input is portalled into this pane's chrome, so `.closest('.sv-pane')`
+  // resolves to it; single-window mode has no `.sv-pane` and always fires).
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        const el = chatSearchRef.current;
+        if (!el) return;
+        const pane = el.closest('.sv-pane');
+        if (pane && !pane.classList.contains('is-focused')) return;
+        e.preventDefault();
+        el.focus();
+        el.select();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const chatChromeTools = (
+    <div className="dvx-chrome-tools">
+      {/* Huddle on the left, search on the right (search has margin-left:auto). */}
+      <button type="button" className="dvx-action-btn is-accent" disabled title="Start a huddle (coming soon)">
+        <Icon.Headset /><span>Start huddle</span>
+      </button>
+      <div className={`dvx-chrome-search${chatSearch ? ' is-active' : ''}`}>
+        <Icon.Search className="dvx-chrome-search-glyph" width="15" height="15" />
+        <input
+          ref={chatSearchRef}
+          type="text"
+          placeholder="Search messages…"
+          value={chatSearch}
+          onChange={(e) => setChatSearch(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape' && chatSearch) { e.stopPropagation(); setChatSearch(''); } }}
+          aria-label="Search messages"
+        />
+        {chatSearch ? (
+          <button
+            type="button"
+            className="dvx-chrome-search-clear"
+            title="Clear search"
+            aria-label="Clear search"
+            onClick={() => { setChatSearch(''); chatSearchRef.current?.focus(); }}
+          >
+            <Icon.Close width="13" height="13" />
+          </button>
+        ) : (
+          <span className="dvx-chrome-search-kbd">
+            <kbd>{isMacPlatform ? '⌘' : 'Ctrl'}</kbd>
+            <span className="dvx-chrome-search-plus">+</span>
+            <kbd>F</kbd>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
   // ───── Early returns ───────────────────────────────────────────────
   if (loadingProject && !selectedProject) return <ProjectScopedSkeleton />;
   if (!selectedProject) {
@@ -1473,87 +1443,101 @@ export default function ProjectChat() {
     );
   }
 
+  // Tab strip — lifted into the window topbar (chrome row 2), stacked UNDER the
+  // huddle + search row, so the whole chat header reads as one bar. Falls back
+  // in-page when there's no chrome.
+  const chatTabs = (
+    <div className="dvx-tabs vb-tabs" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={tab === 'team'}
+        className={`dvx-tab${tab === 'team' ? ' is-active' : ''}`}
+        onClick={() => { setTab('team'); setScrollToLatestNonce((n) => n + 1); }}
+      >
+        <Icon.Hash />Team
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={tab === 'private'}
+        className={`dvx-tab${tab === 'private' ? ' is-active' : ''}`}
+        onClick={() => { setTab('private'); setScrollToLatestNonce((n) => n + 1); }}
+      >
+        <Icon.Lock />Private
+      </button>
+      {/* Rail section tabs (Team only) — drive the right panel; clicking one
+          also re-opens it if it was collapsed. */}
+      {tab === 'team' && (
+        <div className="vb-header-sections" ref={headerSectionsRef}>
+          {railSections.sections.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className={`vb-htab${!railCollapsed && railTab === s.id ? ' is-active' : ''}`}
+              onClick={() => { setRailTab(s.id); setRailCollapsed(false); if (s.id !== 'threads') setOpenThreadId(null); }}
+            >
+              {s.icon}<span>{s.label}</span><span className="vb-htab-count">{s.count}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            className="vb-htab-collapse"
+            title={railCollapsed ? 'Show panel' : 'Hide panel'}
+            aria-label={railCollapsed ? 'Show panel' : 'Hide panel'}
+            onClick={() => setRailCollapsed((v) => !v)}
+          >
+            <Icon.Arrow style={railCollapsed ? undefined : { transform: 'rotate(180deg)' }} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  // Team composer node — rendered ONCE, either portalled into the window's app
+  // footer (the normal path) or inline as a fallback when there's no chrome.
+  const teamComposerNode = (
+    <TeamComposer
+      projectId={projectId}
+      viewerId={viewerId}
+      projectName={selectedProject.name}
+      members={members}
+      memberById={memberById}
+      notify={notify}
+      broadcastTyping={broadcastTyping}
+      onSent={handleMessageSent}
+    />
+  );
+
   // ───── Render ──────────────────────────────────────────────────────
   return (
     <div className="dvx-chat vb-chat">
-      {/* Header — title + members + search + huddle */}
-      <div className="dvx-header vb-header">
-        <div className="dvx-header-title-stack">
-          <h1 className="dvx-header-title">Chat</h1>
-          <p className="dvx-header-subtitle">
-            {selectedProject.name} · {members.length} {members.length === 1 ? 'member' : 'members'}
-          </p>
-        </div>
-        <div className="vb-header-actions">
-          <div className="dvx-search vb-search">
-            <Icon.Search />
-            <input
-              type="text"
-              placeholder="Search messages…"
-              value={chatSearch}
-              onChange={(e) => setChatSearch(e.target.value)}
-              aria-label="Search messages"
-            />
+      {/* Header + tabs live in the window topbar: the subtitle is published next
+          to the "Chat" title, and the search + huddle row plus the tab strip are
+          portalled into the chrome (stacked). Falls back to an in-page header +
+          tabs only if there's no chrome (no PaneChromeProvider). */}
+      {chromeSlotEl && createPortal(<>{chatChromeTools}{chatTabs}</>, chromeSlotEl)}
+      {!chromeSlotEl && (
+        <>
+          <div className="dvx-header vb-header">
+            <div className="dvx-header-title-stack">
+              <h1 className="dvx-header-title">Chat</h1>
+              <p className="dvx-header-subtitle">
+                {selectedProject.name} · {members.length} {members.length === 1 ? 'member' : 'members'}
+              </p>
+            </div>
+            <div className="vb-header-actions">{chatChromeTools.props.children}</div>
           </div>
-          <button type="button" className="dvx-action-btn is-accent" disabled title="Start a huddle (coming soon)">
-            <Icon.Headset /><span>Start huddle</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="dvx-tabs vb-tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'team'}
-          className={`dvx-tab${tab === 'team' ? ' is-active' : ''}`}
-          onClick={() => { setTab('team'); setScrollToLatestNonce((n) => n + 1); }}
-        >
-          <Icon.Hash />Team
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'private'}
-          className={`dvx-tab${tab === 'private' ? ' is-active' : ''}`}
-          onClick={() => { setTab('private'); setScrollToLatestNonce((n) => n + 1); }}
-        >
-          <Icon.Lock />Private
-        </button>
-        {/* Rail section tabs live here in the header nav bar (Team only). They
-            drive the right panel below; clicking one also re-opens it if it
-            was collapsed. */}
-        {tab === 'team' && (
-          <div className="vb-header-sections" ref={headerSectionsRef}>
-            {railSections.sections.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className={`vb-htab${!railCollapsed && railTab === s.id ? ' is-active' : ''}`}
-                onClick={() => { setRailTab(s.id); setRailCollapsed(false); if (s.id !== 'threads') setOpenThreadId(null); }}
-              >
-                {s.icon}<span>{s.label}</span><span className="vb-htab-count">{s.count}</span>
-              </button>
-            ))}
-            <button
-              type="button"
-              className="vb-htab-collapse"
-              title={railCollapsed ? 'Show panel' : 'Hide panel'}
-              aria-label={railCollapsed ? 'Show panel' : 'Hide panel'}
-              onClick={() => setRailCollapsed((v) => !v)}
-            >
-              <Icon.Arrow style={railCollapsed ? undefined : { transform: 'rotate(180deg)' }} />
-            </button>
-          </div>
-        )}
-      </div>
+          {chatTabs}
+        </>
+      )}
 
       {tab === 'team' && (() => {
         // Section data + tabs now live in the header nav bar (railSections);
         // the rail panel below just renders the selected section's content.
-        const { pinned, mentioned, threadParents, fileEntries } = railSections;
+        const { pinned, mentioned, threadParents } = railSections;
         return (
+          <div className="vb-team">
           <div
             className={`vb-split${railCollapsed ? ' rail-collapsed' : ''}`}
             // Drag the splitter to resize the rail; the resizer is a thin
@@ -1618,20 +1602,6 @@ export default function ProjectChat() {
                 </button>
               )}
 
-              {/* Composer (local-state child — typing won't re-render the list) */}
-              <TeamComposer
-                projectId={projectId}
-                viewerId={viewerId}
-                projectName={selectedProject.name}
-                members={members}
-                memberById={memberById}
-                projectFiles={projectFiles}
-                fileById={fileById}
-                filesLoaded={filesLoaded}
-                notify={notify}
-                broadcastTyping={broadcastTyping}
-                onSent={handleMessageSent}
-              />
             </div>
 
             {/* Splitter — drag to resize the panel (see startRailResize). */}
@@ -1688,21 +1658,6 @@ export default function ProjectChat() {
                               <div className="vb-rail-card-body">{renderBody(m)}</div>
                               <div className="vb-rail-card-foot"><Icon.Arrow /><span>Jump to message</span></div>
                             </button>
-                          ))}
-                        </div>
-                      )
-                  )}
-
-                  {railTab === 'files' && (
-                    fileEntries.length === 0
-                      ? <div className="vb-rail-empty">No files shared in chat yet.</div>
-                      : (
-                        <div className="vb-rail-list">
-                          {fileEntries.map(({ file: f, msg: fm }) => (
-                            <div key={`${f.id}-${fm.id}`} className="vb-rail-file-row">
-                              <VbAttachment file={f} onOpen={handleAttachmentClick} />
-                              <div className="vb-rail-file-meta">Shared {relativeShort(fm.created_at)} by {displayName(memberById.get(fm.author_id)?.profile)}</div>
-                            </div>
                           ))}
                         </div>
                       )
@@ -1784,6 +1739,11 @@ export default function ProjectChat() {
               </aside>
             )}
           </div>
+
+          {/* Message input — docked in the window's app footer (portalled), or
+              inline as a full-width footer when there's no chrome. */}
+          {chatFooterEl ? createPortal(teamComposerNode, chatFooterEl) : teamComposerNode}
+          </div>
         );
       })()}
 
@@ -1795,16 +1755,6 @@ export default function ProjectChat() {
         const partner = selectedPartnerId ? memberById.get(selectedPartnerId) : null;
         const partnerName = partner ? displayName(partner.profile) : '';
         const partnerStatus = partner?.profile?.status;
-        const sharedFiles = [];
-        const seen = new Set();
-        for (const m of privateMessages) {
-          for (const fid of (m.attached_file_ids || [])) {
-            if (seen.has(fid)) continue;
-            seen.add(fid);
-            const f = fileById.get(fid);
-            if (f) sharedFiles.push(f);
-          }
-        }
         return (
           <div className="vb-private">
             <div className="vb-private-list dvx-scroll">
@@ -1903,10 +1853,6 @@ export default function ProjectChat() {
             </div>
 
             <aside className="vb-private-rail dvx-scroll">
-              <div className="vb-rail-section-title">Shared files</div>
-              {sharedFiles.length > 0
-                ? sharedFiles.map((f, idx) => <VbAttachment key={`${f.id}-${idx}`} file={f} onOpen={handleAttachmentClick} />)
-                : <div className="vb-rail-empty">No files shared yet.</div>}
               <div className="vb-rail-section-title">Quick actions</div>
               <button type="button" className="dvx-action-btn" disabled><Icon.Headset /> Start huddle</button>
               <button type="button" className="dvx-action-btn" disabled><Icon.Bell /> Mute conversation</button>

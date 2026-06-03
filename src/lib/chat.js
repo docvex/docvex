@@ -14,7 +14,7 @@
 //   edited_at          timestamptz?
 //   deleted_at         timestamptz?  — soft delete tombstone
 
-import { supabase } from './supabaseClient';
+import { supabase, realtimeSuffix } from './supabaseClient';
 
 const TABLE = 'chat_messages';
 // parent_id / pinned_at / pinned_by added in migration 026 (Variant B:
@@ -121,7 +121,7 @@ export async function deleteChatMessage(id) {
 export function subscribeChatMessages(projectId, onChange) {
   if (!projectId) return () => {};
   const channel = supabase
-    .channel(`chat_messages:${projectId}`)
+    .channel(`chat_messages:${projectId}:${realtimeSuffix()}`)
     .on(
       'postgres_changes',
       {
@@ -241,7 +241,7 @@ export async function toggleReaction({ messageId, projectId, userId, emoji, mine
 export function subscribeReactions(projectId, onChange) {
   if (!projectId) return () => {};
   const channel = supabase
-    .channel(`chat_reactions:${projectId}`)
+    .channel(`chat_reactions:${projectId}:${realtimeSuffix()}`)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: REACTIONS_TABLE, filter: `project_id=eq.${projectId}` },

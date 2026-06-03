@@ -134,6 +134,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // `window.electronAPI?.localFolder` being defined.
   localFolder: {
     pick: () => ipcRenderer.invoke('local-folder:pick'),
+    // Resolve (and create) the per-project directory. The folder is named
+    // after the project and created under `baseDir` (the user's projects
+    // folder) on first use — the SAME folder the hub creates.
+    projectDir: (projectId, name, baseDir) => ipcRenderer.invoke('local-folder:project-dir', { projectId, name, baseDir }),
     list: (dir) => ipcRenderer.invoke('local-folder:list', dir),
     listRecursive: (dir) => ipcRenderer.invoke('local-folder:list-recursive', dir),
     download: (payload) => ipcRenderer.invoke('local-folder:download', payload),
@@ -171,5 +175,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // and reconciliation logic.
     readSidecar: (dir) => ipcRenderer.invoke('local-folder:read-sidecar', dir),
     writeSidecar: (payload) => ipcRenderer.invoke('local-folder:write-sidecar', payload),
+    // Recently deleted (local recycle bin) — deleting a file moves it into
+    // a hidden `.docvex-trash/` folder with a deletedAt timestamp; main
+    // auto-purges entries older than 30 days. See main.js trash handlers.
+    trashFile: (payload) => ipcRenderer.invoke('local-folder:trash-file', payload),
+    listTrash: (dir) => ipcRenderer.invoke('local-folder:list-trash', dir),
+    restoreFromTrash: (payload) => ipcRenderer.invoke('local-folder:restore-from-trash', payload),
+    deleteFromTrash: (payload) => ipcRenderer.invoke('local-folder:delete-from-trash', payload),
+    purgeTrash: (payload) => ipcRenderer.invoke('local-folder:purge-trash', payload),
   },
 });

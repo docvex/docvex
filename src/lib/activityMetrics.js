@@ -117,16 +117,16 @@ export async function fetchPersonalActivityMetrics({ userId }) {
   const within = (t, lo, hi) => t >= lo && t < hi;
 
   // ── Fetch across all my projects (RLS scopes rows to my memberships). ──
+  // File / change-request / branch sources were removed with the cloud file
+  // store + branching system — those metrics resolve to empty.
   const ok = (r) => r;
   const fail = () => ({ data: [] });
+  const empty = Promise.resolve({ data: [] });
   const [projRes, filesRes, reqRes, bcRes, invRes] = await Promise.all([
     listMyProjects().catch(fail),
-    supabase.from('project_files').select('id, name, project_id, uploaded_by, uploaded_at')
-      .order('uploaded_at', { ascending: false }).limit(2000).then(ok, fail),
-    supabase.from('change_requests').select('id, project_id, author_id, title, status, submitted_at, decided_at, decided_by')
-      .order('submitted_at', { ascending: false }).limit(2000).then(ok, fail),
-    supabase.from('branch_changes').select('kind, target_file_id, project_id, created_at')
-      .eq('user_id', userId).then(ok, fail),
+    empty, // project_files (dropped)
+    empty, // change_requests (dropped)
+    empty, // branch_changes (dropped)
     supabase.from('project_invitations').select('id, accepted_at, created_at')
       .eq('invited_by', userId).then(ok, fail),
   ]);
@@ -145,14 +145,9 @@ export async function fetchPersonalActivityMetrics({ userId }) {
   const invites = (invRes && !invRes.error && invRes.data) ? invRes.data : [];
   const pendingInvites = invites.filter((i) => !i.accepted_at);
 
-  // Items of my open requests → "files I touched".
-  let myOpenItemTargets = [];
-  const openIds = myOpenReqs.map((r) => r.id);
-  if (openIds.length) {
-    const itRes = await supabase.from('change_request_items')
-      .select('target_file_id, request_id').in('request_id', openIds).then(ok, fail);
-    myOpenItemTargets = (itRes?.data || []).map((it) => it.target_file_id).filter(Boolean);
-  }
+  // Items of my open requests → "files I touched". (Change requests were
+  // removed, so this is always empty now.)
+  const myOpenItemTargets = [];
 
   // ── Event timeline (my activity, with project for "projects active in") ─
   const myEvents = [

@@ -1,9 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useUpdates, versionTagFor } from '../context/UpdatesContext';
-import { useAuth } from '../context/AuthContext';
-import { useReportProblem } from '../context/ReportProblemContext';
 import ConfirmModal from '../components/ConfirmModal';
 import Tooltip from '../components/Tooltip';
 import { isElectron, openExternal as platformOpenExternal } from '../lib/platform';
@@ -13,14 +11,6 @@ import './Updates.css';
 // marketing site (not directly to a release asset) so the user lands on
 // the install/download page that already exists.
 const DESKTOP_DOWNLOAD_URL = 'https://docvex.ro/';
-const DOCVEX_SITE = 'https://docvex.ro/';
-const SUPPORT_EMAIL = 'customersupport@docvex.ro';
-const TEAM_EMAIL = 'docvexteam@docvex.ro';
-
-// Single subtitle shared across all three tabs (Updates / About /
-// Contact us). One line covers all of them since they're three views
-// of the same "about the app" surface.
-const ABOUT_SUBTITLE = 'Learn about DocVex, browse release notes, and get in touch.';
 
 function formatDate(iso) {
   if (!iso) return '';
@@ -58,6 +48,20 @@ function releaseKind(currentTag, previousTag) {
   return null;
 }
 
+const KIND_LABEL = { major: 'Major', minor: 'Minor', patch: 'Patch' };
+
+// Short commit reference for a release's footer. GitHub's `target_commitish`
+// is usually a branch name ("main"); only show it when it actually looks
+// like a commit sha so the foot reads like the design's "v5.1.0 · 8f3ac21".
+function shortCommit(release) {
+  const c = release?.target_commitish;
+  if (typeof c === 'string' && /^[0-9a-f]{7,40}$/i.test(c)) return c.slice(0, 7);
+  return null;
+}
+
+// ── Icons ────────────────────────────────────────────────────────────────
+// Inline SVG constants — no icon library (house convention). Stroke icons
+// inherit currentColor so they pick up hover/active states.
 const RefreshIcon = (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="23 4 23 10 17 10"/>
@@ -84,19 +88,23 @@ const ExternalLinkIcon = (
 
 const RevertIcon = (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    {/* Curved arrow pointing back-left — same shape we use for the
-        Updates header's RefreshIcon family, just stopping at "back to
-        a previous state". */}
     <polyline points="1 4 1 10 7 10"/>
     <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
   </svg>
 );
 
-// Disclosure chevron for collapsing a release's notes. Points down when
-// expanded; CSS rotates it to point right when collapsed.
+// Disclosure chevron — points down when expanded, CSS rotates it to point
+// right when collapsed.
 const ChevronIcon = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="6 9 12 15 18 9"/>
+  </svg>
+);
+
+const TagIcon = (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+    <line x1="7" y1="7" x2="7.01" y2="7"/>
   </svg>
 );
 
@@ -157,6 +165,12 @@ function StatusBanner() {
     downloadUrl,
   } = useUpdates();
 
+  // Bump kind of the available update (latest vs installed), used to colour
+  // the "New version available" banner the same way the release cards are
+  // colour-coded (major → red, minor → blue, patch → neutral).
+  const updateKind = releaseKind(latestVersion, currentVersion);
+  const updateBannerClass = `updates-banner updates-banner-update${updateKind ? ` is-${updateKind}` : ''}`;
+
   // Web build: no installer state to manage. Render the cross-promotion
   // CTA instead and let the release-notes section below handle the
   // changelog. Errors and the initial-loading state still fall through to
@@ -194,7 +208,7 @@ function StatusBanner() {
           <p>Version {installerState.releaseName || latestVersion} has been downloaded. Restart to apply.</p>
         </div>
         <button className="updates-btn updates-btn-primary" onClick={installUpdate}>
-          {DownloadIcon} Restart & install
+          {DownloadIcon} Restart &amp; install
         </button>
       </div>
     );
@@ -239,9 +253,9 @@ function StatusBanner() {
     if (downloading) label = pct != null ? `Downloading… ${pct}%` : 'Downloading…';
     else if (installing) label = 'Installing…';
     return (
-      <div className="updates-banner updates-banner-update">
+      <div className={updateBannerClass}>
         <div>
-          <strong>New version available: v{latestVersion}</strong>
+          <strong>New version available — v{latestVersion}</strong>
           <p>
             You're on v{currentVersion}.{' '}
             {busy
@@ -268,13 +282,13 @@ function StatusBanner() {
     // download — the bottom progress bar appears while that runs. In dev we
     // can't actually install, so the button explains itself instead.
     return (
-      <div className="updates-banner updates-banner-update">
+      <div className={updateBannerClass}>
         <div>
-          <strong>New version available: v{latestVersion}</strong>
+          <strong>New version available — v{latestVersion}</strong>
           <p>
             You're on v{currentVersion}.{' '}
             {isPackaged
-              ? 'Click below to download the installer; the app will restart to apply it once ready.'
+              ? 'Download the installer; DocVex restarts to apply it once ready.'
               : 'Auto-update is only active in packaged builds.'}
           </p>
         </div>
@@ -294,7 +308,7 @@ function StatusBanner() {
   return (
     <div className="updates-banner updates-banner-uptodate">
       <div>
-        <strong >You're up to date</strong>
+        <strong>You're up to date</strong>
         <p>Running v{currentVersion || '—'}</p>
       </div>
       <button className="updates-btn" onClick={checkNow} disabled={checking}>
@@ -304,166 +318,158 @@ function StatusBanner() {
   );
 }
 
-// Body content for the About tab — what DocVex is and what you can do
-// with it. Pulled out as a sibling component so the main Updates page
-// reads cleanly with three small tab-body components rather than a
-// 200-line render. No top-level <header> because the page already owns
-// the title + subtitle row above the tab bar.
-function AboutTabBody() {
-  const { currentVersion } = useUpdates();
-  const openSite = (e) => {
-    if (!isElectron) return;
-    e.preventDefault();
-    platformOpenExternal(DOCVEX_SITE);
-  };
-  return (
-    <div className="updates-about-body">
-      <section className="updates-card">
-        <h2 className="updates-card-title">What DocVex is</h2>
-        <p className="updates-card-body">
-          DocVex is a workspace built for legal teams — a single place to
-          organise projects, share documents with clients, and keep day-to-day
-          work moving without juggling email threads or scattered folders.
-        </p>
-      </section>
-
-      <section className="updates-card">
-        <h2 className="updates-card-title">What you can do here</h2>
-        <ul className="updates-card-list">
-          <li>Create projects and invite teammates with role-based access.</li>
-          <li>Upload, preview, and annotate files alongside your team.</li>
-          <li>Manage clients and track to-dos inside each project.</li>
-          <li>Stay current with in-app notifications and release updates.</li>
-        </ul>
-      </section>
-
-      <footer className="updates-about-footer">
-        <a
-          href={DOCVEX_SITE}
-          className="updates-about-link"
-          target="_blank"
-          rel="noreferrer"
-          onClick={openSite}
-        >
-          docvex.ro
-        </a>
-        <span className="updates-about-sep">·</span>
-        <span>
-          {currentVersion ? `Version ${currentVersion}` : 'Desktop & web client'}
-        </span>
-        <span className="updates-about-sep">·</span>
-        <span>© {new Date().getFullYear()} DocVex</span>
-      </footer>
-    </div>
-  );
-}
-
-// Body content for the Contact us tab. Surfaces three ways to reach
-// the team: the in-app Report-a-problem flow (signed-in only — the
-// support function reads the user's JWT), and two mailto links for
-// general questions. On Electron we delegate the mailto: open to the
-// main process so the default-handler fires there rather than
-// navigating the renderer.
-function ContactTabBody() {
-  const { session } = useAuth();
-  const { captureAndOpen: openReportProblem, capturing } = useReportProblem();
-
-  const openMail = (address) => (e) => {
-    if (!isElectron) return;
-    e.preventDefault();
-    platformOpenExternal(`mailto:${address}`);
-  };
-  const openSite = (e) => {
-    if (!isElectron) return;
-    e.preventDefault();
-    platformOpenExternal(DOCVEX_SITE);
-  };
+// ── One release card ───────────────────────────────────────────────────────
+// GitHub-style collapsible release card. The version tag/date live in the
+// timeline rail to the left (rail variant); inside the card the version is
+// repeated as `.ver-inline` for the no-rail fallback and hidden by CSS when
+// the rail is shown.
+function ReleaseCard({ release, tag, kind, isLatest, isCurrent, expanded, onToggle, onRevert }) {
+  const commit = shortCommit(release);
+  const cls = [
+    'card',
+    isCurrent && 'is-installed',
+    isLatest && 'is-latest',
+  ].filter(Boolean).join(' ');
 
   return (
-    <div className="updates-about-body">
-      {session && (
-        <section className="updates-card">
-          <h2 className="updates-card-title">Report a problem</h2>
-          <p className="updates-card-body">
-            Send the team a description plus an automatic screenshot of what
-            you're looking at right now. Fastest path for anything that's
-            broken or behaving unexpectedly.
-          </p>
+    <article className={cls}>
+      <header className="card-head">
+        <div className="card-titles">
           <button
             type="button"
-            className="updates-card-cta"
-            onClick={openReportProblem}
-            disabled={capturing}
+            className={`disclose${expanded ? ' open' : ''}`}
+            aria-expanded={expanded}
+            aria-label={expanded ? `Collapse notes for ${tag}` : `Expand notes for ${tag}`}
+            onClick={onToggle}
           >
-            {capturing ? 'Capturing screenshot…' : 'Open report form'}
+            {ChevronIcon}
           </button>
-        </section>
+          <div className="card-title-stack">
+            <div className="badge-row">
+              <span className="ver-inline">{tag}</span>
+              {isLatest && <span className="pill pill-latest">Latest</span>}
+              {isCurrent && <span className="pill pill-installed">Installed</span>}
+              {kind && <span className={`pill pill-kind kind-${kind}`}>{KIND_LABEL[kind]}</span>}
+              {release.prerelease && <span className="pill pill-kind kind-pre">Pre-release</span>}
+            </div>
+            {/* Every release gets a header — the release name when it differs
+                from the tag, otherwise the version tag itself so no card is
+                left title-less. */}
+            <h3 className="card-name">
+              {release.name && release.name !== tag ? release.name : tag}
+            </h3>
+          </div>
+        </div>
+        <div className="card-meta">
+          <span className="meta-date">{formatDate(release.published_at)}</span>
+          <a
+            href={release.html_url}
+            className="ghlink"
+            onClick={(e) => openExternal(e, release.html_url)}
+          >
+            View on GitHub {ExternalLinkIcon}
+          </a>
+        </div>
+      </header>
+
+      {expanded && (
+        <div className="card-body">
+          {release.body ? (
+            <div className="md">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  a: ({ href, children }) => (
+                    <a href={href} onClick={(e) => openExternal(e, href)}>
+                      {children}
+                    </a>
+                  ),
+                }}
+              >
+                {release.body}
+              </ReactMarkdown>
+            </div>
+          ) : (
+            <p className="md release-empty">No notes provided.</p>
+          )}
+
+          <div className="card-foot">
+            <span className="commit">
+              {TagIcon} {tag}{commit ? ` · ${commit}` : ''}
+            </span>
+            {/* Revert is a download of an older Setup.exe — Electron only,
+                hidden on the installed version (no-op) and on web (no local
+                install to roll back). Disabled when the release shipped no
+                installer asset. */}
+            {isElectron && !isCurrent && (() => {
+              const setup = setupAssetFor(release);
+              return (
+                <Tooltip
+                  content={
+                    setup
+                      ? `Download v${tag.replace(/^v/, '')}'s installer to revert. Heads up: auto-update will pull the latest version again on next launch.`
+                      : 'No Setup.exe asset on this release.'
+                  }
+                >
+                  <button
+                    type="button"
+                    className="btn btn-revert"
+                    onClick={() => setup && onRevert(release)}
+                    disabled={!setup}
+                  >
+                    {RevertIcon} Revert to this version
+                  </button>
+                </Tooltip>
+              );
+            })()}
+          </div>
+        </div>
       )}
-
-      <section className="updates-card">
-        <h2 className="updates-card-title">Email us</h2>
-        <p className="updates-card-body">
-          For general questions, partnership enquiries, or anything that
-          doesn't fit a bug report.
-        </p>
-        <ul className="updates-contact-list">
-          <li>
-            <span className="updates-contact-label">Support</span>
-            <a
-              className="updates-about-link"
-              href={`mailto:${SUPPORT_EMAIL}`}
-              onClick={openMail(SUPPORT_EMAIL)}
-            >
-              {SUPPORT_EMAIL}
-            </a>
-          </li>
-          <li>
-            <span className="updates-contact-label">Team</span>
-            <a
-              className="updates-about-link"
-              href={`mailto:${TEAM_EMAIL}`}
-              onClick={openMail(TEAM_EMAIL)}
-            >
-              {TEAM_EMAIL}
-            </a>
-          </li>
-        </ul>
-      </section>
-
-      <footer className="updates-about-footer">
-        <a
-          href={DOCVEX_SITE}
-          className="updates-about-link"
-          target="_blank"
-          rel="noreferrer"
-          onClick={openSite}
-        >
-          docvex.ro
-        </a>
-      </footer>
-    </div>
+    </article>
   );
 }
 
 export default function Updates() {
-  const { releases, currentVersion, loading, error } = useUpdates();
+  const { releases, currentVersion, latestVersion, hasUpdate, loading, error } = useUpdates();
 
-  // Active tab. Defaults to 'updates' because that was the page's prior
-  // sole purpose; About + Contact us are the new additions that joined
-  // the same hub when the sidebar's brand button started routing here.
-  const [activeTab, setActiveTab] = useState('updates');
+  // Compact-header-on-scroll, mirroring the launch hub. The page scrolls inside
+  // the single-window pane's `.sv-single-scroll` (falling back to `.main-content`
+  // if the structure ever changes); we listen there and toggle a fixed, blurred
+  // bar in once the big title has scrolled away. Hysteresis (show past 32px,
+  // hide under 8px) prevents flicker at the edge.
+  const pageRef = useRef(null);
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const scroller = pageRef.current?.closest('.sv-single-scroll, .main-content');
+    if (!scroller) return undefined;
+    const onScroll = () => {
+      const top = scroller.scrollTop;
+      setScrolled((s) => (s ? top > 8 : top > 32));
+    };
+    onScroll();
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Clicking the compact-header status pill jumps back to the top (smooth),
+  // which also fades the compact bar back out as the big header reappears.
+  const scrollToTop = () => {
+    const scroller = pageRef.current?.closest('.sv-single-scroll, .main-content');
+    scroller?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Revert-confirmation modal state. `pendingRevert` holds the release the
-  // user is about to roll back to (null when no modal). One state object
-  // for the whole page rather than per-card so only one modal can be open
-  // at a time and the confirm handler has direct access to the release.
+  // user is about to roll back to (null when no modal). One state object for
+  // the whole page so only one modal can be open at a time.
   const [pendingRevert, setPendingRevert] = useState(null);
 
-  // Per-release collapse state. We track the EXPANDED ids so the default is
-  // collapsed — a card's patchnotes show only after the user opens it, and
-  // releases that load in later default collapsed too. Everything else on the
-  // card (version, tags, date, links, revert) stays visible when collapsed.
-  const [expandedIds, setExpandedIds] = useState(() => new Set());
+  // Per-release collapse state. Track EXPANDED ids so the default is
+  // collapsed; the newest release opens by default so the user lands on the
+  // most relevant notes.
+  const [expandedIds, setExpandedIds] = useState(() => {
+    const first = releases[0];
+    return new Set(first ? [first.id] : []);
+  });
   const toggleCollapsed = (id) => setExpandedIds((prev) => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -483,9 +489,8 @@ export default function Updates() {
   const pendingVer = pendingRevert ? versionTagFor(pendingRevert).replace(/^v/, '') : '';
 
   // major/minor/patch tag per release, computed from the ORIGINAL
-  // chronological (newest-first) order — each release vs the one that
-  // preceded it — so it stays correct even after we reshuffle the list
-  // for display below.
+  // newest-first order — each release vs the one that preceded it — so it
+  // stays correct regardless of how the list is displayed.
   const kindById = React.useMemo(() => {
     const m = new Map();
     releases.forEach((r, i) => {
@@ -495,192 +500,123 @@ export default function Updates() {
     return m;
   }, [releases]);
 
-  // Display order for the release list. Normally newest-first. But when the
-  // installed version isn't the latest, lift it to second position — so the
-  // user sees the latest update first, then the version they're on, then the
-  // rest in newest-first order.
-  const orderedReleases = React.useMemo(() => {
-    if (!currentVersion || releases.length < 2) return releases;
-    const idx = releases.findIndex(
-      (r) => versionTagFor(r).replace(/^v/, '') === currentVersion,
-    );
-    if (idx <= 0) return releases; // installed not in the list, or already latest
-    const installed = releases[idx];
-    const rest = releases.filter((_, i) => i !== 0 && i !== idx);
-    return [releases[0], installed, ...rest];
-  }, [releases, currentVersion]);
+  // The newest release (releases[0], already semver-sorted desc) is "Latest".
+  const latestId = releases[0]?.id ?? null;
 
-  const tabs = [
-    { id: 'updates', label: 'Updates' },
-    { id: 'about',   label: 'About' },
-    { id: 'contact', label: 'Contact us' },
-  ];
+  // Update status for the compact header's chip — colour-coded by bump kind
+  // when an update is available, gray when up to date (mirrors the status
+  // banner + the title-bar pill).
+  const compactKind = hasUpdate ? releaseKind(latestVersion, currentVersion) : null;
+  const compactStatusClass = hasUpdate
+    ? `versions-compact-status is-update${compactKind ? ` is-${compactKind}` : ''}`
+    : 'versions-compact-status is-uptodate';
 
   return (
-    <div className="updates-page">
-      <header className="updates-header">
-        <h1 className="updates-title">About</h1>
-        <p className="updates-subtitle">{ABOUT_SUBTITLE}</p>
-      </header>
+    <div className="updates-page" ref={pageRef}>
+      {/* Compact header — fades/slides in once the big "Versions" title has
+          scrolled away, like the launch hub. Fixed to the content area. Carries
+          the same up-to-date / update-available status as the banner below. */}
+      <div className={`versions-compact${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
+        <span className="versions-compact-title">Versions</span>
+        <span className="versions-compact-sep" aria-hidden="true">·</span>
+        <span className="versions-compact-eyebrow">Release history</span>
+        <span className="versions-compact-sep" aria-hidden="true">·</span>
+        <button
+          type="button"
+          className={compactStatusClass}
+          onClick={scrollToTop}
+          title="Back to top"
+        >
+          <span className="versions-compact-dot" aria-hidden="true" />
+          {hasUpdate
+            ? `Update available${latestVersion ? ` — v${latestVersion}` : ''}`
+            : `Up to date${currentVersion ? ` · v${currentVersion}` : ''}`}
+        </button>
+      </div>
+      <div className="page">
+        {/* Masthead — mirrors the Projects page: accent eyebrow + muted kicker,
+            big display title, then a stat line summarising the release history
+            (count + the build you're on vs. the latest). */}
+        <header className="updates-masthead">
+          <div className="updates-mh-left">
+            <div className="updates-mh-eyebrow">
+              <span>Release history</span>
+              <span className="updates-mh-muted">· Every build, newest first</span>
+            </div>
+            <h1 className="updates-mh-title">Versions.</h1>
+            <p className="updates-mh-kicker">
+              {releases.length > 0 ? (
+                <>
+                  <strong>{releases.length} {releases.length === 1 ? 'release' : 'releases'}</strong> published
+                  {currentVersion && <> — you're on <strong>v{currentVersion}</strong></>}
+                  {hasUpdate && latestVersion
+                    ? <>, latest is <strong>v{latestVersion}</strong>.</>
+                    : currentVersion ? <>, the latest build.</> : '.'}
+                </>
+              ) : (
+                <>Release notes and version history for DocVex{currentVersion && <> — you're on <strong>v{currentVersion}</strong></>}.</>
+              )}
+            </p>
+          </div>
+        </header>
 
-      {/* Tab bar — same underline pattern as ProjectDashboard. role="tablist"
-          so screen readers announce the relationship; each button is a tab
-          whose pressed state mirrors activeTab. */}
-      <div className="updates-tabs" role="tablist" aria-label="About sections">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === t.id}
-            className={`updates-tab ${activeTab === t.id ? 'is-active' : ''}`}
-            onClick={() => setActiveTab(t.id)}
-          >
-            <span>{t.label}</span>
-          </button>
-        ))}
+        <div className="updates-body">
+          <StatusBanner />
+
+          <section className="updates-releases">
+            {loading && releases.length === 0 && (
+              <div className="updates-empty">Loading release notes…</div>
+            )}
+
+            {!loading && releases.length === 0 && !error && (
+              <div className="updates-empty">No releases published yet.</div>
+            )}
+
+            {releases.length > 0 && (
+              <div className="rel-list rail rail-rail">
+                {releases.map((release) => {
+                  const tag = versionTagFor(release);
+                  const ver = tag.replace(/^v/, '');
+                  const isCurrent = ver === currentVersion;
+                  const isLatest = release.id === latestId;
+                  const kind = kindById.get(release.id);
+                  const expanded = expandedIds.has(release.id);
+                  return (
+                    <div
+                      className={`rel-row${isLatest ? ' row-latest' : ''}`}
+                      key={release.id}
+                    >
+                      <div className={`rail-col node-${kind || 'patch'}${isLatest ? ' is-latest' : ''}`}>
+                        <span className="rail-node" aria-hidden="true" />
+                        <div className="rail-label">
+                          <span className="rail-tag">{tag}</span>
+                          <span className="rail-date">{formatDate(release.published_at)}</span>
+                        </div>
+                      </div>
+                      <ReleaseCard
+                        release={release}
+                        tag={tag}
+                        kind={kind}
+                        isLatest={isLatest}
+                        isCurrent={isCurrent}
+                        expanded={expanded}
+                        onToggle={() => toggleCollapsed(release.id)}
+                        onRevert={requestRevert}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
       </div>
 
-      {activeTab === 'about'   && <AboutTabBody />}
-      {activeTab === 'contact' && <ContactTabBody />}
-
-      {activeTab === 'updates' && (
-      <>
-      <StatusBanner />
-
-      <section className="updates-releases">
-        {loading && releases.length === 0 && (
-          <div className="updates-empty">Loading release notes…</div>
-        )}
-
-        {!loading && releases.length === 0 && !error && (
-          <div className="updates-empty">No releases published yet.</div>
-        )}
-
-        {orderedReleases.map((release) => {
-          // Use the resolved version tag (falls back to release.name when
-          // tag_name is the electron-forge `untagged-<sha>` placeholder).
-          const tag = versionTagFor(release);
-          const ver = tag.replace(/^v/, '');
-          const isCurrent = ver === currentVersion;
-          // Kind is precomputed from the original chronological order so it
-          // survives the installed-version reshuffle above.
-          const kind = kindById.get(release.id);
-          const isCollapsed = !expandedIds.has(release.id);
-          const cardClass = [
-            'release-card',
-            isCurrent && 'is-current',
-            kind && `is-${kind}`,
-            isCollapsed && 'is-collapsed',
-          ].filter(Boolean).join(' ');
-          return (
-            <article key={release.id} className={cardClass}>
-              <header className="release-header">
-                <div className="release-version-line">
-                  <button
-                    type="button"
-                    className={`release-collapse-btn${isCollapsed ? ' is-collapsed' : ''}`}
-                    aria-expanded={!isCollapsed}
-                    aria-label={isCollapsed ? `Show notes for ${tag}` : `Hide notes for ${tag}`}
-                    onClick={() => toggleCollapsed(release.id)}
-                  >
-                    {ChevronIcon}
-                  </button>
-                  <h2 className="release-version">{tag}</h2>
-                  {kind && (
-                    <span className={`release-tag release-tag-${kind}`}>{kind}</span>
-                  )}
-                  {isCurrent && <span className="release-tag release-tag-current">Installed</span>}
-                  {release.prerelease && <span className="release-tag release-tag-pre">Pre-release</span>}
-                </div>
-                <div className="release-meta">
-                  <span>{formatDate(release.published_at)}</span>
-                  <a
-                    href={release.html_url}
-                    className="release-link"
-                    onClick={(e) => openExternal(e, release.html_url)}
-                  >
-                    View on GitHub {ExternalLinkIcon}
-                  </a>
-                </div>
-              </header>
-
-              {release.name && release.name !== tag && (
-                <h3 className="release-name">{release.name}</h3>
-              )}
-
-              {!isCollapsed && (
-                <div className="release-body">
-                  {release.body ? (
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        a: ({ href, children }) => (
-                          <a href={href} onClick={(e) => openExternal(e, href)}>
-                            {children}
-                          </a>
-                        ),
-                      }}
-                    >
-                      {release.body}
-                    </ReactMarkdown>
-                  ) : (
-                    <p className="release-empty">No notes provided.</p>
-                  )}
-                </div>
-              )}
-
-              {/* Revert action lives at the bottom-right of the card so it
-                  doesn't compete with the release title/notes for attention.
-                  Only shown on OTHER versions (current = no-op). Disabled
-                  when the release didn't ship a Setup.exe asset (drafts,
-                  source-only tags). Click triggers a browser download of
-                  the Squirrel installer; the user runs it manually.
-                  Caveat surfaced via title attr: update-electron-app will
-                  re-pull the latest release on next launch — this is for
-                  ad-hoc testing of older builds, not a long-term pin.
-                  Hidden on web — web users have no local install to
-                  roll back; the top-of-page CTA already covers their
-                  "download the desktop app" path. */}
-              {isElectron && !isCurrent && !isCollapsed && (() => {
-                const setup = setupAssetFor(release);
-                // Button is position: absolute (see .release-revert-btn in
-                // Updates.css) so it floats over the card's bottom-right
-                // corner without consuming layout space — release notes
-                // flow as if the button weren't there.
-                return (
-                  <Tooltip
-                    content={
-                      setup
-                        ? `Download v${ver}'s installer to revert. Heads up: auto-update will pull the latest version again on next launch.`
-                        : 'No Setup.exe asset on this release.'
-                    }
-                  >
-                    <button
-                      type="button"
-                      className="release-revert-btn"
-                      onClick={() => setup && requestRevert(release)}
-                      disabled={!setup}
-                    >
-                      {RevertIcon} Revert to this version
-                    </button>
-                  </Tooltip>
-                );
-              })()}
-            </article>
-          );
-        })}
-      </section>
-      </>
-      )}
-
-      {/* Confirm before triggering a downgrade download. Two reasons:
-          (1) Reverting opens a system installer and replaces the running
-              app's files — not destructive, but it interrupts whatever
-              the user is doing, so a brief "are you sure" is warranted.
-          (2) The wording also surfaces the auto-update caveat (Squirrel
-              will re-pull the latest on next launch) where the user is
-              already paying attention. */}
+      {/* Confirm before triggering a downgrade download. Reverting opens a
+          system installer and replaces the running app's files — not
+          destructive, but it interrupts the user, and the wording surfaces
+          the auto-update caveat (Squirrel re-pulls the latest on next
+          launch) where the user is already paying attention. */}
       <ConfirmModal
         open={!!pendingRevert}
         title={`Revert to v${pendingVer}?`}
