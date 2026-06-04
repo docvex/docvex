@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import './Newsletter.css';
+import PageMasthead from '../components/PageMasthead';
 import {
   listLegalUpdates,
   setUpdateRead,
@@ -272,23 +273,25 @@ export default function Newsletter() {
 
   return (
     <div className="ed-page">
-      <header className="ed-masthead">
-        <div className="ed-mast-left">
-          <span className="ed-mast-eyebrow">DocVex Briefing · Romania</span>
-          <h1 className="ed-mast-title">Newsletter</h1>
-        </div>
-        <div className="ed-mast-meta">
-          <div>
-            <div className="ed-mast-meta-num">{unreadCount}</div>
-            <div>Unread</div>
+      <PageMasthead
+        eyebrow="DocVex Briefing"
+        eyebrowMuted="Romania"
+        title="Newsletter"
+        actions={(
+          <div className="ed-mast-meta">
+            <div>
+              <div className="ed-mast-meta-num">{unreadCount}</div>
+              <div>Unread</div>
+            </div>
+            <span className="ed-mast-meta-sep" />
+            <div>
+              <div className="ed-mast-meta-num">{today.split(',')[0]}</div>
+              <div>{today.split(',').slice(1).join(',').trim()}</div>
+            </div>
           </div>
-          <span className="ed-mast-meta-sep" />
-          <div>
-            <div className="ed-mast-meta-num">{today.split(',')[0]}</div>
-            <div>{today.split(',').slice(1).join(',').trim()}</div>
-          </div>
-        </div>
-      </header>
+        )}
+        compactRight={<span className="ed-mast-meta-num" style={{ fontSize: '13px' }}>{unreadCount} unread</span>}
+      />
 
       <p className="ed-weekly">
         <span className="ed-weekly-mark">AI weekly</span>

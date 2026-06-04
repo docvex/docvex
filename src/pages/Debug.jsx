@@ -7,6 +7,7 @@ import { sendInviteDebug } from '../lib/projects';
 import { sendSupportReport } from '../lib/support';
 import { sendWelcomeEmail } from '../lib/sendWelcome';
 import { TEST_NOTIFICATIONS, TEST_NOTIFICATION_STAGGER_MS } from '../notifications/testNotifications';
+import PageMasthead from '../components/PageMasthead';
 import './Debug.css';
 
 // In-app developer tools. These used to live in the native "DEBUG" menu that
@@ -162,14 +163,10 @@ export default function Debug() {
 
   return (
     <div className="debug-page">
-      <header className="debug-header">
-        <span className="debug-eyebrow">Developer</span>
-        <h1 className="debug-title">Debug</h1>
-        <p className="debug-subtitle">
-          In-app developer aids. These previously lived in the native DEBUG menu
-          and now run directly in the renderer.
-        </p>
-      </header>
+      <PageMasthead eyebrow="Developer" title="Debug">
+        In-app developer aids. These previously lived in the native DEBUG menu
+        and now run directly in the renderer.
+      </PageMasthead>
 
       <div className="debug-actions">
         {/* Simulate-update toggle — forces the update badge + banner on without

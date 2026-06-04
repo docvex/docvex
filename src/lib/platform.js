@@ -276,6 +276,22 @@ export function onUpdateStatus(handler) {
   return electronAPI.onUpdateStatus(handler);
 }
 
+// ── App-wide UI scale (Settings → Text size) ──────────────────────────────
+
+// Apply a global UI zoom factor (1 = 100%).
+// Electron: webFrame zoom — scales the whole renderer including px sizes.
+// Web: CSS `zoom` on <html> as a best-effort equivalent.
+export function setAppZoom(factor) {
+  const f = Number(factor) || 1;
+  if (electronAPI?.setZoomFactor) {
+    electronAPI.setZoomFactor(f);
+    return;
+  }
+  if (typeof document !== 'undefined') {
+    try { document.documentElement.style.zoom = String(f); } catch { /* non-fatal */ }
+  }
+}
+
 // ── OS-level notifications ────────────────────────────────────────────────
 
 // Show a system-level (outside-the-app) notification. Today's preload

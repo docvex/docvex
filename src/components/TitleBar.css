@@ -89,9 +89,9 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  /* No own margins — the brand row's 8px flex gap spaces the badge evenly on
-     both sides, matching the bar's primary spacing unit. */
-  margin: 0;
+  /* Extra horizontal margin on top of the brand row's 8px flex gap so the
+     pill has more breathing room from the app name and the project separator. */
+  margin: 0 8px;
   padding: 3px 10px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--cat-update) 45%, transparent);

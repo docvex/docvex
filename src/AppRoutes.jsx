@@ -14,6 +14,7 @@ const AuthPage = lazy(() => import('./components/AuthPage'));
 const Launch = lazy(() => import('./pages/Launch'));
 const Activity = lazy(() => import('./pages/Activity'));
 const Account = lazy(() => import('./pages/Account'));
+const Settings = lazy(() => import('./pages/Settings'));
 const Updates = lazy(() => import('./pages/Updates'));
 const Newsletter = lazy(() => import('./pages/Newsletter'));
 const Admin = lazy(() => import('./pages/Admin'));
@@ -29,6 +30,7 @@ const ProjectChat = lazy(() => import('./pages/Projects/ProjectChat'));
 const ProjectGenerate = lazy(() => import('./pages/Projects/ProjectGenerate'));
 const ProjectAutomate = lazy(() => import('./pages/Projects/ProjectAutomate'));
 const ProjectAI = lazy(() => import('./pages/Projects/ProjectAI'));
+const ProjectAIChat = lazy(() => import('./pages/Projects/ProjectAIChat'));
 const InviteAccept = lazy(() => import('./pages/Projects/InviteAccept'));
 
 // Shared full-screen spinner — reuses the `.spinner` class from Sidebar.css.
@@ -58,13 +60,16 @@ export default function AppRoutes({ Shell, ProjectShell }) {
         <Route path="/launch" element={<Launch />} />
         <Route path="/" element={<Shell />}>
           <Route index element={<Activity />} />
-          <Route path="updates" element={<Updates />} />
+          <Route path="versions" element={<Updates />} />
+          {/* Legacy alias — old links / stored notifications used /updates. */}
+          <Route path="updates" element={<Navigate to="/versions" replace />} />
           <Route path="newsletter" element={<Newsletter />} />
           {import.meta.env.DEV && <Route path="debug" element={<Debug />} />}
           <Route path="notifications" element={<Navigate to="/" replace />} />
           <Route path="invite/:token" element={<InviteAccept />} />
           <Route element={<ProtectedRoute />}>
             <Route path="account" element={<Account />} />
+            <Route path="settings" element={<Settings />} />
             <Route path="admin" element={<Admin />} />
             <Route path="projects" element={<ProjectList />} />
             <Route path="projects/new" element={<ProjectCreate />} />
@@ -79,6 +84,7 @@ export default function AppRoutes({ Shell, ProjectShell }) {
             <Route path="generate" element={<ProjectGenerate />} />
             <Route path="automate" element={<ProjectAutomate />} />
             <Route path="ai" element={<ProjectAI />} />
+            <Route path="ai-chat" element={<ProjectAIChat />} />
           </Route>
         </Route>
       </Routes>

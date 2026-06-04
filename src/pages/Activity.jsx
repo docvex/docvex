@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { buildActions } from '../notifications/actionRegistry';
 import { resolveNotificationIcon } from '../notifications/icons';
 import { formatRelativeTime, groupByDay } from '../lib/notifications';
+import PageMasthead from '../components/PageMasthead';
 import './Activity.css';
 
 // Activity = the merged home of what used to be the (empty) "/" Activity
@@ -146,24 +147,24 @@ export default function ActivityPage() {
 
   return (
     <div className="activity-page">
-      <header className="activity-header">
-        <div className="activity-title-block">
-          <span className="activity-eyebrow">Live feed</span>
-          <h1 className="activity-title">Activity</h1>
-          <p className="activity-subtitle">
-            A running record of everything happening across every project you're part of —
-            files added or changed, invites, role updates, releases and sign-ins.
-          </p>
-        </div>
-        <div className="activity-header-actions">
-          <button type="button" className="act-btn" onClick={markAllRead} disabled={unreadCount === 0}>
-            Mark all read
-          </button>
-          <button type="button" className="act-btn" onClick={clearAll} disabled={notifications.length === 0}>
-            Clear all
-          </button>
-        </div>
-      </header>
+      <PageMasthead
+        eyebrow="Live feed"
+        title="Activity"
+        compact={false}
+        actions={(
+          <>
+            <button type="button" className="act-btn" onClick={markAllRead} disabled={unreadCount === 0}>
+              Mark all read
+            </button>
+            <button type="button" className="act-btn" onClick={clearAll} disabled={notifications.length === 0}>
+              Clear all
+            </button>
+          </>
+        )}
+      >
+        A running record of everything happening across every project you're part of —
+        files added or changed, invites, role updates, releases and sign-ins.
+      </PageMasthead>
 
       {notifications.length > 0 && (
         <div className="activity-tabbar" role="tablist" aria-label="Filter activity">

@@ -6,19 +6,15 @@
   margin-top: var(--titlebar-h);
   overflow: hidden;
   background: var(--bg-page);
-  /* Published width of the sidebar, read by SwitchProjectLoader.css,
-     ProjectBanner, the file detail modal, the tree viewports, etc.
-     Hovering the sidebar no longer bumps this — only the explicit
-     lock and the inline-project-picker do. That way a brief hover
-     just overlays the page (the sidebar paints over the content)
-     without pushing every laid-out surface to the right and back
-     when the cursor leaves. */
-  --sidebar-width: 60px;
-}
-
-.app-shell:has(.sidebar.locked),
-.app-shell:has(.sidebar.picker-open) {
-  --sidebar-width: 220px;
+  /* The app nav moved from a left rail to a horizontal bar under the title
+     bar, so the left reservation is now zero. --sidebar-width is still read by
+     SwitchProjectLoader.css, ProjectBanner, the file detail modal, the tree
+     viewports, etc.; at 0 they simply lay out flush-left, which is correct now
+     that no rail occupies the left edge. */
+  --sidebar-width: 0px;
+  /* Height of the horizontal app-nav bar (Sidebar.jsx), reserved as the
+     content area's top margin so the bar overlays nothing. */
+  --topnav-h: 36px;
 }
 
 .main-content {
@@ -39,10 +35,10 @@
   /* 22px horizontal inset matches the Files tab header so every tab's
      title + content line up at the same distance from the edge. */
   padding: 2rem 22px;
-  /* Reserve space for the (now-fixed) sidebar. Margin so the
-     scroll-content area starts at the sidebar's right edge; flips
-     between 60px and 220px in lockstep with --sidebar-width. */
+  /* Reserve space for the fixed horizontal app-nav bar above (--topnav-h).
+     The left rail is gone, so --sidebar-width is 0. */
   margin-left: var(--sidebar-width);
+  margin-top: var(--topnav-h);
   min-width: 0;
   background-color: var(--bg-page);
   transition: margin-left 250ms ease;

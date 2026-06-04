@@ -26,6 +26,7 @@ export function isProjectScopedRoute(pathname) {
   if (pathname === '/generate' || pathname.startsWith('/generate/')) return true;
   if (pathname === '/automate' || pathname.startsWith('/automate/')) return true;
   if (pathname === '/ai' || pathname.startsWith('/ai/')) return true;
+  if (pathname === '/ai-chat' || pathname.startsWith('/ai-chat/')) return true;
   if (pathname === '/projects' || pathname === '/projects/') return false;
   if (pathname === '/projects/new') return false;
   if (pathname.startsWith('/projects/')) {

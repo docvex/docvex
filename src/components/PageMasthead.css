@@ -1,0 +1,93 @@
+/* PageMasthead — the Versions-page header language, shared across the personal
+   destinations (Activity / Newsletter / Settings / Debug). Ported from
+   Updates.css's `.updates-masthead` + `.versions-compact`; all classes are
+   `pmh-`-prefixed and colour comes entirely from tokens.css. */
+
+.pmh { width: 100%; }
+
+/* ── Masthead ───────────────────────────────────────────────────────────── */
+.pmh-masthead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--border);
+  margin: 0 0 26px;
+}
+.pmh-mh-left { display: flex; flex-direction: column; gap: 18px; flex: 1 1 auto; min-width: 0; }
+.pmh-mh-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pmh-mh-eyebrow .pmh-mh-muted { color: var(--text-muted); font-weight: 500; }
+.pmh-mh-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--text-primary);
+  text-wrap: pretty;
+  max-width: 720px;
+}
+.pmh-mh-kicker { margin: 0; font-size: 15px; line-height: 1.55; color: var(--text-secondary); max-width: 580px; }
+.pmh-mh-kicker strong { color: var(--text-primary); font-weight: 600; }
+.pmh-mh-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+@media (max-width: 640px) { .pmh-mh-title { font-size: 42px; } }
+
+/* ── Compact header on scroll ───────────────────────────────────────────────
+   A blurred, translucent bar fixed to the content area that fades + slides in
+   once the large title scrolls away. Anchored below the title bar AND the
+   horizontal app-nav bar (and the single-window chrome, if any) and spans the
+   content column. */
+.pmh-compact {
+  position: fixed;
+  top: calc(var(--titlebar-h, 0px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
+  left: var(--sidebar-width, 0px);
+  right: 0;
+  z-index: 30;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 22px;
+  background: color-mix(in srgb, var(--bg-page) 62%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  opacity: 0;
+  transform: translateY(-10px);
+  pointer-events: none;
+  transition: opacity 240ms ease,
+              transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+              left 250ms ease;
+}
+.pmh-compact.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.pmh-compact-titlebtn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+}
+.pmh-compact-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.pmh-compact-sep { color: var(--text-muted); font-weight: 600; }
+.pmh-compact-eyebrow { font-size: 13px; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+.pmh-compact-right { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }

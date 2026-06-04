@@ -301,6 +301,13 @@ export const localFolderApi = {
     if (hasElectron) return electronApi.deleteFolder(payload);
     return { error: 'Folders are available in the desktop app' };
   },
+  // Move a whole folder (and its contents) into the recycle bin instead of
+  // hard-deleting it. Electron walks the tree and trashes each file; web has
+  // no subfolders so this is desktop-only.
+  trashFolder: async (payload) => {
+    if (hasElectron) return electronApi.trashFolder(payload);
+    return { ok: false, error: 'Folders are available in the desktop app' };
+  },
   move: async (payload) => {
     if (hasElectron) return electronApi.move(payload);
     return { error: 'Folders are available in the desktop app' };
@@ -691,6 +698,11 @@ export const localFolderApi = {
   purgeTrash: async (payload) => {
     if (hasElectron) return electronApi.purgeTrash(payload);
     return webPurgeTrash(payload);
+  },
+  // DEV-only trash seeder (Electron only).
+  debugSeedTrash: async (payload) => {
+    if (hasElectron) return electronApi.debugSeedTrash(payload);
+    return { error: 'Desktop app only' };
   },
 };
 

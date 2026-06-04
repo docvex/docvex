@@ -473,7 +473,7 @@ export default function TitleBar() {
             <button
               type="button"
               className={`tb-update-badge${updateKind ? ` is-${updateKind}` : ''}`}
-              onClick={() => navigate('/updates')}
+              onClick={() => navigate('/versions')}
               aria-label={latestVersion ? `Update available, version ${latestVersion}` : 'Update available'}
             >
               <span className="tb-update-dot" aria-hidden="true" />
@@ -489,7 +489,7 @@ export default function TitleBar() {
             <button
               type="button"
               className="tb-update-badge is-uptodate"
-              onClick={() => navigate('/updates')}
+              onClick={() => navigate('/versions')}
               aria-label={currentVersion ? `Up to date, version ${currentVersion}. View versions.` : 'Up to date'}
             >
               <span className="tb-update-dot" aria-hidden="true" />
@@ -637,7 +637,8 @@ export default function TitleBar() {
             {themePill.node}
 
             {/* Account — to the right of the Theme button (replaced the status
-                dot). The avatar opens the Account page. */}
+                dot). The avatar opens the Account page. Settings moved to the
+                horizontal app-nav bar under the title bar. */}
             <Tooltip content={`${getDisplayName(session.user)} · ${PLAN.tier}`}>
               <TbAccount user={session.user} onOpen={() => navigate('/account')} />
             </Tooltip>

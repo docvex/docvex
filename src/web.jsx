@@ -5,6 +5,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { AppPrefsProvider } from './context/AppPrefsContext';
 import { UpdatesProvider } from './context/UpdatesContext';
 import { NotificationsProvider } from './context/NotificationsContext';
 import { SelectedProjectProvider } from './context/SelectedProjectContext';
@@ -33,18 +34,20 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter basename="/app">
       <AuthProvider>
         <ThemeProvider>
-          <SelectedProjectProvider>
-            <UpdatesProvider>
-              <NotificationsProvider>
-                <SplitViewProvider>
-                  <ChatUnreadProvider>
-                    <App />
-                  </ChatUnreadProvider>
-                </SplitViewProvider>
-                <NotificationCenter />
-              </NotificationsProvider>
-            </UpdatesProvider>
-          </SelectedProjectProvider>
+          <AppPrefsProvider>
+            <SelectedProjectProvider>
+              <UpdatesProvider>
+                <NotificationsProvider>
+                  <SplitViewProvider>
+                    <ChatUnreadProvider>
+                      <App />
+                    </ChatUnreadProvider>
+                  </SplitViewProvider>
+                  <NotificationCenter />
+                </NotificationsProvider>
+              </UpdatesProvider>
+            </SelectedProjectProvider>
+          </AppPrefsProvider>
         </ThemeProvider>
       </AuthProvider>
     </BrowserRouter>

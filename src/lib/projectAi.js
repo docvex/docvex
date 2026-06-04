@@ -25,6 +25,19 @@ export async function askProjectAi({ messages, projectName, fileNames }) {
   return { text: res.data.text || '' };
 }
 
+// Suggest content-aware actions for a dropped file. `excerpt` is an optional
+// text sample (texty files only); binaries pass just name + mime. Returns
+// `{ suggestions: [{ label, prompt }] }` or `{ error }` so the caller can fall
+// back to its own heuristic list.
+export async function suggestFileActions({ fileName, excerpt, mimeType }) {
+  const { data, error } = await supabase.functions.invoke('project-ai', {
+    body: { action: 'suggest', fileName, excerpt, mimeType },
+  });
+  const res = unwrap(data, error);
+  if (res.error) return res;
+  return { suggestions: Array.isArray(res.data.suggestions) ? res.data.suggestions : [] };
+}
+
 // Draft a document. Returns `{ text }` or `{ error }`.
 export async function generateDocument({ template, instructions, projectName, fileNames }) {
   const { data, error } = await supabase.functions.invoke('project-ai', {

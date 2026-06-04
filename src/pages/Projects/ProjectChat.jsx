@@ -530,6 +530,27 @@ const TeamComposer = React.memo(function TeamComposer({
     onSent?.(data);
   };
 
+  // Files dragged from the Files tab carry a docvex payload. Chat attachments
+  // have no storage backend (removed with the cloud file store), so dropping
+  // files inserts their names into the draft as a reference the team can read.
+  const handleFilesDragOver = (e) => {
+    if (Array.from(e.dataTransfer?.types || []).includes('application/x-docvex-files')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  };
+  const handleFilesDrop = (e) => {
+    if (!Array.from(e.dataTransfer?.types || []).includes('application/x-docvex-files')) return;
+    e.preventDefault();
+    let data = null;
+    try { data = JSON.parse(e.dataTransfer.getData('application/x-docvex-files')); } catch { /* malformed */ }
+    const names = (data?.items || []).filter((d) => d?.kind !== 'folder').map((d) => d?.name).filter(Boolean);
+    if (!names.length) return;
+    const ref = names.join(', ');
+    setDraft((cur) => (cur ? `${cur}${cur.endsWith(' ') ? '' : ' '}${ref}` : ref));
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+
   const handleDraftKeyDown = (e) => {
     if (mentionOpen) {
       const list = mentionResults;
@@ -561,7 +582,7 @@ const TeamComposer = React.memo(function TeamComposer({
   };
 
   return (
-    <div className="vb-composer-wrap">
+    <div className="vb-composer-wrap" onDragOver={handleFilesDragOver} onDrop={handleFilesDrop}>
       <div
         className="dvx-composer vb-composer"
         onMouseMove={(e) => {

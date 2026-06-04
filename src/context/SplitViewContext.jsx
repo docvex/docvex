@@ -79,6 +79,18 @@ export function SplitViewProvider({ children }) {
     setFocusedPane((p) => Math.min(p, (SPLIT_LAYOUTS[next].panes || 1) - 1));
   }, []);
 
+  // Remember the last SPLIT (non-single) layout so the top app-nav bar's
+  // "Project" tab can restore the workspace after a personal page collapsed it
+  // to a single fullscreen window. Defaults to the entry "T" arrangement.
+  const lastSplitRef = useRef('tri-right');
+  useEffect(() => {
+    if (layout !== 'single') lastSplitRef.current = layout;
+  }, [layout]);
+  const restoreSplit = useCallback(() => {
+    const target = lastSplitRef.current && lastSplitRef.current !== 'single' ? lastSplitRef.current : 'tri-right';
+    changeLayout(target);
+  }, [changeLayout]);
+
   // ── Per-pane navigation bridge ──────────────────────────────────────────
   // Each SECONDARY pane (index ≥ 1) runs its own MemoryRouter, so its
   // navigate() isn't reachable from the sidebar (which lives on the root
@@ -145,6 +157,7 @@ export function SplitViewProvider({ children }) {
   const value = useMemo(() => ({
     layout,
     setLayout: changeLayout,
+    restoreSplit,
     paneCount,
     focusedPane,
     setFocusedPane,
@@ -155,7 +168,7 @@ export function SplitViewProvider({ children }) {
     customLayouts,
     addCustomLayout,
     removeCustomLayout,
-  }), [layout, changeLayout, paneCount, focusedPane, registerPaneNavigator, reportPanePath, navigateFocusedPane, focusedPanePath, customLayouts, addCustomLayout, removeCustomLayout]);
+  }), [layout, changeLayout, restoreSplit, paneCount, focusedPane, registerPaneNavigator, reportPanePath, navigateFocusedPane, focusedPanePath, customLayouts, addCustomLayout, removeCustomLayout]);
 
   return <SplitViewContext.Provider value={value}>{children}</SplitViewContext.Provider>;
 }

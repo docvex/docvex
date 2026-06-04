@@ -54,13 +54,14 @@ function PaneChrome() {
         { label: 'Dashboard', to: `/projects/${selectedProject.id}/dashboard` },
         { label: 'Files', to: '/files' },
         { label: 'Chat', to: '/chat' },
-        { label: 'AI', to: '/ai' },
+        { label: 'AI', to: '/ai-chat' },
+        { label: 'AI Dashboard', to: '/ai' },
         { label: 'To-dos', to: '/todos' },
       ]
     : [
         { label: 'Activity', to: '/' },
         { label: 'Projects', to: '/projects' },
-        { label: 'Versions', to: '/updates' },
+        { label: 'Versions', to: '/versions' },
         { label: 'Newsletter', to: '/newsletter' },
         { label: 'Account', to: '/account' },
       ];
@@ -91,13 +92,14 @@ function PaneChrome() {
   const DEST_DESC = {
     '/': 'Activity & notifications',
     '/projects': 'All your projects',
-    '/updates': 'Release history',
+    '/versions': 'Release history',
     '/newsletter': 'Legal newsfeed',
     '/account': 'Profile & settings',
     '/admin': 'Developer console',
     '/files': 'Project files & folders',
     '/chat': 'Team & private chat',
-    '/ai': 'Project AI assistant',
+    '/ai-chat': 'DocVex AI assistant',
+    '/ai': 'AI dashboard & tools',
     '/todos': 'Project to-dos',
   };
   let destDesc = DEST_DESC[currentPath];
@@ -249,9 +251,46 @@ function SecondaryPane({ index, seedPath }) {
   );
 }
 
+// Per-layout pane seeding. Every "T" (tri) orientation shows the same three
+// surfaces regardless of which way the big pane points: Project chat on the
+// spanning (primary) pane, AI chat + Files on the two smaller panes. The
+// secondary array is in DOM order (the two non-spanning panes). Non-tri layouts
+// fall back to a generic spread.
+const TRI_SECONDARY = ['/ai-chat', '/files'];
+const LAYOUT_SECONDARY_SEEDS = {
+  tri: TRI_SECONDARY,
+  'tri-right': TRI_SECONDARY,
+  'tri-bottom': TRI_SECONDARY,
+  'tri-left': TRI_SECONDARY,
+};
+const LAYOUT_PRIMARY_SEED = {
+  tri: '/chat',
+  'tri-right': '/chat',
+  'tri-bottom': '/chat',
+  'tri-left': '/chat',
+};
+const GENERIC_SPLIT_SEEDS = ['/files', '/chat', '/ai-chat', '/todos'];
+
+// Routes that render WITHOUT the in-pane chrome bar when shown fullscreen
+// (single-pane mode) — every personal destination opened from the top app-nav
+// bar. They each carry their own page masthead, so the chrome's title +
+// destination dropdown would just duplicate it.
+const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug']);
+
 export default function SplitContainer({ primary }) {
   const { layout, paneCount, focusedPane, setFocusedPane } = useSplitView();
   const { pathname, search } = useLocation();
+  const navigate = useNavigate();
+
+  // When the user switches INTO a layout that names a primary surface, point
+  // the main (spanning) pane at it. Skipped on first mount so it never hijacks
+  // the landing page.
+  const prevLayoutRef = useRef(layout);
+  useEffect(() => {
+    const prev = prevLayoutRef.current;
+    prevLayoutRef.current = layout;
+    if (layout !== prev && LAYOUT_PRIMARY_SEED[layout]) navigate(LAYOUT_PRIMARY_SEED[layout]);
+  }, [layout, navigate]);
 
   // Single mode renders as ONE pane with the same in-pane navigation chrome the
   // split panes use (back / forward / home + a destination menu), pinned above
@@ -260,10 +299,14 @@ export default function SplitContainer({ primary }) {
   // whole window. `.sv-single-scroll` reproduces `.main-content`'s old
   // scroll + padding so pages look unchanged below the bar.
   if (paneCount <= 1) {
+    // Some fullscreen destinations carry their own page header, so the in-pane
+    // chrome bar (title + destination dropdown) is redundant noise there —
+    // suppress it for those routes. The sidebar still drives navigation.
+    const chromeless = CHROMELESS_FULLSCREEN_ROUTES.has(pathname);
     return (
-      <div className="sv-single">
+      <div className={`sv-single${chromeless ? ' is-chromeless' : ''}`}>
         <PaneChromeProvider>
-          <PaneChrome />
+          {!chromeless && <PaneChrome />}
           <div className="sv-single-scroll">{primary}</div>
           <PaneFooter />
         </PaneChromeProvider>
@@ -272,6 +315,13 @@ export default function SplitContainer({ primary }) {
   }
 
   const seed = `${pathname}${search || ''}`;
+  // Secondary-pane seeds: a layout-specific arrangement when defined (e.g.
+  // tri-right), else a generic spread that still guarantees Files is shown
+  // (it's first in the pool; routes the primary already shows are dropped so
+  // panes don't duplicate).
+  const genericPool = GENERIC_SPLIT_SEEDS.filter((r) => r !== pathname);
+  const secondarySeeds = LAYOUT_SECONDARY_SEEDS[layout] || genericPool;
+  const seedForSecondary = (i) => secondarySeeds[i % secondarySeeds.length] || seed;
   return (
     <div className={`sv-grid sv-${layout}`}>
       <div
@@ -291,7 +341,7 @@ export default function SplitContainer({ primary }) {
         </div>
       </div>
       {Array.from({ length: paneCount - 1 }, (_, i) => (
-        <SecondaryPane key={i + 1} index={i + 1} seedPath={seed} />
+        <SecondaryPane key={i + 1} index={i + 1} seedPath={seedForSecondary(i)} />
       ))}
     </div>
   );

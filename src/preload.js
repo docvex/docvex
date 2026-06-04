@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // OAuth bridge (also carries `docvex://invite?token=…` URLs — the channel
@@ -58,6 +58,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Open any URL in the user's default browser (used for release links etc.)
   openExternal: (url) => ipcRenderer.send('app:open-external', url),
+
+  // App-wide UI scale (Settings → Text size). webFrame zoom scales the ENTIRE
+  // renderer — text, icons, spacing, px-based sizes alike — unlike a root
+  // font-size which only moves rem/em. Stays consistent with clientX /
+  // getBoundingClientRect (both remain CSS-px), so tooltip/morph-pill math is
+  // unaffected. Persists for the webContents' lifetime; the renderer re-applies
+  // the saved preference on every boot.
+  setZoomFactor: (factor) => { try { webFrame.setZoomFactor(factor); } catch { /* non-fatal */ } },
+  getZoomFactor: () => { try { return webFrame.getZoomFactor(); } catch { return 1; } },
 
   // Custom window controls — the app runs frameless (frame:false), so the
   // renderer's title bar draws its own minimize / maximize / close buttons
@@ -179,9 +188,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // a hidden `.docvex-trash/` folder with a deletedAt timestamp; main
     // auto-purges entries older than 30 days. See main.js trash handlers.
     trashFile: (payload) => ipcRenderer.invoke('local-folder:trash-file', payload),
+    trashFolder: (payload) => ipcRenderer.invoke('local-folder:trash-folder', payload),
     listTrash: (dir) => ipcRenderer.invoke('local-folder:list-trash', dir),
     restoreFromTrash: (payload) => ipcRenderer.invoke('local-folder:restore-from-trash', payload),
     deleteFromTrash: (payload) => ipcRenderer.invoke('local-folder:delete-from-trash', payload),
     purgeTrash: (payload) => ipcRenderer.invoke('local-folder:purge-trash', payload),
+    debugSeedTrash: (payload) => ipcRenderer.invoke('local-folder:debug-seed-trash', payload),
   },
 });

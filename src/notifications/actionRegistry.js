@@ -9,7 +9,7 @@
 
 const BUILDERS = {
   // Update notifications. dedupe_key disambiguates within the category:
-  //   'update-available'   → View button (navigates to /updates)
+  //   'update-available'   → View button (navigates to /versions)
   //   'update-downloaded'  → Restart & install button (calls installUpdate)
   //   'update-error'       → no action (informational)
   update(notification, ctx) {
@@ -19,7 +19,7 @@ const BUILDERS = {
           {
             label: 'View',
             variant: 'secondary',
-            onClick: () => ctx.navigate?.('/updates'),
+            onClick: () => ctx.navigate?.('/versions'),
           },
         ];
       case 'update-downloaded':

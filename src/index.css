@@ -66,3 +66,21 @@ body {
 ::-webkit-scrollbar-button {
   display: none;
 }
+
+/* ── Minimize motion (Settings → Behavior) ──────────────────────────────────
+   When the user enables "Minimize motion", AppPrefsContext sets
+   data-reduce-motion="true" on <html>. Kill animations, transitions, and
+   smooth scrolling app-wide. Mirrors the prefers-reduced-motion media query
+   but driven by the in-app preference so it works regardless of the OS setting.
+   Negative animation-delay lets any in-progress animation jump to its end
+   frame and stop, rather than freezing mid-way. */
+html[data-reduce-motion="true"] *,
+html[data-reduce-motion="true"] *::before,
+html[data-reduce-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  animation-delay: -0.001ms !important;
+  transition-duration: 0.001ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}

@@ -1724,6 +1724,96 @@ ipcMain.handle('local-folder:trash-file', async (_, payload) => {
   }
 });
 
+// Move an entire folder into the bin. There's no "trashed directory" concept —
+// instead every file inside is trashed individually with its original relative
+// path recorded, so a restore drops each file back where it lived (recreating
+// the folder structure). After the files are moved out, the now-empty folder
+// tree (plus any ignored/lock leftovers) is removed. Reuses all the existing
+// trash machinery (list / restore / countdown / purge) — folders ride the same
+// rails as single-file deletes. Returns the list of stored names so the caller
+// can offer an undo that restores them all.
+ipcMain.handle('local-folder:trash-folder', async (_, payload) => {
+  const dir = payload?.dir;
+  const folderPath = payload?.path;
+  if (!dir || !folderPath) return { ok: false, error: 'Missing args' };
+  try {
+    const normalizedDir = path.resolve(dir);
+    const resolved = path.resolve(folderPath);
+    // Must be strictly inside the root (never the root itself or outside it).
+    if (!resolved.startsWith(normalizedDir) || resolved === normalizedDir) {
+      return { ok: false, error: 'Path is outside project folder' };
+    }
+    const tdir = trashDir(dir);
+    await fsp.mkdir(tdir, { recursive: true });
+    const meta = await readTrashMeta(dir);
+    const nowMs = Date.now();
+    const deletedAt = new Date(nowMs).toISOString();
+    const stored = [];
+    let counter = 0;
+    // Recursively trash every file under the folder, preserving each file's
+    // location relative to the project root so restore puts it back exactly.
+    const walk = async (current) => {
+      let entries;
+      try { entries = await fsp.readdir(current, { withFileTypes: true }); }
+      catch { return; }
+      for (const entry of entries) {
+        const full = path.join(current, entry.name);
+        if (entry.isDirectory()) { await walk(full); continue; }
+        if (!entry.isFile()) continue;
+        const originalRelDir = path
+          .relative(normalizedDir, path.dirname(full))
+          .split(path.sep).join('/');
+        // nowMs + counter keeps the stored-name prefix unique across the batch
+        // while every file shares one deletedAt (same 30-day countdown).
+        const storedName = mintStoredName(entry.name, nowMs + counter);
+        counter += 1;
+        try {
+          await fsp.rename(full, path.join(tdir, storedName));
+          meta[storedName] = { originalName: entry.name, deletedAt, originalRelDir };
+          stored.push(storedName);
+        } catch { /* skip unreadable */ }
+      }
+    };
+    await walk(resolved);
+    await writeTrashMeta(dir, meta);
+    // Remove the now-empty folder tree (and any leftover ignored/lock files).
+    await fsp.rm(resolved, { recursive: true, force: true });
+    return { ok: true, stored, error: null };
+  } catch (err) {
+    if (err?.code === 'ENOENT') return { ok: false, error: 'Folder not found' };
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+// DEV-only: seed the bin with dummy files whose `deletedAt` is backdated so
+// each one is N days from its 30-day purge. Drives the countdown-ring UI.
+ipcMain.handle('local-folder:debug-seed-trash', async (_, payload) => {
+  const dir = payload?.dir;
+  const days = Array.isArray(payload?.days) ? payload.days : [];
+  if (!dir) return { ok: false, error: 'No directory specified' };
+  try {
+    const tdir = trashDir(dir);
+    await fsp.mkdir(tdir, { recursive: true });
+    const meta = await readTrashMeta(dir);
+    const nowMs = Date.now();
+    let count = 0;
+    for (const d of days) {
+      const daysLeft = Number(d);
+      if (!Number.isFinite(daysLeft)) continue;
+      const deletedAtMs = nowMs - Math.max(0, TRASH_RETENTION_DAYS - daysLeft) * 86400000;
+      const originalName = `debug-expires-in-${daysLeft}d.txt`;
+      const stored = mintStoredName(originalName, nowMs + count);
+      await fsp.writeFile(path.join(tdir, stored), `Debug trash item — expires in ${daysLeft} day(s).\n`, 'utf8');
+      meta[stored] = { originalName, deletedAt: new Date(deletedAtMs).toISOString(), originalRelDir: '' };
+      count += 1;
+    }
+    await writeTrashMeta(dir, meta);
+    return { ok: true, count, error: null };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
 // List bin contents, joining each stored file with its meta record.
 ipcMain.handle('local-folder:list-trash', async (_, dir) => {
   if (!dir) return { items: [], error: 'No directory specified' };

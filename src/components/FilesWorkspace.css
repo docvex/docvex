@@ -504,6 +504,12 @@
    segments even when it isn't the current folder. */
 .fx-crumb.is-root { color: var(--text-primary); font-weight: 600; }
 .fx-crumb.is-current { color: var(--text-primary); font-weight: 700; cursor: default; }
+/* Crumb being hovered as a move-drop target. */
+.fx-crumb.is-droptarget {
+  background: var(--accent-tint);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
 .fx-crumb-sep { color: var(--text-muted); opacity: 0.55; flex: 0 0 auto; }
 .fx-search {
   display: flex; align-items: center; gap: 8px;
@@ -703,6 +709,44 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-tint);
 }
+/* Folder being hovered as a move-drop target. */
+.fx-tile.is-droptarget {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+.fx-list-row.is-droptarget {
+  background: var(--accent-tint);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* Files cut to the clipboard render dimmed until pasted (Explorer-style). */
+.fx-tile.is-cut, .fx-list-row.is-cut { opacity: 0.45; }
+
+/* Trash hover tooltip: a time-remaining chip (bg matches the countdown ring's
+   urgency) followed by the file name. Lives in the portalled morph pill. */
+.fx-hover-rich { display: inline-flex; align-items: center; gap: 8px; }
+.fx-hover-name { min-width: 0; }
+.fx-hover-countdown {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.9em;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  /* Solid fill (was a soft tint) so the time-remaining reads at a glance. */
+  background: var(--warning);
+  color: #fff;
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--warning) 45%, transparent);
+}
+.fx-hover-countdown.is-urgent {
+  background: var(--danger);
+  color: #fff;
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--danger) 45%, transparent);
+}
 .fx-tile-thumb {
   /* Height tracks the Ctrl+scroll zoom (--fx-tile) so tiles grow in BOTH
      dimensions, not just width. ~0.58 keeps a pleasant landscape-ish thumb. */
@@ -725,9 +769,33 @@
    intrinsic 42px). Near-fills the thumb box. */
 .fx-tile-thumb .fx-folder-glyph { color: var(--accent); width: 92%; height: 92%; }
 
-/* Recycle bin entry glyph — a trash icon where a folder glyph would sit. */
+/* Trash entry glyph — a trash icon where a folder glyph would sit. */
 .fx-bin-glyph { display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); }
 .fx-list-thumb .fx-bin-glyph { color: var(--text-secondary); }
+
+/* Count pill on the Trash entry — how many items are inside. */
+.fx-bin-count {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  box-sizing: border-box;
+}
+/* Inline variant in the list row — sits next to the name, not a corner. */
+.fx-bin-count.is-inline {
+  position: static;
+  margin-left: 8px;
+  display: inline-block;
+}
 
 /* Colored ext-label glyph (from the design) — shown when a file has no
    real preview. Centered in the thumb. */
@@ -748,7 +816,34 @@
 .fx-glyph-ppt { background: #C2410C; }
 .fx-glyph-zip { background: #7C3AED; }
 .fx-glyph-img { background: linear-gradient(135deg, #14B8A6, #0EA5E9); }
-.fx-glyph-vid { background: #0F172A; }
+/* Video badge — a play triangle on a vibrant media gradient (was flat near-
+   black with "MP4" text, which barely read on the Ink theme). The format tag
+   sits in the corner; the triangle scales with the badge so it works at both
+   the 46px tile size and the 24px list size. */
+.fx-glyph-vid {
+  position: relative;
+  background: linear-gradient(135deg, #6D28D9 0%, #DB2777 100%);
+  overflow: hidden;
+}
+.fx-glyph-vid .fx-glyph-play {
+  width: 46%;
+  height: 46%;
+  color: #fff;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
+}
+.fx-glyph-vid-tag {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  font-size: 0.55em;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+/* List view is tiny (24px) — drop the corner tag, the triangle carries it. */
+.fx-list-thumb .fx-glyph-vid-tag { display: none; }
 /* Plain-text badge reads as a sheet of paper: white fill, black label, with a
    border so it stays visible on the (now background-less) thumb + light page. */
 .fx-glyph-txt { background: #fff; color: #111; border: 1px solid var(--border); }
@@ -827,6 +922,51 @@
   max-width: calc(100% - 16px);
 }
 
+/* Circular elapsed-time countdown (trash items). The ring fills as the file
+   ages toward its 30-day purge; the centre shows days remaining. */
+.fx-countdown-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--warning);
+  flex: 0 0 auto;
+}
+.fx-countdown-ring.is-urgent { color: var(--danger); }
+.fx-countdown-ring svg { display: block; }
+.fx-countdown-ring-num {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+.fx-countdown-ring-num small { font-size: 7px; opacity: 0.7; margin-left: 0.5px; }
+/* Tile: small disc tucked into the top-right CORNER of the thumbnail. The tile
+   has 8px padding so the thumb's top-right corner sits at ~8px; +4px inset
+   keeps the ring just inside it. Overrides the full-width pill placement. */
+.fx-countdown-ring.fx-tile-countdown {
+  /* Must restate `absolute` here: `.fx-countdown-ring { position: relative }`
+     is declared later in the file and would otherwise win, dropping the ring
+     into normal flow at the top-left of the tile column. */
+  position: absolute;
+  /* Center the 20px ring ON the thumbnail's top-right corner. The corner sits
+     ~8px from the tile edge (tile padding); 8 − 10 (half ring) = −2px. */
+  top: -2px;
+  right: -2px;
+  bottom: auto;
+  left: auto;
+  max-width: none;
+  background: color-mix(in srgb, var(--bg-card) 80%, transparent);
+  border-radius: 50%;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
 .fx-tile.is-deleted .fx-tile-thumb,
 .fx-tile.is-deleted .fx-tile-name { opacity: 0.55; }
 .fx-tile.is-deleted .fx-tile-name { text-decoration: line-through; }
@@ -856,6 +996,12 @@
   align-items: center;
   padding: 9px 14px;
 }
+.fx-list-row { position: relative; }
+/* Trash list ring: inline, before the name, vertically centred (the name cell
+   is a flex row with align-items:center). */
+.fx-countdown-ring.fx-row-countdown {
+  flex: 0 0 auto;
+}
 .fx-list-head {
   /* Lives INSIDE the window chrome (same section as the search bar), styled
      like the chat tab bar: no fill of its own (the chrome bg shows through) and
@@ -872,7 +1018,7 @@
 }
 /* Tighter vertical rhythm for the in-chrome header (it's a bar row, not a
    table row). */
-.fx-list-head--chrome { padding: 6px 14px 7px; }
+.fx-list-head--chrome { padding: 6px 14px 5px; }
 /* Inset divider above the header — same as the chat tab bar's: stops short of
    the edges, centered in the gap between the tools row (12px clearance below)
    and the header labels (6px padding above). */
@@ -896,11 +1042,11 @@
   gap: 6px;
   padding: 0 10px 12px 4px;
 }
-/* Tile mode (no list header after it): trim the bottom padding so the chrome
-   section ends where the divider sits in list mode (~9px below the search),
+/* Tile mode (no list header after it): trim the bottom padding so the bar's
+   bottom inset matches its top inset (the chrome row 1 has 5px top padding),
    instead of carrying the full 12px gap that the divider+header need. */
 .fx-chrome-tools:last-child {
-  padding-bottom: 9px;
+  padding-bottom: 5px;
 }
 .fx-list-row {
   /* A bit more vertical room so rows breathe (no separators between them). */

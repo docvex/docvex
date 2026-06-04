@@ -22,7 +22,12 @@
   flex-direction: column;
 }
 .activity-page > .activity-header,
+.activity-page > .pmh,
 .activity-page > .activity-tabbar { flex: 0 0 auto; }
+
+/* The masthead replaces the old pinned header; trim its bottom margin so the
+   filter tab bar sits at the same rhythm it did under the old header. */
+.activity-page > .pmh .pmh-masthead { margin-bottom: 16px; }
 
 /* On a wide window, split the content area into four and let the page occupy
    three of those sections (75%), left-aligned — leaving the right quarter as

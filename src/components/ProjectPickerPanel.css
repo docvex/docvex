@@ -17,11 +17,12 @@
 
 .project-picker-panel {
   position: fixed;
-  /* Below the custom frameless title bar (--titlebar-h; 0 on web) so its
-     header + close button aren't clipped under it. */
-  top: var(--titlebar-h);
+  /* Below the custom frameless title bar AND the horizontal app-nav bar
+     (--titlebar-h + --topnav-h; both 0 on web) so its header + close button
+     aren't clipped under either. */
+  top: calc(var(--titlebar-h) + var(--topnav-h, 0px));
   left: 0;
-  height: calc(100vh - var(--titlebar-h));
+  height: calc(100vh - var(--titlebar-h) - var(--topnav-h, 0px));
   /* Wider than the sidebar (220px) so project names have breathing room.
      Tradeoff against horizontal real estate â€” 260px reads comfortably for
      names up to ~28 chars before truncation kicks in. */
@@ -45,13 +46,9 @@
 }
 
 .project-picker-panel.is-open {
-  /* Slide to right after the expanded sidebar (220px). The sidebar's
-     .picker-open rule force-expands it to 220px whenever the panel opens,
-     so 220 is the correct anchor regardless of the user's lock state.
-     Z-index 40 (panel) < 50 (sidebar) means during the slide-in animation
-     the panel is hidden by the sidebar until it clears the 220px edge â€”
-     reads as "emerging from behind the sidebar". */
-  transform: translateX(220px);
+  /* The left rail is gone (the app nav is a horizontal top bar now), so the
+     panel slides flush to the left edge of the content area. */
+  transform: translateX(0);
   pointer-events: auto;
   box-shadow: 6px 0 20px rgba(0, 0, 0, 0.45);
 }

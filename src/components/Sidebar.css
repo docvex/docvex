@@ -1,102 +1,29 @@
 ﻿.sidebar {
-  /* Fixed so hover-expansion overlays the page instead of pushing
-     it. Flex space is reserved by .main-content's
-     `margin-left: var(--sidebar-width)` (60px default, 220px only
-     when locked or picker-open) — so hover paints the wider
-     sidebar over the content without reflowing every laid-out
-     surface and reflowing again on mouseleave. The .locked /
-     .picker-open states intentionally DO push (they bump
-     --sidebar-width to 220 in AppShell.css). */
+  /* Horizontal app-nav bar pinned directly under the frameless title bar.
+     Fixed + full-width; the top reservation is handled by .main-content's
+     `margin-top: var(--topnav-h)` (AppShell.css), so the bar overlays the
+     very top of the content area without participating in flex flow. */
   position: fixed;
-  /* Sits below the custom frameless title bar (--titlebar-h; 0 on web). */
   top: var(--titlebar-h);
   left: 0;
-  /* Z-index above the ProjectPickerDrawer (z-index 40) so the drawer is
-     literally hidden behind the sidebar when closed â€” its open animation
-     then visibly slides it out from behind. Both sit above the project
-     banner (z-index 30) so opening the picker visually overlays the
-     "working in" bar instead of being clipped beneath it. */
+  right: 0;
+  /* Above the project banner (z 30) and the project-picker panel (z 40) so
+     the bar stays the topmost chrome under the title bar. */
   z-index: 50;
-  width: 60px;
-  min-width: 60px;
-  height: calc(100vh - var(--titlebar-h));
+  height: var(--topnav-h, 48px);
   background: var(--bg-sidebar);
-  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
   overflow: hidden;
-  /* Animate border-color too so the divider line fades into the picker
-     panel's color (.sidebar.picker-open rule below) over the same beat
-     as the picker's slide. */
-  transition:
-    width 250ms ease,
-    min-width 250ms ease,
-    border-color 220ms ease;
-  flex-shrink: 0;
-  /* `contain: layout style` isolates the sidebar's internal layout
-     invalidations from the rest of the page during the width transition.
-     `will-change: width` hints the compositor to promote the sidebar to
-     its own layer for the duration of the animation. */
-  contain: layout style;
-  will-change: width;
 }
 
-/* Either hovering or explicitly locked expands the sidebar to full width.
-   .picker-open also force-expands while the inline project picker is open
-   so project names stay readable even from a collapsed sidebar. */
-.sidebar:hover,
-.sidebar.locked,
-.sidebar.picker-open {
-  width: 220px;
-  min-width: 220px;
-}
-
-/* When the picker panel is open, drop the sidebar's right divider entirely
-   so the panel sits flush against the sidebar's content edge. The .is-current
-   row in the panel paints a 3px cognac left-edge stripe; with the divider
-   still in place we'd see a 1px sliver of panel bg (the divider was color-
-   matched to the panel) between the sidebar's content and the stripe.
-   Zeroing the border instead makes the stripe land directly on the sidebar's
-   trailing edge.
-
-   Side-effect of removing the 1px border (global box-sizing is border-box):
-   the sidebar's content area grows by 1px, so nav-item backgrounds extend
-   1px further right. Negligible visually, and only while the picker is open. */
-.sidebar.picker-open {
-  border-right-width: 0;
-}
-
-/* Labels stay visible while the picker is open (mirrors the .locked rule)
-   so the project list items don't render as opacity:0 ghosts when the
-   sidebar didn't have hover/lock state to bring them in. */
-.sidebar.picker-open .label {
-  opacity: 1;
-  pointer-events: auto;
-  /* Same 100ms delay the :hover / .locked rules use so labels don't pop
-     in before the sidebar has finished widening â€” matters for the
-     keyboard-activation edge case where the trigger is clicked without
-     a hover state ever firing. */
-  transition-delay: 100ms;
-}
-
-/* Labels are hidden by default and fade in after the sidebar opens */
+/* Labels always read in the horizontal bar (no hover-collapse anymore). */
 .sidebar .label {
-  opacity: 0;
   white-space: nowrap;
-  transition: opacity 120ms ease;
-  pointer-events: none;
-}
-
-.sidebar:hover .label,
-.sidebar.locked .label {
-  opacity: 1;
-  transition-delay: 100ms;
-}
-
-/* Interactive labels (lock button) need clicks to register when expanded */
-.sidebar:hover .lock-btn,
-.sidebar.locked .lock-btn {
-  pointer-events: auto;
 }
 
 /* Brand row at the top â€” original small inline icon on the left, stacked
@@ -307,15 +234,33 @@
 .sidebar-nav {
   list-style: none;
   margin: 0;
-  padding: 8px 0;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  direction: rtl;
-  /* Firefox: thin native rail, themed thumb via the global token. */
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
+  padding: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  /* gap:0 — spacing between items is provided by the divider pseudo below
+     so the 1px rule sits centered between each pair. */
+  gap: 0;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.sidebar-nav::-webkit-scrollbar { height: 0; width: 0; }
+
+.sidebar-nav > li {
+  display: flex;
+  align-items: center;
+}
+
+/* Thin vertical divider between every pair of nav elements. */
+.sidebar-nav > li + li::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 1px;
+  height: 13px;
+  margin: 0 4px;
+  background: var(--border);
 }
 
 /* Chromium / WebKit scrollbar — 8px wide rail with a translucent
@@ -358,12 +303,8 @@
 }
 
 .sidebar-nav > li {
-  padding: 2px 8px;
-  /* Restore LTR layout for each item — the parent .sidebar-nav uses
-     `direction: rtl` to flip the scrollbar to the left edge, but
-     individual items (icons left of labels, etc.) should still read
-     LTR. */
-  direction: ltr;
+  padding: 0;
+  flex: 0 0 auto;
 }
 
 /* Section headers (Personal / Projects). Visible only when the sidebar is
@@ -437,19 +378,24 @@
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 9px 10px;
-  border-radius: 7px;
+  gap: 6px;
+  padding: 3px 7px;
+  border-radius: 6px;
   color: var(--text-muted);
   text-decoration: none;
-  font-size: 0.875rem;
+  font-size: 0.74rem;
   font-weight: 500;
-  width: 100%;
+  width: auto;
+  white-space: nowrap;
   background: none;
   border: none;
   cursor: pointer;
   transition: background 150ms, color 150ms;
 }
+
+/* Smaller icons in the compact top bar (the JSX icons are authored at 20px). */
+.sidebar .icon { width: auto; }
+.sidebar .icon svg { width: 14px; height: 14px; }
 
 .nav-item:hover {
   background: var(--bg-elevated);
@@ -509,9 +455,13 @@
   padding: 0.1rem 0.5rem;
 }
 
-/* Footer */
+/* Footer — pushed to the far right of the bar (utility cluster). */
 .sidebar-footer {
-  padding: 8px;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
 }
 
 /* "Report a problem" â€” sits BELOW the Account row in the footer.

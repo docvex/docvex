@@ -19,9 +19,14 @@
    padding; this keeps a comfortable measure but anchors to the left (no
    auto-centring) so the page reads like the Activity feed. */
 .updates-page .page {
-  max-width: 940px;
+  width: 100%;
   margin: 0;
   padding: 0 0 3rem;
+}
+/* Three-quarters of the content width on wide screens, left-aligned — shared
+   with Activity / Newsletter / Settings / Debug. */
+@media (min-width: 1280px) {
+  .updates-page .page { width: 75%; }
 }
 
 /* ── Masthead (mirrors the Projects page "Editorial Dossier" header) ─────────
@@ -94,9 +99,9 @@
    and tracks the sidebar's expand/collapse. */
 .updates-page .versions-compact {
   position: fixed;
-  /* Sit just below the title bar AND the single-window nav chrome (its height
-     is published as --sv-chrome-h on .sv-single; 0 when there's no chrome). */
-  top: calc(var(--titlebar-h, 0px) + var(--sv-chrome-h, 0px));
+  /* Sit just below the title bar, the horizontal app-nav bar (--topnav-h), AND
+     the single-window nav chrome (--sv-chrome-h; 0 when there's no chrome). */
+  top: calc(var(--titlebar-h, 0px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
   left: var(--sidebar-width, 0px);
   right: 0;
   z-index: 30;

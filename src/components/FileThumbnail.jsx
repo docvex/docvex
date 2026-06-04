@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { useThumbnail } from '../lib/thumbnailResolver';
 import { glyphForFile } from './fileGlyph';
+import { useAppPrefs } from '../context/AppPrefsContext';
 
 // Unified thumbnail renderer. Backed by lib/thumbnailResolver.js's
 // useThumbnail hook — all the resolution, signing, regen, and caching
@@ -120,9 +121,16 @@ export default function FileThumbnail(props) {
   const duration = legacyDuration ?? descriptor?.duration ?? null;
   const glyph = legacyGlyph || glyphForFile(mime, descriptor?.name);
 
+  // Settings → "Display thumbnails". When off, always show the compact type
+  // glyph instead of the poster (the hook above still runs — unconditional —
+  // we just ignore its result so file previews don't load).
+  const { prefs } = useAppPrefs();
+
   // ── Pick the renderer ────────────────────────────────────────────
   let content;
-  if (posterUrl) {
+  if (!prefs.thumbnails) {
+    content = <ThumbGlyph icon={glyph} />;
+  } else if (posterUrl) {
     content = <ThumbImage src={posterUrl} onError={handleImgError} />;
   } else if (errored || !descriptor) {
     content = <ThumbGlyph icon={glyph} />;

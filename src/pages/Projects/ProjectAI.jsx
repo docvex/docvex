@@ -241,7 +241,7 @@ export default function ProjectAI() {
   const projectName = selectedProject.name;
   const fileNames = D.files.map((f) => f.name);
   const heads = {
-    overview: { eyebrow: 'Legal AI assistant', title: 'AI Hub', sub: <>Generation, review, research and automation for <b>{projectName}</b>. Everything AI in this matter, in one place.</> },
+    overview: { eyebrow: 'Legal AI assistant', title: 'AI Dashboard', sub: <>Generation, review, research and automation for <b>{projectName}</b>. Everything AI in this matter, in one place.</> },
     generate: { eyebrow: 'Generate · 14 templates', title: 'Draft documents', sub: <>Pleadings, contracts and correspondence, drafted from the matter context — with legal basis and citations.</> },
     review: { eyebrow: 'Review · risk & redline', title: 'Contract review', sub: <>Risky clauses, obligations and deadlines flagged automatically, with concrete redline suggestions.</> },
     ask: { eyebrow: 'Ask · Q&A with citations', title: 'Ask about the matter', sub: <>Answers grounded in the case files, each with verifiable citations to the source document.</> },

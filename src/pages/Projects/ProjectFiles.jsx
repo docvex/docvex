@@ -10,6 +10,7 @@ import {
   localFolderApi,
   hasLocalFolderApi,
   isElectronBranch,
+  readLocalBlob,
 } from '../../lib/localFolder';
 import { openDocx, isDocxFile } from '../../lib/platform';
 import {
@@ -366,6 +367,43 @@ export default function ProjectFiles() {
     return { ok: true };
   }, [refetchLocalFiles]);
 
+  // Move a whole folder into the recycle bin (every file inside is trashed,
+  // recoverable for 30 days). Returns the stored names so an undo can restore
+  // the lot — mirrors primTrash but for a directory.
+  const primTrashFolder = useCallback(async (folderPath) => {
+    const { ok, stored, error } = await localFolderApi.trashFolder({ dir: localFolder, path: folderPath });
+    if (error || ok === false) return { ok: false, error };
+    setSidecar((prev) => {
+      // Drop any sidecar entries whose files just went to the bin.
+      let next = prev;
+      for (const s of stored || []) {
+        const original = String(s).replace(/^\d+__/, '');
+        const after = removeSidecarByFilename(next, original);
+        if (after !== next) next = after;
+      }
+      if (next !== prev) saveSidecar(next);
+      return next;
+    });
+    setBrowseTick((t) => t + 1);
+    await refetchLocalFiles();
+    await refetchTrash();
+    return { ok: true, stored: stored || [] };
+  }, [localFolder, refetchLocalFiles, refetchTrash]);
+
+  // Restore a batch of binned files (the inverse of primTrashFolder). Best-
+  // effort: keeps going if one item can't be restored.
+  const primRestoreMany = useCallback(async (storedList) => {
+    let okAll = true;
+    for (const s of (storedList || [])) {
+      const r = await localFolderApi.restoreFromTrash({ dir: localFolder, stored: s });
+      if (r.error || r.ok === false) okAll = false;
+    }
+    setBrowseTick((t) => t + 1);
+    await refetchLocalFiles();
+    await refetchTrash();
+    return okAll;
+  }, [localFolder, refetchLocalFiles, refetchTrash]);
+
   // ── Undo / redo drivers ───────────────────────────────────────────────
   const handleUndo = useCallback(async () => {
     const res = await undo();
@@ -436,11 +474,28 @@ export default function ProjectFiles() {
   }, [currentDir, notify, primRename, pushAction]);
 
   const handleDeleteFolder = useCallback(async (dir) => {
-    const { error } = await localFolderApi.deleteFolder({ dir: currentDir, name: dir.name });
-    if (error) { notify({ category: 'file', variant: 'error', title: 'Couldn’t delete folder', body: error, dedupeKey: 'folder-delete-error' }); return; }
-    setBrowseTick((t) => t + 1);
-    refetchLocalFiles();
-  }, [currentDir, notify, refetchLocalFiles]);
+    const folderPath = dir?.path;
+    const parent = currentDir;
+    if (!folderPath) return;
+    const res = await primTrashFolder(folderPath);
+    if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t delete folder', body: res.error || 'Failed to delete folder', dedupeKey: 'folder-delete-error' }); return; }
+    notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Moved to Trash', body: `“${dir.name}” will be removed for good in ${TRASH_RETENTION_DAYS} days.`, dedupeKey: `fx-trash-folder:${folderPath}` });
+    // Track the stored names so redo (re-trash) can update them; an empty
+    // folder leaves nothing in the bin, so undo just recreates it.
+    const state = { stored: res.stored, path: folderPath };
+    pushAction({
+      label: `Delete folder “${dir.name}”`,
+      undo: async () => {
+        if (state.stored.length) return primRestoreMany(state.stored);
+        return (await primCreateFolder(parent, dir.name)).ok;
+      },
+      redo: async () => {
+        const r = await primTrashFolder(state.path);
+        if (r.ok) state.stored = r.stored;
+        return r.ok;
+      },
+    });
+  }, [currentDir, notify, primTrashFolder, primRestoreMany, primCreateFolder, pushAction]);
 
   const handleBrowseFolder = useCallback(async () => {
     if (!hasLocalFolderApi) return;
@@ -614,12 +669,117 @@ export default function ProjectFiles() {
     });
   }, [currentDir, notify, primRename, pushAction]);
 
+  // ── Copy / paste ──────────────────────────────────────────────────────
+  // Paste copies the clipboard's source files (read by their on-disk path)
+  // into the CURRENT folder, minting a non-clobbering "… copy" name when a
+  // file of the same name already lives here.
+  const handlePasteItems = useCallback(async (clipItems) => {
+    if (!localFolder || !Array.isArray(clipItems) || clipItems.length === 0) return;
+    const taken = new Set(browseFiles.map((f) => (f.name || '').toLowerCase()));
+    const uniqueName = (name) => {
+      if (!taken.has((name || '').toLowerCase())) return name;
+      const dot = name.lastIndexOf('.');
+      const base = dot > 0 ? name.slice(0, dot) : name;
+      const ext = dot > 0 ? name.slice(dot) : '';
+      let candidate = `${base} copy${ext}`;
+      let n = 2;
+      while (taken.has(candidate.toLowerCase())) { candidate = `${base} copy ${n}${ext}`; n += 1; }
+      return candidate;
+    };
+    const toWrite = [];
+    for (const it of clipItems) {
+      if (!it?.path) continue;
+      try {
+        const blob = await readLocalBlob(it.path);
+        const filename = uniqueName(it.name || 'file');
+        taken.add(filename.toLowerCase());
+        toWrite.push({ filename, blob });
+      } catch { /* unreadable source — skip */ }
+    }
+    if (toWrite.length === 0) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t paste', body: 'The copied file(s) could not be read.', dedupeKey: 'fx-paste-err' });
+      return;
+    }
+    const { results, error } = await localFolderApi.writeFiles({ dir: currentDir, files: toWrite });
+    if (error) { notify({ category: 'file', variant: 'error', title: 'Couldn’t paste', body: error, dedupeKey: 'fx-paste-err' }); return; }
+    const written = (results || []).filter((r) => r.ok && r.path);
+    setBrowseTick((t) => t + 1);
+    await refetchLocalFiles();
+    notify({ category: 'file', variant: 'success', icon: 'copy', title: written.length > 1 ? 'Files pasted' : 'File pasted', body: `${written.length} file${written.length === 1 ? '' : 's'} added to this folder.`, dedupeKey: 'fx-paste' });
+    pushAction({
+      label: `Paste ${written.length} file${written.length === 1 ? '' : 's'}`,
+      undo: async () => { for (const r of written) await primTrash(r.path, r.filename); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
+      redo: async () => { await localFolderApi.writeFiles({ dir: currentDir, files: toWrite }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
+    });
+  }, [localFolder, currentDir, browseFiles, notify, refetchLocalFiles, primTrash, pushAction]);
+
+  // Paste of CUT files — move each from its source folder into the current
+  // folder. Inverse moves files back to where they came from.
+  const handlePasteCut = useCallback(async (clipItems) => {
+    if (!localFolder || !Array.isArray(clipItems) || clipItems.length === 0) return;
+    const target = currentDir;
+    const join = (d, n) => `${d}/${n}`;
+    const parentOf = (p) => { const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')); return i >= 0 ? p.slice(0, i) : p; };
+    const moved = [];
+    let fail = 0;
+    for (const it of clipItems) {
+      if (!it?.path) { fail += 1; continue; }
+      const { ok } = await localFolderApi.move({ root: localFolder, fromPath: it.path, toDir: target });
+      if (ok) moved.push({ name: it.name, origDir: parentOf(it.path) }); else fail += 1;
+    }
+    setBrowseTick((t) => t + 1);
+    await refetchLocalFiles();
+    if (moved.length === 0) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t move', body: 'The file(s) could not be moved here (a file with that name may already exist).', dedupeKey: 'fx-move-err' });
+      return;
+    }
+    notify({ category: 'file', variant: 'success', icon: 'folder', title: moved.length > 1 ? 'Files moved' : 'File moved', body: `${moved.length} file${moved.length === 1 ? '' : 's'} moved here.`, dedupeKey: 'fx-move' });
+    pushAction({
+      label: `Move ${moved.length} file${moved.length === 1 ? '' : 's'}`,
+      undo: async () => { for (const m of moved) await localFolderApi.move({ root: localFolder, fromPath: join(target, m.name), toDir: m.origDir }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
+      redo: async () => { for (const m of moved) await localFolderApi.move({ root: localFolder, fromPath: join(m.origDir, m.name), toDir: target }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
+    });
+  }, [localFolder, currentDir, notify, refetchLocalFiles, pushAction]);
+
+  // ── Move (drag a file onto a folder) ──────────────────────────────────
+  // Dragged items always come from the CURRENT folder, so the inverse of a
+  // move is just moving them back into `currentDir`.
+  const handleMoveItems = useCallback(async (items, targetFolder) => {
+    const toDir = targetFolder?._dir?.path || targetFolder?.path;
+    const origDir = currentDir;
+    if (!localFolder || !toDir || !Array.isArray(items) || items.length === 0) return;
+    if (toDir === origDir) return;
+    const join = (d, n) => `${d}/${n}`;
+    const moved = [];
+    let fail = 0;
+    for (const it of items) {
+      // Files carry their path on `_raw`, folders on `_dir`. The main-process
+      // move handler renames either kind by basename, so both work the same.
+      const fromPath = it?._raw?.path || it?._dir?.path;
+      if (!fromPath) { fail += 1; continue; }
+      const { ok, error } = await localFolderApi.move({ root: localFolder, fromPath, toDir });
+      if (ok) moved.push({ name: it.name }); else fail += 1;
+    }
+    setBrowseTick((t) => t + 1);
+    await refetchLocalFiles();
+    if (moved.length === 0) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t move', body: fail ? 'The item(s) could not be moved (a file with that name may already exist there).' : 'Nothing to move.', dedupeKey: 'fx-move-err' });
+      return;
+    }
+    notify({ category: 'file', variant: 'success', icon: 'folder', title: moved.length > 1 ? 'Files moved' : 'File moved', body: `${moved.length} item${moved.length === 1 ? '' : 's'} moved to “${targetFolder.name}”.`, dedupeKey: 'fx-move' });
+    pushAction({
+      label: `Move ${moved.length} item${moved.length === 1 ? '' : 's'} to “${targetFolder.name}”`,
+      undo: async () => { for (const m of moved) await localFolderApi.move({ root: localFolder, fromPath: join(toDir, m.name), toDir: origDir }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
+      redo: async () => { for (const m of moved) await localFolderApi.move({ root: localFolder, fromPath: join(origDir, m.name), toDir }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
+    });
+  }, [localFolder, currentDir, notify, refetchLocalFiles, pushAction]);
+
   // ── Recently deleted actions ──────────────────────────────────────────
   const handleDeleteLocalCard = useCallback(async (file) => {
     if (!file?.path) return;
     const res = await primTrash(file.path, file.name);
     if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t delete', body: res.error || 'Failed to delete', dedupeKey: 'fx-trash-err' }); return; }
-    notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Moved to Recently deleted', body: `"${file.name}" will be removed for good in ${TRASH_RETENTION_DAYS} days.`, dedupeKey: `fx-trash:${file.path}` });
+    notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Moved to Trash', body: `"${file.name}" will be removed for good in ${TRASH_RETENTION_DAYS} days.`, dedupeKey: `fx-trash:${file.path}` });
     const state = { stored: res.stored, path: file.path, name: file.name };
     pushAction({
       label: `Delete “${file.name}”`,
@@ -668,7 +828,7 @@ export default function ProjectFiles() {
     const failed = results.filter((r) => r && r.error).length;
     notify(failed > 0
       ? { category: 'file', variant: 'error', title: 'Couldn’t empty the bin', body: `${failed} of ${count} could not be deleted.`, dedupeKey: 'fx-empty-bin' }
-      : { category: 'file', variant: 'success', icon: 'trash', title: 'Recycle bin emptied', body: `${count} file${count === 1 ? '' : 's'} permanently deleted.`, dedupeKey: 'fx-empty-bin' });
+      : { category: 'file', variant: 'success', icon: 'trash', title: 'Trash emptied', body: `${count} file${count === 1 ? '' : 's'} permanently deleted.`, dedupeKey: 'fx-empty-bin' });
     await refetchTrash();
   }, [localFolder, trashItems, notify, refetchTrash]);
 
@@ -708,7 +868,7 @@ export default function ProjectFiles() {
   const binEntryItem = {
     id: '__recycle-bin',
     kind: 'folder',
-    name: 'Recycle bin',
+    name: 'Trash',
     empty: trashItems.length === 0,
     status: 'synced',
     binEntry: true,
@@ -760,7 +920,7 @@ export default function ProjectFiles() {
   const fxCrumbs = filesTab === 'trash'
     ? [
         { label: 'Home', path: '__drafts' },
-        { label: 'Recycle bin', path: '__bin' },
+        { label: 'Trash', path: '__bin' },
       ]
     : [
         { label: 'Home', path: '__root' },
@@ -808,6 +968,19 @@ export default function ProjectFiles() {
     if (needsReconnect) { handleReconnect(); return; }
     localUploadInputRef.current?.click();
   };
+  // Resolve a breadcrumb path token to its real directory, then move the
+  // dragged files there (reuses the same move + undo machinery).
+  const fxMoveToCrumb = (crumb, items) => {
+    const tokenPath = crumb?.path;
+    let dir = null;
+    if (tokenPath === '__root') dir = { path: localFolder, name: 'Home' };
+    else if (typeof tokenPath === 'string' && tokenPath.startsWith('__stack:')) {
+      const seg = folderStack[Number(tokenPath.slice(8))];
+      if (seg) dir = { path: seg.path, name: seg.name };
+    }
+    if (!dir?.path) return;
+    handleMoveItems(items, { name: dir.name, _dir: { path: dir.path } });
+  };
   const fxUploadFolder = () => {
     if (!localFolder) { handleBrowseFolder(); return; }
     if (needsReconnect) { handleReconnect(); return; }
@@ -845,6 +1018,15 @@ export default function ProjectFiles() {
     onUpload: fxUpload,
     onUploadFolder: fxUploadFolder,
     onEmptyBin: handleEmptyBin,
+    // DEV-only: seed the bin with items at staggered expiry to preview the
+    // countdown rings.
+    onDebugSeedTrash: (import.meta.env.DEV && filesTab === 'trash' && Boolean(localFolder))
+      ? async () => {
+          await localFolderApi.debugSeedTrash({ dir: localFolder, days: [30, 25, 20, 15, 10, 5, 3, 2, 1] });
+          setBrowseTick((t) => t + 1);
+          await refetchTrash();
+        }
+      : undefined,
     // Open the current folder in the OS file manager (Electron only).
     onOpenDirectory: (hasLocalFolderApi && currentDir)
       ? () => localFolderApi.openPath(currentDir)
@@ -852,6 +1034,12 @@ export default function ProjectFiles() {
     // Drag-and-drop import — copies dropped OS files into the current folder.
     // Disabled in the bin and when no folder is bound.
     onDropFiles: (filesTab === 'drafts' && Boolean(localFolder)) ? handleDropFiles : undefined,
+    // Copy / paste (footer + Ctrl+C / Ctrl+V) and drag-to-move between folders
+    // — drafts only, and only with a bound local folder.
+    onPasteItems: (filesTab === 'drafts' && Boolean(localFolder)) ? handlePasteItems : undefined,
+    onPasteCut: (filesTab === 'drafts' && Boolean(localFolder)) ? handlePasteCut : undefined,
+    onMoveItems: (filesTab === 'drafts' && Boolean(localFolder)) ? handleMoveItems : undefined,
+    onMoveToCrumb: (filesTab === 'drafts' && Boolean(localFolder)) ? fxMoveToCrumb : undefined,
     // Undo / redo (footer buttons + Ctrl+Z / Ctrl+Y).
     onUndo: handleUndo,
     onRedo: handleRedo,
