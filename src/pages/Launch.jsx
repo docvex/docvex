@@ -13,7 +13,7 @@ import { markLaunchConsumed } from '../lib/launchGate';
 import { openExternal, openProjectWindow } from '../lib/platform';
 import { localFolderApi } from '../lib/localFolder';
 import { markProjectAccessed } from '../lib/recentProjects';
-import useCursorSpotlight from '../hooks/useCursorSpotlight';
+import CursorSpotlight from '../components/CursorSpotlight';
 import DeleteProjectModal from '../components/DeleteProjectModal';
 import DangerZone, { DangerRow } from '../components/DangerZone';
 import Account from './Account';
@@ -983,7 +983,6 @@ export default function Launch() {
   const { selectProject, beginSwitch } = useSelectedProject();
   const { notify } = useNotifications();
   const navigate = useNavigate();
-  useCursorSpotlight();
 
   const userId = session?.user?.id ?? null;
 
@@ -1226,6 +1225,7 @@ export default function Launch() {
 
   return (
     <div className="lh-page">
+      <CursorSpotlight />
       {/* Update-available banner — full-width strip across the top of the
           window, above the sidebar + content. Shows on a real update
           (UpdatesContext.hasUpdate) or when the dev Debug toggle is on.

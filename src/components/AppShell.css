@@ -144,42 +144,16 @@
       transparent 1.6px
     );
   background-size: 100% 100%, 24px 24px;
-  background-position: center, center;
+  /* Vignette stays centred; the dot grid is anchored to the viewport top-left
+     (0 0) so the spotlight layer below can stay aligned to it with a simple
+     counter-shift while it is translated around. */
+  background-position: center, 0 0;
 }
 
-/* Cursor spotlight â€” a SECOND dot layer at higher opacity, masked by a
-   radial-gradient centered at (--cursor-x, --cursor-y). Pixels outside the
-   200px spotlight radius get masked to transparent, so only the base layer
-   shows. Pixels inside the radius show both layers stacked, which reads as
-   "the dots near the cursor are brighter."
-     --cursor-x / --cursor-y are written each frame by useCursorSpotlight in
-     AppShell.jsx (rAF-throttled). Fallback to 50vw/50vh so the effect is
-     visible at center on first paint, before pointermove fires.
-     The mask uses #000 0% â†’ #000 40% â†’ transparent 100% so there's a soft
-     falloff rather than a hard circle edge. */
-.main-content::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  background-image: radial-gradient(
-    circle at center,
-    color-mix(in srgb, var(--text-primary) 5%, transparent) 1.4px,
-    transparent 1.8px
-  );
-  background-size: 24px 24px;
-  background-position: center;
-  mask-image: radial-gradient(
-    circle 200px at var(--cursor-x, 50vw) var(--cursor-y, 50vh),
-    #000 0%,
-    #000 40%,
-    transparent 100%
-  );
-  -webkit-mask-image: radial-gradient(
-    circle 200px at var(--cursor-x, 50vw) var(--cursor-y, 50vh),
-    #000 0%,
-    #000 40%,
-    transparent 100%
-  );
-}
+/* Cursor spotlight â€” a SECOND dot layer at higher opacity, brightening the
+   ambient grid in a soft radius around the pointer. It is rendered as a real
+   element (see CursorSpotlight.jsx) rather than a `::after` driven by a CSS
+   variable: writing --cursor-x/y to :root every pointermove forced a
+   document-wide style recalc (every element inherits root custom props), which
+   was the FPS sink on mouse move. The component moves a single small box via a
+   direct `transform` write instead. */

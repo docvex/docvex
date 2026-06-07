@@ -142,6 +142,7 @@ const Icon = {
   Bell: (p) => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>),
   Close: (p) => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>),
   Arrow: (p) => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>),
+  Menu: (p) => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>),
   Check: (p) => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="20 6 9 17 4 12" /></svg>),
   Pencil: (p) => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /></svg>),
   Trash: (p) => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>),
@@ -257,7 +258,7 @@ function MessageEditBox({ initialBody, onSave, onCancel }) {
 // pill, which morphs into a dropdown of reactions / reply / pin / copy /
 // edit / delete — same interaction + styling as the Files tab.
 const TeamMessageRow = React.memo(function TeamMessageRow({
-  msg, showDay, viewerId, memberById, fileById, rmap, replies,
+  msg, showDay, grouped, viewerId, memberById, fileById, rmap, replies,
   isEditing, renderBody, msgRefs,
   onToggleReaction, onOpenThread, onAttachmentClick, onSaveEdit, onCancelEdit,
   onTogglePin, onStartEdit, onDelete, onCopy,
@@ -318,15 +319,20 @@ const TeamMessageRow = React.memo(function TeamMessageRow({
       )}
       <div
         ref={(el) => { if (el) msgRefs.current[msg.id] = el; else delete msgRefs.current[msg.id]; }}
-        className={`dvx-msg-row vb-msg${isMine ? ' is-mine' : ''}${mentionsMe ? ' mentions-me' : ''}${hasReactions ? ' has-reactions' : ''}`}
+        className={`dvx-msg-row vb-msg${isMine ? ' is-mine' : ''}${mentionsMe ? ' mentions-me' : ''}${hasReactions ? ' has-reactions' : ''}${grouped ? ' is-grouped' : ''}`}
       >
         {!isMine && (
-          <div className="vb-msg-avatar">
-            <VbAvatar profile={author?.profile} authorId={msg.author_id} size={32} showStatus />
-          </div>
+          grouped
+            // Empty spacer keeps the bubble aligned under the run's avatar.
+            ? <div className="vb-msg-avatar" aria-hidden="true" />
+            : (
+              <div className="vb-msg-avatar">
+                <VbAvatar profile={author?.profile} authorId={msg.author_id} size={32} showStatus />
+              </div>
+            )
         )}
         <div className="vb-msg-body">
-          {!isMine && (
+          {!isMine && !grouped && (
             <div className="vb-msg-meta">
               <span className="vb-msg-author">{displayName(author?.profile)}</span>
               <span className="vb-msg-time">{formatHM(msg.created_at)}</span>
@@ -362,14 +368,14 @@ const TeamMessageRow = React.memo(function TeamMessageRow({
                   })}
                 </div>
               )}
-              {isMine && !msg.deleted_at && (
-                <span className="vb-msg-time-inline">
-                  {formatHM(msg.created_at)}
-                  {msg.edited_at && <span className="vb-msg-edited"> · edited</span>}
-                  <Icon.Check />
-                </span>
-              )}
             </div>
+          )}
+          {/* Time under the bubble (like the AI chat) — no delivery ticks. */}
+          {isMine && !msg.deleted_at && !isEditing && !grouped && (
+            <span className="vb-msg-time-under">
+              {formatHM(msg.created_at)}
+              {msg.edited_at && <span className="vb-msg-edited"> · edited</span>}
+            </span>
           )}
 
           {hasReactions && (
@@ -609,7 +615,7 @@ const TeamComposer = React.memo(function TeamComposer({
           <button type="button" className="dvx-composer-btn" title="Emoji (coming soon)" aria-label="Emoji" disabled><Icon.Smile /></button>
           <button type="button" className="dvx-composer-btn" title="Voice note (coming soon)" aria-label="Voice note" disabled><Icon.Mic /></button>
           <div className="dvx-composer-toolbar-spacer" />
-          <button type="button" className="dvx-composer-btn dvx-composer-send" onClick={handleSend} disabled={sending || !draft.trim()}><Icon.Send />Send</button>
+          <button type="button" className="dvx-composer-btn dvx-composer-send" onClick={handleSend} disabled={sending || !draft.trim()} title="Send" aria-label="Send"><Icon.Send /></button>
         </div>
       </div>
 
@@ -760,10 +766,12 @@ export default function ProjectChat() {
   // panel's left edge lines up with the "Pinned" tab) until the user drags.
   const [railWidth, setRailWidth] = useState(320);
   const [railUserSized, setRailUserSized] = useState(false);
+  const [railResizing, setRailResizing] = useState(false);
   const headerSectionsRef = useRef(null);
   const startRailResize = useCallback((e) => {
     e.preventDefault();
     setRailUserSized(true); // stop auto-aligning once the user takes over
+    setRailResizing(true);  // drops the grid transition so it tracks the cursor 1:1
     const startX = e.clientX;
     const startW = railWidth;
     const onMove = (ev) => {
@@ -776,6 +784,7 @@ export default function ProjectChat() {
       window.removeEventListener('mouseup', onUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      setRailResizing(false);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -1487,20 +1496,11 @@ export default function ProjectChat() {
       >
         <Icon.Lock />Private
       </button>
-      {/* Rail section tabs (Team only) — drive the right panel; clicking one
-          also re-opens it if it was collapsed. */}
+      {/* Right group: a burger toggle (shows/hides the panel) to the LEFT of the
+          drag divider, then the rail section tabs (Team only). The section tabs
+          are hidden while the panel is collapsed — only the burger remains. */}
       {tab === 'team' && (
-        <div className="vb-header-sections" ref={headerSectionsRef}>
-          {railSections.sections.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className={`vb-htab${!railCollapsed && railTab === s.id ? ' is-active' : ''}`}
-              onClick={() => { setRailTab(s.id); setRailCollapsed(false); if (s.id !== 'threads') setOpenThreadId(null); }}
-            >
-              {s.icon}<span>{s.label}</span><span className="vb-htab-count">{s.count}</span>
-            </button>
-          ))}
+        <div className="vb-header-right">
           <button
             type="button"
             className="vb-htab-collapse"
@@ -1508,8 +1508,37 @@ export default function ProjectChat() {
             aria-label={railCollapsed ? 'Show panel' : 'Hide panel'}
             onClick={() => setRailCollapsed((v) => !v)}
           >
-            <Icon.Arrow style={railCollapsed ? undefined : { transform: 'rotate(180deg)' }} />
+            <Icon.Menu />
           </button>
+          {!railCollapsed && (
+            <div
+              className="vb-header-sections has-rail"
+              ref={headerSectionsRef}
+              /* Width matches the rail column below so the section tabs sit over
+                 the rail and the left border continues the split divider up
+                 through the tab bar. */
+              style={{ width: `${railWidth}px` }}
+            >
+              {/* Drag handle on the tab-bar divider — resizes the split. */}
+              <div
+                className="vb-htab-resizer"
+                role="separator"
+                aria-orientation="vertical"
+                title="Drag to resize"
+                onMouseDown={startRailResize}
+              />
+              {railSections.sections.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={`vb-htab${railTab === s.id ? ' is-active' : ''}`}
+                  onClick={() => { setRailTab(s.id); if (s.id !== 'threads') setOpenThreadId(null); }}
+                >
+                  {s.icon}<span>{s.label}</span><span className="vb-htab-count">{s.count}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1560,7 +1589,7 @@ export default function ProjectChat() {
         return (
           <div className="vb-team">
           <div
-            className={`vb-split${railCollapsed ? ' rail-collapsed' : ''}`}
+            className={`vb-split${railCollapsed ? ' rail-collapsed' : ''}${railResizing ? ' is-resizing' : ''}`}
             // Drag the splitter to resize the rail; the resizer is a thin
             // grid column between the thread and the panel.
             style={railCollapsed ? undefined : { gridTemplateColumns: `1fr 6px ${railWidth}px` }}
@@ -1576,11 +1605,17 @@ export default function ProjectChat() {
                 {shownMessages.map((msg, i) => {
                   const prev = i > 0 ? shownMessages[i - 1] : null;
                   const showDay = !prev || !sameLocalDay(prev.created_at, msg.created_at);
+                  // Group consecutive messages from the same author within 1
+                  // minute (and same day) — they share one avatar/header.
+                  const grouped = !!prev && !showDay
+                    && prev.author_id === msg.author_id
+                    && (new Date(msg.created_at) - new Date(prev.created_at)) < 60 * 1000;
                   return (
                     <TeamMessageRow
                       key={msg.id}
                       msg={msg}
                       showDay={showDay}
+                      grouped={grouped}
                       viewerId={viewerId}
                       memberById={memberById}
                       fileById={fileById}
@@ -1625,15 +1660,10 @@ export default function ProjectChat() {
 
             </div>
 
-            {/* Splitter — drag to resize the panel (see startRailResize). */}
+            {/* Visual divider only — the resize DRAG lives on the tab-bar
+                divider now (see .vb-htab-resizer / startRailResize). */}
             {!railCollapsed && (
-              <div
-                className="vb-rail-resizer"
-                role="separator"
-                aria-orientation="vertical"
-                title="Drag to resize"
-                onMouseDown={startRailResize}
-              />
+              <div className="vb-rail-resizer" aria-hidden="true" />
             )}
 
             {/* ── Right rail — the section tabs (Pinned / Threads / Mentions /
@@ -1841,10 +1871,11 @@ export default function ProjectChat() {
                                 <span className="vb-msg-text">
                                   {msg.deleted_at ? <em className="vb-msg-deleted">Message deleted</em> : msg.body}
                                 </span>
-                                {!msg.deleted_at && (
-                                  <span className="vb-msg-time-inline">{formatHM(msg.created_at)}{isMine && <Icon.Check />}</span>
-                                )}
                               </div>
+                              {/* Time under the bubble (like the AI chat) — no ticks. */}
+                              {!msg.deleted_at && (
+                                <span className="vb-msg-time-under">{formatHM(msg.created_at)}</span>
+                              )}
                             </div>
                           </div>
                         </React.Fragment>
@@ -1865,7 +1896,7 @@ export default function ProjectChat() {
                       />
                       <div className="dvx-composer-toolbar">
                         <div className="dvx-composer-toolbar-spacer" />
-                        <button type="button" className="dvx-composer-btn dvx-composer-send" onClick={handleSendPrivate} disabled={privateSending || !privateDraft.trim()}><Icon.Send />Send</button>
+                        <button type="button" className="dvx-composer-btn dvx-composer-send" onClick={handleSendPrivate} disabled={privateSending || !privateDraft.trim()} title="Send" aria-label="Send"><Icon.Send /></button>
                       </div>
                     </div>
                   </div>

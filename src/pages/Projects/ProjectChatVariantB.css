@@ -438,21 +438,22 @@
 }
 .dvx-composer-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .dvx-composer-send {
-  width: auto;
-  padding: 0 14px;
-  height: 32px;
+  width: 34px;
+  padding: 0;
+  height: 34px;
   background: var(--accent);
   color: var(--text-on-accent);
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 0.84rem;
+  /* Round icon-only send button. */
+  border-radius: 50%;
 }
+.dvx-composer-send svg { margin: 0; }
 .dvx-composer-send:hover {
   background: var(--accent-hover);
   color: var(--text-on-accent);
 }
 .dvx-composer-send:disabled {
-  background: var(--bg-elevated);
+  /* No fill when there's nothing to send — just the muted icon. */
+  background: transparent;
   color: var(--text-muted);
   cursor: not-allowed;
 }
@@ -554,31 +555,49 @@
 /* ───── Rail section tabs, relocated into the header nav bar ──────────
    Pinned / Threads / Mentions / Files sit on the right of the Team/Private
    strip and drive the right rail panel below. */
-.vb-header-sections {
+/* Right-aligned group: burger toggle + the section-tab block. */
+.vb-header-right {
   margin-left: auto;
   display: flex;
   align-items: stretch;
 }
+.vb-header-sections {
+  display: flex;
+  align-items: stretch;
+  position: relative; /* anchors the .vb-htab-resizer drag handle */
+}
+/* When the rail is open, the section tabs occupy a fixed-width block matching
+   the rail column, with a left border that continues the thread/rail split
+   divider up through the tab bar. */
+.vb-header-sections.has-rail {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
+  gap: 2px;
+}
+/* Identical to the Team/Private tabs (.dvx-tab) so every tab-bar item reads the
+   same. */
 .vb-htab {
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.5rem;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  padding: 0 12px;
+  padding: 0.7rem 1rem;
   font-family: var(--font-body);
-  font-size: 0.8rem;
+  font-size: 0.88rem;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 140ms, border-color 140ms;
+  transition: color 150ms, border-color 150ms;
 }
 .vb-htab:hover:not(.is-active) { color: var(--text-secondary); }
-.vb-htab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
-.vb-htab svg { width: 14px; height: 14px; }
+.vb-htab.is-active { color: var(--text-primary); border-bottom-color: var(--accent); }
+.vb-htab svg { width: 16px; height: 16px; }
 .vb-htab-count {
   font-size: 0.66rem;
   font-weight: 600;
@@ -645,11 +664,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  /* Extra bottom padding so the divider below has matching breathing room above
-     and below it (see the tab strip's ::before). */
-  padding: 0 10px 12px;
+  /* Fixed 40px band — same height as the Files / AI-chat row-2 toolbar — so the
+     chat topbar's first two sections (chrome row 1 + this tools row) match the
+     full height of those two-section topbars. */
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 10px;
 }
-.dvx-chrome-tools .dvx-action-btn { padding: 5px 10px; }
+.dvx-chrome-tools .dvx-action-btn { padding: 0 12px; height: 32px; box-sizing: border-box; }
 
 /* Search bar — same design as the Files toolbar search: squared pill that
    widens + lifts on focus, accent magnifier, a Ctrl/⌘+F chip that swaps for a
@@ -660,6 +682,8 @@
   align-items: center;
   gap: 8px;
   width: 240px;
+  height: 32px;
+  box-sizing: border-box;
   padding: 5px 8px 5px 11px;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -724,20 +748,9 @@
   position: relative;
   border-bottom: none;
   padding: 0;
-}
-/* Inset divider between the huddle/search row and the tab bar — stops short of
-   the edges (doesn't span the full width). Positioned at the midpoint between
-   the tools row above and the tab LABELS below: the tabs carry ~13px of their
-   own top padding, so the visual balance point sits ~at the strip's top edge
-   (the tools row supplies ~12px of clearance above via its bottom padding). */
-.sv-chrome-row2 .dvx-tabs.vb-tabs::before {
-  content: '';
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  top: 1px;
-  height: 1px;
-  background: var(--border);
+  /* Third section — same 40px band height as the tools row above it. */
+  height: 40px;
+  box-sizing: border-box;
 }
 /* The tabs carry a 2px active underline + a -1px margin (to overlap the strip's
    own border, which is gone here). Drop that margin and add a matching
@@ -876,6 +889,9 @@
   gap: 0;
   transition: grid-template-columns 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+/* While dragging the splitter, drop the transition so the columns track the
+   cursor 1:1 instead of easing 280ms behind it. */
+.vb-split.is-resizing { transition: none; }
 .vb-split.rail-collapsed {
   /* Rail panel isn't rendered when collapsed (its tabs live in the header),
      so the thread fills the full width. */
@@ -985,11 +1001,13 @@
      this thread column. Divider is drawn by the drag splitter instead. */
 }
 
-/* Drag splitter between the thread and the panel (the 6px grid column). */
+/* Visual divider between the thread and the panel (the 6px grid column). The
+   resize DRAG now lives on the tab-bar divider (.vb-htab-resizer), so this is
+   non-interactive. */
 .vb-rail-resizer {
   position: relative;
-  cursor: col-resize;
   align-self: stretch;
+  pointer-events: none;
 }
 .vb-rail-resizer::after {
   content: '';
@@ -1000,10 +1018,33 @@
   width: 1px;
   transform: translateX(-50%);
   background: var(--border);
+}
+
+/* Resize handle on the tab-bar divider — drag to resize the split. Sits over
+   the left border of the section-tab group. */
+.vb-htab-resizer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 11px;
+  margin-left: -6px;
+  cursor: col-resize;
+  z-index: 3;
+}
+.vb-htab-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: transparent;
   transition: background 120ms, width 120ms;
 }
-.vb-rail-resizer:hover::after,
-.vb-rail-resizer:active::after {
+.vb-htab-resizer:hover::after,
+.vb-htab-resizer:active::after {
   width: 2px;
   background: var(--accent);
 }
@@ -1031,6 +1072,9 @@
 .vb-msg.is-mine {
   grid-template-columns: 1fr;
 }
+/* Consecutive messages from the same author (within 5 min) cluster tightly:
+   no avatar/header is rendered, so close the gap above the bubble. */
+.vb-msg.is-grouped { padding-top: 0; margin-top: -2px; }
 .vb-msg-avatar {
   padding-top: 2px;
 }
@@ -1099,24 +1143,26 @@
 }
 .vb-msg.is-mine .vb-msg-bubble {
   align-self: flex-end;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  /* Solid (opaque) fill in the same accent tint — blended over the page bg so
+     the spotlight / dot grid never shows through (no blur needed). */
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-page));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--bg-page));
   border-radius: 12px 12px 4px 12px;
 }
 .vb-msg-text {
   white-space: pre-wrap;
 }
 .vb-msg-deleted { color: var(--text-muted); font-style: italic; }
-.vb-msg-time-inline {
-  align-self: flex-end;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
+/* Time under the bubble (matches the AI chat's .aichat-time): small, muted,
+   tabular; right-aligned under own messages, left under others'. */
+.vb-msg-time-under {
+  display: block;
+  margin-top: 3px;
   font-size: 0.66rem;
-  color: color-mix(in srgb, var(--text-primary) 55%, transparent);
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
-.vb-msg-time-inline svg { width: 12px; height: 12px; color: var(--accent); }
+.vb-msg.is-mine .vb-msg-time-under { text-align: right; }
 .vb-msg-edited { color: var(--text-muted); }
 
 .vb-msg-attachments {
@@ -1398,9 +1444,28 @@
 }
 /* No longer floating over the thread → drop the big bottom clearance, and
    anchor the scroll-back pill to the thread column instead of the overlay. */
-.vb-team .vb-messages { padding-bottom: 16px; }
+/* Clear the floating composer footer so the last message scrolls out from
+   behind it. */
+.vb-team .vb-messages { padding-bottom: 84px; }
 .vb-team .vb-main { position: relative; }
 .vb-team .vb-scroll-back { bottom: 16px; }
+
+/* Float the composer footer OVER the thread (only for panes that actually hold
+   a composer) so messages scroll up behind the frosted, slightly-transparent
+   bar instead of stopping above it. Covers the split-pane (.sv-pane-inner) and
+   single-window shells — the latter now nests the footer in `.sv-single-body`
+   (beside the destination rail), so the float is scoped to that body rather
+   than `.sv-single` so it doesn't span across the rail. */
+.sv-pane-inner:has(> .sv-footer .dvx-composer),
+.sv-single-body:has(> .sv-footer .dvx-composer) { position: relative; }
+.sv-pane-inner:has(> .sv-footer .dvx-composer) > .sv-footer,
+.sv-single-body:has(> .sv-footer .dvx-composer) > .sv-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+}
 
 /* Composer portalled into the window's app footer (.sv-footer): the input IS
    the whole footer — it fills it edge to edge, flat (no rounded floating box,
@@ -1430,9 +1495,11 @@
   box-shadow: none;
 }
 /* Cap the textarea so a long message scrolls instead of growing the footer and
-   pushing the thread — keeps the footer a stable height. */
+   pushing the thread. 4 lines max (line-height 1.5em × 4 = 6em) + the 12px
+   vertical padding; past that it scrolls. The AI composer also sets this height
+   inline as it auto-grows — this keeps the ceiling identical either way. */
 .sv-footer .dvx-composer-textarea {
-  max-height: 116px;
+  max-height: calc(6em + 12px);
   overflow-y: auto;
 }
 

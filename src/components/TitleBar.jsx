@@ -7,6 +7,7 @@ import { useUpdates } from '../context/UpdatesContext';
 import { useSplitView, SPLIT_LAYOUTS, isTriLayout, rotateTri } from '../context/SplitViewContext';
 import { useReportProblem } from '../context/ReportProblemContext';
 import Tooltip from './Tooltip';
+import FpsMeter from './FpsMeter';
 import { useMorphPill } from './useMorphPill';
 import { DEFAULT_STATUS_KEY, getStatusOption } from '../lib/userStatus';
 import { PLAN } from '../lib/plan';
@@ -440,6 +441,8 @@ export default function TitleBar() {
 
   return (
     <div className="tb-bar">
+      {/* FPS indicator — fixed at the top-centre of the window. */}
+      <FpsMeter />
       {/* Brand on the left — "DOCVEX", with a "| HUB" suffix on the launch hub.
           When a project is selected, its name renders after a divider as a
           clickable chip that opens the project's Overview (Personal → Projects

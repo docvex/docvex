@@ -1,4 +1,5 @@
 import React from 'react';
+import AiSphere from '../../components/AiSphere';
 
 // Lucide-style stroke icons, ported from the Claude Design AI-tab handoff.
 // The app convention is inline JSX icon constants; here a tiny factory keeps
@@ -16,7 +17,10 @@ const mk = (paths) => (props = {}) => React.createElement(
 );
 
 export const ICONS = {
-  spark: mk(['M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z', 'M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8z', 'M5 4l.7 1.9L7.6 6.6 5.7 7.3 5 9.2 4.3 7.3 2.4 6.6l1.9-.7z']),
+  // The AI glyph everywhere in the app is the animated "thinking" sphere.
+  // Call sites stay `I.spark({ width, height })`; the props pass straight
+  // through to <AiSphere>, so every AI-icon instance renders the sphere.
+  spark: (props = {}) => React.createElement(AiSphere, props),
   pen: mk(['M12 20h9', 'M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z']),
   shield: mk(['M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z']),
   scale: mk(['m16 16 3-8 3 8c-2 1.5-4 1.5-6 0', 'm2 16 3-8 3 8c-2 1.5-4 1.5-6 0', 'M7 21h10', 'M12 3v18', 'M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2']),
@@ -32,6 +36,7 @@ export const ICONS = {
   copy: mk([{ t: 'rect', p: { x: 9, y: 9, width: 13, height: 13, rx: 2 } }, 'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1']),
   download: mk(['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M7 10l5 5 5-5', 'M12 15V3']),
   check: mk(['M20 6 9 17l-5-5']),
+  refresh: mk(['M21 12a9 9 0 1 1-3-6.7L21 8', 'M21 3v5h-5']),
   alert: mk(['M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z', 'M12 9v4', 'M12 17h.01']),
   x: mk(['M18 6 6 18', 'M6 6l12 12']),
   caret: mk([{ t: 'polyline', p: { points: '6 9 12 15 18 9' } }]),

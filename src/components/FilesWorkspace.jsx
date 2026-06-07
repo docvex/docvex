@@ -1084,7 +1084,7 @@ export default function FilesWorkspace({
           className={`fx-canvas${dragOver ? ' fx-canvas--drag' : ''}`}
           ref={canvasRef}
           style={{ '--fx-tile': `${tileSize}px` }}
-          onClick={(e) => { if (e.target === e.currentTarget) clearSelection(); }}
+          onClick={(e) => { if (e.target === e.currentTarget) { clearSelection(); bgMorph.closeMenu(); } }}
           onContextMenu={menuEditable ? bgMorph.handleContextMenu : undefined}
           onDragEnter={onDropFiles ? (e) => { if (Array.from(e.dataTransfer?.types || []).includes('Files')) { e.preventDefault(); setDragOver(true); } } : undefined}
           onDragOver={onDropFiles ? (e) => { if (Array.from(e.dataTransfer?.types || []).includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; if (!dragOver) setDragOver(true); } } : undefined}

@@ -1,0 +1,41 @@
+/* Cursor spotlight box — a brighter copy of the ambient dot grid, masked to a
+   soft 215px circle. Moved with the pointer via a `transform` written directly
+   on this node (see CursorSpotlight.jsx). The transform + background-position
+   are set in JS; everything static lives here.
+     The box is exactly the spotlight diameter (2 × 215px) so its painted area
+     stays tiny; the mask is centred + static so it's rasterised once. */
+.cursor-spotlight {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 430px;
+  height: 430px;
+  pointer-events: none;
+  z-index: -1;
+  will-change: transform;
+  /* Brighter + slightly larger dots than the ambient grid so the spotlight
+     reads as the cursor moves (kept subtle). */
+  background-image: radial-gradient(
+    circle at center,
+    color-mix(in srgb, var(--text-primary) 11%, transparent) 1.45px,
+    transparent 1.85px
+  );
+  background-size: 24px 24px;
+  /* background-position is set per-frame in JS to counter the transform. */
+  mask-image: radial-gradient(
+    circle 215px at center,
+    #000 0%,
+    #000 42%,
+    transparent 100%
+  );
+  -webkit-mask-image: radial-gradient(
+    circle 215px at center,
+    #000 0%,
+    #000 42%,
+    transparent 100%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor-spotlight { display: none; }
+}

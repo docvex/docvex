@@ -17,6 +17,86 @@ import './ProjectAI.css';
 import './ProjectChatVariantB.css';
 import './ProjectAIChat.css';
 
+// Typewriter — reveals an AI answer character-by-character. The revealed slice
+// is rendered through Markdown as it grows, so formatting (**bold**, ## headings,
+// lists, etc.) appears live instead of showing raw syntax; once the reveal
+// finishes the parent swaps in the final Markdown render. `onTick` keeps the
+// thread scrolled to the bottom as text grows. Reveal speed scales with length
+// and is capped so long answers don't crawl.
+function Typewriter({ text, onDone, onTick }) {
+  const [n, setN] = React.useState(0);
+  const doneRef = React.useRef(onDone);
+  const tickRef = React.useRef(onTick);
+  doneRef.current = onDone;
+  tickRef.current = onTick;
+  React.useEffect(() => {
+    const total = text.length;
+    if (!total) { doneRef.current && doneRef.current(); return undefined; }
+    let raf = 0;
+    let start = 0;
+    const dur = Math.min(Math.max(total / 90, 0.4), 6) * 1000; // ~90 chars/s, 0.4–6s
+    const step = (ts) => {
+      if (!start) start = ts;
+      const p = Math.min((ts - start) / dur, 1);
+      // Ease-out so it decelerates toward the end.
+      const eased = 1 - Math.pow(1 - p, 2);
+      setN(Math.floor(eased * total));
+      tickRef.current && tickRef.current();
+      if (p < 1) { raf = requestAnimationFrame(step); }
+      else { setN(total); doneRef.current && doneRef.current(); }
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [text]);
+  return (
+    <div className="aichat-md aichat-typing">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text.slice(0, n)}</ReactMarkdown>
+      <span className="aichat-caret" aria-hidden="true" />
+    </div>
+  );
+}
+
+// Contextual "thinking" status — replaces the wave animation while the AI is
+// working. Cycles through short status words à la Claude, picked from a set
+// that matches what the user asked for (math, writing, files, code, …), so the
+// label reads as if the assistant is doing the relevant kind of work.
+const THINKING_SETS = {
+  math: ['Calculating', 'Crunching the numbers', 'Working through the math', 'Checking the figures'],
+  write: ['Drafting', 'Composing', 'Choosing the words', 'Polishing'],
+  legal: ['Reviewing', 'Checking the clauses', 'Weighing the details', 'Consulting the rules'],
+  files: ['Searching your files', 'Scanning the documents', 'Gathering context', 'Looking things up'],
+  code: ['Writing code', 'Reasoning about the logic', 'Tracing the flow', 'Working it out'],
+  summary: ['Reading', 'Summarising', 'Distilling the key points', 'Pulling it together'],
+  general: ['Thinking', 'Working on it', 'Reasoning', 'Putting it together'],
+};
+
+function pickThinkingSet(text) {
+  const t = (text || '').toLowerCase();
+  if (/(calcul|\bsum\b|total|\bmath|number|average|percent|\bcost|price|budget|amount|equation|formula|multipl|divid|add up|how much)/.test(t)) return 'math';
+  if (/(write|draft|compose|email|letter|essay|paragraph|rewrite|rephrase|\bmessage\b|reply)/.test(t)) return 'write';
+  if (/(legal|\blaw\b|clause|contract|statute|regulation|complian|gdpr|liabilit|court|\bcase\b|tax)/.test(t)) return 'legal';
+  if (/(file|document|folder|search|\bfind\b|look up|\bpdf\b|\bdoc\b|spreadsheet|attach)/.test(t)) return 'files';
+  if (/(\bcode\b|function|\bbug\b|script|\bapi\b|json|\bcss\b|html|javascript|python|\bsql\b|\berror\b|program)/.test(t)) return 'code';
+  if (/(summar|tl;?dr|overview|recap|key points|\bbrief\b|explain)/.test(t)) return 'summary';
+  return 'general';
+}
+
+function ThinkingStatus({ query }) {
+  const set = React.useMemo(() => THINKING_SETS[pickThinkingSet(query)], [query]);
+  const [i, setI] = React.useState(0);
+  React.useEffect(() => {
+    setI(0);
+    const id = window.setInterval(() => setI((n) => (n + 1) % set.length), 2000);
+    return () => window.clearInterval(id);
+  }, [set]);
+  return (
+    <span className="aichat-thinking" role="status" aria-label="DocVex AI is working">
+      <span className="aichat-thinking-text" key={i}>{set[i]}</span>
+      <span className="aichat-thinking-dots" aria-hidden="true"><span /><span /><span /></span>
+    </span>
+  );
+}
+
 // AI — a standalone DocVex AI assistant. This is NOT scoped to a project: each
 // conversation starts with a clean slate (zero project/file context), and the
 // tab keeps its own navigation — a rail of saved chats with create / switch /
@@ -80,7 +160,33 @@ async function buildContextBlock(atts) {
 
 function makeThread() {
   const now = Date.now();
-  return { id: uid(), title: 'New chat', messages: [], createdAt: now, updatedAt: now };
+  return { id: uid(), title: 'Unnamed chat', messages: [], createdAt: now, updatedAt: now };
+}
+
+// Short clock label (e.g. "14:05") for the message time mark — matches the
+// Chat tab's inline timestamp.
+function formatHM(ts) {
+  if (!ts) return '';
+  try { return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
+}
+
+// Date-grouping helpers (mirror the team/private chat). Two timestamps are the
+// "same day" when their local Y-M-D match; the divider label reads Today /
+// Yesterday / a full date.
+function sameLocalDay(a, b) {
+  if (!a || !b) return false;
+  const da = new Date(a);
+  const db = new Date(b);
+  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+}
+function formatDayLabel(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const now = new Date();
+  const yest = new Date(now); yest.setDate(now.getDate() - 1);
+  if (sameLocalDay(d, now)) return 'Today';
+  if (sameLocalDay(d, yest)) return 'Yesterday';
+  return d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
 }
 
 // Instant, offline suggestion set for a dropped file — shown immediately while
@@ -167,6 +273,11 @@ export default function ProjectAIChat() {
   const [activeId, setActiveId] = useState(null);
   const [val, setVal] = useState('');
   const [streaming, setStreaming] = useState(false);
+  // The AI message currently being revealed with the typewriter effect:
+  // { threadId, index } — cleared when the animation completes.
+  const [typing, setTyping] = useState(null);
+  const [copiedIdx, setCopiedIdx] = useState(null); // message index showing the "Copied" state
+  const [chatSearch, setChatSearch] = useState(''); // topbar search → filters the chat list
   const [attachments, setAttachments] = useState([]); // [{ name, path }] dropped from Files
   const [dropActive, setDropActive] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
@@ -181,9 +292,9 @@ export default function ProjectAIChat() {
   const [depthIdx, setDepthIdx] = useState(1);            // 0 low / 1 medium / 2 high
   const [fileSelected, setFileSelected] = useState(false); // sidebar file card selection
   const [fileProps, setFileProps] = useState(false);       // file Properties modal
-  // "Use context" — when on, the AI grounds answers in the names of all the
-  // user's project files.
-  const [useContext, setUseContext] = useState(false);
+  // File context is always on — the AI grounds answers in the names of all the
+  // user's project files (no toggle; gathered automatically on mount).
+  const useContext = true;
   const [contextFiles, setContextFiles] = useState([]); // gathered file names
   const [contextLoading, setContextLoading] = useState(false);
   const contextFilesRef = useRef([]);   // latest names for send() (avoids stale state)
@@ -192,13 +303,82 @@ export default function ProjectAIChat() {
   const listRef = useRef(null);
   const sbHideTimer = useRef(null);
   const sbDrag = useRef(null);
+  const sbThumbRef = useRef(null);   // rail thumb node — positioned via ref (no per-scroll re-render)
+  const listScrollRaf = useRef(null); // rAF throttle for the rail scroll
   const dragDepth = useRef(0);
   const scroller = useRef(null);
+  // Custom overlay scrollbar for the message thread (same pattern as the rail's,
+  // so the native bar never reserves width / shifts the bubbles).
+  const [msgSb, setMsgSb] = useState({ h: 28, y: 0, enabled: false, show: false });
+  const msgSbHideTimer = useRef(null);
+  const msgSbDrag = useRef(null);
+  const msgThumbRef = useRef(null);    // thumb DOM node — positioned via ref, not state, to avoid per-scroll re-renders
+  const msgScrollRaf = useRef(null);   // rAF throttle for scroll measuring
+  const stickRef = useRef(true);       // true while the view should follow the bottom
   const loadedFor = useRef(null);
   const fileInputRef = useRef(null);
   const taRef = useRef(null);          // composer textarea (focus on "Other")
+  const searchRef = useRef(null);      // chat-search input (Ctrl/Cmd+F focuses it)
+  const pendingScrollRef = useRef(false); // one-shot: force the next auto-scroll (on send)
   const suggestToken = useRef(0);      // guards against stale AI suggestion results
   const rootRef = useRef(null);        // pane root, used to focus the pane on drop
+
+  // Auto-grow the composer with its content, up to a 4-line ceiling; past that
+  // it scrolls instead of pushing the thread. Runs on every value change (typing,
+  // send-clear, chat switch). The cap is computed from the textarea's own
+  // line-height so it tracks the font/theme: 4 lines + vertical padding.
+  React.useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    const cs = getComputedStyle(el);
+    const lh = parseFloat(cs.lineHeight) || 22;
+    const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const maxH = Math.round(lh * 4 + padY);
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
+    el.style.overflowY = el.scrollHeight > maxH ? 'auto' : 'hidden';
+  }, [val]);
+
+  // Ctrl/Cmd+F focuses the chat search (matches the Files tab). In split view
+  // every pane shares this listener, so gate on the pane's focus state: fire
+  // only when this instance lives in the focused `.sv-pane` (or single-window
+  // mode, where there's no `.sv-pane`).
+  React.useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        const pane = rootRef.current?.closest('.sv-pane');
+        if (pane && !pane.classList.contains('is-focused')) return;
+        if (!threads.length) return;
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [threads.length]);
+
+  // Keep the bottom padding of BOTH scrollers in sync with the floating composer
+  // footer's height so their last items always clear it. The footer floats
+  // (absolute, full pane width) over the thread AND the chat-list rail, and
+  // grows with the composer (up to 4 lines) + attachment chips; a fixed pad let
+  // a tall footer hide the last message / last chat with no way to scroll them
+  // into view. A ResizeObserver on the footer drives both pads live.
+  React.useEffect(() => {
+    const footer = taRef.current?.closest('.vb-composer-wrap');
+    if (!footer) return undefined;
+    const apply = () => {
+      const h = footer.getBoundingClientRect().height;
+      // 24px breathing gap above the footer; never below a sane minimum.
+      const pad = `${Math.max(Math.round(h) + 24, 40)}px`;
+      if (scroller.current) scroller.current.style.paddingBottom = pad;
+      if (listRef.current) listRef.current.style.paddingBottom = pad;
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(footer);
+    return () => ro.disconnect();
+  }, [activeId]);
 
   // Hydrate the user's saved chats (once per user).
   useEffect(() => {
@@ -224,7 +404,7 @@ export default function ProjectAIChat() {
     try { localStorage.setItem(STORAGE_PREFIX + userKey, JSON.stringify(threads)); } catch { /* quota */ }
   }, [threads, userKey]);
 
-  // Re-gather the user's file names (for the "Use context" toggle).
+  // Gather the user's file names so the AI can ground answers in them.
   const refreshContext = async () => {
     setContextLoading(true);
     const names = await gatherUserFileNames(userKey);
@@ -232,22 +412,10 @@ export default function ProjectAIChat() {
     setContextFiles(names);
     setContextLoading(false);
   };
-  // Toggle the "Use context" mode; persisted per user. Turning it on gathers the
-  // file names; turning it off clears them.
-  const toggleContext = () => {
-    setUseContext((on) => {
-      const next = !on;
-      try { localStorage.setItem(`docvex.aichat.usecontext.${userKey}`, next ? '1' : '0'); } catch { /* quota */ }
-      if (next) { refreshContext(); } else { contextFilesRef.current = []; setContextFiles([]); }
-      return next;
-    });
-  };
-  // Restore the toggle on mount (and gather names if it was left on).
+  // Context is always on — gather the file names automatically on mount (and
+  // whenever the signed-in user changes).
   useEffect(() => {
-    let on = false;
-    try { on = localStorage.getItem(`docvex.aichat.usecontext.${userKey}`) === '1'; } catch { /* ignore */ }
-    setUseContext(on);
-    if (on) refreshContext();
+    refreshContext();
   }, [userKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Escape: close the Properties modal, else step back from the depth step,
@@ -267,9 +435,27 @@ export default function ProjectAIChat() {
   const activeThread = threads.find((t) => t.id === activeId) || threads[0];
   const messages = activeThread?.messages || [];
 
+  // Auto-scroll only "sticks" the view to the bottom while `stickRef` is true —
+  // which the scroll handler clears the moment the user scrolls up and restores
+  // when they return to the bottom. So reading mid-thread while the AI streams /
+  // the typewriter reveals text is no longer yanked down. `force` overrides for
+  // cases where we always want the latest in view (switching chats, sending).
+  const scrollToBottom = (force = false) => {
+    const el = scroller.current;
+    if (!el) return;
+    if (force !== true && !stickRef.current) return;
+    if (force === true) stickRef.current = true;
+    el.scrollTop = el.scrollHeight;
+  };
+  // Switching chats always jumps to the latest message.
+  useEffect(() => { scrollToBottom(true); }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // New messages / streaming only stick to the bottom if the user is there —
+  // EXCEPT right after the user sends (pendingScrollRef), where we always jump
+  // to their new message.
   useEffect(() => {
-    if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
-  }, [messages, streaming, activeId]);
+    scrollToBottom(pendingScrollRef.current);
+    pendingScrollRef.current = false;
+  }, [messages, streaming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ask the model for a short title and apply it to the thread. Fire-and-forget;
   // on any failure the placeholder (the truncated first message) is kept.
@@ -306,6 +492,7 @@ export default function ProjectAIChat() {
     const userMsg = {
       who: 'me',
       text,
+      at: Date.now(),
       ...(contextBlock ? { apiText } : {}),
       ...(atts.length ? { attachments: atts.map((a) => a.name) } : {}),
     };
@@ -313,8 +500,9 @@ export default function ProjectAIChat() {
     const current = threads.find((t) => t.id === threadId);
     const convo = [...(current?.messages || []), userMsg];
     const isFirstUser = !(current?.messages || []).some((m) => m.who === 'me');
+    pendingScrollRef.current = true; // always jump to the just-sent message
     setThreads((ts) => ts.map((t) => (t.id === threadId
-      ? { ...t, messages: convo, title: isFirstUser ? (text.slice(0, 48) || 'New chat') : t.title, updatedAt: Date.now() }
+      ? { ...t, messages: convo, title: isFirstUser ? (text.slice(0, 48) || 'Unnamed chat') : t.title, updatedAt: Date.now() }
       : t)));
     setStreaming(true);
     // With "Use context" on, ground the answer in the names of all the user's
@@ -337,12 +525,53 @@ export default function ProjectAIChat() {
                   ? 'The AI assistant is not configured (the AI key is missing). Contact your administrator.'
                   : 'Couldn’t get an answer right now. Please try again in a moment.',
               }
-            : { who: 'ai', text: answer }],
+            : { who: 'ai', text: answer, at: Date.now() }],
         }
       : t)));
+    // Reveal the fresh AI answer with the typewriter effect (errors appear at
+    // once). Its index in the thread is convo.length (convo already holds the
+    // user message; the AI reply is appended right after).
+    if (!error) setTyping({ threadId, index: convo.length });
     // After the first successful exchange, replace the placeholder title with an
     // AI-generated one based on the opening question.
     if (isFirstUser && !error) generateTitle(threadId, text);
+  };
+
+  // ── Per-response actions (under each AI message) ────────────────────────
+  // Copy the answer to the clipboard, with a brief "Copied" confirmation.
+  const copyMessage = async (text, index) => {
+    try { await navigator.clipboard.writeText(text || ''); } catch { /* clipboard blocked */ }
+    setCopiedIdx(index);
+    window.setTimeout(() => setCopiedIdx((cur) => (cur === index ? null : cur)), 1600);
+  };
+
+  // Regenerate the AI message at `index`: drop it (and anything after it) and
+  // re-ask the model with the conversation up to that point, then reveal the
+  // fresh answer with the typewriter effect.
+  const regenerate = async (index) => {
+    if (streaming) return;
+    const threadId = activeId;
+    const current = threads.find((t) => t.id === threadId);
+    const convo = (current?.messages || []).slice(0, index);
+    if (!convo.length) return;
+    setThreads((ts) => ts.map((t) => (t.id === threadId ? { ...t, messages: convo } : t)));
+    setStreaming(true);
+    const { text: answer, error } = await askProjectAi({
+      messages: toApiMessages(convo),
+      projectName: useContext ? 'your projects' : '',
+      fileNames: useContext ? contextFilesRef.current : [],
+    });
+    setStreaming(false);
+    setThreads((ts) => ts.map((t) => (t.id === threadId
+      ? {
+          ...t,
+          updatedAt: Date.now(),
+          messages: [...t.messages, error
+            ? { who: 'ai', isError: true, text: 'Couldn’t get an answer right now. Please try again in a moment.' }
+            : { who: 'ai', text: answer, at: Date.now() }],
+        }
+      : t)));
+    if (!error) setTyping({ threadId, index: convo.length });
   };
 
   const newChat = () => {
@@ -528,7 +757,12 @@ export default function ProjectAIChat() {
 
   const hasThreads = threads.length > 0;
   // Newest first.
-  const ordered = [...threads].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const orderedAll = [...threads].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  // Filter the chat list by the topbar search query (title match, case-insensitive).
+  const chatQuery = chatSearch.trim().toLowerCase();
+  const ordered = chatQuery
+    ? orderedAll.filter((t) => (t.title || '').toLowerCase().includes(chatQuery))
+    : orderedAll;
 
   // ── Custom overlay scrollbar ────────────────────────────────────────────
   // Native scrollbars are hidden in CSS; this thumb floats over the list's
@@ -537,19 +771,31 @@ export default function ProjectAIChat() {
     const el = listRef.current;
     if (!el) return;
     const { scrollTop, scrollHeight, clientHeight } = el;
-    if (scrollHeight <= clientHeight + 1) { setSb((s) => (s.enabled ? { ...s, enabled: false, show: false } : s)); return; }
+    if (scrollHeight <= clientHeight + 1) { setSb((s) => (s.enabled ? { ...s, enabled: false } : s)); return; }
     const h = Math.max(28, (clientHeight / scrollHeight) * clientHeight);
     const maxY = clientHeight - h;
     const denom = scrollHeight - clientHeight;
     const y = denom > 0 ? Math.min(maxY, Math.max(0, (scrollTop / denom) * maxY)) : 0;
-    setSb((s) => ({ ...s, h, y, enabled: true }));
+    if (sbThumbRef.current) {
+      sbThumbRef.current.style.height = `${h}px`;
+      sbThumbRef.current.style.transform = `translateY(${y}px)`;
+    }
+    setSb((s) => (s.enabled ? s : { ...s, enabled: true }));
   };
   const flashScrollbar = () => {
-    setSb((s) => (s.enabled ? { ...s, show: true } : s));
+    setSb((s) => (s.enabled && !s.show ? { ...s, show: true } : s));
     if (sbHideTimer.current) clearTimeout(sbHideTimer.current);
     sbHideTimer.current = setTimeout(() => { if (!sbDrag.current) setSb((s) => ({ ...s, show: false })); }, 1100);
   };
-  const onListScroll = () => { measureThumb(); flashScrollbar(); };
+  const onListScroll = () => {
+    if (listScrollRaf.current == null) {
+      listScrollRaf.current = requestAnimationFrame(() => {
+        listScrollRaf.current = null;
+        measureThumb();
+        flashScrollbar();
+      });
+    }
+  };
   const onThumbDown = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -587,6 +833,86 @@ export default function ProjectAIChat() {
   }, [ordered.length, hasThreads, pendingDrop, railCollapsed]); // eslint-disable-line react-hooks/exhaustive-deps
   // Clear the hide timer on unmount.
   useEffect(() => () => { if (sbHideTimer.current) clearTimeout(sbHideTimer.current); }, []);
+
+  // ── Custom overlay scrollbar for the message thread ──────────────────────
+  // Position the thumb by writing its DOM style DIRECTLY (via ref) rather than
+  // through React state — updating state on every scroll frame re-rendered the
+  // whole (large) component and dropped the frame rate. State is only touched
+  // when `enabled` flips (rare). h/y are written to the node inline.
+  const measureMsgThumb = () => {
+    const el = scroller.current;
+    if (!el) return;
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    if (scrollHeight <= clientHeight + 1) { setMsgSb((s) => (s.enabled ? { ...s, enabled: false } : s)); return; }
+    const h = Math.max(28, (clientHeight / scrollHeight) * clientHeight);
+    const maxY = clientHeight - h;
+    const denom = scrollHeight - clientHeight;
+    const y = denom > 0 ? Math.min(maxY, Math.max(0, (scrollTop / denom) * maxY)) : 0;
+    if (msgThumbRef.current) {
+      msgThumbRef.current.style.height = `${h}px`;
+      msgThumbRef.current.style.transform = `translateY(${y}px)`;
+    }
+    setMsgSb((s) => (s.enabled ? s : { ...s, enabled: true }));
+  };
+  const flashMsgScrollbar = () => {
+    // Only re-render to SHOW when not already shown (avoids a re-render per frame).
+    setMsgSb((s) => (s.enabled && !s.show ? { ...s, show: true } : s));
+    if (msgSbHideTimer.current) clearTimeout(msgSbHideTimer.current);
+    msgSbHideTimer.current = setTimeout(() => { if (!msgSbDrag.current) setMsgSb((s) => ({ ...s, show: false })); }, 1100);
+  };
+  const onMsgScroll = () => {
+    // Cheap, every event: track whether the view is at the bottom so auto-scroll
+    // only "sticks" while the user hasn't scrolled up.
+    const el = scroller.current;
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+    // Measuring + showing the thumb is rAF-throttled so it runs once per frame.
+    if (msgScrollRaf.current == null) {
+      msgScrollRaf.current = requestAnimationFrame(() => {
+        msgScrollRaf.current = null;
+        measureMsgThumb();
+        flashMsgScrollbar();
+      });
+    }
+  };
+  const onMsgThumbDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = scroller.current;
+    if (!el) return;
+    msgSbDrag.current = { startY: e.clientY, startScroll: el.scrollTop };
+    setMsgSb((s) => ({ ...s, show: true }));
+    const onMove = (ev) => {
+      const d = msgSbDrag.current;
+      const el2 = scroller.current;
+      if (!d || !el2) return;
+      const { scrollHeight, clientHeight } = el2;
+      const h = Math.max(28, (clientHeight / scrollHeight) * clientHeight);
+      const maxY = clientHeight - h;
+      const perPx = maxY > 0 ? (scrollHeight - clientHeight) / maxY : 0;
+      el2.scrollTop = d.startScroll + (ev.clientY - d.startY) * perPx;
+    };
+    const onUp = () => {
+      msgSbDrag.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      flashMsgScrollbar();
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+  // Recompute the message thumb when the thread / its size changes.
+  useEffect(() => {
+    measureMsgThumb();
+    const el = scroller.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => measureMsgThumb());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [messages.length, streaming, hasThreads, activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { if (msgSbHideTimer.current) clearTimeout(msgSbHideTimer.current); }, []);
+  // Stop the typewriter when the user switches threads (don't re-animate an old
+  // message when they come back to it).
+  useEffect(() => { setTyping(null); }, [activeId]);
 
   // Right-click menu for the sidebar dropped-file card (the app's morph-pill
   // tooltip): Open + Properties.
@@ -632,21 +958,10 @@ export default function ProjectAIChat() {
         <div className="dvx-composer-toolbar">
           <button type="button" className="dvx-composer-btn" title="Attach files" aria-label="Attach files" onClick={() => fileInputRef.current?.click()}>{I.paperclip({ width: 16, height: 16 })}</button>
           <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={onPickFiles} />
-          {/* Use-context toggle — grounds answers in the names of all your files. */}
-          <button
-            type="button"
-            className={`aichat-context-btn${useContext ? ' is-on' : ''}`}
-            onClick={toggleContext}
-            aria-pressed={useContext}
-            title={useContext ? 'Answers use your files as context — click to turn off' : 'Use all your files as context'}
-          >
-            {I.files({ width: 15, height: 15 })}
-            <span className="aichat-context-label">
-              {contextLoading ? 'Loading…' : useContext ? `Context${contextFiles.length ? ` · ${contextFiles.length}` : ''}` : 'Use context'}
-            </span>
-          </button>
+          {/* File context is always on — answers are grounded in your files
+              automatically (no toggle). */}
           <div className="dvx-composer-toolbar-spacer" />
-          <button type="button" className="dvx-composer-btn dvx-composer-send" onClick={() => send()} disabled={streaming || !val.trim()}>{I.send({ width: 16, height: 16 })}Send</button>
+          <button type="button" className="dvx-composer-btn dvx-composer-send" onClick={() => send()} disabled={streaming || !val.trim()} title="Send" aria-label="Send">{I.send({ width: 16, height: 16 })}</button>
         </div>
       </div>
     </div>
@@ -658,25 +973,53 @@ export default function ProjectAIChat() {
   // Nothing to show when there are no chats (sidebar hidden, no active chat).
   const chromeTools = hasThreads ? (
     <div className="aichat-chrome-tools">
-      {/* Collapse toggle is hidden while a dropped file is pending (the rail is
-          forced open then). */}
-      {!pendingDrop && (
-        <button
-          type="button"
-          className={`aichat-chrome-btn aichat-chrome-collapse${railCollapsed ? ' is-collapsed' : ''}`}
-          onClick={() => setRailCollapsed((v) => !v)}
-          title={railCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-label={railCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {I.panelLeft({ width: 16, height: 16 })}
-        </button>
-      )}
+      {/* Left — collapse toggle (hidden while a dropped file forces the rail open). */}
+      <div className="aichat-chrome-left">
+        {!pendingDrop && (
+          <button
+            type="button"
+            className={`aichat-chrome-btn aichat-chrome-collapse${railCollapsed ? ' is-collapsed' : ''}`}
+            onClick={() => setRailCollapsed((v) => !v)}
+            title={railCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={railCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {I.panelLeft({ width: 16, height: 16 })}
+          </button>
+        )}
+      </div>
+      {/* Centre — the active chat pill. */}
       {activeThread && (
         <span className="aichat-chrome-chatname" title={activeThread.title}>
-          {I.chat({ width: 13, height: 13 })}
-          <span>{activeThread.title || 'New chat'}</span>
+          {I.chat({ width: 16, height: 16 })}
+          <span>{activeThread.title || 'Unnamed chat'}</span>
         </span>
       )}
+      {/* Right — search the chat list. */}
+      <div className="aichat-chrome-right">
+        <div className={`aichat-chrome-search${chatSearch ? ' is-active' : ''}`}>
+          {I.search({ width: 15, height: 15 })}
+          <input
+            ref={searchRef}
+            type="text"
+            value={chatSearch}
+            onChange={(e) => setChatSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape' && chatSearch) { e.stopPropagation(); setChatSearch(''); } }}
+            placeholder="Search chats"
+            aria-label="Search chats"
+          />
+          {chatSearch ? (
+            <button type="button" className="aichat-chrome-search-clear" onClick={() => { setChatSearch(''); searchRef.current?.focus(); }} aria-label="Clear search">
+              {I.x({ width: 13, height: 13 })}
+            </button>
+          ) : (
+            <span className="aichat-chrome-search-kbd">
+              <kbd>{/mac/i.test(navigator.platform) ? '⌘' : 'Ctrl'}</kbd>
+              <span className="aichat-chrome-search-kbd-plus">+</span>
+              <kbd>F</kbd>
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   ) : null;
 
@@ -776,8 +1119,8 @@ export default function ProjectAIChat() {
             {/* Custom overlay scrollbar — floats over the list, no layout shift. */}
             <div className={`aichat-scrollbar${sb.enabled && sb.show ? ' is-visible' : ''}`} aria-hidden="true">
               <div
+                ref={sbThumbRef}
                 className="aichat-scrollbar-thumb"
-                style={{ height: `${sb.h}px`, transform: `translateY(${sb.y}px)` }}
                 onMouseDown={onThumbDown}
               />
             </div>
@@ -848,34 +1191,46 @@ export default function ProjectAIChat() {
           {/* Empty active chat → a centered hint that you can type or drag files. */}
           {hasThreads && messages.length === 0 && !streaming && !pendingDrop && (
             <div className="aichat-convo-empty">
-              <span className="aichat-convo-empty-glyph">{I.spark({ width: 26, height: 26 })}</span>
               <div className="aichat-convo-empty-title">How can I help?</div>
               <div className="aichat-convo-empty-sub">Type a message below, or drag files anywhere here to add them as context.</div>
             </div>
           )}
           {hasThreads ? (
-          <div className="aichat-scroll" ref={scroller}>
+          <div
+            className="aichat-scroll-wrap"
+            onMouseEnter={() => setMsgSb((s) => (s.enabled ? { ...s, show: true } : s))}
+            onMouseLeave={() => { if (!msgSbDrag.current) setMsgSb((s) => ({ ...s, show: false })); }}
+          >
+          <div className="aichat-scroll" ref={scroller} onScroll={onMsgScroll}>
             <div className="chat">
-              {messages.map((m, i) => (
-                <div key={i} className={`bubble ${m.who === 'me' ? 'me' : ''}`}>
-                  <div
-                    className="bubble-av"
-                    style={m.who === 'ai'
-                      ? { background: 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--cat-role)))', color: '#fff' }
-                      : { background: 'transparent', padding: 0, overflow: 'hidden' }}
-                  >
-                    {m.who === 'me' ? meAvatar : I.spark({ width: 17, height: 17 })}
+              {messages.map((m, i) => {
+                const prev = i > 0 ? messages[i - 1] : null;
+                const showDay = m.at && (!prev || !prev.at || !sameLocalDay(prev.at, m.at));
+                return (
+                <React.Fragment key={i}>
+                {showDay && (
+                  <div className="aichat-day-divider" role="separator">
+                    <span className="aichat-day-divider-label">{formatDayLabel(m.at)}</span>
                   </div>
+                )}
+                <div className={`bubble ${m.who === 'me' ? 'me' : ''}`}>
                   <div className="bubble-c">
-                    <div className="bubble-name">{m.who === 'me' ? 'You' : 'DocVex AI'}</div>
                     <div className="bubble-msg">
                       {m.who === 'me'
                         ? m.text
-                        : (
-                          <div className="aichat-md">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text || ''}</ReactMarkdown>
-                          </div>
-                        )}
+                        : (typing && typing.threadId === activeId && typing.index === i)
+                          ? (
+                            <Typewriter
+                              text={m.text || ''}
+                              onTick={scrollToBottom}
+                              onDone={() => setTyping(null)}
+                            />
+                          )
+                          : (
+                            <div className="aichat-md">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text || ''}</ReactMarkdown>
+                            </div>
+                          )}
                     </div>
                     {m.who === 'me' && (m.attachments || []).length > 0 && (
                       <div className="aichat-msg-attachments">
@@ -884,18 +1239,58 @@ export default function ProjectAIChat() {
                         ))}
                       </div>
                     )}
+                    {m.who === 'me' && m.at && (
+                      <span className="aichat-time">{formatHM(m.at)}</span>
+                    )}
+                    {/* Per-response actions (Copy / Retry), shown under each AI
+                        answer once its typewriter reveal has finished. */}
+                    {m.who !== 'me' && !m.isError
+                      && !(typing && typing.threadId === activeId && typing.index === i) && (
+                      <div className="aichat-msg-actions">
+                        <button
+                          type="button"
+                          className="aichat-msg-action"
+                          title="Copy"
+                          aria-label="Copy message"
+                          onClick={() => copyMessage(m.text || '', i)}
+                        >
+                          {copiedIdx === i ? I.check({ width: 14, height: 14 }) : I.copy({ width: 14, height: 14 })}
+                          <span>{copiedIdx === i ? 'Copied' : 'Copy'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="aichat-msg-action"
+                          title="Retry"
+                          aria-label="Regenerate response"
+                          onClick={() => regenerate(i)}
+                          disabled={streaming}
+                        >
+                          {I.refresh({ width: 14, height: 14 })}
+                          <span>Retry</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
-              ))}
+                </React.Fragment>
+                );
+              })}
               {streaming && (
                 <div className="bubble">
-                  <div className="bubble-av" style={{ background: 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--cat-role)))', color: '#fff' }}>{I.spark({ width: 17, height: 17 })}</div>
                   <div className="bubble-c">
-                    <div className="bubble-name">DocVex AI</div>
-                    <div className="bubble-msg"><span className="aichat-wave" role="status" aria-label="DocVex AI is thinking"><span /><span /><span /><span /><span /><span /><span /></span></div>
+                    <div className="bubble-msg"><ThinkingStatus query={messages.length ? messages[messages.length - 1]?.text : ''} /></div>
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+            {/* Custom overlay scrollbar — floats over the thread, no layout shift. */}
+            <div className={`aichat-msg-scrollbar${msgSb.enabled && msgSb.show ? ' is-visible' : ''}`} aria-hidden="true">
+              <div
+                ref={msgThumbRef}
+                className="aichat-msg-scrollbar-thumb"
+                onMouseDown={onMsgThumbDown}
+              />
             </div>
           </div>
           ) : (

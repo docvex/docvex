@@ -78,39 +78,15 @@
       transparent 1.6px
     );
   background-size: 100% 100%, 24px 24px;
-  background-position: center, center;
+  /* Dot grid anchored to the viewport top-left so the spotlight box can stay
+     aligned to it via a counter-shift while it is translated around. */
+  background-position: center, 0 0;
 }
 
-/* Cursor spotlight — a second, brighter dot layer masked to a radius around
-   (--cursor-x, --cursor-y), written each frame by useCursorSpotlight. */
-.lh-page::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  /* Brighter + slightly larger dots than the ambient grid so the spotlight
-     reads as the cursor moves (kept subtle). */
-  background-image: radial-gradient(
-    circle at center,
-    color-mix(in srgb, var(--text-primary) 11%, transparent) 1.45px,
-    transparent 1.85px
-  );
-  background-size: 24px 24px;
-  background-position: center;
-  mask-image: radial-gradient(
-    circle 215px at var(--cursor-x, 50vw) var(--cursor-y, 50vh),
-    #000 0%,
-    #000 42%,
-    transparent 100%
-  );
-  -webkit-mask-image: radial-gradient(
-    circle 215px at var(--cursor-x, 50vw) var(--cursor-y, 50vh),
-    #000 0%,
-    #000 42%,
-    transparent 100%
-  );
-}
+/* Cursor spotlight — a second, brighter dot layer brightening the ambient grid
+   around the pointer. Rendered as a real element (CursorSpotlight.jsx) moved by
+   a direct transform write, NOT a `::after` driven by a :root CSS variable
+   (which forced a document-wide style recalc on every move). */
 
 .lh-loading {
   position: fixed;

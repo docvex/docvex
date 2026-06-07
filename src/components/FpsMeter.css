@@ -1,0 +1,29 @@
+/* FPS indicator — fixed at the top-centre of the window, just below the very
+   top edge so it reads within the title bar. Non-interactive (clicks/drag pass
+   through to the title bar behind it). */
+.fps-meter {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100000;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  background: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+.fps-meter.is-good { color: var(--success); }
+.fps-meter.is-ok   { color: var(--warning); }
+.fps-meter.is-bad  { color: var(--danger); }

@@ -6,7 +6,7 @@ import ProjectPickerPanel from './ProjectPickerPanel';
 import SwitchProjectLoader from './SwitchProjectLoader';
 import SplitContainer from './SplitView';
 import { useSplitView } from '../context/SplitViewContext';
-import useCursorSpotlight from '../hooks/useCursorSpotlight';
+import CursorSpotlight from './CursorSpotlight';
 import './AppShell.css';
 
 // Routes that operate on the currently-selected project. The banner shows on
@@ -44,7 +44,6 @@ export default function AppShell() {
   const { paneCount } = useSplitView();
   const showBanner = isProjectScopedRoute(pathname);
   const isSplit = paneCount > 1;
-  useCursorSpotlight();
   // Primary pane content (the live, sidebar-driven view). SplitContainer wraps
   // it: in single mode as one pane with the in-pane nav chrome pinned above a
   // scroll area; in split mode tiled alongside the extra panes.
@@ -59,6 +58,10 @@ export default function AppShell() {
       <div className="app-shell">
         <Sidebar />
         <main className={`main-content ${isSplit ? 'main-content--split' : 'main-content--single'}`}>
+          {/* Cursor-following spotlight that brightens the ambient dot grid.
+              A real element moved by a direct transform write (not a CSS-var
+              `::after`) to avoid a document-wide style recalc on every move. */}
+          <CursorSpotlight />
           {/* On project-scoped routes the page content is wrapped in a rounded
               "sheet" panel. In split mode the content area is tiled into
               independent panes by SplitContainer; the primary pane keeps the

@@ -61,14 +61,80 @@
 /* Chromeless fullscreen routes render no nav bar, so reclaim its reserved
    height — the page's own compact header anchors to the top of the content. */
 .sv-single.is-chromeless { --sv-chrome-h: 0px; }
-.sv-single > .sv-chrome {
-  height: var(--sv-chrome-h);
+
+/* Single-window mode with the destination side rail: lay the rail (left) beside
+   the content body. The body keeps the old column flow (chrome · scroll ·
+   footer). */
+.sv-single--nav { flex-direction: row; }
+.sv-single-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Left rail of switchable destinations (replaces the chrome dropdown). Styled
+   to match the DocVex hub's sidebar nav (.lh-sidebar / .lh-sb-item). */
+.sv-single-nav {
+  flex: 0 0 auto;
+  width: 212px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 14px 16px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  overflow-y: auto;
+}
+.sv-single-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 9px;
+  padding: 10px 11px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: background 120ms ease, color 120ms ease;
+}
+.sv-single-nav-item:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+.sv-single-nav-item.is-active {
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-weight: 600;
+}
+.sv-single-nav-icon { display: flex; flex-shrink: 0; }
+.sv-single-nav-icon svg { width: 18px; height: 18px; }
+
+/* The chrome sits at the top of the body and SIZES TO ITS CONTENT (row 1 +
+   the page toolbar row 2) — the old fixed `height: 38px` clipped two-row
+   headers (e.g. the Files folder/breadcrumb bar). `min-height` keeps the
+   single-row case at the documented height for pages that read --sv-chrome-h. */
+.sv-single-body > .sv-chrome {
+  min-height: var(--sv-chrome-h);
   box-sizing: border-box;
   /* Sit above the page's fixed compact-header (z 30) so that header slides
      DOWN out from under this nav bar instead of over it. Stays below the
      chrome's own destination dropdown (z 50). */
   position: relative;
   z-index: 40;
+}
+/* Make the header row (title + description) a band the same height as the
+   sidebar header so "Files · 14 files" sits level with it (vertically centred
+   rather than hugging the top). */
+.sv-single-body > .sv-chrome .sv-chrome-row {
+  min-height: var(--sv-chrome-h);
+  box-sizing: border-box;
 }
 .sv-single-scroll {
   flex: 1;
@@ -101,6 +167,10 @@
 /* Selected (focused) pane reads via its accent-coloured top bar (see the
    .sv-chrome rule below) — no border / ring on the pane itself. */
 
+/* All panes look identical regardless of focus — no dim/recede on unfocused
+   windows. (The focused pane is still tracked for keyboard/sidebar routing; it
+   just isn't styled differently.) */
+
 .sv-pane-inner {
   display: flex;
   flex-direction: column;
@@ -121,8 +191,12 @@
   padding: 0;
 }
 
-/* Pane crash fallback (PaneErrorBoundary). */
+/* Pane crash fallback (PaneErrorBoundary). Fill the whole pane (it's a flex
+   item of the row-flex `.sv-pane`, so it needs flex/width to grow) so the
+   centred text + button sit dead-centre instead of hugging the left edge. */
 .sv-pane-error {
+  flex: 1 1 auto;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -165,29 +239,26 @@
 }
 /* Row 2 stacks the page's toolbar bits vertically (e.g. Files: the nav/search
    row, then the list column header) so they read as one section of the bar.
-   The toolbar rows bring their own horizontal inset. */
+   The toolbar rows bring their own horizontal inset.
+     A fixed minimum height (content vertically centred) keeps EVERY pane's
+     header the same height regardless of its toolbar content — so e.g. the AI
+     chat and Files panes line up. Pages that add an extra sub-row (Files' list
+     column header) grow beyond it, as intended. */
 .sv-chrome-row2 {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  justify-content: center;
   gap: 0;
   padding: 0;
 }
+.sv-chrome-row2:not(:empty) { min-height: 40px; }
 .sv-chrome-row2:empty { display: none; }
 
-/* Multi-window focus affordance (replaces the removed pane border):
-   the focused pane's topbar takes an accent tint + accent underline, so the
-   selected window reads at a glance. */
-.sv-pane.is-focused .sv-chrome {
-  /* Mix the accent into the SIDEBAR ground (not `transparent`) so the bar stays
-     fully opaque — the pane behind is now transparent, and a transparent tint
-     would let the spotlight show through the topbar. */
-  background: color-mix(in srgb, var(--accent) 28%, var(--bg-sidebar));
-  border-bottom-color: color-mix(in srgb, var(--accent) 45%, var(--bg-sidebar));
-}
-.sv-pane.is-focused .sv-chrome .sv-chrome-dest {
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
-}
+/* Multi-window focus affordance: the focused window now reads purely via the
+   dimming of the OTHER panes (see the `.sv-grid .sv-pane:not(.is-focused)`
+   rule above), so the topbar keeps the same default colour whether focused or
+   not — no accent tint on the selected pane's chrome. */
 
 /* ── Window footer (every pane) ──
    Symmetric to the topbar chrome but pinned at the BOTTOM: a slot the routed
@@ -198,9 +269,9 @@
 .sv-footer {
   flex: 0 0 auto;
   border-top: 1px solid var(--border);
-  /* Same frosted-glass footer as the Files action bar (.fx-bottombar): a
-     translucent page wash + backdrop blur over the spotlight. */
-  background: color-mix(in srgb, var(--bg-page) 82%, transparent);
+  /* Frosted glass — slightly transparent page wash + backdrop blur so content
+     scrolling underneath shows through faintly. */
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
