@@ -108,6 +108,15 @@
   padding: 12px 14px 10px;
 }
 
+/* Danger confirm (from a Delete / Hide menu item) — paint the panel with the
+   same red tint as the destructive button it morphed out of, so the panel reads
+   as the destructive surface rather than a neutral card. The 14% danger mix
+   matches `.project-files-morph-item-danger:hover`. */
+.project-files-morph-pill.is-confirm.is-danger {
+  background: color-mix(in srgb, var(--danger) 14%, var(--bg-card));
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border-strong));
+}
+
 .project-files-morph-confirm {
   display: flex;
   flex-direction: column;

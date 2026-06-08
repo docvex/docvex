@@ -5,6 +5,7 @@ import { useMorphPill } from './useMorphPill';
 import { usePaneChromeSlot, usePaneChromePortalEl } from '../context/PaneChromeContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
 import { setDraggedFiles, clearDraggedFiles, getDraggedFiles } from '../lib/fileDragBus';
+import { FOLDER_COLOR_PRESETS, loadFolderColors, persistFolderColors } from '../lib/folderColors';
 import './FilesWorkspace.css';
 
 // Platform hint for the search shortcut chip (⌘F on macOS, Ctrl F elsewhere).
@@ -22,9 +23,9 @@ const isMacPlatform = typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.t
 //                        then auto-delete. Each item shows a countdown pill.
 
 // ── Inline icon set (Feather-style, currentColor) ─────────────────────
-function Icon({ name, size = 16, strokeWidth = 1.8, className = '' }) {
+function Icon({ name, size = 16, strokeWidth = 1.8, className = '', filled = false }) {
   const p = {
-    width: size, height: size, viewBox: '0 0 24 24', fill: 'none',
+    width: size, height: size, viewBox: '0 0 24 24', fill: filled ? 'currentColor' : 'none',
     stroke: 'currentColor', strokeWidth, strokeLinecap: 'round',
     strokeLinejoin: 'round', className, 'aria-hidden': 'true',
   };
@@ -58,7 +59,7 @@ function Icon({ name, size = 16, strokeWidth = 1.8, className = '' }) {
 
 // Folder icon. `filled` paints a solid folder — used when the folder has
 // contents; the outline variant marks an empty folder at a glance.
-function FolderGlyph({ filled = false, size = 42 }) {
+function FolderGlyph({ filled = false, size = 42, color }) {
   return (
     <svg
       className={`fx-folder-glyph${filled ? ' is-filled' : ''}`}
@@ -66,6 +67,8 @@ function FolderGlyph({ filled = false, size = 42 }) {
       fill={filled ? 'currentColor' : 'none'}
       stroke="currentColor" strokeWidth={filled ? 1 : 1.4}
       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      // A picked folder colour overrides the accent the CSS paints by default.
+      style={color ? { color } : undefined}
     >
       <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
     </svg>
@@ -73,12 +76,37 @@ function FolderGlyph({ filled = false, size = 42 }) {
 }
 
 // Glyph for a folder-kind item: the Recycle bin entry gets the trash icon;
-// every other folder gets the folder glyph.
-function FolderOrBinGlyph({ item, size = 42 }) {
+// every other folder gets the folder glyph (optionally a custom colour).
+function FolderOrBinGlyph({ item, size = 42, color }) {
   if (item.binEntry) {
     return <span className="fx-bin-glyph"><Icon name="trash" size={Math.round(size * 0.92)} strokeWidth={1.6} /></span>;
   }
-  return <FolderGlyph filled={!item.empty} size={size} />;
+  return <FolderGlyph filled={!item.empty} size={size} color={color} />;
+}
+
+// Swatch row shown at the top of a folder's right-click menu — pick a colour
+// for the folder icon (or "Default" to clear it).
+function FolderColorRow({ current, onPick }) {
+  const active = current || null;
+  return (
+    <div className="fx-color-row" role="group" aria-label="Folder colour">
+      {FOLDER_COLOR_PRESETS.map((c) => (
+        <button
+          key={c.id}
+          type="button"
+          className={`fx-color-swatch${active === c.value ? ' is-active' : ''}${c.value ? '' : ' is-default'}`}
+          style={c.value ? { '--sw': c.value } : undefined}
+          title={c.label}
+          aria-label={c.label}
+          aria-pressed={active === c.value}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onPick(c.value); }}
+        >
+          {c.value ? null : <Icon name="close" size={12} strokeWidth={2} />}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 const STATUS_LABEL = { deleted: 'In bin', synced: '' };
@@ -307,20 +335,25 @@ function InlineNameInput({ initial = '', placeholder, onCommit, onCancel, classN
 }
 
 // ── Tile ──────────────────────────────────────────────────────────────
-function Tile({ item, tab, selected, onSelect, onOpen, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths }) {
+function Tile({ item, tab, selected, onSelect, onOpen, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
   const isDropTarget = isFolder && !item.binEntry && dropFolderId === item.id;
   const isCut = !isFolder && cutPaths?.has(item._raw?.path);
+  const folderColor = isFolder && !item.binEntry ? folderColors?.[item.id] : undefined;
   const morph = useMorphPill({
     hoverContent: tab === 'trash' && !item.binEntry ? trashHoverContent(item) : item.name,
     menuItems: itemMenuItems(item, { tab, onOpen, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut }),
+    // Folders get a colour-swatch row atop their menu.
+    menuHeader: isFolder && !item.binEntry && canEdit
+      ? (closeMenu) => <FolderColorRow current={folderColor} onPick={(v) => { onSetColor?.(item.id, v); closeMenu(); }} />
+      : undefined,
   });
   if (renaming) {
     return (
       <div className={`fx-tile${isFolder ? ' is-folder' : ''} is-renaming`}>
         <span className="fx-tile-thumb">
-          {isFolder ? <FolderGlyph filled={!item.empty} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
+          {isFolder ? <FolderGlyph filled={!item.empty} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
         </span>
         <span>
           <InlineNameInput className="fx-tile-name" initial={item.name} onCommit={(name) => onCommitName(name)} onCancel={onCancelName} />
@@ -351,7 +384,7 @@ function Tile({ item, tab, selected, onSelect, onOpen, onRename, onProperties, o
         {/* Recycle bin entry shows how many items are inside. */}
         {item.binEntry && item.binCount > 0 && <span className="fx-bin-count">{item.binCount}</span>}
         <span className="fx-tile-thumb">
-          {isFolder ? <FolderOrBinGlyph item={item} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
+          {isFolder ? <FolderOrBinGlyph item={item} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
         </span>
         <span>
           <span className="fx-tile-name">{item.name}</span>
@@ -375,22 +408,26 @@ function NewFolderTile({ onCommit, onCancel }) {
 }
 
 // ── List row ──────────────────────────────────────────────────────────
-function Row({ item, tab, selected, onSelect, onOpen, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths }) {
+function Row({ item, tab, selected, onSelect, onOpen, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
   const isBin = tab === 'trash';
   const isDropTarget = isFolder && !item.binEntry && dropFolderId === item.id;
   const isCut = !isFolder && cutPaths?.has(item._raw?.path);
+  const folderColor = isFolder && !item.binEntry ? folderColors?.[item.id] : undefined;
   const morph = useMorphPill({
     hoverContent: isBin && !item.binEntry ? trashHoverContent(item) : item.name,
     menuItems: itemMenuItems(item, { tab, onOpen, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut }),
+    menuHeader: isFolder && !item.binEntry && canEdit
+      ? (closeMenu) => <FolderColorRow current={folderColor} onPick={(v) => { onSetColor?.(item.id, v); closeMenu(); }} />
+      : undefined,
   });
   if (renaming) {
     return (
       <div className="fx-list-row is-renaming">
         <span className="fx-list-name">
           <span className="fx-list-thumb">
-            {isFolder ? <FolderGlyph filled={!item.empty} size={20} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
+            {isFolder ? <FolderGlyph filled={!item.empty} size={20} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
           </span>
           <InlineNameInput className="fx-name" initial={item.name} onCommit={(name) => onCommitName(name)} onCancel={onCancelName} />
         </span>
@@ -419,7 +456,7 @@ function Row({ item, tab, selected, onSelect, onOpen, onRename, onProperties, on
         <span className="fx-list-name">
           {isBin && <CountdownRing days={item.deletesInDays} size={18} className="fx-row-countdown" />}
           <span className="fx-list-thumb">
-            {isFolder ? <FolderOrBinGlyph item={item} size={20} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
+            {isFolder ? <FolderOrBinGlyph item={item} size={20} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
           </span>
           <span className="fx-name">{item.name}</span>
           {item.binEntry && item.binCount > 0 && <span className="fx-bin-count is-inline">{item.binCount}</span>}
@@ -448,6 +485,7 @@ function NewFolderRow({ onCommit, onCancel }) {
 
 // ── Main workspace ────────────────────────────────────────────────────
 export default function FilesWorkspace({
+  projectId,
   summaryText,
   // In-panel mode: 'drafts' (the project folder) or 'trash' (the recycle bin,
   // entered by opening the bin folder). There is no tab strip — one panel.
@@ -502,6 +540,17 @@ export default function FilesWorkspace({
   const [clipboard, setClipboard] = useState(null);  // { mode: 'copy'|'cut', items: [{ name, path }] }
   const [dropFolderId, setDropFolderId] = useState(null); // folder hovered during a move drag
   const [dropCrumb, setDropCrumb] = useState(null);  // breadcrumb path hovered during a move drag
+  // Per-folder icon colour (localStorage-backed, keyed by project + folder id).
+  const [folderColors, setFolderColors] = useState(() => loadFolderColors(projectId));
+  useEffect(() => { setFolderColors(loadFolderColors(projectId)); }, [projectId]);
+  const setFolderColor = (folderId, value) => {
+    setFolderColors((cur) => {
+      const next = { ...cur };
+      if (value) next[folderId] = value; else delete next[folderId];
+      persistFolderColors(projectId, next);
+      return next;
+    });
+  };
   const newMenuRef = useRef(null);
   const canvasRef = useRef(null);
   const pageRef = useRef(null);   // root, used to scope shortcuts to this pane
@@ -989,6 +1038,9 @@ export default function FilesWorkspace({
     onFolderDragLeave,
     onFolderDrop,
     dropFolderId,
+    // Per-folder icon colour map + setter (for the right-click colour swatches).
+    folderColors,
+    onSetColor: setFolderColor,
     // Files currently "cut" to the clipboard render dimmed (Explorer-style).
     cutPaths: clipboard?.mode === 'cut' ? new Set(clipboard.items.map((i) => i.path)) : null,
   };
@@ -1029,7 +1081,7 @@ export default function FilesWorkspace({
                   onDragLeave={() => onCrumbDragLeave(cr)}
                   onDrop={(e) => onCrumbDrop(cr, isLast, e)}
                 >
-                  {i === 0 && <Icon name="folder" size={13} className="fx-crumb-icon" />}
+                  {i === 0 && <Icon name="folder" size={16} className="fx-crumb-icon" filled />}
                   <span className="fx-crumb-label">{cr.label}</span>
                 </button>
               </React.Fragment>
@@ -1084,7 +1136,16 @@ export default function FilesWorkspace({
           className={`fx-canvas${dragOver ? ' fx-canvas--drag' : ''}`}
           ref={canvasRef}
           style={{ '--fx-tile': `${tileSize}px` }}
-          onClick={(e) => { if (e.target === e.currentTarget) { clearSelection(); bgMorph.closeMenu(); } }}
+          onClick={(e) => {
+            // A click anywhere in the canvas dismisses the background menu — the
+            // grid/list fills the canvas, so empty-area clicks land on it, not
+            // the canvas node.
+            if (bgMorph.isMenuOpen) bgMorph.closeMenu();
+            // Clicking empty space (anywhere not on a tile/row) clears the
+            // current selection — same reason we can't just compare to the
+            // canvas node: the grid sits between them.
+            if (!e.target.closest?.('.fx-tile, .fx-list-row')) clearSelection();
+          }}
           onContextMenu={menuEditable ? bgMorph.handleContextMenu : undefined}
           onDragEnter={onDropFiles ? (e) => { if (Array.from(e.dataTransfer?.types || []).includes('Files')) { e.preventDefault(); setDragOver(true); } } : undefined}
           onDragOver={onDropFiles ? (e) => { if (Array.from(e.dataTransfer?.types || []).includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; if (!dragOver) setDragOver(true); } } : undefined}

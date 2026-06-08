@@ -855,6 +855,40 @@
 .ai-chat-page .aichat-msg-action:disabled { opacity: 0.5; cursor: not-allowed; }
 .ai-chat-page .aichat-msg-action svg { flex: 0 0 auto; }
 
+/* Floating "Quote into composer" action shown above a text selection inside an
+   AI answer. Portalled to <body>, so it's NOT scoped under .ai-chat-page. */
+.aichat-quote-pop {
+  position: fixed;
+  z-index: 9998;
+  transform: translate(-50%, -100%);
+  animation: aichat-quote-in 120ms ease-out;
+}
+@keyframes aichat-quote-in {
+  from { opacity: 0; transform: translate(-50%, calc(-100% + 4px)); }
+  to { opacity: 1; transform: translate(-50%, -100%); }
+}
+.aichat-quote-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 24px var(--overlay-scrim, rgba(0, 0, 0, 0.32));
+  transition: background 120ms, border-color 120ms;
+}
+.aichat-quote-btn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent);
+}
+.aichat-quote-btn svg { flex: 0 0 auto; color: var(--accent); }
+
 /* Day divider grouping messages by date (mirrors the team/private chat). */
 .ai-chat-page .aichat-day-divider {
   display: flex;

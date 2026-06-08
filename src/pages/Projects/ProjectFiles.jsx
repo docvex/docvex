@@ -988,6 +988,7 @@ export default function ProjectFiles() {
   };
 
   const filesWorkspaceProps = {
+    projectId,
     summaryText: `${localFiles.length} ${localFiles.length === 1 ? 'file' : 'files'}`,
     // `tab` ('drafts' | 'trash') is the in-panel mode: 'trash' is the recycle
     // bin, entered by opening the bin folder and exited via the breadcrumb.

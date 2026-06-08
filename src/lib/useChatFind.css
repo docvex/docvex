@@ -1,0 +1,37 @@
+/* Find-in-conversation highlight styling for useChatFind.js.
+   The CSS Custom Highlight API styles live at document scope (the ::highlight()
+   pseudo can't be nested under a component selector), so every thread's
+   highlight name is listed here. Add a new `::highlight(<name>-find[-active])`
+   pair when a new thread name is introduced.
+   Only color / background-color / text-decoration are honoured by ::highlight();
+   var() resolves against :root, so theme tokens work. */
+
+/* All matches — soft warning tint. */
+::highlight(aichat-find),
+::highlight(teamchat-find) {
+  background-color: color-mix(in srgb, var(--warning) 38%, transparent);
+  color: var(--text-primary);
+}
+
+/* The active match (the one Enter scrolled to) — solid, like VS Code's current
+   match. */
+::highlight(aichat-find-active),
+::highlight(teamchat-find-active) {
+  background-color: var(--warning);
+  color: var(--color-ink);
+}
+
+/* "N of M" count chip shown inside the search box. */
+.chat-find-count {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+  padding: 0 2px 0 4px;
+  user-select: none;
+}
+.chat-find-count.is-empty {
+  color: var(--danger-text, var(--danger));
+}

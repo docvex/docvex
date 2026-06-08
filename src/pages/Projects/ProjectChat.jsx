@@ -29,6 +29,7 @@ import {
 import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import { useMorphPill } from '../../components/useMorphPill';
 import { openFileWindow, openDocx, isDocxFile, canOpenInApp } from '../../lib/platform';
+import { useChatFind } from '../../lib/useChatFind';
 import './ProjectScoped.css';
 import './ProjectChatVariantB.css';
 
@@ -873,13 +874,6 @@ export default function ProjectChat() {
     return { pinned, mentioned, threadParents, sections };
   }, [messages, repliesByParent, viewerId]);
 
-  // Header search filters the team message list by body text.
-  const shownMessages = useMemo(() => {
-    const q = chatSearch.trim().toLowerCase();
-    if (!q) return messages;
-    return messages.filter((m) => (m.body || '').toLowerCase().includes(q));
-  }, [messages, chatSearch]);
-
   const handleToggleReaction = useCallback(async (messageId, emoji) => {
     if (!projectId || !viewerId) return;
     const mine = reactionsByMessage.get(messageId)?.get(emoji)?.mine || false;
@@ -933,6 +927,9 @@ export default function ProjectChat() {
   // scrolled up reading history, an "N new" pill appears above the
   // composer instead; clicking it scrolls down and clears the count.
   const listRef = useRef(null);
+  // VS-Code-style find: highlight every match of the header search across the
+  // team thread, count them, and scroll to each on Enter / Shift+Enter.
+  const find = useChatFind({ containerRef: listRef, query: chatSearch, name: 'teamchat', scope: '.vb-msg-text' });
   const stickToBottomRef = useRef(true);
   const [unreadCount, setUnreadCount] = useState(0);
   // Mirror of stickToBottomRef as React state so CSS can react to
@@ -1437,9 +1434,18 @@ export default function ProjectChat() {
           placeholder="Search messages…"
           value={chatSearch}
           onChange={(e) => setChatSearch(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Escape' && chatSearch) { e.stopPropagation(); setChatSearch(''); } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && chatSearch) { e.stopPropagation(); setChatSearch(''); return; }
+            // Enter → next match, Shift+Enter → previous (VS Code's find loop).
+            if (e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) find.goPrev(); else find.goNext(); }
+          }}
           aria-label="Search messages"
         />
+        {chatSearch && find.supported ? (
+          <span className={`chat-find-count${find.total === 0 ? ' is-empty' : ''}`} aria-live="polite">
+            {find.total ? `${find.current}/${find.total}` : 'No results'}
+          </span>
+        ) : null}
         {chatSearch ? (
           <button
             type="button"
@@ -1599,11 +1605,8 @@ export default function ProjectChat() {
               <div className="vb-messages dvx-scroll" ref={listRef} onScroll={handleListScroll}>
                 {loading && messages.length === 0 && <div className="vb-empty">Loading…</div>}
                 {!loading && messages.length === 0 && <div className="vb-empty">No messages yet. Be the first to say hi.</div>}
-                {!loading && messages.length > 0 && shownMessages.length === 0 && (
-                  <div className="vb-empty">No messages match “{chatSearch.trim()}”.</div>
-                )}
-                {shownMessages.map((msg, i) => {
-                  const prev = i > 0 ? shownMessages[i - 1] : null;
+                {messages.map((msg, i) => {
+                  const prev = i > 0 ? messages[i - 1] : null;
                   const showDay = !prev || !sameLocalDay(prev.created_at, msg.created_at);
                   // Group consecutive messages from the same author within 1
                   // minute (and same day) — they share one avatar/header.

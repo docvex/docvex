@@ -10,6 +10,7 @@ import { readLocalBlob, localFolderApi } from '../../lib/localFolder';
 import { listMyProjects } from '../../lib/projects';
 import { extractFileText } from '../../lib/extractFileText';
 import { getDraggedFiles } from '../../lib/fileDragBus';
+import { useChatFind } from '../../lib/useChatFind';
 import FileThumbnail from '../../components/FileThumbnail';
 import { useMorphPill } from '../../components/useMorphPill';
 import './ProjectScoped.css';
@@ -107,16 +108,22 @@ const STORAGE_PREFIX = 'docvex.aichat.v2.';
 
 // Deterministic colour-hashed fallback avatar (matches the AuthorAvatar /
 // VbAvatar pattern used elsewhere) for users without a profile picture.
-const AVATAR_COLORS = [
-  '#22c55e', '#ef4444', '#a855f7', '#facc15',
-  '#3b82f6', '#ec4899', '#14b8a6', '#f97316',
-  '#8b5cf6', '#06b6d4', '#84cc16', '#f43f5e',
-];
+// Colors are generated procedurally rather than picked from a small fixed
+// palette: spreading the hue across the full wheel (golden-angle step) with
+// high saturation makes distinct chats land on clearly different, vibrant hues
+// and avoids the exact-color collisions a 12-entry palette produced.
 function hashColor(id) {
-  if (!id) return AVATAR_COLORS[0];
+  if (!id) return 'hsl(150 82% 52%)';
   let h = 0;
   for (let i = 0; i < id.length; i++) { h = ((h << 5) - h) + id.charCodeAt(i); h |= 0; }
-  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+  h = Math.abs(h);
+  // Golden angle (137.5°) walks the hue wheel so successive hashes are pushed
+  // far apart instead of clustering. High saturation + mid lightness keeps each
+  // color vivid while staying legible under white initials.
+  const hue = (h * 137.508) % 360;
+  const sat = 80 + (h % 16);  // 80–95%
+  const light = 50 + (h % 8); // 50–57%
+  return `hsl(${hue.toFixed(1)} ${sat}% ${light}%)`;
 }
 
 function uid() {
@@ -277,7 +284,8 @@ export default function ProjectAIChat() {
   // { threadId, index } — cleared when the animation completes.
   const [typing, setTyping] = useState(null);
   const [copiedIdx, setCopiedIdx] = useState(null); // message index showing the "Copied" state
-  const [chatSearch, setChatSearch] = useState(''); // topbar search → filters the chat list
+  const [chatSearch, setChatSearch] = useState(''); // topbar search → filters the open conversation's messages
+  const [quoteSel, setQuoteSel] = useState(null); // { text, x, y } — floating "Quote" action for a selection inside an AI answer
   const [attachments, setAttachments] = useState([]); // [{ name, path }] dropped from Files
   const [dropActive, setDropActive] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
@@ -435,6 +443,63 @@ export default function ProjectAIChat() {
   const activeThread = threads.find((t) => t.id === activeId) || threads[0];
   const messages = activeThread?.messages || [];
 
+  // VS-Code-style find: highlight every match of the search box across the open
+  // conversation, count them, and scroll to each on Enter / Shift+Enter.
+  const find = useChatFind({ containerRef: scroller, query: chatSearch, name: 'aichat', scope: '.bubble-msg' });
+
+  // ── "Quote into composer" on text selection ───────────────────────────────
+  // Selecting (click-drag) text inside an AI answer surfaces a floating "Quote"
+  // action above the selection; clicking it drops the text into the composer as
+  // a Markdown blockquote so the user can ask a follow-up about that passage.
+  const handleThreadMouseUp = () => {
+    const sel = window.getSelection?.();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) { setQuoteSel(null); return; }
+    const text = sel.toString().trim();
+    if (!text) { setQuoteSel(null); return; }
+    const range = sel.getRangeAt(0);
+    // Only offer Quote when the whole selection sits inside an AI answer body
+    // (`.aichat-md`) — user bubbles render plain text outside it, so they're
+    // skipped, as is any surrounding chrome.
+    const node = range.commonAncestorContainer;
+    const el = node.nodeType === 1 ? node : node.parentElement;
+    if (!el?.closest?.('.aichat-md')) { setQuoteSel(null); return; }
+    const rect = range.getBoundingClientRect();
+    if (!rect || (rect.width === 0 && rect.height === 0)) { setQuoteSel(null); return; }
+    setQuoteSel({ text, x: rect.left + rect.width / 2, y: rect.top });
+  };
+  const quoteSelection = () => {
+    if (!quoteSel) return;
+    const quoted = quoteSel.text.split('\n').map((l) => `> ${l.trim()}`).join('\n');
+    const prefix = `${quoted}\n\n`;
+    setVal((v) => (v ? `${prefix}${v}` : prefix));
+    setQuoteSel(null);
+    try { window.getSelection?.()?.removeAllRanges(); } catch { /* ignore */ }
+    // Focus the composer and drop the caret right after the quote block so the
+    // user types their question immediately below it.
+    requestAnimationFrame(() => {
+      const el = taRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(prefix.length, prefix.length);
+    });
+  };
+  // Dismiss the Quote action on a fresh click elsewhere, any scroll, or Escape —
+  // its position is anchored to a now-stale selection rect.
+  useEffect(() => {
+    if (!quoteSel) return undefined;
+    const onDown = (e) => { if (!e.target?.closest?.('.aichat-quote-pop')) setQuoteSel(null); };
+    const onScroll = () => setQuoteSel(null);
+    const onKey = (e) => { if (e.key === 'Escape') setQuoteSel(null); };
+    window.addEventListener('mousedown', onDown, true);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown, true);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [quoteSel]);
+
   // Auto-scroll only "sticks" the view to the bottom while `stickRef` is true —
   // which the scroll handler clears the moment the user scrolls up and restores
   // when they return to the bottom. So reading mid-thread while the AI streams /
@@ -524,6 +589,7 @@ export default function ProjectAIChat() {
                 text: error.message === 'ai_not_configured'
                   ? 'The AI assistant is not configured (the AI key is missing). Contact your administrator.'
                   : 'Couldn’t get an answer right now. Please try again in a moment.',
+                at: Date.now(),
               }
             : { who: 'ai', text: answer, at: Date.now() }],
         }
@@ -567,7 +633,7 @@ export default function ProjectAIChat() {
           ...t,
           updatedAt: Date.now(),
           messages: [...t.messages, error
-            ? { who: 'ai', isError: true, text: 'Couldn’t get an answer right now. Please try again in a moment.' }
+            ? { who: 'ai', isError: true, text: 'Couldn’t get an answer right now. Please try again in a moment.', at: Date.now() }
             : { who: 'ai', text: answer, at: Date.now() }],
         }
       : t)));
@@ -758,11 +824,10 @@ export default function ProjectAIChat() {
   const hasThreads = threads.length > 0;
   // Newest first.
   const orderedAll = [...threads].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  // Filter the chat list by the topbar search query (title match, case-insensitive).
-  const chatQuery = chatSearch.trim().toLowerCase();
-  const ordered = chatQuery
-    ? orderedAll.filter((t) => (t.title || '').toLowerCase().includes(chatQuery))
-    : orderedAll;
+  // The topbar search scopes to the OPEN conversation's messages (not the chat
+  // list) — the list always shows every chat. Matches are highlighted in place
+  // (VS-Code-style) by useChatFind; the list itself is never filtered.
+  const ordered = orderedAll;
 
   // ── Custom overlay scrollbar ────────────────────────────────────────────
   // Native scrollbars are hidden in CSS; this thumb floats over the list's
@@ -994,7 +1059,7 @@ export default function ProjectAIChat() {
           <span>{activeThread.title || 'Unnamed chat'}</span>
         </span>
       )}
-      {/* Right — search the chat list. */}
+      {/* Right — search the messages in the open conversation. */}
       <div className="aichat-chrome-right">
         <div className={`aichat-chrome-search${chatSearch ? ' is-active' : ''}`}>
           {I.search({ width: 15, height: 15 })}
@@ -1003,10 +1068,19 @@ export default function ProjectAIChat() {
             type="text"
             value={chatSearch}
             onChange={(e) => setChatSearch(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Escape' && chatSearch) { e.stopPropagation(); setChatSearch(''); } }}
-            placeholder="Search chats"
-            aria-label="Search chats"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && chatSearch) { e.stopPropagation(); setChatSearch(''); return; }
+              // Enter → next match, Shift+Enter → previous (VS Code's find loop).
+              if (e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) find.goPrev(); else find.goNext(); }
+            }}
+            placeholder="Search messages"
+            aria-label="Search messages in this chat"
           />
+          {chatSearch && find.supported ? (
+            <span className={`chat-find-count${find.total === 0 ? ' is-empty' : ''}`} aria-live="polite">
+              {find.total ? `${find.current}/${find.total}` : 'No results'}
+            </span>
+          ) : null}
           {chatSearch ? (
             <button type="button" className="aichat-chrome-search-clear" onClick={() => { setChatSearch(''); searchRef.current?.focus(); }} aria-label="Clear search">
               {I.x({ width: 13, height: 13 })}
@@ -1201,11 +1275,17 @@ export default function ProjectAIChat() {
             onMouseEnter={() => setMsgSb((s) => (s.enabled ? { ...s, show: true } : s))}
             onMouseLeave={() => { if (!msgSbDrag.current) setMsgSb((s) => ({ ...s, show: false })); }}
           >
-          <div className="aichat-scroll" ref={scroller} onScroll={onMsgScroll}>
+          <div className="aichat-scroll" ref={scroller} onScroll={onMsgScroll} onMouseUp={handleThreadMouseUp}>
             <div className="chat">
               {messages.map((m, i) => {
-                const prev = i > 0 ? messages[i - 1] : null;
-                const showDay = m.at && (!prev || !prev.at || !sameLocalDay(prev.at, m.at));
+                // Compare against the most recent *timestamped* message, not just
+                // messages[i-1] — error messages carry no `at`, and skipping them
+                // here is what was spawning duplicate "Today" dividers.
+                let prevAt = null;
+                for (let j = i - 1; j >= 0; j--) {
+                  if (messages[j].at) { prevAt = messages[j].at; break; }
+                }
+                const showDay = m.at && (!prevAt || !sameLocalDay(prevAt, m.at));
                 return (
                 <React.Fragment key={i}>
                 {showDay && (
@@ -1305,6 +1385,21 @@ export default function ProjectAIChat() {
                 </button>
               </div>
             </div>
+          )}
+          {/* Floating "Quote" action above a text selection inside an AI answer. */}
+          {quoteSel && createPortal(
+            <div className="aichat-quote-pop" style={{ left: quoteSel.x, top: quoteSel.y - 8 }} role="toolbar">
+              <button
+                type="button"
+                className="aichat-quote-btn"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={quoteSelection}
+              >
+                {I.quote({ width: 14, height: 14 })}
+                <span>Quote</span>
+              </button>
+            </div>,
+            document.body,
           )}
         </div>
       </div>

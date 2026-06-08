@@ -499,7 +499,10 @@
   transition: background 120ms ease, color 120ms ease;
 }
 .fx-crumb-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fx-crumb-icon { color: var(--accent); flex: 0 0 auto; }
+/* Optically centre the filled folder glyph with the "Home" label: the filled
+   folder is bottom-heavy and, being taller than the 12.5px text, otherwise reads
+   as sitting slightly low. A 1px lift lines its visual centre up with the text. */
+.fx-crumb-icon { color: var(--accent); flex: 0 0 auto; display: block; transform: translateY(-1px); }
 .fx-crumb:hover:not(.is-current) {
   background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   color: var(--text-primary);
@@ -771,7 +774,39 @@
 .fx-tile-thumb .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent); }
 /* Bigger folder glyph that scales with the tile zoom (overrides the svg's
    intrinsic 42px). Near-fills the thumb box. */
-.fx-tile-thumb .fx-folder-glyph { color: var(--accent); width: 92%; height: 92%; }
+.fx-tile-thumb .fx-folder-glyph { color: var(--accent); width: 112%; height: 112%; }
+
+/* Folder-colour swatch row at the top of a folder's right-click menu. Lives
+   inside the portalled morph pill, so these rules are document-global. */
+.fx-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 6px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.fx-color-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background: var(--sw, transparent);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 16%, transparent);
+  transition: transform 100ms ease, border-color 100ms ease;
+}
+.fx-color-swatch:hover { transform: scale(1.14); }
+.fx-color-swatch.is-active { border-color: var(--text-primary); }
+.fx-color-swatch.is-default {
+  background: var(--bg-elevated);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
 
 /* Trash entry glyph — a trash icon where a folder glyph would sit. */
 .fx-bin-glyph { display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); }

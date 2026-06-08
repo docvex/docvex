@@ -387,9 +387,12 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
       </div>
     );
   } else if (confirmingItem) {
-    pillClassMod = ' is-menu is-confirm';
     const c = confirmingItem.confirm || {};
     const isDanger = Boolean(confirmingItem.danger);
+    // Danger confirms (Delete / Hide) tint the whole panel to match the red
+    // delete button the user clicked, so the destructive action reads through
+    // the morph, not just on the confirm button.
+    pillClassMod = ` is-menu is-confirm${isDanger ? ' is-danger' : ''}`;
     content = (
       <div className="project-files-morph-confirm">
         {c.title && (

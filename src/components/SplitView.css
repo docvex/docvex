@@ -301,6 +301,28 @@
   background: var(--bg-elevated);
   color: var(--text-primary);
 }
+/* Refresh-this-window button — top-left of every pane's chrome. */
+.sv-chrome-refresh {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: background 120ms, color 120ms, transform 200ms;
+}
+.sv-chrome-refresh:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+.sv-chrome-refresh:active {
+  transform: rotate(-180deg);
+}
 /* Window header next to the ‹ › controls: bold page title + a muted one-line
    description on the same row. */
 .sv-chrome-head {

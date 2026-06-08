@@ -72,6 +72,18 @@ export function SplitViewProvider({ children }) {
 
   const paneCount = SPLIT_LAYOUTS[layout]?.panes || 1;
 
+  // ── Per-pane refresh ────────────────────────────────────────────────────
+  // Bumping a pane's nonce remounts that pane's routed content (the chrome's
+  // refresh button + F5 on the focused pane). Keyed by pane index so refreshing
+  // one window never disturbs the others.
+  const [refreshNonces, setRefreshNonces] = useState({});
+  const refreshPane = useCallback((index) => {
+    setRefreshNonces((prev) => ({ ...prev, [index]: (prev[index] || 0) + 1 }));
+  }, []);
+  const refreshFocusedPane = useCallback(() => {
+    setRefreshNonces((prev) => ({ ...prev, [focusedPane]: (prev[focusedPane] || 0) + 1 }));
+  }, [focusedPane]);
+
   const changeLayout = useCallback((next) => {
     if (!SPLIT_LAYOUTS[next]) return;
     setLayout(next);
@@ -165,10 +177,13 @@ export function SplitViewProvider({ children }) {
     reportPanePath,
     navigateFocusedPane,
     focusedPanePath,
+    refreshNonces,
+    refreshPane,
+    refreshFocusedPane,
     customLayouts,
     addCustomLayout,
     removeCustomLayout,
-  }), [layout, changeLayout, restoreSplit, paneCount, focusedPane, registerPaneNavigator, reportPanePath, navigateFocusedPane, focusedPanePath, customLayouts, addCustomLayout, removeCustomLayout]);
+  }), [layout, changeLayout, restoreSplit, paneCount, focusedPane, registerPaneNavigator, reportPanePath, navigateFocusedPane, focusedPanePath, refreshNonces, refreshPane, refreshFocusedPane, customLayouts, addCustomLayout, removeCustomLayout]);
 
   return <SplitViewContext.Provider value={value}>{children}</SplitViewContext.Provider>;
 }

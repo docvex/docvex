@@ -27,6 +27,23 @@ import './SplitView.css';
 function ChevronDown() {
   return <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>;
 }
+function RefreshIcon() {
+  return <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>;
+}
+
+// Which pane (index) a subtree belongs to — set around every pane's content so
+// the chrome's refresh button + the refreshable content wrapper know which pane
+// to act on without prop-drilling through AppRoutes.
+const PaneIndexContext = React.createContext(0);
+const usePaneIndex = () => React.useContext(PaneIndexContext);
+
+// Remounts its children whenever this pane's refresh nonce changes (chrome
+// refresh button / F5), re-running the page's mount effects — i.e. a refresh.
+function PaneRefreshable({ children }) {
+  const index = usePaneIndex();
+  const { refreshNonces } = useSplitView();
+  return <React.Fragment key={refreshNonces[index] || 0}>{children}</React.Fragment>;
+}
 
 // Side-rail icons — stroke style matches the DocVex hub's sidebar nav icons
 // (currentColor stroke, 18px, so they inherit hover/active colour).
@@ -106,6 +123,8 @@ function PaneChrome({ hideDest = false }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { selectedProject } = useSelectedProject();
+  const paneIndex = usePaneIndex();
+  const { refreshPane } = useSplitView();
   const slot = usePaneChromeSlotValue();
   const setPortalEl = usePaneChromePortalRef();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -171,6 +190,16 @@ function PaneChrome({ hideDest = false }) {
     <div className="sv-chrome">
       {/* Row 1 — header + destination dropdown. */}
       <div className="sv-chrome-row">
+        {/* Refresh this window (top-left); also bound to F5 for the focused pane. */}
+        <button
+          type="button"
+          className="sv-chrome-refresh"
+          onClick={() => refreshPane(paneIndex)}
+          title="Refresh this window (F5)"
+          aria-label="Refresh this window"
+        >
+          <RefreshIcon />
+        </button>
         <div className="sv-chrome-head">
           <span className="sv-chrome-title">{destLabel}</span>
           {description && <span className="sv-chrome-dot" aria-hidden="true">·</span>}
@@ -223,7 +252,9 @@ function BareShell() {
       <PaneChromeProvider>
         <PaneChrome />
         <div className="sv-pane-main">
-          {scoped ? <div className="project-page-frame">{<Outlet />}</div> : <Outlet />}
+          <PaneRefreshable>
+            {scoped ? <div className="project-page-frame">{<Outlet />}</div> : <Outlet />}
+          </PaneRefreshable>
         </div>
         <PaneFooter />
       </PaneChromeProvider>
@@ -302,7 +333,9 @@ function SecondaryPane({ index, seedPath }) {
           <RouteContext.Provider value={RESET_ROUTE_CONTEXT}>
             <MemoryRouter initialEntries={[initialRef.current]}>
               <PaneRouterBridge index={index} />
-              <AppRoutes Shell={BareShell} ProjectShell={BareProjectShell} />
+              <PaneIndexContext.Provider value={index}>
+                <AppRoutes Shell={BareShell} ProjectShell={BareProjectShell} />
+              </PaneIndexContext.Provider>
             </MemoryRouter>
           </RouteContext.Provider>
         </LocationContext.Provider>
@@ -338,9 +371,22 @@ const GENERIC_SPLIT_SEEDS = ['/files', '/chat', '/ai-chat', '/todos'];
 const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug']);
 
 export default function SplitContainer({ primary }) {
-  const { layout, paneCount, focusedPane, setFocusedPane } = useSplitView();
+  const { layout, paneCount, focusedPane, setFocusedPane, refreshFocusedPane } = useSplitView();
   const { pathname, search } = useLocation();
   const navigate = useNavigate();
+
+  // F5 refreshes the FOCUSED window (and never the whole Electron app — we
+  // swallow the key so the webContents doesn't hard-reload).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'F5' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        refreshFocusedPane();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [refreshFocusedPane]);
 
   // When the user switches INTO a layout that names a primary surface, point
   // the main (spanning) pane at it. Skipped on first mount so it never hijacks
@@ -369,11 +415,13 @@ export default function SplitContainer({ primary }) {
             chrome destination dropdown in single-window mode). */}
         <PaneSideNav />
         <div className="sv-single-body">
-          <PaneChromeProvider>
-            {!chromeless && <PaneChrome hideDest />}
-            <div className="sv-single-scroll">{primary}</div>
-            <PaneFooter />
-          </PaneChromeProvider>
+          <PaneIndexContext.Provider value={0}>
+            <PaneChromeProvider>
+              {!chromeless && <PaneChrome hideDest />}
+              <div className="sv-single-scroll"><PaneRefreshable>{primary}</PaneRefreshable></div>
+              <PaneFooter />
+            </PaneChromeProvider>
+          </PaneIndexContext.Provider>
         </div>
       </div>
     );
@@ -398,11 +446,13 @@ export default function SplitContainer({ primary }) {
               others; it drives the ROOT router (this component lives inside it),
               so it navigates the main window and stays in sync with the
               sidebar. */}
-          <PaneChromeProvider>
-            <PaneChrome />
-            <div className="sv-pane-main sv-pane-main-primary">{primary}</div>
-            <PaneFooter />
-          </PaneChromeProvider>
+          <PaneIndexContext.Provider value={0}>
+            <PaneChromeProvider>
+              <PaneChrome />
+              <div className="sv-pane-main sv-pane-main-primary"><PaneRefreshable>{primary}</PaneRefreshable></div>
+              <PaneFooter />
+            </PaneChromeProvider>
+          </PaneIndexContext.Provider>
         </div>
       </div>
       {Array.from({ length: paneCount - 1 }, (_, i) => (

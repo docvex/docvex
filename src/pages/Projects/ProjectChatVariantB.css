@@ -199,10 +199,6 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
-  padding: 3px 12px;
-  border-radius: 999px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
 }
 
 /* ───── Attachment — thumb card ──────────────────────────────────── */
@@ -1014,9 +1010,11 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 50%;
+  /* Sit on the resizer column's RIGHT edge (= panel's left edge), which is the
+     same x as the header section block's border-left, so the list divider and
+     the navbar divider line up vertically. */
+  left: 100%;
   width: 1px;
-  transform: translateX(-50%);
   background: var(--border);
 }
 
