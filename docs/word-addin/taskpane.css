@@ -1,0 +1,141 @@
+/* DocVex Legal AI — Word taskpane. Self-contained (no DocVex bundle here),
+   but reuses the DocVex "Cream" brand palette so it feels like the app. */
+:root {
+  --da-bg: #f6f1e8;
+  --da-card: #fffdf8;
+  --da-ink: #2b2620;
+  --da-muted: #7d756a;
+  --da-border: #e6ddcd;
+  --da-accent: #9a5b34;       /* cognac */
+  --da-accent-hover: #844a28;
+  --da-accent-soft: #f0e3d6;
+  --da-danger: #b0432f;
+  --da-radius: 10px;
+  --da-font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --da-bg: #211d18;
+    --da-card: #2b2620;
+    --da-ink: #f1e9da;
+    --da-muted: #a89c8a;
+    --da-border: #3a332a;
+    --da-accent: #c98a5e;
+    --da-accent-hover: #d89e74;
+    --da-accent-soft: #38302600;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%;
+  font-family: var(--da-font);
+  color: var(--da-ink);
+  background: var(--da-bg);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+body { display: flex; flex-direction: column; }
+
+/* ── Boot / spinner ─────────────────────────────────────────────── */
+.da-boot {
+  flex: 1; display: flex; flex-direction: column; gap: 14px;
+  align-items: center; justify-content: center; color: var(--da-muted);
+}
+.da-spinner {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 3px solid var(--da-border); border-top-color: var(--da-accent);
+  animation: da-spin 0.8s linear infinite;
+}
+@keyframes da-spin { to { transform: rotate(360deg); } }
+
+.da-screen { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+/* ── Auth ───────────────────────────────────────────────────────── */
+#auth { padding: 22px 18px; gap: 22px; }
+.da-brand { display: flex; align-items: center; gap: 12px; }
+.da-logo { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; }
+.da-logo-sm { width: 24px; height: 24px; border-radius: 6px; }
+.da-brand h1 { margin: 0; font-size: 17px; }
+.da-sub { margin: 2px 0 0; color: var(--da-muted); font-size: 12px; }
+.da-auth-form { display: flex; flex-direction: column; gap: 12px; }
+.da-auth-form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--da-muted); }
+.da-auth-form input {
+  font: inherit; padding: 9px 11px; border-radius: 8px;
+  border: 1px solid var(--da-border); background: var(--da-card); color: var(--da-ink);
+}
+.da-auth-form input:focus { outline: none; border-color: var(--da-accent); }
+.da-fineprint { margin: 2px 0 0; color: var(--da-muted); font-size: 11px; }
+
+/* ── Top bar ────────────────────────────────────────────────────── */
+.da-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-bottom: 1px solid var(--da-border); background: var(--da-card);
+}
+.da-topbar-id { display: flex; align-items: center; gap: 8px; }
+.da-title { font-weight: 600; }
+.da-link { background: none; border: none; color: var(--da-accent); cursor: pointer; font: inherit; padding: 4px; }
+.da-link:hover { color: var(--da-accent-hover); text-decoration: underline; }
+
+/* ── Action chips ───────────────────────────────────────────────── */
+.da-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px; }
+.da-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 13px;
+  border: 1px solid var(--da-border); background: var(--da-card); color: var(--da-ink);
+  transition: border-color 0.12s, background 0.12s;
+}
+.da-chip:hover { border-color: var(--da-accent); background: var(--da-accent-soft); }
+.da-chip:disabled { opacity: 0.55; cursor: default; }
+.da-chip-glyph { font-size: 14px; line-height: 1; }
+
+/* ── Result area ────────────────────────────────────────────────── */
+.da-result {
+  flex: 1; min-height: 0; overflow-y: auto;
+  margin: 0 14px; padding: 14px; border-radius: var(--da-radius);
+  background: var(--da-card); border: 1px solid var(--da-border);
+  line-height: 1.5; word-wrap: break-word;
+}
+.da-result h2 { font-size: 14px; margin: 16px 0 6px; color: var(--da-accent); }
+.da-result h2:first-child { margin-top: 0; }
+.da-result p { margin: 0 0 10px; }
+.da-result ul, .da-result ol { margin: 0 0 10px; padding-left: 20px; }
+.da-result li { margin: 3px 0; }
+.da-result code { background: var(--da-accent-soft); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.da-empty { color: var(--da-muted); }
+.da-empty p { margin: 0 0 8px; }
+.da-hint { font-size: 12px; }
+
+.da-thinking { display: flex; align-items: center; gap: 10px; color: var(--da-muted); }
+.da-thinking .da-spinner { width: 18px; height: 18px; border-width: 2px; }
+
+.da-result-tools { display: flex; gap: 8px; padding: 10px 14px 0; }
+
+/* ── Ask box ────────────────────────────────────────────────────── */
+.da-ask { display: flex; gap: 8px; align-items: flex-end; padding: 12px 14px 14px; }
+.da-ask textarea {
+  flex: 1; font: inherit; resize: none; max-height: 120px;
+  padding: 9px 11px; border-radius: 10px; border: 1px solid var(--da-border);
+  background: var(--da-card); color: var(--da-ink);
+}
+.da-ask textarea:focus { outline: none; border-color: var(--da-accent); }
+.da-ask-send { width: 38px; height: 38px; padding: 0; border-radius: 10px; flex: none; }
+
+/* ── Buttons ────────────────────────────────────────────────────── */
+.da-btn { font: inherit; cursor: pointer; border-radius: 8px; padding: 9px 14px; border: 1px solid transparent; transition: background 0.12s; }
+.da-btn-primary { background: var(--da-accent); color: #fff; }
+.da-btn-primary:hover { background: var(--da-accent-hover); }
+.da-btn-primary:disabled { opacity: 0.6; cursor: default; }
+.da-btn-ghost { background: transparent; border-color: var(--da-border); color: var(--da-ink); font-size: 12px; padding: 6px 11px; }
+.da-btn-ghost:hover { border-color: var(--da-accent); color: var(--da-accent); }
+
+.da-error { color: var(--da-danger); font-size: 12px; margin: 0; }
+.da-error:not([hidden]) { display: block; }
+
+/* Toast for copy/insert feedback. */
+.da-toast {
+  position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+  background: var(--da-ink); color: var(--da-bg); padding: 7px 14px; border-radius: 999px;
+  font-size: 12px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 10;
+}
+.da-toast.is-show { opacity: 0.95; }

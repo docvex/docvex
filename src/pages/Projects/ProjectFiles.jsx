@@ -12,7 +12,8 @@ import {
   isElectronBranch,
   readLocalBlob,
 } from '../../lib/localFolder';
-import { openDocx, isDocxFile } from '../../lib/platform';
+import { openDocx, isDocxFile, openFileWindow, canViewInBrowser } from '../../lib/platform';
+import { openDocxInWindow } from '../../lib/openDocxWindow';
 import {
   loadSidecar,
   saveSidecar,
@@ -513,12 +514,43 @@ export default function ProjectFiles() {
     else notify({ category: 'file', variant: 'error', title: 'Folder access denied', body: 'Pick the folder again to reconnect.', dedupeKey: 'reconnect-folder-denied' });
   }, [notify]);
 
-  const handleOpenLocalFile = useCallback((file) => {
+  // Double-click / "Open" — render the file inside its OWN DocVex window
+  // instead of handing it to the OS default app. Routing:
+  //   • image / video / PDF / text → openFileWindow (Chromium renders the
+  //     localfile:// URL natively in a titled "DocVex - <file>" window).
+  //   • .docx → rasterized to self-contained HTML via docx-preview and shown
+  //     in its own window; falls back to Word/Office on render failure.
+  //   • anything Chromium can't render (zip / psd / exe / …) → OS default app.
+  // On web there's no localfile:// scheme, so we mint an object URL from the
+  // cached file handle's bytes for the viewable types.
+  const handleOpenLocalFile = useCallback(async (file) => {
     if (!hasLocalFolderApi || !file?.path) return;
-    if (isDocxFile(file.mimeType, file.name)) {
-      openDocx({ localPath: file.path, fileName: file.name || 'file' });
+    const name = file.name || 'file';
+    const mime = file.mimeType;
+    // Resolve a window-loadable URL for the on-disk file: localfile:// on
+    // Electron, an object URL from the file bytes on web.
+    const resolveUrl = async () => {
+      const direct = localUrlFor(file.path);
+      if (direct) return direct;
+      try { return URL.createObjectURL(await readLocalBlob(file.path)); } catch { return null; }
+    };
+
+    if (isDocxFile(mime, name)) {
+      const url = await resolveUrl();
+      if (url) {
+        const { error } = await openDocxInWindow({ signedUrl: url, fileName: name });
+        if (!error) return;
+      }
+      openDocx({ localPath: file.path, fileName: name }); // Word / Office fallback
       return;
     }
+
+    if (canViewInBrowser(mime, name)) {
+      const url = await resolveUrl();
+      if (url) { openFileWindow(url, name); return; }
+    }
+
+    // Not renderable in a window — let the OS open it in its default app.
     localFolderApi.openPath(file.path);
   }, []);
 
