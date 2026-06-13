@@ -98,3 +98,7 @@ dist-web/
 # Landing site (Vite) intermediate output — scripts/landing-deploy.mjs copies
 # the final artifacts into docs/ (committed), so the staging dir is ignored.
 landing/dist/
+
+# Per-machine local project registry written at runtime (project id → folder
+# path). Machine-specific; lives in ~/Documents/Docvex but can land here in dev.
+.docvex-projects.json

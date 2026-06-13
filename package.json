@@ -1,6 +1,6 @@
 {
   "name": "docvex",
-  "productName": "docvex",
+  "productName": "DocVex",
   "version": "8.0.0",
   "description": "My Electron application description",
   "main": ".vite/build/main.js",
@@ -9,6 +9,7 @@
     "landing"
   ],
   "scripts": {
+    "prestart": "node scripts/dev-rename-electron.mjs",
     "start": "electron-forge start",
     "start:multi": "node scripts/run-many.mjs",
     "package": "electron-forge package",

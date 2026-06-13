@@ -12,14 +12,20 @@ import { SelectedProjectProvider } from './context/SelectedProjectContext';
 import { ChatUnreadProvider } from './context/ChatUnreadContext';
 import { SplitViewProvider } from './context/SplitViewContext';
 import NotificationCenter from './components/NotificationCenter';
-import { isElectron } from './lib/platform';
+import { isElectron, isMac } from './lib/platform';
 import { markLaunchConsumed } from './lib/launchGate';
 import App from './App';
 
 // Frameless Electron build draws a custom title bar — flag the document
 // BEFORE first paint so the layout reserves --titlebar-h (no startup shift).
 // Web keeps the browser chrome and skips this.
-if (isElectron) document.documentElement.classList.add('with-titlebar');
+if (isElectron) {
+  document.documentElement.classList.add('with-titlebar');
+  // macOS keeps the native traffic-light buttons (titleBarStyle:'hidden' in
+  // main.js) floating over our bar, so the title bar insets its brand to clear
+  // them and hides its own window controls. Flag it before first paint too.
+  if (isMac) document.documentElement.classList.add('is-mac');
+}
 
 // Project windows are opened from the launch hub with `?openProject=<id>`.
 // When present, boot the router straight into that project's dashboard (so the

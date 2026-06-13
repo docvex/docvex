@@ -728,3 +728,24 @@
 
 .tb-win-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
 .tb-win-close:hover { background: #e81123; color: #fff; }
+
+/* ── macOS ──────────────────────────────────────────────────────────────────
+   On macOS the window uses titleBarStyle:'hidden' (main.js), so the native
+   traffic-light buttons (close / minimize / zoom) sit at the top-left, floating
+   over this bar. They replace our custom window controls — which aren't
+   rendered on macOS (TitleBar.jsx) — so two things change here:
+     1. Inset the brand past the ~72px the traffic lights occupy, so "DOCVEX"
+        and everything after it doesn't collide with them.
+     2. Nothing terminates the right edge anymore, so the actions cluster can
+        sit a touch off the right edge for symmetry.
+   The class is set on <html> before first paint in renderer.jsx. */
+/* Horizontal balance: the traffic-light cluster ends ~89px in (x:19 + the
+   ~70px-wide button cluster on modern macOS, set in main.js). Inset the brand
+   to 104px so "DOCVEX" sits a ~16px gap to the right of the lights — and give
+   the right-hand actions cluster the same 16px from the window's right edge,
+   so the left and right margins match. */
+html.is-mac .tb-brand { padding-left: 104px; }
+html.is-mac .tb-actions { padding-right: 16px; }
+/* Native fullscreen hides the traffic lights, so reclaim their inset — the
+   brand falls back to the standard 8px gutter. */
+html.is-mac.is-fullscreen .tb-brand { padding-left: 8px; }

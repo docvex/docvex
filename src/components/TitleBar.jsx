@@ -14,11 +14,14 @@ import { PLAN } from '../lib/plan';
 import { listMembers } from '../lib/projects';
 import { localFolderApi, isElectronBranch } from '../lib/localFolder';
 import {
+  isMac,
   windowMinimize,
   windowToggleMaximize,
   windowClose,
   windowIsMaximized,
   onWindowMaximizedChanged,
+  windowIsFullscreen,
+  onWindowFullscreenChanged,
 } from '../lib/platform';
 import brandIcon from '../favicon.ico';
 import './TitleBar.css';
@@ -499,6 +502,19 @@ export default function TitleBar() {
     return () => { alive = false; off?.(); };
   }, []);
 
+  // Flag <html> while in native fullscreen so the macOS brand inset (which
+  // clears the traffic lights) drops — fullscreen hides the lights. Class-based
+  // so it's a pure CSS concern; no re-render needed.
+  useEffect(() => {
+    if (!isMac) return undefined;
+    const root = document.documentElement;
+    const apply = (v) => root.classList.toggle('is-fullscreen', !!v);
+    let alive = true;
+    windowIsFullscreen().then((v) => { if (alive) apply(v); });
+    const off = onWindowFullscreenChanged(apply);
+    return () => { alive = false; off?.(); root.classList.remove('is-fullscreen'); };
+  }, []);
+
   const signedIn = !!session;
   // Semver bump of the available update, used to colour the pill the same way
   // the Versions page colour-codes each release (major/minor/patch).
@@ -722,30 +738,36 @@ export default function TitleBar() {
             </Tooltip>
           </div>
 
-          {/* Divider between the Theme control and the window controls. */}
-          <div className="tb-divider" aria-hidden="true" />
+          {/* Divider between the Theme control and the window controls.
+              Dropped on macOS, where the native traffic lights (not our custom
+              controls) terminate the bar. */}
+          {!isMac && <div className="tb-divider" aria-hidden="true" />}
         </>
       )}
 
-      {/* Window controls — always present so the frameless window stays
-          controllable on every screen, including /auth. */}
-      <div className="tb-window-controls">
-        <Tooltip content="Minimize">
-          <button type="button" className="tb-win-btn" onClick={windowMinimize} aria-label="Minimize">
-            {MinimizeGlyph}
-          </button>
-        </Tooltip>
-        <Tooltip content={maximized ? 'Restore' : 'Maximize'}>
-          <button type="button" className="tb-win-btn" onClick={windowToggleMaximize} aria-label={maximized ? 'Restore' : 'Maximize'}>
-            {maximized ? RestoreGlyph : MaximizeGlyph}
-          </button>
-        </Tooltip>
-        <Tooltip content="Close">
-          <button type="button" className="tb-win-btn tb-win-close" onClick={windowClose} aria-label="Close">
-            {CloseGlyph}
-          </button>
-        </Tooltip>
-      </div>
+      {/* Window controls — minimize / maximize / close. Present on Windows &
+          Linux (frameless) so the window stays controllable on every screen,
+          including /auth. Hidden on macOS, which keeps its native traffic-light
+          buttons at top-left (titleBarStyle:'hidden'). */}
+      {!isMac && (
+        <div className="tb-window-controls">
+          <Tooltip content="Minimize">
+            <button type="button" className="tb-win-btn" onClick={windowMinimize} aria-label="Minimize">
+              {MinimizeGlyph}
+            </button>
+          </Tooltip>
+          <Tooltip content={maximized ? 'Restore' : 'Maximize'}>
+            <button type="button" className="tb-win-btn" onClick={windowToggleMaximize} aria-label={maximized ? 'Restore' : 'Maximize'}>
+              {maximized ? RestoreGlyph : MaximizeGlyph}
+            </button>
+          </Tooltip>
+          <Tooltip content="Close">
+            <button type="button" className="tb-win-btn tb-win-close" onClick={windowClose} aria-label="Close">
+              {CloseGlyph}
+            </button>
+          </Tooltip>
+        </div>
+      )}
 
     </div>
   );

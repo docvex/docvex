@@ -82,6 +82,34 @@ function ProjectShell() {
   );
 }
 
+// Sets the OS window title so each DocVex window is distinguishable in the
+// macOS dock / Window menu (and the taskbar on Windows). Electron mirrors
+// document.title onto the BrowserWindow title (page-title-updated), so the
+// per-window React tree is the right place to drive it. The window's role is
+// fixed for its lifetime by the query it was opened with (renderer.jsx):
+//   • Hub window      — no ?openProject          → "DocVex — Hub"
+//   • Project window  — ?openProject=<id>        → "DocVex — <project name>"
+//   • Doc-viewer      — ?docViewer=1 (+ name)    → "DocVex — <file name>"
+function WindowTitle() {
+  const { selectedProject } = useSelectedProject();
+  useEffect(() => {
+    if (!isElectron) return;
+    const params = new URLSearchParams(window.location.search);
+    let label;
+    if (params.get('docViewer') === '1') {
+      label = params.get('name') || 'Document Viewer';
+    } else if (params.get('openProject')) {
+      // selectedProject hydrates from ?openProject async; until its name lands
+      // show a neutral label rather than flashing the wrong one.
+      label = selectedProject?.name || 'Project';
+    } else {
+      label = 'Hub';
+    }
+    document.title = `DocVex — ${label}`;
+  }, [selectedProject?.name]);
+  return null;
+}
+
 export default function App() {
   // Guard against the window navigating to a file when an OS file drag is
   // dropped anywhere OUTSIDE an explicit drop target (the Files canvas calls
@@ -110,6 +138,7 @@ export default function App() {
   // the modal share one context instance.
   return (
     <ReportProblemProvider>
+      <WindowTitle />
       {isElectron && <TitleBar />}
       <AppRoutes Shell={RootShell} ProjectShell={ProjectShell} />
       <ReportProblemModal />

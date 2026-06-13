@@ -24,6 +24,15 @@ const electronAPI =
 export const isElectron = !!electronAPI;
 export const isWebBuild = import.meta.env.VITE_TARGET === 'web';
 
+// Synchronous OS guess from the userAgent — available before first paint (the
+// async getPlatformInfo() IPC isn't). Electron's renderer userAgent always
+// reports "Macintosh; Intel Mac OS X" on macOS (both Intel and Apple Silicon),
+// so a substring test is reliable. Drives the macOS title-bar layout: the
+// native traffic-light buttons replace the custom window controls, so the bar
+// insets its brand and hides its own min/max/close on Mac.
+export const isMac =
+  typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent || '');
+
 // ── App metadata ──────────────────────────────────────────────────────────
 
 // Returns the running app's semver string.
@@ -82,6 +91,16 @@ export async function windowIsMaximized() {
 export function onWindowMaximizedChanged(handler) {
   return electronAPI?.onWindowMaximizedChanged
     ? electronAPI.onWindowMaximizedChanged(handler)
+    : () => {};
+}
+export async function windowIsFullscreen() {
+  return electronAPI?.windowIsFullscreen ? electronAPI.windowIsFullscreen() : false;
+}
+// Subscribe to native fullscreen enter/leave. Returns an unsubscribe fn (no-op
+// stub on web). Drives the macOS title bar's traffic-light inset.
+export function onWindowFullscreenChanged(handler) {
+  return electronAPI?.onWindowFullscreenChanged
+    ? electronAPI.onWindowFullscreenChanged(handler)
     : () => {};
 }
 

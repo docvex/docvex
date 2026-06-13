@@ -159,6 +159,19 @@ if (app.isPackaged && AUTO_UPDATE_SUPPORTED) {
   });
 }
 
+// Branding: report a proper product name instead of the bundle default.
+// In a packaged build the macOS dock / menu read the bundle's CFBundleName
+// (set from package.json#productName at package time); under
+// `electron-forge start` the bundle is plain "Electron", so the dock label
+// stays "Electron" in dev — only the packaged app shows "DocVex" there.
+// setName still fixes app.getName(), the app menu, and notification source
+// names everywhere. Pin userData to its pre-rename location first so the
+// rename doesn't move the dev session/cache to a new Application Support
+// folder (which would silently log the user out).
+const __userDataBeforeRename = app.getPath('userData');
+app.setName('DocVex');
+app.setPath('userData', __userDataBeforeRename);
+
 // Register custom URL scheme for OAuth callbacks.
 // In dev mode (`electron-forge start`), process.defaultApp is true and we must
 // pass the path to this app so Windows launches `electron.exe <app-path> docvex://...`
@@ -289,10 +302,21 @@ function createAppWindow({ query, openDevtools = false } = {}) {
     minWidth: 900,
     minHeight: 600,
     title: 'DocVex',
-    // Frameless — the OS title bar (icon, text, AND its min/max/close buttons)
-    // is removed entirely. The renderer draws its own title bar with custom
-    // window controls (see src/components/TitleBar.jsx).
-    frame: false,
+    // Title-bar chrome: the renderer draws its own bar (src/components/TitleBar.jsx).
+    //  • Windows / Linux — fully frameless (frame:false strips the OS title bar
+    //    AND its min/max/close buttons); the renderer supplies custom controls.
+    //  • macOS — `titleBarStyle:'hidden'` keeps the native traffic-light buttons
+    //    (close / minimize / zoom) at top-left, which users expect, while hiding
+    //    the rest of the OS bar so our custom bar shows through. The bar is 44px
+    //    tall (--titlebar-h in index.css, same as Win/Linux). trafficLightPosition
+    //    is the TOP-LEFT inset of the ~12px-tall button cluster, so to centre it
+    //    vertically in the 44px bar — VS Code's tight look — y = (44-12)/2 ≈ 16.
+    //    x:19 puts the first light a hair in from the left, matching VS Code. The
+    //    renderer insets its brand to clear them and hides its own window controls
+    //    (is-mac CSS). Nudge `y` a px or two if the lights look high or low.
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 13, y: 10 } }
+      : { frame: false }),
     icon: path.join(__dirname, 'appicon_desktop.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -310,16 +334,28 @@ function createAppWindow({ query, openDevtools = false } = {}) {
   win.on('maximize', sendMaxState);
   win.on('unmaximize', sendMaxState);
 
+  // Tell the title bar when this window enters/leaves native fullscreen. On
+  // macOS fullscreen hides the traffic-light buttons, so the renderer drops the
+  // brand's left inset that normally clears them (is-fullscreen CSS).
+  const sendFullscreenState = () => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('window:fullscreen-changed', win.isFullScreen());
+    }
+  };
+  win.on('enter-full-screen', sendFullscreenState);
+  win.on('leave-full-screen', sendFullscreenState);
+
   // No native menu bar (per-window on Windows, so removeMenu each window).
   win.removeMenu();
   // Removing the menu also drops the default DevTools accelerators — re-add them.
   wireDevtoolsShortcuts(win);
 
-  // Pin a stable taskbar / Alt-Tab title (there's no in-window title bar).
-  win.on('page-title-updated', (event) => {
-    event.preventDefault();
-    win.setTitle('DocVex');
-  });
+  // Let the renderer drive the taskbar / dock / Alt-Tab title (there's no
+  // in-window OS title bar). The app sets document.title per window via
+  // <WindowTitle> — "DocVex — Hub", "DocVex — <project>", "DocVex — <file>" —
+  // so each instance is distinguishable in the macOS Window menu / dock. We do
+  // NOT preventDefault here, so Chromium mirrors document.title onto the window
+  // title. index.html ships "DocVex" as the pre-mount fallback.
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     const qs = query ? `?${new URLSearchParams(query).toString()}` : '';
@@ -608,6 +644,10 @@ ipcMain.on('window:close', (e) => {
 ipcMain.handle('window:is-maximized', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   return !!(w && w.isMaximized());
+});
+ipcMain.handle('window:is-fullscreen', (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  return !!(w && w.isFullScreen());
 });
 
 // Open a project in its own window (from the launch hub).
@@ -2126,6 +2166,18 @@ app.on('before-quit', () => { stopWatcher(); stopPurgeTimer(); });
 // --------------------------------------------------------------------------
 
 app.whenReady().then(() => {
+  // macOS dock icon. BrowserWindow({ icon }) is ignored on macOS (the dock
+  // uses the bundle icon), and under `electron-forge start` the bundle is
+  // Electron's, so the dock shows the generic Electron icon. Set it at
+  // runtime from the same asset the window uses (copied next to main.js by
+  // vite.main.config's copyMainIcon plugin). No-op on Windows/Linux.
+  if (process.platform === 'darwin' && app.dock) {
+    try {
+      const dockIcon = nativeImage.createFromPath(path.join(__dirname, 'appicon_desktop.png'));
+      if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon);
+    } catch { /* non-fatal — fall back to the bundle icon */ }
+  }
+
   // Resolve `localfile://local/<encoded-absolute-path>` requests by
   // streaming the file off disk via fs.createReadStream wrapped in a
   // Response. The renderer URL-encodes the full path as a single
@@ -2271,10 +2323,37 @@ app.whenReady().then(() => {
     }
   });
 
-  // No native application menu — File / Edit / View / Window / Account / DEBUG
-  // are all gone. setApplicationMenu(null) removes the menu bar entirely on
-  // Windows/Linux (and clears it on macOS aside from the unavoidable app menu).
-  Menu.setApplicationMenu(null);
+  // Application menu:
+  //  • Windows / Linux — none. setApplicationMenu(null) removes the bar entirely
+  //    (the renderer's custom title bar carries everything).
+  //  • macOS — a minimal native menu. macOS ALWAYS shows a menu bar at the top
+  //    of the screen, and the standard editing/clipboard/window shortcuts
+  //    (Cmd+C/V/X/A/Z, Cmd+Q/W/M/H) only work when their menu roles exist. With
+  //    a null menu they silently break, so we install the standard roles. There
+  //    is no File menu — the app is windowless-document by design.
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      {
+        role: 'appMenu', // DocVex › About / Hide / Quit
+      },
+      {
+        role: 'editMenu', // Undo / Redo / Cut / Copy / Paste / Select All
+      },
+      {
+        label: 'View',
+        submenu: [
+          { role: 'togglefullscreen' },
+          { type: 'separator' },
+          { role: 'toggleDevTools' },
+        ],
+      },
+      {
+        role: 'windowMenu', // Minimize / Zoom / Close
+      },
+    ]));
+  } else {
+    Menu.setApplicationMenu(null);
+  }
 
   createWindow();
 

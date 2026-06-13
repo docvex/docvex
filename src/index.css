@@ -32,6 +32,10 @@
    rendered. */
 :root { --titlebar-h: 0px; }
 html.with-titlebar { --titlebar-h: 44px; }
+/* macOS uses the SAME 44px bar as Windows/Linux — the native traffic-light
+   buttons (titleBarStyle:'hidden') are centred inside it via
+   trafficLightPosition.y in main.js, matching VS Code's compact look. The bar
+   is the tested height; no mac-specific override. */
 
 html, body {
   margin: 0;

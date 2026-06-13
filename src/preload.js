@@ -82,6 +82,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('window:maximized-changed', listener);
     return () => ipcRenderer.removeListener('window:maximized-changed', listener);
   },
+  // Native fullscreen state — the macOS title bar drops its traffic-light inset
+  // when fullscreen hides the lights.
+  windowIsFullscreen: () => ipcRenderer.invoke('window:is-fullscreen'),
+  onWindowFullscreenChanged: (handler) => {
+    const listener = (_, isFs) => handler(isFs);
+    ipcRenderer.on('window:fullscreen-changed', listener);
+    return () => ipcRenderer.removeListener('window:fullscreen-changed', listener);
+  },
 
   // Open a project in its own window (from the launch hub). The new window
   // boots straight into `route` (defaults to the project dashboard) via the
