@@ -814,15 +814,16 @@ export default function ProjectOverview() {
           {fmtCount(fileStats.count)} {fileStats.count === 1 ? 'file' : 'files'} · {fmtBytes(fileStats.bytes)}
         </span>
         <span className="pjd-compact-sep" aria-hidden="true">·</span>
-        <button
-          type="button"
-          className="pjd-compact-status"
-          onClick={scrollToTop}
-          title="Back to top"
-        >
-          <span className="pjd-compact-dot" aria-hidden="true" />
-          Back to top
-        </button>
+        <Tooltip content="Back to top">
+          <button
+            type="button"
+            className="pjd-compact-status"
+            onClick={scrollToTop}
+          >
+            <span className="pjd-compact-dot" aria-hidden="true" />
+            Back to top
+          </button>
+        </Tooltip>
       </div>
 
       {!fromTopbar && (
@@ -855,15 +856,16 @@ export default function ProjectOverview() {
                 aria-label="Project name"
               />
             ) : (
-              <button
-                type="button"
-                className="pjd-hero-title-btn"
-                onClick={() => { setEditName(project.name ?? ''); setEditingName(true); }}
-                title="Rename project"
-              >
-                <h1 className="pjd-hero-title">{project.name}</h1>
-                <span className="pjd-hero-title-pencil" aria-hidden="true">{PencilIcon}</span>
-              </button>
+              <Tooltip content="Rename project">
+                <button
+                  type="button"
+                  className="pjd-hero-title-btn"
+                  onClick={() => { setEditName(project.name ?? ''); setEditingName(true); }}
+                >
+                  <h1 className="pjd-hero-title">{project.name}</h1>
+                  <span className="pjd-hero-title-pencil" aria-hidden="true">{PencilIcon}</span>
+                </button>
+              </Tooltip>
             )
           ) : (
             <h1 className="pjd-hero-title">{project.name}</h1>

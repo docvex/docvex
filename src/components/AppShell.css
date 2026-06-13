@@ -2,7 +2,7 @@
   display: flex;
   /* Reserve room for the custom frameless title bar (--titlebar-h; 0 on web)
      so the shell sits below it and the fixed sidebar's top offset lines up. */
-  height: calc(100vh - var(--titlebar-h));
+  height: calc(100 * var(--vh1) - var(--titlebar-h));
   margin-top: var(--titlebar-h);
   overflow: hidden;
   background: var(--bg-page);

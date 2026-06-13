@@ -11,7 +11,7 @@
 .set-page { width: 100%; }
 /* Three-quarters of the content width on wide screens, left-aligned — shared
    with Activity / Newsletter / Versions / Debug. */
-@media (min-width: 1280px) {
+@media (min-width: 1024px) { /* 1280px pre-scale */
   .set-page { width: 75%; }
 }
 
@@ -28,7 +28,7 @@
   align-items: start;
 }
 .set-stack .set-foot { grid-column: 1 / -1; }
-@media (max-width: 900px) {
+@media (max-width: 720px) { /* 900px pre-scale */
   .set-stack { grid-template-columns: 1fr; }
 }
 .set-group { display: flex; flex-direction: column; gap: 12px; }

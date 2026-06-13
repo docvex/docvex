@@ -76,16 +76,17 @@ function CapCell({ granted, override, locked, onToggle }) {
       ? (granted ? 'Granted (override) — click to clear' : 'Revoked (override) — click to clear')
       : (granted ? 'Inherited: allowed — click to override' : 'Inherited: denied — click to override');
   return (
-    <button
-      type="button"
-      className={`pjd-cap-cell ${granted ? 'on' : 'off'}${locked ? ' locked' : ''}${override ? ' is-override' : ''}`}
-      onClick={locked ? undefined : onToggle}
-      disabled={locked}
-      title={title}
-      aria-label={title}
-    >
-      {granted ? CheckIcon : <span className="pjd-cap-dot" />}
-    </button>
+    <Tooltip content={title}>
+      <button
+        type="button"
+        className={`pjd-cap-cell ${granted ? 'on' : 'off'}${locked ? ' locked' : ''}${override ? ' is-override' : ''}`}
+        onClick={locked ? undefined : onToggle}
+        disabled={locked}
+        aria-label={title}
+      >
+        {granted ? CheckIcon : <span className="pjd-cap-dot" />}
+      </button>
+    </Tooltip>
   );
 }
 

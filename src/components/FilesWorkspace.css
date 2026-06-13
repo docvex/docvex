@@ -855,6 +855,12 @@
 .fx-glyph-ppt { background: #C2410C; }
 .fx-glyph-zip { background: #7C3AED; }
 .fx-glyph-img { background: linear-gradient(135deg, #14B8A6, #0EA5E9); }
+/* Recognised WhatsApp export zip — the WhatsApp logo on its brand green. */
+.fx-glyph-whatsapp { background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); }
+.fx-glyph-whatsapp .fx-glyph-wa-logo {
+  width: 64%; height: 64%; color: #fff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+}
 /* Video badge — a play triangle on a vibrant media gradient (was flat near-
    black with "MP4" text, which barely read on the Ink theme). The format tag
    sits in the corner; the triangle scales with the badge so it works at both

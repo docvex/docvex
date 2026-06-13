@@ -68,7 +68,7 @@
   gap: 28px;
   align-items: stretch;
 }
-@media (max-width: 900px) {
+@media (max-width: 720px) { /* 900px pre-scale */
   .m-week { grid-template-columns: 1fr; gap: 20px; }
 }
 
@@ -188,10 +188,10 @@
 
 /* ── Row 2: 3 columns ───────────────────────────────────────────────── */
 .m-row { display: grid; grid-template-columns: 1fr 1.1fr 1fr; gap: 12px; }
-@media (max-width: 1100px) {
+@media (max-width: 880px) { /* 1100px pre-scale */
   .m-row { grid-template-columns: 1fr 1fr; }
 }
-@media (max-width: 720px) {
+@media (max-width: 576px) { /* 720px pre-scale */
   .m-row { grid-template-columns: 1fr; }
 }
 
@@ -384,11 +384,11 @@
 
 /* ── Row 3 — Streak · When I work · Top files ────────────────────────── */
 .m-row-3 { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 12px; }
-@media (max-width: 1100px) {
+@media (max-width: 880px) { /* 1100px pre-scale */
   .m-row-3 { grid-template-columns: 1fr 1fr; }
   .m-row-3 > .m-card-when { grid-column: 1 / -1; order: 2; }
 }
-@media (max-width: 720px) {
+@media (max-width: 576px) { /* 720px pre-scale */
   .m-row-3 { grid-template-columns: 1fr; }
   .m-row-3 > .m-card-when { grid-column: auto; order: 0; }
 }

@@ -1,5 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+// anchorRect + innerWidth/Height are viewport px; the left/bottom we set are
+// layout px — under the app's CSS-zoom downscale the two differ (see
+// lib/appZoom).
+import { toLayoutPx } from '../lib/appZoom';
 import { STATUS_OPTIONS, getStatusOption } from '../lib/userStatus';
 import './StatusPicker.css';
 
@@ -48,15 +52,15 @@ export default function StatusPicker({ anchorRect, currentStatus, onPick, onClos
   // doesn't look glued to the badge.
   const PANEL_WIDTH = 240;
   const PANEL_OFFSET = 6;
-  const rawLeft = anchorRect.right + PANEL_OFFSET;
+  const rawLeft = toLayoutPx(anchorRect.right) + PANEL_OFFSET;
   const left = Math.min(
     Math.max(8, rawLeft),
-    window.innerWidth - PANEL_WIDTH - 8,
+    toLayoutPx(window.innerWidth) - PANEL_WIDTH - 8,
   );
   // Anchor the panel's bottom to the badge's vertical centre so it floats
   // upward — the sidebar badge sits near the bottom of the screen, so
   // dropping the panel below would clip it.
-  const bottom = window.innerHeight - anchorRect.bottom - 4;
+  const bottom = toLayoutPx(window.innerHeight - anchorRect.bottom) - 4;
 
   return createPortal(
     <div

@@ -12,7 +12,7 @@ import {
   isElectronBranch,
   readLocalBlob,
 } from '../../lib/localFolder';
-import { openDocx, isDocxFile, openFileWindow, canViewInBrowser } from '../../lib/platform';
+import { openDocx, isDocxFile, openFileWindow, canViewInBrowser, openDocViewerWindow, prepareWhatsAppZip, detectWhatsApp } from '../../lib/platform';
 import { openDocxInWindow } from '../../lib/openDocxWindow';
 import {
   loadSidecar,
@@ -133,6 +133,33 @@ export default function ProjectFiles() {
   const browseListing = browseCache.get(currentDir);
   const browseFiles = browseListing?.files || [];
   const browseDirs = browseListing?.dirs || [];
+
+  // ── WhatsApp-export recognition (content-based) ────────────────────────
+  // Probe the folders + .zip archives at the current browse level for a chat
+  // transcript INSIDE them (main process: `_chat.txt` / a .txt whose first
+  // bytes carry WhatsApp's timestamp signature). Verdicts are keyed by path
+  // and stamped onto the item model below — recognition follows the
+  // CONTENTS, not the name, so a renamed export keeps its WhatsApp mark.
+  // The candidate list is keyed as a joined string so the effect re-probes
+  // only when the visible set actually changes (browseFiles is a fresh []
+  // every render while a listing is loading).
+  const [waByPath, setWaByPath] = useState(() => ({}));
+  const waCandidatesKey = [
+    ...browseDirs.map((d) => d.path),
+    ...browseFiles.filter((f) => /\.zip$/i.test(f.name || '')).map((f) => f.path),
+  ].filter(Boolean).join('\n');
+  useEffect(() => {
+    if (!isElectronBranch || !waCandidatesKey) return undefined;
+    let cancelled = false;
+    detectWhatsApp(waCandidatesKey.split('\n'))
+      .then((res) => {
+        if (!cancelled && res && typeof res === 'object') {
+          setWaByPath((prev) => ({ ...prev, ...res }));
+        }
+      })
+      .catch(() => { /* recognition is cosmetic — just no mark */ });
+    return () => { cancelled = true; };
+  }, [waCandidatesKey]);
 
   // ── Hydrate the chosen folder when the project switches ───────────────
   useEffect(() => {
@@ -527,6 +554,24 @@ export default function ProjectFiles() {
     if (!hasLocalFolderApi || !file?.path) return;
     const name = file.name || 'file';
     const mime = file.mimeType;
+    // A WhatsApp export ships as a .zip (transcript + media). Extract it and,
+    // if it really is a WhatsApp export, open the reconstructed conversation
+    // (with media) in the doc-viewer instead of treating the zip as an opaque
+    // archive. Non-WhatsApp zips fall through to the normal handling below.
+    if (/\.zip$/i.test(name)) {
+      const prepped = await prepareWhatsAppZip(file.path);
+      if (prepped?.ok && prepped.chatPath) {
+        openDocViewerWindow({ path: prepped.chatPath, name: prepped.name || name, mime: 'text/plain' });
+        return;
+      }
+    }
+    // Open EVERY file type in DocVex's document-viewer window (file preview +
+    // Legal AI panel). Types it can't preview show a fallback with an "open in
+    // default app" button. Electron only; returns false on web, so we fall
+    // through to the per-type in-app / OS open below.
+    if (openDocViewerWindow({ path: file.path, name, mime: mime || '' })) {
+      return;
+    }
     // Resolve a window-loadable URL for the on-disk file: localfile:// on
     // Electron, an object URL from the file bytes on web.
     const resolveUrl = async () => {
@@ -628,26 +673,20 @@ export default function ProjectFiles() {
     await importFiles(picked);
   }, [importFiles]);
 
-  // Drag-and-drop from the OS file manager → copy the dropped files into the
-  // current folder (only files, not folders, are read from a plain drop).
-  const handleDropFiles = useCallback(async (fileList) => {
-    const picked = Array.from(fileList || []);
-    await importFiles(picked);
-  }, [importFiles]);
-
   // Import a WHOLE folder (preserving its subfolder structure) into the current
-  // folder. The <input webkitdirectory> hands every descendant file with a
-  // `webkitRelativePath` like "myFolder/sub/file.txt"; we group by relative
-  // directory and write each group into the matching nested dir. write-files
-  // mkdir's the target recursively, so the subfolders are created in place.
-  const importFolder = useCallback(async (picked) => {
-    if (!picked || picked.length === 0 || !localFolder) return;
-    const files = picked.filter((f) => f && f.name && (f.webkitRelativePath || f.name));
-    if (files.length === 0) return;
+  // folder. Each entry is { file, relPath } where relPath is like
+  // "myFolder/sub/file.txt"; we group by relative directory and write each
+  // group into the matching nested dir. write-files mkdir's the target
+  // recursively, so the subfolders are created in place. Shared by the
+  // <input webkitdirectory> picker and a drag-dropped folder.
+  const importFolderEntries = useCallback(async (entries) => {
+    if (!entries || entries.length === 0 || !localFolder) return;
     // relDir -> [{ filename, blob }]
     const groups = new Map();
-    for (const f of files) {
-      const rel = String(f.webkitRelativePath || f.name).replace(/\\/g, '/');
+    for (const ent of entries) {
+      const f = ent?.file;
+      if (!f || !f.name) continue;
+      const rel = String(ent.relPath || f.name).replace(/\\/g, '/');
       const slash = rel.lastIndexOf('/');
       const relDir = slash >= 0 ? rel.slice(0, slash) : '';
       const base = slash >= 0 ? rel.slice(slash + 1) : rel;
@@ -655,6 +694,7 @@ export default function ProjectFiles() {
       if (!groups.has(relDir)) groups.set(relDir, []);
       groups.get(relDir).push({ filename: base, blob: f });
     }
+    if (groups.size === 0) return;
     let ok = 0;
     let fail = 0;
     // Forward slashes in the appended relDir are normalised by Node's path on
@@ -679,13 +719,40 @@ export default function ProjectFiles() {
     await refetchLocalFiles();
   }, [localFolder, currentDir, notify, refetchLocalFiles]);
 
-  // "Import folder" → hidden <input webkitdirectory>.
+  // Drag-and-drop from the OS file manager → copy the dropped files into the
+  // current folder. Each entry is { file, relPath }; loose files (no folder in
+  // relPath) keep the sidecar/undo handling of importFiles, while anything
+  // dropped inside a folder is routed through importFolderEntries so its nested
+  // structure is recreated. (Earlier this only read a flat FileList and so
+  // silently dropped folders on the floor.)
+  const handleDropFiles = useCallback(async (entries) => {
+    const list = Array.isArray(entries)
+      ? entries
+      : Array.from(entries || []).map((f) => ({ file: f, relPath: f?.name }));
+    const loose = [];
+    const nested = [];
+    for (const ent of list) {
+      const f = ent?.file;
+      if (!f || !f.name) continue;
+      const rel = String(ent.relPath || f.name).replace(/\\/g, '/');
+      if (rel.includes('/')) nested.push(ent);
+      else loose.push(f);
+    }
+    if (loose.length) await importFiles(loose);
+    if (nested.length) await importFolderEntries(nested);
+  }, [importFiles, importFolderEntries]);
+
+  // "Import folder" → hidden <input webkitdirectory>. The picked files carry a
+  // `webkitRelativePath`; map them into the shared { file, relPath } shape.
   const handleLocalFolderPicked = useCallback(async (e) => {
     const input = e.target;
     const picked = Array.from(input.files || []);
     input.value = '';
-    await importFolder(picked);
-  }, [importFolder]);
+    const entries = picked
+      .filter((f) => f && f.name)
+      .map((f) => ({ file: f, relPath: f.webkitRelativePath || f.name }));
+    await importFolderEntries(entries);
+  }, [importFolderEntries]);
 
   const handleRenameLocalFile = useCallback(async (file, newName) => {
     const trimmed = (newName || '').trim();
@@ -891,6 +958,9 @@ export default function ProjectFiles() {
     name: dir.name,
     empty: dir.empty,
     status: 'synced',
+    // Content-probed (see the waByPath effect) — an extracted WhatsApp
+    // export folder keeps its mark whatever it's renamed to.
+    isWhatsApp: waByPath[dir.path] === true,
     _dir: dir,
   }));
 
@@ -923,6 +993,10 @@ export default function ProjectFiles() {
       modifiedLabel: formatDate(lf.mtimeIso),
       author: 'You',
       status: 'synced',
+      // Content-probed verdict for .zip archives (true/false once resolved;
+      // undefined while pending / for non-zips → FilesWorkspace falls back
+      // to its name heuristic until the probe lands).
+      isWhatsApp: lf.path ? waByPath[lf.path] : undefined,
       descriptor: describeLocalFile({ localFile: lf, localUrl, cloud: null, bytesChanged: false, localContentHash: null }),
       _raw: lf,
     };

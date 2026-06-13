@@ -1,5 +1,11 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+// Cursor coords / innerWidth / DOMRects are viewport px; the transform we set
+// is layout px — under the app's CSS-zoom downscale the two differ (see
+// lib/appZoom). pillPos is therefore stored in LAYOUT px. The FLIP morph
+// needs no conversion: its scale factors are viewport/viewport ratios and the
+// translate it re-applies is parsed back out of the (layout-px) transform.
+import { toLayoutPx } from '../lib/appZoom';
 // Co-located styling — every consumer of useMorphPill gets the
 // dropdown / confirm-panel CSS automatically. Previously these
 // rules lived in ProjectFiles.css, which meant the hook only looked
@@ -92,7 +98,7 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
 
   const handleMouseMove = (e) => {
     if (menuMode || promptOpen) return;
-    setPillPos({ x: e.clientX, y: e.clientY });
+    setPillPos({ x: toLayoutPx(e.clientX), y: toLayoutPx(e.clientY) });
   };
   const handleMouseLeave = () => {
     if (menuMode || promptOpen) return;
@@ -109,7 +115,7 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
       oldPillRectRef.current = pillRef.current.getBoundingClientRect();
     }
     triggerElRef.current = e.currentTarget;
-    setPillPos({ x: e.clientX, y: e.clientY });
+    setPillPos({ x: toLayoutPx(e.clientX), y: toLayoutPx(e.clientY) });
     setMenuMode(true);
   };
   const closeMenu = () => {
@@ -138,8 +144,8 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     }
     triggerElRef.current = e.currentTarget;
     const rect = e.currentTarget?.getBoundingClientRect?.();
-    const x = e.clientX || (rect ? rect.left : 0);
-    const y = e.clientY || (rect ? rect.bottom : 0);
+    const x = toLayoutPx(e.clientX || (rect ? rect.left : 0));
+    const y = toLayoutPx(e.clientY || (rect ? rect.bottom : 0));
     setPillPos((prev) => prev || { x, y });
     setMenuMode(true);
   };
@@ -159,8 +165,8 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     }
     triggerElRef.current = e.currentTarget;
     const rect = e.currentTarget?.getBoundingClientRect?.();
-    const x = e.clientX || (rect ? rect.left : 0);
-    const y = e.clientY || (rect ? rect.bottom : 0);
+    const x = toLayoutPx(e.clientX || (rect ? rect.left : 0));
+    const y = toLayoutPx(e.clientY || (rect ? rect.bottom : 0));
     setPromptText('');
     setPromptBusy(false);
     setPillPos((prev) => prev || { x, y });
@@ -226,13 +232,18 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     const onScroll = () => closeMenu();
     window.addEventListener('keydown', onKey);
     window.addEventListener('mousedown', onDown);
-    window.addEventListener('scroll', onScroll, true);
+    // Scroll-dismiss keeps a cursor-anchored menu from drifting off its
+    // anchor. A stickyMenu (the split-layout control) opts OUT: it's anchored
+    // to a fixed title-bar button AND acting on it (selecting a layout)
+    // reflows the panes, which fires scroll events — that must NOT tear the
+    // menu down while the user is trying layouts.
+    if (!stickyMenu) window.addEventListener('scroll', onScroll, true);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('mousedown', onDown);
       window.removeEventListener('scroll', onScroll, true);
     };
-  }, [menuMode, promptOpen]);
+  }, [menuMode, promptOpen, stickyMenu]);
 
   // Position-clamp — same recipe as the shared Tooltip: keep the pill
   // inside the viewport on both axes, snap on first mount so the CSS
@@ -244,8 +255,8 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     if (!pill) return;
     const w = pill.offsetWidth;
     const h = pill.offsetHeight;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const vw = toLayoutPx(window.innerWidth);
+    const vh = toLayoutPx(window.innerHeight);
     // `placement: 'left'` anchors the pill's RIGHT edge near the cursor and
     // grows it leftward (used by the title bar's right-edge buttons so the
     // menu doesn't run off-screen); default grows rightward from the cursor.

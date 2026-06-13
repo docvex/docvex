@@ -7,7 +7,7 @@
   max-width: 560px;
   /* Capability list can grow tall on a small monitor; keep the modal
      scrollable inside the viewport. */
-  max-height: 90vh;
+  max-height: calc(90 * var(--vh1));
   overflow-y: auto;
 }
 

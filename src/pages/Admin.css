@@ -74,7 +74,7 @@ h1.dc-title, .dc-mh-title, .dc-mail-head h2, .dc-danger-hd h2, .dc-modal-hd h3, 
   max-width: 640px;
 }
 .dc-mh-kicker strong { color: var(--text-primary); font-weight: 600; }
-@media (max-width: 640px) {
+@media (max-width: 512px) { /* 640px pre-scale */
   .dc-mh-title { font-size: 42px; }
 }
 
@@ -415,7 +415,7 @@ h1.dc-title, .dc-mh-title, .dc-mail-head h2, .dc-danger-hd h2, .dc-modal-hd h3, 
 }
 
 /* ── Service editor modal form ── */
-.dc-modal-wide { width: 640px; max-height: 90vh; overflow-y: auto; }
+.dc-modal-wide { width: 640px; max-height: calc(90 * var(--vh1)); overflow-y: auto; }
 .dc-form { display: flex; flex-direction: column; }
 .dc-form-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px;
@@ -656,7 +656,7 @@ h1.dc-title, .dc-mh-title, .dc-mail-head h2, .dc-danger-hd h2, .dc-modal-hd h3, 
 .dc-toast svg { width: 16px; height: 16px; color: var(--danger-soft); }
 
 /* ── Responsive ── */
-@media (max-width: 1080px) {
+@media (max-width: 864px) { /* 1080px pre-scale */
   .dc-summary { grid-template-columns: 1fr 1fr; }
   .dc-grid-2 { grid-template-columns: 1fr; }
   .dc-svc-grid { grid-template-columns: 1fr; }

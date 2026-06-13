@@ -67,7 +67,7 @@
   flex-wrap: wrap;
   gap: 18px;
   justify-content: center;
-  max-height: 60vh;
+  max-height: calc(60 * var(--vh1));
   overflow: hidden;
 }
 .ai-chat-page .aichat-drop-file {
@@ -305,6 +305,13 @@
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+}
+
+/* Timeline tab — intentionally empty placeholder; fills the same area as the
+   chat shell so the navbar stays put when you switch to it. */
+.ai-chat-page .aichat-timeline {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* ── Conversation rail ──────────────────────────────────────────────── */

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain, shell, autoUpdater, dialog, protocol } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -359,6 +359,201 @@ function createProjectWindow(projectId, route) {
     if (projectWindows.get(projectId) === win) projectWindows.delete(projectId);
   });
 }
+
+// Document-viewer window — opened from the Files page when a file is double-
+// clicked. There is a SINGLE shared window with Chrome-style tabs: the first
+// file boots the window at /doc-viewer with the file in the query; every
+// subsequent file is pushed into the existing window as a new tab via
+// `doc-viewer:add-file` (the renderer appends/activates the tab).
+let docViewerWindow = null;
+function createDocViewerWindow(file) {
+  if (docViewerWindow && !docViewerWindow.isDestroyed()) {
+    if (docViewerWindow.isMinimized()) docViewerWindow.restore();
+    docViewerWindow.focus();
+    docViewerWindow.webContents.send('doc-viewer:add-file', file || {});
+    return;
+  }
+  const query = { docViewer: '1' };
+  if (file?.path) query.path = file.path;
+  if (file?.name) query.name = file.name;
+  if (file?.mime) query.mime = file.mime;
+  docViewerWindow = createAppWindow({ query });
+  docViewerWindow.on('closed', () => { docViewerWindow = null; });
+}
+ipcMain.on('window:open-doc-viewer', (_, file) => createDocViewerWindow(file));
+
+// Extract readable text from a legacy .doc (OLE binary) via word-extractor in
+// the main process — the sandboxed renderer can't parse that format. Returns
+// { text } or { error }; the doc viewer renders the text. word-extractor is
+// lazy-imported so its weight isn't paid until a .doc is actually opened.
+ipcMain.handle('doc:extract-text', async (_e, filePath) => {
+  if (typeof filePath !== 'string' || !filePath) return { error: 'no_path' };
+  try {
+    const { default: WordExtractor } = await import('word-extractor');
+    const doc = await new WordExtractor().extract(filePath);
+    return { text: (doc.getBody() || '').trim() };
+  } catch (err) {
+    return { error: String(err?.message || err) };
+  }
+});
+
+// ── WhatsApp export (.zip) → extract + locate the chat transcript ──────
+// WhatsApp's "Export chat" produces a .zip holding the transcript (`_chat.txt`
+// on iOS, "WhatsApp Chat with NAME.txt" on Android) plus every media file. To
+// reconstruct the conversation we extract the zip to a temp folder ONCE
+// (cached by the zip's path+size+mtime so re-opening is instant) and hand the
+// doc-viewer the on-disk path of the transcript — its media siblings then load
+// straight from that temp folder via localfile://, reusing the normal renderer.
+//
+// A WhatsApp line starts with a bracketed/locale-loose timestamp; this signature
+// keeps us from hijacking arbitrary zips that merely happen to contain a .txt.
+const WHATSAPP_SIGNATURE = /(^|\n)[\s‎‏]*\[?\s*\d{1,4}[./-]\d{1,2}[./-]\d{1,4},?\s+\d{1,2}:\d{2}/;
+
+// Recursively find the best transcript candidate inside an extracted export.
+// Preference: an exact `_chat.txt` → a "WhatsApp Chat …".txt → the largest .txt.
+async function findChatTranscript(dir, depth = 0) {
+  let exact = null;
+  let named = null;
+  let largest = null;
+  let largestSize = -1;
+  let entries;
+  try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return null; }
+  for (const ent of entries) {
+    const full = path.join(dir, ent.name);
+    if (ent.isDirectory()) {
+      if (depth >= 4) continue; // exports are flat / one level — cap the walk
+      const nested = await findChatTranscript(full, depth + 1);
+      if (nested) { if (/(^|[\\/])_chat\.txt$/i.test(nested)) return nested; named = named || nested; }
+      continue;
+    }
+    if (!/\.txt$/i.test(ent.name)) continue;
+    if (/^_chat\.txt$/i.test(ent.name)) exact = full;
+    else if (/whatsapp chat/i.test(ent.name)) named = named || full;
+    try { const st = await fsp.stat(full); if (st.size > largestSize) { largestSize = st.size; largest = full; } } catch { /* skip */ }
+  }
+  return exact || named || largest;
+}
+
+async function looksLikeWhatsApp(filePath) {
+  try {
+    const fd = await fsp.open(filePath, 'r');
+    try {
+      const buf = Buffer.alloc(16 * 1024);
+      const { bytesRead } = await fd.read(buf, 0, buf.length, 0);
+      return WHATSAPP_SIGNATURE.test(buf.slice(0, bytesRead).toString('utf8'));
+    } finally { await fd.close(); }
+  } catch { return false; }
+}
+
+ipcMain.handle('whatsapp:prepare-zip', async (_e, zipPath) => {
+  if (typeof zipPath !== 'string' || !/\.zip$/i.test(zipPath)) return { ok: false };
+  try {
+    const stat = await fsp.stat(zipPath);
+    const { createHash } = await import('node:crypto');
+    const key = createHash('sha1').update(`${zipPath}:${stat.size}:${stat.mtimeMs}`).digest('hex').slice(0, 16);
+    const destDir = path.join(app.getPath('temp'), 'docvex-wa', key);
+
+    // Reuse a previous extraction when the chat transcript is already present.
+    let chatPath = await findChatTranscript(destDir);
+    if (!chatPath) {
+      await fsp.rm(destDir, { recursive: true, force: true }).catch(() => {});
+      await fsp.mkdir(destDir, { recursive: true });
+      const { default: extract } = await import('extract-zip');
+      await extract(zipPath, { dir: destDir });
+      chatPath = await findChatTranscript(destDir);
+    }
+    if (!chatPath || !(await looksLikeWhatsApp(chatPath))) return { ok: false };
+
+    // Friendly tab name: the Android transcript names itself; iOS `_chat.txt`
+    // is anonymous, so fall back to the zip's own filename.
+    const base = path.basename(chatPath);
+    const name = /^_chat\.txt$/i.test(base)
+      ? path.basename(zipPath).replace(/\.zip$/i, '')
+      : base.replace(/\.txt$/i, '');
+    return { ok: true, chatPath, name };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+});
+
+// ── WhatsApp recognition for the Files tab (content-based) ──────────────
+// Given folder / .zip paths, decide whether each one IS a WhatsApp export by
+// looking INSIDE it (transcript file + timestamp signature) — never at the
+// path's own name, so a renamed export keeps its WhatsApp mark in the file
+// grid. Verdicts are memoised per path+size+mtime for the app's lifetime.
+const waDetectCache = new Map();
+
+// Does the zip contain a WhatsApp transcript? Scans the central directory
+// lazily (yauzl — already in the tree as extract-zip's engine) and signature-
+// tests the first bytes of the first few .txt entries, so a multi-hundred-MB
+// export is decided from a couple of KB without extracting anything.
+async function zipContainsWhatsAppChat(zipPath) {
+  const { default: yauzl } = await import('yauzl');
+  return new Promise((resolve) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (err, zf) => {
+      if (err || !zf) { resolve(false); return; }
+      let txtTested = 0;
+      let settled = false;
+      const finish = (verdict) => {
+        if (settled) return;
+        settled = true;
+        try { zf.close(); } catch { /* already closed */ }
+        resolve(verdict);
+      };
+      zf.on('entry', (entry) => {
+        const isTxt = !/\/$/.test(entry.fileName) && /\.txt$/i.test(entry.fileName);
+        if (!isTxt || txtTested >= 6) { zf.readEntry(); return; }
+        txtTested += 1;
+        zf.openReadStream(entry, (e2, rs) => {
+          if (e2 || !rs) { zf.readEntry(); return; }
+          let head = '';
+          let judged = false;
+          const judge = () => {
+            if (judged || settled) return;
+            judged = true;
+            if (WHATSAPP_SIGNATURE.test(head)) finish(true);
+            else zf.readEntry();
+          };
+          rs.on('data', (d) => {
+            head += d.toString('utf8');
+            if (head.length >= 16 * 1024) { judge(); rs.destroy(); }
+          });
+          rs.on('end', judge);
+          rs.on('error', judge);
+        });
+      });
+      zf.on('end', () => finish(false));
+      zf.on('error', () => finish(false));
+      zf.readEntry();
+    });
+  });
+}
+
+ipcMain.handle('whatsapp:detect', async (_e, paths) => {
+  const list = Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : [];
+  const out = {};
+  await Promise.all(list.map(async (p) => {
+    try {
+      const st = await fsp.stat(p);
+      const key = `${p}:${st.size}:${st.mtimeMs}`;
+      if (waDetectCache.has(key)) { out[p] = waDetectCache.get(key); return; }
+      let hit = false;
+      if (st.isDirectory()) {
+        // An extracted export: a folder whose transcript passes the signature
+        // test. Reuses the same walk the zip-open path uses.
+        const chatPath = await findChatTranscript(p);
+        hit = Boolean(chatPath && (await looksLikeWhatsApp(chatPath)));
+      } else if (/\.zip$/i.test(p)) {
+        hit = await zipContainsWhatsAppChat(p);
+      }
+      waDetectCache.set(key, hit);
+      out[p] = hit;
+    } catch {
+      out[p] = false;
+    }
+  }));
+  return out;
+});
 
 // On Windows: when the OS opens docvex:// in a second instance, argv contains the URL
 app.on('second-instance', (_, argv) => {
@@ -954,6 +1149,13 @@ function guessMimeFromName(name) {
   if (['jpg', 'jpeg'].includes(ext)) return 'image/jpeg';
   if (['png', 'gif', 'webp', 'bmp', 'svg', 'heic'].includes(ext)) return `image/${ext}`;
   if (['mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v'].includes(ext)) return `video/${ext}`;
+  // Audio — WhatsApp voice notes are Ogg-Opus (`.opus`); the rest cover the
+  // common shared-audio formats. Without these the localfile handler falls
+  // back to octet-stream and Chromium refuses to decode the <audio> element.
+  if (['opus', 'ogg', 'oga'].includes(ext)) return 'audio/ogg';
+  if (ext === 'mp3') return 'audio/mpeg';
+  if (['m4a', 'aac'].includes(ext)) return 'audio/mp4';
+  if (ext === 'wav') return 'audio/wav';
   if (ext === 'pdf') return 'application/pdf';
   if (ext === 'md') return 'text/markdown';
   if (['txt', 'log', 'json', 'csv', 'xml', 'html', 'css', 'js', 'ts'].includes(ext)) return 'text/plain';
@@ -1943,6 +2145,37 @@ app.whenReady().then(() => {
   // (preload's localFolder IPCs already read/write the filesystem),
   // so no additional gate is needed beyond not shipping this scheme
   // to any non-Electron context.
+  // Downscaled-image cache for the `?thumb=` branch below. Keyed by
+  // path+mtime+width; capped so a huge folder can't grow it unbounded
+  // (entries are ~20-60KB JPEGs — the cap is a few MB of RAM).
+  const thumbCache = new Map();
+  const THUMB_CACHE_MAX = 400;
+  async function thumbnailFor(filePath, mtimeMs, width, mime) {
+    const key = `${filePath}:${mtimeMs}:${width}`;
+    const hit = thumbCache.get(key);
+    if (hit !== undefined) return hit;
+    let out = null;
+    try {
+      // OS thumbnailer (Windows Shell / macOS QuickLook) — fast, and decodes
+      // HEIC where Chromium can't. Not available on Linux → caller streams
+      // the original.
+      const img = await nativeImage.createThumbnailFromPath(filePath, { width, height: width });
+      if (img && !img.isEmpty()) {
+        // PNG keeps alpha for png sources; everything else compresses better
+        // as JPEG.
+        out = mime === 'image/png'
+          ? { buffer: img.toPNG(), mime: 'image/png' }
+          : { buffer: img.toJPEG(82), mime: 'image/jpeg' };
+        if (!out.buffer?.length) out = null;
+      }
+    } catch { out = null; }
+    if (thumbCache.size >= THUMB_CACHE_MAX) {
+      thumbCache.delete(thumbCache.keys().next().value);
+    }
+    thumbCache.set(key, out);
+    return out;
+  }
+
   protocol.handle('localfile', async (request) => {
     let filePath = '';
     try {
@@ -1956,15 +2189,78 @@ app.whenReady().then(() => {
         return new Response('Not a file', { status: 404 });
       }
       const mime = guessMimeFromName(filePath) || 'application/octet-stream';
-      // Wrap the Node Readable in a web ReadableStream so the Fetch
-      // Response constructor accepts it. Available in Node 18+ via
-      // ReadableStream.from; Electron 42 bundles Node 22.
-      const nodeStream = fs.createReadStream(filePath);
-      const webStream = ReadableStream.from(nodeStream);
+      const total = stat.size;
+      // CORS on every body response: the DocViewer's text-extraction tool
+      // loads media with crossOrigin="anonymous" so it can draw the element
+      // to a canvas and export the crop — without this header the CORS-mode
+      // load fails outright, and without crossOrigin the canvas is tainted.
+      const cors = { 'access-control-allow-origin': '*' };
+      // `?thumb=N` — serve a downscaled thumbnail instead of the original
+      // bytes. The WhatsApp reconstruction asks for these: painting 167
+      // full-resolution camera photos into ~300px bubbles re-rasters tens of
+      // megapixels every scroll frame, which is what tanks the frame rate on
+      // media-heavy conversations. Videos are included — the OS thumbnailer
+      // returns a poster frame (the same one Explorer shows), which the
+      // file grids and the rail paint as the video's thumbnail. Only
+      // opted-in formats are downscaled — webp/gif keep animation + alpha
+      // and are small anyway, so they (and any failure here) fall through
+      // to the normal full-file stream; callers must therefore check the
+      // response's content-type before treating the bytes as an image.
+      const thumbW = parseInt(url.searchParams.get('thumb') || '', 10);
+      if (Number.isFinite(thumbW) && thumbW > 0 && /^(image\/(jpeg|png|bmp|tiff|heic|heif)|video\/)/.test(mime)) {
+        const body = await thumbnailFor(filePath, stat.mtimeMs, Math.min(1024, thumbW), mime);
+        if (body) {
+          return new Response(body.buffer, {
+            headers: {
+              ...cors,
+              'content-type': body.mime,
+              'content-length': String(body.buffer.length),
+              // Immutable per URL: the renderer never reuses a thumb URL for
+              // different bytes (the path encodes the file, mtime busts the
+              // main-process cache on change).
+              'cache-control': 'max-age=3600',
+            },
+          });
+        }
+      }
+      // Honour HTTP Range requests so <audio>/<video> can seek and read
+      // duration. Chromium needs a 206 partial response for this; an .ogg
+      // voice note in particular reports duration = Infinity (and won't
+      // scrub) when the server replies 200 with the whole body. Wrap the
+      // Node Readable in a web ReadableStream so the Fetch Response accepts
+      // it (ReadableStream.from — Electron 42 bundles Node 22).
+      const range = request.headers.get('range');
+      const rm = range && /bytes=(\d*)-(\d*)/.exec(range);
+      if (rm) {
+        let start = rm[1] ? parseInt(rm[1], 10) : 0;
+        let end = rm[2] ? parseInt(rm[2], 10) : total - 1;
+        if (!Number.isFinite(start) || start < 0) start = 0;
+        if (!Number.isFinite(end) || end >= total) end = total - 1;
+        if (start > end || start >= total) {
+          return new Response('Range Not Satisfiable', {
+            status: 416,
+            headers: { ...cors, 'content-range': `bytes */${total}`, 'accept-ranges': 'bytes' },
+          });
+        }
+        const partStream = ReadableStream.from(fs.createReadStream(filePath, { start, end }));
+        return new Response(partStream, {
+          status: 206,
+          headers: {
+            ...cors,
+            'content-type': mime,
+            'content-length': String(end - start + 1),
+            'content-range': `bytes ${start}-${end}/${total}`,
+            'accept-ranges': 'bytes',
+          },
+        });
+      }
+      const webStream = ReadableStream.from(fs.createReadStream(filePath));
       return new Response(webStream, {
         headers: {
+          ...cors,
           'content-type': mime,
-          'content-length': String(stat.size),
+          'content-length': String(total),
+          'accept-ranges': 'bytes',
         },
       });
     } catch (err) {
@@ -1981,6 +2277,26 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
 
   createWindow();
+
+  // Best-effort sweep of stale WhatsApp-zip extractions (temp/docvex-wa) on
+  // startup — drop folders not touched in 7 days so extracted media doesn't
+  // pile up. Cached extractions are keyed by zip path+mtime, so a dropped
+  // folder just means the next open re-extracts.
+  (async () => {
+    try {
+      const root = path.join(app.getPath('temp'), 'docvex-wa');
+      const entries = await fsp.readdir(root, { withFileTypes: true });
+      const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      for (const ent of entries) {
+        if (!ent.isDirectory()) continue;
+        const full = path.join(root, ent.name);
+        try {
+          const st = await fsp.stat(full);
+          if (st.mtimeMs < cutoff) await fsp.rm(full, { recursive: true, force: true });
+        } catch { /* skip */ }
+      }
+    } catch { /* no extractions yet — nothing to sweep */ }
+  })();
 
   // Periodic bin auto-sweep — purge the active folder's `.docvex-trash`
   // of entries older than 30 days every 6h while the app runs. Other

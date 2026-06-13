@@ -3,6 +3,10 @@
 // (webFrame zoom on Electron, CSS zoom on web) so it scales the ENTIRE app —
 // text, icons, spacing — not just text. AppPrefsContext applies it on change +
 // on boot; the Settings slider binds straight to the percentage.
+//
+// Not to be confused with src/lib/appZoom.js — that's the app's fixed 20%
+// BASELINE downscale (CSS zoom in index.css); this percentage is applied
+// RELATIVE to it (100% here = the 0.8 baseline).
 
 import { setAppZoom } from './platform';
 

@@ -506,7 +506,6 @@
   color: var(--text-secondary);
 }
 .tb-split-cell svg { width: 22px; height: 22px; }
-.tb-split-cell-rotate svg { width: 18px; height: 18px; }
 
 .tb-split-divider { height: 1px; background: var(--border); }
 
@@ -525,7 +524,10 @@
   color: var(--text-muted);
   padding: 0 2px 2px;
 }
-.tb-split-custom-row { display: flex; align-items: center; gap: 2px; }
+/* Each saved layout: the apply row, plus an Edit/Update/Delete action row that
+   appears BELOW it only while it's the selected (active) layout. */
+.tb-split-custom-entry { display: flex; flex-direction: column; border-radius: 8px; }
+.tb-split-custom-entry.is-active { background: var(--accent-tint); }
 .tb-split-custom-apply {
   flex: 1;
   min-width: 0;
@@ -543,26 +545,49 @@
   cursor: pointer;
   transition: background 120ms ease;
 }
-.tb-split-custom-apply:hover { background: var(--accent-tint); }
+.tb-split-custom-entry:not(.is-active) .tb-split-custom-apply:hover { background: var(--accent-tint); }
 .tb-split-custom-apply.is-active { color: var(--accent); }
 .tb-split-custom-glyph { display: flex; color: var(--text-secondary); flex-shrink: 0; }
 .tb-split-custom-apply.is-active .tb-split-custom-glyph { color: var(--accent); }
 .tb-split-custom-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tb-split-custom-del {
+
+/* Action row under the selected layout. */
+.tb-split-custom-actions {
+  display: flex;
+  gap: 4px;
+  padding: 2px 6px 6px;
+}
+.tb-split-custom-action {
+  flex: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: var(--text-muted);
+  gap: 5px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
-.tb-split-custom-del:hover { background: var(--danger-soft); color: #fff; }
+.tb-split-custom-action svg { flex-shrink: 0; }
+.tb-split-custom-action:hover { border-color: var(--accent); color: var(--accent); background: var(--bg-elevated); }
+.tb-split-custom-action.is-danger:hover { border-color: var(--danger); color: #fff; background: var(--danger); }
+
+/* Split button with the active custom layout's name shown beside the glyph. */
+.tb-split-btn.has-name { gap: 7px; padding: 0 10px; max-width: 180px; }
+.tb-split-btn.has-name.is-active { color: var(--accent); }
+.tb-split-btn-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12.5px; font-weight: 550; color: var(--text-secondary);
+}
+.tb-split-btn.has-name:hover .tb-split-btn-name,
+.tb-split-btn.has-name.is-open .tb-split-btn-name { color: var(--text-primary); }
+.tb-split-btn.is-active .tb-split-btn-name { color: var(--accent); }
 
 /* "Save current layout" affordance — button → inline name form. */
 .tb-split-add {

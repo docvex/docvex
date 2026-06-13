@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ICONS as I, MATTER as D } from './aiHub';
 import { askProjectAi, generateDocument } from '../../lib/projectAi';
+import Tooltip from '../../components/Tooltip';
 
 // The six AI-hub tool surfaces, ported from the Claude Design "ai-tab-v1"
 // handoff. Ask + Generate are wired to live Claude via the `project-ai`
@@ -157,7 +158,7 @@ export function GenerateTool({ projectName, fileNames }) {
             <div className="doc-bar">
               <span className="doc-name">{I.file()} {tpl.t} — AI draft</span>
               <div className="doc-actions">
-                <button type="button" className="iconbtn" title="Copy" onClick={() => navigator.clipboard?.writeText([result.title, ...result.paras].filter(Boolean).join('\n\n'))}>{I.copy()}</button>
+                <Tooltip content="Copy"><button type="button" className="iconbtn" onClick={() => navigator.clipboard?.writeText([result.title, ...result.paras].filter(Boolean).join('\n\n'))}>{I.copy()}</button></Tooltip>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={run}>{I.spark()} Regenerate</button>
               </div>
             </div>

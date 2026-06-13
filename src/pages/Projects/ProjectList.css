@@ -18,7 +18,7 @@
 /* On a wide window, occupy three of four horizontal sections (75%), left-
    aligned; full width below the breakpoint. Shared across Activity /
    Newsletter / Projects. */
-@media (min-width: 1280px) {
+@media (min-width: 1024px) { /* 1280px pre-scale */
   .pjx-page { width: 75%; }
 }
 
@@ -356,14 +356,14 @@
 .pjx-empty .pjx-btn-primary { display: inline-flex; }
 
 /* ---------- Responsive ---------- */
-@media (max-width: 1100px) {
+@media (max-width: 880px) { /* 1100px pre-scale */
   .pjx-pinned-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 1024px) {
+@media (max-width: 819px) { /* 1024px pre-scale */
   .pjx-page { padding: 0 0 64px; }
   .pjx-mh-title { font-size: 42px; }
 }
-@media (max-width: 760px) {
+@media (max-width: 608px) { /* 760px pre-scale */
   .pjx-masthead { flex-direction: column; align-items: stretch; }
   .pjx-pinned-grid { grid-template-columns: 1fr; }
   .pjx-all-row { grid-template-columns: 1fr auto; }

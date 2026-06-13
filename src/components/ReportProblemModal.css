@@ -30,7 +30,7 @@
   max-width: 720px;
   /* Card height is content-driven up to viewport-1rem; internal scroll
      kicks in past that so the action row stays visible. */
-  max-height: calc(100vh - 5rem);
+  max-height: calc(100 * var(--vh1) - 5rem);
   display: flex;
   flex-direction: column;
   overflow: hidden;

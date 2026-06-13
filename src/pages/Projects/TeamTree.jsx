@@ -1,4 +1,9 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+// DOMRects + cursor coords are viewport px; the top/transform/SVG coordinates
+// we set are layout px — under the app's CSS-zoom downscale the two differ
+// (see lib/appZoom). viewportTop, pan and the connector geometry are all kept
+// in LAYOUT px.
+import { toLayoutPx } from '../../lib/appZoom';
 import { builtInLabel } from '../../components/RoleBadge';
 import StatusBadge from '../../components/StatusBadge';
 
@@ -119,7 +124,7 @@ export default function TeamTree({ members, customRoles }) {
   useLayoutEffect(() => {
     const measure = () => {
       const tabs = document.querySelector('.project-tabs');
-      if (tabs) setViewportTop(tabs.getBoundingClientRect().bottom);
+      if (tabs) setViewportTop(toLayoutPx(tabs.getBoundingClientRect().bottom));
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -160,8 +165,8 @@ export default function TeamTree({ members, customRoles }) {
     const onMove = (e) => {
       const d = dragRef.current;
       if (!d) return;
-      const dx = e.clientX - d.startX;
-      const dy = e.clientY - d.startY;
+      const dx = toLayoutPx(e.clientX - d.startX);
+      const dy = toLayoutPx(e.clientY - d.startY);
       setPan({ x: d.baseX + dx, y: d.baseY + dy });
     };
     const onUp = () => {
@@ -210,9 +215,9 @@ export default function TeamTree({ members, customRoles }) {
             if (!node) return null;
             const r = node.getBoundingClientRect();
             return {
-              left: r.left - cRect.left,
-              right: r.right - cRect.left,
-              cy: (r.top + r.bottom) / 2 - cRect.top,
+              left: toLayoutPx(r.left - cRect.left),
+              right: toLayoutPx(r.right - cRect.left),
+              cy: toLayoutPx((r.top + r.bottom) / 2 - cRect.top),
             };
           })
           .filter(Boolean),

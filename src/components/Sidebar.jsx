@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useSplitView } from '../context/SplitViewContext';
+import Tooltip from './Tooltip';
 import './Sidebar.css';
 
 // App nav — a horizontal bar pinned directly under the frameless title bar.
@@ -63,6 +64,14 @@ const BugIcon = (
   </svg>
 );
 
+// Envelope glyph — the personal Mail tab (AI-drafted replies).
+const MailIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="5" width="18" height="14" rx="2"/>
+    <path d="m3 7 9 6 9-6"/>
+  </svg>
+);
+
 const SignInIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
@@ -104,7 +113,7 @@ export default function Sidebar() {
   // "Project" tab — restore the workspace split. If we're leaving a personal
   // page, point the primary pane at a project surface so it doesn't render the
   // personal page inside a split pane (the tri layout re-seeds to /chat itself).
-  const PERSONAL_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/account']);
+  const PERSONAL_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/account', '/mail']);
   const handleProjectClick = () => {
     closePicker();
     setFocusedPane(0);
@@ -123,6 +132,7 @@ export default function Sidebar() {
     { to: '/newsletter', label: 'Newsletter', icon: NewspaperIcon, end: true },
     { to: '/versions', label: 'Versions', icon: VersionsIcon, end: true },
     ...(session ? [{ to: '/settings', label: 'Settings', icon: GearIcon, end: true }] : []),
+    ...(session ? [{ to: '/mail', label: 'Mail', icon: MailIcon, end: true }] : []),
     ...(import.meta.env.DEV ? [{ to: '/debug', label: 'Debug', icon: BugIcon, end: true }] : []),
   ];
 
@@ -132,15 +142,16 @@ export default function Sidebar() {
         {/* "Project" — restores the workspace split layout that a personal page
             collapsed when it opened fullscreen. Active while a split is live. */}
         <li>
-          <button
-            type="button"
-            className={`nav-item${layout !== 'single' ? ' active' : ''}`}
-            onClick={handleProjectClick}
-            title="Back to the project workspace"
-          >
-            <span className="icon">{LayoutIcon}</span>
-            <span className="label">Project</span>
-          </button>
+          <Tooltip content="Back to the project workspace">
+            <button
+              type="button"
+              className={`nav-item${layout !== 'single' ? ' active' : ''}`}
+              onClick={handleProjectClick}
+            >
+              <span className="icon">{LayoutIcon}</span>
+              <span className="label">Project</span>
+            </button>
+          </Tooltip>
         </li>
         {items.map(({ to, label, icon, end, badge }) => (
           <li key={to}>

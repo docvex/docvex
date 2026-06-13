@@ -36,7 +36,7 @@
      margin-bottom reclaims the page-frame's bottom padding; the
      height accounts for the page-frame's top padding only. Net:
      chat-page top at 2rem from viewport, bottom at viewport bottom. */
-  height: calc(100vh - 2rem);
+  height: calc(100 * var(--vh1) - 2rem);
   margin-bottom: -2rem;
 }
 

@@ -13,6 +13,7 @@ import { useSplitView } from '../context/SplitViewContext';
 import { PaneChromeProvider, usePaneChromeSlotValue, usePaneChromePortalRef, usePaneChromeFooterRef } from '../context/PaneChromeContext';
 import { isProjectScopedRoute } from './AppShell';
 import AppRoutes from '../AppRoutes';
+import Tooltip from './Tooltip';
 import './SplitView.css';
 
 // Tiles the main content area into independently-navigable panes. The PRIMARY
@@ -53,8 +54,6 @@ const NAV_ICONS = {
   files: <Svg><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></Svg>,
   chat: <Svg><path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 9 9 0 0 1-4-1L3 21l1.5-4a8.5 8.5 0 0 1 4-11.5 8.38 8.38 0 0 1 12.5 6z" /></Svg>,
   ai: <Svg><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z" /><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z" /></Svg>,
-  aiDash: <Svg><line x1="3" y1="3" x2="3" y2="21" /><line x1="3" y1="21" x2="21" y2="21" /><polyline points="7 14 11 9 14 12 19 6" /></Svg>,
-  todos: <Svg><rect x="3" y="3" width="18" height="18" rx="2" /><polyline points="8 12 11 15 16 9" /></Svg>,
   activity: <Svg><path d="M3 12h4l3 8 4-16 3 8h4" /></Svg>,
   projects: <Svg><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M3 11h18" /></Svg>,
   versions: <Svg><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></Svg>,
@@ -72,8 +71,7 @@ function paneDestinations(selectedProject) {
         { label: 'Files', to: '/files', icon: NAV_ICONS.files },
         { label: 'Chat', to: '/chat', icon: NAV_ICONS.chat },
         { label: 'AI', to: '/ai-chat', icon: NAV_ICONS.ai },
-        { label: 'AI Dashboard', to: '/ai', icon: NAV_ICONS.aiDash },
-        { label: 'To-dos', to: '/todos', icon: NAV_ICONS.todos },
+        { label: 'Updates', to: '/versions', icon: NAV_ICONS.versions },
       ]
     : [
         { label: 'Activity', to: '/', icon: NAV_ICONS.activity },
@@ -176,6 +174,8 @@ function PaneChrome({ hideDest = false }) {
     '/ai-chat': 'DocVex AI assistant',
     '/ai': 'AI dashboard & tools',
     '/todos': 'Project to-dos',
+    '/mail': 'AI-drafted replies',
+    '/debug': 'Developer tools',
   };
   let destDesc = DEST_DESC[currentPath];
   if (!destDesc && projectMatch) {
@@ -191,15 +191,16 @@ function PaneChrome({ hideDest = false }) {
       {/* Row 1 — header + destination dropdown. */}
       <div className="sv-chrome-row">
         {/* Refresh this window (top-left); also bound to F5 for the focused pane. */}
-        <button
-          type="button"
-          className="sv-chrome-refresh"
-          onClick={() => refreshPane(paneIndex)}
-          title="Refresh this window (F5)"
-          aria-label="Refresh this window"
-        >
-          <RefreshIcon />
-        </button>
+        <Tooltip content="Refresh this window (F5)">
+          <button
+            type="button"
+            className="sv-chrome-refresh"
+            onClick={() => refreshPane(paneIndex)}
+            aria-label="Refresh this window"
+          >
+            <RefreshIcon />
+          </button>
+        </Tooltip>
         <div className="sv-chrome-head">
           <span className="sv-chrome-title">{destLabel}</span>
           {description && <span className="sv-chrome-dot" aria-hidden="true">·</span>}
@@ -362,18 +363,114 @@ const LAYOUT_PRIMARY_SEED = {
   'tri-bottom': '/chat',
   'tri-left': '/chat',
 };
-const GENERIC_SPLIT_SEEDS = ['/files', '/chat', '/ai-chat', '/todos'];
+const GENERIC_SPLIT_SEEDS = ['/files', '/chat', '/ai-chat'];
 
 // Routes that render WITHOUT the in-pane chrome bar when shown fullscreen
 // (single-pane mode) — every personal destination opened from the top app-nav
 // bar. They each carry their own page masthead, so the chrome's title +
 // destination dropdown would just duplicate it.
-const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug']);
+const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/mail']);
+
+// Resize gutters for the current arrangement. A gutter exists on an axis only
+// when that axis has 2 tracks; for the "T" layouts the cross-axis gutter is
+// clipped to the half that actually holds the two stacked secondary panes (the
+// other half is the single spanning primary, which has no divider there).
+function guttersFor(layout, sizes) {
+  const { cols, rows } = sizes;
+  const out = [];
+  const colPct = cols.length === 2 ? (cols[0] / (cols[0] + cols[1])) * 100 : null;
+  const rowPct = rows.length === 2 ? (rows[0] / (rows[0] + rows[1])) * 100 : null;
+  if (colPct != null) {
+    let top = 0; let bottom = 0;
+    if (layout === 'tri') top = rowPct;                 // primary spans top row
+    if (layout === 'tri-bottom') bottom = 100 - rowPct; // primary spans bottom row
+    out.push({ axis: 'col', pct: colPct, top, bottom, left: 0, right: 0 });
+  }
+  if (rowPct != null) {
+    let left = 0; let right = 0;
+    if (layout === 'tri-right') right = 100 - colPct;   // primary spans right column
+    if (layout === 'tri-left') left = colPct;           // primary spans left column
+    out.push({ axis: 'row', pct: rowPct, left, right, top: 0, bottom: 0 });
+  }
+  return out;
+}
 
 export default function SplitContainer({ primary }) {
-  const { layout, paneCount, focusedPane, setFocusedPane, refreshFocusedPane } = useSplitView();
+  const { layout, paneCount, focusedPane, setFocusedPane, refreshFocusedPane, paneSizes, resizePanes, paneSeeds, applyToken, reportPanePath, activeCustomLayout } = useSplitView();
   const { pathname, search } = useLocation();
   const navigate = useNavigate();
+  const gridRef = useRef(null);
+  const paneSizesRef = useRef(paneSizes);
+  paneSizesRef.current = paneSizes;
+  const paneSeedsRef = useRef(paneSeeds);
+  paneSeedsRef.current = paneSeeds;
+
+  // When a custom layout is active, its saved per-window tabs (immutable) are
+  // the source of truth for restoring each window — so a window reopens to the
+  // tab the layout was saved with, regardless of how the live `paneSeeds` has
+  // drifted. The primary window (pane 0) is restored by navigating the root.
+  const activeSeeds = activeCustomLayout?.seeds && typeof activeCustomLayout.seeds === 'object' ? activeCustomLayout.seeds : null;
+  const activeSeedsRef = useRef(activeSeeds);
+  activeSeedsRef.current = activeSeeds;
+  const hasActiveCustomRef = useRef(Boolean(activeCustomLayout));
+  hasActiveCustomRef.current = Boolean(activeCustomLayout);
+  const primaryTarget = () => activeSeedsRef.current?.[0] ?? paneSeedsRef.current?.[0];
+
+  // Report the PRIMARY window's tab (pane 0 is the root router) so it's captured
+  // into a custom layout's per-window snapshot alongside the secondary panes.
+  useEffect(() => { reportPanePath(0, pathname); }, [pathname, reportPanePath]);
+
+  // On a fresh mount (cold reopen / returning to the workspace) WITH a custom
+  // layout active, restore the primary window to its saved tab — window 0 must
+  // remember its tab like the others. Scoped to custom-layout users so it never
+  // hijacks the normal landing route. Runs once; later navigation is respected.
+  const restoredPrimaryRef = useRef(false);
+  useEffect(() => {
+    if (restoredPrimaryRef.current) return;
+    restoredPrimaryRef.current = true;
+    if (!hasActiveCustomRef.current) return;
+    const target = primaryTarget();
+    if (target && target !== pathname) navigate(target, { replace: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When a custom layout is applied, re-point the primary window to the tab it
+  // had when saved (secondary panes remount via the applyToken-keyed key below).
+  const appliedRef = useRef(applyToken);
+  useEffect(() => {
+    if (applyToken === appliedRef.current) return; // skip initial mount
+    appliedRef.current = applyToken;
+    const target = primaryTarget();
+    if (target && target !== pathname) navigate(target);
+  }, [applyToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Drag a gutter to re-proportion the two tracks on its axis. Writes the new
+  // fractions live to context (which re-renders the grid template); the body
+  // class blanks pane pointer-events so pane content can't swallow the drag.
+  const onGutterDown = (axis) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const grid = gridRef.current;
+    if (!grid) return;
+    const rect = grid.getBoundingClientRect();
+    document.body.classList.add('sv-resizing');
+    const onMove = (ev) => {
+      const pct = axis === 'col'
+        ? ((ev.clientX - rect.left) / rect.width) * 100
+        : ((ev.clientY - rect.top) / rect.height) * 100;
+      const clamped = Math.min(85, Math.max(15, pct));
+      const cur = paneSizesRef.current;
+      resizePanes(axis === 'col'
+        ? { ...cur, cols: [clamped, 100 - clamped] }
+        : { ...cur, rows: [clamped, 100 - clamped] });
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('sv-resizing');
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
 
   // F5 refreshes the FOCUSED window (and never the whole Electron app — we
   // swallow the key so the webContents doesn't hard-reload).
@@ -434,9 +531,17 @@ export default function SplitContainer({ primary }) {
   // panes don't duplicate).
   const genericPool = GENERIC_SPLIT_SEEDS.filter((r) => r !== pathname);
   const secondarySeeds = LAYOUT_SECONDARY_SEEDS[layout] || genericPool;
-  const seedForSecondary = (i) => secondarySeeds[i % secondarySeeds.length] || seed;
+  // Seed priority: the active custom layout's SAVED tab for this window (so it
+  // restores exactly what was saved) → the live remembered route → the layout's
+  // generic seed.
+  const seedForSecondary = (i) => activeSeeds?.[i + 1] || paneSeeds?.[i + 1] || secondarySeeds[i % secondarySeeds.length] || seed;
+  const gridStyle = {
+    gridTemplateColumns: paneSizes.cols.map((c) => `${c}fr`).join(' '),
+    gridTemplateRows: paneSizes.rows.map((r) => `${r}fr`).join(' '),
+  };
+  const gutters = guttersFor(layout, paneSizes);
   return (
-    <div className={`sv-grid sv-${layout}`}>
+    <div className={`sv-grid sv-${layout}`} style={gridStyle} ref={gridRef}>
       <div
         className={`sv-pane sv-pane-primary${focusedPane === 0 ? ' is-focused' : ''}`}
         onMouseDownCapture={() => setFocusedPane(0)}
@@ -456,7 +561,23 @@ export default function SplitContainer({ primary }) {
         </div>
       </div>
       {Array.from({ length: paneCount - 1 }, (_, i) => (
-        <SecondaryPane key={i + 1} index={i + 1} seedPath={seedForSecondary(i)} />
+        // The applyToken in the key remounts panes when a custom layout is
+        // applied, so each window re-seeds to that layout's saved tab.
+        <SecondaryPane key={`${i + 1}:${applyToken}`} index={i + 1} seedPath={seedForSecondary(i)} />
+      ))}
+      {/* Drag gutters sit over the grid gaps (absolute, out of grid flow). */}
+      {gutters.map((g) => (
+        <div
+          key={g.axis}
+          className={`sv-gutter sv-gutter-${g.axis}`}
+          role="separator"
+          aria-orientation={g.axis === 'col' ? 'vertical' : 'horizontal'}
+          aria-label={g.axis === 'col' ? 'Resize columns' : 'Resize rows'}
+          style={g.axis === 'col'
+            ? { left: `${g.pct}%`, top: `${g.top}%`, bottom: `${g.bottom}%` }
+            : { top: `${g.pct}%`, left: `${g.left}%`, right: `${g.right}%` }}
+          onMouseDown={onGutterDown(g.axis)}
+        />
       ))}
     </div>
   );

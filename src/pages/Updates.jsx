@@ -521,17 +521,18 @@ export default function Updates() {
         <span className="versions-compact-sep" aria-hidden="true">·</span>
         <span className="versions-compact-eyebrow">Release history</span>
         <span className="versions-compact-sep" aria-hidden="true">·</span>
-        <button
-          type="button"
-          className={compactStatusClass}
-          onClick={scrollToTop}
-          title="Back to top"
-        >
-          <span className="versions-compact-dot" aria-hidden="true" />
-          {hasUpdate
-            ? `Update available${latestVersion ? ` — v${latestVersion}` : ''}`
-            : `Up to date${currentVersion ? ` · v${currentVersion}` : ''}`}
-        </button>
+        <Tooltip content="Back to top">
+          <button
+            type="button"
+            className={compactStatusClass}
+            onClick={scrollToTop}
+          >
+            <span className="versions-compact-dot" aria-hidden="true" />
+            {hasUpdate
+              ? `Update available${latestVersion ? ` — v${latestVersion}` : ''}`
+              : `Up to date${currentVersion ? ` · v${currentVersion}` : ''}`}
+          </button>
+        </Tooltip>
       </div>
       <div className="page">
         {/* Masthead — mirrors the Projects page: accent eyebrow + muted kicker,

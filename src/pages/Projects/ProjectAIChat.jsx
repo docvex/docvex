@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+// Cursor deltas are viewport px; scrollTop is layout px — under the app's
+// CSS-zoom downscale the two differ (see lib/appZoom).
+import { toLayoutPx } from '../../lib/appZoom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../../context/AuthContext';
@@ -12,6 +15,7 @@ import { extractFileText } from '../../lib/extractFileText';
 import { getDraggedFiles } from '../../lib/fileDragBus';
 import { useChatFind } from '../../lib/useChatFind';
 import FileThumbnail from '../../components/FileThumbnail';
+import Tooltip from '../../components/Tooltip';
 import { useMorphPill } from '../../components/useMorphPill';
 import './ProjectScoped.css';
 import './ProjectAI.css';
@@ -278,6 +282,9 @@ export default function ProjectAIChat() {
   // No chats are forced — an empty list shows the "no chats" empty state.
   const [threads, setThreads] = useState([]);
   const [activeId, setActiveId] = useState(null);
+  // Top navbar view (like the team chat's Team/Private tabs): the Advisor tab is
+  // the AI chat; Timeline is a placeholder tab (intentionally empty for now).
+  const [aiView, setAiView] = useState('advisor'); // 'advisor' | 'timeline'
   const [val, setVal] = useState('');
   const [streaming, setStreaming] = useState(false);
   // The AI message currently being revealed with the typewriter effect:
@@ -876,7 +883,7 @@ export default function ProjectAIChat() {
       const h = Math.max(28, (clientHeight / scrollHeight) * clientHeight);
       const maxY = clientHeight - h;
       const perPx = maxY > 0 ? (scrollHeight - clientHeight) / maxY : 0;
-      el2.scrollTop = d.startScroll + (ev.clientY - d.startY) * perPx;
+      el2.scrollTop = d.startScroll + toLayoutPx(ev.clientY - d.startY) * perPx;
     };
     const onUp = () => {
       sbDrag.current = null;
@@ -954,7 +961,7 @@ export default function ProjectAIChat() {
       const h = Math.max(28, (clientHeight / scrollHeight) * clientHeight);
       const maxY = clientHeight - h;
       const perPx = maxY > 0 ? (scrollHeight - clientHeight) / maxY : 0;
-      el2.scrollTop = d.startScroll + (ev.clientY - d.startY) * perPx;
+      el2.scrollTop = d.startScroll + toLayoutPx(ev.clientY - d.startY) * perPx;
     };
     const onUp = () => {
       msgSbDrag.current = null;
@@ -1003,7 +1010,7 @@ export default function ProjectAIChat() {
           {attachments.map((a) => (
             <span className="aichat-attach-chip" key={a.path}>
               {I.file({ width: 13, height: 13 })}
-              <span className="aichat-attach-name" title={a.name}>{a.name}</span>
+              <Tooltip content={a.name}><span className="aichat-attach-name">{a.name}</span></Tooltip>
               <button type="button" className="aichat-attach-x" onClick={() => removeAttachment(a.path)} aria-label={`Remove ${a.name}`}>{I.x({ width: 12, height: 12 })}</button>
             </span>
           ))}
@@ -1021,12 +1028,12 @@ export default function ProjectAIChat() {
           maxLength={4000}
         />
         <div className="dvx-composer-toolbar">
-          <button type="button" className="dvx-composer-btn" title="Attach files" aria-label="Attach files" onClick={() => fileInputRef.current?.click()}>{I.paperclip({ width: 16, height: 16 })}</button>
+          <Tooltip content="Attach files"><button type="button" className="dvx-composer-btn" aria-label="Attach files" onClick={() => fileInputRef.current?.click()}>{I.paperclip({ width: 16, height: 16 })}</button></Tooltip>
           <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={onPickFiles} />
           {/* File context is always on — answers are grounded in your files
               automatically (no toggle). */}
           <div className="dvx-composer-toolbar-spacer" />
-          <button type="button" className="dvx-composer-btn dvx-composer-send" onClick={() => send()} disabled={streaming || !val.trim()} title="Send" aria-label="Send">{I.send({ width: 16, height: 16 })}</button>
+          <Tooltip content="Send"><button type="button" className="dvx-composer-btn dvx-composer-send" onClick={() => send()} disabled={streaming || !val.trim()} aria-label="Send">{I.send({ width: 16, height: 16 })}</button></Tooltip>
         </div>
       </div>
     </div>
@@ -1041,23 +1048,26 @@ export default function ProjectAIChat() {
       {/* Left — collapse toggle (hidden while a dropped file forces the rail open). */}
       <div className="aichat-chrome-left">
         {!pendingDrop && (
-          <button
-            type="button"
-            className={`aichat-chrome-btn aichat-chrome-collapse${railCollapsed ? ' is-collapsed' : ''}`}
-            onClick={() => setRailCollapsed((v) => !v)}
-            title={railCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-label={railCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {I.panelLeft({ width: 16, height: 16 })}
-          </button>
+          <Tooltip content={railCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+            <button
+              type="button"
+              className={`aichat-chrome-btn aichat-chrome-collapse${railCollapsed ? ' is-collapsed' : ''}`}
+              onClick={() => setRailCollapsed((v) => !v)}
+              aria-label={railCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              {I.panelLeft({ width: 16, height: 16 })}
+            </button>
+          </Tooltip>
         )}
       </div>
       {/* Centre — the active chat pill. */}
       {activeThread && (
-        <span className="aichat-chrome-chatname" title={activeThread.title}>
-          {I.chat({ width: 16, height: 16 })}
-          <span>{activeThread.title || 'Unnamed chat'}</span>
-        </span>
+        <Tooltip content={activeThread.title}>
+          <span className="aichat-chrome-chatname">
+            {I.chat({ width: 16, height: 16 })}
+            <span>{activeThread.title || 'Unnamed chat'}</span>
+          </span>
+        </Tooltip>
       )}
       {/* Right — search the messages in the open conversation. */}
       <div className="aichat-chrome-right">
@@ -1097,6 +1107,31 @@ export default function ProjectAIChat() {
     </div>
   ) : null;
 
+  // Top navbar — same shape as the team chat's Team/Private tab strip (.dvx-tabs
+  // .vb-tabs). Advisor = the AI chat; Timeline is a placeholder tab.
+  const aiTabs = (
+    <div className="dvx-tabs vb-tabs aichat-tabs" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={aiView === 'advisor'}
+        className={`dvx-tab${aiView === 'advisor' ? ' is-active' : ''}`}
+        onClick={() => setAiView('advisor')}
+      >
+        {I.spark({ width: 16, height: 16 })}Advisor
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={aiView === 'timeline'}
+        className={`dvx-tab${aiView === 'timeline' ? ' is-active' : ''}`}
+        onClick={() => setAiView('timeline')}
+      >
+        {I.clock({ width: 16, height: 16 })}Timeline
+      </button>
+    </div>
+  );
+
   return (
     <div
       ref={rootRef}
@@ -1116,15 +1151,24 @@ export default function ProjectAIChat() {
                   <div className="aichat-drop-thumb">
                     <FileThumbnail descriptor={f.descriptor} />
                   </div>
-                  <div className="aichat-drop-name" title={f.name}>{f.name}</div>
+                  <Tooltip content={f.name}><div className="aichat-drop-name">{f.name}</div></Tooltip>
                 </div>
               ))}
             </div>
           </div>
         </div>
       )}
-      {/* No pane chrome (rare) → render the window controls as an in-page bar. */}
-      {!chromeEl && chromeTools && <div className="aichat-chrome-bar">{chromeTools}</div>}
+      {/* No pane chrome (rare) → render the navbar + controls as an in-page bar. */}
+      {!chromeEl && (
+        <div className="aichat-chrome-bar">
+          {aiTabs}
+          {aiView === 'advisor' ? chromeTools : null}
+        </div>
+      )}
+      {aiView === 'timeline' ? (
+        // Timeline tab — intentionally left empty for now.
+        <div className="aichat-timeline" />
+      ) : (
       <div className="aichat-shell">
         {/* Conversation rail — hidden entirely when there are no chats (the
             empty state takes over). Titles are auto-generated (no manual rename). */}
@@ -1150,7 +1194,7 @@ export default function ProjectAIChat() {
                 <div className="aichat-rail-file-thumb">
                   <FileThumbnail descriptor={pendingDrop.primary.descriptor} glyph={I.file({ width: 36, height: 36 })} />
                 </div>
-                <div className="aichat-rail-file-name" title={pendingDrop.primary.name}>{pendingDrop.primary.name}</div>
+                <Tooltip content={pendingDrop.primary.name}><div className="aichat-rail-file-name">{pendingDrop.primary.name}</div></Tooltip>
                 {pendingDrop.files.length > 1 && (
                   <div className="aichat-rail-file-more">+{pendingDrop.files.length - 1} more file{pendingDrop.files.length - 1 === 1 ? '' : 's'}</div>
                 )}
@@ -1167,10 +1211,12 @@ export default function ProjectAIChat() {
               {/* "Chats" header with the New-chat button in line; collapsed → just the + */}
               <div className="aichat-list-head">
                 <span className="aichat-list-label">Chats</span>
-                <button type="button" className="aichat-list-newchat" onClick={newChat} title="New chat" aria-label="New chat">
-                  {I.plus({ width: 15, height: 15 })}
-                  <span className="aichat-list-newchat-label">New chat</span>
-                </button>
+                <Tooltip content="New chat">
+                  <button type="button" className="aichat-list-newchat" onClick={newChat} aria-label="New chat">
+                    {I.plus({ width: 15, height: 15 })}
+                    <span className="aichat-list-newchat-label">New chat</span>
+                  </button>
+                </Tooltip>
               </div>
               {ordered.map((t) => (
                 <div
@@ -1183,9 +1229,9 @@ export default function ProjectAIChat() {
                   onKeyDown={(e) => { if (e.key === 'Enter') selectThread(t.id); }}
                 >
                   <span className="aichat-item-ico">{I.chat({ width: 15, height: 15 })}</span>
-                  <span className="aichat-item-title" title={t.title}>{t.title}</span>
+                  <Tooltip content={t.title}><span className="aichat-item-title">{t.title}</span></Tooltip>
                   <span className="aichat-item-actions">
-                    <button type="button" title="Delete" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); deleteThread(t.id); }}>{I.x({ width: 14, height: 14 })}</button>
+                    <Tooltip content="Delete"><button type="button" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); deleteThread(t.id); }}>{I.x({ width: 14, height: 14 })}</button></Tooltip>
                   </span>
                 </div>
               ))}
@@ -1209,7 +1255,7 @@ export default function ProjectAIChat() {
               footer message box is the "Other" / custom-instruction option. */}
           {pendingDrop && (
             <div className="aichat-drop-panel">
-              <button type="button" className="aichat-drop-close" onClick={closeActionSheet} aria-label="Cancel" title="Cancel">{I.x({ width: 18, height: 18 })}</button>
+              <Tooltip content="Cancel"><button type="button" className="aichat-drop-close" onClick={closeActionSheet} aria-label="Cancel">{I.x({ width: 18, height: 18 })}</button></Tooltip>
               {!chosenAction ? (
                 /* Step 1 — pick what to do. */
                 <div className="aichat-drop-actions" role="dialog" aria-label="Choose what to do with the file">
@@ -1223,10 +1269,12 @@ export default function ProjectAIChat() {
                         </div>
                       ))
                     : suggestions.map((s, idx) => (
-                        <button key={s.key} type="button" className="aichat-action-pill" style={{ '--pill-i': idx }} onClick={() => runSuggestion(s)} title={s.prompt}>
-                          <span className="aichat-action-pill-label">{s.label}</span>
-                          {I.caret({ width: 15, height: 15 })}
-                        </button>
+                        <Tooltip key={s.key} content={s.prompt}>
+                          <button type="button" className="aichat-action-pill" style={{ '--pill-i': idx }} onClick={() => runSuggestion(s)}>
+                            <span className="aichat-action-pill-label">{s.label}</span>
+                            {I.caret({ width: 15, height: 15 })}
+                          </button>
+                        </Tooltip>
                       ))}
                   <div className="aichat-action-other-hint">Or type your own instruction in the message box below.</div>
                 </div>
@@ -1234,7 +1282,7 @@ export default function ProjectAIChat() {
                 /* Step 2 — choose how detailed the answer should be. */
                 <div className="aichat-drop-actions" role="dialog" aria-label="Choose the level of detail">
                   <div className="aichat-action-head aichat-step2-head">
-                    <button type="button" className="aichat-step-back" onClick={() => setChosenAction(null)} aria-label="Back" title="Back">{I.caret({ width: 16, height: 16 })}</button>
+                    <Tooltip content="Back"><button type="button" className="aichat-step-back" onClick={() => setChosenAction(null)} aria-label="Back">{I.caret({ width: 16, height: 16 })}</button></Tooltip>
                     <span>How detailed should the answer be?</span>
                   </div>
                   <div className="aichat-depth-chosen">{chosenAction.label}</div>
@@ -1315,7 +1363,7 @@ export default function ProjectAIChat() {
                     {m.who === 'me' && (m.attachments || []).length > 0 && (
                       <div className="aichat-msg-attachments">
                         {m.attachments.map((n, k) => (
-                          <span className="aichat-attach-chip is-static" key={k}>{I.file({ width: 12, height: 12 })}<span className="aichat-attach-name" title={n}>{n}</span></span>
+                          <span className="aichat-attach-chip is-static" key={k}>{I.file({ width: 12, height: 12 })}<Tooltip content={n}><span className="aichat-attach-name">{n}</span></Tooltip></span>
                         ))}
                       </div>
                     )}
@@ -1327,27 +1375,29 @@ export default function ProjectAIChat() {
                     {m.who !== 'me' && !m.isError
                       && !(typing && typing.threadId === activeId && typing.index === i) && (
                       <div className="aichat-msg-actions">
-                        <button
-                          type="button"
-                          className="aichat-msg-action"
-                          title="Copy"
-                          aria-label="Copy message"
-                          onClick={() => copyMessage(m.text || '', i)}
-                        >
-                          {copiedIdx === i ? I.check({ width: 14, height: 14 }) : I.copy({ width: 14, height: 14 })}
-                          <span>{copiedIdx === i ? 'Copied' : 'Copy'}</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="aichat-msg-action"
-                          title="Retry"
-                          aria-label="Regenerate response"
-                          onClick={() => regenerate(i)}
-                          disabled={streaming}
-                        >
-                          {I.refresh({ width: 14, height: 14 })}
-                          <span>Retry</span>
-                        </button>
+                        <Tooltip content="Copy">
+                          <button
+                            type="button"
+                            className="aichat-msg-action"
+                            aria-label="Copy message"
+                            onClick={() => copyMessage(m.text || '', i)}
+                          >
+                            {copiedIdx === i ? I.check({ width: 14, height: 14 }) : I.copy({ width: 14, height: 14 })}
+                            <span>{copiedIdx === i ? 'Copied' : 'Copy'}</span>
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Retry">
+                          <button
+                            type="button"
+                            className="aichat-msg-action"
+                            aria-label="Regenerate response"
+                            onClick={() => regenerate(i)}
+                            disabled={streaming}
+                          >
+                            {I.refresh({ width: 14, height: 14 })}
+                            <span>Retry</span>
+                          </button>
+                        </Tooltip>
                       </div>
                     )}
                   </div>
@@ -1403,6 +1453,7 @@ export default function ProjectAIChat() {
           )}
         </div>
       </div>
+      )}
 
       {/* File "Properties" modal (from the file card's right-click menu). */}
       {fileProps && pendingDrop && (
@@ -1416,18 +1467,20 @@ export default function ProjectAIChat() {
               <FileThumbnail descriptor={pendingDrop.primary.descriptor} glyph={I.file({ width: 40, height: 40 })} />
             </div>
             <dl className="aichat-props-list">
-              <div><dt>Name</dt><dd title={pendingDrop.primary.name}>{pendingDrop.primary.name}</dd></div>
+              <div><dt>Name</dt><Tooltip content={pendingDrop.primary.name}><dd>{pendingDrop.primary.name}</dd></Tooltip></div>
               <div><dt>Type</dt><dd>{(() => { const n = pendingDrop.primary.name || ''; const i = n.lastIndexOf('.'); return i > 0 ? `${n.slice(i + 1).toUpperCase()} file` : 'File'; })()}</dd></div>
-              <div><dt>Location</dt><dd title={pendingDrop.primary.path}>{String(pendingDrop.primary.path || '').startsWith('picked:') ? 'Picked file' : pendingDrop.primary.path}</dd></div>
+              <div><dt>Location</dt><Tooltip content={pendingDrop.primary.path}><dd>{String(pendingDrop.primary.path || '').startsWith('picked:') ? 'Picked file' : pendingDrop.primary.path}</dd></Tooltip></div>
             </dl>
           </div>
         </div>
       )}
 
-      {chromeEl && createPortal(chromeTools, chromeEl)}
-      {/* No composer when there are no chats — the empty state's button is the
-          only entry point. */}
-      {hasThreads && (footerEl ? createPortal(composer, footerEl) : composer)}
+      {/* Navbar (+ advisor chrome tools) lifted into the window topbar, mirroring
+          the team chat. On the Timeline tab only the navbar shows. */}
+      {chromeEl && createPortal(<>{aiTabs}{aiView === 'advisor' ? chromeTools : null}</>, chromeEl)}
+      {/* No composer when there are no chats (empty state's button is the only
+          entry point) or on the Timeline tab. */}
+      {aiView === 'advisor' && hasThreads && (footerEl ? createPortal(composer, footerEl) : composer)}
     </div>
   );
 }

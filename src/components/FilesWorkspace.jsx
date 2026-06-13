@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import FileThumbnail from './FileThumbnail';
+import Tooltip from './Tooltip';
 import { useMorphPill } from './useMorphPill';
 import { usePaneChromeSlot, usePaneChromePortalEl } from '../context/PaneChromeContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
@@ -10,6 +11,61 @@ import './FilesWorkspace.css';
 
 // Platform hint for the search shortcut chip (⌘F on macOS, Ctrl F elsewhere).
 const isMacPlatform = typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.platform || '');
+
+// ── Dropped-folder traversal ───────────────────────────────────────────
+// A plain `dataTransfer.files` read can't see inside a dropped folder — a
+// directory only expands through the webkitGetAsEntry() FileSystem API.
+// These helpers walk every dropped entry (files AND directory trees) and
+// return a flat list of { file, relPath } so folder drops import with their
+// nested structure intact (matching the <input webkitdirectory> path).
+function readEntryFile(entry) {
+  return new Promise((resolve) => entry.file((f) => resolve(f), () => resolve(null)));
+}
+function readAllDirEntries(reader) {
+  // readEntries() yields at most ~100 entries per call — pump until empty.
+  return new Promise((resolve) => {
+    const all = [];
+    const pump = () => reader.readEntries(
+      (batch) => { if (!batch.length) { resolve(all); return; } all.push(...batch); pump(); },
+      () => resolve(all),
+    );
+    pump();
+  });
+}
+async function walkEntry(entry, prefix, out) {
+  if (!entry) return;
+  if (entry.isFile) {
+    const f = await readEntryFile(entry);
+    if (f) out.push({ file: f, relPath: prefix ? `${prefix}/${f.name}` : f.name });
+  } else if (entry.isDirectory) {
+    const dirPrefix = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const children = await readAllDirEntries(entry.createReader());
+    for (const child of children) await walkEntry(child, dirPrefix, out);
+  }
+}
+// Resolve a drop's DataTransfer into [{ file, relPath }]. The entry objects
+// must be grabbed synchronously (the item list is invalid after the event),
+// so collect them up front, then traverse asynchronously.
+async function collectDropEntries(dataTransfer) {
+  const out = [];
+  const items = dataTransfer?.items;
+  if (items && items.length && typeof items[0]?.webkitGetAsEntry === 'function') {
+    const entries = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].kind !== 'file') continue;
+      const entry = items[i].webkitGetAsEntry();
+      if (entry) entries.push(entry);
+    }
+    if (entries.length) {
+      for (const entry of entries) await walkEntry(entry, '', out);
+      return out;
+    }
+  }
+  // Fallback (no entry API): plain files only — folders are unreadable here.
+  const files = dataTransfer?.files;
+  if (files) for (const f of files) out.push({ file: f, relPath: f.name });
+  return out;
+}
 
 // Files tab — presentational File-Explorer workspace. All data and actions
 // are supplied by the parent (ProjectFiles), which owns the local-folder
@@ -76,11 +132,14 @@ function FolderGlyph({ filled = false, size = 42, color }) {
 }
 
 // Glyph for a folder-kind item: the Recycle bin entry gets the trash icon;
-// every other folder gets the folder glyph (optionally a custom colour).
+// a folder probed as a WhatsApp export (it CONTAINS a chat transcript — see
+// isWhatsAppExport) gets the WhatsApp mark like the export zips do; every
+// other folder gets the folder glyph (optionally a custom colour).
 function FolderOrBinGlyph({ item, size = 42, color }) {
   if (item.binEntry) {
     return <span className="fx-bin-glyph"><Icon name="trash" size={Math.round(size * 0.92)} strokeWidth={1.6} /></span>;
   }
+  if (item.isWhatsApp) return <span className="fx-glyph fx-glyph-whatsapp">{WhatsAppMark}</span>;
   return <FolderGlyph filled={!item.empty} size={size} color={color} />;
 }
 
@@ -91,19 +150,19 @@ function FolderColorRow({ current, onPick }) {
   return (
     <div className="fx-color-row" role="group" aria-label="Folder colour">
       {FOLDER_COLOR_PRESETS.map((c) => (
-        <button
-          key={c.id}
-          type="button"
-          className={`fx-color-swatch${active === c.value ? ' is-active' : ''}${c.value ? '' : ' is-default'}`}
-          style={c.value ? { '--sw': c.value } : undefined}
-          title={c.label}
-          aria-label={c.label}
-          aria-pressed={active === c.value}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); onPick(c.value); }}
-        >
-          {c.value ? null : <Icon name="close" size={12} strokeWidth={2} />}
-        </button>
+        <Tooltip key={c.id} content={c.label}>
+          <button
+            type="button"
+            className={`fx-color-swatch${active === c.value ? ' is-active' : ''}${c.value ? '' : ' is-default'}`}
+            style={c.value ? { '--sw': c.value } : undefined}
+            aria-label={c.label}
+            aria-pressed={active === c.value}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onPick(c.value); }}
+          >
+            {c.value ? null : <Icon name="close" size={12} strokeWidth={2} />}
+          </button>
+        </Tooltip>
       ))}
     </div>
   );
@@ -155,6 +214,31 @@ function ExtGlyph({ ext }) {
   return <span className={`fx-glyph fx-glyph-${cat}`}>{EXT_GLYPH_LABEL[cat]}</span>;
 }
 
+// A WhatsApp "Export chat" produces a .zip — or, extracted, a folder —
+// holding the transcript + media. ProjectFiles probes the CONTENTS in the
+// main process and stamps `item.isWhatsApp` (true/false), so recognition
+// survives a rename. Items that can't be probed (cloud rows, web build,
+// probe still in flight) leave the flag undefined and fall back to the old
+// filename heuristic.
+function isWhatsAppExport(item) {
+  if (item?.isWhatsApp !== undefined) return item.isWhatsApp === true;
+  return item?.ext === 'zip' && /whatsapp/i.test(item?.name || '');
+}
+
+const WhatsAppMark = (
+  <svg className="fx-glyph-wa-logo" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.6-6.1c-.3-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-2-1.2 7.4 7.4 0 0 1-1.4-1.7c-.1-.3 0-.4.1-.5l.4-.5.3-.4v-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 2.9 2.9 0 0 0-.9 2.2 5 5 0 0 0 1.1 2.7 11.5 11.5 0 0 0 4.4 3.9c2.6 1 2.6.7 3.1.6a2.6 2.6 0 0 0 1.7-1.2 2.1 2.1 0 0 0 .1-1.2c-.1-.1-.3-.2-.5-.3z" />
+  </svg>
+);
+
+// Resolve a file's fallback glyph: the WhatsApp mark for recognised export
+// zips, otherwise the extension badge. Exported — the doc-viewer's open-files
+// sidebar renders its tiles with the same glyph so both surfaces match.
+export function ItemGlyph({ item }) {
+  if (isWhatsAppExport(item)) return <span className="fx-glyph fx-glyph-whatsapp">{WhatsAppMark}</span>;
+  return <ExtGlyph ext={item.ext} />;
+}
+
 // Countdown pill for a bin item — "Deletes in N days" (turns red near the
 // end of the 30-day retention). Driven by item.deletesInDays.
 function CountdownPill({ days, className = '' }) {
@@ -162,10 +246,12 @@ function CountdownPill({ days, className = '' }) {
   const label = days <= 0 ? 'Deletes today' : `Deletes in ${days} ${days === 1 ? 'day' : 'days'}`;
   const urgent = days <= 3;
   return (
-    <span className={`fx-countdown-pill${urgent ? ' is-urgent' : ''} ${className}`.trim()} title={label}>
-      <Icon name="clock" size={11} />
-      <span>{label}</span>
-    </span>
+    <Tooltip content={label}>
+      <span className={`fx-countdown-pill${urgent ? ' is-urgent' : ''} ${className}`.trim()}>
+        <Icon name="clock" size={11} />
+        <span>{label}</span>
+      </span>
+    </Tooltip>
   );
 }
 
@@ -297,6 +383,33 @@ function itemMenuItems(item, { tab, onOpen, onRename, onProperties, onOpenLocati
   ];
 }
 
+// Files show their name like Explorer's "hide extensions" mode: the label under
+// the icon is just the base name, and a rename edits only the base — the
+// extension is re-attached on commit so the file format is never changed by
+// accident. Folders have no extension. `ext` keeps its leading dot.
+function splitNameExt(name) {
+  const n = String(name || '');
+  const i = n.lastIndexOf('.');
+  // No dot, a leading-dot dotfile (".gitignore"), or a trailing dot → no ext.
+  if (i <= 0 || i === n.length - 1) return { base: n, ext: '' };
+  return { base: n.slice(0, i), ext: n.slice(i) };
+}
+function displayBaseName(item) {
+  if (!item || item.kind === 'folder') return item?.name || '';
+  return splitNameExt(item.name).base || item.name;
+}
+function joinBaseExt(base, originalName) {
+  const { ext } = splitNameExt(originalName);
+  const b = String(base || '').trim();
+  if (!ext) return b;
+  return b.toLowerCase().endsWith(ext.toLowerCase()) ? b : b + ext;
+}
+// The new name to commit from a rename input — folders pass through, files get
+// their original extension re-attached.
+function renamedName(item, typed) {
+  return item.kind === 'folder' ? typed : joinBaseExt(typed, item.name);
+}
+
 // ── Inline name input (rename + new-folder draft) ─────────────────────
 function InlineNameInput({ initial = '', placeholder, onCommit, onCancel, className = '' }) {
   const [value, setValue] = useState(initial);
@@ -353,10 +466,10 @@ function Tile({ item, tab, selected, onSelect, onOpen, onRename, onProperties, o
     return (
       <div className={`fx-tile${isFolder ? ' is-folder' : ''} is-renaming`}>
         <span className="fx-tile-thumb">
-          {isFolder ? <FolderGlyph filled={!item.empty} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
+          {isFolder ? <FolderGlyph filled={!item.empty} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ItemGlyph item={item} />} />}
         </span>
         <span>
-          <InlineNameInput className="fx-tile-name" initial={item.name} onCommit={(name) => onCommitName(name)} onCancel={onCancelName} />
+          <InlineNameInput className="fx-tile-name" initial={displayBaseName(item)} onCommit={(name) => onCommitName(renamedName(item, name))} onCancel={onCancelName} />
         </span>
       </div>
     );
@@ -384,10 +497,10 @@ function Tile({ item, tab, selected, onSelect, onOpen, onRename, onProperties, o
         {/* Recycle bin entry shows how many items are inside. */}
         {item.binEntry && item.binCount > 0 && <span className="fx-bin-count">{item.binCount}</span>}
         <span className="fx-tile-thumb">
-          {isFolder ? <FolderOrBinGlyph item={item} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
+          {isFolder ? <FolderOrBinGlyph item={item} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ItemGlyph item={item} />} />}
         </span>
         <span>
-          <span className="fx-tile-name">{item.name}</span>
+          <span className="fx-tile-name">{displayBaseName(item)}</span>
         </span>
       </button>
       {morph.node}
@@ -427,9 +540,9 @@ function Row({ item, tab, selected, onSelect, onOpen, onRename, onProperties, on
       <div className="fx-list-row is-renaming">
         <span className="fx-list-name">
           <span className="fx-list-thumb">
-            {isFolder ? <FolderGlyph filled={!item.empty} size={20} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
+            {isFolder ? <FolderGlyph filled={!item.empty} size={20} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ItemGlyph item={item} />} />}
           </span>
-          <InlineNameInput className="fx-name" initial={item.name} onCommit={(name) => onCommitName(name)} onCancel={onCancelName} />
+          <InlineNameInput className="fx-name" initial={displayBaseName(item)} onCommit={(name) => onCommitName(renamedName(item, name))} onCancel={onCancelName} />
         </span>
         <span /><span /><span />
       </div>
@@ -456,9 +569,9 @@ function Row({ item, tab, selected, onSelect, onOpen, onRename, onProperties, on
         <span className="fx-list-name">
           {isBin && <CountdownRing days={item.deletesInDays} size={18} className="fx-row-countdown" />}
           <span className="fx-list-thumb">
-            {isFolder ? <FolderOrBinGlyph item={item} size={20} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
+            {isFolder ? <FolderOrBinGlyph item={item} size={20} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ItemGlyph item={item} />} />}
           </span>
-          <span className="fx-name">{item.name}</span>
+          <span className="fx-name">{displayBaseName(item)}</span>
           {item.binEntry && item.binCount > 0 && <span className="fx-bin-count is-inline">{item.binCount}</span>}
         </span>
         <span className="fx-list-muted">{item.modifiedLabel || '—'}</span>
@@ -509,7 +622,8 @@ export default function FilesWorkspace({
   onEmptyBin,
   onDebugSeedTrash,  // DEV-only — seed the bin with staggered-expiry dummy items
   onOpenDirectory,   // () => void — open the current folder in the OS file manager
-  onDropFiles,       // (FileList) => void — drag-and-drop import (drafts only)
+  onDropFiles,       // ([{ file, relPath }]) => void — drag-and-drop import,
+                     //   folders included (relPath carries nested structure)
   onPasteItems,      // (items) => void — paste COPIED files into the current folder
   onPasteCut,        // (items) => void — paste CUT files (move) into the current folder
   onMoveItems,       // (items, targetFolder) => void — drag files onto a folder to move
@@ -1062,9 +1176,9 @@ export default function FilesWorkspace({
     <>
       <div className="fx-chrome-tools">
         <div className="fx-pathbar-nav">
-          <button title="Back" onClick={() => onBack?.()} disabled={!canBack}><Icon name="chev-left" size={14} /></button>
-          <button title="Forward" disabled><Icon name="chev-right" size={14} /></button>
-          <button title="Up one level" onClick={() => onUp?.()} disabled={!canUp}><Icon name="chev-up" size={14} /></button>
+          <Tooltip content="Back"><button onClick={() => onBack?.()} disabled={!canBack}><Icon name="chev-left" size={14} /></button></Tooltip>
+          <Tooltip content="Forward"><button disabled><Icon name="chev-right" size={14} /></button></Tooltip>
+          <Tooltip content="Up one level"><button onClick={() => onUp?.()} disabled={!canUp}><Icon name="chev-up" size={14} /></button></Tooltip>
         </div>
         <nav className="fx-crumbs" aria-label="Folder path">
           {(crumbs || []).map((cr, i) => {
@@ -1072,18 +1186,19 @@ export default function FilesWorkspace({
             return (
               <React.Fragment key={cr.path ?? i}>
                 {i > 0 && <Icon name="chev-right" size={12} className="fx-crumb-sep" />}
-                <button
-                  type="button"
-                  className={`fx-crumb${i === 0 ? ' is-root' : ''}${isLast ? ' is-current' : ''}${dropCrumb === cr.path && !isLast ? ' is-droptarget' : ''}`}
-                  onClick={isLast ? undefined : () => onCrumb?.(cr.path)}
-                  title={cr.label}
-                  onDragOver={(e) => onCrumbDragOver(cr, isLast, e)}
-                  onDragLeave={() => onCrumbDragLeave(cr)}
-                  onDrop={(e) => onCrumbDrop(cr, isLast, e)}
-                >
-                  {i === 0 && <Icon name="folder" size={16} className="fx-crumb-icon" filled />}
-                  <span className="fx-crumb-label">{cr.label}</span>
-                </button>
+                <Tooltip content={cr.label}>
+                  <button
+                    type="button"
+                    className={`fx-crumb${i === 0 ? ' is-root' : ''}${isLast ? ' is-current' : ''}${dropCrumb === cr.path && !isLast ? ' is-droptarget' : ''}`}
+                    onClick={isLast ? undefined : () => onCrumb?.(cr.path)}
+                    onDragOver={(e) => onCrumbDragOver(cr, isLast, e)}
+                    onDragLeave={() => onCrumbDragLeave(cr)}
+                    onDrop={(e) => onCrumbDrop(cr, isLast, e)}
+                  >
+                    {i === 0 && <Icon name="folder" size={16} className="fx-crumb-icon" filled />}
+                    <span className="fx-crumb-label">{cr.label}</span>
+                  </button>
+                </Tooltip>
               </React.Fragment>
             );
           })}
@@ -1099,15 +1214,16 @@ export default function FilesWorkspace({
             onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); } }}
           />
           {query ? (
-            <button
-              type="button"
-              className="fx-search-clear"
-              title="Clear search"
-              aria-label="Clear search"
-              onClick={() => { setQuery(''); searchRef.current?.focus(); }}
-            >
-              <Icon name="close" size={13} strokeWidth={2} />
-            </button>
+            <Tooltip content="Clear search">
+              <button
+                type="button"
+                className="fx-search-clear"
+                aria-label="Clear search"
+                onClick={() => { setQuery(''); searchRef.current?.focus(); }}
+              >
+                <Icon name="close" size={13} strokeWidth={2} />
+              </button>
+            </Tooltip>
           ) : (
             <span className="fx-search-kbd">
               <kbd>{isMacPlatform ? '⌘' : 'Ctrl'}</kbd>
@@ -1150,7 +1266,7 @@ export default function FilesWorkspace({
           onDragEnter={onDropFiles ? (e) => { if (Array.from(e.dataTransfer?.types || []).includes('Files')) { e.preventDefault(); setDragOver(true); } } : undefined}
           onDragOver={onDropFiles ? (e) => { if (Array.from(e.dataTransfer?.types || []).includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; if (!dragOver) setDragOver(true); } } : undefined}
           onDragLeave={onDropFiles ? (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false); } : undefined}
-          onDrop={onDropFiles ? (e) => { e.preventDefault(); setDragOver(false); const files = e.dataTransfer?.files; if (files && files.length) onDropFiles(files); } : undefined}
+          onDrop={onDropFiles ? (e) => { e.preventDefault(); setDragOver(false); const dt = e.dataTransfer; collectDropEntries(dt).then((entries) => { if (entries.length) onDropFiles(entries); }); } : undefined}
         >
           {dragOver && (
             <div className="fx-drop-overlay" aria-hidden="true">
@@ -1230,22 +1346,24 @@ export default function FilesWorkspace({
           <div className="fx-bottombar-actions">
             {(onUndo || onRedo) && (
               <>
-                <button
-                  className="fx-tb-btn fx-tb-icon"
-                  title={canUndo ? `Undo ${undoLabel}` : 'Nothing to undo'}
-                  disabled={!canUndo}
-                  onClick={() => onUndo?.()}
-                >
-                  <Icon name="undo" className="fx-icon" />
-                </button>
-                <button
-                  className="fx-tb-btn fx-tb-icon"
-                  title={canRedo ? `Redo ${redoLabel}` : 'Nothing to redo'}
-                  disabled={!canRedo}
-                  onClick={() => onRedo?.()}
-                >
-                  <Icon name="redo" className="fx-icon" />
-                </button>
+                <Tooltip content={canUndo ? `Undo ${undoLabel}` : 'Nothing to undo'}>
+                  <button
+                    className="fx-tb-btn fx-tb-icon"
+                    disabled={!canUndo}
+                    onClick={() => onUndo?.()}
+                  >
+                    <Icon name="undo" className="fx-icon" />
+                  </button>
+                </Tooltip>
+                <Tooltip content={canRedo ? `Redo ${redoLabel}` : 'Nothing to redo'}>
+                  <button
+                    className="fx-tb-btn fx-tb-icon"
+                    disabled={!canRedo}
+                    onClick={() => onRedo?.()}
+                  >
+                    <Icon name="redo" className="fx-icon" />
+                  </button>
+                </Tooltip>
                 <div className="fx-tb-sep" />
               </>
             )}
@@ -1286,32 +1404,35 @@ export default function FilesWorkspace({
                 {(onPasteItems || onMoveItems) && (
                   <>
                     <div className="fx-tb-sep" />
-                    <button
-                      className="fx-tb-btn"
-                      title="Copy (Ctrl+C)"
-                      disabled={!canEdit || (multiSel.size === 0 && !selectedItem)}
-                      onClick={copySelection}
-                    >
-                      <Icon name="copy" className="fx-icon" /><span>Copy{multiSel.size > 1 ? ` (${multiSel.size})` : ''}</span>
-                    </button>
-                    {onMoveItems && (
+                    <Tooltip content="Copy (Ctrl+C)">
                       <button
                         className="fx-tb-btn"
-                        title="Cut (Ctrl+X)"
                         disabled={!canEdit || (multiSel.size === 0 && !selectedItem)}
-                        onClick={cutSelection}
+                        onClick={copySelection}
                       >
-                        <Icon name="cut" className="fx-icon" /><span>Cut{multiSel.size > 1 ? ` (${multiSel.size})` : ''}</span>
+                        <Icon name="copy" className="fx-icon" /><span>Copy{multiSel.size > 1 ? ` (${multiSel.size})` : ''}</span>
                       </button>
+                    </Tooltip>
+                    {onMoveItems && (
+                      <Tooltip content="Cut (Ctrl+X)">
+                        <button
+                          className="fx-tb-btn"
+                          disabled={!canEdit || (multiSel.size === 0 && !selectedItem)}
+                          onClick={cutSelection}
+                        >
+                          <Icon name="cut" className="fx-icon" /><span>Cut{multiSel.size > 1 ? ` (${multiSel.size})` : ''}</span>
+                        </button>
+                      </Tooltip>
                     )}
-                    <button
-                      className="fx-tb-btn"
-                      title="Paste (Ctrl+V)"
-                      disabled={!canEdit || !canPaste}
-                      onClick={pasteHere}
-                    >
-                      <Icon name="paste" className="fx-icon" /><span>Paste{clipboard?.items?.length > 1 ? ` (${clipboard.items.length})` : ''}</span>
-                    </button>
+                    <Tooltip content="Paste (Ctrl+V)">
+                      <button
+                        className="fx-tb-btn"
+                        disabled={!canEdit || !canPaste}
+                        onClick={pasteHere}
+                      >
+                        <Icon name="paste" className="fx-icon" /><span>Paste{clipboard?.items?.length > 1 ? ` (${clipboard.items.length})` : ''}</span>
+                      </button>
+                    </Tooltip>
                   </>
                 )}
               </>
@@ -1338,9 +1459,11 @@ export default function FilesWorkspace({
                 {onDebugSeedTrash && (
                   <>
                     <div className="fx-tb-sep" />
-                    <button className="fx-tb-btn" title="DEV: spawn items expiring in 30/25/20/15/10/5/3/2/1 days" onClick={() => onDebugSeedTrash()}>
-                      <Icon name="clock" className="fx-icon" /><span>Seed test items</span>
-                    </button>
+                    <Tooltip content="DEV: spawn items expiring in 30/25/20/15/10/5/3/2/1 days">
+                      <button className="fx-tb-btn" onClick={() => onDebugSeedTrash()}>
+                        <Icon name="clock" className="fx-icon" /><span>Seed test items</span>
+                      </button>
+                    </Tooltip>
                   </>
                 )}
               </>
@@ -1401,7 +1524,7 @@ function PropertiesModal({ item, onClose }) {
           </button>
         </div>
         <div className="fx-props-thumb">
-          {isFolder ? <FolderGlyph filled={!item.empty} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ExtGlyph ext={item.ext} />} />}
+          {isFolder ? <FolderGlyph filled={!item.empty} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ItemGlyph item={item} />} />}
         </div>
         <dl className="fx-props-list">
           {rows.map(([label, value, isPath]) => (

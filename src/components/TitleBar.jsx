@@ -6,7 +6,7 @@ import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useUpdates } from '../context/UpdatesContext';
 import { useSplitView, SPLIT_LAYOUTS, isTriLayout, rotateTri } from '../context/SplitViewContext';
 import { useReportProblem } from '../context/ReportProblemContext';
-import Tooltip from './Tooltip';
+import Tooltip, { useTooltip } from './Tooltip';
 import FpsMeter from './FpsMeter';
 import { useMorphPill } from './useMorphPill';
 import { DEFAULT_STATUS_KEY, getStatusOption } from '../lib/userStatus';
@@ -98,10 +98,16 @@ function TbMemberAvatar({ member }) {
   const p = member.profile || {};
   const name = p.full_name || p.name || p.email || 'Member';
   const url = p.avatar_url || null;
+  // Hook form (not the wrapper): avatars overlap via `:first-child`, which a
+  // display:contents wrapper would break.
+  const { triggerProps, tooltip } = useTooltip(name);
   return (
-    <span className="tb-member-avatar" style={url ? undefined : { background: avatarColor(member.user_id) }} title={name}>
-      {url ? <img src={url} alt="" referrerPolicy="no-referrer" /> : name.charAt(0).toUpperCase()}
-    </span>
+    <>
+      <span className="tb-member-avatar" style={url ? undefined : { background: avatarColor(member.user_id) }} {...triggerProps}>
+        {url ? <img src={url} alt="" referrerPolicy="no-referrer" /> : name.charAt(0).toUpperCase()}
+      </span>
+      {tooltip}
+    </>
   );
 }
 
@@ -206,11 +212,17 @@ function SplitLayoutIcon({ id, size = 16 }) {
 }
 const SPLIT_ORDER = ['single', 'vertical', 'horizontal', 'tri', 'quad'];
 
-// Rotate glyph for the "T" split's rotate tile.
-const RotateCwGlyph = (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <polyline points="23 4 23 10 17 10" />
-    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+// "Update" glyph (overwrite a saved layout with the current arrangement).
+const UpdateGlyph = (
+  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 12a9 9 0 1 1-2.6-6.4" /><polyline points="21 3 21 8 16 8" />
+  </svg>
+);
+// "Edit" glyph (rename a saved layout).
+const EditGlyph = (
+  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+    <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z" />
   </svg>
 );
 
@@ -237,16 +249,22 @@ export default function TitleBar() {
   const { themePreference, setTheme } = useTheme();
   const { selectedProject } = useSelectedProject();
   const { hasUpdate, latestVersion, currentVersion } = useUpdates();
-  const { layout, setLayout, customLayouts, addCustomLayout, removeCustomLayout } = useSplitView();
+  const { layout, setLayout, customLayouts, addCustomLayout, applyCustomLayout, updateCustomLayout, renameCustomLayout, removeCustomLayout, activeCustomLayout } = useSplitView();
   // Inline "save current layout" affordance in the split menu: when armed it
   // swaps the "Save current…" button for a name field.
   const [savingLayout, setSavingLayout] = useState(false);
   const [layoutName, setLayoutName] = useState('');
+  // Inline rename ("Edit") for a saved layout: id being edited + its draft name.
+  const [editingLayoutId, setEditingLayoutId] = useState(null);
+  const [editingName, setEditingName] = useState('');
   const { captureAndOpen: openReportProblem, capturing: reportCapturing } = useReportProblem();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   // The launch hub lives at /launch — only there does the brand read "… | HUB".
   const onHub = pathname === '/launch';
+  // The doc-viewer is a secondary window (boots at /doc-viewer); it's a plain
+  // file viewer, so it hides the Split-layout and Theme controls.
+  const onDocViewer = pathname === '/doc-viewer';
 
   // Project member list (for the avatar stack next to the project name).
   // Fetched once per selected project; cleared on the hub / no selection.
@@ -317,32 +335,27 @@ export default function TitleBar() {
           {SPLIT_ORDER.map((id) => {
             const active = id === 'tri' ? triActive : layout === id;
             const glyphId = id === 'tri' && triActive ? layout : id;
+            // The "T" tile doubles as its own rotate control: pressing it while
+            // it's already active spins the T one quarter-turn (there's no
+            // separate rotate button anymore).
+            const label = id === 'tri' && triActive ? 'Rotate the T split' : SPLIT_LAYOUTS[id].label;
             return (
-              <button
-                key={id}
-                type="button"
-                className={`tb-split-cell${active ? ' is-active' : ''}`}
-                title={SPLIT_LAYOUTS[id].label}
-                aria-label={SPLIT_LAYOUTS[id].label}
-                aria-pressed={active}
-                onClick={() => { if (id !== 'tri' || !triActive) setLayout(id); }}
-              >
-                <SplitLayoutIcon id={glyphId} size={22} />
-              </button>
+              <Tooltip key={id} content={label}>
+                <button
+                  type="button"
+                  className={`tb-split-cell${active ? ' is-active' : ''}`}
+                  aria-label={label}
+                  aria-pressed={active}
+                  onClick={() => {
+                    if (id === 'tri') setLayout(triActive ? rotateTri(layout, 1) : 'tri');
+                    else setLayout(id);
+                  }}
+                >
+                  <SplitLayoutIcon id={glyphId} size={22} />
+                </button>
+              </Tooltip>
             );
           })}
-          {/* Rotate tile — spins the active "T" one quarter-turn; inert for
-              the non-T layouts (which have no rotation). */}
-          <button
-            type="button"
-            className="tb-split-cell tb-split-cell-rotate"
-            title={triActive ? 'Rotate the T split' : 'Rotate (T split only)'}
-            aria-label="Rotate the T split"
-            disabled={!triActive}
-            onClick={() => setLayout(rotateTri(layout, 1))}
-          >
-            {RotateCwGlyph}
-          </button>
         </div>
 
         <div className="tb-split-divider" role="separator" />
@@ -352,28 +365,80 @@ export default function TitleBar() {
           {customLayouts.length === 0 && !savingLayout && (
             <span className="tb-split-custom-empty">Save the current split to reuse it later.</span>
           )}
-          {customLayouts.map((cl) => (
-            <div key={cl.id} className="tb-split-custom-row">
-              <button
-                type="button"
-                className={`tb-split-custom-apply${layout === cl.layout ? ' is-active' : ''}`}
-                onClick={() => { setLayout(cl.layout); closeMenu(); }}
-                title={`Apply “${cl.name}”`}
-              >
-                <span className="tb-split-custom-glyph"><SplitLayoutIcon id={cl.layout} size={16} /></span>
-                <span className="tb-split-custom-name">{cl.name}</span>
-              </button>
-              <button
-                type="button"
-                className="tb-split-custom-del"
-                title={`Delete “${cl.name}”`}
-                aria-label={`Delete ${cl.name}`}
-                onClick={() => removeCustomLayout(cl.id)}
-              >
-                {CloseGlyph}
-              </button>
-            </div>
-          ))}
+          {customLayouts.map((cl) => {
+            const isActive = activeCustomLayout?.id === cl.id;
+            const isEditing = editingLayoutId === cl.id;
+            const commitRename = () => {
+              renameCustomLayout(cl.id, editingName);
+              setEditingLayoutId(null);
+              setEditingName('');
+            };
+            return (
+              <div key={cl.id} className={`tb-split-custom-entry${isActive ? ' is-active' : ''}`}>
+                {isEditing ? (
+                  // Inline rename form (the "Edit" action).
+                  <form
+                    className="tb-split-add-form"
+                    onSubmit={(e) => { e.preventDefault(); commitRename(); }}
+                  >
+                    <span className="tb-split-add-glyph"><SplitLayoutIcon id={cl.layout} size={16} /></span>
+                    <input
+                      type="text"
+                      className="tb-split-add-input"
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') { e.stopPropagation(); setEditingLayoutId(null); setEditingName(''); }
+                      }}
+                      placeholder="Layout name…"
+                      maxLength={40}
+                      autoFocus
+                      aria-label={`Rename ${cl.name}`}
+                    />
+                    <button type="submit" className="tb-split-add-save" disabled={!editingName.trim()}>Save</button>
+                  </form>
+                ) : (
+                  <Tooltip content={`Apply “${cl.name}”`}>
+                    <button
+                      type="button"
+                      className={`tb-split-custom-apply${isActive ? ' is-active' : ''}`}
+                      onClick={() => { applyCustomLayout(cl); closeMenu(); }}
+                    >
+                      <span className="tb-split-custom-glyph"><SplitLayoutIcon id={cl.layout} size={16} /></span>
+                      <span className="tb-split-custom-name">{cl.name}</span>
+                    </button>
+                  </Tooltip>
+                )}
+
+                {/* Edit / Update / Delete sit BELOW the selected layout. */}
+                {isActive && !isEditing && (
+                  <div className="tb-split-custom-actions">
+                    <button
+                      type="button"
+                      className="tb-split-custom-action"
+                      onClick={() => { setEditingLayoutId(cl.id); setEditingName(cl.name); }}
+                    >
+                      {EditGlyph}<span>Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="tb-split-custom-action"
+                      onClick={() => updateCustomLayout(cl.id)}
+                    >
+                      {UpdateGlyph}<span>Update</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="tb-split-custom-action is-danger"
+                      onClick={() => removeCustomLayout(cl.id)}
+                    >
+                      {CloseGlyph}<span>Delete</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
 
           {savingLayout ? (
             <form
@@ -423,7 +488,7 @@ export default function TitleBar() {
   // Reset the "save layout" input whenever the split menu closes, so it
   // reopens in its default (button, not armed input) state.
   useEffect(() => {
-    if (!splitPill.isMenuOpen) { setSavingLayout(false); setLayoutName(''); }
+    if (!splitPill.isMenuOpen) { setSavingLayout(false); setLayoutName(''); setEditingLayoutId(null); setEditingName(''); }
   }, [splitPill.isMenuOpen]);
 
   // Track OS maximized state so the maximize⇄restore glyph stays correct.
@@ -503,17 +568,18 @@ export default function TitleBar() {
         {!onHub && signedIn && selectedProject && (
           <>
             <span className="tb-brand-sep" aria-hidden="true">|</span>
-            <button
-              type="button"
-              className="tb-project-name"
-              /* `fromTopbar` tells the Overview to drop its "All projects"
-                 back-link — opening the project from the topbar is staying
-                 inside the current workspace, not drilling in from the list. */
-              onClick={() => navigate(`/projects/${selectedProject.id}`, { state: { fromTopbar: true } })}
-              title={`Open ${selectedProject.name}`}
-            >
-              {selectedProject.name}
-            </button>
+            <Tooltip content={`Open ${selectedProject.name}`}>
+              <button
+                type="button"
+                className="tb-project-name"
+                /* `fromTopbar` tells the Overview to drop its "All projects"
+                   back-link — opening the project from the topbar is staying
+                   inside the current workspace, not drilling in from the list. */
+                onClick={() => navigate(`/projects/${selectedProject.id}`, { state: { fromTopbar: true } })}
+              >
+                {selectedProject.name}
+              </button>
+            </Tooltip>
           </>
         )}
       </div>
@@ -604,12 +670,13 @@ export default function TitleBar() {
             {/* Split view — tile the content area into 1/2/3/4 independently-
                 navigable panes. Left-click morphs the cursor tooltip into the
                 menu (same useMorphPill the file grid uses on right-click).
-                Hidden on the launch hub, which has no tile-able content area. */}
-            {!onHub && (
+                Hidden on the launch hub, which has no tile-able content area,
+                and on the doc-viewer window. */}
+            {!onHub && !onDocViewer && (
               <>
                 <button
                   type="button"
-                  className={`tb-btn tb-btn-icon-only${splitPill.isMenuOpen ? ' is-open' : ''}${layout !== 'single' ? ' is-active' : ''}`}
+                  className={`tb-btn tb-split-btn${splitPill.isMenuOpen ? ' is-open' : ''}${layout !== 'single' ? ' is-active' : ''}${activeCustomLayout ? ' has-name' : ' tb-btn-icon-only'}`}
                   onMouseMove={splitPill.handleMouseMove}
                   onMouseLeave={splitPill.handleMouseLeave}
                   onClick={splitPill.handleOpenMenu}
@@ -618,26 +685,34 @@ export default function TitleBar() {
                   aria-label="Split view"
                 >
                   <span className="tb-btn-icon"><SplitLayoutIcon id={layout} /></span>
+                  {/* When the active arrangement is a saved custom layout, name
+                      it to the right of the glyph. */}
+                  {activeCustomLayout && <span className="tb-split-btn-name">{activeCustomLayout.name}</span>}
                 </button>
                 {splitPill.node}
               </>
             )}
 
             {/* Theme — icon-only trigger; the menu (White / Dark / System)
-                morphs out of the cursor tooltip on left-click. */}
-            <button
-              type="button"
-              className={`tb-btn tb-btn-icon-only${themePill.isMenuOpen ? ' is-open' : ''}`}
-              onMouseMove={themePill.handleMouseMove}
-              onMouseLeave={themePill.handleMouseLeave}
-              onClick={themePill.handleOpenMenu}
-              aria-haspopup="menu"
-              aria-expanded={themePill.isMenuOpen}
-              aria-label="Theme"
-            >
-              <span className="tb-btn-icon">{ThemeIcon}</span>
-            </button>
-            {themePill.node}
+                morphs out of the cursor tooltip on left-click. Hidden on the
+                doc-viewer window. */}
+            {!onDocViewer && (
+              <>
+                <button
+                  type="button"
+                  className={`tb-btn tb-btn-icon-only${themePill.isMenuOpen ? ' is-open' : ''}`}
+                  onMouseMove={themePill.handleMouseMove}
+                  onMouseLeave={themePill.handleMouseLeave}
+                  onClick={themePill.handleOpenMenu}
+                  aria-haspopup="menu"
+                  aria-expanded={themePill.isMenuOpen}
+                  aria-label="Theme"
+                >
+                  <span className="tb-btn-icon">{ThemeIcon}</span>
+                </button>
+                {themePill.node}
+              </>
+            )}
 
             {/* Account — to the right of the Theme button (replaced the status
                 dot). The avatar opens the Account page. Settings moved to the
@@ -655,15 +730,21 @@ export default function TitleBar() {
       {/* Window controls — always present so the frameless window stays
           controllable on every screen, including /auth. */}
       <div className="tb-window-controls">
-        <button type="button" className="tb-win-btn" onClick={windowMinimize} aria-label="Minimize" title="Minimize">
-          {MinimizeGlyph}
-        </button>
-        <button type="button" className="tb-win-btn" onClick={windowToggleMaximize} aria-label={maximized ? 'Restore' : 'Maximize'} title={maximized ? 'Restore' : 'Maximize'}>
-          {maximized ? RestoreGlyph : MaximizeGlyph}
-        </button>
-        <button type="button" className="tb-win-btn tb-win-close" onClick={windowClose} aria-label="Close" title="Close">
-          {CloseGlyph}
-        </button>
+        <Tooltip content="Minimize">
+          <button type="button" className="tb-win-btn" onClick={windowMinimize} aria-label="Minimize">
+            {MinimizeGlyph}
+          </button>
+        </Tooltip>
+        <Tooltip content={maximized ? 'Restore' : 'Maximize'}>
+          <button type="button" className="tb-win-btn" onClick={windowToggleMaximize} aria-label={maximized ? 'Restore' : 'Maximize'}>
+            {maximized ? RestoreGlyph : MaximizeGlyph}
+          </button>
+        </Tooltip>
+        <Tooltip content="Close">
+          <button type="button" className="tb-win-btn tb-win-close" onClick={windowClose} aria-label="Close">
+            {CloseGlyph}
+          </button>
+        </Tooltip>
       </div>
 
     </div>

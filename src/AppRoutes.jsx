@@ -31,7 +31,9 @@ const ProjectGenerate = lazy(() => import('./pages/Projects/ProjectGenerate'));
 const ProjectAutomate = lazy(() => import('./pages/Projects/ProjectAutomate'));
 const ProjectAI = lazy(() => import('./pages/Projects/ProjectAI'));
 const ProjectAIChat = lazy(() => import('./pages/Projects/ProjectAIChat'));
+const Mail = lazy(() => import('./pages/Mail'));
 const InviteAccept = lazy(() => import('./pages/Projects/InviteAccept'));
+const DocViewer = lazy(() => import('./pages/DocViewer'));
 
 // Shared full-screen spinner — reuses the `.spinner` class from Sidebar.css.
 export function RouteFallback() {
@@ -58,6 +60,9 @@ export default function AppRoutes({ Shell, ProjectShell }) {
       <Routes>
         <Route path="/auth" element={<AuthPage />} />
         <Route path="/launch" element={<Launch />} />
+        {/* Full-screen document viewer window (file preview + Legal AI panel),
+            opened from the Files page. Sits outside the sidebar shell. */}
+        <Route path="/doc-viewer" element={<DocViewer />} />
         <Route path="/" element={<Shell />}>
           <Route index element={<Activity />} />
           <Route path="versions" element={<Updates />} />
@@ -85,6 +90,7 @@ export default function AppRoutes({ Shell, ProjectShell }) {
             <Route path="automate" element={<ProjectAutomate />} />
             <Route path="ai" element={<ProjectAI />} />
             <Route path="ai-chat" element={<ProjectAIChat />} />
+            <Route path="mail" element={<Mail />} />
           </Route>
         </Route>
       </Routes>

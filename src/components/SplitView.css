@@ -8,7 +8,26 @@
   height: 100%;
   width: 100%;
   min-height: 0;
+  position: relative; /* anchor for the absolutely-positioned resize gutters */
 }
+
+/* ── Resize gutters ──────────────────────────────────────────────────────
+   Sit over the 8px grid gaps (out of grid flow). Dragging re-proportions the
+   tracks on that axis; the thin bar lights up on hover / while dragging. */
+.sv-gutter { position: absolute; z-index: 6; }
+.sv-gutter-col { width: 12px; transform: translateX(-50%); cursor: col-resize; }
+.sv-gutter-row { height: 12px; transform: translateY(-50%); cursor: row-resize; }
+.sv-gutter::after {
+  content: ''; position: absolute; border-radius: 999px;
+  background: transparent; transition: background 120ms;
+}
+.sv-gutter-col::after { inset: 6px 4px; }
+.sv-gutter-row::after { inset: 4px 6px; }
+.sv-gutter:hover::after { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+body.sv-resizing { cursor: inherit; user-select: none; }
+body.sv-resizing .sv-gutter::after { background: var(--accent); }
+/* Blank pane content during a drag so iframes / scrollers can't eat the move. */
+body.sv-resizing .sv-pane { pointer-events: none; }
 
 /* 2 side-by-side */
 .sv-vertical {

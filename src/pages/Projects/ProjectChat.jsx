@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
+// Cursor coords are viewport px; the CSS lengths we set (--spot-x/y, the rail
+// width) are layout px — under the app's CSS-zoom downscale the two differ
+// (see lib/appZoom).
+import { toLayoutPx } from '../../lib/appZoom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { usePaneChromeSlot, usePaneChromePortalEl, usePaneChromeFooterEl } from '../../context/PaneChromeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -27,6 +31,7 @@ import {
   subscribePrivateMessages,
 } from '../../lib/privateMessages';
 import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
+import Tooltip from '../../components/Tooltip';
 import { useMorphPill } from '../../components/useMorphPill';
 import { openFileWindow, openDocx, isDocxFile, canOpenInApp } from '../../lib/platform';
 import { useChatFind } from '../../lib/useChatFind';
@@ -177,23 +182,27 @@ function VbAttachment({ file, compact = false, onOpen }) {
   const color = hashColor(file.id || file.name);
   if (compact) {
     return (
-      <button type="button" className="dvx-attach-pill" title={file.name} onClick={onOpen ? () => onOpen(file) : undefined}>
-        <span className="dvx-attach-pill-ext" style={{ background: color }}>{ext}</span>
-        <span className="dvx-attach-pill-name">{file.name}</span>
-        <span className="dvx-attach-pill-size">{formatBytes(file.size_bytes)}</span>
-      </button>
+      <Tooltip content={file.name}>
+        <button type="button" className="dvx-attach-pill" onClick={onOpen ? () => onOpen(file) : undefined}>
+          <span className="dvx-attach-pill-ext" style={{ background: color }}>{ext}</span>
+          <span className="dvx-attach-pill-name">{file.name}</span>
+          <span className="dvx-attach-pill-size">{formatBytes(file.size_bytes)}</span>
+        </button>
+      </Tooltip>
     );
   }
   return (
-    <button type="button" className="dvx-attach-card" title={file.name} onClick={onOpen ? () => onOpen(file) : undefined}>
-      <span className="dvx-attach-thumb" style={{ background: `linear-gradient(135deg, ${color}, ${color}cc)` }}>
-        <span className="dvx-attach-ext">{ext}</span>
-      </span>
-      <span className="dvx-attach-meta">
-        <span className="dvx-attach-name">{file.name}</span>
-        <span className="dvx-attach-size">{formatBytes(file.size_bytes)}</span>
-      </span>
-    </button>
+    <Tooltip content={file.name}>
+      <button type="button" className="dvx-attach-card" onClick={onOpen ? () => onOpen(file) : undefined}>
+        <span className="dvx-attach-thumb" style={{ background: `linear-gradient(135deg, ${color}, ${color}cc)` }}>
+          <span className="dvx-attach-ext">{ext}</span>
+        </span>
+        <span className="dvx-attach-meta">
+          <span className="dvx-attach-name">{file.name}</span>
+          <span className="dvx-attach-size">{formatBytes(file.size_bytes)}</span>
+        </span>
+      </button>
+    </Tooltip>
   );
 }
 
@@ -594,8 +603,8 @@ const TeamComposer = React.memo(function TeamComposer({
         className="dvx-composer vb-composer"
         onMouseMove={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
-          e.currentTarget.style.setProperty('--spot-x', `${e.clientX - r.left}px`);
-          e.currentTarget.style.setProperty('--spot-y', `${e.clientY - r.top}px`);
+          e.currentTarget.style.setProperty('--spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
+          e.currentTarget.style.setProperty('--spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
         }}
       >
         <textarea
@@ -612,11 +621,11 @@ const TeamComposer = React.memo(function TeamComposer({
           maxLength={4000}
         />
         <div className="dvx-composer-toolbar">
-          <button type="button" className="dvx-composer-btn" title="Mention someone" aria-label="Mention" onClick={() => textareaRef.current?.focus()}><Icon.At /></button>
-          <button type="button" className="dvx-composer-btn" title="Emoji (coming soon)" aria-label="Emoji" disabled><Icon.Smile /></button>
-          <button type="button" className="dvx-composer-btn" title="Voice note (coming soon)" aria-label="Voice note" disabled><Icon.Mic /></button>
+          <Tooltip content="Mention someone"><button type="button" className="dvx-composer-btn" aria-label="Mention" onClick={() => textareaRef.current?.focus()}><Icon.At /></button></Tooltip>
+          <Tooltip content="Emoji (coming soon)"><button type="button" className="dvx-composer-btn" aria-label="Emoji" disabled><Icon.Smile /></button></Tooltip>
+          <Tooltip content="Voice note (coming soon)"><button type="button" className="dvx-composer-btn" aria-label="Voice note" disabled><Icon.Mic /></button></Tooltip>
           <div className="dvx-composer-toolbar-spacer" />
-          <button type="button" className="dvx-composer-btn dvx-composer-send" onClick={handleSend} disabled={sending || !draft.trim()} title="Send" aria-label="Send"><Icon.Send /></button>
+          <Tooltip content="Send"><button type="button" className="dvx-composer-btn dvx-composer-send" onClick={handleSend} disabled={sending || !draft.trim()} aria-label="Send"><Icon.Send /></button></Tooltip>
         </div>
       </div>
 
@@ -761,7 +770,9 @@ export default function ProjectChat() {
   const [extrasTick, setExtrasTick] = useState(0);
   const bumpExtras = useCallback(() => setExtrasTick((t) => t + 1), []);
   const [railTab, setRailTab] = useState('threads');
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  // Pinned / Threads / Mentions / Files panel starts minimized — open it with
+  // the burger toggle (or by opening a thread).
+  const [railCollapsed, setRailCollapsed] = useState(true);
   // Width of the Pinned/Threads/Mentions/Files panel — drag the splitter to
   // resize it (clamped). Default tracks the header section-tabs width (so the
   // panel's left edge lines up with the "Pinned" tab) until the user drags.
@@ -777,7 +788,7 @@ export default function ProjectChat() {
     const startW = railWidth;
     const onMove = (ev) => {
       // Dragging the splitter LEFT widens the panel (it sits on the right).
-      const next = Math.max(240, Math.min(560, startW + (startX - ev.clientX)));
+      const next = Math.max(240, Math.min(560, startW + toLayoutPx(startX - ev.clientX)));
       setRailWidth(next);
     };
     const onUp = () => {
@@ -1423,9 +1434,11 @@ export default function ProjectChat() {
   const chatChromeTools = (
     <div className="dvx-chrome-tools">
       {/* Huddle on the left, search on the right (search has margin-left:auto). */}
-      <button type="button" className="dvx-action-btn is-accent" disabled title="Start a huddle (coming soon)">
-        <Icon.Headset /><span>Start huddle</span>
-      </button>
+      <Tooltip content="Start a huddle (coming soon)">
+        <button type="button" className="dvx-action-btn is-accent" disabled>
+          <Icon.Headset /><span>Start huddle</span>
+        </button>
+      </Tooltip>
       <div className={`dvx-chrome-search${chatSearch ? ' is-active' : ''}`}>
         <Icon.Search className="dvx-chrome-search-glyph" width="15" height="15" />
         <input
@@ -1447,15 +1460,16 @@ export default function ProjectChat() {
           </span>
         ) : null}
         {chatSearch ? (
-          <button
-            type="button"
-            className="dvx-chrome-search-clear"
-            title="Clear search"
-            aria-label="Clear search"
-            onClick={() => { setChatSearch(''); chatSearchRef.current?.focus(); }}
-          >
-            <Icon.Close width="13" height="13" />
-          </button>
+          <Tooltip content="Clear search">
+            <button
+              type="button"
+              className="dvx-chrome-search-clear"
+              aria-label="Clear search"
+              onClick={() => { setChatSearch(''); chatSearchRef.current?.focus(); }}
+            >
+              <Icon.Close width="13" height="13" />
+            </button>
+          </Tooltip>
         ) : (
           <span className="dvx-chrome-search-kbd">
             <kbd>{isMacPlatform ? '⌘' : 'Ctrl'}</kbd>
@@ -1507,15 +1521,16 @@ export default function ProjectChat() {
           are hidden while the panel is collapsed — only the burger remains. */}
       {tab === 'team' && (
         <div className="vb-header-right">
-          <button
-            type="button"
-            className="vb-htab-collapse"
-            title={railCollapsed ? 'Show panel' : 'Hide panel'}
-            aria-label={railCollapsed ? 'Show panel' : 'Hide panel'}
-            onClick={() => setRailCollapsed((v) => !v)}
-          >
-            <Icon.Menu />
-          </button>
+          <Tooltip content={railCollapsed ? 'Show panel' : 'Hide panel'}>
+            <button
+              type="button"
+              className="vb-htab-collapse"
+              aria-label={railCollapsed ? 'Show panel' : 'Hide panel'}
+              onClick={() => setRailCollapsed((v) => !v)}
+            >
+              <Icon.Menu />
+            </button>
+          </Tooltip>
           {!railCollapsed && (
             <div
               className="vb-header-sections has-rail"
@@ -1526,13 +1541,14 @@ export default function ProjectChat() {
               style={{ width: `${railWidth}px` }}
             >
               {/* Drag handle on the tab-bar divider — resizes the split. */}
-              <div
-                className="vb-htab-resizer"
-                role="separator"
-                aria-orientation="vertical"
-                title="Drag to resize"
-                onMouseDown={startRailResize}
-              />
+              <Tooltip content="Drag to resize">
+                <div
+                  className="vb-htab-resizer"
+                  role="separator"
+                  aria-orientation="vertical"
+                  onMouseDown={startRailResize}
+                />
+              </Tooltip>
               {railSections.sections.map((s) => (
                 <button
                   key={s.id}
@@ -1687,7 +1703,7 @@ export default function ProjectChat() {
                                 <VbAvatar profile={memberById.get(m.author_id)?.profile} authorId={m.author_id} size={24} />
                                 <span className="vb-rail-card-author">{displayName(memberById.get(m.author_id)?.profile)}</span>
                                 <span className="vb-rail-card-time">{relativeShort(m.created_at)}</span>
-                                <button type="button" className="vb-rail-card-action" title="Unpin" aria-label="Unpin" onClick={() => handleTogglePin(m)}><Icon.Close /></button>
+                                <Tooltip content="Unpin"><button type="button" className="vb-rail-card-action" aria-label="Unpin" onClick={() => handleTogglePin(m)}><Icon.Close /></button></Tooltip>
                               </div>
                               <div className="vb-rail-card-body">{m.body}</div>
                               <button type="button" className="vb-rail-card-foot" onClick={() => jumpToMessage(m.id)}><Icon.Arrow /><span>Jump to message</span></button>
@@ -1899,7 +1915,7 @@ export default function ProjectChat() {
                       />
                       <div className="dvx-composer-toolbar">
                         <div className="dvx-composer-toolbar-spacer" />
-                        <button type="button" className="dvx-composer-btn dvx-composer-send" onClick={handleSendPrivate} disabled={privateSending || !privateDraft.trim()} title="Send" aria-label="Send"><Icon.Send /></button>
+                        <Tooltip content="Send"><button type="button" className="dvx-composer-btn dvx-composer-send" onClick={handleSendPrivate} disabled={privateSending || !privateDraft.trim()} aria-label="Send"><Icon.Send /></button></Tooltip>
                       </div>
                     </div>
                   </div>

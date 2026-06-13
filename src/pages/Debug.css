@@ -5,7 +5,7 @@
 }
 /* Three-quarters of the content width on wide screens, left-aligned — shared
    with Activity / Newsletter / Versions / Settings. */
-@media (min-width: 1280px) {
+@media (min-width: 1024px) { /* 1280px pre-scale */
   .debug-page { width: 75%; }
 }
 

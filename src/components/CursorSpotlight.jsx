@@ -1,4 +1,9 @@
 import React, { useEffect, useRef } from 'react';
+// clientX is viewport px; the transform/background-position we set are layout
+// px — under the app's CSS-zoom downscale the two differ (see lib/appZoom).
+// x/y are kept in LAYOUT px so rounding still lands on the dot grid's own
+// (layout-px) tile offsets.
+import { toLayoutPx } from '../lib/appZoom';
 import './CursorSpotlight.css';
 
 // A cursor-following "spotlight" that brightens the ambient dot grid in a soft
@@ -28,8 +33,8 @@ export default function CursorSpotlight() {
 
     const R = 215; // spotlight radius — keep in sync with CursorSpotlight.css
     let frame = null;
-    let x = window.innerWidth / 2;
-    let y = window.innerHeight / 2;
+    let x = toLayoutPx(window.innerWidth) / 2;
+    let y = toLayoutPx(window.innerHeight) / 2;
 
     const apply = () => {
       frame = null;
@@ -42,8 +47,8 @@ export default function CursorSpotlight() {
     };
 
     const onMove = (e) => {
-      x = e.clientX;
-      y = e.clientY;
+      x = toLayoutPx(e.clientX);
+      y = toLayoutPx(e.clientY);
       if (frame == null) frame = requestAnimationFrame(apply);
     };
 

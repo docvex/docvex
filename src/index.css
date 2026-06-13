@@ -2,6 +2,29 @@
   box-sizing: border-box;
 }
 
+/* ── App-wide 20% downscale ───────────────────────────────────────────────
+   The whole UI renders 20% smaller via CSS zoom on the root — a manual,
+   stylesheet-level scale (zoom on the root reflows like page zoom: the layout
+   viewport grows to 125%, so percentage-height shells and position:fixed
+   keep covering the window). Deliberately NOT webFrame zoom — that stays
+   reserved for the Settings "Display scale" preference, which composes on
+   top of this baseline.
+   Keep in sync with BASE_APP_ZOOM in src/lib/appZoom.js — that module also
+   documents the viewport-px vs layout-px split this introduces for any JS
+   that positions elements from cursor coordinates (use its toLayoutPx).
+
+   Viewport units are NOT rescaled by root zoom (verified in this Electron:
+   a 100vh box renders at only 80% of the window). --vh1/--vw1 below are the
+   zoom-corrected 1% units — write `calc(N * var(--vh1))` wherever you'd
+   write `Nvh`. Percentage chains (height: 100%) and position:fixed inset
+   need no correction. Width media queries also see REAL window px, so
+   breakpoints are pre-multiplied by 0.8 at each @media site. */
+:root {
+  zoom: 0.8;
+  --vh1: calc(1vh / 0.8); /* 1% of the real window height, in layout px */
+  --vw1: calc(1vw / 0.8); /* 1% of the real window width,  in layout px */
+}
+
 /* Height of the custom frameless title bar (Electron only). The bar itself is
    fixed at top:0; surfaces reserve room for it via `.with-titlebar` offsets in
    their own CSS (AppShell, Sidebar, Launch, AuthPage). 0 by default so nothing
@@ -28,9 +51,12 @@ body {
 
 /* #root must be exactly the viewport — any overflow here scrolls the whole
    document, which would carry the sidebar up with everything else. The
-   inner .main-content panel owns vertical scrolling for page content. */
+   inner .main-content panel owns vertical scrolling for page content.
+   100% (through the html/body chain) rather than 100vh: under the root zoom
+   above, vh units under-cover the window by 20% while the percentage chain
+   stays exact. */
 #root {
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
 }
 

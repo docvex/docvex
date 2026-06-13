@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Tooltip from './Tooltip';
 import './FpsMeter.css';
 
 // Lightweight FPS indicator pinned to the top-centre of the window — a quick
@@ -27,8 +28,10 @@ export default function FpsMeter() {
 
   const tier = fps >= 50 ? 'good' : fps >= 30 ? 'ok' : 'bad';
   return (
-    <div className={`fps-meter is-${tier}`} aria-hidden="true" title="Frames per second">
-      {fps} FPS
-    </div>
+    <Tooltip content="Frames per second">
+      <div className={`fps-meter is-${tier}`} aria-hidden="true">
+        {fps} FPS
+      </div>
+    </Tooltip>
   );
 }

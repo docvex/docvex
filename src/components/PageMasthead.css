@@ -42,7 +42,7 @@
 .pmh-mh-kicker { margin: 0; font-size: 15px; line-height: 1.55; color: var(--text-secondary); max-width: 580px; }
 .pmh-mh-kicker strong { color: var(--text-primary); font-weight: 600; }
 .pmh-mh-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-@media (max-width: 640px) { .pmh-mh-title { font-size: 42px; } }
+@media (max-width: 512px) { /* 640px pre-scale */ .pmh-mh-title { font-size: 42px; } }
 
 /* ── Compact header on scroll ───────────────────────────────────────────────
    A blurred, translucent bar fixed to the content area that fades + slides in

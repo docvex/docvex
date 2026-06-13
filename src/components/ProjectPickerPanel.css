@@ -22,7 +22,7 @@
      aren't clipped under either. */
   top: calc(var(--titlebar-h) + var(--topnav-h, 0px));
   left: 0;
-  height: calc(100vh - var(--titlebar-h) - var(--topnav-h, 0px));
+  height: calc(100 * var(--vh1) - var(--titlebar-h) - var(--topnav-h, 0px));
   /* Wider than the sidebar (220px) so project names have breathing room.
      Tradeoff against horizontal real estate â€” 260px reads comfortably for
      names up to ~28 chars before truncation kicks in. */

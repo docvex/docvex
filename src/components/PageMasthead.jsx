@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import Tooltip from './Tooltip';
 import './PageMasthead.css';
 
 // Editorial page header, ported from the Versions ("Updates") page so every
@@ -46,9 +47,11 @@ export default function PageMasthead({
     <div className="pmh" ref={ref}>
       {compact && (
         <div className={`pmh-compact${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
-          <button type="button" className="pmh-compact-titlebtn" onClick={scrollToTop} title="Back to top">
-            <span className="pmh-compact-title">{title}</span>
-          </button>
+          <Tooltip content="Back to top">
+            <button type="button" className="pmh-compact-titlebtn" onClick={scrollToTop}>
+              <span className="pmh-compact-title">{title}</span>
+            </button>
+          </Tooltip>
           {eyebrow && (
             <>
               <span className="pmh-compact-sep" aria-hidden="true">·</span>

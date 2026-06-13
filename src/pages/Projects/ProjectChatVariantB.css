@@ -617,11 +617,12 @@
   background: transparent;
   border: none;
   padding: 0 12px;
-  color: var(--text-muted);
+  color: #fff;
   cursor: pointer;
-  transition: color 140ms;
+  transition: color 140ms, opacity 140ms;
+  opacity: 0.85;
 }
-.vb-htab-collapse:hover { color: var(--text-secondary); }
+.vb-htab-collapse:hover { color: #fff; opacity: 1; }
 .vb-htab-collapse svg { width: 14px; height: 14px; }
 
 /* ───── Generic search field ─────────────────────────────────────── */
@@ -860,7 +861,7 @@
 }
 .vb-search {
   width: 320px;
-  max-width: 38vw;
+  max-width: calc(38 * var(--vw1));
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2055,10 +2056,10 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
 .vb-rail-section-title:first-child { margin-top: 0; }
 
 /* ───── Narrow viewports: let the rail collapse gracefully ───────── */
-@media (max-width: 1080px) {
+@media (max-width: 864px) { /* 1080px pre-scale */
   .vb-search { width: 200px; }
 }
-@media (max-width: 920px) {
+@media (max-width: 736px) { /* 920px pre-scale */
   .vb-private { grid-template-columns: 200px 1fr; }
   .vb-private-rail { display: none; }
 }

@@ -35,9 +35,14 @@ const openRoute = launchParams.get('route');
 // global selection rather than a URL param — resolves to the right project.
 const safeRoute =
   openRoute && openRoute.startsWith(`/projects/${openProjectId}`) ? openRoute : null;
-const initialEntries = openProjectId
-  ? [safeRoute || '/files']
-  : ['/'];
+// Document-viewer windows (opened from the Files page) boot straight into the
+// full-screen /doc-viewer route, carrying the file's path/name/mime through.
+const isDocViewer = launchParams.get('docViewer') === '1';
+const initialEntries = isDocViewer
+  ? [`/doc-viewer?${launchParams.toString()}`]
+  : openProjectId
+    ? [safeRoute || '/files']
+    : ['/'];
 if (openProjectId) markLaunchConsumed();
 
 // Provider order:

@@ -8,6 +8,7 @@ import {
   RECENT_PROJECTS_CHANGED_EVENT,
 } from '../../lib/recentProjects';
 import { useAuth } from '../../context/AuthContext';
+import { useTooltip } from '../../components/Tooltip';
 import './ProjectList.css';
 
 // Projects — "Editorial Dossier" redesign (Claude Design handoff
@@ -61,23 +62,33 @@ const DAY_MS = 86400000;
 // Overlapping member avatars (account image, or a coloured initials circle as
 // fallback). Renders nothing when there are no member profiles — the numeric
 // member count is shown separately, right after the stack.
+// One avatar in the stack. Uses the tooltip HOOK (not the <Tooltip> wrapper) so
+// the avatar stays a direct child of `.pjx-avatars` — the overlap relies on
+// `.pjx-avatar:first-child`, which a display:contents wrapper would break.
+function AvatarChip({ member }) {
+  const { triggerProps, tooltip } = useTooltip(member.name);
+  return (
+    <>
+      <span
+        className="pjx-avatar"
+        style={member.avatarUrl ? undefined : { background: avatarColor(member.userId) }}
+        {...triggerProps}
+      >
+        {member.avatarUrl
+          ? <img src={member.avatarUrl} alt="" referrerPolicy="no-referrer" draggable={false} />
+          : member.initials}
+      </span>
+      {tooltip}
+    </>
+  );
+}
+
 function AvatarStack({ members = [], max = 4 }) {
   const shown = members.slice(0, max);
   if (shown.length === 0) return null;
   return (
     <div className="pjx-avatars">
-      {shown.map((m) => (
-        <span
-          key={m.userId}
-          className="pjx-avatar"
-          title={m.name}
-          style={m.avatarUrl ? undefined : { background: avatarColor(m.userId) }}
-        >
-          {m.avatarUrl
-            ? <img src={m.avatarUrl} alt="" referrerPolicy="no-referrer" draggable={false} />
-            : m.initials}
-        </span>
-      ))}
+      {shown.map((m) => <AvatarChip key={m.userId} member={m} />)}
     </div>
   );
 }

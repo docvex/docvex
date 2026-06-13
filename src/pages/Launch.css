@@ -947,7 +947,7 @@
   /* Center the first-run card vertically + horizontally in the view (the
      page headline is hidden in this state, so the card owns the space). */
   justify-content: center;
-  min-height: 72vh;
+  min-height: calc(72 * var(--vh1));
 }
 .lh-empty h2 {
   /* Match the main page header (.lh-title) size when projects exist. */
@@ -1792,7 +1792,7 @@ button.lh-learn-card:hover {
 .lh-pset-danger-btn:disabled { opacity: 0.6; cursor: default; }
 
 /* Narrow windows — drop the "last accessed" column so the row doesn't crush. */
-@media (max-width: 720px) {
+@media (max-width: 576px) { /* 720px pre-scale */
   .lh-row-top { grid-template-columns: auto 1fr auto; gap: 10px; }
   .lh-row-accessed { display: none; }
 }

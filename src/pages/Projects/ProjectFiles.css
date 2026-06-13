@@ -21,7 +21,7 @@
    a ~160px sliver of empty space to the right of the grid when the
    sidebar is collapsed, which beats the layout flicker. */
 .project-files-page {
-  max-width: min(1400px, calc(100vw - 220px - 4rem));
+  max-width: min(1400px, calc(100 * var(--vw1) - 220px - 4rem));
 }
 
 /* Local-folder controls â€” lives under the page subtitle. Single row:
@@ -940,7 +940,7 @@
 /* Responsive â€” narrow viewports just let the local-folder bar wrap.
    The tab strip stays horizontal at all widths (it's already compact
    with the count pills). */
-@media (max-width: 1100px) {
+@media (max-width: 880px) { /* 1100px pre-scale */
   .project-files-local-bar {
     flex-wrap: wrap;
   }

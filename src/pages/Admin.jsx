@@ -5,6 +5,7 @@ import {
   listAppServices, upsertAppService, deleteAppService,
 } from '../lib/admin';
 import { openExternal } from '../lib/platform';
+import Tooltip from '../components/Tooltip';
 import './Admin.css';
 
 // ── Developer Console (Admin) ──────────────────────────────────────────────
@@ -265,9 +266,11 @@ function ServiceCard({ svc, onEdit, displayCurrency }) {
         <div className="dc-svc-id">
           <div className="dc-svc-name">{svc.provider}</div>
         </div>
-        <button type="button" className="dc-svc-edit" onClick={() => onEdit(svc)} title="Edit service" aria-label="Edit service">
-          {EditIcon}
-        </button>
+        <Tooltip content="Edit service">
+          <button type="button" className="dc-svc-edit" onClick={() => onEdit(svc)} aria-label="Edit service">
+            {EditIcon}
+          </button>
+        </Tooltip>
       </div>
       <div className="dc-svc-pricerow">
         <span className="dc-svc-price-amt">{fmtMoney(amt, cur)} <small>{cycleLabel(svc.cycle)}</small></span>
@@ -775,15 +778,16 @@ function AccessSection() {
                   Added {a.added_at ? relTime(a.added_at) : ''}{a.added_by_email ? ` · by ${a.added_by_email}` : ''}
                 </div>
               </div>
-              <button
-                type="button"
-                className="dc-access-remove"
-                onClick={() => onRemove(a.email)}
-                disabled={removing === a.email || admins.length <= 1}
-                title={admins.length <= 1 ? 'Cannot remove the last admin' : 'Revoke access'}
-              >
-                {removing === a.email ? '…' : '✕'}
-              </button>
+              <Tooltip content={admins.length <= 1 ? 'Cannot remove the last admin' : 'Revoke access'}>
+                <button
+                  type="button"
+                  className="dc-access-remove"
+                  onClick={() => onRemove(a.email)}
+                  disabled={removing === a.email || admins.length <= 1}
+                >
+                  {removing === a.email ? '…' : '✕'}
+                </button>
+              </Tooltip>
             </div>
           ))
         ) : (
@@ -1039,15 +1043,16 @@ export default function Admin() {
         <span className="dc-compact-sep" aria-hidden="true">·</span>
         <span className="dc-compact-eyebrow">Developer console</span>
         <span className="dc-compact-sep" aria-hidden="true">·</span>
-        <button
-          type="button"
-          className="dc-compact-status"
-          onClick={scrollToTop}
-          title="Back to top"
-        >
-          <span className="dc-compact-dot" aria-hidden="true" />
-          {activeCount} active · {fmtMoney(monthlySpend, BASE, { decimals: 0 })} / mo
-        </button>
+        <Tooltip content="Back to top">
+          <button
+            type="button"
+            className="dc-compact-status"
+            onClick={scrollToTop}
+          >
+            <span className="dc-compact-dot" aria-hidden="true" />
+            {activeCount} active · {fmtMoney(monthlySpend, BASE, { decimals: 0 })} / mo
+          </button>
+        </Tooltip>
       </div>
 
       <div className="dc-page">

@@ -260,11 +260,25 @@ async function resolve(descriptor) {
   // the component paints the square glyph badge instead of a broken image.
   if (m.startsWith('image/')) return isRenderableImage(m, name) ? sourceUrl : null;
 
-  // Video fast-path: stream the source directly into a hidden <video>
-  // and snap a frame. Avoids the whole-file fetch the generic branch
-  // below would do — large videos on slow connections would otherwise
-  // hang the card while megabytes download just to grab a poster.
+  // Video: for on-disk files, ask the localfile handler's `?thumb=` branch
+  // first — the OS thumbnailer (Windows Shell / macOS QuickLook) returns the
+  // same poster frame Explorer shows, instantly and without spinning up a
+  // <video> element per card. The handler streams the ORIGINAL video bytes
+  // when it can't generate one (e.g. Linux, exotic codec), so the
+  // content-type check below is what decides whether the response really is
+  // a poster. Fallback: stream the source into a hidden <video> and snap a
+  // frame — avoids the whole-file fetch the generic branch below would do.
   if (m.startsWith('video/')) {
+    if (sourceUrl.startsWith('localfile://')) {
+      try {
+        const thumbUrl = `${sourceUrl}${sourceUrl.includes('?') ? '&' : '?'}thumb=512`;
+        const res = await fetch(thumbUrl);
+        if (res.ok && (res.headers.get('content-type') || '').startsWith('image/')) {
+          const blob = await res.blob();
+          return URL.createObjectURL(blob);
+        }
+      } catch { /* fall through to the <video> extraction */ }
+    }
     return extractVideoPosterFromUrl(sourceUrl);
   }
 

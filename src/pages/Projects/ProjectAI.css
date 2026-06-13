@@ -32,7 +32,7 @@
 .ai-hub .ai-eyebrow { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-muted); display: flex; align-items: center; gap: 8px; }
 .ai-hub .ai-eyebrow .spark { color: var(--accent); display: inline-flex; }
 .ai-hub .ai-eyebrow .spark svg { width: 13px; height: 13px; }
-.ai-hub .ai-title { font-family: var(--font-display); font-size: clamp(30px, 3.6vw, 42px); font-weight: 700; letter-spacing: -0.025em; color: var(--text-primary); margin: 10px 0 0; line-height: 1.04; }
+.ai-hub .ai-title { font-family: var(--font-display); font-size: clamp(30px, calc(3.6 * var(--vw1)), 42px); font-weight: 700; letter-spacing: -0.025em; color: var(--text-primary); margin: 10px 0 0; line-height: 1.04; }
 .ai-hub .ai-sub { color: var(--text-muted); font-size: 14px; margin: 9px 0 0; max-width: 60ch; }
 .ai-hub .ai-sub b { color: var(--text-secondary); font-weight: 600; }
 
@@ -359,7 +359,7 @@
 .ai-hub .check-d { font-size: 0.78rem; color: var(--text-muted); margin-top: 3px; line-height: 1.5; }
 .ai-hub .check-fix { font-size: 0.76rem; color: var(--accent); font-weight: 600; cursor: pointer; background: none; border: none; font-family: inherit; padding: 0; margin-top: 7px; }
 
-@media (max-width: 1080px) {
+@media (max-width: 864px) { /* 1080px pre-scale */
   .ai-hub { width: 100%; }
   .ai-hub .cards.c3, .ai-hub .cards.c4 { grid-template-columns: repeat(2, 1fr); }
   .ai-hub .tool { grid-template-columns: 1fr; }

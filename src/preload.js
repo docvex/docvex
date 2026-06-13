@@ -104,6 +104,33 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openHtmlWindow: (html, fileName) =>
     ipcRenderer.send('app:open-html-window', { html, fileName }),
 
+  // Open a file in a dedicated DocVex document-viewer window (file preview
+  // + Legal AI panel). The renderer boots the /doc-viewer route from the
+  // path/name/mime query params (see renderer.jsx).
+  openDocViewerWindow: (file) =>
+    ipcRenderer.send('window:open-doc-viewer', file),
+
+  // The shared doc-viewer window listens for additional files to open as new
+  // tabs (subsequent double-clicks in the Files page). Returns an unsubscribe.
+  onDocViewerAddFile: (cb) => {
+    const listener = (_e, file) => cb(file);
+    ipcRenderer.on('doc-viewer:add-file', listener);
+    return () => ipcRenderer.removeListener('doc-viewer:add-file', listener);
+  },
+
+  // Extract text from a legacy .doc file (main process parses the binary).
+  extractDocText: (filePath) => ipcRenderer.invoke('doc:extract-text', filePath),
+
+  // Extract a WhatsApp export .zip to a temp folder and locate its chat
+  // transcript. Resolves { ok, chatPath, name } when it's a WhatsApp export
+  // (so the doc-viewer can reconstruct it with media), else { ok: false }.
+  prepareWhatsAppZip: (zipPath) => ipcRenderer.invoke('whatsapp:prepare-zip', zipPath),
+
+  // Content-based WhatsApp recognition for the Files tab: given folder /
+  // .zip paths, resolves { [path]: bool } by inspecting their CONTENTS in
+  // main (never the names — a renamed export keeps its mark).
+  detectWhatsApp: (paths) => ipcRenderer.invoke('whatsapp:detect', paths),
+
   // Open a DOCX with the best-available renderer. Main walks the
   // fallback chain: installed Word → Office Online (in-app window)
   // → OS default. Callers pass whichever sources they have

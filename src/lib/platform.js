@@ -16,6 +16,8 @@
 // Today these are equivalent in practice; the distinction exists so that
 // callers can pick the right semantic.
 
+import { BASE_APP_ZOOM } from './appZoom';
+
 const electronAPI =
   typeof window !== 'undefined' && window.electronAPI ? window.electronAPI : null;
 
@@ -150,6 +152,47 @@ export function openFileWindow(url, fileName) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+// Open a file in DocVex's document-viewer window — the file preview PLUS a
+// Legal AI panel (src/pages/DocViewer.jsx). `file` is { path, name, mime }.
+// Electron only: returns true when handled, false on web so the caller can
+// fall back to openFileWindow / openDocx.
+export function openDocViewerWindow(file) {
+  if (electronAPI?.openDocViewerWindow) {
+    electronAPI.openDocViewerWindow(file);
+    return true;
+  }
+  return false;
+}
+
+// Subscribe to "open this file as a new tab" pushes for the shared doc-viewer
+// window. Returns an unsubscribe fn (no-op on web).
+export function onDocViewerAddFile(cb) {
+  return electronAPI?.onDocViewerAddFile ? electronAPI.onDocViewerAddFile(cb) : (() => {});
+}
+
+// Extract readable text from a legacy .doc file (parsed in the Electron main
+// process). Resolves { text } or { error }; { error:'unsupported' } on web.
+export function extractDocText(filePath) {
+  return electronAPI?.extractDocText ? electronAPI.extractDocText(filePath) : Promise.resolve({ error: 'unsupported' });
+}
+
+// Extract a WhatsApp export .zip (main process) and locate its chat transcript.
+// Resolves { ok, chatPath, name } so the caller can open the reconstructed
+// conversation in the doc-viewer; { ok: false } when it isn't a WhatsApp export
+// or on web (no filesystem / IPC).
+export function prepareWhatsAppZip(zipPath) {
+  return electronAPI?.prepareWhatsAppZip ? electronAPI.prepareWhatsAppZip(zipPath) : Promise.resolve({ ok: false });
+}
+
+// Content-based WhatsApp recognition for the Files tab. Resolves a
+// { [path]: boolean } map for the given folder / .zip paths — true when the
+// path CONTAINS a chat transcript (decided in the main process by reading
+// inside, so renaming the zip/folder doesn't lose recognition). Web has no
+// filesystem/IPC → empty map (the UI falls back to its name heuristic).
+export function detectWhatsApp(paths) {
+  return electronAPI?.detectWhatsApp ? electronAPI.detectWhatsApp(paths) : Promise.resolve({});
+}
+
 // Open a self-contained HTML string in its own window. Used by the
 // .docx viewer (the document is rendered to HTML via docx-preview in the
 // renderer). Electron stages it to a temp file + native window; web opens
@@ -278,9 +321,17 @@ export function onUpdateStatus(handler) {
 
 // ── App-wide UI scale (Settings → Text size) ──────────────────────────────
 
-// Apply a global UI zoom factor (1 = 100%).
-// Electron: webFrame zoom — scales the whole renderer including px sizes.
-// Web: CSS `zoom` on <html> as a best-effort equivalent.
+// Apply a global UI zoom factor (1 = 100%). This is RELATIVE to the app's
+// baseline 20% downscale (`:root { zoom: 0.8 }` in index.css; see
+// src/lib/appZoom.js) — total visual scale = 0.8 × factor.
+// Electron: webFrame (browser) zoom — it rescales the VIEWPORT, so vh/vw,
+//   media queries and clientX-vs-layout math stay consistent, and it stacks
+//   multiplicatively on the CSS baseline without touching it. Same mechanism
+//   VS Code uses; renders text crisply.
+// Web: no webFrame, so the factor is folded into the inline CSS `zoom` on
+//   <html>. The inline style overrides index.css's 0.8 declaration, so the
+//   baseline must be multiplied in here — and any vh/vw correction reads the
+//   LIVE zoom (appZoom()) rather than the constant for exactly this reason.
 export function setAppZoom(factor) {
   const f = Number(factor) || 1;
   if (electronAPI?.setZoomFactor) {
@@ -288,7 +339,16 @@ export function setAppZoom(factor) {
     return;
   }
   if (typeof document !== 'undefined') {
-    try { document.documentElement.style.zoom = String(f); } catch { /* non-fatal */ }
+    try {
+      const z = f * BASE_APP_ZOOM;
+      const root = document.documentElement;
+      root.style.zoom = String(z);
+      // Re-derive the vh/vw correction units (declared in index.css for the
+      // baseline) against the new effective zoom, so 100*var(--vh1) keeps
+      // meaning "the real window height" at every display-scale setting.
+      root.style.setProperty('--vh1', `calc(1vh / ${z})`);
+      root.style.setProperty('--vw1', `calc(1vw / ${z})`);
+    } catch { /* non-fatal */ }
   }
 }
 
