@@ -506,11 +506,16 @@ export default function SplitContainer({ primary }) {
     // chrome bar (title + destination dropdown) is redundant noise there —
     // suppress it for those routes. The sidebar still drives navigation.
     const chromeless = CHROMELESS_FULLSCREEN_ROUTES.has(pathname);
+    // The Hub (/projects) brings its OWN left rail (the launcher's Projects /
+    // Updates / Settings / Documentation nav), so the app's persistent
+    // destination rail is suppressed there to avoid two stacked rails. The top
+    // Sidebar still drives window navigation.
+    const railless = pathname === '/projects';
     return (
-      <div className={`sv-single sv-single--nav${chromeless ? ' is-chromeless' : ''}`}>
+      <div className={`sv-single${railless ? '' : ' sv-single--nav'}${chromeless ? ' is-chromeless' : ''}`}>
         {/* Persistent left rail of switchable destinations (replaces the old
             chrome destination dropdown in single-window mode). */}
-        <PaneSideNav />
+        {!railless && <PaneSideNav />}
         <div className="sv-single-body">
           <PaneIndexContext.Provider value={0}>
             <PaneChromeProvider>

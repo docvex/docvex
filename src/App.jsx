@@ -1,9 +1,7 @@
 import React, { useEffect, useRef } from 'react';
-import { Navigate, Outlet, useMatch, useLocation } from 'react-router-dom';
-import { useAuth } from './context/AuthContext';
+import { Outlet, useMatch } from 'react-router-dom';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { useSelectedProject } from './context/SelectedProjectContext';
-import { isLaunchConsumed } from './lib/launchGate';
 import { isElectron } from './lib/platform';
 import AppShell from './components/AppShell';
 import TitleBar from './components/TitleBar';
@@ -52,25 +50,6 @@ function ProjectAutoSelect() {
   return null;
 }
 
-// Gate in front of AppShell. On a cold app start (Electron) the MemoryRouter
-// begins at '/', and an authenticated user who hasn't yet passed through the
-// launch hub this session is redirected there ONCE — the Unity-Hub-style
-// "open a project first" screen. The redirect is scoped to the exact home
-// route (pathname === '/'):
-//   - so deep-linked / nested entries (e.g. /invite/:token from a deep link,
-//     or any later in-app navigation) are never hijacked, and
-//   - so redirecting happens BEFORE AppShell mounts — no sidebar flash.
-// Once consumed (the hub sets the flag when the user opens / creates / skips a
-// project), AppShell renders normally for every route including '/'.
-function RootShell() {
-  const { session, loading } = useAuth();
-  const { pathname } = useLocation();
-  if (!loading && isElectron && session && pathname === '/' && !isLaunchConsumed()) {
-    return <Navigate to="/launch" replace />;
-  }
-  return <AppShell />;
-}
-
 // Mounts ProjectProvider once for the /projects/:projectId subtree so the
 // nested routes (Overview, Dashboard) all share one fetch + Realtime channel.
 function ProjectShell() {
@@ -85,27 +64,20 @@ function ProjectShell() {
 // Sets the OS window title so each DocVex window is distinguishable in the
 // macOS dock / Window menu (and the taskbar on Windows). Electron mirrors
 // document.title onto the BrowserWindow title (page-title-updated), so the
-// per-window React tree is the right place to drive it. The window's role is
-// fixed for its lifetime by the query it was opened with (renderer.jsx):
-//   • Hub window      — no ?openProject          → "DocVex — Hub"
-//   • Project window  — ?openProject=<id>        → "DocVex — <project name>"
-//   • Doc-viewer      — ?docViewer=1 (+ name)    → "DocVex — <file name>"
+// per-window React tree is the right place to drive it. Two window roles
+// remain (the launch hub + per-project windows were removed):
+//   • Main window — titled after the working project, else plain "DocVex"
+//   • Doc-viewer  — ?docViewer=1 (+ name) → "DocVex — <file name>"
 function WindowTitle() {
   const { selectedProject } = useSelectedProject();
   useEffect(() => {
     if (!isElectron) return;
     const params = new URLSearchParams(window.location.search);
-    let label;
     if (params.get('docViewer') === '1') {
-      label = params.get('name') || 'Document Viewer';
-    } else if (params.get('openProject')) {
-      // selectedProject hydrates from ?openProject async; until its name lands
-      // show a neutral label rather than flashing the wrong one.
-      label = selectedProject?.name || 'Project';
+      document.title = `DocVex — ${params.get('name') || 'Document Viewer'}`;
     } else {
-      label = 'Hub';
+      document.title = selectedProject?.name ? `DocVex — ${selectedProject.name}` : 'DocVex';
     }
-    document.title = `DocVex — ${label}`;
   }, [selectedProject?.name]);
   return null;
 }
@@ -140,7 +112,7 @@ export default function App() {
     <ReportProblemProvider>
       <WindowTitle />
       {isElectron && <TitleBar />}
-      <AppRoutes Shell={RootShell} ProjectShell={ProjectShell} />
+      <AppRoutes Shell={AppShell} ProjectShell={ProjectShell} />
       <ReportProblemModal />
     </ReportProblemProvider>
   );

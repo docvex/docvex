@@ -91,12 +91,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('window:fullscreen-changed', listener);
   },
 
-  // Open a project in its own window (from the launch hub). The new window
-  // boots straight into `route` (defaults to the project dashboard) via the
-  // ?openProject=<id>&route=<path> query.
-  openProjectWindow: (projectId, route) =>
-    ipcRenderer.send('window:open-project', { projectId, route }),
-
   // Open a signed file URL inside a dedicated in-app BrowserWindow.
   // Used by FileDetailModal's View button + double-click handlers
   // for image / video / PDF / text — types Chromium renders natively.

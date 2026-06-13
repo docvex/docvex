@@ -3,7 +3,40 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createProject } from '../../lib/projects';
 import { useNotifications } from '../../context/NotificationsContext';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
+import { useAuth } from '../../context/AuthContext';
+import { localFolderApi, isElectronBranch } from '../../lib/localFolder';
+import { readProjectsDir } from '../../lib/projectsDir';
 import './ProjectCreate.css';
+
+// Mirror a newly-created project to disk: create + register its folder under
+// the user's chosen projects directory (the shared resolver, so the Files page
+// later resolves to this same folder) and drop a `.docvex.json` sidecar so the
+// folder re-attaches to the project without prompting. Electron only — web has
+// no ambient projects directory. Best-effort: surfaces a toast on failure but
+// never blocks navigation. Migrated from the old launch hub's create flow.
+async function mirrorProjectToDisk(project, userId, notify) {
+  if (!isElectronBranch || !project?.id || !project?.name) return;
+  const projectsDir = readProjectsDir(userId);
+  if (!projectsDir) {
+    notify?.({
+      category: 'project', variant: 'info', icon: 'folder',
+      title: 'Tip: set a projects folder',
+      body: 'Choose one in Settings to auto-create a folder for each new project.',
+      dedupeKey: 'no-projects-dir',
+    });
+    return;
+  }
+  const { path: dir, error } = await localFolderApi.projectDir(project.id, project.name, projectsDir);
+  if (error || !dir) {
+    notify?.({
+      category: 'project', variant: 'warning', icon: 'folder',
+      title: 'Project created, but its folder couldn’t be made',
+      body: error || 'Unknown error', dedupeKey: `folder-fail-${project.id}`,
+    });
+    return;
+  }
+  await localFolderApi.writeSidecar({ dir, json: { version: 1, projectId: project.id, entries: {} } });
+}
 
 const ArrowLeftIcon = (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -16,6 +49,7 @@ export default function ProjectCreate() {
   const navigate = useNavigate();
   const { notify } = useNotifications();
   const { selectProject } = useSelectedProject();
+  const { session } = useAuth();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -55,6 +89,10 @@ export default function ProjectCreate() {
       title: `Project "${data.name}" created`,
       dedupeKey: `project-created-${data.id}`,
     });
+    // Mirror the project to a local folder (Electron, when a projects folder
+    // is set) so the Files page resolves straight to it. Best-effort, awaited
+    // so the sidecar is in place before we navigate to the project.
+    await mirrorProjectToDisk(data, session?.user?.id ?? null, notify);
     // The just-created project becomes the user's working project — it'd
     // be jarring to land on its dashboard and have the sidebar's project
     // section still empty.

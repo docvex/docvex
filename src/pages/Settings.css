@@ -67,6 +67,21 @@
   background: var(--bg-elevated);
 }
 
+/* Workspace card — "Projects folder" picker (Electron only). */
+.set-ws-actions { display: inline-flex; align-items: center; gap: 8px; }
+.set-ws-path {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 9px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  font-size: 13px; color: var(--text-primary); min-width: 0;
+}
+.set-ws-path.is-empty { color: var(--text-muted); }
+.set-ws-path-ico { display: inline-flex; flex-shrink: 0; color: var(--text-muted); }
+.set-ws-path-text {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ───────────────────────── Control primitives ───────────────────────── */
 .set-seg { display: inline-flex; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 2px; }
 .set-seg-opt {

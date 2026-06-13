@@ -104,18 +104,6 @@ export function onWindowFullscreenChanged(handler) {
     : () => {};
 }
 
-// Open a project in its own window (Electron). `route` is the in-app path the
-// new window boots into (defaults to the project dashboard if omitted).
-// Returns true if handled; false on web, so callers can fall back to
-// same-window navigation.
-export function openProjectWindow(projectId, route) {
-  if (electronAPI?.openProjectWindow) {
-    electronAPI.openProjectWindow(projectId, route);
-    return true;
-  }
-  return false;
-}
-
 // True for files Chromium's built-in viewers render inline (image
 // tags, native <video>, pdf.js, text). DOCX gets `false` here because
 // Chromium can't render it natively — but it has its own custom viewer

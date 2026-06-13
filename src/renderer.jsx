@@ -13,7 +13,6 @@ import { ChatUnreadProvider } from './context/ChatUnreadContext';
 import { SplitViewProvider } from './context/SplitViewContext';
 import NotificationCenter from './components/NotificationCenter';
 import { isElectron, isMac } from './lib/platform';
-import { markLaunchConsumed } from './lib/launchGate';
 import App from './App';
 
 // Frameless Electron build draws a custom title bar — flag the document
@@ -27,29 +26,14 @@ if (isElectron) {
   if (isMac) document.documentElement.classList.add('is-mac');
 }
 
-// Project windows are opened from the launch hub with `?openProject=<id>`.
-// When present, boot the router straight into that project's dashboard (so the
-// window skips the launch hub entirely) and mark the launch gate consumed so a
-// later navigation home doesn't bounce back to the hub.
-const launchParams = new URLSearchParams(window.location.search);
-const openProjectId = launchParams.get('openProject');
-const openRoute = launchParams.get('route');
-// Only honor an in-app route that targets the opened project (defence against
-// a malformed query); otherwise default to that project's Files page (the
-// working surface). The window hydrates its selected project from the
-// ?openProject param (see SelectedProjectContext) so /files — which reads the
-// global selection rather than a URL param — resolves to the right project.
-const safeRoute =
-  openRoute && openRoute.startsWith(`/projects/${openProjectId}`) ? openRoute : null;
 // Document-viewer windows (opened from the Files page) boot straight into the
 // full-screen /doc-viewer route, carrying the file's path/name/mime through.
+// Every other window is the main app, which boots at '/'.
+const launchParams = new URLSearchParams(window.location.search);
 const isDocViewer = launchParams.get('docViewer') === '1';
 const initialEntries = isDocViewer
   ? [`/doc-viewer?${launchParams.toString()}`]
-  : openProjectId
-    ? [safeRoute || '/files']
-    : ['/'];
-if (openProjectId) markLaunchConsumed();
+  : ['/'];
 
 // Provider order:
 //   AuthProvider                — session

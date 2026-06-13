@@ -288,17 +288,17 @@ function wireDevtoolsShortcuts(win) {
   });
 }
 
-// Shared factory for an app window (the launch hub OR a project window). All
-// windows are frameless with the renderer-drawn title bar; `query` is appended
-// to the loaded URL (e.g. `?openProject=<id>`) so the renderer can boot
-// straight into a project. `openDevtools` only for the primary window so each
-// project window doesn't pop its own devtools.
+// Shared factory for an app window (the main window OR the doc-viewer window).
+// All windows are frameless with the renderer-drawn title bar; `query` is
+// appended to the loaded URL (e.g. `?docViewer=1`) so the renderer can boot
+// straight into a specific surface. `openDevtools` only for the primary window
+// so the doc-viewer window doesn't pop its own devtools.
 function createAppWindow({ query, openDevtools = false } = {}) {
   const win = new BrowserWindow({
     width: 1200,
     height: 750,
-    // Floor on how small the user can drag the window. Below this the launch
-    // hub's sidebar + layout start to crowd; 900×600 keeps the chrome usable.
+    // Floor on how small the user can drag the window. Below this the sidebar
+    // + layout start to crowd; 900×600 keeps the chrome usable.
     minWidth: 900,
     minHeight: 600,
     title: 'DocVex',
@@ -374,27 +374,6 @@ function createAppWindow({ query, openDevtools = false } = {}) {
 const createWindow = () => {
   mainWindow = createAppWindow({ openDevtools: true });
 };
-
-// Project windows — one per project id, opened from the launch hub. Loads the
-// app with `?openProject=<id>` so the renderer boots straight into that
-// project's dashboard (see renderer.jsx). Re-opening an already-open project
-// focuses the existing window instead of spawning a duplicate.
-const projectWindows = new Map();
-function createProjectWindow(projectId, route) {
-  const existing = projectWindows.get(projectId);
-  if (existing && !existing.isDestroyed()) {
-    if (existing.isMinimized()) existing.restore();
-    existing.focus();
-    return;
-  }
-  const query = { openProject: projectId };
-  if (route) query.route = route;
-  const win = createAppWindow({ query });
-  projectWindows.set(projectId, win);
-  win.on('closed', () => {
-    if (projectWindows.get(projectId) === win) projectWindows.delete(projectId);
-  });
-}
 
 // Document-viewer window — opened from the Files page when a file is double-
 // clicked. There is a SINGLE shared window with Chrome-style tabs: the first
@@ -648,13 +627,6 @@ ipcMain.handle('window:is-maximized', (e) => {
 ipcMain.handle('window:is-fullscreen', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   return !!(w && w.isFullScreen());
-});
-
-// Open a project in its own window (from the launch hub).
-ipcMain.on('window:open-project', (_e, payload) => {
-  const projectId = payload?.projectId;
-  const route = payload?.route;
-  if (typeof projectId === 'string' && projectId) createProjectWindow(projectId, route);
 });
 
 // Resolve the bundled favicon path ONCE at module load. The previous
@@ -1233,8 +1205,9 @@ ipcMain.handle('local-folder:pick', async () => {
 // manual folder picking; the Files page calls this on mount to resolve (and
 // create) the directory. Returns the absolute path.
 // Resolve (and create on first use) the per-project local folder. THE SAME
-// folder is used by the launch hub (when a project is created) and by the
-// Files page — so files added in Files land in the project's own directory.
+// folder is used at project-creation time (ProjectCreate mirrors the new
+// project to disk) and by the Files page — so files added in Files land in the
+// project's own directory.
 //
 // Resolution order:
 //   1. Registry hit  — .docvex-projects.json (in Documents/Docvex) maps

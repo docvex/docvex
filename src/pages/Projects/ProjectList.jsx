@@ -1,31 +1,44 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { listMyProjects } from '../../lib/projects';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import { useSelectedProject } from '../../context/SelectedProjectContext';
+import { useNotifications } from '../../context/NotificationsContext';
+import { listMyProjects, updateProject, deleteProject } from '../../lib/projects';
 import {
   sortProjectsByRecent,
   getMostRecentProjectId,
   getRecentMap,
+  markProjectAccessed,
   RECENT_PROJECTS_CHANGED_EVENT,
 } from '../../lib/recentProjects';
-import { useAuth } from '../../context/AuthContext';
-import { useTooltip } from '../../components/Tooltip';
+import { readProjectsDir } from '../../lib/projectsDir';
+import { localFolderApi, isElectronBranch } from '../../lib/localFolder';
+import { openExternal } from '../../lib/platform';
+import { PLAN } from '../../lib/plan';
+import { getStatusOption, updateStatus, DEFAULT_STATUS_KEY } from '../../lib/userStatus';
+import Tooltip from '../../components/Tooltip';
+import StatusPicker from '../../components/StatusPicker';
+import DeleteProjectModal from '../../components/DeleteProjectModal';
 import './ProjectList.css';
 
-// Projects — "Editorial Dossier" redesign (Claude Design handoff
-// `docvex-project-redesign`). The list reads like a documents masthead:
-// a title + role-count kicker, then two tiers — "Recently opened" (the
-// last-7-days projects as big featured cards) and "All projects" (the full
-// list as a table-ish view). All `pjx`-prefixed to avoid colliding with the
-// generic class names in the prototype's standalone CSS.
-//
-// Grounded in real data: role counts, member_count, updated_at, the per-user
-// recency map, and the member avatar stacks (real profile images / initials
-// from get_member_profiles) all come from the data layer.
+// Projects "Hub" — recreates the old launch-hub Projects screen (a left rail +
+// expandable project rows) inside the main app at /projects. Opening a project
+// selects it and navigates to the Files page in the SAME window (single-window
+// app — there are no per-project windows anymore). Create / rename / delete use
+// the main app's flows. All `lh-`-prefixed (carried over from the hub so the
+// visuals match). The title bar shows "DOCVEX | HUB" on this route.
 
-// ── Icons (inline per the codebase convention; stroke = currentColor) ──
+const DOCS_URL = 'https://docvex.ro/';
+
+// ── Icons (inline per codebase convention; stroke = currentColor) ──
 const PlusIcon = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+  </svg>
+);
+const SearchIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
   </svg>
 );
 const CaretIcon = (
@@ -33,153 +46,309 @@ const CaretIcon = (
     <polyline points="9 6 15 12 9 18" />
   </svg>
 );
-// Per-user avatar colour — same 12-colour djb2 scheme used across the app, so
-// a member's fallback initials circle is stable wherever they appear.
+const UsersIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>
+);
+const FolderIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+  </svg>
+);
+const PencilIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+  </svg>
+);
+const TrashIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    <line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" />
+  </svg>
+);
+
+// ── Sidebar nav icons ──
+const ProjectsNavIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+  </svg>
+);
+const UpdatesNavIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 12a9 9 0 1 1-3-6.7" /><polyline points="21 3 21 9 15 9" />
+  </svg>
+);
+const SettingsNavIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
+const DocsNavIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+  </svg>
+);
+
+// Same 12-colour djb2 avatar scheme used across the app.
 const AVATAR_PALETTE = ['#0891B2', '#BE185D', '#4F46E5', '#047857', '#B45309', '#6D28D9', '#DC2626', '#0369A1', '#DB2777', '#059669', '#7C3AED', '#EA580C'];
 function avatarColor(seed) {
   let h = 0;
   for (let i = 0; i < (seed || '').length; i++) { h = ((h << 5) - h) + seed.charCodeAt(i); h |= 0; }
   return AVATAR_PALETTE[Math.abs(h) % AVATAR_PALETTE.length];
 }
+
 function timeAgo(iso) {
-  if (!iso) return '—';
+  if (!iso) return null;
   const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '—';
+  if (Number.isNaN(then)) return null;
   const mins = Math.round((Date.now() - then) / 60000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins} min ago`;
   const hrs = Math.round(mins / 60);
   if (hrs < 24) return hrs === 1 ? '1 hour ago' : `${hrs} hours ago`;
   const days = Math.round(hrs / 24);
-  if (days === 1) return 'Yesterday';
+  if (days === 1) return 'yesterday';
   if (days < 7) return `${days} days ago`;
   if (days < 30) return `${Math.round(days / 7)}w ago`;
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
-const DAY_MS = 86400000;
 
-// ── Cards / rows ───────────────────────────────────────────────────────
-// Overlapping member avatars (account image, or a coloured initials circle as
-// fallback). Renders nothing when there are no member profiles — the numeric
-// member count is shown separately, right after the stack.
-// One avatar in the stack. Uses the tooltip HOOK (not the <Tooltip> wrapper) so
-// the avatar stays a direct child of `.pjx-avatars` — the overlap relies on
-// `.pjx-avatar:first-child`, which a display:contents wrapper would break.
-function AvatarChip({ member }) {
-  const { triggerProps, tooltip } = useTooltip(member.name);
-  return (
-    <>
-      <span
-        className="pjx-avatar"
-        style={member.avatarUrl ? undefined : { background: avatarColor(member.userId) }}
-        {...triggerProps}
-      >
-        {member.avatarUrl
-          ? <img src={member.avatarUrl} alt="" referrerPolicy="no-referrer" draggable={false} />
-          : member.initials}
-      </span>
-      {tooltip}
-    </>
-  );
+function getDisplayName(user) {
+  const meta = user?.user_metadata;
+  if (meta?.full_name) return meta.full_name;
+  if (meta?.name) return meta.name;
+  if (user?.email) {
+    const at = user.email.indexOf('@');
+    return at > 0 ? user.email.slice(0, at) : user.email;
+  }
+  return 'there';
 }
 
 function AvatarStack({ members = [], max = 4 }) {
   const shown = members.slice(0, max);
   if (shown.length === 0) return null;
   return (
-    <div className="pjx-avatars">
-      {shown.map((m) => <AvatarChip key={m.userId} member={m} />)}
+    <div className="lh-avatars">
+      {shown.map((m) => (
+        <Tooltip key={m.userId} content={m.name}>
+          <span
+            className="lh-avatar"
+            style={m.avatarUrl ? undefined : { background: avatarColor(m.userId) }}
+          >
+            {m.avatarUrl
+              ? <img src={m.avatarUrl} alt="" referrerPolicy="no-referrer" draggable={false} />
+              : m.initials}
+          </span>
+        </Tooltip>
+      ))}
     </div>
   );
 }
 
-// One featured card for a recently-opened project: avatar stack + member
-// count + when it was last opened.
-function FeaturedCard({ project, lastOpened }) {
-  const n = project.member_count;
-  return (
-    <Link to={`/projects/${project.id}`} className="pjx-pinned-card">
-      <div className="pjx-pc-eyebrow">
-        <span className="pjx-pc-dot" />
-        <span>Recent</span>
-      </div>
-      <span className={`pjx-pill is-${project.role}`}>{project.role}</span>
-      <h3 className="pjx-pc-title">{project.name}</h3>
-      <p className="pjx-pc-desc">{project.description || 'No description.'}</p>
-      <div className="pjx-pc-foot">
-        <AvatarStack members={project.members} />
-        <span className="pjx-pc-meta">
-          <strong>{n}</strong>&nbsp;{n === 1 ? 'member' : 'members'}
-          <span className="pjx-sep">·</span>
-          opened {timeAgo(lastOpened)}
-        </span>
-      </div>
-    </Link>
-  );
+// Display path for a project: the projects directory (Settings) joined with the
+// project name, when a directory is set. There's no per-project path here, so
+// this is a derived display.
+function projectPathFor(projectsDir, project) {
+  if (!projectsDir) return 'No local folder set';
+  const sep = projectsDir.includes('\\') ? '\\' : '/';
+  return `${projectsDir.replace(/[\\/]+$/, '')}${sep}${project.name}`;
 }
 
-function AllRow({ project, mostRecent }) {
+function ProjectRow({ project, lastOpened, mostRecent, projectsDir, onOpen, onRename, onDelete }) {
+  const [expanded, setExpanded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState(project.name);
+  const [savingName, setSavingName] = useState(false);
+  const menuRef = useRef(null);
+  const inputRef = useRef(null);
+  const cancelRef = useRef(false);
   const n = project.member_count;
+  const lastAccessed = lastOpened ? timeAgo(lastOpened) : (timeAgo(project.updated_at) || '—');
+  const pathLine = projectPathFor(projectsDir, project);
+
+  // Close the cog menu on outside-click / Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setMenuOpen(false); };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey); };
+  }, [menuOpen]);
+
+  // Focus + select the inline rename input when entering edit mode.
+  useEffect(() => {
+    if (editing) requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.select(); });
+  }, [editing]);
+
+  const startRename = () => { setDraftName(project.name); setMenuOpen(false); setEditing(true); };
+
+  // Single commit path (Enter / Escape both blur; onBlur decides save vs cancel).
+  const onRenameKey = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); inputRef.current?.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancelRef.current = true; inputRef.current?.blur(); }
+  };
+  const onRenameBlur = async () => {
+    if (cancelRef.current) { cancelRef.current = false; setEditing(false); setDraftName(project.name); return; }
+    const trimmed = draftName.trim();
+    if (!trimmed || trimmed === project.name) { setEditing(false); setDraftName(project.name); return; }
+    setSavingName(true);
+    const ok = await onRename(project, trimmed);
+    setSavingName(false);
+    setEditing(false);
+    if (!ok) setDraftName(project.name);
+  };
+
   return (
-    <Link to={`/projects/${project.id}`} className="pjx-all-row">
-      <div className="pjx-al-name">
-        <div className="pjx-al-name-main">
-          {project.name}
-          {mostRecent && <span className="pjx-al-recent-tag">most recent</span>}
+    <div className={`lh-row${expanded ? ' is-expanded' : ''}`}>
+      <div className="lh-row-top">
+        {/* Dropdown — toggles the project-data panel below. */}
+        <button
+          type="button"
+          className="lh-row-expand"
+          onClick={() => setExpanded((v) => !v)}
+          aria-label="View project data"
+          aria-expanded={expanded}
+        >
+          <span className="lh-row-expand-caret">{CaretIcon}</span>
+        </button>
+
+        {/* Name + path. Clicking opens the project; in rename mode the name
+            becomes an inline input. */}
+        {editing ? (
+          <div className="lh-row-main lh-row-main-edit">
+            <input
+              ref={inputRef}
+              type="text"
+              className="lh-row-name-input"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={onRenameKey}
+              onBlur={onRenameBlur}
+              maxLength={60}
+              disabled={savingName}
+              aria-label="Rename project"
+            />
+            <span className="lh-row-path">{pathLine}</span>
+          </div>
+        ) : (
+          <button type="button" className="lh-row-main" onClick={() => onOpen(project)}>
+            <span className="lh-row-name-main">
+              {project.name}
+              {mostRecent && <span className="lh-recent-tag">most recent</span>}
+            </span>
+            <span className="lh-row-path">{pathLine}</span>
+          </button>
+        )}
+
+        {/* Last accessed. */}
+        <div className="lh-row-accessed">
+          <span className="lh-row-accessed-label">last accessed</span>
+          <span className="lh-row-accessed-val">{lastAccessed}</span>
         </div>
-        <div className="pjx-al-name-sub">{project.description || 'No description.'}</div>
-      </div>
-      <span className={`pjx-pill is-${project.role}`}>{project.role}</span>
-      <div className="pjx-al-members">
-        <AvatarStack members={project.members} max={3} />
-        <span className="pjx-al-member-count">{n}&nbsp;{n === 1 ? 'member' : 'members'}</span>
-      </div>
-      <div className="pjx-al-updated">
-        <strong>updated</strong><br />
-        <span>{timeAgo(project.updated_at)}</span>
-      </div>
-      <div className="pjx-al-end">
-        <span className="pjx-al-caret">{CaretIcon}</span>
-      </div>
-    </Link>
-  );
-}
 
-// ── States ─────────────────────────────────────────────────────────────
-function EmptyState() {
-  return (
-    <div className="pjx-empty">
-      <h2>No projects yet</h2>
-      <p>Projects are how you share files and notes with collaborators.</p>
-      <Link to="/projects/new" className="pjx-btn-primary">{PlusIcon} Create your first project</Link>
+        {/* Cog — opens a Rename / Delete menu. */}
+        <div className="lh-row-config-wrap" ref={menuRef}>
+          <Tooltip content={menuOpen ? undefined : 'Project options'}>
+            <button
+              type="button"
+              className={`lh-row-config${menuOpen ? ' is-open' : ''}`}
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label="Project options"
+            >
+              {SettingsNavIcon}
+            </button>
+          </Tooltip>
+          {menuOpen && (
+            <div className="lh-row-menu" role="menu">
+              <button type="button" role="menuitem" className="lh-row-menu-item" onClick={startRename}>
+                <span className="lh-row-menu-icon">{PencilIcon}</span> Rename
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="lh-row-menu-item is-danger"
+                onClick={() => { setMenuOpen(false); onDelete(project); }}
+              >
+                <span className="lh-row-menu-icon">{TrashIcon}</span> Delete
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Always rendered (not conditional) so the panel can animate open AND
+          closed; `.lh-row.is-expanded` drives the grid-rows reveal. The inner
+          clip layer carries no padding/border so it collapses fully to 0. */}
+      <div className="lh-row-data-anim">
+        <div className="lh-row-data-clip">
+          <div className="lh-row-data">
+            <div className="lh-row-data-item">
+              <span className="lh-row-data-key">Role</span>
+              <span className={`lh-pill is-${project.role}`}>{project.role}</span>
+            </div>
+            <div className="lh-row-data-item">
+              <span className="lh-row-data-key">Members</span>
+              <span className="lh-row-data-members">
+                <AvatarStack members={project.members} max={4} />
+                <span className="lh-row-member-count">
+                  <span className="lh-users-icon">{UsersIcon}</span>
+                  {typeof n === 'number' ? n : '—'}
+                </span>
+              </span>
+            </div>
+            <div className="lh-row-data-item">
+              <span className="lh-row-data-key">Last updated</span>
+              <span className="lh-row-data-val">{timeAgo(project.updated_at) || '—'}</span>
+            </div>
+            <div className="lh-row-data-item lh-row-data-desc">
+              <span className="lh-row-data-key">Description</span>
+              <span className="lh-row-data-val">{project.description || 'No description.'}</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-// ── Page ───────────────────────────────────────────────────────────────
 export default function ProjectList() {
   const { session } = useAuth();
   const userId = session?.user?.id ?? null;
+  const navigate = useNavigate();
+  const { selectProject, beginSwitch } = useSelectedProject();
+  const { notify } = useNotifications();
 
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-  // Bump to force a recompute when the recency map changes (e.g. the user
-  // opened a project then came back).
+  const [query, setQuery] = useState('');
+  const [openMsg, setOpenMsg] = useState('');
+  const [projectsDir, setProjectsDir] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deletingProject, setDeletingProject] = useState(false);
+  const [statusAnchor, setStatusAnchor] = useState(null);
+  // Bump to recompute ordering when the recency map changes.
   const [recencyTick, setRecencyTick] = useState(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const { data, error: err } = await listMyProjects();
-      if (cancelled) return;
-      setProjects(data);
-      setError(err);
-      setLoading(false);
-    })();
-    return () => { cancelled = true; };
+  useEffect(() => { setProjectsDir(readProjectsDir(userId)); }, [userId]);
+
+  const loadProjects = useCallback(async () => {
+    setLoading(true);
+    const { data, error: err } = await listMyProjects();
+    setProjects(data || []);
+    setError(err);
+    setLoading(false);
   }, []);
+
+  useEffect(() => { if (session) loadProjects(); }, [session, loadProjects]);
 
   useEffect(() => {
     const onRecent = () => setRecencyTick((t) => t + 1);
@@ -187,106 +356,275 @@ export default function ProjectList() {
     return () => window.removeEventListener(RECENT_PROJECTS_CHANGED_EVENT, onRecent);
   }, [userId]);
 
-  const counts = useMemo(() => ({
-    all: projects.length,
-    owner: projects.filter((p) => p.role === 'owner').length,
-    admin: projects.filter((p) => p.role === 'admin').length,
-    member: projects.filter((p) => p.role === 'member').length,
-    viewer: projects.filter((p) => p.role === 'viewer').length,
-  }), [projects]);
+  const ordered = useMemo(() => sortProjectsByRecent(userId, projects), [userId, projects, recencyTick]);
+  const mostRecentId = useMemo(() => getMostRecentProjectId(userId), [userId, projects, recencyTick]);
+  const recentMap = useMemo(() => getRecentMap(userId), [userId, projects, recencyTick]);
 
-  const orderedProjects = useMemo(
-    () => sortProjectsByRecent(userId, projects),
-    [userId, projects, recencyTick],
-  );
-  const mostRecentId = useMemo(
-    () => getMostRecentProjectId(userId),
-    [userId, projects, recencyTick],
-  );
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return ordered;
+    return ordered.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      (p.description || '').toLowerCase().includes(q),
+    );
+  }, [ordered, query]);
 
-  // No filtering UI anymore — the list is the full set, recency-ordered.
-  const filtered = orderedProjects;
+  // True once we've confirmed the user has zero projects (not just mid-load).
+  const showEmptyState = !loading && !error && projects.length === 0;
+  const showNoFolder = isElectronBranch && !projectsDir;
 
-  // Featured tier: the projects opened in the last 7 days, rendered as big
-  // "Recently opened" cards. The full list still renders below in "All
-  // projects". Recency comes from the per-user map.
-  const recencyMap = useMemo(() => getRecentMap(userId), [userId, recencyTick]);
-  const featured = useMemo(() => {
-    const now = Date.now();
-    return filtered
-      .filter((p) => {
-        const ts = recencyMap[p.id]?.ts;
-        return ts && (now - new Date(ts).getTime()) < 7 * DAY_MS;
-      })
-      .slice(0, 4)
-      .map((p) => ({ project: p, lastOpened: recencyMap[p.id]?.ts }));
-  }, [filtered, recencyMap]);
+  // Open a project in the SAME window: stamp recency, show the switch overlay,
+  // select it globally, then land on the working Files surface.
+  const onOpen = (project) => {
+    markProjectAccessed(userId, project.id, project.name);
+    beginSwitch(project.name);
+    selectProject(project.id, project);
+    navigate('/files');
+  };
 
-  const collaborate = counts.member + counts.viewer;
+  const onNewProject = () => navigate('/projects/new');
+
+  // Open a project from a folder on disk: pick a directory, read its
+  // `.docvex.json` sidecar for the project id, and open that project if it's
+  // one the user has access to.
+  const onOpenFromDirectory = async () => {
+    setOpenMsg('');
+    const dir = await localFolderApi.pick();
+    if (!dir) return;
+    const { json } = await localFolderApi.readSidecar(dir);
+    const pid = json?.projectId;
+    if (!pid) {
+      setOpenMsg("That folder isn't a Docvex project — no .docvex.json was found in it.");
+      return;
+    }
+    const match = projects.find((p) => p.id === pid);
+    if (!match) {
+      setOpenMsg("That project isn't in your account, or you don't have access to it.");
+      return;
+    }
+    onOpen(match);
+  };
+
+  // Rename — inline from the row title. Persists, updates the list in place,
+  // and returns success so the row can revert its draft on failure.
+  const onRenameProject = async (project, newName) => {
+    const { data, error: err } = await updateProject(project.id, { name: newName });
+    if (err) {
+      notify?.({ category: 'project', variant: 'error', icon: 'alert', title: 'Could not rename project', body: err.message, dedupeKey: `rename-fail-${project.id}` });
+      return false;
+    }
+    const finalName = data?.name || newName;
+    setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, name: finalName } : p)));
+    notify?.({ category: 'project', variant: 'success', icon: 'folder', title: `Renamed to “${finalName}”`, dedupeKey: `rename-${project.id}` });
+    return true;
+  };
+
+  // Delete — opens the GitHub-style retype-to-confirm modal.
+  const onRequestDelete = (project) => setDeleteTarget(project);
+  const confirmDeleteProject = async () => {
+    if (!deleteTarget) return;
+    setDeletingProject(true);
+    const { error: err } = await deleteProject(deleteTarget.id);
+    setDeletingProject(false);
+    if (err) {
+      notify?.({ category: 'project', variant: 'error', icon: 'alert', title: 'Could not delete project', body: err.message, dedupeKey: `delete-fail-${deleteTarget.id}` });
+      return;
+    }
+    const name = deleteTarget.name;
+    setProjects((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+    setDeleteTarget(null);
+    notify?.({ category: 'project', variant: 'warning', icon: 'trash', title: `Deleted “${name}”`, dedupeKey: `project-deleted-${name}` });
+  };
+
+  const displayName = getDisplayName(session?.user);
+  const avatarUrl = session?.user?.user_metadata?.avatar_url || null;
+  const avatarInitial = (displayName || '?').trim().charAt(0).toUpperCase();
+  const statusOpt = getStatusOption(session?.user?.user_metadata?.status || DEFAULT_STATUS_KEY);
+
+  const navItems = [
+    { id: 'projects', label: 'Projects', icon: ProjectsNavIcon, active: true, onClick: () => {} },
+    { id: 'updates', label: 'Updates', icon: UpdatesNavIcon, active: false, onClick: () => navigate('/versions') },
+    { id: 'settings', label: 'Settings', icon: SettingsNavIcon, active: false, onClick: () => navigate('/settings') },
+    { id: 'docs', label: 'Documentation', icon: DocsNavIcon, active: false, onClick: () => openExternal(DOCS_URL) },
+  ];
 
   return (
-    <div className="pjx-page">
-      {/* Masthead */}
-      <header className="pjx-masthead">
-        <div className="pjx-mh-left">
-          <div className="pjx-mh-eyebrow">
-            <span>Workspace</span>
-            <span className="pjx-mh-muted">· All projects you collaborate on</span>
-          </div>
-          <h1 className="pjx-mh-title">Projects.</h1>
-          <p className="pjx-mh-kicker">
-            <strong>{counts.all} {counts.all === 1 ? 'workspace' : 'workspaces'}</strong> across your account —{' '}
-            <strong>{counts.owner}</strong> you own, <strong>{counts.admin}</strong> you administer,{' '}
-            <strong>{collaborate}</strong> you collaborate on.
-          </p>
-        </div>
-        <div className="pjx-mh-cta-row">
-          <Link to="/projects/new" className="pjx-btn-primary">{PlusIcon} New project</Link>
-        </div>
-      </header>
+    <div className="lh-hub">
+      <aside className="lh-sidebar">
+        <nav className="lh-sb-nav">
+          {navItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`lh-sb-item${item.active ? ' is-active' : ''}`}
+              onClick={item.onClick}
+            >
+              <span className="lh-sb-icon">{item.icon}</span>
+              <span className="lh-sb-label">{item.label}</span>
+            </button>
+          ))}
+        </nav>
 
-      {error && (
-        <div className="pjx-error">Couldn't load projects: {error.message}</div>
-      )}
-
-      {!loading && !error && projects.length === 0 && <EmptyState />}
-
-      {!loading && !error && projects.length > 0 && (
-        <>
-          {/* Recently opened — the last-7-days projects as big featured cards. */}
-          {featured.length > 0 && (
-            <section className="pjx-section">
-              <div className="pjx-section-head">
-                <div className="pjx-section-title">Recently opened</div>
-              </div>
-              <div className="pjx-pinned-grid">
-                {featured.map((f) => (
-                  <FeaturedCard
-                    key={f.project.id}
-                    project={f.project}
-                    lastOpened={f.lastOpened}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* All projects */}
-          <section className="pjx-section">
-            <div className="pjx-section-head">
-              <div className="pjx-section-title">All projects <em>{filtered.length} total</em></div>
-            </div>
-            <div className="pjx-all-list">
-              {filtered.map((p) => (
-                <AllRow
-                  key={p.id}
-                  project={p}
-                  mostRecent={p.id === mostRecentId}
+        {/* Account at the foot of the rail — opens the Account page; the status
+            circle opens the status picker (its own affordance). */}
+        <div className="lh-sb-footer">
+          <button
+            type="button"
+            className="lh-account-btn"
+            onClick={() => navigate('/account')}
+            aria-label="Account settings"
+          >
+            <span className="lh-account-avatar" style={avatarUrl ? undefined : { background: avatarColor(userId || displayName) }}>
+              {avatarUrl
+                ? <img src={avatarUrl} alt="" referrerPolicy="no-referrer" draggable={false} />
+                : avatarInitial}
+              <Tooltip content={statusAnchor ? undefined : statusOpt.label}>
+                <span
+                  className="lh-account-status-dot"
+                  style={{ background: statusOpt.color }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Status: ${statusOpt.label}. Click to change.`}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setStatusAnchor(e.currentTarget.getBoundingClientRect()); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setStatusAnchor(e.currentTarget.getBoundingClientRect()); } }}
                 />
-              ))}
+              </Tooltip>
+            </span>
+            <span className="lh-account-btn-info">
+              <span className="lh-account-btn-name">{displayName}</span>
+              <span className="lh-account-btn-meta">
+                <span className="lh-account-btn-tier">{PLAN.tier}</span>
+              </span>
+            </span>
+          </button>
+        </div>
+      </aside>
+
+      <main className="lh-main">
+        <div className="lh-main-inner">
+          {showEmptyState ? (
+            <div className="lh-empty">
+              <h2>No projects yet</h2>
+              <p>
+                {showNoFolder
+                  ? 'Set a projects folder in Settings, then create your first project to start working with your team.'
+                  : 'Create your first project to start working with your team.'}
+              </p>
+              <button type="button" className="lh-new-btn" onClick={onNewProject}>
+                {PlusIcon} Create your first project
+              </button>
+              {isElectronBranch && (
+                <>
+                  <span className="lh-empty-or">or</span>
+                  <button type="button" className="lh-open-btn lh-empty-open" onClick={onOpenFromDirectory}>
+                    {FolderIcon} Open project
+                  </button>
+                </>
+              )}
             </div>
-          </section>
-        </>
+          ) : (
+            <>
+              <div className="lh-headline">
+                <p className="lh-greeting">Welcome back, {displayName}</p>
+                <h1 className="lh-title">Projects</h1>
+              </div>
+
+              {/* No projects folder set → nudge the user to pick one in Settings
+                  (new projects mirror to a folder there). */}
+              {showNoFolder && (
+                <button type="button" className="lh-nofolder" onClick={() => navigate('/settings')}>
+                  <span className="lh-nofolder-icon">{FolderIcon}</span>
+                  <span className="lh-nofolder-text">
+                    <strong>No projects folder selected</strong>
+                    <span>Choose a folder in Settings to auto-create a folder for each new project.</span>
+                  </span>
+                  <span className="lh-nofolder-cta">Open Settings</span>
+                </button>
+              )}
+
+              <div className="lh-toolbar">
+                <div className="lh-search">
+                  <span className="lh-search-icon">{SearchIcon}</span>
+                  <input
+                    type="text"
+                    className="lh-search-input"
+                    placeholder="Search projects…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </div>
+                {isElectronBranch && (
+                  <button type="button" className="lh-open-btn" onClick={onOpenFromDirectory}>
+                    {FolderIcon} Open
+                  </button>
+                )}
+                <button type="button" className="lh-new-btn" onClick={onNewProject}>
+                  {PlusIcon} New
+                </button>
+              </div>
+
+              {openMsg && <div className="lh-open-msg">{openMsg}</div>}
+
+              <div className="lh-list-frame">
+                {loading && (
+                  <div className="lh-list">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={`skel-${i}`} className="lh-row lh-row-skel" aria-hidden="true">
+                        <div className="lh-skel-bar" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!loading && error && (
+                  <div className="lh-state lh-state-error">
+                    Couldn't load projects: {error.message}
+                  </div>
+                )}
+
+                {!loading && !error && filtered.length === 0 && (
+                  <div className="lh-state">No projects match “{query}”.</div>
+                )}
+
+                {!loading && !error && filtered.length > 0 && (
+                  <div className="lh-list">
+                    {filtered.map((p) => (
+                      <ProjectRow
+                        key={p.id}
+                        project={p}
+                        lastOpened={recentMap[p.id]?.ts}
+                        mostRecent={p.id === mostRecentId}
+                        projectsDir={projectsDir}
+                        onOpen={onOpen}
+                        onRename={onRenameProject}
+                        onDelete={onRequestDelete}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </main>
+
+      {/* GitHub-style "type the name to confirm" delete dialog. */}
+      <DeleteProjectModal
+        open={!!deleteTarget}
+        projectName={deleteTarget?.name || ''}
+        pending={deletingProject}
+        onConfirm={confirmDeleteProject}
+        onCancel={() => { if (!deletingProject) setDeleteTarget(null); }}
+      />
+
+      {/* Status picker — anchored to the clicked status circle in the footer. */}
+      {statusAnchor && (
+        <StatusPicker
+          anchorRect={statusAnchor}
+          currentStatus={session?.user?.user_metadata?.status || DEFAULT_STATUS_KEY}
+          onPick={async (key) => { setStatusAnchor(null); await updateStatus(key); }}
+          onClose={() => setStatusAnchor(null)}
+        />
       )}
     </div>
   );

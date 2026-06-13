@@ -4,15 +4,21 @@ import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useSplitView } from '../context/SplitViewContext';
+import { openExternal } from '../lib/platform';
 import Tooltip from './Tooltip';
 import './Sidebar.css';
+
+// External documentation site, opened in the user's browser (formerly the
+// launch hub's "Documentation" footer link).
+const DOCS_URL = 'https://docvex.ro/';
 
 // App nav — a horizontal bar pinned directly under the frameless title bar.
 // (Formerly a vertical left rail; moved to the top per product direction.)
 // Project navigation (Files / Chat / AI) lives in the window topbar's
 // destination dropdown; Account lives in the title bar. This bar carries the
-// personal destinations (Activity / Newsletter / Settings, + Debug in dev) and
-// the signed-out "Sign in" CTA.
+// personal destinations (Activity / Newsletter / Versions / Settings, + Debug
+// in dev), a Documentation link out to the website, and the signed-out
+// "Sign in" CTA.
 
 // Pulse/heartbeat line — reads as "activity feed".
 const ActivityIcon = (
@@ -56,6 +62,17 @@ const GearIcon = (
   </svg>
 );
 
+// 2×2 grid glyph — the "Hub" launcher (the projects list / launcher view that
+// replaced the old standalone launch hub).
+const HubIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+    <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+    <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+    <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+  </svg>
+);
+
 // Bug glyph — dev-only Debug row.
 const BugIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -77,6 +94,14 @@ const SignInIcon = (
     <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
     <polyline points="10 17 15 12 10 7"/>
     <line x1="15" y1="12" x2="3" y2="12"/>
+  </svg>
+);
+
+// Open-book glyph — the Documentation link out to the website.
+const DocsIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
   </svg>
 );
 
@@ -113,7 +138,7 @@ export default function Sidebar() {
   // "Project" tab — restore the workspace split. If we're leaving a personal
   // page, point the primary pane at a project surface so it doesn't render the
   // personal page inside a split pane (the tri layout re-seeds to /chat itself).
-  const PERSONAL_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/account', '/mail']);
+  const PERSONAL_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/account', '/mail', '/projects']);
   const handleProjectClick = () => {
     closePicker();
     setFocusedPane(0);
@@ -132,6 +157,9 @@ export default function Sidebar() {
     { to: '/newsletter', label: 'Newsletter', icon: NewspaperIcon, end: true },
     { to: '/versions', label: 'Versions', icon: VersionsIcon, end: true },
     ...(session ? [{ to: '/settings', label: 'Settings', icon: GearIcon, end: true }] : []),
+    // Hub — the projects launcher (the in-app surface that replaced the old
+    // standalone launch hub). Lands on the full projects list.
+    ...(session ? [{ to: '/projects', label: 'Hub', icon: HubIcon, end: true }] : []),
     ...(session ? [{ to: '/mail', label: 'Mail', icon: MailIcon, end: true }] : []),
     ...(import.meta.env.DEV ? [{ to: '/debug', label: 'Debug', icon: BugIcon, end: true }] : []),
   ];
@@ -174,6 +202,20 @@ export default function Sidebar() {
             </NavLink>
           </li>
         ))}
+        {/* Documentation — external link to the website (opens in the browser),
+            not an in-app route, so it's a button rather than a NavLink. */}
+        <li>
+          <Tooltip content="Open the documentation site">
+            <button
+              type="button"
+              className="nav-item"
+              onClick={() => openExternal(DOCS_URL)}
+            >
+              <span className="icon">{DocsIcon}</span>
+              <span className="label">Docs</span>
+            </button>
+          </Tooltip>
+        </li>
       </ul>
 
       <div className="sidebar-footer">

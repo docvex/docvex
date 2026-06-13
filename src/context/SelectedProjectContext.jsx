@@ -87,14 +87,8 @@ export function SelectedProjectProvider({ children }) {
       return;
     }
     try {
-      // A project window boots with ?openProject=<id> — prefer it as the
-      // initial selection so global-selection pages (Files, Chat, To-dos)
-      // resolve to THIS window's project instead of the last-used one.
-      let openParam = null;
-      try { openParam = new URLSearchParams(window.location.search).get('openProject'); }
-      catch { /* no window.location (SSR/tests) */ }
       const stored = localStorage.getItem(storageKey(userId));
-      _setSelectedProjectId(openParam || stored || null);
+      _setSelectedProjectId(stored || null);
     } catch {
       _setSelectedProjectId(null);
     }

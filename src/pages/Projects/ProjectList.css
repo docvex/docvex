@@ -1,373 +1,660 @@
-/* =========================================================================
-   Projects list — "Editorial Dossier" redesign
-   (Claude Design handoff `docvex-project-redesign`).
-   All classes are pjx-prefixed to avoid colliding with the generic class
-   names elsewhere in the app. Colours come exclusively from the semantic
-   tokens in src/styles/tokens.css — no hex literals.
-   ========================================================================= */
+/* Projects "Hub" — recreates the old launch-hub Projects screen (left rail +
+   expandable project rows) inside the main app's content frame. All classes are
+   `lh-`-prefixed (carried over from the hub so the row/rail visuals match
+   exactly). Reads tokens only — no hex literals. The root layout differs from
+   the old hub: there it was a fixed full-screen page that owned its own scroll;
+   here it's normal-flow content inside `.sv-single-scroll` (which owns the
+   scroll + outer padding), so the rail is a stretched left column rather than an
+   absolutely-positioned one. */
 
-.pjx-page {
-  /* Full-width + left-aligned so the listing spans the content area (all
-     three thirds) when the screen is wide enough, matching Activity and
-     Newsletter. Horizontal inset comes from the shell's .main-content. */
-  width: 100%;
-  margin: 0;
-  padding: 0 0 80px;
-}
-
-/* On a wide window, occupy three of four horizontal sections (75%), left-
-   aligned; full width below the breakpoint. Shared across Activity /
-   Newsletter / Projects. */
-@media (min-width: 1024px) { /* 1280px pre-scale */
-  .pjx-page { width: 75%; }
-}
-
-/* ---------- Masthead — copies the project-dossier hero styling
-     (ProjectDossier.css .pjd-hero*): accent eyebrow + muted tail, big display
-     title, secondary kicker. CTA sits at the baseline of the title block. ---------- */
-.pjx-masthead {
+.lh-hub {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 28px;
-  padding-bottom: 26px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 26px;
-}
-.pjx-mh-left { display: flex; flex-direction: column; gap: 18px; flex: 1 1 auto; min-width: 0; }
-.pjx-mh-eyebrow {
-  font-size: 11px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  font-weight: 700;
-  color: var(--accent);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.pjx-mh-eyebrow .pjx-mh-muted { color: var(--text-muted); font-weight: 500; }
-.pjx-mh-title {
-  font-family: var(--font-display);
-  font-size: 56px;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  line-height: 1;
+  min-height: 100%;
+  background: var(--bg-page);
   color: var(--text-primary);
-  text-wrap: pretty;
-  max-width: 720px;
-  margin: 0;
-}
-.pjx-mh-kicker {
-  margin: 0;
-  font-size: 15px;
-  line-height: 1.55;
-  color: var(--text-secondary);
-  max-width: 580px;
-}
-.pjx-mh-kicker strong { color: var(--text-primary); font-weight: 600; }
-.pjx-mh-cta-row { display: flex; gap: 10px; align-items: center; }
-
-/* ---------- Buttons ---------- */
-.pjx-btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  background: var(--accent);
-  color: var(--text-on-accent);
-  border: 1px solid var(--accent);
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 13px;
-  padding: 10px 16px;
-  text-decoration: none;
-  transition: background 120ms, transform 80ms;
-  white-space: nowrap;
-}
-.pjx-btn-primary svg { width: 14px; height: 14px; }
-.pjx-btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-.pjx-btn-primary:active { transform: translateY(1px); }
-
-/* ---------- Section heading ---------- */
-.pjx-section { margin-top: 34px; }
-.pjx-section-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-.pjx-section-title {
-  font-family: var(--font-display);
-  font-size: 13px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-.pjx-section-title em {
-  font-style: normal;
-  color: var(--text-muted);
-  font-weight: 500;
-  margin-left: 8px;
-  letter-spacing: 0.08em;
-}
-
-/* ---------- Role pills (shared) ---------- */
-.pjx-pill {
-  align-self: start;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  padding: 4px 9px;
-  border-radius: 4px;
-  border: 1px solid;
-  white-space: nowrap;
-}
-.pjx-pill.is-owner  { color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, transparent); border-color: color-mix(in srgb, var(--warning) 35%, transparent); }
-.pjx-pill.is-admin  { color: var(--accent);  background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
-.pjx-pill.is-member { color: var(--text-secondary); background: color-mix(in srgb, var(--text-primary) 5%, transparent); border-color: color-mix(in srgb, var(--text-primary) 12%, transparent); }
-.pjx-pill.is-viewer { color: var(--text-muted); background: color-mix(in srgb, var(--text-primary) 3%, transparent); border-color: color-mix(in srgb, var(--text-primary) 10%, transparent); }
-
-/* ---------- Member avatar stack ---------- */
-.pjx-avatars { display: inline-flex; align-items: center; }
-.pjx-avatar {
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  margin-left: -8px;
-  border: 2px solid var(--bg-card);
-  background: var(--bg-elevated);
-  color: #fff;
-  font-family: var(--font-display);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  display: grid; place-items: center;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-.pjx-avatar:first-child { margin-left: 0; }
-.pjx-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.pjx-al-member-count { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
-
-/* ---------- Pinned grid (featured cards) ---------- */
-/* Three across ("three thirds") on a wide screen; steps down to 2 then 1
-   on narrower viewports (see the responsive block at the bottom). */
-.pjx-pinned-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-.pjx-pinned-card {
-  position: relative;
-  background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 22px 24px 18px;
-  text-align: left;
-  text-decoration: none;
-  color: inherit;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-rows: auto auto 1fr auto;
-  gap: 6px;
-  min-height: 176px;
-  overflow: hidden;
-  transition: transform 120ms, box-shadow 160ms, border-color 160ms;
+  border-radius: 16px;
 }
-.pjx-pinned-card:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-elev);
-  border-color: var(--border-strong);
-}
-/* The "Recent" eyebrow + dot and the card's left bar use the pale-yellow
-   brand accent (--color-sand) rather than the per-project hash colour. */
-.pjx-pinned-card::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 4px;
-  background: var(--color-sand);
-}
-.pjx-pc-eyebrow {
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  font-weight: 700;
-  color: var(--color-sand);
+
+/* Left rail (Projects · Updates · Settings · Documentation) + account footer.
+   Stretches to the hub's full height so it reads as a full-height rail. */
+.lh-sidebar {
+  flex: 0 0 212px;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  border-radius: 16px 0 0 16px;
+  padding: 14px;
 }
-.pjx-pc-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-sand); }
-.pjx-pc-title {
-  grid-column: 1 / -1;
-  font-family: var(--font-display);
-  font-size: 23px;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  line-height: 1.15;
-  color: var(--text-primary);
-  margin-top: 2px;
-}
-.pjx-pc-desc {
-  grid-column: 1 / -1;
-  color: var(--text-secondary);
-  font-size: 13.5px;
-  line-height: 1.5;
-  max-width: 460px;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin: 6px 0 14px;
-}
-.pjx-pc-foot {
-  grid-column: 1 / -1;
+
+.lh-sb-nav {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding-top: 12px;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* Footer pins the Account control to the bottom of the column. */
+.lh-sb-footer {
+  position: relative;
+  margin-top: auto;
+  padding-top: 10px;
   border-top: 1px solid var(--border);
 }
-.pjx-pc-meta {
-  font-size: 11.5px;
+
+.lh-sb-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 9px;
+  padding: 10px 11px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: background 130ms ease, color 130ms ease;
+}
+.lh-sb-item:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.lh-sb-item.is-active {
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-weight: 600;
+}
+.lh-sb-icon { display: flex; flex-shrink: 0; }
+.lh-sb-icon svg { width: 18px; height: 18px; }
+
+/* ── Account footer control ── */
+.lh-account-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 7px 9px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: background 130ms ease, border-color 130ms ease;
+}
+.lh-account-btn:hover { background: var(--bg-elevated); border-color: var(--border); }
+
+.lh-account-avatar {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  overflow: visible;
+}
+.lh-account-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+/* Online-status circle, bottom-right of the avatar — its own affordance
+   (opens the status picker). */
+.lh-account-status-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2.5px solid var(--bg-sidebar);
+  box-sizing: border-box;
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+.lh-account-status-dot:hover { transform: scale(1.18); }
+.lh-account-status-dot:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 2px;
+}
+
+.lh-account-btn-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.lh-account-btn-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lh-account-btn-meta { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 3px; }
+.lh-account-btn-tier {
+  flex-shrink: 0;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-tint);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+
+/* ── Main column ── */
+.lh-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lh-main-inner {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 34px 28px 30px;
+  box-sizing: border-box;
+}
+
+.lh-headline { margin-bottom: 24px; }
+.lh-greeting {
+  font-family: var(--font-body);
+  font-size: 14px;
   color: var(--text-muted);
-  letter-spacing: 0.02em;
+  margin: 0 0 6px;
+}
+.lh-title {
+  font-family: var(--font-display);
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+/* ── Toolbar (search + open + new) ── */
+.lh-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.lh-search { position: relative; flex: 1; }
+.lh-search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.lh-search-icon svg { width: 17px; height: 17px; }
+.lh-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px 12px 42px;
+  font-family: var(--font-body);
+  font-size: 14.5px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.lh-search-input::placeholder { color: var(--text-muted); }
+.lh-search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+.lh-new-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border: none;
+  border-radius: 11px;
+  padding: 12px 18px;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+.lh-new-btn:hover:not(:disabled) { background: var(--accent-hover); }
+.lh-new-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.lh-new-btn svg { width: 16px; height: 16px; }
+
+/* Secondary "Open project" button — open an existing project from disk. */
+.lh-open-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 11px 16px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.lh-open-btn:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
+.lh-open-btn svg { width: 16px; height: 16px; }
+
+/* "No projects folder selected" banner — shown when no directory is set.
+   Clickable → Settings. Red 5-stop animated gradient. */
+.lh-nofolder {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  margin-bottom: 18px;
+  padding: 13px 16px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--danger) 8%, var(--bg-card)) 0%,
+    color-mix(in srgb, var(--danger) 22%, var(--bg-card)) 25%,
+    color-mix(in srgb, var(--danger) 28%, var(--bg-card)) 50%,
+    color-mix(in srgb, var(--danger) 22%, var(--bg-card)) 75%,
+    color-mix(in srgb, var(--danger) 8%, var(--bg-card)) 100%
+  );
+  background-size: 300% 100%;
+  animation: lh-banner-shimmer 8s linear infinite;
+  transition: border-color 140ms ease, transform 120ms ease, filter 140ms ease;
+}
+.lh-nofolder:hover { border-color: var(--danger); transform: translateY(-1px); filter: brightness(1.04); }
+.lh-nofolder-icon { display: flex; flex-shrink: 0; color: var(--danger); }
+.lh-nofolder-icon svg { width: 20px; height: 20px; }
+.lh-nofolder-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lh-nofolder-text strong { font-size: 14px; color: var(--text-primary); }
+.lh-nofolder-text span { font-size: 12.5px; color: var(--text-secondary); }
+.lh-nofolder-cta {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--danger);
+  white-space: nowrap;
+}
+
+/* Inline result message for "Open project". */
+.lh-open-msg {
+  margin: -8px 0 16px;
+  padding: 10px 13px;
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: 9px;
+  font-size: 13px;
+  color: var(--danger-text);
+}
+
+/* ── List ── */
+.lh-list-frame { margin: 0; padding: 0; }
+.lh-list { display: flex; flex-direction: column; gap: 8px; }
+
+.lh-row {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.lh-row:hover { border-color: var(--accent); box-shadow: var(--shadow-card); }
+.lh-row.is-expanded { border-color: var(--accent); }
+
+/* Top row: [dropdown] [name + path] [last accessed] [configure] */
+.lh-row-top {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+}
+
+/* Dropdown toggle — reveals the project-data panel below. */
+.lh-row-expand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.lh-row-expand:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.lh-row-expand-caret { display: flex; transition: transform 160ms ease; }
+.lh-row-expand-caret svg { width: 16px; height: 16px; }
+.lh-row.is-expanded .lh-row-expand-caret { transform: rotate(90deg); }
+.lh-row.is-expanded .lh-row-expand {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* Name + path — primary click target (opens the project). */
+.lh-row-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.lh-row-name-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lh-row-main:hover .lh-row-name-main { color: var(--accent); }
+.lh-row-path {
+  max-width: 100%;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lh-recent-tag {
+  flex-shrink: 0;
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-tint);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+/* Last accessed. */
+.lh-row-accessed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  white-space: nowrap;
+}
+.lh-row-accessed-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.lh-row-accessed-val { font-size: 13px; color: var(--text-secondary); }
+
+/* Configure icon + cog dropdown (Rename / Delete). */
+.lh-row-config {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.lh-row-config:hover,
+.lh-row-config.is-open {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+.lh-row-config svg { width: 18px; height: 18px; }
+.lh-row-config-wrap { position: relative; display: flex; align-items: center; }
+.lh-row-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 168px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  box-shadow: var(--shadow-elev);
+  animation: lh-menu-in 120ms ease-out;
+}
+.lh-row-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 11px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  text-align: left;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.lh-row-menu-item:hover { background: var(--accent-tint); }
+.lh-row-menu-item.is-danger { color: var(--danger); }
+.lh-row-menu-item.is-danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.lh-row-menu-icon { display: flex; }
+.lh-row-menu-icon svg { width: 15px; height: 15px; }
+
+/* Inline rename — the title becomes an input in place. */
+.lh-row-main-edit { justify-content: center; }
+.lh-row-name-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 8px;
+  margin: -3px -8px 0;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+.lh-row-name-input:disabled { opacity: 0.6; }
+
+/* Expanded project-data panel — animates open/closed via the grid-rows
+   technique (0fr → 1fr). The clip layer carries the overflow + min-height:0 and
+   NO padding/border, so the track collapses fully to 0 when minimized. */
+.lh-row-data-anim {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 240ms ease;
+}
+.lh-row.is-expanded .lh-row-data-anim { grid-template-rows: 1fr; }
+.lh-row-data-clip { min-height: 0; overflow: hidden; }
+.lh-row-data {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px 24px;
+  padding: 18px 16px 16px 58px;
+  border-top: 1px solid var(--border);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.lh-row.is-expanded .lh-row-data { opacity: 1; }
+.lh-row-data-item { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.lh-row-data-item.lh-row-data-desc { grid-column: 1 / -1; }
+.lh-row-data-key {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.lh-row-data-val { font-size: 13.5px; color: var(--text-secondary); line-height: 1.45; }
+.lh-row-data-item .lh-pill { align-self: flex-start; }
+.lh-row-data-members { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Role pill — colours reuse the role tokens used elsewhere. */
+.lh-pill {
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: capitalize;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.lh-pill.is-owner  { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: var(--accent-tint); }
+.lh-pill.is-admin  { color: var(--info); border-color: color-mix(in srgb, var(--info) 40%, transparent); background: var(--info-soft); }
+.lh-pill.is-member { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); background: var(--success-soft); }
+.lh-pill.is-viewer { color: var(--text-muted); }
+
+.lh-row-member-count {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
-.pjx-pc-meta strong { color: var(--text-secondary); font-weight: 600; }
-.pjx-sep { margin: 0 6px; opacity: 0.4; }
+.lh-users-icon { display: flex; color: var(--text-muted); }
+.lh-users-icon svg { width: 14px; height: 14px; }
 
-/* ---------- Recent rail ---------- */
-.pjx-recent-rail {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 14px;
-}
-.pjx-recent-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px 18px 14px;
+/* Overlapping avatar stack. */
+.lh-avatars { display: inline-flex; }
+.lh-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  text-decoration: none;
-  color: inherit;
-  transition: border-color 140ms, background 140ms;
-}
-.pjx-recent-card:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
-.pjx-recent-head { display: flex; align-items: center; gap: 8px; }
-.pjx-recent-id {
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  color: var(--text-muted);
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
   font-weight: 600;
-  text-transform: uppercase;
-}
-.pjx-recent-time { margin-left: auto; font-size: 11px; color: var(--text-muted); }
-.pjx-recent-title {
-  font-family: var(--font-display);
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--text-primary);
-  line-height: 1.2;
-}
-.pjx-recent-meta { display: flex; gap: 12px; font-size: 11.5px; color: var(--text-muted); margin-top: auto; padding-top: 6px; flex-wrap: wrap; }
-.pjx-recent-meta strong { color: var(--text-secondary); font-weight: 600; }
-
-/* ---------- All projects — table-ish list ---------- */
-.pjx-all-list {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  color: #fff;
+  border: 2px solid var(--bg-card);
+  margin-left: -8px;
   overflow: hidden;
 }
-.pjx-all-row {
-  display: grid;
-  grid-template-columns: 1fr 110px 150px 120px 62px;
-  align-items: center;
-  gap: 16px;
-  padding: 13px 18px;
-  border-bottom: 1px solid var(--border);
-  transition: background 100ms;
-  text-decoration: none;
-  color: inherit;
-}
-.pjx-all-row:last-child { border-bottom: none; }
-.pjx-all-row:hover { background: var(--bg-elevated); }
-.pjx-al-name { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.pjx-al-name-main {
-  font-family: var(--font-display);
-  font-size: 14.5px;
-  font-weight: 700;
-  letter-spacing: -0.012em;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.pjx-al-name-main > :first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pjx-al-name-sub { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pjx-al-recent-tag {
-  flex-shrink: 0;
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  font-weight: 700;
-  color: var(--accent);
-  background: var(--accent-soft);
-  padding: 1px 6px;
-  border-radius: 3px;
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-}
-.pjx-al-members { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
-.pjx-al-updated { font-size: 12px; color: var(--text-muted); line-height: 1.3; }
-.pjx-al-updated strong { color: var(--text-secondary); font-weight: 600; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
-.pjx-al-end { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
-.pjx-al-caret { color: var(--text-muted); display: grid; place-items: center; }
-.pjx-al-caret svg { width: 16px; height: 16px; }
+.lh-avatar:first-child { margin-left: 0; }
+.lh-avatar img { width: 100%; height: 100%; object-fit: cover; }
 
-/* ---------- States ---------- */
-.pjx-error {
-  margin-top: 24px;
-  padding: 14px 18px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
-  color: var(--danger);
-  font-size: 13px;
-}
-.pjx-empty {
-  margin-top: 40px;
+/* ── States ── */
+.lh-state {
+  padding: 28px;
   text-align: center;
-  padding: 64px 24px;
-  border: 1px dashed var(--border-strong);
-  border-radius: 14px;
-  background: var(--bg-card);
+  font-size: 14px;
+  color: var(--text-muted);
 }
-.pjx-empty h2 { font-family: var(--font-display); font-size: 22px; color: var(--text-primary); margin-bottom: 8px; }
-.pjx-empty p { color: var(--text-muted); font-size: 14px; margin: 0 0 18px; }
-.pjx-empty .pjx-btn-primary { display: inline-flex; }
+.lh-state-error { color: var(--danger-text); }
 
-/* ---------- Responsive ---------- */
-@media (max-width: 880px) { /* 1100px pre-scale */
-  .pjx-pinned-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.lh-empty {
+  padding: 56px 28px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(60 * var(--vh1));
 }
-@media (max-width: 819px) { /* 1024px pre-scale */
-  .pjx-page { padding: 0 0 64px; }
-  .pjx-mh-title { font-size: 42px; }
+.lh-empty h2 {
+  font-family: var(--font-display);
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+  padding-bottom: 10px;
 }
-@media (max-width: 608px) { /* 760px pre-scale */
-  .pjx-masthead { flex-direction: column; align-items: stretch; }
-  .pjx-pinned-grid { grid-template-columns: 1fr; }
-  .pjx-all-row { grid-template-columns: 1fr auto; }
-  .pjx-all-row > .pjx-pill,
-  .pjx-al-members,
-  .pjx-al-updated { display: none; }
+.lh-empty p {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0 0 20px;
+}
+.lh-empty .lh-new-btn { margin: 0; }
+.lh-empty-or {
+  margin: 12px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.lh-empty .lh-empty-open { margin: 0; }
+
+/* ── Skeleton shimmer ── */
+.lh-row-skel { cursor: default; pointer-events: none; padding: 16px 14px; }
+.lh-skel-bar {
+  width: 100%;
+  height: 18px;
+  border-radius: 6px;
+  background: linear-gradient(
+    100deg,
+    var(--bg-elevated) 30%,
+    color-mix(in srgb, var(--bg-elevated) 60%, var(--border)) 50%,
+    var(--bg-elevated) 70%
+  );
+  background-size: 200% 100%;
+  animation: lh-shimmer 1.3s ease-in-out infinite;
+}
+
+@keyframes lh-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes lh-banner-shimmer {
+  0%   { background-position: 0% 0; }
+  100% { background-position: 300% 0; }
+}
+@keyframes lh-menu-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* On narrow widths drop the rail so the list gets full width. */
+@media (max-width: 720px) {
+  .lh-hub { flex-direction: column; }
+  .lh-sidebar {
+    flex: 0 0 auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    border-radius: 16px 16px 0 0;
+  }
+  .lh-sb-nav { flex-direction: row; flex-wrap: wrap; }
+  .lh-sb-footer { margin-top: 0; border-top: none; width: 100%; }
 }

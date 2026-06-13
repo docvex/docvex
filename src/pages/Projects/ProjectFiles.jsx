@@ -14,6 +14,7 @@ import {
 } from '../../lib/localFolder';
 import { openDocx, isDocxFile, openFileWindow, canViewInBrowser, openDocViewerWindow, prepareWhatsAppZip, detectWhatsApp } from '../../lib/platform';
 import { openDocxInWindow } from '../../lib/openDocxWindow';
+import { readProjectsDir } from '../../lib/projectsDir';
 import {
   loadSidecar,
   saveSidecar,
@@ -29,13 +30,6 @@ import './ProjectFiles.css';
 // Recently-deleted retention window (mirrors the Electron main sweep).
 const TRASH_RETENTION_DAYS = 30;
 
-// The user's chosen projects directory (set in the launch hub's Settings).
-// Used as the base dir when resolving the project folder so Files uses the
-// SAME folder the hub created. Mirrors Launch.jsx's key/reader.
-function readProjectsDir(uid) {
-  try { return localStorage.getItem(`docvex.projectsDir.${uid || '_anonymous'}`) || ''; }
-  catch { return ''; }
-}
 
 // ── Small formatting helpers ──────────────────────────────────────────
 function formatBytes(bytes) {

@@ -1,7 +1,10 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
+import { useAuth } from '../context/AuthContext';
 import { scalePercentFor, MIN_SCALE, MAX_SCALE, SCALE_STEP } from '../lib/appScale';
+import { localFolderApi, isElectronBranch } from '../lib/localFolder';
+import { readProjectsDir, writeProjectsDir } from '../lib/projectsDir';
 import PageMasthead from '../components/PageMasthead';
 import './Settings.css';
 
@@ -35,6 +38,7 @@ const ImageIcon  = (p) => <Ico s={p?.s || 16}><rect x="3" y="3" width="18" heigh
 const MotionIcon = (p) => <Ico s={p?.s || 16}><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /><path d="M3 6v12" /></Ico>;
 const ResetIcon  = (p) => <Ico s={p?.s || 15} sw="2.2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></Ico>;
 const ChevronIcon = (p) => <Ico s={p?.s || 16}><polyline points="6 9 12 15 18 9" /></Ico>;
+const FolderIcon = (p) => <Ico s={p?.s || 16}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></Ico>;
 
 /* ────────────────── File-type glyphs ────────────────── */
 const PaperBase = (<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></>);
@@ -346,6 +350,52 @@ function MiniLang({ prefs }) {
   );
 }
 
+/* ───────────────────────── Workspace ───────────────────────── */
+// "Projects folder" — the directory under which Docvex auto-creates a folder
+// for each new project (so the Files page resolves straight to it). Migrated
+// from the old launch hub's Settings view. Electron only: web has no ambient
+// filesystem path, so the card is hidden there.
+function WorkspaceCard() {
+  const { session } = useAuth();
+  const userId = session?.user?.id ?? null;
+  const [dir, setDir] = useState('');
+
+  useEffect(() => { setDir(readProjectsDir(userId)); }, [userId]);
+
+  const choose = useCallback(async () => {
+    const picked = await localFolderApi.pick();
+    if (picked) { setDir(picked); writeProjectsDir(userId, picked); }
+  }, [userId]);
+
+  const clear = useCallback(() => {
+    setDir('');
+    writeProjectsDir(userId, '');
+  }, [userId]);
+
+  return (
+    <SettingCard
+      icon={<FolderIcon />}
+      title="Projects folder"
+      desc="Where Docvex creates a folder for each new project. New projects get their own folder here automatically, and the Files page opens straight to it."
+      control={(
+        <div className="set-ws-actions">
+          <button type="button" className="set-reset-btn" onClick={choose}>
+            <FolderIcon s={15} /> {dir ? 'Change…' : 'Choose folder…'}
+          </button>
+          {dir && (
+            <button type="button" className="set-reset-btn" onClick={clear}>Clear</button>
+          )}
+        </div>
+      )}
+    >
+      <div className={'set-ws-path' + (dir ? '' : ' is-empty')}>
+        <span className="set-ws-path-ico"><FolderIcon s={16} /></span>
+        <span className="set-ws-path-text">{dir || 'No projects folder set yet.'}</span>
+      </div>
+    </SettingCard>
+  );
+}
+
 /* ───────────────────────── Settings catalogue ───────────────────────── */
 function buildSettings(prefs, set) {
   return [
@@ -438,6 +488,12 @@ export default function Settings() {
             ))}
           </div>
         ))}
+        {isElectronBranch && (
+          <div className="set-group">
+            <h2 className="set-group-title">Workspace</h2>
+            <WorkspaceCard />
+          </div>
+        )}
         <p className="set-foot">Preferences are saved on this device. Other devices keep their own.</p>
       </div>
     </div>

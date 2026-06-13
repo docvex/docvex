@@ -10,6 +10,7 @@ import { usePaneChromeFooterEl, usePaneChromePortalEl } from '../../context/Pane
 import { ICONS as I } from './aiHub';
 import { askProjectAi, suggestFileActions } from '../../lib/projectAi';
 import { readLocalBlob, localFolderApi } from '../../lib/localFolder';
+import { readProjectsDir } from '../../lib/projectsDir';
 import { listMyProjects } from '../../lib/projects';
 import { extractFileText } from '../../lib/extractFileText';
 import { getDraggedFiles } from '../../lib/fileDragBus';
@@ -234,12 +235,6 @@ const DEPTH = [
   { key: 'high', label: 'High', desc: 'A fully reviewed, thoroughly documented answer.', instr: 'Give a fully reviewed, thoroughly documented answer: explain your reasoning step by step, reference the relevant parts of the document, and note any caveats, assumptions and edge cases.' },
 ];
 
-// The user's chosen projects directory (set in the launch hub) — the base for
-// resolving each project's local folder. Mirrors ProjectFiles' readProjectsDir.
-function readProjectsDir(uid2) {
-  try { return localStorage.getItem(`docvex.projectsDir.${uid2 || '_anonymous'}`) || ''; }
-  catch { return ''; }
-}
 
 // Collect the NAMES of every file across the user's project folders, for the
 // "Use context" toggle. Names only (the edge `ask` action grounds on names, not

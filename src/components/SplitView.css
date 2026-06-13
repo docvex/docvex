@@ -93,8 +93,7 @@ body.sv-resizing .sv-pane { pointer-events: none; }
   min-height: 0;
 }
 
-/* Left rail of switchable destinations (replaces the chrome dropdown). Styled
-   to match the DocVex hub's sidebar nav (.lh-sidebar / .lh-sb-item). */
+/* Left rail of switchable destinations (replaces the chrome dropdown). */
 .sv-single-nav {
   flex: 0 0 auto;
   width: 212px;

@@ -13,6 +13,7 @@ import { DEFAULT_STATUS_KEY, getStatusOption } from '../lib/userStatus';
 import { PLAN } from '../lib/plan';
 import { listMembers } from '../lib/projects';
 import { localFolderApi, isElectronBranch } from '../lib/localFolder';
+import { readProjectsDir } from '../lib/projectsDir';
 import {
   isMac,
   windowMinimize,
@@ -28,10 +29,10 @@ import './TitleBar.css';
 
 // Custom frameless title bar (Electron only — App.jsx gates it on isElectron).
 // One bar holds the Theme control AND the window controls (minimize / maximize
-// / close), so they live in the same section, separated by a divider.
-// Documentation / Updates / Account moved to the launch hub's own sidebar. The
-// whole bar is a drag region; every interactive element opts out with
-// `-webkit-app-region: no-drag` (set in TitleBar.css).
+// / close), so they live in the same section, separated by a divider. Account
+// lives here too (TbAccount → /account); Versions + Documentation live in the
+// Sidebar nav. The whole bar is a drag region; every interactive element opts
+// out with `-webkit-app-region: no-drag` (set in TitleBar.css).
 
 const THEME_OPTIONS = [
   { pref: 'cream', label: 'White' },
@@ -89,13 +90,6 @@ function bumpKind(from, to) {
   if (b[2] !== a[2]) return 'patch';
   return null;
 }
-// The user's chosen projects directory (set in the hub Settings) — the base
-// dir for resolving a project's local folder, so the file count matches Files.
-function readProjectsDir(uid) {
-  try { return localStorage.getItem(`docvex.projectsDir.${uid || '_anonymous'}`) || ''; }
-  catch { return ''; }
-}
-
 // One project-member avatar (real OAuth picture or coloured initial fallback).
 function TbMemberAvatar({ member }) {
   const p = member.profile || {};
@@ -263,14 +257,17 @@ export default function TitleBar() {
   const { captureAndOpen: openReportProblem, capturing: reportCapturing } = useReportProblem();
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  // The launch hub lives at /launch — only there does the brand read "… | HUB".
-  const onHub = pathname === '/launch';
   // The doc-viewer is a secondary window (boots at /doc-viewer); it's a plain
   // file viewer, so it hides the Split-layout and Theme controls.
   const onDocViewer = pathname === '/doc-viewer';
+  // The Hub is the projects launcher (/projects). There the brand reads
+  // "DOCVEX | HUB" and ALL selected-project chrome (name chip + member avatars
+  // + file count + usage meters) is hidden — you're between projects, not in one.
+  const onHub = pathname === '/projects';
 
   // Project member list (for the avatar stack next to the project name).
-  // Fetched once per selected project; cleared on the hub / no selection.
+  // Fetched once per selected project; cleared when there's no selection /
+  // on the Hub.
   const [members, setMembers] = useState([]);
   const projectId = selectedProject?.id || null;
   useEffect(() => {
@@ -524,35 +521,31 @@ export default function TitleBar() {
     <div className="tb-bar">
       {/* FPS indicator — fixed at the top-centre of the window. */}
       <FpsMeter />
-      {/* Brand on the left — "DOCVEX", with a "| HUB" suffix on the launch hub.
-          When a project is selected, its name renders after a divider as a
-          clickable chip that opens the project's Overview (Personal → Projects
-          → [project], i.e. /projects/:id). */}
+      {/* Brand on the left — "DOCVEX", with a "| HUB" suffix on the Hub
+          (/projects). When a project is selected (and not on the Hub), its name
+          renders after a divider as a clickable chip that opens the project's
+          Overview (Personal → Projects → [project], i.e. /projects/:id). */}
       <div className="tb-brand">
         {/* Icon + DOCVEX — plain, non-interactive text (with a "| HUB" suffix
-            on the launch hub). */}
-        {onHub ? (
-          // "DOCVEX | HUB" — the divider and HUB live INSIDE the static span so
-          // the flex `gap` gives symmetric spacing on both sides of the "|".
-          <span className="tb-brand-static">
-            <img src={brandIcon} alt="" className="tb-brand-icon" />
-            <span className="tb-brand-name">DOCVEX</span>
-            <span className="tb-brand-sep" aria-hidden="true">|</span>
-            <span className="tb-brand-suffix">HUB</span>
-          </span>
-        ) : (
-          <span className="tb-brand-static">
-            <img src={brandIcon} alt="" className="tb-brand-icon" />
-            <span className="tb-brand-name">DOCVEX</span>
-          </span>
-        )}
+            on the Hub; the divider + HUB live INSIDE the static span so the
+            flex `gap` spaces both sides of the "|" symmetrically). */}
+        <span className="tb-brand-static">
+          <img src={brandIcon} alt="" className="tb-brand-icon" />
+          <span className="tb-brand-name">DOCVEX</span>
+          {onHub && (
+            <>
+              <span className="tb-brand-sep" aria-hidden="true">|</span>
+              <span className="tb-brand-suffix">HUB</span>
+            </>
+          )}
+        </span>
         {/* Version pill — to the right of the app name. When a newer version
             is available it shows "Update · v<latest> · <kind>", colour-coded
             by the semver bump (major/minor/patch) to match the Versions page;
             the dot pulses. When up to date it shows the running version in a
             calm gray static gradient with no pulse. Clicking opens the
-            Versions page. Hidden on the launch hub. */}
-        {!onHub && signedIn && (hasUpdate ? (
+            Versions page. */}
+        {signedIn && (hasUpdate ? (
           <Tooltip content={latestVersion ? `Update available — v${latestVersion}${updateKind ? ` (${updateKind})` : ''}` : 'Update available'}>
             <button
               type="button"
@@ -602,7 +595,7 @@ export default function TitleBar() {
 
       {/* Project meta next to the name: member avatars (max 5, +N) · files
           count · usage bars, dot-separated. Only with a project selected and
-          off the hub. */}
+          not on the Hub. */}
       {!onHub && signedIn && selectedProject && (
         <div className="tb-meta">
           {members.length > 1 && (
@@ -686,9 +679,9 @@ export default function TitleBar() {
             {/* Split view — tile the content area into 1/2/3/4 independently-
                 navigable panes. Left-click morphs the cursor tooltip into the
                 menu (same useMorphPill the file grid uses on right-click).
-                Hidden on the launch hub, which has no tile-able content area,
-                and on the doc-viewer window. */}
-            {!onHub && !onDocViewer && (
+                Hidden on the doc-viewer window, which has no tile-able content
+                area. */}
+            {!onDocViewer && (
               <>
                 <button
                   type="button"

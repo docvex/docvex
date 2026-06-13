@@ -53,10 +53,10 @@
   border-color: var(--border);
 }
 
-/* Non-interactive brand (launch hub) — plain text, stays part of the drag
-   region (no -webkit-app-region override, no hover/cursor affordance).
-   Same 8px gap as the rest of the bar; no own padding/margin so the parent's
-   8px inset is the single source of left spacing. */
+/* Non-interactive brand — plain text, stays part of the drag region (no
+   -webkit-app-region override, no hover/cursor affordance). Same 8px gap as
+   the rest of the bar; no own padding/margin so the parent's 8px inset is the
+   single source of left spacing. */
 .tb-brand-static {
   display: inline-flex;
   align-items: center;
@@ -73,6 +73,7 @@
   letter-spacing: 0.08em;
   color: var(--text-primary);
 }
+/* "HUB" suffix shown after "DOCVEX |" on the Hub (/projects). */
 .tb-brand-suffix {
   font-family: var(--font-display);
   font-weight: 600;

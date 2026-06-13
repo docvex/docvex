@@ -11,7 +11,6 @@ import { useAuth } from './context/AuthContext';
 // surfaces.
 
 const AuthPage = lazy(() => import('./components/AuthPage'));
-const Launch = lazy(() => import('./pages/Launch'));
 const Activity = lazy(() => import('./pages/Activity'));
 const Account = lazy(() => import('./pages/Account'));
 const Settings = lazy(() => import('./pages/Settings'));
@@ -59,7 +58,6 @@ export default function AppRoutes({ Shell, ProjectShell }) {
     <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="/auth" element={<AuthPage />} />
-        <Route path="/launch" element={<Launch />} />
         {/* Full-screen document viewer window (file preview + Legal AI panel),
             opened from the Files page. Sits outside the sidebar shell. */}
         <Route path="/doc-viewer" element={<DocViewer />} />
