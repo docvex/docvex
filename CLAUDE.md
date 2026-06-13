@@ -2,7 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Docvex is a team-collaboration desktop + web app for project files with a GitHub-style branching/change-request flow on top of Supabase. The Electron build is the primary surface; the web build (`/app/` on GitHub Pages) is a thin variant of the same renderer.
+> **Note (2026-06):** Migration 031 removed the cloud file store and the
+> GitHub-style branching/change-request system described in older versions of
+> this doc. Files are now local-only per project (`lib/localFolder.js` +
+> `.docvex.json` sidecar via `lib/localBranchMeta.js`). The provider stack,
+> routing, and Supabase schema below reflect the post-pivot state. Newer
+> surfaces — Launch hub (`/launch`), Doc Viewer (`/doc-viewer`), Admin,
+> Settings, Mail, Project AI / AI Chat, SplitView panes — exist but aren't
+> documented in depth here; read the source directly.
+
+Docvex is a team-collaboration desktop + web app for projects (chat, AI
+tools, legal newsfeed) on top of Supabase (auth, Postgres + RLS, Realtime,
+Edge Functions). Project files live in a local folder per project — there is
+no cloud file store. The Electron build is the primary surface; the web build
+(`/app/` on GitHub Pages) is a thin variant of the same renderer.
 
 ## Commands
 
@@ -24,24 +37,17 @@ npm run release:minor     # bump x.(x+1).0
 npm run release:major     # bump (x+1).0.0
 npm run release:status    # show working-tree status + last commit
 
-# release:* scripts run preversion (fail if dirty), `version` (sync README +
-# rebuild web bundle into docs/app/), and postversion which delegates to
-# scripts/post-release.mjs. That orchestrator runs each step independently
-# (a failure in one doesn't skip the rest):
+# release:* run preversion (fail if dirty), `version` (sync README + rebuild
+# web bundle into docs/app/), then postversion → scripts/post-release.mjs,
+# which runs each step independently (a failure in one doesn't skip the rest):
 #   1. git push --follow-tags
-#   2. electron-forge publish     → uploads Win Setup.exe + nupkg to a draft
-#                                   release on GitHub
-#   3. publish-mac-zips           → cross-platform packages the .app bundles
-#                                   and uploads the two darwin zips
-#   4. generate-release-notes     → summarises commits via the `claude` CLI
-#                                   and PATCHes the release body (best-effort)
-#   5. finalize-release           → PATCHes draft=false and rebinds tag_name
-#                                   from GitHub's "untagged-<sha>" placeholder
-#                                   to v<version>, so /releases/download/v<x>/*
-#                                   resolves and update.electronjs.org starts
-#                                   serving the new version. Needs GITHUB_TOKEN;
-#                                   if unset or it fails, publish the draft
-#                                   manually on github.com as a fallback.
+#   2. electron-forge publish   — Win Setup.exe + nupkg → draft GitHub release
+#   3. publish-mac-zips         — packages + signs both darwin .app bundles, uploads zips
+#   4. generate-release-notes   — `claude` CLI summarises commits, PATCHes release body (best-effort)
+#   5. finalize-release         — draft=false + rebinds tag_name to v<version> so
+#                                  /releases/download/v<x>/* and update.electronjs.org
+#                                  start serving it. Needs GITHUB_TOKEN; publish the
+#                                  draft manually on github.com as a fallback.
 
 # Repair an existing release's macOS assets (must run ON A MAC):
 npm run fix:mac           # rebuild + ad-hoc re-sign + re-zip + replace the
@@ -50,19 +56,16 @@ npm run fix:mac -- v7.2.5 # ...on a specific tag. Needs GITHUB_TOKEN.
 ```
 
 > **macOS code-signing — read before cutting a release.** The mac build is
-> ad-hoc signed only (no Developer ID). electron-forge's FusesPlugin flips fuse
-> bytes AFTER signing, which invalidates the Electron Framework's signature; on
-> Apple Silicon the kernel then SIGKILLs the app at launch (`Code Signature
-> Invalid`, crashing in `fuses::IsRunAsNodeEnabled`). The repair is a full
-> `codesign --deep` re-sign, which **only works on macOS** — so the darwin
-> artifacts MUST be packaged/signed on a Mac. A release whose mac zips were
-> built on Windows/Linux will crash on every Apple-Silicon Mac. Use
-> `npm run fix:mac` from a Mac to replace bad assets. Two gotchas the scripts
-> already handle: codesign rejects the `com.apple.FinderInfo` xattr that an
-> iCloud-synced repo folder keeps re-applying (sign in a `/tmp` copy), and the
-> rebuilt bundle must be stamped with the release's version (`DOCVEX_APP_VERSION`)
-> or the updater re-prompts forever. The in-app self-updater also ad-hoc
-> re-signs each download on the user's Mac as a safety net (see "Auto-update").
+> ad-hoc signed only. electron-forge's FusesPlugin flips fuse bytes AFTER
+> signing, invalidating the Electron Framework signature — on Apple Silicon
+> the app gets SIGKILLed at launch (`Code Signature Invalid`). The fix is a
+> full `codesign --deep` re-sign, which **only works on macOS**, so darwin
+> artifacts MUST be built/signed on a Mac (`npm run fix:mac` to repair an
+> existing release). Two gotchas the scripts already handle: sign in a `/tmp`
+> copy (an iCloud-synced folder keeps re-applying the `com.apple.FinderInfo`
+> xattr that codesign rejects), and stamp the rebuilt bundle with
+> `DOCVEX_APP_VERSION` or the updater re-prompts forever. The in-app
+> self-updater also re-signs each download on the user's Mac as a safety net.
 
 No tests, no linter (`npm run lint` is a stub).
 
@@ -70,11 +73,12 @@ No tests, no linter (`npm run lint` is a stub).
 
 - **Electron 42** + **Electron Forge 7** (Vite plugin orchestrates main / preload / renderer Vite builds)
 - **React 19** + **react-router-dom 7** (MemoryRouter on Electron, BrowserRouter with `basename=/app` on web)
-- **Supabase JS 2** — auth, Postgres + RLS, Storage (`projects` + `projects-pending` buckets), Realtime, Edge Functions
+- **Supabase JS 2** — auth, Postgres + RLS, Realtime, Edge Functions
 - **pdf.js 5** for in-app PDF preview (`pdfjs-dist`), **html2canvas** for the Report-a-Problem screenshot capture
-- **docx-preview** for rendering `.docx` files (cloud tab → opened in a separate window via `lib/openDocxWindow.js`); lazy-imported so its weight isn't paid until a Word doc is opened
+- **docx-preview** for rendering `.docx` files (Doc Viewer / `lib/openDocxWindow.js`); lazy-imported so its weight isn't paid until a Word doc is opened
 - **react-markdown + remark-gfm** for rendered release notes
 - **update-electron-app** → `update.electronjs.org` feed for packaged auto-updates
+- **`doc-ai` Edge Function** — Claude (OCR) + OpenAI Whisper (audio transcription) powering the Doc Viewer's "Extract text" and captions tools
 
 ## High-level architecture
 
@@ -85,29 +89,29 @@ No tests, no linter (`npm run lint` is a stub).
 ```
 MemoryRouter
   AuthProvider
-    ThemeProvider           — needs auth (per-user theme key); outermost so
+    ThemeProvider            — needs auth (per-user theme key); outermost so
                               data-theme is on <html> before first paint
-    SelectedProjectProvider — per-user storage; auto-clears on access loss
-      UpdatesProvider
-        NotificationsProvider — source hooks need auth + updates
-          UploadsProvider     — uses notify() for error toasts
-            BranchProvider    — needs ProjectProvider via the route subtree;
-                                exposes per-project branch state + RPCs
-              <App />
-          <NotificationCenter />  — sits above UploadModal z-index
+    AppPrefsProvider
+      SelectedProjectProvider — per-user storage; auto-clears on access loss
+        UpdatesProvider
+          NotificationsProvider — source hooks need auth + updates
+            SplitViewProvider
+              ChatUnreadProvider
+                <App />
+            <NotificationCenter />  — sibling of <App />, toasts at z 9999
 ```
 
 ### Routing
 
-`src/App.jsx`. All page modules are `React.lazy`-imported. Layout:
+`src/AppRoutes.jsx` defines the full route tree, extracted so it can be rendered both by the main window shell (with the sidebar) and by each SplitView pane (sidebar-less, own MemoryRouter) — `Shell` / `ProjectShell` are passed in as props so the two surfaces can't drift. All page modules are `React.lazy`-imported.
 
-- `/auth` — full-screen, no shell.
-- `/` — wraps everything in `AppShell` (sidebar + main).
-  - Public: `/` (Activity feed), `/updates`, `/notifications` (redirects to `/`), `/invite/:token` (invite-accept must render before sign-in so it can stash the token).
-  - `ProtectedRoute`: `/account`, all `/projects/*`, project-scoped tools (`/files`, `/clients`, `/todos`, `/chat`, `/generate`, `/automate`).
-  - `/projects/:projectId` wraps the subtree in `ProjectProvider` (`<ProjectShell>`), so Overview + Dashboard share one fetch and one Realtime channel.
-
-`ProjectAutoSelect` (in App.jsx) mirrors `useProject().project.id` into `SelectedProjectContext` only when on `/projects/:id/dashboard`, with two guarded races: (1) user just deselected (`prev && !selectedProjectId`), (2) project context is mid-fetch (`projectLoading`).
+- `/auth`, `/launch` — full-screen, no shell.
+- `/doc-viewer` — full-screen Doc Viewer window (file preview + Legal AI panel), opened from the Files page.
+- `/` — wraps everything in `Shell`.
+  - Public: `/` (Activity feed), `/versions` (release history; `/updates` redirects here), `/newsletter`, `/notifications` (redirects to `/`), `/invite/:token`.
+  - Dev-only: `/debug`.
+  - `ProtectedRoute`: `/account`, `/settings`, `/admin`, all `/projects/*`, and project-scoped tools (`/files`, `/clients`, `/todos`, `/chat`, `/generate`, `/automate`, `/ai`, `/ai-chat`, `/mail`) which read the active project from `SelectedProjectContext` rather than a URL param.
+  - `/projects/:projectId` wraps `Overview` + `Dashboard` in `ProjectShell`, sharing one fetch and one Realtime channel.
 
 ### Main ↔ Renderer IPC contract
 
@@ -148,13 +152,13 @@ Two layers running in parallel — don't confuse them:
 1. **`update-electron-app` in `src/main.js`** (packaged builds only) — polls `update.electronjs.org` every 10 min, which reads GitHub Releases for `petreluca1105-dotcom/docvex`. Squirrel.Windows downloads in background, installs on next launch.
 2. **`UpdatesContext` in renderer** — fetches `https://api.github.com/repos/petreluca1105-dotcom/docvex/releases` (cached in `sessionStorage` under `docvex:releases-cache:v1`, 1 h TTL) and subscribes to `update:status` events from main. Drives the sidebar badge + the Updates page banner.
 
-Layer 1 is the source of truth for "is an installer actually downloaded and ready to apply?" → fires `update-downloaded` → `update:status { state: 'downloaded' }` → renderer shows "Restart & install". Layer 2 is what shows release notes and the version-mismatch indicator. Works in dev too (no Squirrel needed). Web returns `state: 'web'`.
+Layer 1 is the source of truth for "is an installer downloaded and ready?" → `update-downloaded` → `update:status { state: 'downloaded' }` → renderer shows "Restart & install". Layer 2 shows release notes + version-mismatch. Works in dev too (no Squirrel needed). Web returns `state: 'web'`.
 
-**Windows-only Squirrel.** Layer 1 is gated on `AUTO_UPDATE_SUPPORTED` (`process.platform === 'win32'`) in `src/main.js` — the macOS build isn't Developer-ID signed, so Squirrel.Mac can't apply updates. `update:check` returns `{ state: 'unsupported' }` on macOS/Linux so the renderer doesn't hang on `'checking'`.
+**Windows-only Squirrel.** Layer 1 is gated on `AUTO_UPDATE_SUPPORTED` (`process.platform === 'win32'`) — the macOS build isn't Developer-ID signed, so Squirrel.Mac can't apply updates. `update:check` returns `{ state: 'unsupported' }` on macOS/Linux.
 
-**macOS self-updater.** Instead of Squirrel, macOS uses a manual one-click updater: `update:download-and-install` (main) downloads the arch-correct release zip (`installerAssetFor` in `UpdatesContext`), extracts with `ditto`, **strips xattrs + ad-hoc re-signs the bundle** (`xattr -cr` then `codesign --force --deep --sign -`) so the fuse-invalidated signature is repaired on the user's own Mac, then a detached script swaps the `.app` and relaunches (with rollback). Progress flows back as `update:status { state: 'downloading', percent }` → `'installing'`. The Updates page button becomes **"Update to vX"** → **"Downloading… N%"** → **"Installing…"**; on failure it falls back to a browser download (`downloadUpdate`). Linux falls through to the same browser-download fallback. See the macOS code-signing callout in **Commands** for why the re-sign is mandatory.
+**macOS self-updater.** `update:download-and-install` (main) downloads the arch-correct release zip (`installerAssetFor` in `UpdatesContext`), extracts with `ditto`, strips xattrs + ad-hoc re-signs (`xattr -cr` then `codesign --force --deep --sign -`) to repair the fuse-invalidated signature, then a detached script swaps the `.app` and relaunches (with rollback). Progress flows back as `update:status { state: 'downloading', percent }` → `'installing'`. On failure it falls back to a browser download (`downloadUpdate`); Linux always uses that fallback.
 
-Semver compare is a tiny inline `semverGT()` in `UpdatesContext.jsx` — handles `major.minor.patch` only, strips `v` prefix and pre-release suffix.
+Semver compare is a tiny inline `semverGT()` in `UpdatesContext.jsx` — `major.minor.patch` only, strips `v` prefix and pre-release suffix.
 
 ## Theme system
 
@@ -187,7 +191,7 @@ Adding a third theme = 30-line addition (new `:root[data-theme="…"]` block + e
 
 ## Context layer
 
-All under `src/context/`. Every hook returns plain objects; no Redux / Zustand. Persistence keys all share the `docvex.*` prefix.
+All under `src/context/`. Every hook returns plain objects; no Redux / Zustand. Persistence keys all share the `docvex.*` prefix. Newer contexts (`AppPrefsContext`, `ChatUnreadContext`, `PaneChromeContext`, `SplitViewContext`) exist but aren't fully documented here yet.
 
 | Context | Exported shape (via `useXxx()`) | Persistence |
 | --- | --- | --- |
@@ -195,17 +199,15 @@ All under `src/context/`. Every hook returns plain objects; no Redux / Zustand. 
 | **ThemeContext** | `{ theme, setTheme, themes: [{ id, label, description, swatchOrder }] }` | `docvex.theme.<userId|_anonymous>` |
 | **SelectedProjectContext** | `{ selectedProjectId, selectedProject, loading, selectProject(id, prefetched?), clearSelection, patchSelectedProject(patch), pickerOpen, openPicker, closePicker, togglePicker, switching, switchingToName, beginSwitch(name) }` | `docvex.selectedProject.<userId>` |
 | **ProjectContext** (URL-scoped) | `{ project, role, members, customRoles, loading, error, refresh, refreshCustomRoles, removeMemberLocal, setMemberRoleLocal, removeCustomRoleLocal }` | None — Realtime subs + optimistic local mutations |
-| **BranchContext** | `{ view, setView, branchState, mainVersion, pendingChanges, overlayByFileId, addedChanges, requests, openOwnRequestItems, isBehindMain, isAdmin, isMember, loading, queueChange, discardChange, discardAll, pushRequest, withdrawRequest, approveRequest, approveRelease, rejectRequest, acknowledgeSync, refreshOpenRequestItems, refresh }` | `docvex:branch-view:<projectId>` (Main / My toggle) |
 | **NotificationsContext** | `{ notifications, activeToasts, unreadCount, notify(payload), dismissToast(id), markRead(id), markAllRead, remove(id), clearAll }` | `docvex.notifications.v1.<userId|_anonymous>` (debounced). `HISTORY_CAP = 100`, `MAX_ACTIVE_TOASTS = 3`. |
 | **UpdatesContext** | `{ currentVersion, latestVersion, isPackaged, releases, loading, error, hasUpdate, installerState, checkNow, installUpdate }` | `sessionStorage` `docvex:releases-cache:v1` |
-| **UploadsContext** | `{ uploads, uploadingCount, overallProgress, beginUpload, cancelAllUploads, dismissUpload, staged, stageFiles, removeStaged, clearStaged, sendStaged, updateStagedName, updateStagedDescription, modalOpen, openModal, closeModal, dragActive, sending }` | None. `MAX_CONCURRENT = 3`, `TERMINAL_DISMISS_MS = 5000`. |
 | **ReportProblemContext** | `{ open, capturing, screenshot: { blob, dataUrl } | null, captureAndOpen, close, removeScreenshot }` | None; html2canvas is lazy-imported so the first render doesn't pay the cost. |
 
 **Provider-order constraints** to remember:
 - ThemeProvider above everything else that renders so `data-theme` is set before first paint.
-- BranchProvider needs `SelectedProjectContext` to know which project's branch state to load.
-- UploadsProvider needs `NotificationsContext` for error toasts.
-- `NotificationCenter` mounts OUTSIDE `<App />` so its toasts (z 9999) render above the UploadModal dropzone (z 1000).
+- AppPrefsProvider sits below ThemeProvider, above SelectedProjectProvider.
+- SplitViewProvider / ChatUnreadProvider wrap `<App />` inside NotificationsProvider (pane layout + chat unread badges).
+- `NotificationCenter` mounts as a sibling of `<App />` so its toasts (z 9999) render above any modal.
 
 ## Library layer (`src/lib/`)
 
@@ -213,119 +215,86 @@ All under `src/context/`. Every hook returns plain objects; no Redux / Zustand. 
 | --- | --- |
 | `supabaseClient.js` | Singleton supabase-js client (PKCE, no auto-detect-in-URL). |
 | `projects.js` | Project CRUD + member listings + auth-user profile upsert. |
-| `projectFiles.js` | `listProjectFiles`, `deleteProjectFile`, `createSignedDownloadUrl`, `createPendingSignedUrl`, `fetchUploaderProfile`, `subscribeForProject`. Bucket `projects`, table `project_files`, signed-URL cache evicted on delete. |
-| `uploadProjectFile.js` | XHR + AbortController orchestration for a single upload. Accepts `prepped` (thumbnail / frames / duration); regenerates inline if absent. |
 | `thumbnails.js` | Offline thumbnail + video-frame extraction (canvas, pdf.js, ffmpeg.wasm where applicable). |
-| `pdfCache.js` | Module-level cache of parsed pdf.js documents, keyed by content_hash. Evicted from the "Debug → Clear all cached data" menu. |
+| `pdfCache.js` | Module-level cache of parsed pdf.js documents, keyed by content hash. Evicted from the "Debug → Clear all cached data" menu. |
 | `pdfWorker.js` | pdf.js worker entry point used by pdfCache. |
-| `branches.js` | Branch + change-request data layer. `computeBranchDiff(localFiles, cloudFiles, sidecar, localHashByName, cloudHashByFileId, openRequestItems)`, `uploadBlobToPending(blob, projectId, changeId, filename, fileId?)`, `pushChangeRequest`, `listChangeRequests`, `getChangeRequest`, `approveChangeRequest`, `rejectChangeRequest`, `listOpenChangeRequestItemsForProject` (batched, replaces the N+1), `subscribeChangeRequestItemsForProject(projectId, cb)` (Realtime with `project_id=eq.${projectId}` filter from migration 018). |
-| `localBranchMeta.js` | Per-(project, folder) sidecar. Async file-backed (`.docvex.json` in the folder; see "Sidecar" below). `loadSidecar`, `saveSidecar`, `addEntry`, `removeEntry`, `removeByFilename`, `renameEntry`, `reconcileWithFilesystem` (3 passes: rename detect → cloud-hash bootstrap → mint UUID), `fileIdForFilename`, `entryForFileId`. `LEGACY_SIDECAR_KEY` and `toPayload` exported for the one-time localStorage→file migration. |
+| `localBranchMeta.js` | Per-(project, folder) `.docvex.json` sidecar — gives each local file a stable id that survives renames. `loadSidecar`, `saveSidecar`, `addEntry`, `removeEntry`, `removeByFilename`, `renameEntry`, `reconcileWithFilesystem`, `fileIdForFilename`, `entryForFileId`. |
 | `localFolder.js` | Unified electron/web folder API (`localFolderApi.pick / list / download / writeFiles / deleteFiles / renameFile / openPath / showInFolder / watch / unwatch / onChange / readSidecar / writeSidecar / persistPickedHandle / restorePersistedHandle / reconnectHandle / forgetPersistedHandle`). Web backend uses `showDirectoryPicker`, persists the `FileSystemDirectoryHandle` in IndexedDB (`docvex-fs-handles` / `handles` store, key = projectId), 3 s poll for change detection. `readLocalBlob(pathOrName)` returns a Blob via `localfile://` (Electron) or the cached file handle (web). |
 | `notifications.js` | Pure helpers: `NOTIFICATION_CATEGORIES / VARIANTS / PRIORITIES`, `buildNotification`, `resolveDedupeStrategy`, `formatRelativeTime`, `storageKeyForUser`. |
 | `notificationsRepo.js` | Supabase IO for the `notifications` table: `fetchRecent`, `insertOne(row, { ignoreDuplicates })` (upsert on `(user_id, dedupe_key)`), `deleteByDedupeKey`, `markRead`, `markAllRead`, `deleteOne`, `deleteAllForUser`, `subscribeForUser`. |
-| `customRoles.js` | `listCustomRoles(projectId)`, `subscribeForProjectRoles`. Custom role = base_role + capability overrides joined many→one. |
+| `customRoles.js` | `listCustomRoles(projectId)`, `subscribeForProjectRoles`. Custom role = `base_role` + `custom_role_capabilities` overrides; resolution happens server-side via `has_capability()`. |
 | `userStatus.js` | User status enum (online / away / dnd / offline) + `getStatusForUser`. |
 | `recentProjects.js` | localStorage map of `projectId → lastAccessedAt` per `userId`. `markProjectAccessed`, `getMostRecentProjectId`, `getRecentMap`, `sortProjectsByRecent`. |
 | `support.js` | `sendSupportReport({ category, title, body, screenshot? })` — fire-and-forget to `send-support-report` Edge Function. |
 | `sendWelcome.js` | Fire-and-forget `send-welcome` Edge Function; no-op when already sent. |
 | `plan.js` | `PLAN = { tier: 'Free', features: [...] }` placeholder — read in Account page AND Sidebar footer pill; update both when wiring real plans. |
 | `platform.js` | Electron / web adapter: `isElectron`, `getAppVersion`, `isPackaged`, `showInFolder`, `openPath`, `onDeepLink`, `onAccountSwitch`, `openOAuthUrl`, `checkForUpdates`, `installUpdate`, `onUpdateStatus`, `showOSNotification`. Web stubs out anything that can't work in a browser. |
-| `legalFeed.js` | Legal Newsfeed (Newsletter) data layer. `listLegalUpdates()` (embeds the user's `legal_update_states` so read/pin/saved come back in one round-trip), `setUpdateRead`/`setUpdatePinned`/`setUpdateSaved` (partial-column upserts on `(user_id, update_id)`), and `getWeeklyDigest()` (invokes the `legal-ai` Edge Function `digest` action, cached 1 h in `sessionStorage`). |
+| `legalFeed.js` | Legal Newsfeed (Newsletter) data layer. `listLegalUpdates()` (embeds the user's `legal_update_states`), `setUpdateRead`/`setUpdatePinned`/`setUpdateSaved`, `getWeeklyDigest()` (invokes `legal-ai`'s `digest` action, cached 1 h in `sessionStorage`). |
+| `ocr.js` / `transcribe.js` | Doc Viewer "Extract text" (Claude OCR) and audio captions (Whisper) — both call the `doc-ai` Edge Function. |
+| `extractionHistory.js` | Per-file localStorage history of OCR snippets for the Doc Viewer. |
+
+~15 other newer lib files (`activityMetrics.js`, `admin.js`, `extractFileText.js`, `fileDragBus.js`, `folderColors.js`, `hiddenFiles.js`, `launchGate.js`, `mail.js`, `openDocxWindow.js`, `privateMessages.js`, `projectAi.js`, `thumbnailDescriptor.js`, `thumbnailResolver.js`, `whatsappChat.js`, `useChatFind.js`) aren't documented here yet — read directly.
 
 ## Supabase data model
 
-Project ID `pntxlvhkqfryyyxlqytr` (eu-west-1, organization `docvex.ro`). Modify via the `claude_ai_Supabase` MCP tools (`list_tables`, `apply_migration`, etc.).
+Project ID `pntxlvhkqfryyyxlqytr` (eu-west-1, organization `docvex.ro`). Modify via the `claude_ai_Supabase` MCP tools (`list_tables`, `apply_migration`, etc.). **No cloud file store** — migration 031 dropped `project_files`, `change_requests`, `change_request_items`, `branch_changes`, `project_member_branches`, the `projects` / `projects-pending` storage buckets, and `projects.main_version`.
 
-### Tables (current after migration 019)
+### Tables (current, post migration 031)
 
 | Table | Notable columns | Notes |
 | --- | --- | --- |
-| `projects` | `id, name, description, created_by, created_at, updated_at, main_version int` | `main_version` bumps once per merge; `add_creator_as_owner` trigger inserts owner row. |
-| `project_members` | PK `(project_id, user_id)`, `role` enum (`owner / admin / member / viewer`), `custom_role_id?`, `added_at` | RLS via `has_project_role(p_project_id, p_min_role)`. |
-| `project_invitations` | `id, project_id, email, role, token unique, invited_by, created_at, expires_at (+7 d), accepted_at?` | Unique index on `(project_id, lower(email))` WHERE `accepted_at IS NULL`. Consumed by the `accept-invite` Edge Function which calls `accept_invitation` RPC. |
-| `project_files` | `id, project_id, name, description?, mime_type, size_bytes, storage_path, thumbnail_path?, thumbnail_frames text[]?, duration_seconds?, content_hash?, uploaded_by, uploaded_at` | Index `(project_id, uploaded_at DESC)` covers the file list query. `REPLICA IDENTITY FULL` for Realtime DELETE payloads (migration 006). `content_hash` added migration 014. |
-| `project_member_branches` | PK `(project_id, user_id)`, `base_version int, created_at` | Lazy-created on first edit; `base_version` lags `main_version` when the user is behind. |
-| `branch_changes` | `id, project_id, user_id, kind (add/edit/delete/replace), target_file_id (CASCADE), proposed jsonb, created_at` | Queue of un-pushed local edits. Cleared on push. |
-| `change_requests` | `id, project_id, author_id, title, description, status (open/approved/rejected/withdrawn), submitted_at, decided_at?, decided_by?, decision_note?` | Unique `(project_id, author_id) WHERE status='open'` enforces one open request per author. Index `(project_id, status, submitted_at DESC)`. Visibility widened to all project members in migration 017 (was author + admin). |
-| `change_request_items` | `id, request_id (CASCADE), kind, target_file_id?, proposed jsonb, seq int, project_id (denormalised in 018)` | Immutable snapshot at submit time. Index `(request_id, seq)`. Added to the Realtime publication in 018 so the compose view can sub per-project. |
-| `custom_roles` | `id, project_id, name, description, base_role` | Each row inherits a base role and adds capability overrides. |
-| `role_capabilities` | `id, custom_role_id, capability, enabled` | Per-capability grant / revoke. |
-| `notifications` | `id, user_id, category, variant, priority, title, body, icon?, payload jsonb, created_at, read_at?, dedupe_key?` | Unique `(user_id, dedupe_key)`. Index `(user_id, created_at DESC)`. Migration 014 added the notifications trigger for change-request submission; 019 broadened recipients from admins-only to all members (members get `priority='low'`, admins get `priority='normal'` with "to review" framing). |
-| `legal_updates` | `id, slug unique, category, impact (low/medium/high), title, source?, citations?, summary?, areas text[], raw_content?, ai_status (pending/done/failed), published_at, created_at, updated_at` | Global Legal Newsfeed (Newsletter tab) — NOT project-scoped. Migration 029. RLS: `for select using (true)` (public read); no client write policies — rows are written only by the `legal-ai` Edge Function (service role) or seed. `summary`/`areas`/`impact`/`category` are AI-generated at ingestion. Indexes on `(published_at DESC)` and `(category, published_at DESC)`. |
-| `legal_update_states` | PK `(user_id, update_id)`, `read_at?, pinned_at?, saved_at?, updated_at` | Per-user read/pin/save flags for `legal_updates`. Migration 029. RLS gates every op on `user_id = auth.uid()` (personal rows). Embedded into the feed read via PostgREST so flags come back filtered to the caller. |
+| `projects` | `id, name, description, created_by, created_at, updated_at, ai_context?, ai_context_updated_at?` | `add_creator_as_owner` trigger inserts owner row. `ai_context*` (migration 030) feeds the Project AI tab — admin-writable. |
+| `project_members` | PK `(project_id, user_id)`, `role` enum (`owner/admin/member/viewer`), `custom_role_id?`, `added_at` | RLS via `has_project_role` / `has_capability`. |
+| `project_invitations` | `id, project_id, email, role, custom_role_id?, token unique, invited_by, created_at, expires_at (+7d), accepted_at?` | Unique on `(project_id, lower(email))` WHERE `accepted_at IS NULL`. Consumed by `accept-invite` Edge Function → `accept_invitation` RPC. |
+| `custom_roles` | `id, project_id, name, description, base_role` (`admin/member/viewer`, owner excluded) | Migration 008. |
+| `custom_role_capabilities` | PK `(custom_role_id, capability)`, `granted bool` | `project_capability` enum: `files.view/upload/delete_any/delete_own`, `members.invite/remove/change_role`. Row absence = inherit from base tier. |
+| `project_ai_usage` | `id, project_id, user_id?, action, model, input_tokens, output_tokens, session_id?, created_at` | Migration 030. Backs the Project AI usage panel via `get_project_ai_usage`. |
+| `notifications` | `id, user_id, category, variant, priority, title, body, icon?, payload jsonb, created_at, read_at?, dedupe_key?` | Unique `(user_id, dedupe_key)`. Index `(user_id, created_at DESC)`. |
+| `chat_messages` | `id, project_id, author_id, body, mentions uuid[], attached_file_ids uuid[], created_at, edited_at?, deleted_at?, parent_id?, pinned_at?, pinned_by?` | Soft-delete via `deleted_at`. `parent_id` / pin columns + `chat_message_reactions` table from migration 026. |
+| `private_messages` | — | DM messages; see `lib/privateMessages.js`. |
+| `legal_updates` | `id, slug unique, category, impact (low/medium/high), title, source?, citations?, summary?, areas text[], raw_content?, ai_status, published_at, created_at, updated_at` | Global Legal Newsfeed, not project-scoped. Migration 029. Public read (`for select using (true)`); written only by `legal-ai` Edge Function (service role) or seed. |
+| `legal_update_states` | PK `(user_id, update_id)`, `read_at?, pinned_at?, saved_at?, updated_at` | Per-user read/pin/save flags. Migration 029. RLS: `user_id = auth.uid()`. |
 
-### RPCs (all SECURITY DEFINER)
+### RPCs
 
-| RPC | Signature | Purpose |
-| --- | --- | --- |
-| `has_project_role` | `(p_project_id uuid, p_min_role project_role) → bool` | STABLE helper used by every RLS policy that needs role checks. |
-| `accept_invitation` | `(p_token text, p_user_id uuid) → uuid` | Atomically inserts `project_members` and marks `accepted_at`. |
-| `approve_change_request` | `(p_request_id uuid)` | Approves ONE request: the byte/row merge (via the shared `_apply_change_request_items` helper) + a single `main_version` bump + status flip + author notification. The storage byte-copy (pending → canonical) happens client-side in `approveChangeRequest` before the RPC. Migration 016 disambiguated identifiers; 013 introduced it; 028 refactored the merge into the helper. |
-| `approve_change_requests` | `(p_request_ids uuid[]) → (out_project_id, out_main_version)` | Approves a COMPOSED RELEASE: applies every request's items via `_apply_change_request_items` then bumps `main_version` **exactly once** (so a release = +1, not +1 per request). Added in migration 028; all requests must share one project. Frontend entry: `approveRelease(ids)` on BranchContext → `approveChangeRequests` (which preps storage per request, then one RPC). |
-| `_apply_change_request_items` | `(p_request_id uuid)` | Internal SECURITY DEFINER helper holding the add/edit/delete/replace merge loop. Not granted to clients; only the two approve RPCs call it. Single source of truth so the single + batch paths can't drift. |
-| `reject_change_request` | `(p_request_id uuid, p_note text)` | Sets `status='rejected'`, optional `decision_note`. |
-| `get_member_profiles` / `get_member_profiles_status` | `(p_project_id uuid)` | Joins `project_members` with auth user metadata (and user status in the `_status` variant). |
+| RPC | Purpose |
+| --- | --- |
+| `has_project_role(project_id, min_role)` | STABLE tier-check used by RLS. |
+| `has_capability(project_id, capability)` | SECURITY DEFINER, custom-role-aware capability check (migration 008); supersedes `has_project_role` for files/members RLS. |
+| `accept_invitation(token, user_id)` | SECURITY DEFINER. Atomically inserts `project_members` (propagating `custom_role_id`) + marks `accepted_at`. |
+| `create_custom_role` / `update_custom_role` | SECURITY INVOKER. Atomically write a custom role + replace its capability overrides. |
+| `get_member_profiles` / `get_member_profiles_status` | `(p_project_id uuid)` — joins `project_members` with auth user metadata (+ status). |
+| `get_project_ai_usage(project_id, since?)` | SECURITY INVOKER, defaults `since` to start of current month. Monthly usage aggregate for the Project AI tab. |
+| `get_admin_stats` | SECURITY DEFINER, email-allowlisted. Admin-page live metrics — see `lib/admin.js`. |
+| `set_chat_message_pin` | Pin/unpin a chat message (migration 026). |
+
+**Dropped in migration 031 — do not use:** `approve_change_request`, `approve_change_requests`, `_apply_change_request_items`, `reject_change_request`, `reject_change_request_item`.
 
 ### RLS patterns
 
-- Project-scoped reads/writes call `has_project_role(...)`; deletes typically require `admin` or `owner`.
-- Personal rows (`notifications`, `project_member_branches`, `branch_changes`) gate on `user_id = auth.uid()`.
-- `change_request_items` denormalises `project_id` so the Realtime filter can be a single `eq` (avoid `requested_by_admin OR …` policies that wouldn't survive a `filter`).
-- `accept_invitation`, `approve_change_request`, `delete-user` (Edge Function) all bypass RLS via SECURITY DEFINER.
+- Project-scoped reads/writes call `has_project_role(...)` or `has_capability(...)`; deletes typically require admin/owner.
+- Personal rows (`notifications`, `legal_update_states`) gate on `user_id = auth.uid()`.
+- `accept_invitation` and `delete-user` (Edge Function) bypass RLS via SECURITY DEFINER.
 
-### Storage buckets
+### Storage
 
-- `projects` — canonical file bytes, path `{project_id}/{file_id}/{filename}`.
-- `projects-pending` — in-flight bytes for unapproved change-request items, path `{project_id}/{user_id}/{change_id}/{filename}`. `approve_change_request` moves objects from pending into canonical on merge.
+No Supabase Storage buckets — project files are local-only (`lib/localFolder.js`, `.docvex.json` sidecar via `lib/localBranchMeta.js`).
 
 ### Edge Functions (`supabase/functions/`)
 
-`accept-invite`, `send-invite`, `revoke-invite`, `send-welcome`, `send-support-report`, `delete-user`. Shared HTML email templates in `_shared/emailTemplates.ts`. Email send uses the project's configured SMTP via Supabase — fire-and-forget from the client.
+`accept-invite`, `send-invite`, `revoke-invite`, `send-welcome`, `send-support-report`, `delete-user` — shared HTML email templates in `_shared/emailTemplates.ts`; SMTP via Supabase, fire-and-forget from the client.
 
-`legal-ai` — Claude-powered AI for the Legal Newsfeed (Newsletter). Raw REST to the Anthropic Messages API (`x-api-key`, `anthropic-version: 2023-06-01`), model `claude-opus-4-7` (override via `LEGAL_AI_MODEL`). Two actions: `{ action: 'digest' }` (read-only weekly briefing across the recent feed; any authed caller; returns `{ ok, summary, highImpactCount, total, generatedAt }`, or `{ ok:false, error:'ai_not_configured' }` at 200 so the client falls back) and `{ action: 'ingest', items: [...] }` (classify + summarise raw legal text into `legal_updates` rows via service role; gated on the `x-ingest-secret` header matching `LEGAL_INGEST_SECRET`, uses `output_config.format` JSON-schema for reliable structured output). Needs the `ANTHROPIC_API_KEY` secret; `LEGAL_INGEST_SECRET` unset → ingest disabled (403).
+`legal-ai` — Claude-powered Legal Newsfeed AI. Raw REST to the Anthropic Messages API, model `claude-opus-4-7` (override via `LEGAL_AI_MODEL`). `{ action: 'digest' }` returns a weekly briefing (`{ ok, summary, highImpactCount, total, generatedAt }`, or `{ ok:false, error:'ai_not_configured' }` at 200 so the client falls back); `{ action: 'ingest', items: [...] }` classifies + summarises raw legal text into `legal_updates` (service role, gated on `x-ingest-secret` matching `LEGAL_INGEST_SECRET`). Needs `ANTHROPIC_API_KEY`.
 
-## Branch / change-request flow
+`doc-ai` — backs the Doc Viewer's `task: 'ocr'` (Claude, `lib/ocr.js`) and `task: 'transcribe'` (Whisper, `lib/transcribe.js`).
 
-End-to-end for a member editing files:
+`mail-sync` / `mail-callback` — Gmail/Outlook OAuth sync for the Mail tab.
 
-1. **Local edits.** User adds / renames / replaces files inside the local folder. The FAB on My branch writes bytes via `localFolderApi.writeFiles`; in-place edits done via the OS just modify the bytes.
-2. **Sidecar reconciliation.** `reconcileWithFilesystem` runs whenever `localFiles` / `localHashByName` / `cloudHashByFileId` change. Three passes: (1a) rename detection (hash match + old name gone), (1b) cloud-hash bootstrap (only when seeing a folder for the first time without a sidecar), (1c) mint a fresh UUID for brand-new local files. Pass 2 prunes stale entries; pass 3 refreshes hashes for in-place byte edits.
-3. **Queue.** Metadata-only operations (rename / description edit / delete) go through `BranchContext.queueChange(...)`, which writes to `branch_changes` and lights up the "Changes made" pill.
-4. **Commit modal.** Opens from the "Changes made" pill; lists every diff entry from `computeBranchDiff`. Renames render as `oldName → newName` with the old half dimmed. On submit the modal uploads each add / replace blob to `projects-pending/{projectId}/{userId}/{changeId}/{filename}` via `uploadBlobToPending(blob, projectId, changeId, filename, fileId?)` — the `fileId` ride-along makes `proposed.id` match the sidecar so post-approval `project_files.id` equals the sidecar's id (no re-link needed). `pushChangeRequest` then inserts `change_requests` + immutable `change_request_items` snapshot and clears `branch_changes`.
-5. **Review** (Version Control tab on the Project Dashboard). `ChangeRequestsView` renders one file block per `(target_file_id || proposed.name)`; each block lists every author's version as an `AuthorAvatar` chip. Compose by dragging chips into the staged column; right-click a chip opens the morph-menu (Approve / Reject / Open). The "Approve release" FAB calls `approveRelease(requestIds)` ONCE for every distinct staged `requestId` (backend approves whole requests at a time and bumps `main_version` once for the release; a warning surfaces when partial selection drags in untargeted items).
-6. **Merge.** The "Approve release" FAB calls `approveRelease(ids)` (BranchContext) → `approveChangeRequests` once for the whole staged set: it copies each request's pending bytes to canonical, then the `approve_change_requests` RPC upserts every `project_files` row and bumps `main_version` **exactly once per release** (composing a new main branch = +1, regardless of how many requests it bundles — migration 028). A single per-chip approve still goes through `approve_change_request` (+1). Realtime fires on `change_requests` → BranchContext refreshes; the author's `base_version` auto-bumps if it matched the pre-merge `main_version`.
+`project-ai` — backs the Project AI / AI Chat pages and `project_ai_usage` logging.
 
-### Sidecar (`.docvex.json`)
+## Local project files
 
-Lives in the picked folder itself. Shape: `{ version: 1, projectId, entries: { [fileId]: { filename, contentHash, mtime } } }`. Survives a `localStorage` clear, ships to teammates via Dropbox / iCloud, re-attaches without a bootstrap window when the user re-picks the folder. The in-memory representation is `{ projectId, localFolder, byFileId: Map<id, entry>, byFilename: Map<lowercase-name, id> }`.
-
-**Legacy migration.** The first time `loadSidecar` returns empty for a folder, `ProjectFiles.jsx` reads the old `docvex:branch-meta:${projectId}:${localFolder}` localStorage entry (`LEGACY_SIDECAR_KEY` export), hydrates an in-memory sidecar, writes `.docvex.json` via `writeSidecar`, and `localStorage.removeItem`s the legacy key. Existing users keep their mapping seamlessly.
-
-### Branch status pills (Main tab)
-
-- **Change requests** (`.is-requests`) — count of open requests; clicking opens the Version Control tab.
-- **Delete all files** (`.is-danger`) — admin-only destructive escape hatch; loops `deleteProjectFile` over every cloud row after a `window.confirm`.
-
-### Branch status pills (My tab)
-
-Four signals, only active ones render:
-
-- **New update on main** (`.is-update`, animated 5 s shimmer + pulsing dot) — `base_version < main_version`; clicking opens `SyncToMainModal`.
-- **Changes made** (`.is-changes`) — local edits or queued metadata changes; clicking opens `CommitChangesModal`.
-- **Awaiting review** (`.is-requests`) — pushed already, request is still open. Without this signal the chip would falsely fall to "Synced" between push and approval.
-- **Synced with main** (`.is-synced`) — calm steady-state.
-
-All chips use the **5-stop animated gradient** pattern from `.updates-banner-uptodate`: `border-radius: 10px`, `border: 1px solid color-mix(... 40%, transparent)`, `background: linear-gradient(120deg, 5%/16%/18%/16%/5%)`, `background-size: 300% 100%`, 8 s pan keyframe. The dot has a 6 px halo; `.is-update` runs a 1.6 s `branch-status-pulse` keyframe additionally. Two-line content (title + sub) is laid out with `flex-direction: column` inside `.project-files-branch-status-text`.
-
-### Modified pill / open-request derivation
-
-The per-card "Modified" pill is **derived from `branchDiff`** (`diffReplaceCloudIds` memo) so it shares the same filter as the status chip — open-request items soft-held for 4 s post-approval via `lastOpenItemsRef`, then the chip + per-card pill both clear together. Earlier the per-card pill recomputed `bytesDiffer` independently and stayed lit after a push.
-
-`openRequestDeleteIds` suppresses "missing — download" cards for files whose deletion is queued: rendering one would invite the user to re-create the file their pending request is removing.
-
-### Filename fallback for the bootstrap window
-
-The missing-detection loop in `ProjectFiles.jsx` first consults the sidecar; if the sidecar hasn't linked a cloud row yet (e.g. just after a fresh download / folder repick, while the async hasher is still catching up), it falls back to matching the cloud's display name **and** the storage_path's last segment against local filenames. This is the only place filename matching is allowed — the actual sidecar / diff logic stays purely ID-based.
+Each project's files live in a folder on the user's machine, picked via `localFolderApi` (`lib/localFolder.js`). `lib/localBranchMeta.js` maintains a `.docvex.json` sidecar in that folder — `{ version: 1, projectId, entries: { [fileId]: { filename, contentHash, mtime } } }` — giving each file a stable id that survives renames, syncs via Dropbox/iCloud, and re-attaches without prompting when the folder is re-picked. `ProjectFiles.jsx` (presentation: `components/FilesWorkspace`) owns folder nav, hashing, and sidecar reconciliation.
 
 ## Notification system
 
@@ -338,7 +307,7 @@ Three layers:
 2. **Context** — `notify(payload)` accepts `{ category, variant, title, body, icon?, priority?, duration?, persistent?, dedupeKey?, osLevel? }`. Resolves dedupe strategy (`coalesce` / `replace` / `insert`), enforces the 3-toast cap, mirrors writes to Supabase + localStorage. Returns the notification id (existing id on coalesce).
 3. **Action registry** (`src/notifications/actionRegistry.js`) — maps notification types to icons / actions / titles for the history view + test menu.
 
-UI: `NotificationToast` auto-dismisses after `duration` (5 s default; `persistent: true` opts out), `NotificationCenter` is both the floating toast stack AND the `/notifications` page with category / priority filters. Icons live in `src/notifications/icons.jsx`; the dev "Send all test notifications" menu fires every entry in `src/notifications/testNotifications.js` so devs can see every category × priority × icon combo without triggering live actions.
+UI: `NotificationToast` auto-dismisses after `duration` (5 s default; `persistent: true` opts out), `NotificationCenter` is both the floating toast stack AND the `/notifications` page with category / priority filters. Icons live in `src/notifications/icons.jsx`; the dev "Send all test notifications" menu fires every entry in `src/notifications/testNotifications.js`.
 
 **Realtime flow.** notify() mutates local state immediately, then asyncly mirrors to Supabase + localStorage. Realtime INSERT events from other devices dedupe by `id` (no re-toast). UPDATEs sync `read_at` across devices; DELETEs remove rows.
 
@@ -348,25 +317,29 @@ UI: `NotificationToast` auto-dismisses after `duration` (5 s default; `persisten
 
 | Page | Purpose |
 | --- | --- |
-| `Activity` (`/`) | Signed-in landing — the merged feed of the old empty `/` dashboard + the old `/notifications` inbox. Reads `NotificationsContext`; renders activity cards (category-tinted glyph square, category left-border, time, dismiss, `buildActions` buttons) with category **filter tabs** (styled like `.project-tabs`) + a **Day / Category** group toggle + Mark-all-read / Clear-all. `/notifications` now `Navigate`-redirects here. Legacy `Dashboard.jsx` / `Notifications.jsx` remain on disk but are unrouted. |
-| `Account` | Profile, link Google, plan info (reads `lib/plan.js`), `eraseData` and `deleteAccount` actions. |
-| `Updates` | Release history, current vs latest, "Check now", installer state badge. |
-| `Newsletter` (`/newsletter`) | Legal Newsfeed — Romanian legislation/compliance briefing (ported from the Claude Design handoff `docvex-newsfeed`, "v2 Editorial" direction). Typographically-led feed (no card chrome): masthead, AI-weekly line, Section/Impact/Search filters, day-grouped `ed-article` rows with a category eyebrow + 3-stroke impact mark, AI-brief lead paragraph, "Affects …" meta line, and per-item actions (read/pin/mark/save). **Data is real:** the feed reads `legal_updates` (Supabase) via `lib/legalFeed.js`; per-item `summary`/`areas`/`impact`/`category` are AI-generated at ingestion. Per-user read/pin/save persist to `legal_update_states` (optimistic local update + fire-and-forget upsert). The **AI weekly** line is generated live by Claude (the `legal-ai` Edge Function `digest` action), cached 1 h in `sessionStorage` (`docvex:legal-digest:v1`), with a locally-computed fallback when the AI key isn't configured. Real `Date.now()` drives relative time / day grouping (no more pinned "now"). Public personal route (not behind `ProtectedRoute`), reached from the **Personal** sidebar section. Styles are `ed-`-prefixed in `Newsletter.css`; legal-category hues reuse the `--cat-*` palette and `--impact-*` is scoped to `.ed-page` (cream + `[data-theme="ink"]`). |
+| `Activity` (`/`) | Signed-in landing — merged feed of activity + the old notifications inbox. Reads `NotificationsContext`; renders category-tinted activity cards with category **filter tabs** + a **Day / Category** group toggle + Mark-all-read / Clear-all. `/notifications` `Navigate`-redirects here. |
+| `Account` | Profile, link Google, plan info (`lib/plan.js`), `eraseData` and `deleteAccount` actions. |
+| `Updates` (`/versions`) | Release history, current vs latest, "Check now", installer state badge. |
+| `Newsletter` (`/newsletter`) | Legal Newsfeed — Romanian legislation/compliance briefing. Typographically-led feed (masthead, AI-weekly line, Section/Impact/Search filters, day-grouped `ed-article` rows with category eyebrow + impact mark, AI-brief lead, "Affects …" meta line, per-item read/pin/mark/save). Data is real (`legal_updates` + `legal_update_states` via `lib/legalFeed.js`); AI weekly line from `legal-ai`'s `digest` action, cached 1 h (`docvex:legal-digest:v1`), with a local fallback when the AI key isn't configured. Public personal route (not behind `ProtectedRoute`), reached from the **Personal** sidebar section. Styles `ed-`-prefixed in `Newsletter.css`. |
 
-### Project-scoped (`src/pages/Projects/`, under `/projects/:projectId`)
+Newer root pages not detailed here: `Launch` (`/launch`, pre-app launcher hub), `Admin` (`/admin`), `Settings` (`/settings`), `Debug` (`/debug`, dev-only), `DocViewer` (`/doc-viewer`).
+
+### Project-scoped (`src/pages/Projects/`)
 
 | Page | Purpose |
 | --- | --- |
-| `ProjectList` | **"Editorial Dossier" redesign** (Claude Design handoff `docvex-project-redesign`). A documents-masthead layout whose header copies the dossier hero styling (accent eyebrow + big display "Projects." title + secondary kicker; "New project" CTA baseline-aligned), then two tiers — a **Recently opened** featured-card tier (`FeaturedCard`: last-7-days projects from `recentProjects.js` as big cards) and **All projects** (the full list, table-ish). Member avatar stacks (real profile images / initials from `get_member_profiles`, attached by `listMyProjects()`) render in each item followed by the member count; per-project accent is derived from the id hash. Driven by real `listMyProjects()` data (role, member_count, updated_at). No pinning or search UI. All `pjx-`-prefixed CSS in `ProjectList.css`. |
+| `ProjectList` | "Editorial Dossier" layout — documents-masthead header (accent eyebrow + big display "Projects." title), a **Recently opened** featured-card tier (last-7-days from `recentProjects.js`) and **All projects** (full list). Member avatar stacks from `get_member_profiles`, per-project accent derived from the id hash. All `pjx-`-prefixed CSS in `ProjectList.css`. |
 | `ProjectCreate` | New-project form. |
-| `ProjectOverview` | **"Dossier" redesign** (same handoff). The `/projects/:id` landing: a `pjd-`-prefixed shell — back-link, hero (big serif name + description; no action buttons), a 4-cell meta strip (**Files** real head/count query, **Members** real, **Joined** = caller's `added_at`, **Last activity** = newest activity-feed event), and a tab bar **Overview · Members · Roles · AI · Settings**. **Overview** (default): usage gauges (Active-members real; memory/AI-tokens/requests are static placeholders — no data source yet) + real Team list + a placeholder activity timeline. **AI**: dossier layout — placeholder usage stats + a live (local-state) project-context textarea with token/char counter. **Members / Settings** keep the existing real logic (member management + invites, rename/description + danger zone) — "Settings" is the renamed old "Project" tab, restyled into dossier `pjd-panel`s + `pjd-`-prefixed form fields / danger panel. **Roles** is the dossier-styled `RolesDossier` component (role-catalog cards with real per-role headcounts + a capability-matrix table), wired to the real `lib/customRoles` model (tri-state inherit/grant/revoke, optimistic overlay + debounced persist) and the same `CustomRoleEditor`/delete handlers — it replaces the grid-based `RoleCapabilityMatrix` on this surface (that component stays on disk, now unused here). Chrome + Roles styles in `ProjectDossier.css`; the other tab bodies still use `ProjectDashboard.css`. |
-| `ProjectDashboard` | Tabbed: **Members** (TeamTree), **Activity** (stub), **Pending edits** (`version-control` tab → `PendingEditsDesk`; the older `ChangeRequestsView` tree is kept on disk as a fallback but unrouted). Tab persistence via `useSearchParams ?tab=`. Title has a description line; the role pill was removed. |
-| `ProjectFiles` | Owns ALL the branch/sync logic (cloud + local listings, `syncState`, hashing, sidecar reconciliation, folder nav, realtime, every action handler). The **presentation is the File-Explorer redesign** (`components/FilesWorkspace`): ProjectFiles computes a per-tab item model + branch state + handler bundle and renders `<FilesWorkspace {...} />`. `branchView` is forced to `'mine'` so the branch derivations always run while the cloud `files` list powers the Team tab. |
-| `ProjectChat` | Team + Private (DM) chat — **Variant B "Split Pane"** (ported from the Claude Design handoff `docvex-chat-redesign`). Two top tabs: **Team** (a split pane — message thread on the left + a collapsible right rail with **Pinned / Threads / Mentions / Files** sub-tabs) and **Private** (3-column DM pane: member list · thread · shared-files rail). Bubbled messages with @mention chips, day dividers, attachment cards, typing dots; per-message hover actions (react / reply-in-thread / pin, + edit/delete on own); reactions strip, thread pill, header search filter, inline edit, scroll-to-latest pill. Backend wiring is unchanged from the data-layer pass: `chat_messages` load + realtime echo, send/edit/delete, mention popover, attachment picker, typing broadcast; Variant-B extras (reactions, threaded replies loaded into the rail, pins); Private DM thread load + realtime + send. Data: `chat_messages` (+ migration 026 added `parent_id`, `pinned_at`/`pinned_by`, and the `chat_message_reactions` table; pinning via the `set_chat_message_pin` SECURITY DEFINER RPC). Lib: `src/lib/chat.js` (`listThreadReplies`, `listProjectReplies`, `sendThreadReply`, `setChatMessagePin`, `listReactionsForProject`, `toggleReaction`, `subscribeReactions`) + `src/lib/privateMessages.js`. Styles live in `ProjectChatVariantB.css` — all `dvx-` (shared primitives) / `vb-` (Variant B layout) classes, self-contained, full-height via `.project-page-frame:has(.dvx-chat.vb-chat)`. `ProjectChat.jsx` no longer imports `ProjectChat.css` (kept on disk only because `ProjectAI.jsx` imports it for `.project-chat-tabs`). |
+| `ProjectOverview` | `/projects/:id` landing — `pjd-`-prefixed "Dossier" shell: back-link, hero (serif name + description), a 4-cell meta strip (Files / Members / Joined / Last activity), tab bar **Overview · Members · Roles · AI · Settings**. **Overview**: usage gauges + real Team list + placeholder activity timeline. **AI**: project-context textarea (`projects.ai_context`, admin-writable) + usage stats backed by `project_ai_usage` / `get_project_ai_usage` (real, but zero until AI features log requests). **Members / Settings**: real member management + invites, rename/description + danger zone. **Roles**: `RolesDossier` — role-catalog cards with per-role headcounts + a capability-matrix table wired to `lib/customRoles` (tri-state inherit/grant/revoke, optimistic overlay + debounced persist), `CustomRoleEditor` for create/delete. Chrome + Roles styles in `ProjectDossier.css`. |
+| `ProjectDashboard` | Tabbed project dashboard (Members via `TeamTree`, Activity). Tab persistence via `useSearchParams ?tab=`. The former "Pending edits" / version-control tab (change-request review) was removed with the branching system (migration 031). |
+| `ProjectFiles` | Local-files page — folder picker, listing, hashing, sidecar reconciliation (`lib/localBranchMeta.js`), search/nav, every action handler. Presentation via `components/FilesWorkspace`. |
+| `ProjectChat` | Team + Private (DM) chat — split-pane layout. **Team**: message thread + collapsible right rail (**Pinned / Threads / Mentions / Files** sub-tabs). **Private**: 3-column DM pane (member list · thread · shared-files rail). Bubbled messages with @mention chips, day dividers, attachment cards, typing dots; per-message hover actions (react / reply-in-thread / pin, + edit/delete on own); reactions strip, thread pill, header search, inline edit, scroll-to-latest pill. Data: `chat_messages` (+ `parent_id`, `pinned_at`/`pinned_by`, `chat_message_reactions` from migration 026; pinning via `set_chat_message_pin`). Lib: `src/lib/chat.js` (`listThreadReplies`, `listProjectReplies`, `sendThreadReply`, `setChatMessagePin`, `listReactionsForProject`, `toggleReaction`, `subscribeReactions`) + `src/lib/privateMessages.js`. Styles in `ProjectChatVariantB.css` (`dvx-`/`vb-`-prefixed), full-height via `.project-page-frame:has(.dvx-chat.vb-chat)`. |
 | `ProjectGenerate / ProjectAutomate / ProjectClients` | Stubs for future features. |
 | `ProjectTodos` | To-do list stub. |
 | `TeamTree` | Org-chart view of project members + roles. |
 | `InviteAccept` | Token-driven invite acceptance; public so unauthenticated invitees can land here and bounce through `/auth`. |
+
+Newer project-scoped pages not detailed here: `ProjectAI` / `ProjectAIChat` (`/ai`, `/ai-chat` — backed by the `project-ai` Edge Function + `project_ai_usage`).
 
 Shared layout: `ProjectScoped.css` provides the standard project page frame (sticky header, content container).
 
@@ -376,19 +349,19 @@ All components live in `src/components/` with a sibling `.css` file.
 
 ### Modals
 
-`ConfirmModal` is the base shape (title / body / confirm + cancel). Domain modals (`DeleteProjectModal`, `DeleteAccountModal`, `InviteMemberModal`, `ChangeMemberRoleModal`, `RemoveMemberModal`, `ReportProblemModal`, `CommitChangesModal`, `SyncToMainModal`, `ResetBranchModal`, `FileDetailModal`, `UploadModal`) follow the same z-index conventions and overlay scrim (`var(--overlay-scrim)`). The morph-menu portal renders at `z 2000`; toasts at `z 9999` so they pop over any modal.
+`ConfirmModal` is the base shape (title / body / confirm + cancel). Domain modals (`DeleteProjectModal`, `DeleteAccountModal`, `InviteMemberModal`, `ChangeMemberRoleModal`, `RemoveMemberModal`, `ReportProblemModal`) follow the same z-index conventions and overlay scrim (`var(--overlay-scrim)`). Toasts render at `z 9999` so they pop over any modal.
 
 ### Role gating
 
 `RoleGate` renders children only when the user's role meets `minRole` (integer rank: viewer 0 → owner 3).
 `RoleLocked` is the alternative pattern requested in user feedback: keep the feature rendered for everyone and overlay a "[role] only" mask for users who lack the role, so the layout is consistent and discoverable rather than disappearing.
-`RoleBadge` is a coloured pill of the role name. `CustomRoleEditor` + `RoleCapabilityMatrix` drive the custom-role configuration in ProjectOverview.
+`RoleBadge` is a coloured pill of the role name. `CustomRoleEditor` drives create/edit of custom roles; `RolesDossier` is the current capability-matrix surface on ProjectOverview (the older grid-based `RoleCapabilityMatrix` stays on disk, unused there).
 
 ### Tooltip + morph-pill
 
 `Tooltip` is a cursor-following pill — fixed-position, `transform: translate(x, y)` updated on `mousemove`, animated via `transition: transform 90ms ease-out` (re-targets per move, no queue). Trigger wrapper uses `display: contents` so it doesn't add a layout box.
 
-**Morph-pill FLIP recipe.** Used in two surfaces (LocalFileCard in ProjectFiles, AvatarMorphPill in ChangeRequestsView). Same DOM node serves as hover tooltip and right-click menu; the menu state adds an `.is-menu` modifier and a FLIP animation morphs between sizes. The CSS `transition: transform` is intentionally suppressed (`.is-menu { transition: none; }`) so the JS-set inline `transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1)` can drive the morph without racing.
+**Morph-pill FLIP recipe** (`useMorphPill.jsx`, used by FilesWorkspace tiles and elsewhere). Same DOM node serves as hover tooltip and right-click menu; the menu state adds an `.is-menu` modifier and a FLIP animation morphs between sizes. The CSS `transition: transform` is intentionally suppressed (`.is-menu { transition: none; }`) so a JS-set inline `transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1)` can drive the morph without racing.
 
 Recipe per right-click:
 1. Snapshot the pre-menu rect (`oldPillRectRef = pillRef.current.getBoundingClientRect()`).
@@ -398,15 +371,9 @@ Recipe per right-click:
 
 Dismissal: Escape, scroll (capture), outside `mousedown`, or mouseleave on the menu when `pointer-events: auto` is in effect.
 
-### Branching components
+### FilesWorkspace
 
-- **FilesWorkspace** (`FilesWorkspace.jsx` + `.css`) — the Files-tab redesign (File-Explorer chrome). Pure presentation: window card → 4 plain-language tabs (**Team files** = cloud/main, **My drafts** = local new/edited/deleted, **Waiting for review** = open requests, **Removed** = queued deletions) → bottom action bar (New / Upload / Open / Rename / Delete + the cognac **Publish for review** CTA) → breadcrumb + search → tile/list canvas (Ctrl+scroll zoom; below `FX_LIST_THRESHOLD` the grid collapses to the list view) with status corner ribbons (green New / amber Edited / red Removed / indigo Awaiting review) → status bar with the shimmer branch-state pill → slide-in **Publish drawer** (title + note + per-file checkboxes → filtered `runCommitFlow`). Each file/folder tile + row uses the shared `useMorphPill` hook: hover shows a cursor-following pill with the full name, right-click morphs it into an **Open / Edit / Properties / Open file location** menu (Edit gated on `canEdit`; Open file location only for on-disk items); the morph node is rendered as a SIBLING of the item button so portalled menu clicks don't bubble into the item's `onSelect`. Right-clicking empty canvas opens a background morph menu (**Import / Make new folder**). **Properties** opens an in-component `PropertiesModal` built from the item model (no extra fetch). All `fx-`-prefixed CSS to avoid colliding with the generic design class names. Driven entirely by props from ProjectFiles; holds only local UI state (view mode/zoom, search, selection, drawer/menu/properties open). Plain-language vocab is deliberate (no "branch"/"commit"). `BranchToggle` is now unused by this surface.
-- **BranchToggle** — segmented Main / My switch with the pending-count badge on My and the behind-main dot on Main.
-- **PendingEditsDesk** (`PendingEditsDesk.jsx` + `.css`) — the **Pending edits** tab's "Document Desk" (from the dashboard-redesign handoff, Direction B), wired to real change-request data. Same fetch + picks plumbing as ChangeRequestsView (`listOpenChangeRequestItemsForProject`, BranchContext `preferredVersions` / `togglePreferredVersion` / `approveRelease` / `rejectRequestItem`), rendered as: a "You have N decisions…" header + kind summary → a **kanban chip row** of files (one chip per file, kind/conflict/decided-tinted) → a **desk** for the selected file showing each teammate's draft in a **per-kind pane** side-by-side (new / edit / rename / move / delete / replace, or "mixed conflict" when kinds disagree) with a VS column → a **"Picked for this release" tray** → a fixed Publish bar (admin) that runs `approveRelease` via ConfirmModal. Real kinds are add/edit/delete/replace; rename & move are derived from `proposed` name/folder differing from the live row with an unchanged `content_hash`. All classes `rb-`/`dv-`-prefixed under a `.pe-desk` root. `dv-`/`rb-` are unique to this file.
-- **ChangeRequestsView** (legacy, unrouted) — compose-release surface with the file-block tree layout and the morph menu described above. Files sorted by display name; partial-request warning rendered in the stage footer; "Approve release" is a fixed-position FAB at bottom-right of the viewport.
-- **CommitChangesModal** — diff list with renames rendered `old → new`; threads `fileId` into `uploadBlobToPending`; receives `sidecar` prop.
-- **SyncToMainModal** — `onSyncComplete` returns `{ syncedHashes, deletedNames, syncedFileIds: Map<filename, cloudId> }` so the parent populates the sidecar without waiting for the next reconcile pass.
-- **ResetBranchModal** — confirm discard-all-pending.
+`FilesWorkspace.jsx` + `.css` — presentation layer for the local Files page: file-explorer-style chrome, tile/list canvas (Ctrl+scroll zoom), `useMorphPill` hover/right-click menus per tile/row. Driven entirely by props from `ProjectFiles.jsx`; holds only local UI state (view mode/zoom, search, selection, menu/properties open). All `fx-`-prefixed CSS. Currently being reworked alongside the migration-031 local-files pivot — read directly for the current tab/action structure.
 
 ### Status + theme
 
@@ -415,24 +382,22 @@ Dismissal: Escape, scroll (capture), outside `mousedown`, or mouseleave on the m
 
 ### Layout
 
-- **AppShell** — wraps Sidebar + content; mounts the global ReportProblem + Upload modals.
+- **AppShell** — wraps Sidebar + content; mounts the global ReportProblem modal.
 - **Sidebar** — 60 px collapsed, 220 px expanded on `:hover` / `.locked`. `.label` elements fade via opacity. Anything interactive that should respond when expanded needs `pointer-events: auto` in the `:hover` / `.locked` rule (see `.lock-btn`). Auth-aware footer swaps between Account NavLink + avatar / username / tier and a "Sign in" CTA.
 - **ProjectPickerPanel** — sliding drawer of all projects (sorted by recency), triggered from the sidebar.
 - **ProjectBanner** — small **fixed-position pill** at top-centre of the viewport ("Working in <project>"), border-radius 999 px, shadow `0 8px 24px rgba(0,0,0,0.32)`. Not in-flow — `.project-page-frame` resets its `margin-top` accordingly.
 
 ### File previews
 
-`FileThumbnail` resolves the right poster URL for the surface (cloud `thumbnail_path` signed, falling back to `thumbnail_pending_path` on pending bucket, or the MIME glyph). `FilePreview` is the full-content renderer (PDF via pdf.js, image, video, text). `FileDetailModal` reuses both for its inspector view (the Version Control surface mounts it with `readOnly` so admin clicks on a chip open the same modal the Files page uses for a row).
-
-**`.docx` viewing (cloud tab)** opens in a **separate window**, rendered with `docx-preview`: `handleOpenCloudFileViewer` (ProjectFiles) signs a URL and calls `openDocxInWindow` (`lib/openDocxWindow.js`), which fetches the bytes, renders them off-screen with `docx-preview` (lazy-imported; images base64-inlined so the markup is self-contained), serializes the result to one HTML string, and hands it to `platform.openHtmlWindow`. On Electron that goes through the `app:open-html-window` IPC → `openHtmlContentWindow` in main, which stages the HTML to a temp file and `loadFile()`s it in a sandboxed DocVex window (top-level `data:` URLs are blocked by Chromium; the sandboxed renderer can't write files). On web it writes the markup into a blank tab. On render failure it falls back to `openDocx` (Word / Office Online). The My-branch local-file open still routes straight to `openDocx` — local docs are for editing in Word.
+`FileThumbnail` resolves a poster URL (cached thumbnail or MIME glyph). `FilePreview` renders PDF (pdf.js) / image / video / text inline. Double-clicking a file in the Files page opens it in the **Doc Viewer** (`/doc-viewer`, `src/pages/DocViewer.jsx`) — a dedicated window with a `classify(mime, name)` dispatcher per mime type: photo/video get an "Extract text" OCR **lasso** tool (freeform Photoshop-style selection, clipped canvas → `lib/ocr.js`) with a persisted, resizable extraction-history panel (`lib/extractionHistory.js`); audio gets a player + AI transcript (`lib/transcribe.js`, Whisper); `.docx` renders via `docx-preview` (lazy-imported, `lib/openDocxWindow.js`).
 
 ## Conventions
 
 - **Styling:** plain CSS files alongside components (`Foo.jsx` + `Foo.css`); zero CSS-in-JS / Tailwind. Use only `var(--…)` from `tokens.css`. Adding a hard-coded hex is a smell — there's a semantic token for almost everything.
 - **SVG icons:** inline JSX constants at the top of the file that uses them — no icon library. Stroke icons use `currentColor` so they inherit hover / active states.
-- **`display: contents` wrappers** for synthetic event hosts that shouldn't add a layout box (Tooltip's `.tooltip-trigger-wrap`, ChangeRequestsView's `.cr-morph-wrap`).
-- **5-stop animated gradient pill** (`.updates-banner-uptodate`, all `.project-files-branch-status-item` variants, `.cr-stage-header-text`): `linear-gradient(120deg, 5% / 16% / 18% / 16% / 5%)`, `background-size: 300% 100%`, 8 s `branch-status-shimmer` keyframe; centred dot with `box-shadow: 0 0 0 6px ...` halo. Reusing this shape keeps "status pill" semantically consistent across the app.
-- **Auth-derived display:** display name resolution is `user_metadata.full_name || user_metadata.name || user.email`. Avatar is `user_metadata.avatar_url` (Google) with a deterministic first-letter circle fallback (palette of 12 colours, djb2 hash on the id). Helper is duplicated in `Account.jsx`, `Sidebar.jsx`, and `ChangeRequestsView.jsx`'s `AuthorAvatar` — keep them in sync if you change one.
+- **`display: contents` wrappers** for synthetic event hosts that shouldn't add a layout box (e.g. Tooltip's `.tooltip-trigger-wrap`).
+- **5-stop animated gradient pill** (`.updates-banner-uptodate` and similar status pills): `linear-gradient(120deg, 5% / 16% / 18% / 16% / 5%)`, `background-size: 300% 100%`, 8 s shimmer keyframe; centred dot with `box-shadow: 0 0 0 6px ...` halo. Reusing this shape keeps "status pill" semantically consistent across the app.
+- **Auth-derived display:** display name resolution is `user_metadata.full_name || user_metadata.name || user.email`. Avatar is `user_metadata.avatar_url` (Google) with a deterministic first-letter circle fallback (palette of 12 colours, djb2 hash on the id). Helper is duplicated across a few components (`Account.jsx`, `Sidebar.jsx`, ...) — keep them in sync if you change one.
 - **Notification dedupe keys** are mandatory for anything that can fire repeatedly (uploads, downloads, errors). The notify() resolver coalesces / replaces / inserts based on category + dedupeKey, so a bad key spams the user.
 - **Realtime subs** belong in a `useEffect` keyed on the resource id (projectId / userId), with a cleanup that unsubscribes. Don't open subs in render. Don't share a sub across providers — channel state is per-mount.
 - **Fire-and-forget** is the default for non-critical writes (analytics, send-welcome, saveSidecar) — they return promises but call sites don't await. Errors are swallowed and the next operation retries naturally.
@@ -458,7 +423,7 @@ Dismissal: Escape, scroll (capture), outside `mousedown`, or mouseleave on the m
 - `.env` — `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (Vite inlines at build time). Gitignored.
 - **Supabase project `pntxlvhkqfryyyxlqytr`** (eu-west-1, organization `docvex.ro`). Modify schema via `claude_ai_Supabase` MCP tools.
 - **Supabase dashboard, not in code:** Google OAuth provider config (client id / secret), `docvex://auth/callback` and the web origin registered as redirect URLs, the SMTP for email Edge Functions.
-- **Edge Function secrets (Supabase dashboard → Edge Functions → Secrets), not in code:** `RESEND_API_KEY` (email functions); `ANTHROPIC_API_KEY` (the `legal-ai` function — without it the Newsletter's AI weekly line falls back to a computed line and ingest 500s); `LEGAL_INGEST_SECRET` (optional — guards `legal-ai`'s `ingest` action; while unset, ingest returns 403 and the feed only grows via seed/manual SQL); `LEGAL_AI_MODEL` (optional — overrides the default `claude-opus-4-7`, e.g. `claude-haiku-4-5` to cut digest cost).
+- **Edge Function secrets (Supabase dashboard → Edge Functions → Secrets), not in code:** `RESEND_API_KEY` (email functions); `ANTHROPIC_API_KEY` (`legal-ai` + `doc-ai` OCR — without it the Newsletter AI line falls back to a computed line, ingest 500s, and OCR fails); `OPENAI_API_KEY` (`doc-ai` Whisper transcription — **not yet configured**); `LEGAL_INGEST_SECRET` (optional — guards `legal-ai`'s `ingest` action; while unset, ingest returns 403); `LEGAL_AI_MODEL` (optional — overrides the default `claude-opus-4-7`, e.g. `claude-haiku-4-5` to cut digest cost).
 - **Google Cloud Console:** OAuth consent screen must be User Type **External** (Internal blocks `@gmail.com` testers with `org_internal` 403). Authorized redirect URI = `https://pntxlvhkqfryyyxlqytr.supabase.co/auth/v1/callback`.
 - **GitHub:** `GITHUB_TOKEN` (PAT, `public_repo` scope) required for `npm run publish` — set via `[Environment]::SetEnvironmentVariable("GITHUB_TOKEN", ..., "User")` or per-session `$env:GITHUB_TOKEN = ...`. VSCode integrated terminals cache env vars from launch; restart the whole VSCode window after setting persistently.
 

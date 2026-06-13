@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1726,7 +1726,7 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
   // conversations — React catches the list up between keystrokes.
   const deferredQuery = useDeferredValue(query);
 
-  if (error) return <div className="dv-noview"><p className="dv-noview-title">Couldn’t read the file</p><p className="dv-noview-sub">{error}</p></div>;
+  if (error) return <div className="dv-noview"><p className="dv-noview-title">Couldn't read the file</p><p className="dv-noview-sub">{error}</p></div>;
   if (content == null) return <div className="dv-loading">Loading text…</div>;
 
   const showChat = chat.isWhatsApp && mode === 'whatsapp';
@@ -1818,7 +1818,7 @@ const WhatsAppGlyph = (
 
 // ── Photo / video pane with the text-extraction (OCR) tool ─────────────
 const ScanTextGlyph = (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+  <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M3 7V5a2 2 0 0 1 2-2h2" />
     <path d="M17 3h2a2 2 0 0 1 2 2v2" />
     <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
@@ -1829,171 +1829,544 @@ const ScanTextGlyph = (
   </svg>
 );
 
-// Downscale a cropped canvas to a small JPEG for the history thumbnail —
-// keeps localStorage entries compact regardless of the OCR crop's resolution.
+// "Extract text" selection-tool icons for the tool-picker pill.
+const HighlightToolGlyph = (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+    <circle cx="12" cy="12" r="7" />
+  </svg>
+);
+const CircleToolGlyph = (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+    <circle cx="12" cy="12" r="8" />
+  </svg>
+);
+const SquareToolGlyph = (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+    <rect x="4" y="4" width="16" height="16" rx="2" />
+  </svg>
+);
+const LassoToolGlyph = (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 3c4.5 0 8 2.4 8 6.2 0 2.8-1.9 4.4-4.2 5.3-1 .4-1.3 1-1 1.9.3 1 .9 2.3-1 3-2.4.9-9.8-.8-9.8-6.4C4 7.8 7.5 3 12 3z" strokeDasharray="2.4 2.2" />
+  </svg>
+);
+const ChevronGlyph = (
+  <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 6l4 4 4-4" />
+  </svg>
+);
+
+// ── Custom video player glyphs ───────────────────────────────────
+// PlayGlyph, PauseGlyph, VolumeHighGlyph, VolumeMuteGlyph are already
+// declared above (shared with the WhatsApp media player).
+const FullscreenGlyph = (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+    <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+    <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+    <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+  </svg>
+);
+
+// Selection tools for "Extract text": Highlight (default) paints a brush
+// stroke like a highlighter marker; Circle/Square drag a shape outward from
+// the click point; Custom traces a freeform Photoshop-lasso outline. The
+// shape tools share one size (OCR_CIRCLE_MIN..MAX), adjustable via scroll.
+const OCR_TOOLS = [
+  {
+    id: 'highlight',
+    label: 'Highlight',
+    icon: HighlightToolGlyph,
+    hint: 'Click and drag like a highlighter to paint over the text, then release to read it. Scroll to change the brush size.',
+  },
+  {
+    id: 'square',
+    label: 'Square',
+    icon: SquareToolGlyph,
+    hint: 'Click and drag from the top-left corner to define the selection area, then release to read it.',
+  },
+  {
+    id: 'lasso',
+    label: 'Custom',
+    icon: LassoToolGlyph,
+    hint: 'Click and drag to trace a freeform outline around the area, then release to read it.',
+  },
+];
+
+// Downscale a cropped canvas to a small PNG for the history thumbnail — PNG
+// (vs. JPEG) keeps the circular crop's transparent corners so the card's
+// background shows through; keeps localStorage entries compact regardless
+// of the OCR crop's resolution.
 const HISTORY_THUMB_MAX_EDGE = 220;
 function canvasToThumbDataUrl(source, maxEdge = HISTORY_THUMB_MAX_EDGE) {
   const { width, height } = source;
   const scale = Math.min(1, maxEdge / Math.max(width, height));
-  if (scale === 1) return source.toDataURL('image/jpeg', 0.72);
+  if (scale === 1) return source.toDataURL('image/png');
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(width * scale));
   c.height = Math.max(1, Math.round(height * scale));
   c.getContext('2d').drawImage(source, 0, 0, c.width, c.height);
-  return c.toDataURL('image/jpeg', 0.72);
+  return c.toDataURL('image/png');
 }
 
-// Renders a photo or video full-pane with an "Extract text" tool: arming it
-// lets the user trace a freeform lasso over the media (Photoshop-style) and
-// runs OCR (lib/ocr) on the traced shape. Videos auto-pause when the tool is
-// armed — extraction always reads the still frame on screen — and playing
-// again disarms it.
+// Rebuilds a <canvas> from a history entry's stored thumbnail data URL, so
+// "Regenerate text" can re-run OCR on the saved snippet without needing the
+// original (unstored) full-resolution crop.
+function canvasFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      resolve(c);
+    };
+    img.onerror = () => reject(new Error("Couldn't read this snippet."));
+    img.src = dataUrl;
+  });
+}
+
+function formatVideoTime(s) {
+  if (!s || !isFinite(s)) return '0:00';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60).toString().padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}
+
+// "Jun 13" / "14:32" — split so the history timeline rail can stack them.
+function formatHistoryTimestamp(ms) {
+  const d = new Date(ms);
+  return {
+    date: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+    time: d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false }),
+  };
+}
+
+// Renders a photo or video full-pane with an "Extract text" tool. Arming it
+// shows a tool-picker pill (Highlight / Circle / Square / Custom) at the top
+// of the stage; the active tool's brush/shape follows the cursor and a
+// click-drag paints or draws the selection — release to run OCR (lib/ocr) on
+// it. Videos auto-pause when the tool is armed — extraction always reads the
+// still frame on screen — and playing again disarms it.
 //
-// Coordinate spaces: the lasso path lives in viewport px relative to the
-// stage (clientX / getBoundingClientRect agree there), converted to layout px
-// only when rendered as SVG (the app's root zoom — see lib/appZoom). The crop
-// maps each point to natural-resolution pixels via the media element's box,
-// so the zoom cancels out.
+// Coordinate spaces: all pointer positions live in viewport px relative to
+// the stage (clientX / getBoundingClientRect agree there), converted to
+// layout px only when rendered as SVG (the app's root zoom — see
+// lib/appZoom). The crop maps each shape to natural-resolution pixels via the
+// media element's box, so the zoom cancels out.
+const OCR_CIRCLE_MIN = 16;
+const OCR_CIRCLE_MAX = 300;
+const OCR_CIRCLE_DEFAULT = 60;
+const OCR_CIRCLE_STEP = 0.15; // viewport px of brush radius per wheel-delta unit
+
+// Builds an SVG path string ("M x y L x y ... Z") from points in
+// stage-viewport px, converting to layout px for rendering.
+function pathD(points) {
+  return `${points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${toLayoutPx(p.x)} ${toLayoutPx(p.y)}`).join(' ')} Z`;
+}
+
+// Renders a selection shape's geometry as SVG element(s) in stage-viewport
+// px (converted to layout px) — used for the outline preview (with a
+// className), inside a <clipPath>, or inside a <mask> (with svgProps={fill:'black'}).
+function shapeElements(shape, className, svgProps) {
+  switch (shape.kind) {
+    case 'circle':
+      return <circle {...svgProps} className={className} cx={toLayoutPx(shape.cx)} cy={toLayoutPx(shape.cy)} r={toLayoutPx(shape.r)} />;
+    case 'rect': {
+      const x = toLayoutPx(Math.min(shape.x1, shape.x2));
+      const y = toLayoutPx(Math.min(shape.y1, shape.y2));
+      const w = toLayoutPx(Math.abs(shape.x2 - shape.x1));
+      const h = toLayoutPx(Math.abs(shape.y2 - shape.y1));
+      return <rect {...svgProps} className={className} x={x} y={y} width={w} height={h} />;
+    }
+    case 'union':
+      return shape.points.map((p, i) => (
+        <circle key={i} {...svgProps} className={className} cx={toLayoutPx(p.x)} cy={toLayoutPx(p.y)} r={toLayoutPx(shape.r)} />
+      ));
+    case 'path':
+      return <path {...svgProps} className={className} d={pathD(shape.points)} />;
+    default:
+      return null;
+  }
+}
+
 // Width bounds (layout px) for the resizable "Extracted text" panel.
 const HISTORY_MIN_WIDTH = 240;
-const HISTORY_MAX_WIDTH = 640;
-const HISTORY_DEFAULT_WIDTH = 380;
+// Zoom bounds and step for the media viewer.
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 8;
+const ZOOM_STEP = 1.3;
+const HISTORY_MAX_WIDTH = 960;
+const HISTORY_DEFAULT_WIDTH = HISTORY_MAX_WIDTH;
 
 function MediaOcrPane({ file, url, kind }) {
   const stageRef = useRef(null);
   const mediaRef = useRef(null);
-  const lassoMaskId = useId();
+  const clipIdRef = useRef(`dvocr-${Math.random().toString(36).slice(2)}`);
   const [armed, setArmed] = useState(false);
-  // Freeform lasso path — array of {x, y} points, viewport px relative to the stage.
-  const [path, setPath] = useState(null);
+  const [tool, setTool] = useState('highlight');
+  // Hover position — viewport px relative to the stage, null until the
+  // cursor enters the overlay.
+  const [cursorPos, setCursorPos] = useState(null);
+  // Brush/shape size shared by Highlight, Circle and Square (Custom ignores
+  // it); viewport px.
+  const [brushRadius, setBrushRadius] = useState(OCR_CIRCLE_DEFAULT);
+  const brushRadiusRef = useRef(brushRadius);
+  useEffect(() => { brushRadiusRef.current = brushRadius; }, [brushRadius]);
+  // Active mouse-down stroke: { tool, start: {x,y}, points: [{x,y}, ...] }.
+  const [drag, setDrag] = useState(null);
+  // Finalized shape awaiting/under OCR — stays visible so the loading
+  // gradient has something to paint over.
+  const [selection, setSelection] = useState(null);
+  const [working, setWorking] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
   const [failed, setFailed] = useState(false);
-  // null | { state: 'working', label, progress } | { state: 'error', message }
-  const [job, setJob] = useState(null);
-  // Persisted snippet history for this file — newest first.
+  // Persisted snippet history for this file — newest first; rendered oldest
+  // first so the newest snippet lands at the bottom of the list.
   const [history, setHistory] = useState(() => loadOcrHistory(file.path));
   const [copiedId, setCopiedId] = useState(null);
+  const [regeneratingId, setRegeneratingId] = useState(null);
+  const [regenError, setRegenError] = useState(null); // { id, message }
   const [historyWidth, setHistoryWidth] = useState(HISTORY_DEFAULT_WIDTH);
   const jobIdRef = useRef(0);
+  const historyListRef = useRef(null);
 
-  const disarm = useCallback(() => { setArmed(false); setPath(null); }, []);
+  // ── Zoom / pan ───────────────────────────────────────────────────
+  const [zoom, setZoom] = useState(1);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const panStateRef = useRef({ x: 0, y: 0 });
+
+  // ── Video player ─────────────────────────────────────────────────
+  const [playing, setPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(1);
+  const [controlsShown, setControlsShown] = useState(true);
+  const controlsTimerRef = useRef(null);
+
+  const disarm = useCallback(() => {
+    setArmed(false); setCursorPos(null); setDrag(null); setSelection(null);
+    setWorking(false); setErrorMsg(null);
+  }, []);
+
+  const bumpControls = useCallback(() => {
+    setControlsShown(true);
+    clearTimeout(controlsTimerRef.current);
+    controlsTimerRef.current = setTimeout(() => setControlsShown(false), 2500);
+  }, []);
+  const togglePlay = useCallback(() => {
+    const v = mediaRef.current;
+    if (!v) return;
+    if (v.paused) v.play(); else v.pause();
+  }, []);
+  const seekTo = useCallback((val) => {
+    const v = mediaRef.current;
+    if (v) v.currentTime = val;
+  }, []);
+  const setVol = useCallback((val) => {
+    const v = mediaRef.current;
+    if (!v) return;
+    v.volume = val;
+    v.muted = val === 0;
+  }, []);
+  const toggleMute = useCallback(() => {
+    const v = mediaRef.current;
+    if (v) v.muted = !v.muted;
+  }, []);
+  const toggleFullscreen = useCallback(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) document.exitFullscreen();
+    else el.requestFullscreen?.();
+  }, []);
+
+  useEffect(() => {
+    if (!playing) { clearTimeout(controlsTimerRef.current); setControlsShown(true); }
+  }, [playing]);
+  useEffect(() => () => clearTimeout(controlsTimerRef.current), []);
+
+  // ── Zoom / pan ───────────────────────────────────────────────────
+  // Reset on file change.
+  useEffect(() => { setZoom(1); setPanX(0); setPanY(0); }, [file.path]);
+  // Keep panStateRef current so the drag closure reads the latest value.
+  useEffect(() => { panStateRef.current = { x: panX, y: panY }; }, [panX, panY]);
+
+  const zoomIn = useCallback(() => setZoom(z => Math.min(ZOOM_MAX, +(z * ZOOM_STEP).toFixed(3))), []);
+  const zoomOut = useCallback(() => setZoom(z => {
+    const next = z / ZOOM_STEP;
+    if (next <= 1) { setPanX(0); setPanY(0); return 1; }
+    return Math.max(ZOOM_MIN, +next.toFixed(3));
+  }), []);
+  const zoomReset = useCallback(() => { setZoom(1); setPanX(0); setPanY(0); }, []);
+
+  // Non-passive wheel listener for scroll-to-zoom (passive: false required for preventDefault).
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return undefined;
+    const onWheel = (e) => {
+      if (armed) return;
+      e.preventDefault();
+      setZoom(z => {
+        const next = e.deltaY < 0 ? z * ZOOM_STEP : z / ZOOM_STEP;
+        if (next <= 1 && e.deltaY > 0) { setPanX(0); setPanY(0); return 1; }
+        return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +next.toFixed(3)));
+      });
+    };
+    stage.addEventListener('wheel', onWheel, { passive: false });
+    return () => stage.removeEventListener('wheel', onWheel);
+  }, [armed]);
+
+  // Stage mousedown: pan when zoomed, or click-to-play for video (replaces dv-player-click).
+  const onStageMouseDown = useCallback((e) => {
+    if (armed || e.button !== 0) return;
+    if (e.target.closest('.dv-player-controls, .dv-ocr-btn-wrap, .dv-zoom-controls')) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const { x: startPanX, y: startPanY } = panStateRef.current;
+    let moved = false;
+    setIsDragging(true);
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+      moved = true;
+      document.body.classList.add('dv-media-panning');
+      setPanX(startPanX + dx);
+      setPanY(startPanY + dy);
+    };
+    const onUp = (ev) => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('dv-media-panning');
+      setIsDragging(false);
+      if (!moved && kind === 'video') togglePlay();
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [armed, kind, togglePlay]);
+
+  // Keyboard shortcuts: +/= zoom in, - zoom out, 0 reset.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomIn(); }
+      else if (e.key === '-') { e.preventDefault(); zoomOut(); }
+      else if (e.key === '0') { e.preventDefault(); zoomReset(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [zoomIn, zoomOut, zoomReset]);
 
   // Reopening the file restores its history; edits to the list persist back.
   useEffect(() => { saveOcrHistory(file.path, history); }, [file.path, history]);
 
-  // Esc cancels the tool and dismisses the result panel.
+  // Esc cancels the tool and any in-flight selection/error.
   useEffect(() => {
-    if (!armed && !job) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') { disarm(); setJob(null); } };
+    if (!armed) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') disarm(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [armed, job, disarm]);
+  }, [armed, disarm]);
 
-  // points: lasso path (viewport px relative to the stage). The crop's
-  // bounding box comes from the path's extents; a clip path then restricts
-  // the canvas to the freeform shape, Photoshop-lasso style.
-  const runOcr = useCallback(async (points, stageRect) => {
+  // Auto-dismiss the error pill.
+  useEffect(() => {
+    if (!errorMsg) return undefined;
+    const t = setTimeout(() => setErrorMsg(null), 4000);
+    return () => clearTimeout(t);
+  }, [errorMsg]);
+
+  // shape: { kind: 'circle' | 'rect' | 'union' | 'path', ... } in
+  // stage-viewport px. Maps it to natural-resolution pixels via the media
+  // element's box, clips the crop to its outline (Photoshop-lasso style),
+  // and sends it to lib/ocr.
+  const runOcr = useCallback(async (shape, stageRect) => {
     const el = mediaRef.current;
     if (!el) return;
     const natW = kind === 'video' ? el.videoWidth : el.naturalWidth;
     const natH = kind === 'video' ? el.videoHeight : el.naturalHeight;
     if (!natW || !natH) return;
     const mr = el.getBoundingClientRect();
-    if (!mr.width || !mr.height) return;
+    if (!mr.width || !mr.height) { setSelection(null); return; }
     const mrRelLeft = mr.left - stageRect.left;
     const mrRelTop = mr.top - stageRect.top;
 
-    // The lasso can stray into the letterbox — clamp each point to the media box.
-    const natPoints = points.map((p) => ({
-      x: Math.min(natW, Math.max(0, ((p.x - mrRelLeft) / mr.width) * natW)),
-      y: Math.min(natH, Math.max(0, ((p.y - mrRelTop) / mr.height) * natH)),
-    }));
-    const minX = Math.min(...natPoints.map((p) => p.x));
-    const minY = Math.min(...natPoints.map((p) => p.y));
-    const maxX = Math.max(...natPoints.map((p) => p.x));
-    const maxY = Math.max(...natPoints.map((p) => p.y));
+    // object-fit: contain keeps the element's box aspect ratio equal to the
+    // image's, so one scale factor covers both axes.
+    const mapScale = mr.width / natW;
+    const toNat = (p) => ({ x: (p.x - mrRelLeft) / mapScale, y: (p.y - mrRelTop) / mapScale });
+
+    let bbox;
+    if (shape.kind === 'rect') {
+      const p1 = toNat({ x: shape.x1, y: shape.y1 });
+      const p2 = toNat({ x: shape.x2, y: shape.y2 });
+      bbox = { minX: Math.min(p1.x, p2.x), minY: Math.min(p1.y, p2.y), maxX: Math.max(p1.x, p2.x), maxY: Math.max(p1.y, p2.y) };
+    } else if (shape.kind === 'union') {
+      const r = shape.r / mapScale;
+      const pts = shape.points.map(toNat);
+      bbox = {
+        minX: Math.min(...pts.map((p) => p.x - r)), minY: Math.min(...pts.map((p) => p.y - r)),
+        maxX: Math.max(...pts.map((p) => p.x + r)), maxY: Math.max(...pts.map((p) => p.y + r)),
+      };
+    } else {
+      const pts = shape.points.map(toNat);
+      bbox = {
+        minX: Math.min(...pts.map((p) => p.x)), minY: Math.min(...pts.map((p) => p.y)),
+        maxX: Math.max(...pts.map((p) => p.x)), maxY: Math.max(...pts.map((p) => p.y)),
+      };
+    }
+
+    const minX = Math.max(0, bbox.minX);
+    const minY = Math.max(0, bbox.minY);
+    const maxX = Math.min(natW, bbox.maxX);
+    const maxY = Math.min(natH, bbox.maxY);
     const sw = maxX - minX;
     const sh = maxY - minY;
-    if (sw < 4 || sh < 4) return;
+    if (sw < 4 || sh < 4) { setSelection(null); return; }
     // Claude downsizes anything over OCR_MAX_EDGE on the long side — cap the
     // crop there (never upscale; extra pixels only slow the upload).
-    const scale = Math.min(1, OCR_MAX_EDGE / Math.max(sw, sh));
+    const cropScale = Math.min(1, OCR_MAX_EDGE / Math.max(sw, sh));
     const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(sw * scale));
-    canvas.height = Math.max(1, Math.round(sh * scale));
+    canvas.width = Math.max(1, Math.round(sw * cropScale));
+    canvas.height = Math.max(1, Math.round(sh * cropScale));
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
-    // White background, then clip to the lasso shape before drawing — pixels
-    // outside the freeform selection stay blank rather than reading as part
-    // of the snippet.
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.save();
+    const toCanvas = (p) => { const n = toNat(p); return { x: (n.x - minX) * cropScale, y: (n.y - minY) * cropScale }; };
+    const rScale = cropScale / mapScale;
+
+    // Clip to the selection's outline before drawing — pixels outside it
+    // stay transparent rather than reading as part of the snippet.
     ctx.beginPath();
-    natPoints.forEach((p, i) => {
-      const cx = (p.x - minX) * scale;
-      const cy = (p.y - minY) * scale;
-      if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
-    });
-    ctx.closePath();
+    if (shape.kind === 'rect') {
+      const p1 = toCanvas({ x: shape.x1, y: shape.y1 });
+      const p2 = toCanvas({ x: shape.x2, y: shape.y2 });
+      ctx.rect(Math.min(p1.x, p2.x), Math.min(p1.y, p2.y), Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y));
+    } else if (shape.kind === 'union') {
+      const r = shape.r * rScale;
+      shape.points.forEach((p) => {
+        const c = toCanvas(p);
+        ctx.moveTo(c.x + r, c.y);
+        ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+      });
+    } else {
+      shape.points.forEach((p, i) => {
+        const c = toCanvas(p);
+        if (i === 0) ctx.moveTo(c.x, c.y); else ctx.lineTo(c.x, c.y);
+      });
+      ctx.closePath();
+    }
     ctx.clip();
     try {
       ctx.drawImage(el, minX, minY, sw, sh, 0, 0, canvas.width, canvas.height);
     } catch {
-      ctx.restore();
-      setJob({ state: 'error', message: 'Couldn’t read pixels from this file.' });
+      setSelection(null);
+      setWorking(false);
+      setErrorMsg("Couldn't read pixels from this file.");
       return;
     }
-    ctx.restore();
 
     jobIdRef.current += 1;
     const id = jobIdRef.current;
-    setJob({ state: 'working', label: 'Reading text…', progress: null });
+    setWorking(true);
     try {
-      const text = await recognizeCanvas(canvas, (p) => {
-        if (jobIdRef.current === id) setJob({ state: 'working', label: p.label, progress: p.progress });
-      });
+      const text = await recognizeCanvas(canvas);
       if (jobIdRef.current === id) {
         const entry = { id: `${Date.now()}-${id}`, thumb: canvasToThumbDataUrl(canvas), text, createdAt: Date.now() };
         setHistory((prev) => [entry, ...prev]);
-        setJob(null);
-        setPath(null);
+        setSelection(null);
+        setWorking(false);
+        requestAnimationFrame(() => {
+          const listEl = historyListRef.current;
+          if (listEl) listEl.scrollTop = listEl.scrollHeight;
+        });
       }
     } catch (e) {
       if (jobIdRef.current === id) {
-        setJob({ state: 'error', message: String(e?.message || 'Text recognition failed.') });
+        setWorking(false);
+        setSelection(null);
+        setErrorMsg(String(e?.message || 'Text recognition failed.'));
       }
     }
   }, [kind]);
 
-  // Freeform lasso drag — Photoshop-style: trace any shape, release to run
-  // OCR on it. State stays in viewport px; toLayoutPx only at render time.
-  const beginDrag = (e) => {
+  // Builds the finalized shape for a finished drag, applying tool-specific
+  // minimum sizes — a plain click without dragging falls back to the brush
+  // size, like the previous click-to-extract behaviour.
+  const finalizeDrag = useCallback((d, stageRect) => {
+    const cur = d.points[d.points.length - 1];
+    let shape;
+    if (d.tool === 'square') {
+      const trivial = Math.abs(cur.x - d.start.x) < 4 && Math.abs(cur.y - d.start.y) < 4;
+      const r = brushRadiusRef.current;
+      shape = trivial
+        ? { kind: 'rect', x1: d.start.x - r, y1: d.start.y - r, x2: d.start.x + r, y2: d.start.y + r }
+        : { kind: 'rect', x1: d.start.x, y1: d.start.y, x2: cur.x, y2: cur.y };
+    } else if (d.tool === 'lasso') {
+      shape = d.points.length < 3
+        ? { kind: 'rect', x1: d.start.x - brushRadiusRef.current, y1: d.start.y - brushRadiusRef.current, x2: d.start.x + brushRadiusRef.current, y2: d.start.y + brushRadiusRef.current }
+        : { kind: 'path', points: d.points };
+    } else {
+      shape = { kind: 'union', points: d.points, r: brushRadiusRef.current };
+    }
+    setSelection(shape);
+    runOcr(shape, stageRect);
+  }, [runOcr]);
+
+  // Tracks the cursor for the idle brush/shape preview. State stays in
+  // viewport px; toLayoutPx only at render time.
+  const onOverlayMouseMove = (e) => {
+    if (drag) return;
+    const stageRect = stageRef.current.getBoundingClientRect();
+    setCursorPos({ x: e.clientX - stageRect.left, y: e.clientY - stageRect.top });
+  };
+
+  // Scroll resizes the active tool's brush/shape size (Custom ignores it).
+  const onOverlayWheel = (e) => {
+    e.preventDefault();
+    if (tool === 'lasso') return;
+    setBrushRadius((r) => Math.min(OCR_CIRCLE_MAX, Math.max(OCR_CIRCLE_MIN, r - e.deltaY * OCR_CIRCLE_STEP)));
+  };
+
+  // Click-and-drag paints (Highlight/Custom) or draws (Circle/Square) the
+  // selection; release runs OCR on it.
+  const onOverlayMouseDown = (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
-    const stageRect = stageRef.current.getBoundingClientRect();
-    setJob(null);
-    const pts = [{ x: e.clientX - stageRect.left, y: e.clientY - stageRect.top }];
-    setPath(pts);
+    const stageEl = stageRef.current;
+    const stageRect0 = stageEl.getBoundingClientRect();
+    const start = { x: e.clientX - stageRect0.left, y: e.clientY - stageRect0.top };
+    setErrorMsg(null);
+    setDrag({ tool, start, points: [start] });
     const onMove = (ev) => {
-      const last = pts[pts.length - 1];
-      const x = ev.clientX - stageRect.left;
-      const y = ev.clientY - stageRect.top;
-      // Skip near-duplicate points so the path stays light during a fast drag.
-      if (Math.hypot(x - last.x, y - last.y) < 3) return;
-      pts.push({ x, y });
-      setPath([...pts]);
+      const r = stageEl.getBoundingClientRect();
+      const p = { x: ev.clientX - r.left, y: ev.clientY - r.top };
+      setCursorPos(p);
+      setDrag((d) => {
+        if (!d) return d;
+        if (d.tool === 'highlight' || d.tool === 'lasso') {
+          const last = d.points[d.points.length - 1];
+          const minDist = d.tool === 'highlight' ? Math.max(4, brushRadiusRef.current * 0.35) : 3;
+          if (Math.hypot(p.x - last.x, p.y - last.y) < minDist) return d;
+          return { ...d, points: [...d.points, p] };
+        }
+        return { ...d, points: [d.start, p] };
+      });
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
-      const xs = pts.map((p) => p.x);
-      const ys = pts.map((p) => p.y);
-      const w = Math.max(...xs) - Math.min(...xs);
-      const h = Math.max(...ys) - Math.min(...ys);
-      if (pts.length >= 3 && w >= 6 && h >= 6) runOcr(pts, stageRect);
-      else setPath(null);
+      const r = stageEl.getBoundingClientRect();
+      setDrag((d) => {
+        if (d) finalizeDrag(d, r);
+        return null;
+      });
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -2041,10 +2414,47 @@ function MediaOcrPane({ file, url, kind }) {
 
   const clearHistory = () => setHistory([]);
 
+  // Re-runs OCR on a snippet's stored thumbnail and replaces its text —
+  // the timestamp on the rail stays put, only the recognized text updates.
+  const regenerateHistoryEntry = useCallback(async (entry) => {
+    if (regeneratingId) return;
+    setRegeneratingId(entry.id);
+    setRegenError(null);
+    try {
+      const canvas = await canvasFromDataUrl(entry.thumb);
+      const text = await recognizeCanvas(canvas);
+      setHistory((prev) => prev.map((e) => (e.id === entry.id ? { ...e, text } : e)));
+    } catch (e) {
+      setRegenError({ id: entry.id, message: String(e?.message || "Couldn't read this snippet.") });
+      setTimeout(() => setRegenError((cur) => (cur?.id === entry.id ? null : cur)), 3000);
+    } finally {
+      setRegeneratingId(null);
+    }
+  }, [regeneratingId]);
+
+  // The shape shown to the user: the active drag in progress, or the idle
+  // brush/shape preview that follows the cursor before any drag starts.
+  const previewShape = useMemo(() => {
+    if (drag) {
+      const cur = drag.points[drag.points.length - 1];
+      if (drag.tool === 'square') {
+        return { kind: 'rect', x1: drag.start.x, y1: drag.start.y, x2: cur.x, y2: cur.y };
+      }
+      if (drag.tool === 'lasso') return { kind: 'path', points: drag.points };
+      return { kind: 'union', points: drag.points, r: brushRadius };
+    }
+    if (!cursorPos) return null;
+    if (tool === 'square') return { kind: 'rect', x1: cursorPos.x - brushRadius, y1: cursorPos.y - brushRadius, x2: cursorPos.x + brushRadius, y2: cursorPos.y + brushRadius };
+    if (tool === 'lasso') return { kind: 'circle', cx: cursorPos.x, cy: cursorPos.y, r: 4 };
+    return { kind: 'circle', cx: cursorPos.x, cy: cursorPos.y, r: brushRadius };
+  }, [drag, cursorPos, tool, brushRadius]);
+
+  const clipBase = clipIdRef.current;
+
   if (failed) {
     return (
       <div className="dv-noview">
-        <p className="dv-noview-title">Couldn’t display this {kind}</p>
+        <p className="dv-noview-title">Couldn't display this {kind}</p>
         <p className="dv-noview-sub">{file.name}</p>
         <button type="button" className="dv-chip" onClick={() => localFolderApi.openPath(file.path || file.storage_path)}>
           Open in default app
@@ -2055,7 +2465,19 @@ function MediaOcrPane({ file, url, kind }) {
 
   return (
     <>
-    <div ref={stageRef} className="dv-media-stage">
+    <div
+      ref={stageRef}
+      className="dv-media-stage"
+      onMouseMove={kind === 'video' ? bumpControls : undefined}
+      onMouseLeave={kind === 'video' && playing ? () => setControlsShown(false) : undefined}
+      onMouseDown={onStageMouseDown}
+      style={{
+        cursor: armed ? undefined
+          : kind === 'video' && playing && !controlsShown ? 'none'
+          : zoom > 1 ? 'grab'
+          : undefined,
+      }}
+    >
       {kind === 'video' ? (
         <video
           ref={mediaRef}
@@ -2064,57 +2486,160 @@ function MediaOcrPane({ file, url, kind }) {
           // CORS-mode load (the localfile handler sends ACAO) — without it
           // drawing the frame to the OCR canvas taints it and export throws.
           crossOrigin="anonymous"
-          controls
           preload="metadata"
-          onPlay={disarm}
+          onPlay={() => { setPlaying(true); disarm(); bumpControls(); }}
+          onPause={() => setPlaying(false)}
+          onEnded={() => setPlaying(false)}
+          onTimeUpdate={() => setCurrentTime(mediaRef.current?.currentTime || 0)}
+          onDurationChange={() => setDuration(mediaRef.current?.duration || 0)}
+          onVolumeChange={() => { const v = mediaRef.current; if (v) { setMuted(v.muted); setVolume(v.volume); } }}
           onError={() => setFailed(true)}
+          style={{ transform: `translate(${panX}px, ${panY}px) scale(${zoom})`, transition: isDragging ? 'none' : 'transform 120ms ease' }}
         />
       ) : (
-        <img ref={mediaRef} className="dv-media-el" src={url} alt={file.name} crossOrigin="anonymous" onError={() => setFailed(true)} />
+        <img
+          ref={mediaRef} className="dv-media-el" src={url} alt={file.name}
+          crossOrigin="anonymous" onError={() => setFailed(true)}
+          style={{ transform: `translate(${panX}px, ${panY}px) scale(${zoom})`, transition: isDragging ? 'none' : 'transform 120ms ease' }}
+        />
       )}
 
       {armed && (
-        <div className="dv-ocr-overlay" onMouseDown={beginDrag}>
-          {path && path.length > 1 && (
-            <svg className="dv-ocr-lasso">
-              <defs>
-                <mask id={lassoMaskId}>
-                  <rect width="100%" height="100%" fill="#fff" />
-                  <polygon points={path.map((p) => `${toLayoutPx(p.x)},${toLayoutPx(p.y)}`).join(' ')} fill="#000" />
-                </mask>
-              </defs>
-              <rect className="dv-ocr-lasso-scrim" width="100%" height="100%" mask={`url(#${lassoMaskId})`} />
-              <polygon className="dv-ocr-lasso-outline" points={path.map((p) => `${toLayoutPx(p.x)},${toLayoutPx(p.y)}`).join(' ')} />
-            </svg>
+        <div
+          className="dv-ocr-overlay"
+          onMouseMove={onOverlayMouseMove}
+          onMouseLeave={() => { if (!drag) setCursorPos(null); }}
+          onWheel={onOverlayWheel}
+          onMouseDown={onOverlayMouseDown}
+        >
+          {/* SVG layer: scrim (dark overlay with selection punched out),
+              clipPath defs, and shape outlines. */}
+          <svg className="dv-ocr-lasso" aria-hidden="true">
+            <defs>
+              {/* Scrim mask — white everywhere except inside the active
+                  selection (black = hole → image shows at full brightness). */}
+              <mask id={`${clipBase}-m`}>
+                <rect width="100%" height="100%" fill="white" />
+                {previewShape && shapeElements(previewShape, undefined, { fill: 'black' })}
+                {selection && working && shapeElements(selection, undefined, { fill: 'black' })}
+              </mask>
+              {previewShape && (
+                <clipPath id={`${clipBase}-p`} clipPathUnits="userSpaceOnUse">
+                  {shapeElements(previewShape)}
+                </clipPath>
+              )}
+              {selection && working && (
+                <clipPath id={`${clipBase}-s`} clipPathUnits="userSpaceOnUse">
+                  {shapeElements(selection)}
+                </clipPath>
+              )}
+            </defs>
+            {/* Dark scrim, cut out around the active selection. */}
+            <rect className="dv-ocr-lasso-scrim" width="100%" height="100%" mask={`url(#${clipBase}-m)`} />
+            {/* Outline for rect / lasso-path shapes; union (highlight brush)
+                and the lasso cursor dot rely on fills only. */}
+            {previewShape && previewShape.kind !== 'union' && previewShape.kind !== 'circle' && shapeElements(previewShape, 'dv-ocr-lasso-outline')}
+          </svg>
+          {/* Flat accent-tint fill clipped to the live preview shape. */}
+          {previewShape && (
+            <div className="dv-ocr-livefill" style={{ clipPath: `url("#${clipBase}-p")` }} />
+          )}
+          {/* Apple-Intelligence-style animated gradient while OCR runs. */}
+          {selection && working && (
+            <div className="dv-ocr-loading" style={{ clipPath: `url("#${clipBase}-s")` }} />
           )}
         </div>
       )}
 
-      <Tooltip content={armed ? 'Cancel selection (Esc)' : kind === 'video' ? 'Pauses the video — drag over the text to copy it' : 'Drag over the text you want to copy'}>
-        <button type="button" className={`dv-ocr-btn${armed ? ' is-active' : ''}`} onClick={toggleTool}>
-          {ScanTextGlyph}
-          <span>Extract text</span>
-        </button>
-      </Tooltip>
+      {/* Zoom controls — floating pill top-left, always visible. */}
+      <div className="dv-zoom-controls">
+        <button type="button" className="dv-zoom-btn" onClick={zoomOut} aria-label="Zoom out">−</button>
+        <button type="button" className="dv-zoom-pct" onClick={zoomReset} title="Reset zoom">{Math.round(zoom * 100)}%</button>
+        <button type="button" className="dv-zoom-btn" onClick={zoomIn} aria-label="Zoom in">+</button>
+      </div>
 
-      {job && (
-        <div className="dv-ocr-panel" onMouseDown={(e) => e.stopPropagation()}>
-          <div className="dv-ocr-panel-head">
-            <span className="dv-ocr-panel-title">
-              {job.state === 'working' ? job.label : 'Extraction failed'}
-            </span>
-            {job.state === 'working' && job.progress != null && (
-              <span className="dv-ocr-panel-pct">{Math.round(job.progress * 100)}%</span>
-            )}
-            <button type="button" className="dv-ocr-panel-close" aria-label="Close" onClick={() => setJob(null)}>×</button>
-          </div>
-          {job.state === 'working' ? (
-            <div className={`dv-ocr-panel-bar${job.progress == null ? ' is-indet' : ''}`}>
-              <span style={job.progress == null ? undefined : { width: `${Math.round(job.progress * 100)}%` }} />
+      {/* Custom video player — auto-hiding controls bar. */}
+      {kind === 'video' && (
+        <>
+          <div className={`dv-player${!playing || controlsShown ? ' is-visible' : ''}`}>
+            <div className="dv-player-scrim" />
+            <div className="dv-player-controls">
+              <input
+                type="range"
+                className="dv-player-seek"
+                min="0"
+                max={duration || 1}
+                step="any"
+                value={currentTime}
+                onChange={(e) => seekTo(parseFloat(e.target.value))}
+                style={{ '--pct': `${(currentTime / (duration || 1)) * 100}%` }}
+                aria-label="Seek"
+              />
+              <div className="dv-player-row">
+                <button type="button" className="dv-player-btn" onClick={togglePlay} aria-label={playing ? 'Pause' : 'Play'}>
+                  {playing ? PauseGlyph : PlayGlyph}
+                </button>
+                <span className="dv-player-time">{formatVideoTime(currentTime)} / {formatVideoTime(duration)}</span>
+                <div className="dv-player-spacer" />
+                <div className="dv-player-vol-wrap">
+                  <button type="button" className="dv-player-btn" onClick={toggleMute} aria-label={muted ? 'Unmute' : 'Mute'}>
+                    {muted || volume === 0 ? VolumeMuteGlyph : VolumeHighGlyph}
+                  </button>
+                  <input
+                    type="range"
+                    className="dv-player-vol"
+                    min="0" max="1" step="0.01"
+                    value={muted ? 0 : volume}
+                    onChange={(e) => setVol(parseFloat(e.target.value))}
+                    style={{ '--pct': `${(muted ? 0 : volume) * 100}%` }}
+                    aria-label="Volume"
+                  />
+                </div>
+                <button type="button" className="dv-player-btn" onClick={toggleFullscreen} aria-label="Toggle fullscreen">
+                  {FullscreenGlyph}
+                </button>
+              </div>
             </div>
-          ) : (
-            <div className="dv-ocr-panel-body">{job.message}</div>
-          )}
+          </div>
+        </>
+      )}
+
+      {/* Extract-text button + tool-picker dropdown, co-located so the pill
+          morphs open from the button. Toolbar is always in the DOM so the
+          grid-accordion can animate height on both open and close. */}
+      <div className={`dv-ocr-btn-wrap${armed ? ' is-armed' : ''}`}>
+        <Tooltip content={armed ? 'Esc to cancel' : kind === 'video' ? 'Pauses the video — click the text to copy it' : 'Click the text you want to copy'}>
+          <button type="button" className={`dv-ocr-btn${armed ? ' is-active' : ''}`} onClick={toggleTool}>
+            {ScanTextGlyph}
+            <span>Extract text</span>
+            <span className="dv-ocr-btn-chevron">{ChevronGlyph}</span>
+          </button>
+        </Tooltip>
+        <div className={`dv-ocr-toolbar-wrap${armed ? ' is-open' : ''}`}>
+          <div className="dv-ocr-toolbar">
+            <div className="dv-ocr-tools">
+              {OCR_TOOLS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`dv-ocr-tool${tool === t.id ? ' is-active' : ''}`}
+                  onClick={() => setTool(t.id)}
+                >
+                  {t.icon}
+                  <span>{t.label}</span>
+                </button>
+              ))}
+            </div>
+            <p className="dv-ocr-tool-hint">{OCR_TOOLS.find((t) => t.id === tool)?.hint}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Error pill — replaces the old bottom-of-stage status modal. */}
+      {errorMsg && (
+        <div className="dv-ocr-error" role="alert">
+          <span>{errorMsg}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => setErrorMsg(null)}>×</button>
         </div>
       )}
     </div>
@@ -2136,28 +2661,53 @@ function MediaOcrPane({ file, url, kind }) {
       </div>
       {history.length === 0 ? (
         <p className="dv-ocr-history-empty">
-          Drag a selection over the {kind === 'video' ? 'video frame' : 'image'} with “Extract text” to start collecting snippets here. They’ll be here next time you open this file.
+          Click “Extract text”, then click the {kind === 'video' ? 'video frame' : 'image'} to start collecting snippets here. They'll be here next time you open this file.
         </p>
       ) : (
-        <div className="dv-ocr-history-list">
-          {history.map((entry) => (
-            <div key={entry.id} className="dv-ocr-history-item">
-              <div className="dv-ocr-history-thumb">
-                <img src={entry.thumb} alt="" />
+        <div className="dv-ocr-history-list" ref={historyListRef}>
+          {[...history].reverse().map((entry) => {
+            const { date, time } = formatHistoryTimestamp(entry.createdAt);
+            return (
+              <div key={entry.id} className="dv-ocr-history-item">
+                <div className="dv-ocr-history-rail">
+                  <span className="dv-ocr-history-node" />
+                  <div className="dv-ocr-history-date">
+                    <span className="dv-ocr-history-date-d">{date}</span>
+                    <span className="dv-ocr-history-date-t">{time}</span>
+                  </div>
+                </div>
+                <div className="dv-ocr-history-content">
+                  <div className="dv-ocr-history-thumb">
+                    <img src={entry.thumb} alt="" />
+                  </div>
+                  <div className="dv-ocr-history-card">
+                    <p className={`dv-ocr-history-text${entry.text ? '' : ' is-empty'}`}>
+                      {entry.text || 'No text found in this selection.'}
+                    </p>
+                    {regenError?.id === entry.id && (
+                      <p className="dv-ocr-history-error">{regenError.message}</p>
+                    )}
+                  </div>
+                  <div className="dv-ocr-history-actions">
+                    {entry.text && (
+                      <button type="button" className="dv-ocr-history-act" onClick={() => copyHistoryEntry(entry)}>
+                        {copiedId === entry.id ? 'Copied' : 'Copy'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="dv-ocr-history-act is-accent"
+                      onClick={() => regenerateHistoryEntry(entry)}
+                      disabled={regeneratingId === entry.id}
+                    >
+                      {regeneratingId === entry.id ? 'Reading…' : 'Regenerate text'}
+                    </button>
+                    <button type="button" className="dv-ocr-history-remove" aria-label="Remove" onClick={() => removeHistoryEntry(entry.id)}>×</button>
+                  </div>
+                </div>
               </div>
-              <p className={`dv-ocr-history-text${entry.text ? '' : ' is-empty'}`}>
-                {entry.text || 'No text found in this selection.'}
-              </p>
-              <div className="dv-ocr-history-actions">
-                {entry.text && (
-                  <button type="button" className="dv-ocr-history-act" onClick={() => copyHistoryEntry(entry)}>
-                    {copiedId === entry.id ? 'Copied' : 'Copy'}
-                  </button>
-                )}
-                <button type="button" className="dv-ocr-history-remove" aria-label="Remove" onClick={() => removeHistoryEntry(entry.id)}>×</button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </aside>
@@ -2305,7 +2855,7 @@ function AudioPlayerPane({ file, url }) {
   if (failed) {
     return (
       <div className="dv-noview">
-        <p className="dv-noview-title">Couldn’t play this audio file</p>
+        <p className="dv-noview-title">Couldn't play this audio file</p>
         <p className="dv-noview-sub">{file.name}</p>
         <button type="button" className="dv-chip" onClick={() => localFolderApi.openPath(file.storage_path)}>
           Open in default app
@@ -2451,7 +3001,7 @@ function DocPane({ file, onWhatsAppDetected }) {
           ignoreLastRenderedPageBreak: true, experimental: true, useBase64URL: true,
         });
       } catch {
-        if (!cancelled && host) host.innerHTML = '<p class="dv-docx-error">Couldn’t display the document.</p>';
+        if (!cancelled && host) host.innerHTML = `<p class="dv-docx-error">Couldn't display the document.</p>`;
       }
     })();
     return () => { cancelled = true; };
@@ -2476,7 +3026,7 @@ function DocPane({ file, onWhatsAppDetected }) {
       ) : kind === 'doc' ? (
         (docErr || docText === '') ? (
           <div className="dv-noview">
-            <p className="dv-noview-title">{docErr ? 'Couldn’t read the .doc document' : 'The document has no text'}</p>
+            <p className="dv-noview-title">{docErr ? "Couldn't read the .doc document" : 'The document has no text'}</p>
             <p className="dv-noview-sub">{file.name}</p>
             <button type="button" className="dv-chip" onClick={() => localFolderApi.openPath(file.path)}>
               Open in default app
@@ -2497,7 +3047,7 @@ function DocPane({ file, onWhatsAppDetected }) {
         <DocTextPane file={previewFile} url={url} dir={dir} sep={sep} onWhatsAppDetected={onWhatsAppDetected} />
       ) : kind === 'other' ? (
         <div className="dv-noview">
-          <p className="dv-noview-title">This file type can’t be previewed</p>
+          <p className="dv-noview-title">This file type can't be previewed</p>
           <p className="dv-noview-sub">{file.name}</p>
           <button type="button" className="dv-chip" onClick={() => localFolderApi.openPath(file.path)}>
             Open in default app

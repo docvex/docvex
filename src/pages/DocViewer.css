@@ -727,65 +727,276 @@ img.dv-wa-media { cursor: pointer; }
 .dv-media-stage {
   position: relative; flex: 1; min-width: 0; min-height: 0;
   display: flex; align-items: center; justify-content: center;
-  background: #16181a;
+  background: #16181a; overflow: hidden;
 }
-.dv-media-el { max-width: 100%; max-height: 100%; object-fit: contain; }
+.dv-media-el { max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: 50% 50%; }
+body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 
-/* Lasso layer — covers the whole stage so a drag can start in the
-   letterbox; the crop is clamped to the media box afterwards. */
-.dv-ocr-overlay { position: absolute; inset: 0; z-index: 4; cursor: crosshair; overflow: hidden; }
+/* ── Zoom controls ───────────────────────────────────────────────── */
+.dv-zoom-controls {
+  position: absolute; top: 12px; left: 12px; z-index: 6;
+  display: flex; align-items: center;
+  background: rgba(10, 12, 14, 0.92);
+  backdrop-filter: blur(22px) saturate(1.8);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.55));
+  border-radius: 999px;
+}
+.dv-zoom-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; flex-shrink: 0;
+  border: none; background: transparent; cursor: pointer;
+  font-size: 18px; font-weight: 400; line-height: 1;
+  color: rgba(255, 255, 255, 0.7); border-radius: 999px;
+  transition: color 120ms ease, background 120ms ease;
+  user-select: none;
+}
+.dv-zoom-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.1); }
+.dv-zoom-pct {
+  min-width: 44px; padding: 0 2px;
+  border: none; background: transparent; cursor: pointer;
+  font: inherit; font-size: 11.5px; font-weight: 600;
+  font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.6); text-align: center;
+  transition: color 120ms ease;
+}
+.dv-zoom-pct:hover { color: #fff; }
+
+/* ── Custom video player ─────────────────────────────────────────── */
+/* Transparent click zone sits between the video and the OCR overlay. */
+.dv-player-click { position: absolute; inset: 0; z-index: 2; cursor: pointer; }
+
+.dv-player {
+  position: absolute; inset: 0; z-index: 3;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  opacity: 0; pointer-events: none;
+  transition: opacity 250ms ease;
+}
+.dv-player.is-visible { opacity: 1; }
+/* Controls layer always intercepts regardless of outer opacity */
+.dv-player-controls { pointer-events: auto; }
+
+.dv-player-scrim {
+  position: absolute; inset: 0;
+  background: linear-gradient(to top,
+    rgba(0, 0, 0, 0.72) 0%,
+    rgba(0, 0, 0, 0.28) 28%,
+    transparent 62%
+  );
+  pointer-events: none;
+}
+.dv-player-controls {
+  position: relative; z-index: 1;
+  padding: 0 16px 14px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+
+/* Seek bar */
+.dv-player-seek {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 4px; border-radius: 999px;
+  outline: none; cursor: pointer;
+  background: linear-gradient(to right,
+    var(--accent) var(--pct, 0%),
+    rgba(255, 255, 255, 0.22) var(--pct, 0%)
+  );
+  transition: height 150ms ease;
+}
+.dv-player-seek:hover { height: 6px; }
+.dv-player-seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 0; height: 0; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  transition: width 150ms ease, height 150ms ease;
+}
+.dv-player-seek:hover::-webkit-slider-thumb,
+.dv-player-seek:active::-webkit-slider-thumb { width: 14px; height: 14px; }
+.dv-player-seek::-moz-range-thumb {
+  width: 0; height: 0; border: none; border-radius: 50%; background: #fff;
+}
+.dv-player-seek:hover::-moz-range-thumb { width: 14px; height: 14px; }
+.dv-player-seek::-moz-range-track { background: transparent; border: none; }
+
+/* Controls row */
+.dv-player-row { display: flex; align-items: center; gap: 4px; }
+.dv-player-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; flex-shrink: 0;
+  border: none; background: transparent; cursor: pointer; border-radius: 9px;
+  color: rgba(255, 255, 255, 0.82);
+  transition: color 120ms ease, background 120ms ease;
+}
+.dv-player-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
+.dv-player-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
+.dv-player-btn:last-child svg { width: 16px; height: 16px; } /* volume + fullscreen smaller */
+.dv-player-time {
+  font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, 0.62);
+  white-space: nowrap; user-select: none; padding: 0 4px;
+  font-variant-numeric: tabular-nums;
+}
+.dv-player-spacer { flex: 1; }
+
+/* Volume — always-visible short slider beside the mute button */
+.dv-player-vol-wrap { display: flex; align-items: center; }
+.dv-player-vol {
+  -webkit-appearance: none; appearance: none;
+  width: 72px; height: 3px; border-radius: 999px;
+  outline: none; cursor: pointer; margin-left: 2px;
+  background: linear-gradient(to right,
+    rgba(255, 255, 255, 0.85) var(--pct, 100%),
+    rgba(255, 255, 255, 0.2) var(--pct, 100%)
+  );
+}
+.dv-player-vol::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px; height: 11px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.dv-player-vol::-moz-range-thumb {
+  width: 11px; height: 11px; border: none; border-radius: 50%; background: #fff;
+}
+.dv-player-vol::-moz-range-track { background: transparent; border: none; }
+
+/* Selection overlay — covers the whole stage so the shape can reach the
+   letterbox; the crop is clamped to the media box afterwards.
+   cursor: none because the tool shape itself acts as the cursor. */
+.dv-ocr-overlay { position: absolute; inset: 0; z-index: 4; cursor: none; overflow: hidden; }
+/* SVG layer hosting mask/clipPath defs, the scrim rect, and shape outlines. */
 .dv-ocr-lasso { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.dv-ocr-lasso-scrim { fill: rgba(0, 0, 0, 0.45); }
-.dv-ocr-lasso-outline { fill: none; stroke: #fff; stroke-width: 1.5; stroke-linejoin: round; stroke-dasharray: 4 3; }
+/* Dark scrim rect — the SVG mask punches a hole for the active selection. */
+.dv-ocr-lasso-scrim { fill: rgba(0, 0, 0, 0.42); }
+/* Shape outline: stroke only, no fill (the fill div below supplies the tint). */
+.dv-ocr-lasso-outline { fill: none; stroke: var(--accent); stroke-width: 2; }
 
-.dv-ocr-btn {
+/* Flat accent-tint fill, clipped to the live preview shape via clip-path. */
+.dv-ocr-livefill {
+  position: absolute; inset: 0; pointer-events: none; z-index: 4;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* Apple-Intelligence-style animated gradient while OCR is running, clipped to
+   the finalized selection shape. Replaces the old bottom-of-stage modal. */
+.dv-ocr-loading {
+  position: absolute; inset: 0; pointer-events: none; z-index: 5;
+  background: linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--accent) 72%, transparent) 0%,
+    color-mix(in srgb, #8ab4ff 72%, transparent) 25%,
+    color-mix(in srgb, var(--accent) 72%, transparent) 50%,
+    color-mix(in srgb, #ff9f6b 72%, transparent) 75%,
+    color-mix(in srgb, var(--accent) 72%, transparent) 100%
+  );
+  background-size: 260% 260%;
+  animation: dv-ocr-shimmer 2.4s ease-in-out infinite;
+}
+@keyframes dv-ocr-shimmer {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Single morph pill. clip-path rounds corners without overflow:hidden — the
+   hidden toolbar still contributes its width to the wrap, so the pill is
+   always as wide as the menu content and no width jump occurs on open.
+   filter:drop-shadow is used instead of box-shadow because box-shadow is
+   clipped by clip-path; drop-shadow is applied after clip. */
+.dv-ocr-btn-wrap {
   position: absolute; top: 12px; right: 12px; z-index: 6;
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 12px; border-radius: 999px; cursor: pointer;
-  font: inherit; font-size: 12.5px; font-weight: 600;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(22, 24, 26, 0.78); color: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(6px);
+  display: flex; flex-direction: column; align-items: stretch;
+  background: rgba(10, 12, 14, 0.92);
+  backdrop-filter: blur(22px) saturate(1.8);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  filter: drop-shadow(0 8px 30px rgba(0, 0, 0, 0.65));
+  clip-path: inset(0 round 999px);
+  /* close: wait for grid to finish collapsing (170ms), then round corners */
+  transition: clip-path 240ms ease-in-out 170ms;
 }
-.dv-ocr-btn:hover { border-color: rgba(255, 255, 255, 0.45); }
-.dv-ocr-btn.is-active { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+.dv-ocr-btn-wrap.is-armed {
+  clip-path: inset(0 round 14px);
+  /* open: spring immediately, no delay */
+  transition: clip-path 360ms cubic-bezier(0.16, 1, 0.3, 1);
+}
 
-/* Result card — floats at the bottom of the stage, above the overlay. */
-.dv-ocr-panel {
-  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
-  width: min(520px, calc(100% - 32px)); max-height: 42%;
-  display: flex; flex-direction: column; overflow: hidden; z-index: 7;
-  background: var(--bg-elevated); border: 1px solid var(--border);
-  border-radius: 12px; box-shadow: var(--shadow-elev);
+/* Grid-accordion: 0fr → 1fr animates height without JS measurements.
+   Close is fast ease-in so the grid finishes before clip-path rounds. */
+.dv-ocr-toolbar-wrap {
+  display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows 180ms ease-in;
 }
-.dv-ocr-panel-head {
-  flex: none; display: flex; align-items: center; gap: 8px;
-  padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--border);
+.dv-ocr-toolbar-wrap.is-open {
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 340ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-.dv-ocr-panel-title { flex: 1; font-size: 12px; font-weight: 700; color: var(--text-secondary); }
-.dv-ocr-panel-pct { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.dv-ocr-panel-act {
-  border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary);
-  font: inherit; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+
+/* Inner toolbar — overflow:hidden + min-height:0 required by the grid trick.
+   Content fades out fast on close, fades in with delay on open. */
+.dv-ocr-toolbar {
+  overflow: hidden; min-height: 0;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+  padding: 8px 12px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  pointer-events: none; opacity: 0;
+  transition: opacity 100ms ease;
 }
-.dv-ocr-panel-act:hover { border-color: var(--accent); color: var(--accent); }
-.dv-ocr-panel-close {
-  border: none; background: none; color: var(--text-muted); cursor: pointer;
-  font-size: 16px; line-height: 1; padding: 2px 6px; border-radius: 6px;
+.dv-ocr-toolbar-wrap.is-open .dv-ocr-toolbar {
+  pointer-events: auto; opacity: 1;
+  transition: opacity 250ms ease 80ms;
 }
-.dv-ocr-panel-close:hover { color: var(--text-primary); background: var(--accent-soft); }
-.dv-ocr-panel-body {
-  overflow: auto; padding: 10px 12px; font-size: 13px; line-height: 1.45;
-  color: var(--text-primary); white-space: pre-wrap; word-break: break-word; user-select: text;
+
+.dv-ocr-tools { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; }
+.dv-ocr-tool {
+  display: inline-flex; align-items: center; flex-direction: row-reverse; gap: 9px;
+  padding: 7px 12px; border-radius: 9px; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 500;
+  border: none; background: transparent;
+  color: rgba(255, 255, 255, 0.48);
+  transition: color 120ms ease, background 120ms ease;
 }
-.dv-ocr-panel-bar { height: 4px; margin: 10px 12px; border-radius: 999px; background: var(--accent-soft); overflow: hidden; }
-.dv-ocr-panel-bar span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 160ms ease-out; }
-/* Indeterminate sweep — the AI call reports no incremental progress. */
-.dv-ocr-panel-bar.is-indet span { width: 36%; animation: dv-ocr-indet 1.1s ease-in-out infinite; }
-@keyframes dv-ocr-indet {
-  0% { margin-left: -36%; }
-  100% { margin-left: 100%; }
+.dv-ocr-tool:hover { color: rgba(255, 255, 255, 0.9); background: rgba(255, 255, 255, 0.07); }
+.dv-ocr-tool.is-active { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.dv-ocr-tool-hint {
+  margin: 7px 0 0; font-size: 10.5px; line-height: 1.5;
+  color: rgba(255, 255, 255, 0.28); text-align: right;
+  max-width: 200px;
 }
+
+/* "Extract text" button row — icon tinted accent; chevron rotates on open. */
+.dv-ocr-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 11px 14px 11px 16px; cursor: pointer; white-space: nowrap;
+  font: inherit; font-size: 14px; font-weight: 600; letter-spacing: 0.008em;
+  border: none; background: transparent; color: rgba(255, 255, 255, 0.78);
+  transition: color 150ms ease, background 150ms ease;
+}
+.dv-ocr-btn > svg:first-child { color: var(--accent); flex-shrink: 0; transition: color 150ms ease; }
+.dv-ocr-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
+.dv-ocr-btn.is-active { color: #fff; }
+.dv-ocr-btn-chevron {
+  margin-left: auto; padding-left: 6px;
+  display: flex; align-items: center; flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.28);
+  transition: transform 360ms cubic-bezier(0.16, 1, 0.3, 1), color 150ms ease;
+}
+.dv-ocr-btn.is-active .dv-ocr-btn-chevron {
+  transform: rotate(180deg);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Error pill — bottom-centre, auto-dismisses after 4 s. */
+.dv-ocr-error {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 7;
+  display: flex; align-items: center; gap: 8px;
+  max-width: min(480px, calc(100% - 32px));
+  padding: 8px 14px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 600;
+  background: var(--danger-soft); color: var(--danger-text); border: 1px solid var(--danger);
+  pointer-events: auto;
+}
+.dv-ocr-error button {
+  border: none; background: none; color: inherit; cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 0; opacity: 0.7;
+}
+.dv-ocr-error button:hover { opacity: 1; }
 
 /* Drag handle between the media stage and the extracted-text panel. */
 .dv-ocr-resize { flex: none; width: 6px; cursor: col-resize; position: relative; }
@@ -797,11 +1008,18 @@ img.dv-wa-media { cursor: pointer; }
 body.dv-ocr-resizing { cursor: col-resize; user-select: none; }
 body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
 
-/* Extracted-text history — persisted per file (see lib/extractionHistory). */
+/* Extracted-text history — persisted per file (see lib/extractionHistory).
+   Laid out like the Versions page's release timeline (Updates.css "rel-list
+   .rail"): a continuous rail with a date label + node per entry on the left,
+   an elevated "release card" (thumb / text / actions) on the right. */
 .dv-ocr-history {
   flex: none; height: 100%; min-height: 0;
   display: flex; flex-direction: column;
-  border-left: 1px solid var(--border); background: var(--bg-card);
+  border-left: 1px solid var(--border); background: var(--bg-page);
+  --ocr-line: var(--border-strong);
+  --ocr-railw: 64px;
+  --ocr-linex: 46px;
+  --ocr-node-top: 18px;
 }
 .dv-ocr-history-head {
   flex: none; display: flex; align-items: center; justify-content: space-between;
@@ -820,29 +1038,81 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
 }
 .dv-ocr-history-list {
   flex: 1; min-height: 0; overflow: auto;
-  display: flex; flex-direction: column; gap: 10px; padding: 12px;
+  display: flex; flex-direction: column; gap: 14px; padding: 12px 12px 192px;
 }
 .dv-ocr-history-item {
-  display: flex; flex-direction: column; gap: 8px;
-  border: 1px solid var(--border); border-radius: 10px; padding: 8px;
-  background: var(--bg-page);
+  display: grid; grid-template-columns: var(--ocr-railw) 1fr; gap: 10px;
+  position: relative;
+}
+
+/* Rail line — bridges the full item height plus the flex gap so adjacent
+   entries connect. The ::before extends 14px below (= the list gap) on all
+   items except the last, which fades out at the node. */
+.dv-ocr-history-rail { position: relative; }
+.dv-ocr-history-rail::before {
+  content: ''; position: absolute; left: var(--ocr-linex); top: 0; bottom: -14px; width: 2px;
+  transform: translateX(-50%); background: var(--ocr-line);
+}
+.dv-ocr-history-item:first-child .dv-ocr-history-rail::before {
+  background: linear-gradient(to bottom, transparent 0, transparent var(--ocr-node-top), var(--ocr-line) var(--ocr-node-top));
+}
+.dv-ocr-history-item:last-child .dv-ocr-history-rail::before {
+  bottom: 0;
+  background: linear-gradient(to bottom, var(--ocr-line) 0, var(--ocr-line) var(--ocr-node-top), transparent var(--ocr-node-top));
+}
+
+/* Node dot on the rail line. */
+.dv-ocr-history-node {
+  position: absolute; left: var(--ocr-linex); top: var(--ocr-node-top);
+  width: 11px; height: 11px; border-radius: 50%;
+  transform: translate(-50%, -50%); z-index: 2;
+  background: var(--bg-page); border: 2.5px solid var(--text-muted);
+}
+
+/* Date label, right-aligned beside the line (Updates "rail-label"). */
+.dv-ocr-history-date {
+  position: absolute; left: 0; width: calc(var(--ocr-linex) - 8px);
+  top: var(--ocr-node-top); transform: translateY(-50%);
+  text-align: right; display: flex; flex-direction: column; gap: 2px;
+}
+.dv-ocr-history-date-d { font-size: 11px; font-weight: 600; color: var(--text-primary); }
+.dv-ocr-history-date-t { font-size: 10px; color: var(--text-muted); }
+
+/* Thumb (outside the card) + "release card" (text / actions) for one snippet. */
+.dv-ocr-history-content {
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
 }
 .dv-ocr-history-thumb {
-  width: 100%; border-radius: 6px; overflow: hidden; background: #16181a;
-  display: flex; align-items: center; justify-content: center;
+  width: 100%; flex-shrink: 0;
+  overflow: hidden;
 }
-.dv-ocr-history-thumb img { width: 100%; max-height: 140px; display: block; object-fit: contain; }
+.dv-ocr-history-thumb img { width: auto; max-width: 100%; height: auto; max-height: 360px; display: block; object-fit: contain; object-position: left center; }
+.dv-ocr-history-card {
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  align-self: flex-start; width: fit-content;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 12px; box-shadow: var(--shadow-card);
+}
 .dv-ocr-history-text {
-  margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-primary);
+  margin: 0;
+  font-size: 12.5px; line-height: 1.5; color: var(--text-primary);
   white-space: pre-wrap; word-break: break-word; user-select: text;
+  max-width: 72ch;
 }
 .dv-ocr-history-text.is-empty { color: var(--text-muted); font-style: italic; }
-.dv-ocr-history-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.dv-ocr-history-error { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--danger-text); }
+.dv-ocr-history-actions {
+  display: flex; align-items: center; justify-content: flex-start; gap: 6px;
+}
 .dv-ocr-history-act {
   border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary);
   font: inherit; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; cursor: pointer;
 }
 .dv-ocr-history-act:hover { border-color: var(--accent); color: var(--accent); }
+.dv-ocr-history-act:disabled { opacity: 0.6; cursor: default; }
+.dv-ocr-history-act.is-accent { border-color: var(--accent); background: var(--accent); color: var(--text-on-accent); }
+.dv-ocr-history-act.is-accent:hover { border-color: var(--accent-hover); background: var(--accent-hover); color: var(--text-on-accent); }
+.dv-ocr-history-act.is-accent:disabled { opacity: 0.6; cursor: default; }
 .dv-ocr-history-remove {
   border: none; background: none; color: var(--text-muted); cursor: pointer;
   font-size: 14px; line-height: 1; padding: 2px 6px; border-radius: 6px;
