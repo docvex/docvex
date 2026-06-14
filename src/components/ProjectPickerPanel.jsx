@@ -7,34 +7,6 @@ import { sortProjectsByRecent, getMostRecentProjectId } from '../lib/recentProje
 import Tooltip from './Tooltip';
 import './ProjectPickerPanel.css';
 
-// Cached project count, keyed per signed-in user, so the skeleton on the next
-// open matches what the user is about to see (no count-shift on hand-off).
-// The cache is written after every successful listMyProjects() resolution.
-// First-ever open returns null and the skeleton falls back to a small default.
-// localStorage can throw in private-browsing / quota-exceeded modes — the
-// reads/writes swallow those errors and the skeleton just uses the default.
-const PROJECTS_COUNT_KEY = (userId) => `docvex:projects-count:${userId}`;
-const DEFAULT_SKELETON_COUNT = 4;
-
-function readCachedProjectsCount(userId) {
-  if (!userId) return null;
-  try {
-    const raw = localStorage.getItem(PROJECTS_COUNT_KEY(userId));
-    if (raw === null) return null;
-    const n = parseInt(raw, 10);
-    return Number.isFinite(n) && n >= 0 ? n : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedProjectsCount(userId, count) {
-  if (!userId) return;
-  try {
-    localStorage.setItem(PROJECTS_COUNT_KEY(userId), String(count));
-  } catch { /* see read above */ }
-}
-
 // Inline icons (match the rest of the codebase's stroke-icon convention).
 const CloseIcon = (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -152,10 +124,6 @@ export default function ProjectPickerPanel() {
       setLoading(false);
       if (!error) {
         hasFetchedRef.current = true;
-        // Cache the count so the next open's skeleton matches the real list
-        // length — keeps the row rhythm steady when the user reopens the
-        // picker and the fetch is still in flight.
-        writeCachedProjectsCount(session?.user?.id, (data || []).length);
       }
     });
     return () => { cancelled = true; };
@@ -260,16 +228,6 @@ export default function ProjectPickerPanel() {
           </Tooltip>
         </header>
         <ul className="project-picker-panel-list">
-          {loading && Array.from({
-            // Per-user cache: the next open's skeleton renders the same number
-            // of rows the user just saw. Falls back to DEFAULT_SKELETON_COUNT
-            // on first-ever open (no cache yet) so we always show something.
-            length: readCachedProjectsCount(session?.user?.id) ?? DEFAULT_SKELETON_COUNT,
-          }).map((_, i) => (
-            <li key={`skel-${i}`} className="project-picker-panel-skel-item" aria-hidden="true">
-              <div className="skel-bar project-picker-panel-skel-row" />
-            </li>
-          ))}
           {!loading && error && (
             <li className="project-picker-panel-state project-picker-panel-state-error">
               {error.message}

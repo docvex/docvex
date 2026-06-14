@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { useNotifications } from '../../context/NotificationsContext';
 import { useAuth } from '../../context/AuthContext';
-import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import FilesWorkspace from '../../components/FilesWorkspace';
 import { useUndoRedo } from '../../components/useUndoRedo';
 import { describeLocalFile } from '../../lib/thumbnailDescriptor';
@@ -934,7 +933,7 @@ export default function ProjectFiles() {
   }, [localFolder, notify, refetchTrash]);
 
   // ── Guards (after all hooks) ──────────────────────────────────────────
-  if (projLoading && !selectedProject) return <ProjectScopedSkeleton />;
+  if (projLoading && !selectedProject) return null;
   if (!selectedProject) {
     return (
       <div className="project-scoped-empty">

@@ -693,6 +693,153 @@
   border: 2px solid var(--status-color, var(--text-muted));
 }
 
+/* ── Account dropdown menu ──
+   Opens below the avatar (right-aligned). Holds the identity header, the
+   status pills, and the "Open account" button. */
+.tb-account-wrap {
+  position: relative;
+  display: inline-flex;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.tb-account.is-open {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+.tb-account-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 1100;
+  width: 264px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-elev);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  animation: tb-account-menu-in 120ms ease-out;
+}
+@keyframes tb-account-menu-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Identity header. */
+.tb-account-menu-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+.tb-account-menu-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: block;
+}
+.tb-account-menu-avatar.tb-account-avatar-fallback { font-size: 17px; }
+.tb-account-menu-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.tb-account-menu-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tb-account-menu-email {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Status pills. */
+.tb-account-menu-status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tb-account-menu-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.tb-account-status-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tb-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.tb-status-pill:hover {
+  background: var(--bg-page);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.tb-status-pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-color, var(--text-muted));
+  flex-shrink: 0;
+}
+.tb-status-pill.is-offline .tb-status-pill-dot {
+  background: transparent;
+  border: 2px solid var(--status-color, var(--text-muted));
+  box-sizing: border-box;
+}
+.tb-status-pill.is-active {
+  color: var(--text-primary);
+  border-color: var(--status-color, var(--accent));
+  background: color-mix(in srgb, var(--status-color) 16%, transparent);
+}
+
+/* "Open account" button. */
+.tb-account-menu-open {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.tb-account-menu-open:hover { background: var(--accent-hover); }
+
 /* ── Divider between the actions cluster and the window controls ──
    Symmetric 8px margins place it on the bar's primary spacing unit: 8px after
    the account avatar, 8px before the minimize button. */

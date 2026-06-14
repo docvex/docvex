@@ -1,7 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
-import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import './ProjectScoped.css';
 
 // Placeholder Automate page. Per-project workflows / triggers — "when X
@@ -11,7 +10,7 @@ export default function ProjectAutomate() {
   const { selectedProject, loading } = useSelectedProject();
 
   if (loading && !selectedProject) {
-    return <ProjectScopedSkeleton />;
+    return null;
   }
 
   if (!selectedProject) {

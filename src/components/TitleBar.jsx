@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useTheme } from '../context/ThemeContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useUpdates } from '../context/UpdatesContext';
 import { useSplitView, SPLIT_LAYOUTS, isTriLayout, rotateTri } from '../context/SplitViewContext';
@@ -9,8 +8,7 @@ import { useReportProblem } from '../context/ReportProblemContext';
 import Tooltip, { useTooltip } from './Tooltip';
 import FpsMeter from './FpsMeter';
 import { useMorphPill } from './useMorphPill';
-import { DEFAULT_STATUS_KEY, getStatusOption } from '../lib/userStatus';
-import { PLAN } from '../lib/plan';
+import { DEFAULT_STATUS_KEY, getStatusOption, STATUS_OPTIONS, updateStatus } from '../lib/userStatus';
 import { listMembers } from '../lib/projects';
 import { localFolderApi, isElectronBranch } from '../lib/localFolder';
 import { readProjectsDir } from '../lib/projectsDir';
@@ -34,18 +32,6 @@ import './TitleBar.css';
 // Sidebar nav. The whole bar is a drag region; every interactive element opts
 // out with `-webkit-app-region: no-drag` (set in TitleBar.css).
 
-const THEME_OPTIONS = [
-  { pref: 'cream', label: 'White' },
-  { pref: 'ink', label: 'Dark' },
-  { pref: 'system', label: 'System' },
-];
-
-const ThemeIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="9" />
-    <path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none" />
-  </svg>
-);
 const ChevronDownIcon = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="6 9 12 15 18 9" />
@@ -56,12 +42,11 @@ const CheckIcon = (
     <polyline points="20 6 9 17 4 12" />
   </svg>
 );
-// "Report a problem" — speech bubble with an exclamation.
+// "Report a problem" — a flag.
 const ReportIcon = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z" />
-    <line x1="12" y1="8" x2="12" y2="12" />
-    <line x1="12" y1="16" x2="12.01" y2="16" />
+    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+    <line x1="4" y1="22" x2="4" y2="15" />
   </svg>
 );
 
@@ -120,26 +105,97 @@ function getDisplayName(user) {
   return 'Account';
 }
 
-// Title-bar account control — avatar (real OAuth picture or initial fallback)
-// with a DECORATIVE status dot in the corner (not clickable, not hoverable —
-// it just shows the current status colour). Clicking the avatar opens Account.
+// Title-bar account control — the avatar (real OAuth picture or initial
+// fallback) with a status dot in the corner. Clicking it opens a dropdown menu:
+// an identity header (avatar + name + email), a row of status pills to change
+// activity status inline, and a button that opens the full Account page.
 function TbAccount({ user, onOpen }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
   const avatarUrl = user?.user_metadata?.avatar_url;
   const initial = (user?.email || '?').charAt(0).toUpperCase();
-  const opt = getStatusOption(user?.user_metadata?.status || DEFAULT_STATUS_KEY);
+  const statusKey = user?.user_metadata?.status || DEFAULT_STATUS_KEY;
+  const opt = getStatusOption(statusKey);
+  const name = getDisplayName(user);
+  const email = user?.email || '';
+
+  // Outside-click + Escape close the menu (only wired while open).
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey); };
+  }, [open]);
+
   return (
-    <button type="button" className="tb-account" onClick={onOpen} aria-label="Account">
-      <span className="tb-account-avatar-wrap">
-        {avatarUrl
-          ? <img className="tb-account-avatar" src={avatarUrl} alt="" referrerPolicy="no-referrer" />
-          : <span className="tb-account-avatar tb-account-avatar-fallback">{initial}</span>}
-        <span
-          className={`tb-account-status${opt.key === 'offline' ? ' is-offline' : ''}`}
-          style={{ '--status-color': opt.color }}
-          aria-hidden="true"
-        />
-      </span>
-    </button>
+    <div className="tb-account-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        className={`tb-account${open ? ' is-open' : ''}`}
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Account"
+      >
+        <span className="tb-account-avatar-wrap">
+          {avatarUrl
+            ? <img className="tb-account-avatar" src={avatarUrl} alt="" referrerPolicy="no-referrer" />
+            : <span className="tb-account-avatar tb-account-avatar-fallback">{initial}</span>}
+          <span
+            className={`tb-account-status${opt.key === 'offline' ? ' is-offline' : ''}`}
+            style={{ '--status-color': opt.color }}
+            aria-hidden="true"
+          />
+        </span>
+      </button>
+
+      {open && (
+        <div className="tb-account-menu" role="menu">
+          {/* Identity header — avatar, name, email. */}
+          <div className="tb-account-menu-head">
+            {avatarUrl
+              ? <img className="tb-account-menu-avatar" src={avatarUrl} alt="" referrerPolicy="no-referrer" />
+              : <span className="tb-account-menu-avatar tb-account-avatar-fallback">{initial}</span>}
+            <span className="tb-account-menu-id">
+              <span className="tb-account-menu-name">{name}</span>
+              {email && <span className="tb-account-menu-email">{email}</span>}
+            </span>
+          </div>
+
+          {/* Status pills — change activity status inline (persists to
+              user_metadata; the active pill follows the session). */}
+          <div className="tb-account-menu-status">
+            <span className="tb-account-menu-label">Status</span>
+            <div className="tb-account-status-pills">
+              {STATUS_OPTIONS.map((s) => (
+                <button
+                  key={s.key}
+                  type="button"
+                  className={`tb-status-pill${s.key === statusKey ? ' is-active' : ''}${s.key === 'offline' ? ' is-offline' : ''}`}
+                  style={{ '--status-color': s.color }}
+                  onClick={() => updateStatus(s.key)}
+                  aria-pressed={s.key === statusKey}
+                >
+                  <span className="tb-status-pill-dot" aria-hidden="true" />
+                  <span>{s.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Open the full Account page. */}
+          <button
+            type="button"
+            className="tb-account-menu-open"
+            onClick={() => { setOpen(false); onOpen(); }}
+          >
+            Open account
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -241,9 +297,13 @@ const CloseGlyph = (
   </svg>
 );
 
+// Routes where the Split-view button is hidden — the top-level personal / nav
+// pages that open fullscreen and have no tile-able content area. Kept in sync
+// with Sidebar.jsx's PERSONAL_ROUTES.
+const SPLIT_HIDDEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/account', '/mail', '/projects']);
+
 export default function TitleBar() {
   const { session } = useAuth();
-  const { themePreference, setTheme } = useTheme();
   const { selectedProject } = useSelectedProject();
   const { hasUpdate, latestVersion, currentVersion } = useUpdates();
   const { layout, setLayout, customLayouts, addCustomLayout, applyCustomLayout, updateCustomLayout, renameCustomLayout, removeCustomLayout, activeCustomLayout } = useSplitView();
@@ -264,6 +324,12 @@ export default function TitleBar() {
   // "DOCVEX | HUB" and ALL selected-project chrome (name chip + member avatars
   // + file count + usage meters) is hidden — you're between projects, not in one.
   const onHub = pathname === '/projects';
+  // The Split-view button only makes sense on the project workspace pages
+  // (Files / Chat / AI / … and a project's own /projects/:id pages), where the
+  // content area can tile into independently-navigable panes. On the top-level
+  // personal / nav pages it's just noise, so hide it there (and on the
+  // doc-viewer window). Mirrors Sidebar's PERSONAL_ROUTES.
+  const hideSplitButton = onDocViewer || SPLIT_HIDDEN_ROUTES.has(pathname);
 
   // Project member list (for the avatar stack next to the project name).
   // Fetched once per selected project; cleared when there's no selection /
@@ -470,21 +536,6 @@ export default function TitleBar() {
       </div>
     ),
   });
-  const themePill = useMorphPill({
-    hoverContent: 'Theme',
-    placement: 'left',
-    menuItems: THEME_OPTIONS.map((opt) => ({
-      key: opt.pref,
-      label: (
-        <span className="tb-morph-row">
-          <span className="tb-morph-row-label">{opt.label}</span>
-          {themePreference === opt.pref && <span className="tb-morph-check">{CheckIcon}</span>}
-        </span>
-      ),
-      onClick: () => setTheme(opt.pref),
-    })),
-  });
-
   // Reset the "save layout" input whenever the split menu closes, so it
   // reopens in its default (button, not armed input) state.
   useEffect(() => {
@@ -539,13 +590,11 @@ export default function TitleBar() {
             </>
           )}
         </span>
-        {/* Version pill — to the right of the app name. When a newer version
-            is available it shows "Update · v<latest> · <kind>", colour-coded
-            by the semver bump (major/minor/patch) to match the Versions page;
-            the dot pulses. When up to date it shows the running version in a
-            calm gray static gradient with no pulse. Clicking opens the
-            Versions page. */}
-        {signedIn && (hasUpdate ? (
+        {/* Version pill — to the right of the app name. ONLY shown when a newer
+            version is available: "Update · v<latest> · <kind>", colour-coded by
+            the semver bump (major/minor/patch) to match the Versions page; the
+            dot pulses. Clicking opens the Versions page. Up to date = no pill. */}
+        {signedIn && hasUpdate && (
           <Tooltip content={latestVersion ? `Update available — v${latestVersion}${updateKind ? ` (${updateKind})` : ''}` : 'Update available'}>
             <button
               type="button"
@@ -561,19 +610,7 @@ export default function TitleBar() {
               </span>
             </button>
           </Tooltip>
-        ) : (
-          <Tooltip content={currentVersion ? `You're up to date — v${currentVersion}` : 'Up to date'}>
-            <button
-              type="button"
-              className="tb-update-badge is-uptodate"
-              onClick={() => navigate('/versions')}
-              aria-label={currentVersion ? `Up to date, version ${currentVersion}. View versions.` : 'Up to date'}
-            >
-              <span className="tb-update-dot" aria-hidden="true" />
-              <span>{currentVersion ? `Up to date · v${currentVersion}` : 'Up to date'}</span>
-            </button>
-          </Tooltip>
-        ))}
+        )}
         {!onHub && signedIn && selectedProject && (
           <>
             <span className="tb-brand-sep" aria-hidden="true">|</span>
@@ -679,9 +716,10 @@ export default function TitleBar() {
             {/* Split view — tile the content area into 1/2/3/4 independently-
                 navigable panes. Left-click morphs the cursor tooltip into the
                 menu (same useMorphPill the file grid uses on right-click).
-                Hidden on the doc-viewer window, which has no tile-able content
+                Hidden on the doc-viewer window and the top-level personal / nav
+                pages (see SPLIT_HIDDEN_ROUTES), which have no tile-able content
                 area. */}
-            {!onDocViewer && (
+            {!hideSplitButton && (
               <>
                 <button
                   type="button"
@@ -702,33 +740,9 @@ export default function TitleBar() {
               </>
             )}
 
-            {/* Theme — icon-only trigger; the menu (White / Dark / System)
-                morphs out of the cursor tooltip on left-click. Hidden on the
-                doc-viewer window. */}
-            {!onDocViewer && (
-              <>
-                <button
-                  type="button"
-                  className={`tb-btn tb-btn-icon-only${themePill.isMenuOpen ? ' is-open' : ''}`}
-                  onMouseMove={themePill.handleMouseMove}
-                  onMouseLeave={themePill.handleMouseLeave}
-                  onClick={themePill.handleOpenMenu}
-                  aria-haspopup="menu"
-                  aria-expanded={themePill.isMenuOpen}
-                  aria-label="Theme"
-                >
-                  <span className="tb-btn-icon">{ThemeIcon}</span>
-                </button>
-                {themePill.node}
-              </>
-            )}
-
-            {/* Account — to the right of the Theme button (replaced the status
-                dot). The avatar opens the Account page. Settings moved to the
-                horizontal app-nav bar under the title bar. */}
-            <Tooltip content={`${getDisplayName(session.user)} · ${PLAN.tier}`}>
-              <TbAccount user={session.user} onOpen={() => navigate('/account')} />
-            </Tooltip>
+            {/* Account — to the right of the Split button. The avatar opens a
+                dropdown (identity + status pills + "Open account"). */}
+            <TbAccount user={session.user} onOpen={() => navigate('/account')} />
           </div>
 
           {/* Divider between the Theme control and the window controls.

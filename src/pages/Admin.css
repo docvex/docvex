@@ -404,11 +404,6 @@ h1.dc-title, .dc-mh-title, .dc-mail-head h2, .dc-danger-hd h2, .dc-modal-hd h3, 
 .dc-svc-act:hover { background: var(--bg-elevated); border-color: var(--border-strong); color: var(--text-primary); }
 
 .dc-section-spacer { flex: 1; }
-.dc-svc-skeleton {
-  min-height: 240px; border: 1px solid var(--border);
-  background: linear-gradient(100deg, var(--bg-card) 30%, var(--bg-elevated) 50%, var(--bg-card) 70%);
-  background-size: 240% 100%; animation: dc-metric-shimmer 1.3s linear infinite;
-}
 .dc-svc-empty {
   padding: 28px; text-align: center; color: var(--text-muted); font-size: 0.88rem;
   border: 1px dashed var(--border); border-radius: 16px;

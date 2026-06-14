@@ -712,8 +712,8 @@ export default function ProjectAIChat() {
     setDepthIdx(1);
     setFileSelected(false);
     setFileProps(false);
-    // Show skeletons until the AI's options arrive (no instant heuristic flash);
-    // the count then follows whatever the AI returns.
+    // Clear any prior suggestions; the AI's options arrive asynchronously and
+    // the count follows whatever the AI returns.
     setSuggestions([]);
     setSuggestLoading(true);
     enhanceSuggestions(primary, token);
@@ -1245,9 +1245,9 @@ export default function ProjectAIChat() {
 
         {/* Active conversation. */}
         <div className={`aichat-main${pendingDrop ? ' has-dropactions' : ''}`}>
-          {/* Suggestion pills for the dropped file — skeletons until the AI's
-              options load, then a vertical list (count follows the AI). The
-              footer message box is the "Other" / custom-instruction option. */}
+          {/* Suggestion pills for the dropped file — a vertical list once the
+              AI's options load (count follows the AI). The footer message box
+              is the "Other" / custom-instruction option. */}
           {pendingDrop && (
             <div className="aichat-drop-panel">
               <Tooltip content="Cancel"><button type="button" className="aichat-drop-close" onClick={closeActionSheet} aria-label="Cancel">{I.x({ width: 18, height: 18 })}</button></Tooltip>
@@ -1257,20 +1257,14 @@ export default function ProjectAIChat() {
                   <div className="aichat-action-head">
                     <span>What do you want to do with <strong>{pendingDrop.primary.name}</strong>?</span>
                   </div>
-                  {suggestLoading && suggestions.length === 0
-                    ? Array.from({ length: 4 }).map((_, i) => (
-                        <div key={`sk-${i}`} className="aichat-action-pill is-skeleton" style={{ '--pill-i': i }} aria-hidden="true">
-                          <span className="aichat-skeleton-bar" />
-                        </div>
-                      ))
-                    : suggestions.map((s, idx) => (
-                        <Tooltip key={s.key} content={s.prompt}>
-                          <button type="button" className="aichat-action-pill" style={{ '--pill-i': idx }} onClick={() => runSuggestion(s)}>
-                            <span className="aichat-action-pill-label">{s.label}</span>
-                            {I.caret({ width: 15, height: 15 })}
-                          </button>
-                        </Tooltip>
-                      ))}
+                  {suggestions.map((s, idx) => (
+                    <Tooltip key={s.key} content={s.prompt}>
+                      <button type="button" className="aichat-action-pill" style={{ '--pill-i': idx }} onClick={() => runSuggestion(s)}>
+                        <span className="aichat-action-pill-label">{s.label}</span>
+                        {I.caret({ width: 15, height: 15 })}
+                      </button>
+                    </Tooltip>
+                  ))}
                   <div className="aichat-action-other-hint">Or type your own instruction in the message box below.</div>
                 </div>
               ) : (

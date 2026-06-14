@@ -1086,11 +1086,7 @@ export default function Admin() {
             {MailIcons.plus} Add service
           </button>
         </div>
-        {servicesLoading && services.length === 0 ? (
-          <div className="dc-svc-grid">
-            {Array.from({ length: 3 }).map((_, i) => <div className="dc-svc dc-svc-skeleton" key={i} />)}
-          </div>
-        ) : services.length === 0 ? (
+        {servicesLoading && services.length === 0 ? null : services.length === 0 ? (
           <div className="dc-svc-empty">No services tracked yet. Add your first subscription to populate the spend totals.</div>
         ) : (
           <>

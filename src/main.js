@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage, screen } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -200,6 +200,75 @@ if (!allowMulti) {
 }
 
 let mainWindow = null;
+
+// ── Multi-monitor / window-state persistence ───────────────────────────────
+// Remember where the main window last lived (which monitor + size) so the next
+// launch reopens it on the same display, and pin every SECONDARY window (doc
+// viewer, file viewers) to whichever monitor the main window is currently on.
+// State is a tiny JSON file in userData. All of `screen` is only valid after
+// the app is ready, but these run at window-creation time, so that holds.
+const windowStateFile = () => path.join(app.getPath('userData'), 'window-state.json');
+
+function readWindowState() {
+  try {
+    const s = JSON.parse(fs.readFileSync(windowStateFile(), 'utf8'));
+    if (s && Number.isFinite(s.width) && Number.isFinite(s.height)) return s;
+  } catch { /* no/invalid state — fall back to defaults */ }
+  return null;
+}
+
+function saveWindowState(win) {
+  if (!win || win.isDestroyed()) return;
+  try {
+    // getNormalBounds() is the restored (non-maximized) rect, so we can reopen
+    // at the user's chosen size even when they quit while maximized.
+    const b = win.getNormalBounds ? win.getNormalBounds() : win.getBounds();
+    const state = {
+      x: b.x, y: b.y, width: b.width, height: b.height,
+      maximized: win.isMaximized(), fullscreen: win.isFullScreen(),
+    };
+    fs.writeFileSync(windowStateFile(), JSON.stringify(state));
+  } catch { /* best-effort */ }
+}
+
+// A saved rect is only usable if it still overlaps a CONNECTED display — a
+// monitor may have been unplugged or rearranged since last launch. Require a
+// decent overlap so the (grabbable) title bar can't land off-screen.
+function boundsAreOnScreen(b) {
+  if (!b || !Number.isFinite(b.x) || !Number.isFinite(b.y)) return false;
+  return screen.getAllDisplays().some((d) => {
+    const wa = d.workArea;
+    const ix = Math.max(b.x, wa.x);
+    const iy = Math.max(b.y, wa.y);
+    const ax = Math.min(b.x + b.width, wa.x + wa.width);
+    const ay = Math.min(b.y + b.height, wa.y + wa.height);
+    return ax - ix > 96 && ay - iy > 64;
+  });
+}
+
+// Center a width×height rect within the work area of the display that currently
+// holds `refWin` (the main window) — used to open every secondary window on the
+// same monitor as the base app. Falls back to the primary display.
+function centeredOnDisplayOf(refWin, width, height) {
+  let display;
+  try {
+    display = refWin && !refWin.isDestroyed()
+      ? screen.getDisplayMatching(refWin.getBounds())
+      : screen.getPrimaryDisplay();
+  } catch {
+    display = screen.getPrimaryDisplay();
+  }
+  const wa = display.workArea;
+  const w = Math.min(width, wa.width);
+  const h = Math.min(height, wa.height);
+  return {
+    width: w,
+    height: h,
+    x: Math.round(wa.x + (wa.width - w) / 2),
+    y: Math.round(wa.y + (wa.height - h) / 2),
+  };
+}
+
 // Latest known update status. Kept here so renderers that mount after an
 // event has already fired can still recover the current state on request.
 let updateStatus = { state: 'idle' };
@@ -293,10 +362,16 @@ function wireDevtoolsShortcuts(win) {
 // appended to the loaded URL (e.g. `?docViewer=1`) so the renderer can boot
 // straight into a specific surface. `openDevtools` only for the primary window
 // so the doc-viewer window doesn't pop its own devtools.
-function createAppWindow({ query, openDevtools = false } = {}) {
+function createAppWindow({ query, openDevtools = false, bounds = null } = {}) {
   const win = new BrowserWindow({
-    width: 1200,
-    height: 750,
+    // `bounds` pins size + monitor: restored main-window state on launch, or a
+    // rect centered on the main window's display for secondary windows. Without
+    // it Electron centers a default-sized window on the primary display.
+    width: bounds?.width ?? 1200,
+    height: bounds?.height ?? 750,
+    ...(bounds && Number.isFinite(bounds.x) && Number.isFinite(bounds.y)
+      ? { x: bounds.x, y: bounds.y }
+      : {}),
     // Floor on how small the user can drag the window. Below this the sidebar
     // + layout start to crowd; 900×600 keeps the chrome usable.
     minWidth: 900,
@@ -372,7 +447,24 @@ function createAppWindow({ query, openDevtools = false } = {}) {
 }
 
 const createWindow = () => {
-  mainWindow = createAppWindow({ openDevtools: true });
+  // Reopen on the same monitor + size as last time, when that display is still
+  // connected (otherwise let Electron center on the primary display).
+  const saved = readWindowState();
+  const bounds = saved && boundsAreOnScreen(saved) ? saved : null;
+  mainWindow = createAppWindow({ openDevtools: true, bounds });
+  // Restore the maximized / fullscreen state the user left it in.
+  if (saved?.maximized) mainWindow.maximize();
+  if (saved?.fullscreen) mainWindow.setFullScreen(true);
+  // Persist size + position (i.e. which monitor) for next launch. Debounced on
+  // move/resize so a force-quit still leaves a recent state; flushed on close.
+  let saveTimer = null;
+  const scheduleSave = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveWindowState(mainWindow), 400);
+  };
+  mainWindow.on('resize', scheduleSave);
+  mainWindow.on('move', scheduleSave);
+  mainWindow.on('close', () => { clearTimeout(saveTimer); saveWindowState(mainWindow); });
 };
 
 // Document-viewer window — opened from the Files page when a file is double-
@@ -392,7 +484,8 @@ function createDocViewerWindow(file) {
   if (file?.path) query.path = file.path;
   if (file?.name) query.name = file.name;
   if (file?.mime) query.mime = file.mime;
-  docViewerWindow = createAppWindow({ query });
+  // Open on the same monitor as the base app.
+  docViewerWindow = createAppWindow({ query, bounds: centeredOnDisplayOf(mainWindow, 1200, 800) });
   docViewerWindow.on('closed', () => { docViewerWindow = null; });
 }
 ipcMain.on('window:open-doc-viewer', (_, file) => createDocViewerWindow(file));
@@ -721,9 +814,13 @@ function openInAppWindow(url, fileName) {
   const title = isCloud
     ? `DocVex - ${fileName} (READ ONLY)`
     : `DocVex - ${fileName}`;
+  // Open on the same monitor as the base app.
+  const pos = centeredOnDisplayOf(mainWindow, 1100, 800);
   const opts = {
-    width: 1100,
-    height: 800,
+    width: pos.width,
+    height: pos.height,
+    x: pos.x,
+    y: pos.y,
     title,
     // No preload + sandbox defaults: this window only renders the
     // signed file URL / external viewer page, it never needs access
@@ -797,9 +894,13 @@ ipcMain.on('app:open-file-window', (_, payload) => {
 // parsed it (the inlined assets mean nothing references it afterwards).
 async function openHtmlContentWindow(html, fileName) {
   const title = `DocVex - ${fileName} (READ ONLY)`;
+  // Open on the same monitor as the base app.
+  const pos = centeredOnDisplayOf(mainWindow, 1100, 800);
   const opts = {
-    width: 1100,
-    height: 800,
+    width: pos.width,
+    height: pos.height,
+    x: pos.x,
+    y: pos.y,
     title,
     webPreferences: {
       contextIsolation: true,

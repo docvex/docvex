@@ -441,65 +441,8 @@ export default function ProjectList() {
   const avatarInitial = (displayName || '?').trim().charAt(0).toUpperCase();
   const statusOpt = getStatusOption(session?.user?.user_metadata?.status || DEFAULT_STATUS_KEY);
 
-  const navItems = [
-    { id: 'projects', label: 'Projects', icon: ProjectsNavIcon, active: true, onClick: () => {} },
-    { id: 'updates', label: 'Updates', icon: UpdatesNavIcon, active: false, onClick: () => navigate('/versions') },
-    { id: 'settings', label: 'Settings', icon: SettingsNavIcon, active: false, onClick: () => navigate('/settings') },
-    { id: 'docs', label: 'Documentation', icon: DocsNavIcon, active: false, onClick: () => openExternal(DOCS_URL) },
-  ];
-
   return (
-    <div className="lh-hub">
-      <aside className="lh-sidebar">
-        <nav className="lh-sb-nav">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`lh-sb-item${item.active ? ' is-active' : ''}`}
-              onClick={item.onClick}
-            >
-              <span className="lh-sb-icon">{item.icon}</span>
-              <span className="lh-sb-label">{item.label}</span>
-            </button>
-          ))}
-        </nav>
-
-        {/* Account at the foot of the rail — opens the Account page; the status
-            circle opens the status picker (its own affordance). */}
-        <div className="lh-sb-footer">
-          <button
-            type="button"
-            className="lh-account-btn"
-            onClick={() => navigate('/account')}
-            aria-label="Account settings"
-          >
-            <span className="lh-account-avatar" style={avatarUrl ? undefined : { background: avatarColor(userId || displayName) }}>
-              {avatarUrl
-                ? <img src={avatarUrl} alt="" referrerPolicy="no-referrer" draggable={false} />
-                : avatarInitial}
-              <Tooltip content={statusAnchor ? undefined : statusOpt.label}>
-                <span
-                  className="lh-account-status-dot"
-                  style={{ background: statusOpt.color }}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Status: ${statusOpt.label}. Click to change.`}
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setStatusAnchor(e.currentTarget.getBoundingClientRect()); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setStatusAnchor(e.currentTarget.getBoundingClientRect()); } }}
-                />
-              </Tooltip>
-            </span>
-            <span className="lh-account-btn-info">
-              <span className="lh-account-btn-name">{displayName}</span>
-              <span className="lh-account-btn-meta">
-                <span className="lh-account-btn-tier">{PLAN.tier}</span>
-              </span>
-            </span>
-          </button>
-        </div>
-      </aside>
-
+    <div className="lh-hub lh-hub-no-rail">
       <main className="lh-main">
         <div className="lh-main-inner">
           {showEmptyState ? (
@@ -517,17 +460,20 @@ export default function ProjectList() {
                 <>
                   <span className="lh-empty-or">or</span>
                   <button type="button" className="lh-open-btn lh-empty-open" onClick={onOpenFromDirectory}>
-                    {FolderIcon} Open project
+                    {FolderIcon} Import project
                   </button>
                 </>
               )}
             </div>
           ) : (
             <>
-              <div className="lh-headline">
+              <header className="lh-headline">
+                <div className="lh-eyebrow">
+                  <span>Workspace</span>
+                </div>
+                <h1 className="lh-title">Hub</h1>
                 <p className="lh-greeting">Welcome back, {displayName}</p>
-                <h1 className="lh-title">Projects</h1>
-              </div>
+              </header>
 
               {/* No projects folder set → nudge the user to pick one in Settings
                   (new projects mirror to a folder there). */}
@@ -555,7 +501,7 @@ export default function ProjectList() {
                 </div>
                 {isElectronBranch && (
                   <button type="button" className="lh-open-btn" onClick={onOpenFromDirectory}>
-                    {FolderIcon} Open
+                    {FolderIcon} Import
                   </button>
                 )}
                 <button type="button" className="lh-new-btn" onClick={onNewProject}>
@@ -566,16 +512,6 @@ export default function ProjectList() {
               {openMsg && <div className="lh-open-msg">{openMsg}</div>}
 
               <div className="lh-list-frame">
-                {loading && (
-                  <div className="lh-list">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                      <div key={`skel-${i}`} className="lh-row lh-row-skel" aria-hidden="true">
-                        <div className="lh-skel-bar" />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
                 {!loading && error && (
                   <div className="lh-state lh-state-error">
                     Couldn't load projects: {error.message}

@@ -1,7 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
-import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import './ProjectScoped.css';
 
 // Placeholder Clients page. Same shape as ProjectFiles / ProjectTodos —
@@ -13,7 +12,7 @@ export default function ProjectClients() {
   const { selectedProject, loading } = useSelectedProject();
 
   if (loading && !selectedProject) {
-    return <ProjectScopedSkeleton />;
+    return null;
   }
 
   if (!selectedProject) {

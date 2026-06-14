@@ -366,10 +366,12 @@ const LAYOUT_PRIMARY_SEED = {
 const GENERIC_SPLIT_SEEDS = ['/files', '/chat', '/ai-chat'];
 
 // Routes that render WITHOUT the in-pane chrome bar when shown fullscreen
-// (single-pane mode) — every personal destination opened from the top app-nav
-// bar. They each carry their own page masthead, so the chrome's title +
-// destination dropdown would just duplicate it.
-const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/mail']);
+// (single-pane mode) — the personal destinations opened from the top app-nav
+// bar plus the Hub (/projects) and Account (/account). They each carry their own
+// page masthead, so the chrome's title + destination dropdown would just
+// duplicate it. The persistent left destination rail is also suppressed on
+// these (see `railless` below).
+const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/mail', '/projects', '/account']);
 
 // Resize gutters for the current arrangement. A gutter exists on an axis only
 // when that axis has 2 tracks; for the "T" layouts the cross-axis gutter is
@@ -506,11 +508,11 @@ export default function SplitContainer({ primary }) {
     // chrome bar (title + destination dropdown) is redundant noise there —
     // suppress it for those routes. The sidebar still drives navigation.
     const chromeless = CHROMELESS_FULLSCREEN_ROUTES.has(pathname);
-    // The Hub (/projects) brings its OWN left rail (the launcher's Projects /
-    // Updates / Settings / Documentation nav), so the app's persistent
-    // destination rail is suppressed there to avoid two stacked rails. The top
-    // Sidebar still drives window navigation.
-    const railless = pathname === '/projects';
+    // The persistent left destination rail (PaneSideNav) is suppressed on the
+    // chromeless fullscreen pages (the personal tabs + the Hub). Each carries
+    // its own page header, and the top app-nav bar still drives window
+    // navigation, so a second left rail there is just noise.
+    const railless = chromeless;
     return (
       <div className={`sv-single${railless ? '' : ' sv-single--nav'}${chromeless ? ' is-chromeless' : ''}`}>
         {/* Persistent left rail of switchable destinations (replaces the old

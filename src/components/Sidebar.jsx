@@ -157,9 +157,6 @@ export default function Sidebar() {
     { to: '/newsletter', label: 'Newsletter', icon: NewspaperIcon, end: true },
     { to: '/versions', label: 'Versions', icon: VersionsIcon, end: true },
     ...(session ? [{ to: '/settings', label: 'Settings', icon: GearIcon, end: true }] : []),
-    // Hub — the projects launcher (the in-app surface that replaced the old
-    // standalone launch hub). Lands on the full projects list.
-    ...(session ? [{ to: '/projects', label: 'Hub', icon: HubIcon, end: true }] : []),
     ...(session ? [{ to: '/mail', label: 'Mail', icon: MailIcon, end: true }] : []),
     ...(import.meta.env.DEV ? [{ to: '/debug', label: 'Debug', icon: BugIcon, end: true }] : []),
   ];
@@ -167,6 +164,23 @@ export default function Sidebar() {
   return (
     <nav className={`sidebar${pickerOpen ? ' picker-open' : ''}`}>
       <ul className="sidebar-nav">
+        {/* Hub — the projects launcher (the in-app surface that replaced the
+            old standalone launch hub). Pinned as the leftmost tab. */}
+        {session && (
+          <li>
+            <NavLink
+              to="/projects"
+              end
+              className={({ isActive }) =>
+                `nav-item${paneTabActive('/projects', true, isActive) ? ' active' : ''}`
+              }
+              onClick={handleTabClick}
+            >
+              <span className="icon">{HubIcon}</span>
+              <span className="label nav-label-row">Hub</span>
+            </NavLink>
+          </li>
+        )}
         {/* "Project" — restores the workspace split layout that a personal page
             collapsed when it opened fullscreen. Active while a split is live. */}
         <li>

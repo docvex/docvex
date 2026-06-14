@@ -4,9 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { PLAN } from '../lib/plan';
 import { supabase } from '../lib/supabaseClient';
-import ConfirmModal from '../components/ConfirmModal';
+import '../components/ConfirmModal.css'; // modal-* classes for the password modal
 import DangerZone, { DangerRow } from '../components/DangerZone';
-import DeleteAccountModal from '../components/DeleteAccountModal';
 import StatusBadge from '../components/StatusBadge';
 import Tooltip from '../components/Tooltip';
 import { STATUS_OPTIONS, DEFAULT_STATUS_KEY, updateStatus } from '../lib/userStatus';
@@ -52,18 +51,44 @@ function GoogleGlyph() {
   );
 }
 
+// In-card danger-zone confirmations. Each danger button morphs the card into
+// the matching confirmation (see the `.dz-confirm` overlay below). `delete`
+// adds a type-your-email gate before the button enables.
+const DZ_CONFIRMS = {
+  signout: {
+    title: 'Sign out?',
+    message: "You'll need to sign in again to access your account.",
+    confirmLabel: 'Sign out',
+    busyLabel: 'Signing out…',
+  },
+  erase: {
+    title: 'Erase all account data?',
+    message: 'This signs you out from every device and removes locally cached account data. You can sign back in afterwards, but anything stored only on this machine will be gone.',
+    confirmLabel: 'Erase everything',
+    busyLabel: 'Erasing…',
+  },
+  delete: {
+    title: 'Delete your account?',
+    message: 'This cannot be undone. Your account, project memberships, and notifications are permanently removed; projects you solely own are orphaned and pending invitations you sent are cleared.',
+    confirmLabel: 'Delete account',
+    busyLabel: 'Deleting…',
+    requireEmail: true,
+  },
+};
+
 export default function Account() {
   const { session, signOut, eraseData, deleteAccount, linkGoogle, setPassword } = useAuth();
   const { notify } = useNotifications();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
-  const [confirm, setConfirm] = useState(null); // 'signout' | 'erase' | null
+  // In-card danger-zone confirmation: the active action ('signout' | 'erase' |
+  // 'delete' | null), an exit-animation flag (so cancel animates out, not just
+  // unmounts), the type-to-confirm email (delete only), and a busy flag while
+  // the action runs.
+  const [dzKind, setDzKind] = useState(null);
+  const [dzClosing, setDzClosing] = useState(false);
+  const [deleteEmail, setDeleteEmail] = useState('');
   const [busy, setBusy] = useState(false);
-  // Separate state for the delete-account modal because (a) it has a
-  // distinct shape (type-to-confirm input, not just yes/no) and (b) it
-  // lives in its own modal component, not the shared ConfirmModal.
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [linkingGoogle, setLinkingGoogle] = useState(false);
   // Set-a-password form state. Lives on this page (vs a modal) so the
   // user can see the surrounding "Account information" context — they
@@ -244,50 +269,67 @@ export default function Account() {
     }
   };
 
-  const handleConfirm = async () => {
+  // Open the in-card confirmation for a danger action.
+  const openDz = (kind) => { setDeleteEmail(''); setDzClosing(false); setDzKind(kind); };
+
+  // Cancel: play the exit animation, then unmount. No-op while an action runs.
+  const closeDz = () => {
+    if (busy) return;
+    setDzClosing(true);
+    window.setTimeout(() => { setDzKind(null); setDzClosing(false); setDeleteEmail(''); }, 200);
+  };
+
+  // Run the confirmed action. On delete failure the panel stays open to retry.
+  const confirmDz = async () => {
+    const kind = dzKind;
+    if (!kind || busy) return;
     setBusy(true);
     try {
-      if (confirm === 'signout') {
+      if (kind === 'signout') {
         await signOut();
-      } else if (confirm === 'erase') {
+        setDzKind(null);
+        navigate('/');
+      } else if (kind === 'erase') {
         await eraseData();
+        setDzKind(null);
+        navigate('/');
+      } else if (kind === 'delete') {
+        const { error } = await deleteAccount();
+        if (error) {
+          // Server-side failure (network down, function 500, expired token).
+          // Surface it via a toast and keep the panel open so the user can
+          // retry. The account row is untouched on error per the contract.
+          notify({
+            category: 'auth',
+            variant: 'error',
+            priority: 'critical',
+            title: 'Could not delete account',
+            body: error.message || 'The server rejected the request.',
+          });
+          return;
+        }
+        // Delete succeeded → session is invalid + signOut already ran. Bounce
+        // to /auth so ProtectedRoute doesn't flash on this orphaned page.
+        setDzKind(null);
+        navigate('/auth', { replace: true });
       }
-      setConfirm(null);
-      navigate('/');
     } finally {
       setBusy(false);
     }
   };
 
-  const cancelConfirm = () => {
-    if (busy) return;
-    setConfirm(null);
-  };
-
-  const handleDeleteAccount = async () => {
-    setDeleting(true);
-    const { error } = await deleteAccount();
-    setDeleting(false);
-    if (error) {
-      // Server-side failure (network down, function 500, expired token).
-      // Surface it via a toast and leave the modal open so the user can
-      // see what went wrong and retry. The account row is untouched on
-      // error per the function's contract.
-      notify({
-        category: 'auth',
-        variant: 'error',
-        priority: 'critical',
-        title: 'Could not delete account',
-        body: error.message || 'The server rejected the request.',
-      });
-      return;
-    }
-    // Delete succeeded → the session is invalid + signOut has already run.
-    // Close the modal and bounce to /auth so ProtectedRoute doesn't flash
-    // the spinner on this now-orphaned page.
-    setDeleteOpen(false);
-    navigate('/auth', { replace: true });
-  };
+  // Escape cancels the in-card confirmation (unless an action is in flight).
+  useEffect(() => {
+    if (!dzKind) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !busy) {
+        setDzClosing(true);
+        window.setTimeout(() => { setDzKind(null); setDzClosing(false); }, 200);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dzKind, busy]);
 
   const closeReset = () => { if (!pwBusy) setShowReset(false); };
 
@@ -517,47 +559,66 @@ export default function Account() {
         )}
 
         <DangerRow title="Sign out" desc="End your current session on this device.">
-          <button className="dz-btn" onClick={() => setConfirm('signout')}>Sign out</button>
+          <button className="dz-btn" onClick={() => openDz('signout')}>Sign out</button>
         </DangerRow>
 
         <DangerRow title="Erase data" desc="Sign out from all devices and clear locally cached account data on this machine.">
-          <button className="dz-btn" onClick={() => setConfirm('erase')}>Erase data</button>
+          <button className="dz-btn" onClick={() => openDz('erase')}>Erase data</button>
         </DangerRow>
 
         <DangerRow title="Delete account" desc="Permanently remove your account, project memberships, and notifications. This cannot be undone.">
-          <button className="dz-btn" onClick={() => setDeleteOpen(true)} disabled={deleting}>Delete account</button>
+          <button className="dz-btn" onClick={() => openDz('delete')}>Delete account</button>
         </DangerRow>
+
+        {/* In-card confirmation — the danger zone morphs into this when a danger
+            button is clicked (rows blur behind a scrim, the panel rises in). */}
+        {dzKind && (() => {
+          const c = DZ_CONFIRMS[dzKind];
+          const emailOk = !c.requireEmail
+            || deleteEmail.trim().toLowerCase() === (user.email || '').trim().toLowerCase();
+          return (
+            <div
+              className={`dz-confirm${dzClosing ? ' is-closing' : ''}`}
+              role="alertdialog"
+              aria-label={c.title}
+              onMouseDown={(e) => { if (e.target === e.currentTarget) closeDz(); }}
+            >
+              <div className="dz-confirm-panel">
+                <h3 className="modal-title">{c.title}</h3>
+                <p className="modal-message">{c.message}</p>
+                {c.requireEmail && (
+                  <label className="dz-confirm-label">
+                    Type <span className="dz-confirm-email">{user.email}</span> to confirm
+                    <input
+                      type="text"
+                      className="dz-confirm-input"
+                      value={deleteEmail}
+                      onChange={(e) => setDeleteEmail(e.target.value)}
+                      disabled={busy}
+                      autoComplete="off"
+                      spellCheck={false}
+                      autoFocus
+                    />
+                  </label>
+                )}
+                <div className="modal-actions">
+                  <button type="button" className="modal-btn modal-btn-cancel" onClick={closeDz} disabled={busy}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="modal-btn modal-btn-destructive"
+                    onClick={confirmDz}
+                    disabled={busy || !emailOk}
+                  >
+                    {busy ? c.busyLabel : c.confirmLabel}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </DangerZone>
-
-      <ConfirmModal
-        open={confirm === 'signout'}
-        title="Sign out?"
-        message="You'll need to sign in again to access your account."
-        confirmLabel={busy ? 'Signing out…' : 'Sign out'}
-        cancelLabel="Cancel"
-        destructive
-        onConfirm={handleConfirm}
-        onCancel={cancelConfirm}
-      />
-
-      <ConfirmModal
-        open={confirm === 'erase'}
-        title="Erase all account data?"
-        message="This signs you out from every device and removes locally cached account data. You can sign back in afterwards, but anything stored only on this machine will be gone."
-        confirmLabel={busy ? 'Erasing…' : 'Erase everything'}
-        cancelLabel="Cancel"
-        destructive
-        onConfirm={handleConfirm}
-        onCancel={cancelConfirm}
-      />
-
-      <DeleteAccountModal
-        open={deleteOpen}
-        email={user.email}
-        pending={deleting}
-        onConfirm={handleDeleteAccount}
-        onCancel={() => { if (!deleting) setDeleteOpen(false); }}
-      />
 
       {/* Reset/change-password modal. */}
       {showReset && (

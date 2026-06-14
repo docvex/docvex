@@ -115,11 +115,8 @@ export default function ProjectDashboard() {
 
       {/* Tab bar — same underline pattern as ProjectOverview. role="tablist"
           so screen readers announce the relationship; each button is a tab
-          whose pressed state mirrors activeTab. Renders immediately (no
-          skeleton on the bar itself). Only the Members count pill is
-          gated on `loading` — when true it shows a small shimmering
-          placeholder so the tab width doesn't reflow when the real
-          count drops in. */}
+          whose pressed state mirrors activeTab. The Members count pill is
+          gated on `loading` — it appears once the member list resolves. */}
       <div className="project-tabs" role="tablist" aria-label="Dashboard sections">
         {tabs.map((t) => (
           <button
@@ -131,10 +128,8 @@ export default function ProjectDashboard() {
             onClick={() => setActiveTab(t.id)}
           >
             <span>{t.label}</span>
-            {t.id === 'members' && (
-              loading
-                ? <span className="project-tab-count project-tab-count-skel skel-bar" aria-hidden="true" />
-                : <span className="project-tab-count">{members.length}</span>
+            {t.id === 'members' && !loading && (
+              <span className="project-tab-count">{members.length}</span>
             )}
           </button>
         ))}

@@ -260,31 +260,6 @@
 /* The icon set's caret points down — rotate it to a right chevron. */
 .ai-chat-page .aichat-action-pill svg { flex: 0 0 auto; color: var(--text-muted); transform: rotate(-90deg); transition: color 120ms, transform 120ms; }
 .ai-chat-page .aichat-action-pill:hover svg { color: var(--accent); transform: rotate(-90deg) translateY(-1px); }
-/* Skeleton pills — shown until the AI's options arrive. Same box as a real
-   pill, with a shimmering bar standing in for the label. */
-.ai-chat-page .aichat-action-pill.is-skeleton { cursor: default; pointer-events: none; }
-.ai-chat-page .aichat-skeleton-bar {
-  height: 13px;
-  width: 60%;
-  border-radius: 6px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--text-muted) 16%, transparent) 25%,
-    color-mix(in srgb, var(--text-muted) 32%, transparent) 37%,
-    color-mix(in srgb, var(--text-muted) 16%, transparent) 63%
-  );
-  background-size: 300% 100%;
-  animation: aichat-skeleton-shimmer 1.4s ease-in-out infinite;
-}
-@keyframes aichat-skeleton-shimmer {
-  from { background-position: 150% 0; }
-  to   { background-position: -150% 0; }
-}
-/* Vary the bar widths so the placeholder rows don't look identical. */
-.ai-chat-page .aichat-action-pill.is-skeleton:nth-child(2) .aichat-skeleton-bar { width: 64%; }
-.ai-chat-page .aichat-action-pill.is-skeleton:nth-child(3) .aichat-skeleton-bar { width: 48%; }
-.ai-chat-page .aichat-action-pill.is-skeleton:nth-child(4) .aichat-skeleton-bar { width: 70%; }
-.ai-chat-page .aichat-action-pill.is-skeleton:nth-child(5) .aichat-skeleton-bar { width: 44%; }
 
 /* "Other" lives in the footer message box now — this just points there. */
 .ai-chat-page .aichat-action-other-hint {
@@ -297,8 +272,7 @@
   .ai-chat-page .aichat-rail-file,
   .ai-chat-page .aichat-drop-panel,
   .ai-chat-page .aichat-drop-actions,
-  .ai-chat-page .aichat-action-pill,
-  .ai-chat-page .aichat-skeleton-bar { animation: none; }
+  .ai-chat-page .aichat-action-pill { animation: none; }
 }
 
 .ai-chat-page .aichat-shell {

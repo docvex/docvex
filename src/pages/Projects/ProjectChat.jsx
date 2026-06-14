@@ -30,7 +30,6 @@ import {
   sendPrivateMessage,
   subscribePrivateMessages,
 } from '../../lib/privateMessages';
-import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import Tooltip from '../../components/Tooltip';
 import { useMorphPill } from '../../components/useMorphPill';
 import { openFileWindow, openDocx, isDocxFile, canOpenInApp } from '../../lib/platform';
@@ -1482,7 +1481,7 @@ export default function ProjectChat() {
   );
 
   // ───── Early returns ───────────────────────────────────────────────
-  if (loadingProject && !selectedProject) return <ProjectScopedSkeleton />;
+  if (loadingProject && !selectedProject) return null;
   if (!selectedProject) {
     return (
       <div className="project-scoped-empty">

@@ -797,64 +797,6 @@
   color: var(--accent-soft);
 }
 
-/* ── Skeleton shimmer ─────────────────────────────────────────────────────
-   Copied from the per-component skeletons elsewhere in the app (same
-   .skel-bar + @keyframes pair as ProjectFiles.css / ProjectList.css). Lives
-   here so the inline placeholders on this page (role pill next to the
-   title; count pill on the Members tab) work without a separate skeleton
-   component being imported.
-   .skel-bar declared FIRST so the size classes below (e.g. .skel-dash-role's
-   999px radius, .project-tab-count-skel's pill shape) win via source order. */
-.skel-bar {
-  position: relative;
-  overflow: hidden;
-  border-radius: 6px;
-  background: var(--bg-elevated);
-}
-
-.skel-bar::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--text-primary) 4%, transparent),
-    transparent
-  );
-  transform: translateX(-100%);
-  animation: skel-shimmer 1.4s ease-in-out infinite;
-  will-change: transform;
-}
-
-@keyframes skel-shimmer {
-  to { transform: translateX(100%); }
-}
-
-/* Skeleton variant of the count pill, shown while members are loading.
-   Explicit width + height so the empty span has presence; padding is
-   dropped so the inner ::after pseudo paints corner-to-corner. The
-   999px radius keeps the pill shape (overrides .skel-bar's 6px). */
-.project-tab-count-skel {
-  display: inline-block;
-  width: 1.5rem;
-  height: 1.05rem;
-  padding: 0;
-  min-width: 0;
-  border-radius: 999px;
-}
-
-/* Inline pill placeholder next to the "Dashboard" title while `role`
-   is loading. Width / height roughly match the real role pill so the
-   horizontal space next to the title doesn't reflow when the real
-   pill drops in. */
-.skel-dash-role {
-  display: inline-block;
-  width: 4.5rem;
-  height: 1.1rem;
-  border-radius: 999px;
-}
-
 /* Centered spinner shown in the Members tab while members + customRoles
    are still loading. Mirrors the .team-tree-viewport's "fill the screen
    below the project-tabs bar" footprint so the spinner sits in the

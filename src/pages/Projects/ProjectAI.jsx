@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
-import ProjectScopedSkeleton from '../../components/ProjectScopedSkeleton';
 import { ICONS as I, MATTER as D, TONE_CAT } from './aiHub';
 import {
   GenerateTool, ReviewTool, AskTool, ResearchTool, AutomateTool, ComplianceTool,
@@ -225,7 +224,7 @@ export default function ProjectAI() {
   const openAsk = (question) => { setAskSeed(question); setTab('ask'); };
 
   if (loading && !selectedProject) {
-    return <ProjectScopedSkeleton />;
+    return null;
   }
 
   if (!selectedProject) {
