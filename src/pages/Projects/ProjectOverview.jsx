@@ -16,7 +16,8 @@ import {
   updateProjectAiContext,
 } from '../../lib/projects';
 import { deleteCustomRole } from '../../lib/customRoles';
-import { supabase } from '../../lib/supabaseClient';
+import { localFolderApi, isElectronBranch } from '../../lib/localFolder';
+import { readProjectsDir } from '../../lib/projectsDir';
 import { useHasCapability } from '../../hooks/useHasCapability';
 import DeleteProjectModal from '../../components/DeleteProjectModal';
 import InviteMemberModal from '../../components/InviteMemberModal';
@@ -331,10 +332,10 @@ export default function ProjectOverview() {
   const [aiUsage, setAiUsage] = useState(null);
   const [aiUsageLoading, setAiUsageLoading] = useState(true);
 
-  // File count + total bytes on the project's canonical (main) file list, for
-  // the hero kicker. One lightweight query (just size_bytes) summed locally —
-  // PostgREST has no portable SUM aggregate without an RPC, and the size column
-  // is tiny so fetching it per row is cheap relative to adding a migration.
+  // File count + total bytes for the hero kicker. Files are local-only now (no
+  // cloud file store since migration 031), so these come from the project's
+  // local folder — Electron only; the web build has no ambient folder and shows
+  // zeros. Mirrors the count the title bar shows.
   const [fileStats, setFileStats] = useState({ count: 0, bytes: 0 });
 
   // Compact-header-on-scroll, mirroring the Versions page. The page scrolls
@@ -541,23 +542,25 @@ export default function ProjectOverview() {
     return () => { cancelled = true; };
   }, [project?.id]);
 
-  // File count + total size for the hero kicker — one query for size_bytes,
-  // summed locally. Re-fetched per project; falls back to zeros on error.
+  // File count + total size for the hero kicker — read from the project's local
+  // folder and summed locally. Electron only (web has no ambient folder path);
+  // re-fetched per project; falls back to zeros on error or when unresolved.
   useEffect(() => {
-    if (!project?.id) { setFileStats({ count: 0, bytes: 0 }); return undefined; }
+    if (!project?.id || !isElectronBranch) { setFileStats({ count: 0, bytes: 0 }); return undefined; }
     let cancelled = false;
     (async () => {
-      const { data, error: fErr } = await supabase
-        .from('project_files')
-        .select('size_bytes')
-        .eq('project_id', project.id);
-      if (cancelled) return;
-      if (fErr || !data) { setFileStats({ count: 0, bytes: 0 }); return; }
-      const bytes = data.reduce((sum, r) => sum + (Number(r.size_bytes) || 0), 0);
-      setFileStats({ count: data.length, bytes });
+      try {
+        const { path } = await localFolderApi.projectDir(project.id, project.name, readProjectsDir(currentUserId) || undefined);
+        if (!path) { if (!cancelled) setFileStats({ count: 0, bytes: 0 }); return; }
+        const { files, error: fErr } = await localFolderApi.listAll(path);
+        if (cancelled) return;
+        if (fErr || !files) { setFileStats({ count: 0, bytes: 0 }); return; }
+        const bytes = files.reduce((sum, f) => sum + (Number(f.sizeBytes) || 0), 0);
+        setFileStats({ count: files.length, bytes });
+      } catch { if (!cancelled) setFileStats({ count: 0, bytes: 0 }); }
     })();
     return () => { cancelled = true; };
-  }, [project?.id]);
+  }, [project?.id, project?.name, currentUserId]);
 
   const handleInviteSent = (newInvitation) => {
     // Prepend so the freshest invite reads first (matches the API's order-by

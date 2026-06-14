@@ -38,7 +38,7 @@ Once installed, Docvex auto-updates in the background on Windows (polls `update.
 ## ✨ What it does
 
 - **Projects + Members** — shared workspaces with role-based access (owner / admin / member / viewer), invite collaborators by email, switch between projects from the sidebar.
-- **Files** — per-project file storage backed by Supabase Storage with RLS-scoped access.
+- **Files** — per-project files live in a local folder on your machine (a `.docvex.json` sidecar maps stable file IDs); no cloud file store.
 - **To-dos** — per-project task list with realtime sync across members.
 - **Notifications** — persistent notification center grouped by day, synced across devices via Supabase Realtime; in-app toasts for transient events.
 - **Auto-update** — `update.electronjs.org` polls GitHub Releases, downloads in the background, installs on next launch. AI-generated release notes are PATCHed onto each draft release.

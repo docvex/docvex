@@ -7,9 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > this doc. Files are now local-only per project (`lib/localFolder.js` +
 > `.docvex.json` sidecar via `lib/localBranchMeta.js`). The provider stack,
 > routing, and Supabase schema below reflect the post-pivot state. Newer
-> surfaces — Launch hub (`/launch`), Doc Viewer (`/doc-viewer`), Admin,
-> Settings, Mail, Project AI / AI Chat, SplitView panes — exist but aren't
-> documented in depth here; read the source directly.
+> surfaces — Hub (project list at `/projects`; the standalone `/launch` hub was
+> removed), Doc Viewer (`/doc-viewer`), Admin, Settings, Mail, Project AI / AI
+> Chat, SplitView panes — exist but aren't documented in depth here; read the
+> source directly.
 
 Docvex is a team-collaboration desktop + web app for projects (chat, AI
 tools, legal newsfeed) on top of Supabase (auth, Postgres + RLS, Realtime,
@@ -28,8 +29,8 @@ npm run publish           # make + upload artifacts to GitHub Releases as a draf
 
 # Web build (GitHub Pages target under docs/app/):
 npm run web:dev           # Vite dev server with web entry (src/web.jsx)
-npm run web:build         # build + scripts/web-deploy.mjs (copies into docs/app/)
-npm run web:preview       # preview the built web bundle locally
+npm run web:build         # vite build → dist-web/ (run scripts/web-deploy.mjs
+                          # separately to copy dist-web/ into docs/app/)
 
 # Release workflow (uses npm-version lifecycle hooks defined in package.json):
 npm run release:patch     # bump x.x.(x+1), commit, tag, push, publish, regenerate web
