@@ -24,7 +24,14 @@ import './CursorSpotlight.css';
 //   * the mask is STATIC (centred), rasterised once instead of every frame.
 // The `background-position` counter-shift cancels the transform so the brighter
 // dots stay locked to the viewport grid instead of sliding with the box.
-export default function CursorSpotlight() {
+// Props:
+//   className — style hook for the box (default 'cursor-spotlight'); pass a
+//               custom class to retint the dots for a different surface.
+//   contain   — when true the box is positioned ABSOLUTELY inside its nearest
+//               positioned ancestor (which should be overflow:hidden) and tracks
+//               the cursor relative to that ancestor, so the spotlight stays
+//               clipped to one panel. Default false = viewport-fixed (app-wide).
+export default function CursorSpotlight({ className = 'cursor-spotlight', contain = false }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -33,8 +40,8 @@ export default function CursorSpotlight() {
 
     const R = 215; // spotlight radius — keep in sync with CursorSpotlight.css
     let frame = null;
-    let x = toLayoutPx(window.innerWidth) / 2;
-    let y = toLayoutPx(window.innerHeight) / 2;
+    let x = contain ? 0 : toLayoutPx(window.innerWidth) / 2;
+    let y = contain ? 0 : toLayoutPx(window.innerHeight) / 2;
 
     const apply = () => {
       frame = null;
@@ -47,18 +54,29 @@ export default function CursorSpotlight() {
     };
 
     const onMove = (e) => {
-      x = toLayoutPx(e.clientX);
-      y = toLayoutPx(e.clientY);
+      if (contain) {
+        // clientX/Y and getBoundingClientRect are both viewport (post-zoom)
+        // space, so the delta is a valid panel-relative coordinate; one
+        // toLayoutPx converts it to the layout px we write into transform.
+        const parent = el.offsetParent || el.parentElement;
+        if (!parent) return;
+        const r = parent.getBoundingClientRect();
+        x = toLayoutPx(e.clientX - r.left);
+        y = toLayoutPx(e.clientY - r.top);
+      } else {
+        x = toLayoutPx(e.clientX);
+        y = toLayoutPx(e.clientY);
+      }
       if (frame == null) frame = requestAnimationFrame(apply);
     };
 
-    apply(); // position at viewport centre before the first pointermove
+    apply(); // position before the first pointermove
     window.addEventListener('pointermove', onMove, { passive: true });
     return () => {
       window.removeEventListener('pointermove', onMove);
       if (frame != null) cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [contain]);
 
-  return <div ref={ref} className="cursor-spotlight" aria-hidden="true" />;
+  return <div ref={ref} className={className} aria-hidden="true" />;
 }

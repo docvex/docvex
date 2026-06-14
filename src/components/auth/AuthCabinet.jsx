@@ -3,6 +3,7 @@ import {
   GoogleButton, Field, Strength, Agreements, ReviewSummary,
   FormMsg, CheckIcon, preventNav, woodH,
 } from './authBits';
+import CursorSpotlight from '../CursorSpotlight';
 import brandLockup from '../../big_logo.png';
 
 const PANEL_FEATURES = [
@@ -22,7 +23,8 @@ export default function AuthCabinet({ flow }) {
     <div className="auv-root auv-cabinet">
       {/* ── Left: brand panel ── */}
       <aside className="auv-cab-brand">
-        <span className="auv-cab-glow" aria-hidden="true" />
+        {/* Cursor spotlight (light dots on ink) — clipped to this panel. */}
+        <CursorSpotlight className="auv-cab-brand-spot" contain />
         <img className="auv-cab-lockup" src={brandLockup} alt="DocVex — Intelligent Legal Workflows" draggable={false} />
 
         <div className="auv-cab-pitch">

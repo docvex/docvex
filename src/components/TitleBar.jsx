@@ -346,6 +346,10 @@ export default function TitleBar() {
   // "DOCVEX | HUB" and ALL selected-project chrome (name chip + member avatars
   // + file count + usage meters) is hidden — you're between projects, not in one.
   const onHub = pathname === '/projects';
+  // The signed-out screen (/auth). There the bar goes transparent and drops the
+  // brand mark so the auth window reads as one full-bleed surface with just the
+  // window controls floating on top.
+  const onAuth = pathname === '/auth';
   // The Split-view button only makes sense on the project workspace pages
   // (Files / Chat / AI / … and a project's own /projects/:id pages), where the
   // content area can tile into independently-navigable panes. On the top-level
@@ -591,7 +595,7 @@ export default function TitleBar() {
   const updateKind = hasUpdate ? bumpKind(currentVersion, latestVersion) : null;
 
   return (
-    <div className="tb-bar">
+    <div className={`tb-bar${onAuth ? ' is-auth' : ''}`}>
       {/* FPS indicator — fixed at the top-centre of the window. */}
       <FpsMeter />
       {/* Brand on the left — "DOCVEX", with a "| HUB" suffix on the Hub
@@ -602,16 +606,20 @@ export default function TitleBar() {
         {/* Icon + DOCVEX — plain, non-interactive text (with a "| HUB" suffix
             on the Hub; the divider + HUB live INSIDE the static span so the
             flex `gap` spaces both sides of the "|" symmetrically). */}
-        <span className="tb-brand-static">
-          <img src={brandIcon} alt="" className="tb-brand-icon" />
-          <span className="tb-brand-name">DOCVEX</span>
-          {onHub && (
-            <>
-              <span className="tb-brand-sep" aria-hidden="true">|</span>
-              <span className="tb-brand-suffix">HUB</span>
-            </>
-          )}
-        </span>
+        {/* Brand mark — hidden on the signed-out screen so the auth window
+            reads clean (just the window controls on the transparent bar). */}
+        {!onAuth && (
+          <span className="tb-brand-static">
+            <img src={brandIcon} alt="" className="tb-brand-icon" />
+            <span className="tb-brand-name">DOCVEX</span>
+            {onHub && (
+              <>
+                <span className="tb-brand-sep" aria-hidden="true">|</span>
+                <span className="tb-brand-suffix">HUB</span>
+              </>
+            )}
+          </span>
+        )}
         {/* Version pill — to the right of the app name. ONLY shown when a newer
             version is available: "Update · v<latest> · <kind>", colour-coded by
             the semver bump (major/minor/patch) to match the Versions page; the

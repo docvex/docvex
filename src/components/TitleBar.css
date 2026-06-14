@@ -19,6 +19,21 @@
   user-select: none;
 }
 
+/* Signed-out screen (/auth): the bar goes transparent (and loses its hairline)
+   so the full-bleed auth window shows through it, with only the window controls
+   floating on top. The auth surface fills the full window height behind it
+   (see authCabinet.css). */
+.tb-bar.is-auth {
+  background: transparent;
+  border-bottom-color: transparent;
+}
+/* The window controls float over the Cabinet's fixed cream form side, so pin
+   their glyphs to a fixed dark tone (the auth screen isn't theme-reactive — in
+   the Ink theme --text-secondary would be light and vanish on cream). */
+.tb-bar.is-auth .tb-win-btn { color: var(--color-slate); }
+.tb-bar.is-auth .tb-win-btn:hover { background: rgba(15, 23, 42, 0.08); color: var(--color-ink); }
+.tb-bar.is-auth .tb-win-close:hover { background: #e81123; color: #fff; }
+
 .tb-drag-spacer { flex: 1; min-width: 0; }
 
 /* Brand (left). Part of the drag region — plain, non-interactive text.

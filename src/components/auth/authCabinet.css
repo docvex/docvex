@@ -29,7 +29,6 @@
 
 /* ── Animations ── */
 @keyframes auvFade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-@keyframes auvGlow { 0%, 100% { opacity: .5; transform: translate(-50%, -50%) scale(1); } 50% { opacity: .85; transform: translate(-50%, -50%) scale(1.07); } }
 @keyframes auvPop  { 0% { opacity: 0; transform: scale(.7); } 60% { transform: scale(1.08); } 100% { opacity: 1; transform: scale(1); } }
 .auv-fade { animation: auvFade .35s ease both; }
 
@@ -130,7 +129,7 @@
 
 /* Wood edge (brand-panel bottom rail) */
 .auv-wood-edge {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 12px;
+  position: absolute; left: 0; right: 0; bottom: 0; height: 12px; z-index: 1;
   background-color: var(--auv-cognac); background-size: cover; background-position: center;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), inset 0 -1px 0 rgba(0, 0, 0, 0.25);
 }
@@ -142,16 +141,33 @@
 .auv-cabinet { display: flex; background: transparent; }
 .auv-cab-brand {
   position: relative; width: clamp(360px, 38%, 460px); flex-shrink: 0;
-  background: var(--auv-ink); overflow: hidden; display: flex; flex-direction: column;
+  background: var(--auv-ink); overflow: hidden; isolation: isolate;
+  display: flex; flex-direction: column;
   justify-content: space-between; padding: 46px 42px; color: var(--auv-cream);
 }
-.auv-cab-glow {
-  position: absolute; top: 30%; left: 50%; width: 560px; height: 560px; border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(220, 201, 163, 0.20), rgba(139, 94, 60, 0.08) 45%, transparent 72%);
-  transform: translate(-50%, -50%); animation: auvGlow 7s ease-in-out infinite; pointer-events: none;
+/* Static ambient dot grid (light dots on ink), faded into the panel toward the
+   edges — the base layer the contained cursor spotlight brightens. */
+.auv-cab-brand::before {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    radial-gradient(ellipse 100% 100% at 50% 40%, transparent 0%, transparent 55%, var(--auv-ink) 100%),
+    radial-gradient(circle at center, rgba(220, 201, 163, 0.10) 1.2px, transparent 1.6px);
+  background-size: 100% 100%, 24px 24px;
+  background-position: center, 0 0;
 }
-.auv-cab-lockup { position: relative; display: block; width: 100%; max-width: 320px; height: auto; user-select: none; -webkit-user-drag: none; }
-.auv-cab-pitch { position: relative; }
+/* Cursor spotlight box — a brighter copy of the grid, masked to a soft circle,
+   moved via transform by CursorSpotlight (contain). top/left:0 so its origin
+   matches the static grid's, keeping the brighter dots aligned. */
+.auv-cab-brand-spot {
+  position: absolute; top: 0; left: 0; z-index: 0; width: 430px; height: 430px;
+  pointer-events: none; will-change: transform;
+  background-image: radial-gradient(circle at center, rgba(220, 201, 163, 0.18) 1.45px, transparent 1.85px);
+  background-size: 24px 24px;
+  -webkit-mask-image: radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
+  mask-image: radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
+}
+.auv-cab-lockup { position: relative; z-index: 1; display: block; width: 100%; max-width: 320px; height: auto; user-select: none; -webkit-user-drag: none; }
+.auv-cab-pitch { position: relative; z-index: 1; }
 .auv-cab-h2 { font-family: 'Cinzel', serif; font-size: 30px; font-weight: 600; line-height: 1.18; color: var(--auv-cream); margin: 0 0 22px; letter-spacing: 0.01em; }
 .auv-cab-h2 span { color: var(--auv-sand); }
 .auv-cab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 18px; }
@@ -179,7 +195,10 @@
    (--bg-page / --text-primary) that flip on the Ink theme; the Cabinet is a
    fixed light treatment, so we pin a cream surface + ink-tinted dots here so it
    reads identically regardless of the user's last theme. */
-.auth-page:has(.auv-cabinet) { background: #F5F2EA; }
+/* Fill the full window height (override AuthPage.css's titlebar reservation) so
+   the Cabinet paints behind the transparent title bar — the bar's window
+   controls float over the cream form side. */
+.auth-page:has(.auv-cabinet) { background: #F5F2EA; height: calc(100 * var(--vh1)); margin-top: 0; }
 .auth-page:has(.auv-cabinet)::before {
   background-image:
     radial-gradient(ellipse 80% 70% at center, transparent 0%, transparent 35%, #F5F2EA 90%),
@@ -195,5 +214,6 @@
   .auv-cab-form { padding: 32px 24px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .auv-fade, .auv-done-mark, .auv-cab-glow { animation: none !important; }
+  .auv-fade, .auv-done-mark { animation: none !important; }
+  .auv-cab-brand-spot { display: none; }
 }

@@ -97,6 +97,9 @@ dist-web/
 
 # Landing site (Vite) intermediate output — scripts/landing-deploy.mjs copies
 # the final artifacts into docs/ (committed), so the staging dir is ignored.
+# NOTE: only the build output below is ignored. The marketing SOURCE —
+# landing/public/ (incl. /newhomescreen), landing/src/ — and the deployed
+# docs/ mirror are tracked and DO commit. Don't add a broad `landing/`.
 landing/dist/
 
 # Per-machine local project registry written at runtime (project id → folder
