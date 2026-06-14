@@ -229,8 +229,15 @@ export function AuthProvider({ children }) {
   const signInWithEmail = (email, password) =>
     supabase.auth.signInWithPassword({ email, password });
 
-  const signUpWithEmail = (email, password) =>
-    supabase.auth.signUp({ email, password });
+  // `meta`, when present, is written to auth.users.raw_user_meta_data via
+  // signUp's options.data — the onboarding flow passes { full_name, firm,
+  // newsletter_opt_in } so the profile + newsletter preference survive the
+  // email-confirmation round-trip. Backward compatible: the 2-arg call shape
+  // (email, password) still works for any caller that doesn't onboard.
+  const signUpWithEmail = (email, password, meta) =>
+    supabase.auth.signUp(
+      meta ? { email, password, options: { data: meta } } : { email, password },
+    );
 
   const signInWithGoogle = async () => {
     const { data, error } = await supabase.auth.signInWithOAuth({

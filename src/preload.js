@@ -82,6 +82,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('window:maximized-changed', listener);
     return () => ipcRenderer.removeListener('window:maximized-changed', listener);
   },
+  // Auth-screen window sizing. The signed-out screen pins the window to the
+  // default size + disables resizing ('locked'); on sign-in it restores
+  // resizing and maximizes ('app'); leaving the screen without signing in
+  // just restores resizing ('unlock').
+  setAuthWindowState: (state) => ipcRenderer.send('window:auth-state', state),
+
   // Native fullscreen state — the macOS title bar drops its traffic-light inset
   // when fullscreen hides the lights.
   windowIsFullscreen: () => ipcRenderer.invoke('window:is-fullscreen'),

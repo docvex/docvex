@@ -1,0 +1,179 @@
+/* ── Logged-out auth screen — "The Cabinet" ──────────────────────────────────
+   A split brand panel (deep ink, left) beside a cream sign-in / onboarding
+   form (right); signup walks a numbered top stepper Account → Profile →
+   Confirm. Implemented from the Claude Design "Auth Screens" handoff.
+   Self-contained brand styling (the auth screen is a fixed branded experience,
+   not theme-reactive); all classes are `auv-`-prefixed to avoid global
+   collisions. Cinzel (the display serif for the wordmark + pitch) isn't loaded
+   app-wide, so it's pulled in here; Inter + Plus Jakarta Sans are already global. */
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&display=swap');
+
+/* The auth shell scrolls when the form is taller than the window; the root
+   grows past 100% rather than clipping (min-height, not height). */
+.auth-page:has(.auv-root) { overflow-y: auto; overflow-x: hidden; }
+
+.auv-root {
+  --auv-ink: var(--color-ink);
+  --auv-slate: var(--color-slate);
+  --auv-sand: var(--color-sand);
+  --auv-cream: var(--color-cream);
+  --auv-cognac: var(--color-cognac);
+  --auv-cognac-d: #74502F;        /* cognac hover — not a semantic token */
+  position: relative;
+  min-height: 100%;
+  width: 100%;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.auv-root, .auv-root * { box-sizing: border-box; }
+
+/* ── Animations ── */
+@keyframes auvFade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes auvGlow { 0%, 100% { opacity: .5; transform: translate(-50%, -50%) scale(1); } 50% { opacity: .85; transform: translate(-50%, -50%) scale(1.07); } }
+@keyframes auvPop  { 0% { opacity: 0; transform: scale(.7); } 60% { transform: scale(1.08); } 100% { opacity: 1; transform: scale(1); } }
+.auv-fade { animation: auvFade .35s ease both; }
+
+/* ════════════════ Form vocabulary ════════════════ */
+.auv-h3 {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 26px; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--auv-ink); margin: 0 0 6px;
+}
+.auv-h3.sm { font-size: 23px; margin: 0 0 4px; }
+.auv-sub { margin: 0 0 22px; font-size: 14px; line-height: 1.55; color: #6b7280; }
+.auv-sub.center { text-align: center; }
+.auv-sub strong { font-weight: 600; }
+
+/* Fields */
+.auv-field { margin-bottom: 16px; }
+.auv-label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; }
+.auv-label { font-size: 10.5px; letter-spacing: 0.13em; text-transform: uppercase; font-weight: 700; color: #8a8f9a; }
+.auv-input {
+  width: 100%; height: 46px; padding: 0 14px; border-radius: 9px;
+  border: 1px solid rgba(15, 23, 42, 0.14); background: #FCFBF8;
+  color: var(--auv-ink); font-size: 14px; font-family: 'Inter', sans-serif;
+  outline: none; transition: border-color 160ms, box-shadow 160ms, background 160ms;
+}
+.auv-input::placeholder { color: #9aa0ab; }
+.auv-input:focus { border-color: var(--auv-cognac); box-shadow: 0 0 0 3px rgba(139, 94, 60, 0.13); background: #fff; }
+
+/* Password strength */
+.auv-strength-wrap { margin-top: -6px; margin-bottom: 4px; }
+.auv-strength { display: flex; gap: 6px; }
+.auv-strength span { flex: 1; height: 4px; border-radius: 3px; background: rgba(15, 23, 42, 0.10); transition: background 200ms; }
+.auv-strength span.is-on { background: var(--auv-cognac); }
+.auv-strength-label { margin: 7px 0 0; font-size: 11.5px; color: #9aa0ab; }
+
+/* Messages */
+.auv-err { margin: 14px 0 0; font-size: 13px; color: #B91C1C; }
+.auv-notice { margin: 14px 0 0; font-size: 13px; color: #15803D; }
+
+/* Buttons */
+.auv-btn {
+  width: 100%; height: 48px; margin-top: 20px; border: none; border-radius: 9px;
+  font-size: 14.5px; font-weight: 600; font-family: 'Plus Jakarta Sans', sans-serif;
+  cursor: pointer; transition: background 150ms, transform 100ms, opacity 150ms;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.auv-btn:active:not(:disabled) { transform: translateY(1px); }
+.auv-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.auv-btn--cognac { background: var(--auv-cognac); color: #fff; }
+.auv-btn--cognac:hover:not(:disabled) { background: var(--auv-cognac-d); }
+.auv-btn--ghost { background: #fff; color: var(--auv-slate); border: 1px solid rgba(15, 23, 42, 0.16); width: auto; padding: 0 22px; }
+.auv-btn--ghost:hover:not(:disabled) { background: #FAF7F0; }
+.auv-btn.is-grow { flex: 1; width: auto; }
+.auv-btn.is-auto { width: auto; padding: 0 30px; }
+.auv-btn-row { display: flex; gap: 12px; margin-top: 24px; }
+.auv-btn-row .auv-btn { margin-top: 0; }
+
+/* "or" divider */
+.auv-or { display: flex; align-items: center; gap: 12px; margin: 22px 0; color: #b5b9c2; font-size: 12px; }
+.auv-or::before, .auv-or::after { content: ''; flex: 1; height: 1px; background: rgba(15, 23, 42, 0.10); }
+
+/* Google button */
+.auv-google {
+  width: 100%; height: 48px; display: inline-flex; align-items: center; justify-content: center;
+  gap: 10px; border-radius: 9px; font-size: 14px; font-weight: 600; font-family: 'Inter', sans-serif;
+  border: 1px solid rgba(15, 23, 42, 0.16); background: #fff; color: var(--auv-slate);
+  cursor: pointer; transition: background 150ms, border-color 150ms;
+}
+.auv-google:hover { background: #FAF7F0; border-color: rgba(15, 23, 42, 0.26); }
+
+/* Links + footer */
+.auv-link {
+  background: none; border: 0; padding: 0; font-family: inherit;
+  font-size: 12px; font-weight: 600; color: var(--auv-cognac);
+  text-decoration: none; cursor: pointer;
+}
+.auv-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+.auv-foot { text-align: center; margin: 26px 0 0; font-size: 13px; color: #6b7280; }
+.auv-foot .auv-link { font-size: 13px; }
+
+/* Checkboxes */
+.auv-check { display: flex; gap: 11px; align-items: flex-start; cursor: pointer; }
+.auv-check input { margin-top: 2px; width: 17px; height: 17px; accent-color: var(--auv-cognac); cursor: pointer; flex-shrink: 0; }
+.auv-check span { font-size: 13px; line-height: 1.5; color: #4b5260; }
+.auv-check a { color: var(--auv-cognac); font-weight: 600; text-decoration: none; }
+.auv-check a:hover { text-decoration: underline; }
+.auv-check strong { color: var(--auv-ink); font-weight: 600; }
+
+/* Review summary */
+.auv-summary { background: #fff; border: 1px solid rgba(15, 23, 42, 0.10); border-radius: 11px; padding: 14px 18px; margin-bottom: 20px; }
+.auv-summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
+.auv-summary-row span { color: #8a8f9a; }
+.auv-summary-row strong { color: var(--auv-ink); font-weight: 600; }
+.auv-summary-rule { height: 1px; background: rgba(15, 23, 42, 0.07); }
+
+/* Done state */
+.auv-done { text-align: center; }
+.auv-done-mark { width: 66px; height: 66px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 22px; background: var(--auv-cognac); animation: auvPop .5s cubic-bezier(.16, 1, .3, 1) both; }
+
+/* Wood edge (brand-panel bottom rail) */
+.auv-wood-edge {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 12px;
+  background-color: var(--auv-cognac); background-size: cover; background-position: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), inset 0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+
+/* ════════════════ The Cabinet layout ════════════════ */
+.auv-cabinet { display: flex; background: #fff; }
+.auv-cab-brand {
+  position: relative; width: clamp(360px, 38%, 460px); flex-shrink: 0;
+  background: var(--auv-ink); overflow: hidden; display: flex; flex-direction: column;
+  justify-content: space-between; padding: 46px 42px; color: var(--auv-cream);
+}
+.auv-cab-glow {
+  position: absolute; top: 30%; left: 50%; width: 560px; height: 560px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(220, 201, 163, 0.20), rgba(139, 94, 60, 0.08) 45%, transparent 72%);
+  transform: translate(-50%, -50%); animation: auvGlow 7s ease-in-out infinite; pointer-events: none;
+}
+.auv-cab-lockup { position: relative; display: block; width: 100%; max-width: 320px; height: auto; user-select: none; -webkit-user-drag: none; }
+.auv-cab-pitch { position: relative; }
+.auv-cab-h2 { font-family: 'Cinzel', serif; font-size: 30px; font-weight: 600; line-height: 1.18; color: var(--auv-cream); margin: 0 0 22px; letter-spacing: 0.01em; }
+.auv-cab-h2 span { color: var(--auv-sand); }
+.auv-cab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 18px; }
+.auv-cab-grid-t { font-family: 'Cinzel', serif; font-size: 15px; font-weight: 600; color: var(--auv-cream); letter-spacing: 0.03em; }
+.auv-cab-grid-d { font-size: 12px; color: rgba(245, 242, 234, 0.55); margin-top: 3px; }
+.auv-cab-form { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 40px 56px; background: linear-gradient(180deg, #FBFAF6, #F5F2EA); }
+.auv-cab-form-inner { width: 100%; max-width: 380px; }
+
+.auv-cab-stepper { display: flex; align-items: center; margin-bottom: 30px; }
+.auv-cab-step { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.auv-cab-stepline { flex: 1; height: 1px; background: rgba(15, 23, 42, 0.14); margin: 0 8px 22px; }
+.auv-cab-dot {
+  width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; font-family: 'Plus Jakarta Sans', sans-serif;
+  background: transparent; color: #9aa0ab; border: 1px solid rgba(15, 23, 42, 0.18);
+}
+.auv-cab-dot.is-active { background: #fff; color: var(--auv-cognac); border: 2px solid var(--auv-cognac); }
+.auv-cab-dot.is-done { background: var(--auv-cognac); color: #fff; border: 1px solid var(--auv-cognac); }
+.auv-cab-step-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: #8a8f9a; }
+
+/* ── Responsive ── */
+@media (max-width: 820px) {
+  .auv-cab-brand { display: none; }
+  .auv-cab-form { padding: 32px 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auv-fade, .auv-done-mark, .auv-cab-glow { animation: none !important; }
+}

@@ -15,7 +15,7 @@
   ::selection { background: var(--accent-soft); color: var(--text-primary); }
 
   :root, [data-theme="cream"] {
-    --bg-page:#F5F2EA; --bg-card:#FFFFFF; --bg-elevated:#FAF7F0;
+    --bg-page:#F5F2EA; --bg-card:#FFFFFF; --bg-elevated:#FAF7F0; --bg-sidebar:#FFFFFF; --bg-input:#FFFFFF;
     --border:rgba(15,23,42,0.10); --border-strong:rgba(15,23,42,0.18);
     --text-primary:#0F172A; --text-secondary:#1E293B; --text-muted:#6B7280;
     --text-on-accent:#FFFFFF; --accent:#8B5E3C; --accent-hover:#74502F;
@@ -25,7 +25,7 @@
     --dot:color-mix(in srgb, var(--text-primary) 9%, transparent);
   }
   [data-theme="ink"] {
-    --bg-page:#0F172A; --bg-card:#1E293B; --bg-elevated:#2A3548;
+    --bg-page:#0F172A; --bg-card:#1E293B; --bg-elevated:#2A3548; --bg-sidebar:#15213A; --bg-input:#15213A;
     --border:rgba(245,242,234,0.10); --border-strong:rgba(245,242,234,0.20);
     --text-primary:#F5F2EA; --text-secondary:#C9CEDC; --text-muted:#8A93A8;
     --text-on-accent:#0F172A; --accent:#DCC9A3; --accent-hover:#C8B58E;
@@ -65,7 +65,7 @@
 
     <!-- ============ NAV ============ -->
     <header style="position:sticky; top:0; z-index:50; backdrop-filter:blur(20px) saturate(180%); -webkit-backdrop-filter:blur(20px) saturate(180%); background:color-mix(in srgb, var(--bg-page) 72%, transparent); border-bottom:1px solid var(--border);">
-      <div style="max-width:1200px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:14px clamp(20px,5vw,40px);">
+      <div style="max-width:1440px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:14px clamp(20px,5vw,40px);">
         <a href="#top" style="display:flex; align-items:center; gap:12px; text-decoration:none;">
           <span style="width:38px; height:38px; border-radius:10px; overflow:hidden; display:flex; align-items:center; justify-content:center; background:#0F172A; box-shadow:var(--shadow-card); flex-shrink:0;">
             <img src="assets/logo.png" alt="Docvex" style="width:100%; height:100%; object-fit:cover;">
@@ -96,7 +96,7 @@
 
     <!-- ============ HERO ============ -->
     <a id="top"></a>
-    <section style="position:relative; max-width:1200px; margin:0 auto; padding:clamp(40px,6vw,76px) clamp(20px,5vw,40px) clamp(48px,7vw,90px);">
+    <section style="position:relative; max-width:1440px; margin:0 auto; padding:clamp(40px,6vw,76px) clamp(20px,5vw,40px) clamp(48px,7vw,90px);">
 
       <!-- VARIATION A — Product UI -->
       <div class="dv-hero" data-hero="0">
@@ -131,36 +131,46 @@
             <div style="display:flex; align-items:center; gap:6px; height:42px; padding:0 12px; background:var(--bg-card); border-bottom:1px solid var(--border);">
               <span style="width:22px; height:22px; border-radius:6px; overflow:hidden; background:#0F172A; flex-shrink:0;"><img src="assets/logo.png" alt="" style="width:100%;height:100%;object-fit:cover;"></span>
               <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:12px; font-weight:700; letter-spacing:0.06em; color:var(--text-primary); margin-right:8px;">DOCVEX</span>
-              <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 9px; border-radius:6px; background:var(--bg-elevated); color:var(--text-primary); font-size:11px; font-weight:600;">Activity</span>
+              <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 9px; border-radius:6px; background:var(--bg-elevated); color:var(--text-primary); font-size:11px; font-weight:600;">Chat</span>
               <span style="padding:4px 9px; font-size:11px; font-weight:500; color:var(--text-muted);">Files</span>
-              <span style="padding:4px 9px; font-size:11px; font-weight:500; color:var(--text-muted);">To-dos</span>
+              <span style="padding:4px 9px; font-size:11px; font-weight:500; color:var(--text-muted);">AI</span>
               <span style="padding:4px 9px; font-size:11px; font-weight:500; color:var(--text-muted);">Updates</span>
-              <span style="margin-left:auto; width:24px; height:24px; border-radius:50%; background:var(--accent); color:var(--text-on-accent); font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center;">VP</span>
+              <span title="Split view" style="margin-left:auto; width:24px; height:24px; border-radius:6px; background:var(--accent-tint); color:var(--accent); display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg></span>
+              <span style="margin-left:8px; width:24px; height:24px; border-radius:50%; background:var(--accent); color:var(--text-on-accent); font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;">VP</span>
             </div>
-            <div style="padding:20px; background:var(--bg-page);">
-              <p style="margin:0; font-size:10px; font-weight:700; letter-spacing:0.2em; text-transform:uppercase; color:var(--accent);">Workspace · Acme Holdings</p>
-              <h3 style="margin:8px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:28px; font-weight:700; letter-spacing:-0.03em; color:var(--text-primary);">Activity</h3>
-              <div style="margin-top:16px; display:grid; grid-template-columns:repeat(3,1fr); gap:10px;">
-                <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:12px;"><p style="margin:0;font-size:11px;color:var(--text-muted);">Documents</p><p style="margin:4px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:22px; font-weight:700; color:var(--text-primary);">248</p></div>
-                <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:12px;"><p style="margin:0;font-size:11px;color:var(--text-muted);">Open matters</p><p style="margin:4px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:22px; font-weight:700; color:var(--text-primary);">12</p></div>
-                <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:12px;"><p style="margin:0;font-size:11px;color:var(--text-muted);">This week</p><p style="margin:4px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:22px; font-weight:700; color:var(--accent);">+18</p></div>
-              </div>
-              <div style="margin-top:12px; background:var(--bg-card); border:1px solid var(--border); border-radius:12px; overflow:hidden;">
-                <div style="display:flex; align-items:center; gap:11px; padding:12px 14px; border-bottom:1px solid var(--border);">
-                  <span style="width:30px;height:30px;border-radius:8px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/></svg></span>
-                  <div style="min-width:0; flex:1;"><p style="margin:0;font-size:12.5px;font-weight:600;color:var(--text-primary);">Shareholder Agreement v3 signed</p><p style="margin:2px 0 0;font-size:11px;color:var(--text-muted);">A. Vasilescu · Acme Holdings</p></div>
-                  <span style="font-size:11px;color:var(--text-muted);">2m</span>
+            <div style="padding:12px; background:var(--bg-page);">
+              <div style="display:grid; grid-template-columns:1.25fr 1fr; grid-template-rows:1fr 1fr; gap:8px; height:322px;">
+
+                <!-- PRIMARY pane — Chat (spans left column) -->
+                <div style="grid-row:1 / span 2; display:flex; flex-direction:column; border:1px solid var(--border); border-radius:11px; overflow:hidden; background:transparent; min-height:0;">
+                  <div style="display:flex;align-items:center;gap:5px;padding:5px 7px;border-bottom:1px solid var(--border);background:var(--bg-sidebar);flex:0 0 auto;"><span style="width:16px;height:16px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-muted);flex-shrink:0;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span><span style="font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:700;letter-spacing:-0.01em;color:var(--text-primary);flex-shrink:0;">Chat</span><span style="color:var(--text-muted);font-size:10px;flex-shrink:0;">·</span><span style="font-size:9.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:0;">Team &amp; private chat</span><span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-secondary);font-size:9px;flex-shrink:0;">Chat <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span></div>
+                  <div style="flex:1 1 auto; min-height:0; overflow:hidden; padding:10px; display:flex; flex-direction:column; gap:7px;">
+                    <div style="display:flex; gap:6px; align-items:flex-end;"><span style="width:18px;height:18px;border-radius:50%;background:var(--accent-soft);color:#0F172A;font-size:8px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">AV</span><span style="max-width:82%;padding:6px 9px;border-radius:11px 11px 11px 3px;background:var(--bg-elevated);border:1px solid var(--border);font-size:10.5px;line-height:1.35;color:var(--text-primary);">Can you send the latest draft?</span></div>
+                    <div style="display:flex; justify-content:flex-end;"><span style="max-width:82%;padding:6px 9px;border-radius:11px 11px 3px 11px;background:var(--accent);color:var(--text-on-accent);font-size:10.5px;line-height:1.35;">On it — sharing the v3 now.</span></div>
+                    <div style="display:flex; gap:6px; align-items:flex-end;"><span style="width:18px;height:18px;border-radius:50%;background:var(--accent-soft);color:#0F172A;font-size:8px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">AV</span><span style="max-width:82%;padding:6px 9px;border-radius:11px 11px 11px 3px;background:var(--bg-elevated);border:1px solid var(--border);font-size:10.5px;line-height:1.35;color:var(--text-primary);">Perfect. Ready for signature?</span></div>
+                  </div>
+                  <div style="flex:0 0 auto; padding:8px; border-top:1px solid var(--border); background:color-mix(in srgb, var(--bg-page) 66%, transparent);"><div style="display:flex;align-items:center;gap:6px;padding:5px 9px;border:1px solid var(--border);border-radius:999px;background:var(--bg-input);"><span style="flex:1;font-size:9.5px;color:var(--text-muted);">Message the team…</span><span style="width:16px;height:16px;border-radius:50%;background:var(--accent);color:var(--text-on-accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span></div></div>
                 </div>
-                <div style="display:flex; align-items:center; gap:11px; padding:12px 14px; border-bottom:1px solid var(--border);">
-                  <span style="width:30px;height:30px;border-radius:8px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 15.5 8.5 14 2.4 12.5a.5.5 0 0 1 0-1L8.5 10 9.9 3.9a.5.5 0 0 1 1 0L12.3 10l6.1 1.5a.5.5 0 0 1 0 1L12.3 14l-1.4 6.1a.5.5 0 0 1-1 0Z"/></svg></span>
-                  <div style="min-width:0; flex:1;"><p style="margin:0;font-size:12.5px;font-weight:600;color:var(--text-primary);">AI summary ready — 84pp diligence pack</p><p style="margin:2px 0 0;font-size:11px;color:var(--text-muted);">3 risks flagged · 6 key dates</p></div>
-                  <span style="font-size:11px;color:var(--text-muted);">26m</span>
+
+                <!-- AI pane (right top) -->
+                <div style="display:flex;flex-direction:column;border:1px solid var(--border);border-radius:11px;overflow:hidden;background:transparent;min-height:0;">
+                  <div style="display:flex;align-items:center;gap:5px;padding:5px 7px;border-bottom:1px solid var(--border);background:var(--bg-sidebar);flex:0 0 auto;"><span style="width:16px;height:16px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-muted);flex-shrink:0;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span><span style="font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:700;letter-spacing:-0.01em;color:var(--text-primary);flex-shrink:0;">AI</span><span style="color:var(--text-muted);font-size:10px;flex-shrink:0;">·</span><span style="font-size:9.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:0;">DocVex AI</span><span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-secondary);font-size:9px;flex-shrink:0;">AI <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span></div>
+                  <div style="flex:1 1 auto; min-height:0; overflow:hidden; padding:9px; display:flex; flex-direction:column; gap:6px;">
+                    <div style="display:flex; gap:6px;"><span style="width:16px;height:16px;border-radius:5px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 15.5 8.5 14 2.4 12.5a.5.5 0 0 1 0-1L8.5 10 9.9 3.9a.5.5 0 0 1 1 0L12.3 10l6.1 1.5a.5.5 0 0 1 0 1L12.3 14l-1.4 6.1a.5.5 0 0 1-1 0Z"/></svg></span><span style="font-size:10px;line-height:1.45;color:var(--text-secondary);">Summarized 84 pages — 3 risks, 6 key dates flagged.</span></div>
+                    <div style="margin-top:auto; display:flex; align-items:center; gap:6px; padding:5px 9px; border:1px solid var(--border); border-radius:999px; background:var(--bg-input);"><span style="flex:1;font-size:9.5px;color:var(--text-muted);">Ask DocVex AI…</span><span style="width:14px;height:14px;border-radius:50%;background:var(--accent);color:var(--text-on-accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span></div>
+                  </div>
                 </div>
-                <div style="display:flex; align-items:center; gap:11px; padding:12px 14px;">
-                  <span style="width:30px;height:30px;border-radius:8px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg></span>
-                  <div style="min-width:0; flex:1;"><p style="margin:0;font-size:12.5px;font-weight:600;color:var(--text-primary);">Client invited to private workspace</p><p style="margin:2px 0 0;font-size:11px;color:var(--text-muted);">viewer access · Maria Toma</p></div>
-                  <span style="font-size:11px;color:var(--text-muted);">1h</span>
+
+                <!-- Files pane (right bottom) -->
+                <div style="display:flex;flex-direction:column;border:1px solid var(--border);border-radius:11px;overflow:hidden;background:transparent;min-height:0;">
+                  <div style="display:flex;align-items:center;gap:5px;padding:5px 7px;border-bottom:1px solid var(--border);background:var(--bg-sidebar);flex:0 0 auto;"><span style="width:16px;height:16px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-muted);flex-shrink:0;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span><span style="font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:700;letter-spacing:-0.01em;color:var(--text-primary);flex-shrink:0;">Files</span><span style="color:var(--text-muted);font-size:10px;flex-shrink:0;">·</span><span style="font-size:9.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:0;">Project files</span><span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-secondary);font-size:9px;flex-shrink:0;">Files <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span></div>
+                  <div style="flex:1 1 auto; min-height:0; overflow:hidden; padding:7px; display:flex; flex-direction:column; gap:5px;">
+                    <div style="display:flex;align-items:center;gap:7px;padding:5px 7px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);"><span style="width:18px;height:18px;border-radius:5px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/></svg></span><span style="flex:1;min-width:0;font-size:10px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Shareholder Agreement v3.pdf</span><span style="font-size:8.5px;color:var(--text-muted);flex-shrink:0;">2m</span></div>
+                    <div style="display:flex;align-items:center;gap:7px;padding:5px 7px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);"><span style="width:18px;height:18px;border-radius:5px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/></svg></span><span style="flex:1;min-width:0;font-size:10px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Diligence Checklist.xlsx</span><span style="font-size:8.5px;color:var(--text-muted);flex-shrink:0;">1h</span></div>
+                    <div style="display:flex;align-items:center;gap:7px;padding:5px 7px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);"><span style="width:18px;height:18px;border-radius:5px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/></svg></span><span style="flex:1;min-width:0;font-size:10px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Board minutes — 14 Oct.docx</span><span style="font-size:8.5px;color:var(--text-muted);flex-shrink:0;">2d</span></div>
+                  </div>
                 </div>
+
               </div>
             </div>
           </div>
@@ -227,7 +237,7 @@
     </section>
 
     <!-- ============ FEATURES ============ -->
-    <section id="features" style="position:relative; max-width:1200px; margin:0 auto; padding:clamp(56px,8vw,104px) clamp(20px,5vw,40px);">
+    <section id="features" style="position:relative; max-width:1440px; margin:0 auto; padding:clamp(56px,8vw,104px) clamp(20px,5vw,40px);">
       <p style="margin:0; font-size:11px; font-weight:700; letter-spacing:0.22em; text-transform:uppercase; color:var(--accent);">The platform</p>
       <h2 style="margin:14px 0 0; max-width:780px; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(32px,5vw,54px); font-weight:700; line-height:1.04; letter-spacing:-0.035em; color:var(--text-primary); text-wrap:pretty;">Everything a modern firm needs. <span style="color:var(--accent);">In one quiet workspace.</span></h2>
       <p style="margin:18px 0 0; max-width:560px; font-size:17px; line-height:1.6; color:var(--text-secondary);">Drafting. Organizing. Tracking. Done — so your lawyers can focus on the rest.</p>
@@ -254,11 +264,6 @@
           <p style="margin:9px 0 0; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Engagement letters and contracts, generated in your firm's voice.</p>
         </div>
         <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
-          <span style="display:inline-flex; width:46px; height:46px; border-radius:13px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
-          <h3 style="margin:18px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:20px; font-weight:700; letter-spacing:-0.01em; color:var(--text-primary);">Client portal</h3>
-          <p style="margin:9px 0 0; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">A private, branded workspace for every client. No inbox in sight.</p>
-        </div>
-        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
           <span style="display:inline-flex; width:46px; height:46px; border-radius:13px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span>
           <h3 style="margin:18px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:20px; font-weight:700; letter-spacing:-0.01em; color:var(--text-primary);">Legal updates</h3>
           <p style="margin:9px 0 0; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Legislation, summarized for your practice and reviewed by humans.</p>
@@ -268,7 +273,7 @@
 
     <!-- ============ SECURITY ============ -->
     <section id="security" style="position:relative; padding:clamp(56px,8vw,104px) clamp(20px,5vw,40px); background:var(--bg-card); border-top:1px solid var(--border); border-bottom:1px solid var(--border);">
-      <div style="max-width:1200px; margin:0 auto; display:flex; flex-wrap:wrap; gap:clamp(36px,5vw,64px);">
+      <div style="max-width:1440px; margin:0 auto; display:flex; flex-wrap:wrap; gap:clamp(36px,5vw,64px);">
         <div style="flex:1 1 320px; min-width:280px;">
           <p style="margin:0; display:inline-flex; align-items:center; gap:9px; font-size:11px; font-weight:700; letter-spacing:0.22em; text-transform:uppercase; color:var(--accent);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg> Security</p>
           <h2 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(30px,4.5vw,48px); font-weight:700; line-height:1.05; letter-spacing:-0.035em; color:var(--text-primary);">Built with <span style="color:var(--accent);">legal-grade confidentiality.</span></h2>
@@ -301,7 +306,7 @@
     </section>
 
     <!-- ============ LEGAL UPDATES ============ -->
-    <section id="updates" style="position:relative; max-width:1200px; margin:0 auto; padding:clamp(56px,8vw,104px) clamp(20px,5vw,40px); display:flex; flex-wrap:wrap; gap:clamp(36px,5vw,72px);">
+    <section id="updates" style="position:relative; max-width:1440px; margin:0 auto; padding:clamp(56px,8vw,104px) clamp(20px,5vw,40px); display:flex; flex-wrap:wrap; gap:clamp(36px,5vw,72px);">
       <div style="flex:1 1 300px; min-width:280px;">
         <p style="margin:0; display:inline-flex; align-items:center; gap:9px; font-size:11px; font-weight:700; letter-spacing:0.22em; text-transform:uppercase; color:var(--accent);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg> Legal AI updates</p>
         <h2 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(30px,4.5vw,48px); font-weight:700; line-height:1.05; letter-spacing:-0.035em; color:var(--text-primary);">The law moves. <span style="color:var(--accent);">Your firm moves with it.</span></h2>
@@ -340,54 +345,9 @@
       </div>
     </section>
 
-    <!-- ============ CLIENT PORTAL ============ -->
-    <section id="clients" style="position:relative; max-width:1200px; margin:0 auto; padding:0 clamp(20px,5vw,40px) clamp(56px,8vw,104px);">
-      <div style="overflow:hidden; border-radius:24px; background:var(--accent); box-shadow:var(--shadow-elev); display:flex; flex-wrap:wrap;">
-        <div style="flex:1 1 360px; min-width:300px; padding:clamp(32px,4vw,56px); color:var(--text-on-accent);">
-          <p style="margin:0; display:inline-flex; align-items:center; gap:9px; font-size:11px; font-weight:700; letter-spacing:0.22em; text-transform:uppercase; color:color-mix(in srgb, var(--text-on-accent) 80%, transparent);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg> Client portal</p>
-          <h2 style="margin:16px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(30px,4.2vw,46px); font-weight:700; line-height:1.05; letter-spacing:-0.035em;">A private workspace for every client.</h2>
-          <p style="margin:16px 0 0; max-width:380px; font-size:16.5px; line-height:1.6; color:color-mix(in srgb, var(--text-on-accent) 82%, transparent);">Share. Sign. Move forward — without an inbox in sight.</p>
-          <div style="margin-top:22px; display:flex; flex-direction:column; gap:11px;">
-            <span style="display:flex; align-items:center; gap:11px; font-size:14.5px; color:color-mix(in srgb, var(--text-on-accent) 92%, transparent);"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Secure file requests and uploads.</span>
-            <span style="display:flex; align-items:center; gap:11px; font-size:14.5px; color:color-mix(in srgb, var(--text-on-accent) 92%, transparent);"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Per-matter visibility controls.</span>
-            <span style="display:flex; align-items:center; gap:11px; font-size:14.5px; color:color-mix(in srgb, var(--text-on-accent) 92%, transparent);"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> E-signature and approval tracking.</span>
-            <span style="display:flex; align-items:center; gap:11px; font-size:14.5px; color:color-mix(in srgb, var(--text-on-accent) 92%, transparent);"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Branded in your firm's identity.</span>
-          </div>
-          <a href="#demo" style="margin-top:28px; display:inline-flex; align-items:center; height:46px; padding:0 22px; border-radius:11px; background:var(--bg-card); color:var(--text-primary); font-size:14.5px; font-weight:600; text-decoration:none; box-shadow:var(--shadow-card);">See the client experience</a>
-        </div>
-        <div style="flex:1 1 360px; min-width:300px; padding:clamp(28px,3.5vw,48px); background:color-mix(in srgb, #0F172A 22%, var(--accent)); display:flex; align-items:center;">
-          <div style="width:100%; background:var(--bg-card); border:1px solid var(--border); border-radius:18px; box-shadow:var(--shadow-elev); padding:20px;">
-            <div style="display:flex; align-items:center; justify-content:space-between;">
-              <div style="display:flex; align-items:center; gap:11px;"><span style="width:34px;height:34px;border-radius:9px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span><div><p style="margin:0;font-size:13px;font-weight:700;color:var(--text-primary);">Vasilescu &amp; Partners</p><p style="margin:1px 0 0;font-size:11px;color:var(--text-muted);">Private workspace · Acme Holdings</p></div></div>
-              <span style="font-size:10px;font-weight:700;padding:4px 9px;border-radius:999px;background:var(--accent-tint);color:var(--accent);">Confidential</span>
-            </div>
-            <div style="margin-top:16px; display:flex; flex-direction:column; gap:9px;">
-              <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 13px; border:1px solid var(--border); border-radius:12px; background:var(--bg-elevated);">
-                <div style="display:flex; align-items:center; gap:10px; min-width:0;"><span style="width:28px;height:28px;border-radius:8px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/></svg></span><div style="min-width:0;"><p style="margin:0;font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Shareholder Agreement v3</p><p style="margin:1px 0 0;font-size:10.5px;color:var(--text-muted);">Awaiting signature · You</p></div></div>
-                <span style="font-size:11px;font-weight:700;padding:5px 12px;border-radius:999px;background:var(--accent);color:var(--text-on-accent);flex-shrink:0;">Sign</span>
-              </div>
-              <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 13px; border:1px solid var(--border); border-radius:12px; background:var(--bg-elevated);">
-                <div style="display:flex; align-items:center; gap:10px; min-width:0;"><span style="width:28px;height:28px;border-radius:8px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/></svg></span><div style="min-width:0;"><p style="margin:0;font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Diligence Checklist.xlsx</p><p style="margin:1px 0 0;font-size:10.5px;color:var(--text-muted);">Requested by your lawyer</p></div></div>
-                <span style="font-size:11px;font-weight:700;padding:5px 12px;border-radius:999px;border:1px solid var(--accent);color:var(--accent);flex-shrink:0;">Upload</span>
-              </div>
-              <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 13px; border:1px solid var(--border); border-radius:12px; background:var(--bg-elevated);">
-                <div style="display:flex; align-items:center; gap:10px; min-width:0;"><span style="width:28px;height:28px;border-radius:8px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/></svg></span><div style="min-width:0;"><p style="margin:0;font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Minutes — Board call 14 Oct</p><p style="margin:1px 0 0;font-size:10.5px;color:var(--text-muted);">Shared 2 days ago</p></div></div>
-                <span style="font-size:11px;font-weight:700;padding:5px 12px;border-radius:999px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-muted);flex-shrink:0;">Open</span>
-              </div>
-            </div>
-            <div style="margin-top:14px; padding:14px; border:1px solid var(--border); border-radius:12px;">
-              <p style="margin:0; font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted);">Matter timeline</p>
-              <div style="margin-top:10px; display:flex; gap:6px;"><span style="height:6px;flex:1;border-radius:3px;background:var(--accent);"></span><span style="height:6px;flex:1;border-radius:3px;background:var(--accent);"></span><span style="height:6px;flex:1;border-radius:3px;background:var(--accent-soft);"></span><span style="height:6px;flex:1;border-radius:3px;background:var(--border);"></span></div>
-              <div style="margin-top:8px; display:flex; justify-content:space-between; font-size:10.5px; color:var(--text-muted);"><span>Intake</span><span>Draft</span><span style="color:var(--accent);font-weight:700;">Review</span><span>Close</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <!-- ============ PRICING ============ -->
     <section id="pricing" style="position:relative; padding:clamp(56px,8vw,104px) clamp(20px,5vw,40px); background:var(--bg-card); border-top:1px solid var(--border); border-bottom:1px solid var(--border);">
-      <div style="max-width:1200px; margin:0 auto;">
+      <div style="max-width:1440px; margin:0 auto;">
         <div style="text-align:center; max-width:680px; margin:0 auto;">
           <p style="margin:0; font-size:11px; font-weight:700; letter-spacing:0.22em; text-transform:uppercase; color:var(--accent);">Pricing</p>
           <h2 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(30px,4.5vw,48px); font-weight:700; line-height:1.05; letter-spacing:-0.035em; color:var(--text-primary);">Priced for the work <span style="color:var(--accent);">it gives you back.</span></h2>
@@ -402,7 +362,6 @@
             <div style="margin:22px 0; display:flex; flex-direction:column; gap:11px;">
               <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> AI drafting from your templates.</span>
               <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Smart search across your matters.</span>
-              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Client portal.</span>
               <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Legal updates feed.</span>
             </div>
             <a href="#demo" style="display:flex; align-items:center; justify-content:center; height:46px; border-radius:11px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:14.5px; font-weight:600; text-decoration:none;">Talk to us</a>
@@ -417,7 +376,6 @@
             <div style="margin:22px 0; display:flex; flex-direction:column; gap:11px;">
               <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:rgba(245,242,234,0.85);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DCC9A3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Everything in Solo.</span>
               <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:rgba(245,242,234,0.85);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DCC9A3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Workflows. Intake to close.</span>
-              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:rgba(245,242,234,0.85);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DCC9A3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Branded client portal.</span>
               <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:rgba(245,242,234,0.85);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DCC9A3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Role-based permissions.</span>
               <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:rgba(245,242,234,0.85);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DCC9A3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Multi-matter view.</span>
             </div>
@@ -443,7 +401,7 @@
     </section>
 
     <!-- ============ FAQ ============ -->
-    <section id="faq" style="position:relative; max-width:1200px; margin:0 auto; padding:clamp(56px,8vw,104px) clamp(20px,5vw,40px); display:flex; flex-wrap:wrap; gap:clamp(36px,5vw,72px);">
+    <section id="faq" style="position:relative; max-width:1440px; margin:0 auto; padding:clamp(56px,8vw,104px) clamp(20px,5vw,40px); display:flex; flex-wrap:wrap; gap:clamp(36px,5vw,72px);">
       <div style="flex:1 1 300px; min-width:260px;">
         <p style="margin:0; font-size:11px; font-weight:700; letter-spacing:0.22em; text-transform:uppercase; color:var(--accent);">FAQ</p>
         <h2 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(30px,4.5vw,48px); font-weight:700; line-height:1.05; letter-spacing:-0.035em; color:var(--text-primary);">Answers. <span style="color:var(--accent);">Without the marketing.</span></h2>
@@ -478,7 +436,7 @@
     </section>
 
     <!-- ============ FINAL CTA ============ -->
-    <section id="demo" style="position:relative; max-width:1200px; margin:0 auto; padding:0 clamp(20px,5vw,40px) clamp(64px,9vw,120px);">
+    <section id="demo" style="position:relative; max-width:1440px; margin:0 auto; padding:0 clamp(20px,5vw,40px) clamp(64px,9vw,120px);">
       <div style="position:relative; overflow:hidden; border-radius:28px; background:#0F172A; padding:clamp(48px,7vw,96px) clamp(24px,5vw,48px); text-align:center;">
         <div aria-hidden="true" style="position:absolute; top:-160px; left:50%; transform:translateX(-50%); width:760px; height:420px; border-radius:50%; background:radial-gradient(closest-side, rgba(220,201,163,0.20), transparent 70%); pointer-events:none;"></div>
         <div style="position:relative; max-width:680px; margin:0 auto;">
@@ -499,7 +457,7 @@
 
     <!-- ============ FOOTER ============ -->
     <footer style="position:relative; border-top:1px solid var(--border); padding:40px clamp(20px,5vw,40px);">
-      <div style="max-width:1200px; margin:0 auto; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:20px;">
+      <div style="max-width:1440px; margin:0 auto; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:20px;">
         <div style="display:flex; align-items:center; gap:11px;">
           <span style="width:32px; height:32px; border-radius:9px; overflow:hidden; background:#0F172A; display:inline-flex; align-items:center; justify-content:center;"><img src="assets/logo.png" alt="Docvex" style="width:100%;height:100%;object-fit:cover;"></span>
           <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:17px; font-weight:700; letter-spacing:0.02em; color:var(--text-primary);">Doc<span style="color:var(--accent);">V</span>ex</span>
