@@ -25,6 +25,7 @@
     "web:dev": "vite --config vite.web.config.mjs --mode web",
     "web:build": "vite build --config vite.web.config.mjs --mode web",
     "landing:dev": "npm --prefix landing run dev",
+    "newhome:dev": "vite landing/public/newhomescreen --port 5176 --open",
     "lint": "echo \"No linting configured\""
   },
   "keywords": [],
