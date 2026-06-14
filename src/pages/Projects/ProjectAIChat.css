@@ -554,16 +554,16 @@
 .sv-chrome-row2 .aichat-chrome-tools,
 .aichat-chrome-bar .aichat-chrome-tools {
   /* Left-aligned row: collapse toggle · chat pill, with the search pushed to
-     the far right. */
+     the far right. Spacing matches the team chat's tools row
+     (.dvx-chrome-tools): a fixed 40px band with 10px side padding and an 8px
+     gap, so the AI topbar's sections line up with the team chat's. */
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  /* Tight left inset so the collapse icon lines up under the header title.
-     Top gap matches the Files tab's toolbar (.fx-chrome-tools): no top
-     padding / margin, so the only separation from the header is the chrome
-     row-1's own bottom padding. */
-  padding: 0 4px 4px;
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 10px;
   margin-top: 0;
 }
 .aichat-chrome-left { display: flex; align-items: center; flex: 0 0 auto; }
@@ -577,6 +577,8 @@
   border-radius: 7px;
   background: var(--bg-input);
   width: 240px;
+  height: 32px;
+  box-sizing: border-box;
   font-size: 13px;
   color: var(--text-muted);
   transition: width 220ms cubic-bezier(.16, 1, .3, 1),

@@ -1164,11 +1164,12 @@ export default function ProjectAIChat() {
           </div>
         </div>
       )}
-      {/* No pane chrome (rare) → render the navbar + controls as an in-page bar. */}
+      {/* No pane chrome (rare) → render the controls + navbar as an in-page bar,
+          tab strip below the search-bar section to match the chrome layout. */}
       {!chromeEl && (
         <div className="aichat-chrome-bar">
-          {aiTabs}
           {aiView === 'advisor' ? chromeTools : null}
+          {aiTabs}
         </div>
       )}
       {aiView === 'timeline' ? (
@@ -1478,9 +1479,10 @@ export default function ProjectAIChat() {
         </div>
       )}
 
-      {/* Navbar (+ advisor chrome tools) lifted into the window topbar, mirroring
-          the team chat. On the Timeline tab only the navbar shows. */}
-      {chromeEl && createPortal(<>{aiTabs}{aiView === 'advisor' ? chromeTools : null}</>, chromeEl)}
+      {/* Chrome tools (collapse · chat name · search) + the navbar, lifted into
+          the window topbar. The Advisor/Timeline/Mail tab strip sits BELOW the
+          search-bar section. On non-Advisor tabs only the navbar shows. */}
+      {chromeEl && createPortal(<>{aiView === 'advisor' ? chromeTools : null}{aiTabs}</>, chromeEl)}
       {/* No composer when there are no chats (empty state's button is the only
           entry point) or on the Timeline tab. */}
       {aiView === 'advisor' && hasThreads && (footerEl ? createPortal(composer, footerEl) : composer)}
