@@ -1,8 +1,15 @@
-﻿.account-page {
-  max-width: 720px;
+﻿/* Full-width, left-aligned column — the shell supplies the outer page padding.
+   Matches the standard personal-page measure (Activity / Newsletter / Versions
+   / Settings / Debug): full width by default, three-quarters on wide screens,
+   anchored left (no auto-centring) so Account "opens" like the other tabs. */
+.account-page {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+}
+@media (min-width: 1024px) { /* 1280px pre-scale */
+  .account-page { width: 75%; }
 }
 
 .account-header {

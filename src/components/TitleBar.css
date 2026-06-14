@@ -694,10 +694,10 @@
 }
 
 /* ── Account dropdown menu ──
-   Opens below the avatar (right-aligned). Holds the identity header, the
-   status pills, and the "Open account" button. */
+   The dropdown is the useMorphPill panel (FLIP-morphed from the cursor
+   tooltip, anchored left). `.tb-account-pop` is the content laid out INSIDE
+   that panel — identity header, status pills, and the open/sign-out actions. */
 .tb-account-wrap {
-  position: relative;
   display: inline-flex;
   -webkit-app-region: no-drag;
   app-region: no-drag;
@@ -706,27 +706,13 @@
   background: var(--bg-elevated);
   border-color: var(--border);
 }
-.tb-account-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 1100;
-  width: 264px;
+/* Widen the morph pill's menu shape to fit the account content. */
+.tb-account-pill.is-menu { min-width: 256px; }
+.tb-account-pop {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 14px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: var(--shadow-elev);
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-  animation: tb-account-menu-in 120ms ease-out;
-}
-@keyframes tb-account-menu-in {
-  from { opacity: 0; transform: translateY(-6px); }
-  to { opacity: 1; transform: translateY(0); }
+  padding: 10px;
 }
 
 /* Identity header. */
@@ -822,6 +808,13 @@
   background: color-mix(in srgb, var(--status-color) 16%, transparent);
 }
 
+/* Account menu footer — "Open account" + "Sign out" stacked. */
+.tb-account-menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 /* "Open account" button. */
 .tb-account-menu-open {
   width: 100%;
@@ -839,6 +832,27 @@
   transition: background 120ms ease;
 }
 .tb-account-menu-open:hover { background: var(--accent-hover); }
+
+/* "Sign out" button — secondary danger styling. */
+.tb-account-menu-signout {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--danger-text, var(--danger));
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.tb-account-menu-signout:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
 
 /* ── Divider between the actions cluster and the window controls ──
    Symmetric 8px margins place it on the bar's primary spacing unit: 8px after
