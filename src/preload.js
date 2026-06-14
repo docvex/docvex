@@ -88,6 +88,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // just restores resizing ('unlock').
   setAuthWindowState: (state) => ipcRenderer.send('window:auth-state', state),
 
+  // Quit the whole app — used by a deliberate logout to close all windows.
+  quitApp: () => ipcRenderer.send('app:quit'),
+
   // Native fullscreen state — the macOS title bar drops its traffic-light inset
   // when fullscreen hides the lights.
   windowIsFullscreen: () => ipcRenderer.invoke('window:is-fullscreen'),

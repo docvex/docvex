@@ -136,7 +136,10 @@
 }
 
 /* ════════════════ The Cabinet layout ════════════════ */
-.auv-cabinet { display: flex; background: #fff; }
+/* Transparent so the ambient dot grid + cursor spotlight (painted by
+   .auth-page::before and <CursorSpotlight/> at z-index:-1) show through on the
+   cream form side; the ink brand panel below stays opaque and covers them. */
+.auv-cabinet { display: flex; background: transparent; }
 .auv-cab-brand {
   position: relative; width: clamp(360px, 38%, 460px); flex-shrink: 0;
   background: var(--auv-ink); overflow: hidden; display: flex; flex-direction: column;
@@ -154,7 +157,7 @@
 .auv-cab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 18px; }
 .auv-cab-grid-t { font-family: 'Cinzel', serif; font-size: 15px; font-weight: 600; color: var(--auv-cream); letter-spacing: 0.03em; }
 .auv-cab-grid-d { font-size: 12px; color: rgba(245, 242, 234, 0.55); margin-top: 3px; }
-.auv-cab-form { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 40px 56px; background: linear-gradient(180deg, #FBFAF6, #F5F2EA); }
+.auv-cab-form { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 40px 56px; background: transparent; }
 .auv-cab-form-inner { width: 100%; max-width: 380px; }
 
 .auv-cab-stepper { display: flex; align-items: center; margin-bottom: 30px; }
@@ -168,6 +171,23 @@
 .auv-cab-dot.is-active { background: #fff; color: var(--auv-cognac); border: 2px solid var(--auv-cognac); }
 .auv-cab-dot.is-done { background: var(--auv-cognac); color: #fff; border: 1px solid var(--auv-cognac); }
 .auv-cab-step-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: #8a8f9a; }
+
+/* ── Spotlight backdrop ──────────────────────────────────────────────────────
+   The signed-out screen wears the main app's ambient dot grid + cursor
+   spotlight on its cream form side. AuthPage paints them with `.auth-page`
+   (the dot-grid `::before`) + <CursorSpotlight/>, but those use theme tokens
+   (--bg-page / --text-primary) that flip on the Ink theme; the Cabinet is a
+   fixed light treatment, so we pin a cream surface + ink-tinted dots here so it
+   reads identically regardless of the user's last theme. */
+.auth-page:has(.auv-cabinet) { background: #F5F2EA; }
+.auth-page:has(.auv-cabinet)::before {
+  background-image:
+    radial-gradient(ellipse 80% 70% at center, transparent 0%, transparent 35%, #F5F2EA 90%),
+    radial-gradient(circle at center, rgba(15, 23, 42, 0.09) 1.2px, transparent 1.6px);
+}
+.auth-page:has(.auv-cabinet) .cursor-spotlight {
+  background-image: radial-gradient(circle at center, rgba(15, 23, 42, 0.12) 1.45px, transparent 1.85px);
+}
 
 /* ── Responsive ── */
 @media (max-width: 820px) {

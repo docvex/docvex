@@ -313,7 +313,7 @@ const CloseGlyph = (
 const SPLIT_HIDDEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/account', '/mail', '/projects']);
 
 export default function TitleBar() {
-  const { session, signOut } = useAuth();
+  const { session, logout } = useAuth();
   const { selectedProject, closePicker } = useSelectedProject();
   const { hasUpdate, latestVersion, currentVersion } = useUpdates();
   const { layout, setLayout, setFocusedPane, customLayouts, addCustomLayout, applyCustomLayout, updateCustomLayout, renameCustomLayout, removeCustomLayout, activeCustomLayout } = useSplitView();
@@ -764,7 +764,7 @@ export default function TitleBar() {
 
             {/* Account — to the right of the Split button. The avatar opens a
                 dropdown (identity + status pills + "Open account"). */}
-            <TbAccount user={session.user} onOpen={openAccount} onSignOut={signOut} />
+            <TbAccount user={session.user} onOpen={openAccount} onSignOut={logout} />
           </div>
 
           {/* Divider between the Theme control and the window controls.

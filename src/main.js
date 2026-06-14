@@ -758,6 +758,13 @@ ipcMain.on('window:auth-state', (e, state) => {
   if (state === 'app' && !w.isMaximized()) w.maximize();
 });
 
+// Quit the entire app — fired by a deliberate logout. Closes every window
+// (each runs its own close handler, so the main window still persists its
+// bounds) and exits the process.
+ipcMain.on('app:quit', () => {
+  app.quit();
+});
+
 // Resolve the bundled favicon path ONCE at module load. The previous
 // inline `path.join(__dirname, 'favicon.ico')` only worked in dev mode
 // (where __dirname is the source `src/` directory). In packaged

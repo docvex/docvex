@@ -103,6 +103,12 @@ export async function windowIsFullscreen() {
 export function setAuthWindowState(state) {
   electronAPI?.setAuthWindowState?.(state);
 }
+
+// Quit the entire app (closes all windows). Used by a deliberate logout.
+// No-op on web — there's no app process to quit.
+export function quitApp() {
+  electronAPI?.quitApp?.();
+}
 // Subscribe to native fullscreen enter/leave. Returns an unsubscribe fn (no-op
 // stub on web). Drives the macOS title bar's traffic-light inset.
 export function onWindowFullscreenChanged(handler) {

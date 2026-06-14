@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { isElectron, setAuthWindowState } from '../lib/platform';
 import { useAuthFlow } from './auth/useAuthFlow';
 import AuthCabinet from './auth/AuthCabinet';
+import CursorSpotlight from './CursorSpotlight';
 import './AuthPage.css';
 import './auth/authCabinet.css';
 
@@ -57,6 +58,10 @@ export default function AuthPage() {
 
   return (
     <div className="auth-page">
+      {/* Ambient dot grid (.auth-page::before) + this cursor-following spotlight
+          — the same backdrop the main app shell paints, shown through the
+          Cabinet's transparent form side. */}
+      <CursorSpotlight />
       <AuthCabinet flow={flow} />
     </div>
   );

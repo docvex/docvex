@@ -11,6 +11,7 @@ import {
   getStartupDeepLink,
   onAccountSwitch,
   openOAuthUrl,
+  quitApp,
 } from '../lib/platform';
 
 // Pick the OAuth callback URL based on which build is running. Electron
@@ -306,6 +307,19 @@ export function AuthProvider({ children }) {
 
   const signOut = () => supabase.auth.signOut();
 
+  // Deliberate logout from the UI (TitleBar dropdown / Account page). Clears the
+  // local session, then quits the whole app so no signed-in state lingers in any
+  // window. Distinct from the plain signOut() used by the dev account-switch and
+  // the invite email-mismatch flow, which sign out only to reopen /auth in the
+  // same window — those must NOT quit. We await signOut (it clears local storage
+  // even if the network revoke fails) before quitting so the next launch is
+  // genuinely signed out. quitApp() is a no-op on web, so logout there just
+  // signs out and the caller's navigation takes over.
+  const logout = async () => {
+    try { await signOut(); } catch { /* local session still cleared; quit anyway */ }
+    quitApp();
+  };
+
   // Permanently delete the user's account (auth.users row + cascade-linked
   // data — project memberships, notifications). Goes through the
   // `delete-user` Edge Function because admin.auth.deleteUser requires the
@@ -387,7 +401,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ session, loading, lastAuthEvent, signInWithEmail, signUpWithEmail, signInWithGoogle, linkGoogle, setPassword, signOut, eraseData, deleteAccount }}>
+    <AuthContext.Provider value={{ session, loading, lastAuthEvent, signInWithEmail, signUpWithEmail, signInWithGoogle, linkGoogle, setPassword, signOut, logout, eraseData, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );
