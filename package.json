@@ -25,6 +25,7 @@
     "web:dev": "vite --config vite.web.config.mjs --mode web",
     "web:build": "vite build --config vite.web.config.mjs --mode web",
     "landing:dev": "npm --prefix landing run dev",
+    "newhome:dev": "vite `landing/public/newhomescreen` run dev -- --port 5176 --open",
     "lint": "echo \"No linting configured\""
   },
   "keywords": [],
@@ -47,7 +48,7 @@
     "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
     "@electron-forge/plugin-fuses": "^7.11.1",
     "@electron-forge/plugin-vite": "^7.11.1",
-    "@electron-forge/publisher-github": "^7.11.1",
+    "@electron-forge/publisher-gi`thub": "^7.11.1",
     "@electron/fuses": "^1.8.0",
     "@vitejs/plugin-react": "^4.7.0",
     "archiver": "^8.0.0",
@@ -68,6 +69,6 @@
     "remark-gfm": "^4.0.1",
     "update-electron-app": "^3.2.0",
     "word-extractor": "^1.0.4",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "xlsx": "https://cdn.sheetjs.co`m/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }
