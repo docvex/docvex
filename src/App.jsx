@@ -2,7 +2,9 @@ import React, { useEffect, useRef } from 'react';
 import { Outlet, useMatch } from 'react-router-dom';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { useSelectedProject } from './context/SelectedProjectContext';
+import { useAuth } from './context/AuthContext';
 import { isElectron } from './lib/platform';
+import { prefetchProjectFiles } from './lib/projectFilesPrefetch';
 import AppShell from './components/AppShell';
 import TitleBar from './components/TitleBar';
 import ReportProblemModal from './components/ReportProblemModal';
@@ -82,6 +84,27 @@ function WindowTitle() {
   return null;
 }
 
+// Background warm-up for the Files page. The app boots on the Hub (/projects);
+// while the user is there, this prefetches the on-disk folder + listings +
+// sidecar for the selected (most-recently-worked-on) project into a module
+// cache, so the first "Project" tab open (→ /files) paints the grid on the
+// first frame instead of resolving the folder + listing live. Electron-only;
+// prefetchProjectFiles no-ops on web (no ambient per-project folder). Headless.
+function ProjectPrefetch() {
+  const { selectedProjectId, selectedProject } = useSelectedProject();
+  const { session } = useAuth();
+  const userId = session?.user?.id || null;
+  useEffect(() => {
+    if (!isElectron || !selectedProjectId) return;
+    prefetchProjectFiles({
+      projectId: selectedProjectId,
+      projectName: selectedProject?.name || null,
+      userId,
+    });
+  }, [selectedProjectId, selectedProject?.name, userId]);
+  return null;
+}
+
 export default function App() {
   // Guard against the window navigating to a file when an OS file drag is
   // dropped anywhere OUTSIDE an explicit drop target (the Files canvas calls
@@ -111,6 +134,7 @@ export default function App() {
   return (
     <ReportProblemProvider>
       <WindowTitle />
+      <ProjectPrefetch />
       {isElectron && <TitleBar />}
       <AppRoutes Shell={AppShell} ProjectShell={ProjectShell} />
       <ReportProblemModal />

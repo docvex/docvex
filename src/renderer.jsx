@@ -28,12 +28,17 @@ if (isElectron) {
 
 // Document-viewer windows (opened from the Files page) boot straight into the
 // full-screen /doc-viewer route, carrying the file's path/name/mime through.
-// Every other window is the main app, which boots at '/'.
+// Every other window is the main app, which boots on the Hub (/projects) — the
+// project launcher — so the app opens "between projects". The most-recently-
+// worked-on project is selected + prefetched in the background (see
+// SelectedProjectContext + <App>'s ProjectPrefetch) so the "Project" tab opens
+// instantly. Signed-out users hitting /projects bounce to /auth via
+// ProtectedRoute, same as any protected route.
 const launchParams = new URLSearchParams(window.location.search);
 const isDocViewer = launchParams.get('docViewer') === '1';
 const initialEntries = isDocViewer
   ? [`/doc-viewer?${launchParams.toString()}`]
-  : ['/'];
+  : ['/projects'];
 
 // Provider order:
 //   AuthProvider                — session

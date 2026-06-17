@@ -51,9 +51,10 @@ export default function AuthPage() {
   }, []);
 
   // Once AuthContext has a session (email sign-in resolves, or the OAuth
-  // callback completes exchangeCodeForSession), bounce out of /auth.
+  // callback completes exchangeCodeForSession), bounce out of /auth onto the
+  // Hub — the app's default landing (matches the cold-launch route).
   if (session) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/projects" replace />;
   }
 
   return (

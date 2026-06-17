@@ -310,7 +310,7 @@ const CloseGlyph = (
 // Routes where the Split-view button is hidden — the top-level personal / nav
 // pages that open fullscreen and have no tile-able content area. Kept in sync
 // with Sidebar.jsx's PERSONAL_ROUTES.
-const SPLIT_HIDDEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/account', '/mail', '/projects']);
+const SPLIT_HIDDEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/admin', '/debug', '/account', '/mail', '/projects']);
 
 export default function TitleBar() {
   const { session, logout } = useAuth();

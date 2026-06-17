@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useSplitView } from '../context/SplitViewContext';
 import { openExternal } from '../lib/platform';
+import { supabase } from '../lib/supabaseClient';
 import Tooltip from './Tooltip';
 import './Sidebar.css';
 
@@ -89,6 +90,14 @@ const SignInIcon = (
   </svg>
 );
 
+// Shield glyph — the Developer Console (Admin) destination. Only shown to
+// app admins (the `app_admins` allowlist, probed via the is_app_admin RPC).
+const AdminIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+  </svg>
+);
+
 // Open-book glyph — the Documentation link out to the website.
 const DocsIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -103,6 +112,20 @@ export default function Sidebar() {
   const { pickerOpen, closePicker } = useSelectedProject();
   const { pathname } = useLocation();
   const navigate = useNavigate();
+
+  // Whether the signed-in user is an app admin (the `app_admins` allowlist) —
+  // gates the Developer Console (Admin) tab. Probed once per session via the
+  // is_app_admin SECURITY DEFINER RPC; non-admins get `false` and never see
+  // the tab (the Admin page's data is server-gated anyway, so showing it to a
+  // non-admin would only render a half-broken console).
+  const [isAdmin, setIsAdmin] = useState(false);
+  const userId = session?.user?.id || null;
+  useEffect(() => {
+    if (!userId) { setIsAdmin(false); return undefined; }
+    let alive = true;
+    supabase.rpc('is_app_admin').then(({ data }) => { if (alive) setIsAdmin(data === true); });
+    return () => { alive = false; };
+  }, [userId]);
   // Split view: these personal destinations open FULLSCREEN — clicking one
   // collapses any split layout back to a single window. focusedPanePath drives
   // the active highlight (null in single mode → NavLink's own root match).
@@ -130,7 +153,7 @@ export default function Sidebar() {
   // "Project" tab — restore the workspace split. If we're leaving a personal
   // page, point the primary pane at a project surface so it doesn't render the
   // personal page inside a split pane (the tri layout re-seeds to /chat itself).
-  const PERSONAL_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/account', '/mail', '/projects']);
+  const PERSONAL_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/admin', '/debug', '/account', '/mail', '/projects']);
   const handleProjectClick = () => {
     closePicker();
     setFocusedPane(0);
@@ -207,6 +230,23 @@ export default function Sidebar() {
             </NavLink>
           </li>
         ))}
+        {/* Admin — the Developer Console. Only rendered for app admins (the
+            is_app_admin allowlist probe above), and sits next to Docs. */}
+        {session && isAdmin && (
+          <li>
+            <NavLink
+              to="/admin"
+              end
+              className={({ isActive }) =>
+                `nav-item${paneTabActive('/admin', true, isActive) ? ' active' : ''}`
+              }
+              onClick={handleTabClick}
+            >
+              <span className="icon">{AdminIcon}</span>
+              <span className="label">Admin</span>
+            </NavLink>
+          </li>
+        )}
         {/* Documentation — external link to the website (opens in the browser),
             not an in-app route, so it's a button rather than a NavLink. */}
         <li>
