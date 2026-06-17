@@ -59,28 +59,39 @@
   .cursor-spotlight{
     position:fixed; top:0; left:0; width:430px; height:430px;
     pointer-events:none; z-index:1; will-change:transform;
-    background-image:radial-gradient(circle at center, color-mix(in srgb, var(--text-primary) 17%, transparent) 1.45px, transparent 1.85px);
+    background-image:radial-gradient(circle at center, color-mix(in srgb, var(--text-primary) 10%, transparent) 1.45px, transparent 1.85px);
     background-size:24px 24px;
     mask-image:radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
     -webkit-mask-image:radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
   }
   @media (prefers-reduced-motion: reduce) { .cursor-spotlight{ display:none; } }
 
-  /* Same cursor spotlight, but ON opaque sections — those cover the global
-     fixed spotlight, so each gets its own masked dot layer above its background
-     and below its content. --sx/--sy are the cursor position RELATIVE to the
-     section (written per-frame in JS); background-attachment:fixed keeps the
-     dot tile aligned to the viewport grid like the ambient layer. */
+  /* Cursor spotlight on opaque surfaces (they cover the global fixed spotlight).
+     --sx/--sy are the cursor position RELATIVE to the surface, written per-frame
+     in JS. Two flavours:
+       • PANELS (cards: div/details) — no dot grid; a soft radial glow that
+         tracks the cursor sits above the panel's background, below its content.
+       • Full-bleed SECTIONS — keep the masked dot grid so they read continuous
+         with the ambient page background. */
   .spot-surface{ position:relative; }
   .spot-surface::before{
     content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
-    background-image:radial-gradient(circle at center, color-mix(in srgb, var(--spot-dot, var(--text-primary)) 16%, transparent) 1.45px, transparent 1.85px);
+    border-radius:inherit;
+    background:radial-gradient(circle 260px at var(--sx, -9999px) var(--sy, -9999px),
+      color-mix(in srgb, var(--spot-glow, var(--accent-soft)) 16%, transparent) 0%,
+      color-mix(in srgb, var(--spot-glow, var(--accent-soft)) 6%, transparent) 40%,
+      transparent 70%);
+  }
+  .spot-surface > *{ position:relative; z-index:1; }
+  .spot-surface--dark{ --spot-dot:#DCC9A3; --spot-glow:#DCC9A3; }
+
+  /* Sections keep the masked dot-grid spotlight (higher specificity wins). */
+  section.spot-surface::before{
+    background:radial-gradient(circle at center, color-mix(in srgb, var(--spot-dot, var(--text-primary)) 10%, transparent) 1.45px, transparent 1.85px);
     background-size:24px 24px; background-attachment:fixed;
     mask-image:radial-gradient(circle 215px at var(--sx, -9999px) var(--sy, -9999px), #000 0%, #000 42%, transparent 100%);
     -webkit-mask-image:radial-gradient(circle 215px at var(--sx, -9999px) var(--sy, -9999px), #000 0%, #000 42%, transparent 100%);
   }
-  .spot-surface > *{ position:relative; z-index:1; }
-  .spot-surface--dark{ --spot-dot:#DCC9A3; }
   @media (prefers-reduced-motion: reduce) { .spot-surface::before{ display:none; } }
 </style>
 
@@ -146,7 +157,7 @@
 
         <div style="flex:1 1 460px; min-width:320px;">
           <!-- APP WINDOW MOCK -->
-          <div style="border-radius:16px; overflow:hidden; background:var(--bg-card); border:1px solid var(--border); box-shadow:var(--shadow-elev);">
+          <div class="spot-surface" style="border-radius:16px; overflow:hidden; background:var(--bg-card); border:1px solid var(--border); box-shadow:var(--shadow-elev);">
             <div style="display:flex; align-items:center; gap:14px; height:38px; padding:0 14px; background:var(--bg-elevated); border-bottom:1px solid var(--border);">
               <div data-os="mac" style="display:flex; gap:7px;"><span style="width:11px;height:11px;border-radius:50%;background:#ec6a5e;"></span><span style="width:11px;height:11px;border-radius:50%;background:#f4bf4f;"></span><span style="width:11px;height:11px;border-radius:50%;background:#61c454;"></span></div>
               <span style="flex:1; text-align:center; font-size:12px; font-weight:600; color:var(--text-muted); letter-spacing:0.04em;">Docvex — Vasilescu &amp; Partners</span>
@@ -216,7 +227,7 @@
       <p style="margin:18px 0 0; max-width:560px; font-size:17px; line-height:1.6; color:var(--text-secondary);">Drafting. Organizing. Tracking. Done — so your lawyers can focus on the rest.</p>
 
       <div style="margin-top:44px; display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px;">
-        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
+        <div class="spot-surface" style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
           <span style="display:inline-flex; width:46px; height:46px; border-radius:13px; align-items:center; justify-content:center; background:#0b1024; border:1px solid color-mix(in srgb, #7f77dd 32%, transparent); overflow:hidden;">
             <svg viewBox="0 0 100 100" width="100%" height="100%" aria-label="AI" style="display:block;">
               <defs>
@@ -239,22 +250,22 @@
           <h3 style="margin:18px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:20px; font-weight:700; letter-spacing:-0.01em; color:var(--text-primary);">AI summaries</h3>
           <p style="margin:9px 0 0; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Hundreds of pages, reduced to the clauses, dates and risks that matter.</p>
         </div>
-        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
+        <div class="spot-surface" style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
           <span style="display:inline-flex; width:46px; height:46px; border-radius:13px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
           <h3 style="margin:18px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:20px; font-weight:700; letter-spacing:-0.01em; color:var(--text-primary);">Smart search</h3>
           <p style="margin:9px 0 0; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Find precedent across every matter your firm has ever handled.</p>
         </div>
-        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
+        <div class="spot-surface" style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
           <span style="display:inline-flex; width:46px; height:46px; border-radius:13px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span>
           <h3 style="margin:18px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:20px; font-weight:700; letter-spacing:-0.01em; color:var(--text-primary);">Workflows</h3>
           <p style="margin:9px 0 0; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Intake. Draft. Review. Close. Every step in sequence, no handoffs.</p>
         </div>
-        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
+        <div class="spot-surface" style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
           <span style="display:inline-flex; width:46px; height:46px; border-radius:13px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
           <h3 style="margin:18px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:20px; font-weight:700; letter-spacing:-0.01em; color:var(--text-primary);">Drafting</h3>
           <p style="margin:9px 0 0; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Engagement letters and contracts, generated in your firm's voice.</p>
         </div>
-        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
+        <div class="spot-surface" style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
           <span style="display:inline-flex; width:46px; height:46px; border-radius:13px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span>
           <h3 style="margin:18px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:20px; font-weight:700; letter-spacing:-0.01em; color:var(--text-primary);">Legal updates</h3>
           <p style="margin:9px 0 0; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Legislation, summarized for your practice and reviewed by humans.</p>
@@ -272,22 +283,22 @@
           <p style="margin:26px 0 0; max-width:420px; font-size:12.5px; line-height:1.6; color:var(--text-muted);">Docvex is a workflow platform. It does not provide legal advice or replace lawyers.</p>
         </div>
         <div style="flex:1 1 440px; min-width:300px; display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px;">
-          <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:22px;">
+          <div class="spot-surface" style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:22px;">
             <span style="display:inline-flex; width:40px; height:40px; border-radius:11px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
             <h3 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:700; color:var(--text-primary);">Encrypted storage</h3>
             <p style="margin:6px 0 0; font-size:13.5px; line-height:1.55; color:var(--text-secondary);">Encryption at rest and in transit, with industry-standard keys.</p>
           </div>
-          <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:22px;">
+          <div class="spot-surface" style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:22px;">
             <span style="display:inline-flex; width:40px; height:40px; border-radius:11px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></span>
             <h3 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:700; color:var(--text-primary);">GDPR-compliant</h3>
             <p style="margin:6px 0 0; font-size:13.5px; line-height:1.55; color:var(--text-secondary);">EU infrastructure and EU data residency, by design.</p>
           </div>
-          <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:22px;">
+          <div class="spot-surface" style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:22px;">
             <span style="display:inline-flex; width:40px; height:40px; border-radius:11px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span>
             <h3 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:700; color:var(--text-primary);">Private workspaces</h3>
             <p style="margin:6px 0 0; font-size:13.5px; line-height:1.55; color:var(--text-secondary);">Per-firm tenancy with matter-level permissions.</p>
           </div>
-          <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:22px;">
+          <div class="spot-surface" style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:22px;">
             <span style="display:inline-flex; width:40px; height:40px; border-radius:11px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/></svg></span>
             <h3 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:700; color:var(--text-primary);">No AI training</h3>
             <p style="margin:6px 0 0; font-size:13.5px; line-height:1.55; color:var(--text-secondary);">Your documents never train our models. Ever.</p>
@@ -304,7 +315,7 @@
         <p style="margin:18px 0 0; max-width:380px; font-size:17px; line-height:1.6; color:var(--text-secondary);">Legislation, summarized for your practice and reviewed by humans.</p>
         <a href="#demo" style="margin-top:22px; display:inline-flex; align-items:center; gap:8px; font-size:14px; font-weight:600; color:var(--accent); text-decoration:none;">See the feed <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a>
       </div>
-      <div style="flex:1 1 460px; min-width:300px; background:var(--bg-card); border:1px solid var(--border); border-radius:20px; box-shadow:var(--shadow-card); padding:8px 22px;">
+      <div class="spot-surface" style="flex:1 1 460px; min-width:300px; background:var(--bg-card); border:1px solid var(--border); border-radius:20px; box-shadow:var(--shadow-card); padding:8px 22px;">
         <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 0 12px; border-bottom:1px solid var(--border);">
           <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:15px; font-weight:700; color:var(--text-primary);">Intelligence feed</p>
           <span style="display:inline-flex; align-items:center; gap:7px; padding:4px 10px; border-radius:999px; background:var(--accent-tint); font-size:10px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--accent);"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);animation:dv-pulse 2s ease-in-out infinite;"></span>Live</span>
@@ -345,7 +356,7 @@
           <p style="margin:16px 0 0; font-size:17px; line-height:1.6; color:var(--text-secondary);">Three plans, matched to the size of your firm.</p>
         </div>
         <div style="margin-top:44px; display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:20px; align-items:start;">
-          <div style="background:var(--bg-page); border:1px solid var(--border); border-radius:20px; padding:30px; box-shadow:var(--shadow-card);">
+          <div class="spot-surface" style="background:var(--bg-page); border:1px solid var(--border); border-radius:20px; padding:30px; box-shadow:var(--shadow-card);">
             <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:24px; font-weight:700; color:var(--text-primary);">Solo</p>
             <p style="margin:5px 0 0; font-size:13.5px; color:var(--text-muted);">For independent lawyers.</p>
             <p style="margin:22px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:26px; font-weight:700; color:var(--text-primary);">On request</p>
@@ -358,22 +369,22 @@
             <a href="#demo" style="display:flex; align-items:center; justify-content:center; height:46px; border-radius:11px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:14.5px; font-weight:600; text-decoration:none;">Talk to us</a>
           </div>
 
-          <div style="background:#0F172A; border:1px solid #8B5E3C; border-radius:20px; padding:30px; box-shadow:var(--shadow-elev); position:relative;">
-            <span style="position:absolute; top:-12px; left:50%; transform:translateX(-50%); padding:5px 14px; border-radius:999px; background:#8B5E3C; color:#F5F2EA; font-size:10px; font-weight:700; letter-spacing:0.16em; text-transform:uppercase; white-space:nowrap;">Most popular</span>
-            <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:24px; font-weight:700; color:#F5F2EA;">Firm</p>
-            <p style="margin:5px 0 0; font-size:13.5px; color:rgba(245,242,234,0.7);">For boutique and mid-sized firms.</p>
-            <p style="margin:22px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:26px; font-weight:700; color:#F5F2EA;">On request</p>
-            <p style="margin:3px 0 0; font-size:12px; color:rgba(245,242,234,0.55);">Pricing matched to your firm.</p>
+          <div class="spot-surface" style="--spot-glow:var(--text-on-accent); background:var(--accent); border:1px solid var(--accent); border-radius:20px; padding:30px; box-shadow:var(--shadow-elev); position:relative;">
+            <span style="position:absolute; top:-12px; left:50%; transform:translateX(-50%); padding:5px 14px; border-radius:999px; background:var(--text-on-accent); color:var(--accent); font-size:10px; font-weight:700; letter-spacing:0.16em; text-transform:uppercase; white-space:nowrap;">Most popular</span>
+            <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:24px; font-weight:700; color:var(--text-on-accent);">Firm</p>
+            <p style="margin:5px 0 0; font-size:13.5px; color:color-mix(in srgb, var(--text-on-accent) 72%, transparent);">For boutique and mid-sized firms.</p>
+            <p style="margin:22px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:26px; font-weight:700; color:var(--text-on-accent);">On request</p>
+            <p style="margin:3px 0 0; font-size:12px; color:color-mix(in srgb, var(--text-on-accent) 58%, transparent);">Pricing matched to your firm.</p>
             <div style="margin:22px 0; display:flex; flex-direction:column; gap:11px;">
-              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:rgba(245,242,234,0.85);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8B5E3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Everything in Solo.</span>
-              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:rgba(245,242,234,0.85);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8B5E3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Workflows. Intake to close.</span>
-              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:rgba(245,242,234,0.85);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8B5E3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Role-based permissions.</span>
-              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:rgba(245,242,234,0.85);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8B5E3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Multi-matter view.</span>
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:color-mix(in srgb, var(--text-on-accent) 88%, transparent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-on-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Everything in Solo.</span>
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:color-mix(in srgb, var(--text-on-accent) 88%, transparent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-on-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Workflows. Intake to close.</span>
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:color-mix(in srgb, var(--text-on-accent) 88%, transparent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-on-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Role-based permissions.</span>
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:color-mix(in srgb, var(--text-on-accent) 88%, transparent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-on-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Multi-matter view.</span>
             </div>
-            <a href="#demo" style="display:flex; align-items:center; justify-content:center; height:46px; border-radius:11px; background:#8B5E3C; color:#F5F2EA; font-size:14.5px; font-weight:700; text-decoration:none;">Request demo</a>
+            <a href="#demo" style="display:flex; align-items:center; justify-content:center; height:46px; border-radius:11px; background:var(--text-on-accent); color:var(--accent); font-size:14.5px; font-weight:700; text-decoration:none;">Request demo</a>
           </div>
 
-          <div style="background:var(--bg-page); border:1px solid var(--border); border-radius:20px; padding:30px; box-shadow:var(--shadow-card);">
+          <div class="spot-surface" style="background:var(--bg-page); border:1px solid var(--border); border-radius:20px; padding:30px; box-shadow:var(--shadow-card);">
             <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:24px; font-weight:700; color:var(--text-primary);">Enterprise</p>
             <p style="margin:5px 0 0; font-size:13.5px; color:var(--text-muted);">For large firms and legal teams.</p>
             <p style="margin:22px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:26px; font-weight:700; color:var(--text-primary);">On request</p>
@@ -399,27 +410,27 @@
         <p style="margin:18px 0 0; max-width:360px; font-size:17px; line-height:1.6; color:var(--text-secondary);">Plain language for the cautious — because lawyers ask better questions than most.</p>
       </div>
       <div style="flex:1 1 480px; min-width:300px; display:flex; flex-direction:column; gap:12px;">
-        <details data-faq open style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
+        <details data-faq open class="spot-surface" style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
           <summary style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:600; color:var(--text-primary);">Does Docvex replace lawyers?<span data-plus style="display:inline-flex; transition:transform 220ms; color:var(--accent); flex-shrink:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary>
           <p style="margin:0; padding:0 0 16px; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">No. Docvex removes the administrative work. The judgment, the advocacy, the counsel — that stays with you.</p>
         </details>
-        <details data-faq style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
+        <details data-faq class="spot-surface" style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
           <summary style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:600; color:var(--text-primary);">Is my firm's data used to train AI?<span data-plus style="display:inline-flex; transition:transform 220ms; color:var(--accent); flex-shrink:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary>
           <p style="margin:0; padding:0 0 16px; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Never. Your documents stay yours.</p>
         </details>
-        <details data-faq style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
+        <details data-faq class="spot-surface" style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
           <summary style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:600; color:var(--text-primary);">Is Docvex GDPR compliant?<span data-plus style="display:inline-flex; transition:transform 220ms; color:var(--accent); flex-shrink:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary>
           <p style="margin:0; padding:0 0 16px; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Yes. EU infrastructure, EU data residency, and processing agreements designed for European firms.</p>
         </details>
-        <details data-faq style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
+        <details data-faq class="spot-surface" style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
           <summary style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:600; color:var(--text-primary);">What about hallucinations?<span data-plus style="display:inline-flex; transition:transform 220ms; color:var(--accent); flex-shrink:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary>
           <p style="margin:0; padding:0 0 16px; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Every output is grounded in your firm's templates and prior matters. Humans review before anything leaves the firm.</p>
         </details>
-        <details data-faq style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
+        <details data-faq class="spot-surface" style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
           <summary style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:600; color:var(--text-primary);">How long does a rollout take?<span data-plus style="display:inline-flex; transition:transform 220ms; color:var(--accent); flex-shrink:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary>
           <p style="margin:0; padding:0 0 16px; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Most firms are live in under a week.</p>
         </details>
-        <details data-faq style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
+        <details data-faq class="spot-surface" style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
           <summary style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:600; color:var(--text-primary);">What does it cost?<span data-plus style="display:inline-flex; transition:transform 220ms; color:var(--accent); flex-shrink:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary>
           <p style="margin:0; padding:0 0 16px; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Pricing is matched to the size of your firm. Talk to us.</p>
         </details>
@@ -428,14 +439,14 @@
 
     <!-- ============ FINAL CTA ============ -->
     <section id="demo" style="position:relative; max-width:1440px; margin:0 auto; padding:0 clamp(20px,5vw,40px) clamp(64px,9vw,120px);">
-      <div class="spot-surface spot-surface--dark" style="position:relative; overflow:hidden; border-radius:28px; background:#0F172A; padding:clamp(48px,7vw,96px) clamp(24px,5vw,48px); text-align:center;">
+      <div class="spot-surface" style="--spot-glow:var(--text-on-accent); position:relative; overflow:hidden; border-radius:28px; background:var(--accent); padding:clamp(48px,7vw,96px) clamp(24px,5vw,48px); text-align:center;">
         <div style="position:relative; max-width:680px; margin:0 auto;">
-          <p style="margin:0; font-size:11px; font-weight:700; letter-spacing:0.3em; text-transform:uppercase; color:#DCC9A3;">docvex.ro</p>
-          <h2 style="margin:16px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(32px,5vw,56px); font-weight:800; line-height:1.02; letter-spacing:-0.04em; color:#F5F2EA;">Modernize <span style="color:#DCC9A3;">your legal workflow.</span></h2>
-          <p style="margin:24px auto 0; max-width:460px; font-size:17px; line-height:1.6; color:rgba(245,242,234,0.72);">Cut the busywork. Get your evenings back.</p>
+          <p style="margin:0; font-size:11px; font-weight:700; letter-spacing:0.3em; text-transform:uppercase; color:var(--text-on-accent);">docvex.ro</p>
+          <h2 style="margin:16px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(32px,5vw,56px); font-weight:800; line-height:1.02; letter-spacing:-0.04em; color:var(--text-on-accent);">Modernize <span style="color:var(--accent-soft);">your legal workflow.</span></h2>
+          <p style="margin:24px auto 0; max-width:460px; font-size:17px; line-height:1.6; color:color-mix(in srgb, var(--text-on-accent) 75%, transparent);">Cut the busywork. Get your evenings back.</p>
           <div style="margin-top:32px; display:flex; flex-wrap:wrap; gap:12px; justify-content:center;">
-            <a href="#demo" style="display:inline-flex; align-items:center; height:50px; padding:0 26px; border-radius:12px; background:#DCC9A3; color:#0F172A; font-size:15px; font-weight:700; text-decoration:none;">Request a demo</a>
-            <a href="#demo" style="display:inline-flex; align-items:center; height:50px; padding:0 26px; border-radius:12px; background:transparent; border:1px solid rgba(220,201,163,0.4); color:#F5F2EA; font-size:15px; font-weight:600; text-decoration:none;">Join early access</a>
+            <a href="#demo" style="display:inline-flex; align-items:center; height:50px; padding:0 26px; border-radius:12px; background:var(--text-on-accent); color:var(--accent); font-size:15px; font-weight:700; text-decoration:none;">Request a demo</a>
+            <a href="#demo" style="display:inline-flex; align-items:center; height:50px; padding:0 26px; border-radius:12px; background:transparent; border:1px solid color-mix(in srgb, var(--text-on-accent) 40%, transparent); color:var(--text-on-accent); font-size:15px; font-weight:600; text-decoration:none;">Join early access</a>
           </div>
         </div>
       </div>

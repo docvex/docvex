@@ -28,12 +28,12 @@ if (isElectron) {
 
 // Document-viewer windows (opened from the Files page) boot straight into the
 // full-screen /doc-viewer route, carrying the file's path/name/mime through.
-// Every other window is the main app, which boots at '/'.
+// Every other window is the main app, which boots on the Hub (/projects).
 const launchParams = new URLSearchParams(window.location.search);
 const isDocViewer = launchParams.get('docViewer') === '1';
 const initialEntries = isDocViewer
   ? [`/doc-viewer?${launchParams.toString()}`]
-  : ['/'];
+  : ['/projects'];
 
 // Provider order:
 //   AuthProvider                — session
