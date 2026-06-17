@@ -23,6 +23,7 @@ import {
   renameEntry as renameSidecarEntry,
   reconcileWithFilesystem,
 } from '../../lib/localBranchMeta';
+import { getPrefetchedProjectFiles } from '../../lib/projectFilesPrefetch';
 import './ProjectScoped.css';
 import './ProjectFiles.css';
 
@@ -88,13 +89,23 @@ export default function ProjectFiles() {
 
   const supportsFolders = isElectronBranch;
 
+  // One-shot warm-cache seed captured at mount for the project we open with.
+  // When <App>'s ProjectPrefetch has already resolved this project's folder +
+  // listings (the common "open the Hub, then click Project" path), the page
+  // paints its grid from the seed on the first frame — no folder-resolve or
+  // "Loading…" flash. Captured once (the `=== null` guard) so a later render
+  // can't swap the seed mid-flight; null on a cold open (web, or no prefetch).
+  const seedRef = useRef(null);
+  if (seedRef.current === null) seedRef.current = getPrefetchedProjectFiles(projectId) || false;
+  const seed = seedRef.current || null;
+
   // ── State ────────────────────────────────────────────────────────────
-  const [localFolder, setLocalFolder] = useState('');
-  const [localFiles, setLocalFiles] = useState([]);      // recursive listing (counts + reconcile)
+  const [localFolder, setLocalFolder] = useState(seed?.folder || '');
+  const [localFiles, setLocalFiles] = useState(seed?.localFiles || []);      // recursive listing (counts + reconcile)
   const [localLoading, setLocalLoading] = useState(false);
   const [localError, setLocalError] = useState(null);
   const [needsReconnect, setNeedsReconnect] = useState(false);
-  const [hydratedProjectId, setHydratedProjectId] = useState(null);
+  const [hydratedProjectId, setHydratedProjectId] = useState(seed ? projectId : null);
   // Electron project-directory resolution error + a retry trigger. Without
   // this a failed/rejected projectDir IPC (e.g. the main process hasn't picked
   // up the handler yet) would leave the page stuck on "Setting up…".
@@ -103,10 +114,14 @@ export default function ProjectFiles() {
 
   // Folder navigation.
   const [folderStack, setFolderStack] = useState([]);    // [{ name, path }]
-  const [browseCache, setBrowseCache] = useState(() => new Map()); // dir → { files, dirs }
+  const [browseCache, setBrowseCache] = useState(() => {
+    const m = new Map(); // dir → { files, dirs }
+    if (seed?.folder) m.set(seed.folder, { files: seed.rootListing.files, dirs: seed.rootListing.dirs });
+    return m;
+  });
   const [browseTick, setBrowseTick] = useState(0);
 
-  const [sidecar, setSidecar] = useState(() => emptySidecar(projectId, ''));
+  const [sidecar, setSidecar] = useState(() => seed?.sidecar || emptySidecar(projectId, seed?.folder || ''));
 
   const [filesTab, setFilesTab] = useState('drafts');    // 'drafts' | 'trash'
   const [trashItems, setTrashItems] = useState([]);
@@ -120,6 +135,14 @@ export default function ProjectFiles() {
   const localUploadInputRef = useRef(null);
   const localFolderUploadInputRef = useRef(null);
   const localFolderDebounceRef = useRef(null);
+
+  // The project id the warm seed belongs to (null on a cold open). The mount-
+  // time reset effects below skip their wipes while we're still showing this
+  // project so the seeded grid stays painted. Comparing projectId (rather than
+  // a one-shot "first run" flag) keeps the guards idempotent — StrictMode's
+  // double effect-invoke in dev re-runs them with the same projectId and so
+  // still skips, while a real project switch (different id) takes the cold path.
+  const seedProjectIdRef = useRef(seed ? projectId : null);
 
   const atRoot = folderStack.length === 0;
   const currentDir = atRoot ? localFolder : folderStack[folderStack.length - 1].path;
@@ -168,7 +191,12 @@ export default function ProjectFiles() {
       // Auto-bind to the fixed per-project directory (Documents/Docvex/<id>).
       // No manual folder picking — the directory IS the project's directory.
       let cancelled = false;
-      setLocalFiles([]);
+      // While we're still showing the warm-seeded project the listing state is
+      // already populated from the prefetch cache — don't blank it (that would
+      // re-introduce the "Loading…" flash). The projectDir refresh below still
+      // runs to reconcile against the live folder. A switch to a different
+      // project (id ≠ the seeded one) blanks normally.
+      if (projectId !== seedProjectIdRef.current) setLocalFiles([]);
       setLocalError(null);
       setFolderError(null);
       setNeedsReconnect(false);
@@ -227,7 +255,11 @@ export default function ProjectFiles() {
     if (localFolderDebounceRef.current) clearTimeout(localFolderDebounceRef.current);
     let cancelled = false;
     localFolderDebounceRef.current = setTimeout(async () => {
-      setLocalLoading(true);
+      // Only surface the full-panel "Loading…" when we have nothing to show
+      // yet. A warm-seeded open already has a populated grid, so it refreshes
+      // silently rather than flashing the spinner over it; a cold open (empty
+      // list) shows the spinner as before.
+      if (localFiles.length === 0) setLocalLoading(true);
       setLocalError(null);
       const { files: list, error } = await localFolderApi.listAll(localFolder);
       if (cancelled) return;
@@ -279,6 +311,15 @@ export default function ProjectFiles() {
 
   // Reset folder navigation when the project / picked folder changes.
   useEffect(() => {
+    // While showing the warm-seeded project at its root, keep the seeded root
+    // browse cache so the grid stays painted (clearing it would blank the grid
+    // for one IPC). folderStack/undo are empty on a fresh mount anyway, so
+    // resetting just them is a no-op. Any project/folder change off the seed
+    // takes the full reset. (projectId compare → StrictMode-idempotent)
+    if (seed?.folder && projectId === seedProjectIdRef.current && localFolder === seed.folder) {
+      setFolderStack([]);
+      return;
+    }
     setFolderStack([]);
     setBrowseCache(new Map());
     clearUndo(); // undo history is folder-scoped — a switch starts fresh

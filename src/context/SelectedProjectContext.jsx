@@ -9,7 +9,7 @@ import React, {
 } from 'react';
 import { useAuth } from './AuthContext';
 import { getProject } from '../lib/projects';
-import { markProjectAccessed } from '../lib/recentProjects';
+import { markProjectAccessed, getMostRecentProjectId } from '../lib/recentProjects';
 
 // Tracks which project the user is "working in" right now. Distinct from
 // ProjectContext (which is URL-scoped, used inside /projects/:projectId):
@@ -88,7 +88,14 @@ export function SelectedProjectProvider({ children }) {
     }
     try {
       const stored = localStorage.getItem(storageKey(userId));
-      _setSelectedProjectId(stored || null);
+      // Fall back to the most-recently-worked-on project when there's no
+      // persisted selection (a fresh device, or after an explicit "Select no
+      // project" cleared the stored row). This makes the app open "in" your
+      // most recent project — its row + Files data warm in the background (see
+      // <App>'s ProjectPrefetch) so the "Project" tab opens instantly. The
+      // fallback is in-memory only (no localStorage write), so it stays a soft
+      // default rather than re-persisting a selection the user cleared.
+      _setSelectedProjectId(stored || getMostRecentProjectId(userId) || null);
     } catch {
       _setSelectedProjectId(null);
     }

@@ -77,7 +77,7 @@ const DZ_CONFIRMS = {
 };
 
 export default function Account() {
-  const { session, signOut, eraseData, deleteAccount, linkGoogle, setPassword } = useAuth();
+  const { session, logout, eraseData, deleteAccount, linkGoogle, setPassword } = useAuth();
   const { notify } = useNotifications();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
@@ -286,7 +286,9 @@ export default function Account() {
     setBusy(true);
     try {
       if (kind === 'signout') {
-        await signOut();
+        // Quits the whole app on Electron; on web it signs out and the
+        // navigate below takes over.
+        await logout();
         setDzKind(null);
         navigate('/');
       } else if (kind === 'erase') {

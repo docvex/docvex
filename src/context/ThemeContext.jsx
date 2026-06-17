@@ -20,11 +20,21 @@ import { useAuth } from './AuthContext';
 //   - Hydrate on mount + on auth user change.
 //   - Default when nothing is stored: 'cream' (the brand default).
 //
+// Signed-out fallback: every pick is ALSO mirrored to a machine-wide
+// `docvex.theme.last` key. When signed out with no explicit anonymous pick,
+// hydration falls back to that key so the auth / sign-out screen keeps the
+// theme the user last selected (while signed in) instead of snapping back to
+// the brand default.
+//
 // The DOM attribute is applied synchronously on every change so CSS swaps in
 // the same paint. We also write before React mounts (during the first
 // hydration effect) to keep FOUC to a single frame at most.
 
 const STORAGE_KEY_PREFIX = 'docvex.theme.';
+// Machine-wide "last theme the user picked", regardless of which account. Used
+// only as the signed-out fallback (see hydration below). The `last` segment
+// can't collide with a real user id (uuid) or the `_anonymous` key.
+const LAST_THEME_KEY = `${STORAGE_KEY_PREFIX}last`;
 
 // The themes shipped today. Order in this array drives the picker layout
 // left-to-right. Adding a third theme is two lines here + a new
@@ -113,7 +123,15 @@ export function ThemeProvider({ children }) {
     let nextPref = DEFAULT_PREF;
     try {
       const stored = localStorage.getItem(storageKey(userId));
-      if (stored && VALID_PREFS.has(stored)) nextPref = stored;
+      if (stored && VALID_PREFS.has(stored)) {
+        nextPref = stored;
+      } else if (!userId) {
+        // Signed out with no explicit anonymous pick → fall back to the last
+        // theme selected on this machine so the sign-out screen stays in the
+        // user's last-chosen look rather than the brand default.
+        const last = localStorage.getItem(LAST_THEME_KEY);
+        if (last && VALID_PREFS.has(last)) nextPref = last;
+      }
     } catch {
       // private mode / quota — non-fatal; we keep the default
     }
@@ -134,6 +152,8 @@ export function ThemeProvider({ children }) {
     applyThemeAttribute(resolved);
     try {
       localStorage.setItem(storageKey(userId), pref);
+      // Mirror to the machine-wide key so the signed-out screen can recall it.
+      localStorage.setItem(LAST_THEME_KEY, pref);
     } catch {
       /* private mode / quota — non-fatal */
     }

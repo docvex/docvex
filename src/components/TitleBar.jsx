@@ -106,12 +106,14 @@ function getDisplayName(user) {
 }
 
 // Title-bar account control — the avatar (real OAuth picture or initial
-// fallback) with a status dot in the corner. Clicking it opens a dropdown menu:
-// an identity header (avatar + name + email), a row of status pills to change
-// activity status inline, and a button that opens the full Account page.
-function TbAccount({ user, onOpen }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
+// fallback) with a status dot in the corner. Hovering shows the name as a
+// cursor tooltip; left-clicking morphs that tooltip straight into a dropdown
+// menu (same useMorphPill FLIP the Split control uses) — an identity header
+// (avatar + name + email), a row of status pills to change activity status
+// inline, and buttons to open the full Account page / sign out. The pill is
+// anchored LEFT (`placement: 'left'`) so it grows inward from the bar's right
+// edge instead of off-screen.
+function TbAccount({ user, onOpen, onSignOut }) {
   const avatarUrl = user?.user_metadata?.avatar_url;
   const initial = (user?.email || '?').charAt(0).toUpperCase();
   const statusKey = user?.user_metadata?.status || DEFAULT_STATUS_KEY;
@@ -119,24 +121,76 @@ function TbAccount({ user, onOpen }) {
   const name = getDisplayName(user);
   const email = user?.email || '';
 
-  // Outside-click + Escape close the menu (only wired while open).
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey); };
-  }, [open]);
+  const accountPill = useMorphPill({
+    hoverContent: name,
+    placement: 'left',
+    className: 'tb-account-pill',
+    stickyMenu: true,
+    menuHeader: (closeMenu) => (
+      <div className="tb-account-pop">
+        {/* Identity header — avatar, name, email. */}
+        <div className="tb-account-menu-head">
+          {avatarUrl
+            ? <img className="tb-account-menu-avatar" src={avatarUrl} alt="" referrerPolicy="no-referrer" />
+            : <span className="tb-account-menu-avatar tb-account-avatar-fallback">{initial}</span>}
+          <span className="tb-account-menu-id">
+            <span className="tb-account-menu-name">{name}</span>
+            {email && <span className="tb-account-menu-email">{email}</span>}
+          </span>
+        </div>
+
+        {/* Status pills — change activity status inline (persists to
+            user_metadata; the active pill follows the session). */}
+        <div className="tb-account-menu-status">
+          <span className="tb-account-menu-label">Status</span>
+          <div className="tb-account-status-pills">
+            {STATUS_OPTIONS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                className={`tb-status-pill${s.key === statusKey ? ' is-active' : ''}${s.key === 'offline' ? ' is-offline' : ''}`}
+                style={{ '--status-color': s.color }}
+                onClick={() => updateStatus(s.key)}
+                aria-pressed={s.key === statusKey}
+              >
+                <span className="tb-status-pill-dot" aria-hidden="true" />
+                <span>{s.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Open the full Account page + sign out. */}
+        <div className="tb-account-menu-actions">
+          <button
+            type="button"
+            className="tb-account-menu-open"
+            onClick={() => { closeMenu(); onOpen(); }}
+          >
+            Open account
+          </button>
+          <button
+            type="button"
+            className="tb-account-menu-signout"
+            onClick={() => { closeMenu(); onSignOut?.(); }}
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    ),
+  });
 
   return (
-    <div className="tb-account-wrap" ref={wrapRef}>
+    <div className="tb-account-wrap">
       <button
         type="button"
-        className={`tb-account${open ? ' is-open' : ''}`}
-        onClick={() => setOpen((v) => !v)}
+        className={`tb-account${accountPill.isMenuOpen ? ' is-open' : ''}`}
+        onMouseMove={accountPill.handleMouseMove}
+        onMouseLeave={accountPill.handleMouseLeave}
+        onClick={accountPill.handleOpenMenu}
         aria-haspopup="menu"
-        aria-expanded={open}
+        aria-expanded={accountPill.isMenuOpen}
         aria-label="Account"
       >
         <span className="tb-account-avatar-wrap">
@@ -150,51 +204,7 @@ function TbAccount({ user, onOpen }) {
           />
         </span>
       </button>
-
-      {open && (
-        <div className="tb-account-menu" role="menu">
-          {/* Identity header — avatar, name, email. */}
-          <div className="tb-account-menu-head">
-            {avatarUrl
-              ? <img className="tb-account-menu-avatar" src={avatarUrl} alt="" referrerPolicy="no-referrer" />
-              : <span className="tb-account-menu-avatar tb-account-avatar-fallback">{initial}</span>}
-            <span className="tb-account-menu-id">
-              <span className="tb-account-menu-name">{name}</span>
-              {email && <span className="tb-account-menu-email">{email}</span>}
-            </span>
-          </div>
-
-          {/* Status pills — change activity status inline (persists to
-              user_metadata; the active pill follows the session). */}
-          <div className="tb-account-menu-status">
-            <span className="tb-account-menu-label">Status</span>
-            <div className="tb-account-status-pills">
-              {STATUS_OPTIONS.map((s) => (
-                <button
-                  key={s.key}
-                  type="button"
-                  className={`tb-status-pill${s.key === statusKey ? ' is-active' : ''}${s.key === 'offline' ? ' is-offline' : ''}`}
-                  style={{ '--status-color': s.color }}
-                  onClick={() => updateStatus(s.key)}
-                  aria-pressed={s.key === statusKey}
-                >
-                  <span className="tb-status-pill-dot" aria-hidden="true" />
-                  <span>{s.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Open the full Account page. */}
-          <button
-            type="button"
-            className="tb-account-menu-open"
-            onClick={() => { setOpen(false); onOpen(); }}
-          >
-            Open account
-          </button>
-        </div>
-      )}
+      {accountPill.node}
     </div>
   );
 }
@@ -300,13 +310,13 @@ const CloseGlyph = (
 // Routes where the Split-view button is hidden — the top-level personal / nav
 // pages that open fullscreen and have no tile-able content area. Kept in sync
 // with Sidebar.jsx's PERSONAL_ROUTES.
-const SPLIT_HIDDEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/account', '/mail', '/projects']);
+const SPLIT_HIDDEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/admin', '/debug', '/account', '/mail', '/projects']);
 
 export default function TitleBar() {
-  const { session } = useAuth();
-  const { selectedProject } = useSelectedProject();
+  const { session, logout } = useAuth();
+  const { selectedProject, closePicker } = useSelectedProject();
   const { hasUpdate, latestVersion, currentVersion } = useUpdates();
-  const { layout, setLayout, customLayouts, addCustomLayout, applyCustomLayout, updateCustomLayout, renameCustomLayout, removeCustomLayout, activeCustomLayout } = useSplitView();
+  const { layout, setLayout, setFocusedPane, customLayouts, addCustomLayout, applyCustomLayout, updateCustomLayout, renameCustomLayout, removeCustomLayout, activeCustomLayout } = useSplitView();
   // Inline "save current layout" affordance in the split menu: when armed it
   // swaps the "Save current…" button for a name field.
   const [savingLayout, setSavingLayout] = useState(false);
@@ -317,6 +327,18 @@ export default function TitleBar() {
   const { captureAndOpen: openReportProblem, capturing: reportCapturing } = useReportProblem();
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  // Open the Account page exactly like the sidebar's Account tab does: collapse
+  // any split layout back to a single fullscreen window, focus the primary
+  // pane, and close the project picker before navigating. Without this the
+  // topbar's "Open account" left the workspace split intact, so Account opened
+  // inside a pane instead of taking over the window. Mirrors Sidebar's
+  // handleTabClick.
+  const openAccount = () => {
+    closePicker();
+    setFocusedPane(0);
+    setLayout('single');
+    navigate('/account');
+  };
   // The doc-viewer is a secondary window (boots at /doc-viewer); it's a plain
   // file viewer, so it hides the Split-layout and Theme controls.
   const onDocViewer = pathname === '/doc-viewer';
@@ -324,6 +346,10 @@ export default function TitleBar() {
   // "DOCVEX | HUB" and ALL selected-project chrome (name chip + member avatars
   // + file count + usage meters) is hidden — you're between projects, not in one.
   const onHub = pathname === '/projects';
+  // The signed-out screen (/auth). There the bar goes transparent and drops the
+  // brand mark so the auth window reads as one full-bleed surface with just the
+  // window controls floating on top.
+  const onAuth = pathname === '/auth';
   // The Split-view button only makes sense on the project workspace pages
   // (Files / Chat / AI / … and a project's own /projects/:id pages), where the
   // content area can tile into independently-navigable panes. On the top-level
@@ -569,7 +595,7 @@ export default function TitleBar() {
   const updateKind = hasUpdate ? bumpKind(currentVersion, latestVersion) : null;
 
   return (
-    <div className="tb-bar">
+    <div className={`tb-bar${onAuth ? ' is-auth' : ''}`}>
       {/* FPS indicator — fixed at the top-centre of the window. */}
       <FpsMeter />
       {/* Brand on the left — "DOCVEX", with a "| HUB" suffix on the Hub
@@ -580,16 +606,20 @@ export default function TitleBar() {
         {/* Icon + DOCVEX — plain, non-interactive text (with a "| HUB" suffix
             on the Hub; the divider + HUB live INSIDE the static span so the
             flex `gap` spaces both sides of the "|" symmetrically). */}
-        <span className="tb-brand-static">
-          <img src={brandIcon} alt="" className="tb-brand-icon" />
-          <span className="tb-brand-name">DOCVEX</span>
-          {onHub && (
-            <>
-              <span className="tb-brand-sep" aria-hidden="true">|</span>
-              <span className="tb-brand-suffix">HUB</span>
-            </>
-          )}
-        </span>
+        {/* Brand mark — hidden on the signed-out screen so the auth window
+            reads clean (just the window controls on the transparent bar). */}
+        {!onAuth && (
+          <span className="tb-brand-static">
+            <img src={brandIcon} alt="" className="tb-brand-icon" />
+            <span className="tb-brand-name">DOCVEX</span>
+            {onHub && (
+              <>
+                <span className="tb-brand-sep" aria-hidden="true">|</span>
+                <span className="tb-brand-suffix">HUB</span>
+              </>
+            )}
+          </span>
+        )}
         {/* Version pill — to the right of the app name. ONLY shown when a newer
             version is available: "Update · v<latest> · <kind>", colour-coded by
             the semver bump (major/minor/patch) to match the Versions page; the
@@ -742,7 +772,7 @@ export default function TitleBar() {
 
             {/* Account — to the right of the Split button. The avatar opens a
                 dropdown (identity + status pills + "Open account"). */}
-            <TbAccount user={session.user} onOpen={() => navigate('/account')} />
+            <TbAccount user={session.user} onOpen={openAccount} onSignOut={logout} />
           </div>
 
           {/* Divider between the Theme control and the window controls.

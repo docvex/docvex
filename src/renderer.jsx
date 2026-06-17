@@ -33,7 +33,7 @@ const launchParams = new URLSearchParams(window.location.search);
 const isDocViewer = launchParams.get('docViewer') === '1';
 const initialEntries = isDocViewer
   ? [`/doc-viewer?${launchParams.toString()}`]
-  : ['/projects'];
+  : ['/'];
 
 // Provider order:
 //   AuthProvider                — session

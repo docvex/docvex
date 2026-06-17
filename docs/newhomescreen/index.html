@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DocVex — Intelligent legal workflows</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  body { margin: 0; }
+  ::selection { background: var(--accent-soft); color: var(--text-primary); }
+
+  :root, [data-theme="cream"] {
+    --bg-page:#F5F2EA; --bg-card:#FFFFFF; --bg-elevated:#FAF7F0; --bg-sidebar:#FFFFFF; --bg-input:#FFFFFF;
+    --border:rgba(15,23,42,0.10); --border-strong:rgba(15,23,42,0.18);
+    --text-primary:#0F172A; --text-secondary:#1E293B; --text-muted:#6B7280;
+    --text-on-accent:#FFFFFF; --accent:#8B5E3C; --accent-hover:#74502F;
+    --accent-soft:#DCC9A3; --accent-tint:rgba(139,94,60,0.10);
+    --shadow-card:0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+    --shadow-elev:0 18px 50px -24px rgba(15,23,42,0.30), 0 8px 24px -16px rgba(15,23,42,0.18);
+    --dot:color-mix(in srgb, var(--text-primary) 9%, transparent);
+  }
+  [data-theme="ink"] {
+    --bg-page:#0F172A; --bg-card:#1E293B; --bg-elevated:#2A3548; --bg-sidebar:#15213A; --bg-input:#15213A;
+    --border:rgba(245,242,234,0.10); --border-strong:rgba(245,242,234,0.20);
+    --text-primary:#F5F2EA; --text-secondary:#C9CEDC; --text-muted:#8A93A8;
+    --text-on-accent:#0F172A; --accent:#DCC9A3; --accent-hover:#C8B58E;
+    --accent-soft:#8B5E3C; --accent-tint:rgba(220,201,163,0.12);
+    --shadow-card:0 1px 3px rgba(0,0,0,0.40), 0 1px 2px rgba(0,0,0,0.25);
+    --shadow-elev:0 24px 60px -22px rgba(0,0,0,0.65), 0 10px 30px -18px rgba(0,0,0,0.5);
+    --dot:color-mix(in srgb, var(--text-primary) 11%, transparent);
+  }
+
+  @keyframes dv-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.55;transform:scale(.8)} }
+  @keyframes dv-float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-9px)} }
+  @keyframes dv-spin { to { transform: rotate(360deg) } }
+
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+  details[open] [data-plus] { transform: rotate(45deg); }
+  [data-faq] { transition: border-color 160ms; }
+  [data-faq][open] { border-color: var(--accent); }
+
+  a { color: inherit; }
+
+  /* Theme segmented toggle + hero switcher pills (were inline-bound in the design). */
+  .dv-seg{display:inline-flex;align-items:center;justify-content:center;width:34px;height:28px;border-radius:7px;border:none;cursor:pointer;transition:background 150ms,color 150ms,box-shadow 150ms;background:transparent;color:var(--text-muted);}
+  .dv-seg.is-on{background:var(--bg-card);color:var(--text-primary);box-shadow:var(--shadow-card);}
+  .dv-pill{display:inline-flex;align-items:center;padding:7px 14px;border-radius:999px;border:1px solid var(--border);cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600;letter-spacing:0.01em;transition:all 160ms;background:transparent;color:var(--text-secondary);}
+  .dv-pill.is-on{background:var(--accent);color:var(--text-on-accent);border-color:transparent;}
+</style>
+
+</head>
+<body>
+
+<div id="dv-root" data-theme="cream" style="position:relative; min-height:100vh; background:var(--bg-page); color:var(--text-primary); font-family:'Inter',system-ui,-apple-system,sans-serif; overflow-x:hidden;">
+
+  <div aria-hidden="true" style="position:fixed; inset:0; z-index:0; pointer-events:none; background-image: radial-gradient(ellipse 85% 75% at center, transparent 0%, transparent 32%, var(--bg-page) 92%), radial-gradient(circle at center, var(--dot) 1.2px, transparent 1.6px); background-size:100% 100%, 24px 24px; background-position:center, 0 0;"></div>
+
+  <div style="position:relative; z-index:2;">
+
+    <!-- ============ NAV ============ -->
+    <header style="position:sticky; top:0; z-index:50; backdrop-filter:blur(20px) saturate(180%); -webkit-backdrop-filter:blur(20px) saturate(180%); background:color-mix(in srgb, var(--bg-page) 72%, transparent); border-bottom:1px solid var(--border);">
+      <div style="max-width:1440px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:14px clamp(20px,5vw,40px);">
+        <a href="#top" style="display:flex; align-items:center; gap:12px; text-decoration:none;">
+          <span style="width:38px; height:38px; border-radius:10px; overflow:hidden; display:flex; align-items:center; justify-content:center; background:#0F172A; box-shadow:var(--shadow-card); flex-shrink:0;">
+            <img src="assets/logo.png" alt="Docvex" style="width:100%; height:100%; object-fit:cover;">
+          </span>
+          <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:21px; font-weight:700; letter-spacing:0.02em; color:var(--text-primary);">Doc<span style="color:var(--accent);">V</span>ex</span>
+        </a>
+
+        <nav style="display:flex; align-items:center; gap:30px;">
+          <a href="#features" style="font-size:14px; font-weight:500; color:var(--text-secondary); text-decoration:none;">Product</a>
+          <a href="#security" style="font-size:14px; font-weight:500; color:var(--text-secondary); text-decoration:none;">Security</a>
+          <a href="#pricing" style="font-size:14px; font-weight:500; color:var(--text-secondary); text-decoration:none;">Pricing</a>
+          <a href="#faq" style="font-size:14px; font-weight:500; color:var(--text-secondary); text-decoration:none;">FAQ</a>
+        </nav>
+
+        <div style="display:flex; align-items:center; gap:14px;">
+          <div style="display:inline-flex; align-items:center; gap:2px; padding:3px; border-radius:9px; background:var(--bg-elevated); border:1px solid var(--border);">
+            <button type="button" title="Cream theme" class="dv-seg" data-theme-btn="cream" onclick="dvSetTheme('cream')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+            </button>
+            <button type="button" title="Ink theme" class="dv-seg" data-theme-btn="ink" onclick="dvSetTheme('ink')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6.4 6.4 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+            </button>
+          </div>
+          <a href="#demo" style="display:inline-flex; align-items:center; height:40px; padding:0 18px; border-radius:9px; background:var(--accent); color:var(--text-on-accent); font-size:14px; font-weight:600; text-decoration:none; box-shadow:var(--shadow-card);">Request demo</a>
+        </div>
+      </div>
+    </header>
+
+    <!-- ============ HERO ============ -->
+    <a id="top"></a>
+    <section style="position:relative; max-width:1440px; margin:0 auto; padding:clamp(40px,6vw,76px) clamp(20px,5vw,40px) clamp(48px,7vw,90px);">
+
+      <!-- VARIATION A — Product UI -->
+      <div class="dv-hero" data-hero="0">
+      <div style="display:flex; flex-wrap:wrap; gap:clamp(40px,6vw,64px); align-items:center;">
+        <div style="flex:1 1 380px; min-width:300px;">
+          <span style="display:inline-flex; align-items:center; gap:9px; padding:6px 13px; border-radius:999px; border:1px solid var(--border); background:var(--bg-card); font-size:11px; font-weight:700; letter-spacing:0.2em; text-transform:uppercase; color:var(--accent); box-shadow:var(--shadow-card);">
+            <span style="width:6px; height:6px; border-radius:50%; background:var(--accent); animation:dv-pulse 2s ease-in-out infinite;"></span>
+            Intelligent legal workflows
+          </span>
+          <h1 style="margin:24px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(46px,7vw,80px); font-weight:800; line-height:0.98; letter-spacing:-0.04em; color:var(--text-primary);">Documents.<br><span style="color:var(--accent);">Solved.</span></h1>
+          <p style="margin:22px 0 0; max-width:440px; font-size:clamp(16px,1.5vw,19px); line-height:1.6; color:var(--text-secondary);">Draft, review and sign without the busywork in between — in one quiet, private workspace built for the way firms actually work.</p>
+          <div style="margin-top:30px; display:flex; flex-wrap:wrap; gap:12px;">
+            <a href="#demo" style="display:inline-flex; align-items:center; height:48px; padding:0 24px; border-radius:11px; background:var(--accent); color:var(--text-on-accent); font-size:15px; font-weight:600; text-decoration:none; box-shadow:var(--shadow-card);">Request a demo</a>
+            <a href="#features" style="display:inline-flex; align-items:center; height:48px; padding:0 24px; border-radius:11px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:15px; font-weight:600; text-decoration:none;">Join the waitlist</a>
+          </div>
+          <div style="margin-top:40px; display:grid; grid-template-columns:repeat(2,1fr); gap:22px 28px; max-width:460px;">
+            <div><p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:700; color:var(--text-primary);">Drafting</p><p style="margin:4px 0 0; font-size:13px; color:var(--text-muted);">From your firm's templates.</p></div>
+            <div><p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:700; color:var(--text-primary);">Privacy</p><p style="margin:4px 0 0; font-size:13px; color:var(--text-muted);">GDPR by design.</p></div>
+            <div><p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:700; color:var(--text-primary);">Workflows</p><p style="margin:4px 0 0; font-size:13px; color:var(--text-muted);">Intake to close.</p></div>
+            <div><p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:700; color:var(--text-primary);">Insight</p><p style="margin:4px 0 0; font-size:13px; color:var(--text-muted);">Across every matter.</p></div>
+          </div>
+        </div>
+
+        <div style="flex:1 1 460px; min-width:320px; animation:dv-float 7s ease-in-out infinite;">
+          <!-- APP WINDOW MOCK -->
+          <div style="border-radius:16px; overflow:hidden; background:var(--bg-card); border:1px solid var(--border); box-shadow:var(--shadow-elev);">
+            <div style="display:flex; align-items:center; gap:14px; height:38px; padding:0 14px; background:var(--bg-elevated); border-bottom:1px solid var(--border);">
+              <div style="display:flex; gap:7px;"><span style="width:11px;height:11px;border-radius:50%;background:#ec6a5e;"></span><span style="width:11px;height:11px;border-radius:50%;background:#f4bf4f;"></span><span style="width:11px;height:11px;border-radius:50%;background:#61c454;"></span></div>
+              <span style="flex:1; text-align:center; font-size:12px; font-weight:600; color:var(--text-muted); letter-spacing:0.04em;">Docvex — Vasilescu &amp; Partners</span>
+              <span style="width:46px;"></span>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; height:42px; padding:0 12px; background:var(--bg-card); border-bottom:1px solid var(--border);">
+              <span style="width:22px; height:22px; border-radius:6px; overflow:hidden; background:#0F172A; flex-shrink:0;"><img src="assets/logo.png" alt="" style="width:100%;height:100%;object-fit:cover;"></span>
+              <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:12px; font-weight:700; letter-spacing:0.06em; color:var(--text-primary); margin-right:8px;">DOCVEX</span>
+              <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 9px; border-radius:6px; background:var(--bg-elevated); color:var(--text-primary); font-size:11px; font-weight:600;">Chat</span>
+              <span style="padding:4px 9px; font-size:11px; font-weight:500; color:var(--text-muted);">Files</span>
+              <span style="padding:4px 9px; font-size:11px; font-weight:500; color:var(--text-muted);">AI</span>
+              <span style="padding:4px 9px; font-size:11px; font-weight:500; color:var(--text-muted);">Updates</span>
+              <span title="Split view" style="margin-left:auto; width:24px; height:24px; border-radius:6px; background:var(--accent-tint); color:var(--accent); display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg></span>
+              <span style="margin-left:8px; width:24px; height:24px; border-radius:50%; background:var(--accent); color:var(--text-on-accent); font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;">VP</span>
+            </div>
+            <div style="padding:12px; background:var(--bg-page);">
+              <div style="display:grid; grid-template-columns:1.25fr 1fr; grid-template-rows:1fr 1fr; gap:8px; height:322px;">
+
+                <!-- PRIMARY pane — Chat (spans left column) -->
+                <div style="grid-row:1 / span 2; display:flex; flex-direction:column; border:1px solid var(--border); border-radius:11px; overflow:hidden; background:transparent; min-height:0;">
+                  <div style="display:flex;align-items:center;gap:5px;padding:5px 7px;border-bottom:1px solid var(--border);background:var(--bg-sidebar);flex:0 0 auto;"><span style="width:16px;height:16px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-muted);flex-shrink:0;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span><span style="font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:700;letter-spacing:-0.01em;color:var(--text-primary);flex-shrink:0;">Chat</span><span style="color:var(--text-muted);font-size:10px;flex-shrink:0;">·</span><span style="font-size:9.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:0;">Team &amp; private chat</span><span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-secondary);font-size:9px;flex-shrink:0;">Chat <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span></div>
+                  <div style="flex:1 1 auto; min-height:0; overflow:hidden; padding:10px; display:flex; flex-direction:column; gap:7px;">
+                    <div style="display:flex; gap:6px; align-items:flex-end;"><span style="width:18px;height:18px;border-radius:50%;background:var(--accent-soft);color:#0F172A;font-size:8px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">AV</span><span style="max-width:82%;padding:6px 9px;border-radius:11px 11px 11px 3px;background:var(--bg-elevated);border:1px solid var(--border);font-size:10.5px;line-height:1.35;color:var(--text-primary);">Can you send the latest draft?</span></div>
+                    <div style="display:flex; justify-content:flex-end;"><span style="max-width:82%;padding:6px 9px;border-radius:11px 11px 3px 11px;background:var(--accent);color:var(--text-on-accent);font-size:10.5px;line-height:1.35;">On it — sharing the v3 now.</span></div>
+                    <div style="display:flex; gap:6px; align-items:flex-end;"><span style="width:18px;height:18px;border-radius:50%;background:var(--accent-soft);color:#0F172A;font-size:8px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">AV</span><span style="max-width:82%;padding:6px 9px;border-radius:11px 11px 11px 3px;background:var(--bg-elevated);border:1px solid var(--border);font-size:10.5px;line-height:1.35;color:var(--text-primary);">Perfect. Ready for signature?</span></div>
+                  </div>
+                  <div style="flex:0 0 auto; padding:8px; border-top:1px solid var(--border); background:color-mix(in srgb, var(--bg-page) 66%, transparent);"><div style="display:flex;align-items:center;gap:6px;padding:5px 9px;border:1px solid var(--border);border-radius:999px;background:var(--bg-input);"><span style="flex:1;font-size:9.5px;color:var(--text-muted);">Message the team…</span><span style="width:16px;height:16px;border-radius:50%;background:var(--accent);color:var(--text-on-accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span></div></div>
+                </div>
+
+                <!-- AI pane (right top) -->
+                <div style="display:flex;flex-direction:column;border:1px solid var(--border);border-radius:11px;overflow:hidden;background:transparent;min-height:0;">
+                  <div style="display:flex;align-items:center;gap:5px;padding:5px 7px;border-bottom:1px solid var(--border);background:var(--bg-sidebar);flex:0 0 auto;"><span style="width:16px;height:16px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-muted);flex-shrink:0;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span><span style="font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:700;letter-spacing:-0.01em;color:var(--text-primary);flex-shrink:0;">AI</span><span style="color:var(--text-muted);font-size:10px;flex-shrink:0;">·</span><span style="font-size:9.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:0;">DocVex AI</span><span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-secondary);font-size:9px;flex-shrink:0;">AI <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span></div>
+                  <div style="flex:1 1 auto; min-height:0; overflow:hidden; padding:9px; display:flex; flex-direction:column; gap:6px;">
+                    <div style="display:flex; gap:6px;"><span style="width:16px;height:16px;border-radius:5px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 15.5 8.5 14 2.4 12.5a.5.5 0 0 1 0-1L8.5 10 9.9 3.9a.5.5 0 0 1 1 0L12.3 10l6.1 1.5a.5.5 0 0 1 0 1L12.3 14l-1.4 6.1a.5.5 0 0 1-1 0Z"/></svg></span><span style="font-size:10px;line-height:1.45;color:var(--text-secondary);">Summarized 84 pages — 3 risks, 6 key dates flagged.</span></div>
+                    <div style="margin-top:auto; display:flex; align-items:center; gap:6px; padding:5px 9px; border:1px solid var(--border); border-radius:999px; background:var(--bg-input);"><span style="flex:1;font-size:9.5px;color:var(--text-muted);">Ask DocVex AI…</span><span style="width:14px;height:14px;border-radius:50%;background:var(--accent);color:var(--text-on-accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span></div>
+                  </div>
+                </div>
+
+                <!-- Files pane (right bottom) -->
+                <div style="display:flex;flex-direction:column;border:1px solid var(--border);border-radius:11px;overflow:hidden;background:transparent;min-height:0;">
+                  <div style="display:flex;align-items:center;gap:5px;padding:5px 7px;border-bottom:1px solid var(--border);background:var(--bg-sidebar);flex:0 0 auto;"><span style="width:16px;height:16px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-muted);flex-shrink:0;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span><span style="font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:700;letter-spacing:-0.01em;color:var(--text-primary);flex-shrink:0;">Files</span><span style="color:var(--text-muted);font-size:10px;flex-shrink:0;">·</span><span style="font-size:9.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:0;">Project files</span><span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-secondary);font-size:9px;flex-shrink:0;">Files <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span></div>
+                  <div style="flex:1 1 auto; min-height:0; overflow:hidden; padding:7px; display:flex; flex-direction:column; gap:5px;">
+                    <div style="display:flex;align-items:center;gap:7px;padding:5px 7px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);"><span style="width:18px;height:18px;border-radius:5px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/></svg></span><span style="flex:1;min-width:0;font-size:10px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Shareholder Agreement v3.pdf</span><span style="font-size:8.5px;color:var(--text-muted);flex-shrink:0;">2m</span></div>
+                    <div style="display:flex;align-items:center;gap:7px;padding:5px 7px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);"><span style="width:18px;height:18px;border-radius:5px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/></svg></span><span style="flex:1;min-width:0;font-size:10px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Diligence Checklist.xlsx</span><span style="font-size:8.5px;color:var(--text-muted);flex-shrink:0;">1h</span></div>
+                    <div style="display:flex;align-items:center;gap:7px;padding:5px 7px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);"><span style="width:18px;height:18px;border-radius:5px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/></svg></span><span style="flex:1;min-width:0;font-size:10px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Board minutes — 14 Oct.docx</span><span style="font-size:8.5px;color:var(--text-muted);flex-shrink:0;">2d</span></div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <!-- VARIATION B — Editorial -->
+      <div class="dv-hero" data-hero="1" style="display:none;">
+      <div style="text-align:center; max-width:880px; margin:0 auto; padding-top:clamp(8px,3vw,40px);">
+        <span style="display:inline-flex; align-items:center; gap:9px; padding:6px 13px; border-radius:999px; border:1px solid var(--border); background:var(--bg-card); font-size:11px; font-weight:700; letter-spacing:0.2em; text-transform:uppercase; color:var(--accent); box-shadow:var(--shadow-card);">
+          <span style="width:6px; height:6px; border-radius:50%; background:var(--accent); animation:dv-pulse 2s ease-in-out infinite;"></span>
+          Intelligent legal workflows
+        </span>
+        <h1 style="margin:26px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(50px,9vw,108px); font-weight:800; line-height:0.94; letter-spacing:-0.045em; color:var(--text-primary);">Draft. Review.<br><span style="color:var(--accent);">Sign.</span></h1>
+        <p style="margin:26px auto 0; max-width:560px; font-size:clamp(17px,1.7vw,20px); line-height:1.6; color:var(--text-secondary);">Everything a modern firm needs to move a matter from intake to close — without the busywork in between.</p>
+        <div style="margin-top:32px; display:flex; flex-wrap:wrap; gap:12px; justify-content:center;">
+          <a href="#demo" style="display:inline-flex; align-items:center; height:50px; padding:0 26px; border-radius:12px; background:var(--accent); color:var(--text-on-accent); font-size:15px; font-weight:600; text-decoration:none; box-shadow:var(--shadow-card);">Request a demo</a>
+          <a href="#features" style="display:inline-flex; align-items:center; height:50px; padding:0 26px; border-radius:12px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:15px; font-weight:600; text-decoration:none;">See the platform</a>
+        </div>
+        <div style="margin-top:52px; display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--border); border:1px solid var(--border); border-radius:16px; overflow:hidden; box-shadow:var(--shadow-card);">
+          <div style="background:var(--bg-card); padding:22px 16px;"><p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:30px; font-weight:800; letter-spacing:-0.03em; color:var(--text-primary);">5×</p><p style="margin:6px 0 0; font-size:12.5px; color:var(--text-muted);">faster drafting</p></div>
+          <div style="background:var(--bg-card); padding:22px 16px;"><p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:30px; font-weight:800; letter-spacing:-0.03em; color:var(--text-primary);">&lt;1wk</p><p style="margin:6px 0 0; font-size:12.5px; color:var(--text-muted);">to roll out</p></div>
+          <div style="background:var(--bg-card); padding:22px 16px;"><p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:30px; font-weight:800; letter-spacing:-0.03em; color:var(--text-primary);">EU</p><p style="margin:6px 0 0; font-size:12.5px; color:var(--text-muted);">data residency</p></div>
+          <div style="background:var(--bg-card); padding:22px 16px;"><p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:30px; font-weight:800; letter-spacing:-0.03em; color:var(--accent);">0</p><p style="margin:6px 0 0; font-size:12.5px; color:var(--text-muted);">AI training on your data</p></div>
+        </div>
+      </div>
+      </div>
+
+      <!-- VARIATION C — Documents -->
+      <div class="dv-hero" data-hero="2" style="display:none;">
+      <div style="display:flex; flex-wrap:wrap; gap:clamp(40px,6vw,64px); align-items:center;">
+        <div style="flex:1 1 380px; min-width:300px;">
+          <span style="display:inline-flex; align-items:center; gap:9px; padding:6px 13px; border-radius:999px; border:1px solid var(--border); background:var(--bg-card); font-size:11px; font-weight:700; letter-spacing:0.2em; text-transform:uppercase; color:var(--accent); box-shadow:var(--shadow-card);">
+            <span style="width:6px; height:6px; border-radius:50%; background:var(--accent); animation:dv-pulse 2s ease-in-out infinite;"></span>
+            Every matter, in order
+          </span>
+          <h1 style="margin:24px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(44px,6.5vw,76px); font-weight:800; line-height:1.0; letter-spacing:-0.04em; color:var(--text-primary);">The cabinet,<br><span style="color:var(--accent);">reimagined.</span></h1>
+          <p style="margin:22px 0 0; max-width:440px; font-size:clamp(16px,1.5vw,19px); line-height:1.6; color:var(--text-secondary);">Every contract, draft and signature — organized, searchable and private. The order of a walnut cabinet, with the speed of AI.</p>
+          <div style="margin-top:30px; display:flex; flex-wrap:wrap; gap:12px;">
+            <a href="#demo" style="display:inline-flex; align-items:center; height:48px; padding:0 24px; border-radius:11px; background:var(--accent); color:var(--text-on-accent); font-size:15px; font-weight:600; text-decoration:none; box-shadow:var(--shadow-card);">Request a demo</a>
+            <a href="#features" style="display:inline-flex; align-items:center; height:48px; padding:0 24px; border-radius:11px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:15px; font-weight:600; text-decoration:none;">Explore features</a>
+          </div>
+        </div>
+        <div style="flex:1 1 440px; min-width:320px; position:relative; display:flex; justify-content:center; padding:20px 0;">
+          <div style="position:relative; width:340px; height:380px;">
+            <div style="position:absolute; top:34px; left:18px; width:240px; transform:rotate(-7deg); background:var(--bg-card); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow-elev); padding:18px;">
+              <div style="display:flex; align-items:center; gap:10px;"><span style="width:30px;height:30px;border-radius:8px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/></svg></span><p style="margin:0;font-size:12px;font-weight:600;color:var(--text-primary);">Engagement letter</p></div>
+              <div style="margin-top:14px; display:flex; flex-direction:column; gap:7px;"><span style="height:7px;width:100%;border-radius:4px;background:var(--bg-elevated);"></span><span style="height:7px;width:85%;border-radius:4px;background:var(--bg-elevated);"></span><span style="height:7px;width:92%;border-radius:4px;background:var(--bg-elevated);"></span></div>
+            </div>
+            <div style="position:absolute; top:0; right:6px; width:248px; transform:rotate(6deg); background:var(--bg-card); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow-elev); padding:18px;">
+              <div style="display:flex; align-items:center; justify-content:space-between;"><span style="display:inline-flex; align-items:center; gap:8px;"><span style="width:30px;height:30px;border-radius:8px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 15.5 8.5 14 2.4 12.5a.5.5 0 0 1 0-1L8.5 10 9.9 3.9a.5.5 0 0 1 1 0L12.3 10l6.1 1.5a.5.5 0 0 1 0 1L12.3 14l-1.4 6.1a.5.5 0 0 1-1 0Z"/></svg></span><p style="margin:0;font-size:12px;font-weight:600;color:var(--text-primary);">AI summary</p></span></div>
+              <p style="margin:13px 0 0; font-size:11.5px; line-height:1.5; color:var(--text-secondary);">3 clauses need review. Termination date: 14 Oct 2026. Liability cap flagged.</p>
+            </div>
+            <div style="position:absolute; bottom:8px; left:46px; width:252px; background:var(--accent); color:var(--text-on-accent); border-radius:14px; box-shadow:var(--shadow-elev); padding:18px;">
+              <div style="display:flex; align-items:center; justify-content:space-between;"><p style="margin:0;font-size:12px;font-weight:700;">Shareholder Agreement</p><span style="font-size:10px; font-weight:700; padding:3px 8px; border-radius:999px; background:color-mix(in srgb, var(--text-on-accent) 18%, transparent);">Signed</span></div>
+              <div style="margin-top:14px; display:flex; align-items:center; gap:5px;"><span style="height:6px;flex:1;border-radius:3px;background:var(--text-on-accent);"></span><span style="height:6px;flex:1;border-radius:3px;background:var(--text-on-accent);"></span><span style="height:6px;flex:1;border-radius:3px;background:var(--text-on-accent);"></span><span style="height:6px;flex:1;border-radius:3px;background:color-mix(in srgb, var(--text-on-accent) 30%, transparent);"></span></div>
+              <div style="margin-top:8px; display:flex; justify-content:space-between; font-size:10px; opacity:.85;"><span>Intake</span><span>Draft</span><span>Review</span><span>Close</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <!-- ============ FEATURES ============ -->
+    <section id="features" style="position:relative; max-width:1440px; margin:0 auto; padding:clamp(56px,8vw,104px) clamp(20px,5vw,40px);">
+      <p style="margin:0; font-size:11px; font-weight:700; letter-spacing:0.22em; text-transform:uppercase; color:var(--accent);">The platform</p>
+      <h2 style="margin:14px 0 0; max-width:780px; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(32px,5vw,54px); font-weight:700; line-height:1.04; letter-spacing:-0.035em; color:var(--text-primary); text-wrap:pretty;">Everything a modern firm needs. <span style="color:var(--accent);">In one quiet workspace.</span></h2>
+      <p style="margin:18px 0 0; max-width:560px; font-size:17px; line-height:1.6; color:var(--text-secondary);">Drafting. Organizing. Tracking. Done — so your lawyers can focus on the rest.</p>
+
+      <div style="margin-top:44px; display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px;">
+        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
+          <span style="display:inline-flex; width:46px; height:46px; border-radius:13px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 15.5 8.5 14 2.4 12.5a.5.5 0 0 1 0-1L8.5 10 9.9 3.9a.5.5 0 0 1 1 0L12.3 10l6.1 1.5a.5.5 0 0 1 0 1L12.3 14l-1.4 6.1a.5.5 0 0 1-1 0Z"/></svg></span>
+          <h3 style="margin:18px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:20px; font-weight:700; letter-spacing:-0.01em; color:var(--text-primary);">AI summaries</h3>
+          <p style="margin:9px 0 0; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Hundreds of pages, reduced to the clauses, dates and risks that matter.</p>
+        </div>
+        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
+          <span style="display:inline-flex; width:46px; height:46px; border-radius:13px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
+          <h3 style="margin:18px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:20px; font-weight:700; letter-spacing:-0.01em; color:var(--text-primary);">Smart search</h3>
+          <p style="margin:9px 0 0; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Find precedent across every matter your firm has ever handled.</p>
+        </div>
+        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
+          <span style="display:inline-flex; width:46px; height:46px; border-radius:13px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span>
+          <h3 style="margin:18px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:20px; font-weight:700; letter-spacing:-0.01em; color:var(--text-primary);">Workflows</h3>
+          <p style="margin:9px 0 0; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Intake. Draft. Review. Close. Every step in sequence, no handoffs.</p>
+        </div>
+        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
+          <span style="display:inline-flex; width:46px; height:46px; border-radius:13px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+          <h3 style="margin:18px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:20px; font-weight:700; letter-spacing:-0.01em; color:var(--text-primary);">Drafting</h3>
+          <p style="margin:9px 0 0; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Engagement letters and contracts, generated in your firm's voice.</p>
+        </div>
+        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow-card);">
+          <span style="display:inline-flex; width:46px; height:46px; border-radius:13px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span>
+          <h3 style="margin:18px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:20px; font-weight:700; letter-spacing:-0.01em; color:var(--text-primary);">Legal updates</h3>
+          <p style="margin:9px 0 0; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Legislation, summarized for your practice and reviewed by humans.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SECURITY ============ -->
+    <section id="security" style="position:relative; padding:clamp(56px,8vw,104px) clamp(20px,5vw,40px); background:var(--bg-card); border-top:1px solid var(--border); border-bottom:1px solid var(--border);">
+      <div style="max-width:1440px; margin:0 auto; display:flex; flex-wrap:wrap; gap:clamp(36px,5vw,64px);">
+        <div style="flex:1 1 320px; min-width:280px;">
+          <p style="margin:0; display:inline-flex; align-items:center; gap:9px; font-size:11px; font-weight:700; letter-spacing:0.22em; text-transform:uppercase; color:var(--accent);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg> Security</p>
+          <h2 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(30px,4.5vw,48px); font-weight:700; line-height:1.05; letter-spacing:-0.035em; color:var(--text-primary);">Built with <span style="color:var(--accent);">legal-grade confidentiality.</span></h2>
+          <p style="margin:18px 0 0; max-width:380px; font-size:17px; line-height:1.6; color:var(--text-secondary);">Engineered around client privilege — from the first line of code.</p>
+          <p style="margin:26px 0 0; max-width:420px; font-size:12.5px; line-height:1.6; color:var(--text-muted);">Docvex is a workflow platform. It does not provide legal advice or replace lawyers.</p>
+        </div>
+        <div style="flex:1 1 440px; min-width:300px; display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px;">
+          <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:22px;">
+            <span style="display:inline-flex; width:40px; height:40px; border-radius:11px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+            <h3 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:700; color:var(--text-primary);">Encrypted storage</h3>
+            <p style="margin:6px 0 0; font-size:13.5px; line-height:1.55; color:var(--text-secondary);">Encryption at rest and in transit, with industry-standard keys.</p>
+          </div>
+          <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:22px;">
+            <span style="display:inline-flex; width:40px; height:40px; border-radius:11px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></span>
+            <h3 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:700; color:var(--text-primary);">GDPR-compliant</h3>
+            <p style="margin:6px 0 0; font-size:13.5px; line-height:1.55; color:var(--text-secondary);">EU infrastructure and EU data residency, by design.</p>
+          </div>
+          <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:22px;">
+            <span style="display:inline-flex; width:40px; height:40px; border-radius:11px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span>
+            <h3 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:700; color:var(--text-primary);">Private workspaces</h3>
+            <p style="margin:6px 0 0; font-size:13.5px; line-height:1.55; color:var(--text-secondary);">Per-firm tenancy with matter-level permissions.</p>
+          </div>
+          <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:22px;">
+            <span style="display:inline-flex; width:40px; height:40px; border-radius:11px; align-items:center; justify-content:center; background:var(--accent-tint); color:var(--accent);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/></svg></span>
+            <h3 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:700; color:var(--text-primary);">No AI training</h3>
+            <p style="margin:6px 0 0; font-size:13.5px; line-height:1.55; color:var(--text-secondary);">Your documents never train our models. Ever.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ LEGAL UPDATES ============ -->
+    <section id="updates" style="position:relative; max-width:1440px; margin:0 auto; padding:clamp(56px,8vw,104px) clamp(20px,5vw,40px); display:flex; flex-wrap:wrap; gap:clamp(36px,5vw,72px);">
+      <div style="flex:1 1 300px; min-width:280px;">
+        <p style="margin:0; display:inline-flex; align-items:center; gap:9px; font-size:11px; font-weight:700; letter-spacing:0.22em; text-transform:uppercase; color:var(--accent);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg> Legal AI updates</p>
+        <h2 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(30px,4.5vw,48px); font-weight:700; line-height:1.05; letter-spacing:-0.035em; color:var(--text-primary);">The law moves. <span style="color:var(--accent);">Your firm moves with it.</span></h2>
+        <p style="margin:18px 0 0; max-width:380px; font-size:17px; line-height:1.6; color:var(--text-secondary);">Legislation, summarized for your practice and reviewed by humans.</p>
+        <a href="#demo" style="margin-top:22px; display:inline-flex; align-items:center; gap:8px; font-size:14px; font-weight:600; color:var(--accent); text-decoration:none;">See the feed <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a>
+      </div>
+      <div style="flex:1 1 460px; min-width:300px; background:var(--bg-card); border:1px solid var(--border); border-radius:20px; box-shadow:var(--shadow-card); padding:8px 22px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 0 12px; border-bottom:1px solid var(--border);">
+          <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:15px; font-weight:700; color:var(--text-primary);">Intelligence feed</p>
+          <span style="display:inline-flex; align-items:center; gap:7px; padding:4px 10px; border-radius:999px; background:var(--accent-tint); font-size:10px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--accent);"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);animation:dv-pulse 2s ease-in-out infinite;"></span>Live</span>
+        </div>
+        <div style="display:flex; align-items:flex-start; gap:14px; padding:16px 0; border-bottom:1px solid var(--border);">
+          <span style="width:38px;height:38px;border-radius:10px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 15.5 8.5 14 2.4 12.5a.5.5 0 0 1 0-1L8.5 10 9.9 3.9a.5.5 0 0 1 1 0L12.3 10l6.1 1.5a.5.5 0 0 1 0 1L12.3 14l-1.4 6.1a.5.5 0 0 1-1 0Z"/></svg></span>
+          <div style="flex:1; min-width:0;">
+            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px;"><span style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;padding:3px 8px;border-radius:999px;background:var(--accent);color:var(--text-on-accent);">EU · GDPR</span><span style="font-size:11px;color:var(--text-muted);">Today · 09:14</span></div>
+            <p style="margin:9px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:14.5px; font-weight:600; color:var(--text-primary);">New guidance on AI-generated personal data.</p>
+            <p style="margin:5px 0 0; font-size:13px; line-height:1.5; color:var(--text-secondary);">EDPB clarifies controller obligations for synthetic outputs derived from training data.</p>
+          </div>
+        </div>
+        <div style="display:flex; align-items:flex-start; gap:14px; padding:16px 0; border-bottom:1px solid var(--border);">
+          <span style="width:38px;height:38px;border-radius:10px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+          <div style="flex:1; min-width:0;">
+            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px;"><span style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;padding:3px 8px;border-radius:999px;background:var(--accent);color:var(--text-on-accent);">Romania · Civil</span><span style="font-size:11px;color:var(--text-muted);">Yesterday</span></div>
+            <p style="margin:9px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:14.5px; font-weight:600; color:var(--text-primary);">Amendments to the Civil Procedure Code.</p>
+            <p style="margin:5px 0 0; font-size:13px; line-height:1.5; color:var(--text-secondary);">Updated appeal deadlines and revised electronic filing requirements, in effect Q3.</p>
+          </div>
+        </div>
+        <div style="display:flex; align-items:flex-start; gap:14px; padding:16px 0;">
+          <span style="width:38px;height:38px;border-radius:10px;background:var(--accent-tint);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></span>
+          <div style="flex:1; min-width:0;">
+            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px;"><span style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;padding:3px 8px;border-radius:999px;background:var(--accent);color:var(--text-on-accent);">Employment</span><span style="font-size:11px;color:var(--text-muted);">2 days ago</span></div>
+            <p style="margin:9px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:14.5px; font-weight:600; color:var(--text-primary);">Remote work registration changes.</p>
+            <p style="margin:5px 0 0; font-size:13px; line-height:1.5; color:var(--text-secondary);">Employers must notify the labour inspectorate within 5 working days.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PRICING ============ -->
+    <section id="pricing" style="position:relative; padding:clamp(56px,8vw,104px) clamp(20px,5vw,40px); background:var(--bg-card); border-top:1px solid var(--border); border-bottom:1px solid var(--border);">
+      <div style="max-width:1440px; margin:0 auto;">
+        <div style="text-align:center; max-width:680px; margin:0 auto;">
+          <p style="margin:0; font-size:11px; font-weight:700; letter-spacing:0.22em; text-transform:uppercase; color:var(--accent);">Pricing</p>
+          <h2 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(30px,4.5vw,48px); font-weight:700; line-height:1.05; letter-spacing:-0.035em; color:var(--text-primary);">Priced for the work <span style="color:var(--accent);">it gives you back.</span></h2>
+          <p style="margin:16px 0 0; font-size:17px; line-height:1.6; color:var(--text-secondary);">Three plans, matched to the size of your firm.</p>
+        </div>
+        <div style="margin-top:44px; display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:20px; align-items:start;">
+          <div style="background:var(--bg-page); border:1px solid var(--border); border-radius:20px; padding:30px; box-shadow:var(--shadow-card);">
+            <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:24px; font-weight:700; color:var(--text-primary);">Solo</p>
+            <p style="margin:5px 0 0; font-size:13.5px; color:var(--text-muted);">For independent lawyers.</p>
+            <p style="margin:22px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:26px; font-weight:700; color:var(--text-primary);">On request</p>
+            <p style="margin:3px 0 0; font-size:12px; color:var(--text-muted);">Pricing matched to your firm.</p>
+            <div style="margin:22px 0; display:flex; flex-direction:column; gap:11px;">
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> AI drafting from your templates.</span>
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Smart search across your matters.</span>
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Legal updates feed.</span>
+            </div>
+            <a href="#demo" style="display:flex; align-items:center; justify-content:center; height:46px; border-radius:11px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:14.5px; font-weight:600; text-decoration:none;">Talk to us</a>
+          </div>
+
+          <div style="background:#0F172A; border:1px solid var(--accent-soft); border-radius:20px; padding:30px; box-shadow:var(--shadow-elev); position:relative;">
+            <span style="position:absolute; top:-12px; left:50%; transform:translateX(-50%); padding:5px 14px; border-radius:999px; background:var(--accent-soft); color:#0F172A; font-size:10px; font-weight:700; letter-spacing:0.16em; text-transform:uppercase; white-space:nowrap;">Most popular</span>
+            <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:24px; font-weight:700; color:#F5F2EA;">Firm</p>
+            <p style="margin:5px 0 0; font-size:13.5px; color:rgba(245,242,234,0.7);">For boutique and mid-sized firms.</p>
+            <p style="margin:22px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:26px; font-weight:700; color:#F5F2EA;">On request</p>
+            <p style="margin:3px 0 0; font-size:12px; color:rgba(245,242,234,0.55);">Pricing matched to your firm.</p>
+            <div style="margin:22px 0; display:flex; flex-direction:column; gap:11px;">
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:rgba(245,242,234,0.85);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DCC9A3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Everything in Solo.</span>
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:rgba(245,242,234,0.85);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DCC9A3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Workflows. Intake to close.</span>
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:rgba(245,242,234,0.85);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DCC9A3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Role-based permissions.</span>
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:rgba(245,242,234,0.85);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DCC9A3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Multi-matter view.</span>
+            </div>
+            <a href="#demo" style="display:flex; align-items:center; justify-content:center; height:46px; border-radius:11px; background:var(--accent-soft); color:#0F172A; font-size:14.5px; font-weight:700; text-decoration:none;">Request demo</a>
+          </div>
+
+          <div style="background:var(--bg-page); border:1px solid var(--border); border-radius:20px; padding:30px; box-shadow:var(--shadow-card);">
+            <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:24px; font-weight:700; color:var(--text-primary);">Enterprise</p>
+            <p style="margin:5px 0 0; font-size:13.5px; color:var(--text-muted);">For large firms and legal teams.</p>
+            <p style="margin:22px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:26px; font-weight:700; color:var(--text-primary);">On request</p>
+            <p style="margin:3px 0 0; font-size:12px; color:var(--text-muted);">Pricing matched to your firm.</p>
+            <div style="margin:22px 0; display:flex; flex-direction:column; gap:11px;">
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Everything in Firm.</span>
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Custom integrations.</span>
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> On-premise option.</span>
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> SSO and audit logs.</span>
+              <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Dedicated success manager.</span>
+            </div>
+            <a href="#demo" style="display:flex; align-items:center; justify-content:center; height:46px; border-radius:11px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:14.5px; font-weight:600; text-decoration:none;">Contact sales</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FAQ ============ -->
+    <section id="faq" style="position:relative; max-width:1440px; margin:0 auto; padding:clamp(56px,8vw,104px) clamp(20px,5vw,40px); display:flex; flex-wrap:wrap; gap:clamp(36px,5vw,72px);">
+      <div style="flex:1 1 300px; min-width:260px;">
+        <p style="margin:0; font-size:11px; font-weight:700; letter-spacing:0.22em; text-transform:uppercase; color:var(--accent);">FAQ</p>
+        <h2 style="margin:14px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(30px,4.5vw,48px); font-weight:700; line-height:1.05; letter-spacing:-0.035em; color:var(--text-primary);">Answers. <span style="color:var(--accent);">Without the marketing.</span></h2>
+        <p style="margin:18px 0 0; max-width:360px; font-size:17px; line-height:1.6; color:var(--text-secondary);">Plain language for the cautious — because lawyers ask better questions than most.</p>
+      </div>
+      <div style="flex:1 1 480px; min-width:300px; display:flex; flex-direction:column; gap:12px;">
+        <details data-faq open style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
+          <summary style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:600; color:var(--text-primary);">Does Docvex replace lawyers?<span data-plus style="display:inline-flex; transition:transform 220ms; color:var(--accent); flex-shrink:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary>
+          <p style="margin:0; padding:0 0 16px; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">No. Docvex removes the administrative work. The judgment, the advocacy, the counsel — that stays with you.</p>
+        </details>
+        <details data-faq style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
+          <summary style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:600; color:var(--text-primary);">Is my firm's data used to train AI?<span data-plus style="display:inline-flex; transition:transform 220ms; color:var(--accent); flex-shrink:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary>
+          <p style="margin:0; padding:0 0 16px; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Never. Your documents stay yours.</p>
+        </details>
+        <details data-faq style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
+          <summary style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:600; color:var(--text-primary);">Is Docvex GDPR compliant?<span data-plus style="display:inline-flex; transition:transform 220ms; color:var(--accent); flex-shrink:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary>
+          <p style="margin:0; padding:0 0 16px; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Yes. EU infrastructure, EU data residency, and processing agreements designed for European firms.</p>
+        </details>
+        <details data-faq style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
+          <summary style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:600; color:var(--text-primary);">What about hallucinations?<span data-plus style="display:inline-flex; transition:transform 220ms; color:var(--accent); flex-shrink:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary>
+          <p style="margin:0; padding:0 0 16px; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Every output is grounded in your firm's templates and prior matters. Humans review before anything leaves the firm.</p>
+        </details>
+        <details data-faq style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
+          <summary style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:600; color:var(--text-primary);">How long does a rollout take?<span data-plus style="display:inline-flex; transition:transform 220ms; color:var(--accent); flex-shrink:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary>
+          <p style="margin:0; padding:0 0 16px; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Most firms are live in under a week.</p>
+        </details>
+        <details data-faq style="background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:4px 20px; box-shadow:var(--shadow-card);">
+          <summary style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:600; color:var(--text-primary);">What does it cost?<span data-plus style="display:inline-flex; transition:transform 220ms; color:var(--accent); flex-shrink:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary>
+          <p style="margin:0; padding:0 0 16px; font-size:14.5px; line-height:1.6; color:var(--text-secondary);">Pricing is matched to the size of your firm. Talk to us.</p>
+        </details>
+      </div>
+    </section>
+
+    <!-- ============ FINAL CTA ============ -->
+    <section id="demo" style="position:relative; max-width:1440px; margin:0 auto; padding:0 clamp(20px,5vw,40px) clamp(64px,9vw,120px);">
+      <div style="position:relative; overflow:hidden; border-radius:28px; background:#0F172A; padding:clamp(48px,7vw,96px) clamp(24px,5vw,48px); text-align:center;">
+        <div aria-hidden="true" style="position:absolute; top:-160px; left:50%; transform:translateX(-50%); width:760px; height:420px; border-radius:50%; background:radial-gradient(closest-side, rgba(220,201,163,0.20), transparent 70%); pointer-events:none;"></div>
+        <div style="position:relative; max-width:680px; margin:0 auto;">
+          <div style="display:inline-flex; align-items:center; gap:13px; margin-bottom:22px;">
+            <span style="width:48px; height:48px; border-radius:13px; overflow:hidden; background:#0F172A; display:inline-flex; align-items:center; justify-content:center;"><img src="assets/logo.png" alt="Docvex" style="width:100%;height:100%;object-fit:cover;"></span>
+            <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:30px; font-weight:700; letter-spacing:0.02em; color:#F5F2EA;">Doc<span style="color:#DCC9A3;">V</span>ex</span>
+          </div>
+          <p style="margin:0; font-size:11px; font-weight:700; letter-spacing:0.3em; text-transform:uppercase; color:#DCC9A3;">docvex.ro</p>
+          <h2 style="margin:16px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(32px,5vw,56px); font-weight:800; line-height:1.02; letter-spacing:-0.04em; color:#F5F2EA;">Modernize <span style="color:#DCC9A3;">your legal workflow.</span></h2>
+          <p style="margin:24px auto 0; max-width:460px; font-size:17px; line-height:1.6; color:rgba(245,242,234,0.72);">Cut the busywork. Get your evenings back.</p>
+          <div style="margin-top:32px; display:flex; flex-wrap:wrap; gap:12px; justify-content:center;">
+            <a href="#demo" style="display:inline-flex; align-items:center; height:50px; padding:0 26px; border-radius:12px; background:#DCC9A3; color:#0F172A; font-size:15px; font-weight:700; text-decoration:none;">Request a demo</a>
+            <a href="#demo" style="display:inline-flex; align-items:center; height:50px; padding:0 26px; border-radius:12px; background:transparent; border:1px solid rgba(220,201,163,0.4); color:#F5F2EA; font-size:15px; font-weight:600; text-decoration:none;">Join early access</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FOOTER ============ -->
+    <footer style="position:relative; border-top:1px solid var(--border); padding:40px clamp(20px,5vw,40px);">
+      <div style="max-width:1440px; margin:0 auto; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:20px;">
+        <div style="display:flex; align-items:center; gap:11px;">
+          <span style="width:32px; height:32px; border-radius:9px; overflow:hidden; background:#0F172A; display:inline-flex; align-items:center; justify-content:center;"><img src="assets/logo.png" alt="Docvex" style="width:100%;height:100%;object-fit:cover;"></span>
+          <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:17px; font-weight:700; letter-spacing:0.02em; color:var(--text-primary);">Doc<span style="color:var(--accent);">V</span>ex</span>
+        </div>
+        <nav style="display:flex; flex-wrap:wrap; gap:24px;">
+          <a href="#features" style="font-size:13.5px; color:var(--text-muted); text-decoration:none;">Product</a>
+          <a href="#security" style="font-size:13.5px; color:var(--text-muted); text-decoration:none;">Security</a>
+          <a href="#pricing" style="font-size:13.5px; color:var(--text-muted); text-decoration:none;">Pricing</a>
+          <a href="#faq" style="font-size:13.5px; color:var(--text-muted); text-decoration:none;">FAQ</a>
+        </nav>
+        <p style="margin:0; font-size:12.5px; color:var(--text-muted);">© 2026 Docvex · Intelligent legal workflows</p>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ============ HERO VARIATION SWITCHER (preview control) ============ -->
+  <div style="position:fixed; bottom:18px; left:50%; transform:translateX(-50%); z-index:90; display:flex; align-items:center; gap:8px; padding:8px 8px 8px 16px; border-radius:999px; background:color-mix(in srgb, var(--bg-card) 88%, transparent); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border:1px solid var(--border); box-shadow:var(--shadow-elev);">
+    <span style="font-size:11px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--text-muted);">Hero</span>
+    <button type="button" class="dv-pill is-on" data-hero-btn="0" onclick="dvSetHero(0)">Product UI</button>
+    <button type="button" class="dv-pill" data-hero-btn="1" onclick="dvSetHero(1)">Editorial</button>
+    <button type="button" class="dv-pill" data-hero-btn="2" onclick="dvSetHero(2)">Documents</button>
+  </div>
+
+</div>
+<script>
+(function () {
+  var root = document.getElementById('dv-root');
+  if (!root) return;
+  function setTheme(t) {
+    root.setAttribute('data-theme', t);
+    var btns = document.querySelectorAll('[data-theme-btn]');
+    for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('is-on', btns[i].getAttribute('data-theme-btn') === t);
+    try { localStorage.setItem('docvex.site.theme', t); } catch (e) {}
+  }
+  function setHero(n) {
+    n = String(n);
+    var heroes = document.querySelectorAll('[data-hero]');
+    for (var i = 0; i < heroes.length; i++) heroes[i].style.display = (heroes[i].getAttribute('data-hero') === n ? '' : 'none');
+    var pills = document.querySelectorAll('[data-hero-btn]');
+    for (var j = 0; j < pills.length; j++) pills[j].classList.toggle('is-on', pills[j].getAttribute('data-hero-btn') === n);
+  }
+  window.dvSetTheme = setTheme;
+  window.dvSetHero = setHero;
+  var saved = 'cream';
+  try { saved = localStorage.getItem('docvex.site.theme') || 'cream'; } catch (e) {}
+  setTheme(saved);
+  setHero(0);
+})();
+</script>
+</body>
+</html>

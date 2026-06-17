@@ -362,13 +362,18 @@ function wireDevtoolsShortcuts(win) {
 // appended to the loaded URL (e.g. `?docViewer=1`) so the renderer can boot
 // straight into a specific surface. `openDevtools` only for the primary window
 // so the doc-viewer window doesn't pop its own devtools.
+// Default app-window size — used as the launch fallback AND as the fixed size
+// the signed-out (auth) screen pins the window to. Kept in one place so the two
+// can't drift.
+const DEFAULT_WINDOW_SIZE = { width: 1200, height: 750 };
+
 function createAppWindow({ query, openDevtools = false, bounds = null } = {}) {
   const win = new BrowserWindow({
     // `bounds` pins size + monitor: restored main-window state on launch, or a
     // rect centered on the main window's display for secondary windows. Without
     // it Electron centers a default-sized window on the primary display.
-    width: bounds?.width ?? 1200,
-    height: bounds?.height ?? 750,
+    width: bounds?.width ?? DEFAULT_WINDOW_SIZE.width,
+    height: bounds?.height ?? DEFAULT_WINDOW_SIZE.height,
     ...(bounds && Number.isFinite(bounds.x) && Number.isFinite(bounds.y)
       ? { x: bounds.x, y: bounds.y }
       : {}),
@@ -707,6 +712,10 @@ ipcMain.on('window:minimize', (e) => {
 ipcMain.on('window:toggle-maximize', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
+  // Respect the auth-screen lock: when the window is pinned non-maximizable
+  // (signed-out screen), the custom title bar's maximize button is inert so
+  // the lock can't be bypassed.
+  if (!w.isMaximizable()) return;
   if (w.isMaximized()) w.unmaximize();
   else w.maximize();
 });
@@ -720,6 +729,40 @@ ipcMain.handle('window:is-maximized', (e) => {
 ipcMain.handle('window:is-fullscreen', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   return !!(w && w.isFullScreen());
+});
+
+// Window sizing driven by the signed-out (auth) screen — AuthPage sends these
+// as it mounts/unmounts. Acts on the window that sent the event.
+//   'locked' → entering the login screen: drop maximize/fullscreen, pin to the
+//              default size, and disable resizing/maximizing (a focused window).
+//   'app'    → just signed in: restore resizing and fill the screen (maximize).
+//   'unlock' → left the login screen without signing in (e.g. back to a public
+//              page): just restore resizing, leave size/position alone.
+ipcMain.on('window:auth-state', (e, state) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w || w.isDestroyed()) return;
+  if (state === 'locked') {
+    if (w.isFullScreen()) w.setFullScreen(false);
+    if (w.isMaximized()) w.unmaximize();
+    w.setResizable(false);
+    w.setMaximizable(false);
+    w.setFullScreenable(false);
+    w.setSize(DEFAULT_WINDOW_SIZE.width, DEFAULT_WINDOW_SIZE.height);
+    w.center();
+    return;
+  }
+  // 'app' or 'unlock' — both restore interactive sizing.
+  w.setResizable(true);
+  w.setMaximizable(true);
+  w.setFullScreenable(true);
+  if (state === 'app' && !w.isMaximized()) w.maximize();
+});
+
+// Quit the entire app — fired by a deliberate logout. Closes every window
+// (each runs its own close handler, so the main window still persists its
+// bounds) and exits the process.
+ipcMain.on('app:quit', () => {
+  app.quit();
 });
 
 // Resolve the bundled favicon path ONCE at module load. The previous
