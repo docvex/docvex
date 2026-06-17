@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 // scripts/landing-deploy.mjs
 //
-// Runs after `vite build` produces landing/dist/. Merges that static marketing
-// site into docs/ — the GitHub Pages root that serves docvex.ro — WITHOUT
-// clobbering the web SPA or its routing.
+// Assembles docs/ — the GitHub Pages root that serves docvex.ro — from two
+// independently-authored marketing surfaces:
 //
-// docs/ is shared between two independently-built things:
-//   • the marketing landing page (this script's payload, at the root)
-//   • the React web app SPA (scripts/web-deploy.mjs, under docs/app/)
-// plus a handful of hand-maintained files (CNAME, the invite page, the
-// SPA-fallback 404.html, .nojekyll). Those are PROTECTED below and never
-// touched here.
+//   • landing/home/      → the CURRENT static homepage, served at the ROOT
+//                          (docvex.ro/). Plain HTML/CSS/JS, no build step.
+//   • landing/dist/      → the PREVIOUS React marketing site (built by
+//                          `npm run landing:build`, base "/old/"), served at
+//                          docvex.ro/old/.
 //
-// Strategy: everything at the top level of docs/ that ISN'T protected is
-// considered "landing-owned" and is wiped before each deploy, then
-// repopulated from out/. That keeps stale hashed _next/ chunks and removed
-// public assets from accumulating, while leaving the SPA + config intact.
+// docs/ also hosts things this script must never touch:
+//   • app/         — the React web app SPA (scripts/web-deploy.mjs)
+//   • CNAME, .nojekyll, 404.html, invite.html, favicon.ico, favicon_old.ico
+//
+// Strategy: wipe + repopulate docs/old/ from the React build, then wipe the
+// non-protected top-level entries and repopulate the root from landing/home/.
 
 import { spawnSync } from 'node:child_process';
 import { readdir, rm, mkdir, cp, stat } from 'node:fs/promises';
@@ -24,56 +24,72 @@ import { dirname, resolve, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
-const SRC = join(root, 'landing', 'dist');
+const HOME_SRC = join(root, 'landing', 'home');   // → docs/ (root)
+const OLD_SRC = join(root, 'landing', 'dist');     // → docs/old/
 const DEST = join(root, 'docs');
+const OLD_DEST = join(DEST, 'old');
 const PREFIX = '[landing-deploy]';
 
-// Top-level docs/ entries owned by something other than the landing build.
-// Never removed, never overwritten.
+// Top-level docs/ entries owned by something other than the root homepage.
+// Never removed, never overwritten by the root copy step.
 const PROTECTED = new Set([
   'app',            // the React web SPA (scripts/web-deploy.mjs)
+  'old',            // the previous marketing site (populated below)
   'CNAME',          // GitHub Pages custom domain
   '.nojekyll',      // lets _next/ + underscore files be served
   'invite.html',    // standalone invite-accept page
   '404.html',       // root SPA fallback (routes /app/* to the SPA, else → /)
+  'favicon.ico',    // shared favicon (invite.html references it)
   'favicon_old.ico',
 ]);
 
-// Entries we must NOT copy into docs/ if a build ever emits them:
-//   404.html — would clobber the protected SPA-fallback above. (Vite doesn't
-//   emit one, but guard anyway so a stray build output can't break routing.)
-const SKIP_FROM_OUT = new Set(['404.html']);
+// Never copy these from a source into docs/ (would clobber protected files).
+const SKIP_FROM_SRC = new Set(['404.html', 'CNAME', '.nojekyll', '.DS_Store']);
 
 async function exists(path) {
   try { await stat(path); return true; } catch { return false; }
 }
 
+async function copyTree(src, dest) {
+  const entries = await readdir(src);
+  let copied = 0;
+  for (const name of entries) {
+    if (SKIP_FROM_SRC.has(name)) continue;
+    await cp(join(src, name), join(dest, name), { recursive: true });
+    copied += 1;
+  }
+  return copied;
+}
+
 async function main() {
-  if (!(await exists(SRC))) {
-    console.error(`${PREFIX} ${SRC} does not exist — run \`npm run landing:build\` first.`);
+  if (!(await exists(HOME_SRC))) {
+    console.error(`${PREFIX} ${HOME_SRC} does not exist.`);
+    process.exit(1);
+  }
+  if (!(await exists(OLD_SRC))) {
+    console.error(`${PREFIX} ${OLD_SRC} does not exist — run \`npm run landing:build\` first.`);
     process.exit(1);
   }
 
-  // 1. Wipe landing-owned top-level entries from docs/ (keep PROTECTED).
+  // 1. Rebuild docs/old/ from the React build.
+  await rm(OLD_DEST, { recursive: true, force: true });
+  await mkdir(OLD_DEST, { recursive: true });
+  const oldCopied = await copyTree(OLD_SRC, OLD_DEST);
+  console.log(`${PREFIX} copied ${oldCopied} entries → docs/old/`);
+
+  // 2. Wipe non-protected top-level entries, then repopulate the root from
+  //    landing/home/.
   const current = await readdir(DEST);
   for (const name of current) {
     if (PROTECTED.has(name)) continue;
     console.log(`${PREFIX} removing stale ${name}`);
     await rm(join(DEST, name), { recursive: true, force: true });
   }
-
-  // 2. Copy the export into docs/ (skip the not-found artifacts).
-  const produced = await readdir(SRC);
-  let copied = 0;
-  for (const name of produced) {
-    if (SKIP_FROM_OUT.has(name)) continue;
-    await cp(join(SRC, name), join(DEST, name), { recursive: true });
-    copied += 1;
-  }
-  console.log(`${PREFIX} copied ${copied} top-level entries from out/ → docs/`);
+  const homeCopied = await copyTree(HOME_SRC, DEST);
+  console.log(`${PREFIX} copied ${homeCopied} entries → docs/ (root)`);
 
   // Safety net: docs/ MUST keep these for the site to work at all.
-  for (const must of ['app', 'CNAME', '.nojekyll']) {
+  for (const must of ['app', 'CNAME', '.nojekyll', 'index.html']) {
     if (!(await exists(join(DEST, must)))) {
       console.warn(`${PREFIX} WARNING: docs/${must} is missing after deploy!`);
     }

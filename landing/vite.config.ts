@@ -14,8 +14,9 @@ import { dirname, resolve } from "node:path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  // Served from the GitHub Pages root, so assets resolve at /assets/…
-  base: "/",
+  // The previous marketing site now lives under docvex.ro/old/ (the new static
+  // homepage in landing/home/ owns the root). Assets resolve at /old/assets/…
+  base: "/old/",
   plugins: [react(), tailwindcss()],
   resolve: {
     // Mirror the "@/* -> src/*" path alias from tsconfig.json.
