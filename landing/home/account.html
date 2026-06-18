@@ -1,0 +1,1027 @@
+<!doctype html>
+<html lang="en" data-theme="cream">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/">
+<title>Account — DocVex</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="chrome.css">
+<script>(function(){try{var t=localStorage.getItem('docvex.site.theme')||'cream';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+
+  /* Theme tokens — mirror the homepage so this page follows the same Cream/Ink toggle. */
+  :root, [data-theme="cream"] {
+    --bg-page:#F5F2EA; --bg-card:#FFFFFF; --bg-elevated:#FAF7F0; --bg-input:#FFFFFF;
+    --border:rgba(15,23,42,0.10); --border-strong:rgba(15,23,42,0.18);
+    --text-primary:#0F172A; --text-secondary:#1E293B; --text-muted:#6B7280;
+    --text-on-accent:#FFFFFF; --accent:#8B5E3C; --accent-hover:#74502F;
+    --accent-soft:#DCC9A3; --accent-tint:rgba(139,94,60,0.10);
+    --danger:#B91C1C; --danger-soft:#DC2626; --danger-text:#B91C1C; --success-soft:#22C55E;
+    --shadow-card:0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+    --shadow-elev:0 18px 50px -24px rgba(15,23,42,0.30), 0 8px 24px -16px rgba(15,23,42,0.18);
+    --overlay-scrim:rgba(15,23,42,0.45);
+    --dot:color-mix(in srgb, var(--text-primary) 16%, transparent);
+    --ice:#EAF1FA;
+  }
+  [data-theme="ink"] {
+    --bg-page:#0F172A; --bg-card:#1E293B; --bg-elevated:#2A3548; --bg-input:#15213A;
+    --border:rgba(245,242,234,0.10); --border-strong:rgba(245,242,234,0.20);
+    --text-primary:#F5F2EA; --text-secondary:#C9CEDC; --text-muted:#8A93A8;
+    --text-on-accent:#0F172A; --accent:#DCC9A3; --accent-hover:#C8B58E;
+    --accent-soft:#8B5E3C; --accent-tint:rgba(220,201,163,0.12);
+    --danger:#EF4444; --danger-soft:#F87171; --danger-text:#FCA5A5; --success-soft:#4ADE80;
+    --shadow-card:0 1px 3px rgba(0,0,0,0.40), 0 1px 2px rgba(0,0,0,0.25);
+    --shadow-elev:0 24px 60px -22px rgba(0,0,0,0.65), 0 10px 30px -18px rgba(0,0,0,0.5);
+    --overlay-scrim:rgba(0,0,0,0.6);
+    --dot:color-mix(in srgb, var(--text-primary) 11%, transparent);
+    --ice:#1B2A44;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    background: var(--bg-page); color: var(--text-primary);
+  }
+
+  /* ── Ambient dot-grid + cursor spotlight (ported from the homepage) ── */
+  .acc-dotgrid {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      radial-gradient(ellipse 85% 75% at center, transparent 0%, transparent 32%, var(--bg-page) 92%),
+      radial-gradient(circle at center, var(--dot) 1.2px, transparent 1.6px);
+    background-size: 100% 100%, 24px 24px; background-position: center, 0 0;
+  }
+  .cursor-spotlight {
+    position: fixed; top: 0; left: 0; width: 430px; height: 430px;
+    pointer-events: none; z-index: 0; will-change: transform;
+    background-image: radial-gradient(circle at center, color-mix(in srgb, var(--text-primary) 10%, transparent) 1.45px, transparent 1.85px);
+    background-size: 24px 24px;
+    mask-image: radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
+    -webkit-mask-image: radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
+  }
+  @media (prefers-reduced-motion: reduce) { .cursor-spotlight { display: none; } }
+
+  /* ── Page shell ── */
+  .account-shell { position: relative; z-index: 1; max-width: 1440px; margin: 0 auto; padding: clamp(24px, 4vw, 44px) clamp(20px, 5vw, 40px) 80px; }
+  .account-page { position: relative; z-index: 1; width: 100%; }
+
+  /* ── Dashboard grid ── */
+  .acc-dash { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 20px; align-items: start; }
+  .acc-col-left { display: flex; flex-direction: column; gap: 20px; }
+  .acc-col-main { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+  .acc-stat-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+  .acc-main-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+  .acc-main-col, .acc-side-col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+  .acc-dash > .account-danger { grid-column: 1 / -1; }
+  @media (max-width: 1120px) { .acc-main-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 980px) { .acc-dash { grid-template-columns: 1fr; } .acc-stat-row { grid-template-columns: 1fr; } }
+
+  /* ── Cards ── */
+  .account-card { position: relative; background: color-mix(in srgb, var(--bg-card) 22%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--border); border-radius: 16px; padding: 1.35rem 1.5rem; box-shadow: none; --mx: 50%; --my: 50%; }
+
+  /* Cursor-following border shine — a border-only radial gradient that brightens
+     toward the pointer. JS sets --mx / --my per card on pointermove. */
+  .account-card::after, .account-danger::after {
+    content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+    background: radial-gradient(240px circle at var(--mx) var(--my), color-mix(in srgb, var(--accent) 85%, #fff), transparent 45%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    opacity: 0; transition: opacity 220ms ease; pointer-events: none; z-index: 2;
+  }
+  .account-card:hover::after, .account-danger:hover::after { opacity: 1; }
+  .account-danger::after { background: radial-gradient(240px circle at var(--mx) var(--my), color-mix(in srgb, var(--danger) 85%, #fff), transparent 45%); }
+  .account-card-title { font-size: 0.85rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); margin: 0 0 1rem; }
+  .account-card-subtitle { margin: -0.35rem 0 0.95rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.4; }
+  .acc-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 1.1rem; }
+  .acc-sec-title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1rem; font-weight: 700; color: var(--text-primary); margin: 0; }
+  .acc-edit-ic { display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 4px; border-radius: 6px; transition: color 130ms, background 130ms; }
+  .acc-edit-ic:hover { color: var(--accent); background: var(--bg-elevated); }
+
+  /* ── Profile card ── */
+  .acc-profile { display: flex; flex-direction: column; align-items: center; text-align: center; padding-top: 0.5rem; }
+  /* Full-bleed divider between the merged profile + account-info halves. */
+  .acc-card-divider { height: 1px; background: var(--border); margin: 1.5rem -1.5rem; }
+  .account-avatar-wrap { position: relative; display: inline-block; flex-shrink: 0; }
+  .account-avatar { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; background: var(--bg-elevated); display: block; }
+  .account-avatar-fallback { display: flex; align-items: center; justify-content: center; background: var(--accent); color: var(--text-on-accent); font-size: 1.5rem; font-weight: 600; text-transform: uppercase; font-family: 'Plus Jakarta Sans', sans-serif; }
+  .acc-profile .account-avatar { width: 108px; height: 108px; box-shadow: 0 0 0 5px var(--bg-page); }
+  .acc-profile .account-avatar-fallback { font-size: 2.4rem; }
+  .account-status-badge { position: absolute; bottom: 2px; right: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--status-color, #23a55a); box-shadow: 0 0 0 3px var(--bg-page); }
+  .account-status-badge.is-offline { background: var(--bg-page); box-shadow: 0 0 0 3px var(--bg-page), inset 0 0 0 2px var(--status-color, #80848e); }
+  .acc-profile .account-status-badge { width: 22px; height: 22px; bottom: 7px; right: 7px; box-shadow: 0 0 0 5px var(--bg-page); }
+  .acc-profile .account-status-badge.is-offline { box-shadow: 0 0 0 5px var(--bg-page), inset 0 0 0 3px var(--status-color, #80848e); }
+
+  .acc-name-row { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 1.1rem; }
+  .account-name { font-size: 1.4rem; font-weight: 700; font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-primary); margin: 0; }
+  .account-tier-badge { flex-shrink: 0; font-size: 9.5px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--accent); background: var(--accent-tint); border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); border-radius: 6px; padding: 1px 6px; }
+  .acc-location { display: flex; align-items: center; justify-content: center; gap: 5px; margin: 0.45rem 0 0; font-size: 0.85rem; color: var(--text-muted); }
+  .acc-location svg { color: var(--accent); }
+
+  .account-provider-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.4rem; margin-top: 0.9rem; }
+  .account-provider-badge { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-secondary); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.6rem; }
+  .account-provider-google { font-family: inherit; cursor: pointer; transition: background 150ms, border-color 150ms, color 150ms; }
+  .account-provider-google.is-linkable { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+  .account-provider-google.is-linkable:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: var(--accent); color: var(--text-primary); }
+  .account-provider-google.is-linked { color: var(--text-primary); border-color: var(--border); cursor: default; }
+  .account-provider-google.is-linked svg:last-of-type { color: var(--success-soft); }
+  .account-provider-google:disabled { opacity: 1; }
+
+  .acc-social { display: flex; justify-content: center; gap: 10px; margin-top: 1.1rem; }
+  .acc-social a, .acc-social button { width: 40px; height: 40px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-secondary); transition: color 140ms, border-color 140ms, transform 140ms, opacity 140ms, filter 140ms; padding: 0; cursor: pointer; font: inherit; }
+  .acc-social a:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); transform: translateY(-2px); }
+  /* Google link icon: grayed while unlinked, full colour once linked. */
+  .acc-social .acc-g svg { width: 18px; height: 18px; }
+  .acc-social .acc-g.is-unlinked svg { filter: grayscale(1); opacity: 0.5; }
+  .acc-social .acc-g.is-unlinked:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+  .acc-social .acc-g.is-unlinked:hover svg { filter: none; opacity: 1; }
+  .acc-social .acc-g.is-linked { cursor: default; border-color: color-mix(in srgb, var(--success-soft) 50%, var(--border)); background: color-mix(in srgb, var(--success-soft) 8%, var(--bg-elevated)); }
+
+  .acc-edit-btn { width: 100%; margin-top: 1.3rem; padding: 0.7rem; border-radius: 10px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); font-family: inherit; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: background 140ms, border-color 140ms; }
+  .acc-edit-btn:hover { background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+  .acc-cta-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; margin-top: 0.75rem; }
+  .acc-cta { padding: 0.7rem; border-radius: 10px; font-family: inherit; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: background 140ms, border-color 140ms, color 140ms; }
+  .acc-cta-primary { background: var(--accent); border: 1px solid var(--accent); color: var(--text-on-accent); }
+  .acc-cta-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .acc-cta-ghost { background: transparent; border: 1px solid var(--border-strong); color: var(--text-primary); }
+  .acc-cta-ghost:hover { background: var(--bg-elevated); }
+
+  .acc-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; margin-top: 1.4rem; padding-top: 1.3rem; border-top: 1px solid var(--border); }
+  .acc-stat-cell { display: flex; flex-direction: column-reverse; align-items: center; gap: 2px; }
+  .acc-stat-cell .lbl { font-size: 0.78rem; color: var(--text-muted); }
+  .acc-stat-cell .num { font-size: 1.25rem; font-weight: 700; font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-primary); }
+
+  /* ── Account info (real) ── */
+  .account-info-grid { display: grid; grid-template-columns: max-content 1fr; column-gap: 1.5rem; row-gap: 0.65rem; margin: 0; font-size: 0.875rem; }
+  .account-info-grid dt { color: var(--text-muted); font-weight: 500; }
+  .account-info-grid dd { color: var(--text-primary); margin: 0; overflow-wrap: anywhere; }
+  .account-userid-row { display: flex; align-items: center; gap: 0.5rem; }
+  .account-userid { font-family: 'SFMono-Regular', Consolas, Menlo, monospace; font-size: 0.78rem; color: var(--text-secondary); background: var(--bg-input); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.4rem; }
+  .account-copy-btn { display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); cursor: pointer; padding: 0.25rem; transition: color 150ms, border-color 150ms, background 150ms; }
+  .account-copy-btn:hover { color: var(--text-primary); border-color: var(--border-strong); background: var(--bg-elevated); }
+
+  /* ── Skills & Endorsements (placeholder) ── */
+  .acc-skill-group + .acc-skill-group { margin-top: 1.1rem; }
+  .acc-skill-group h5 { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin: 0 0 0.4rem; }
+  .acc-skill-list { list-style: none; margin: 0; padding: 0; }
+  .acc-skill-list li { display: flex; align-items: center; gap: 0.6rem; font-size: 0.875rem; color: var(--text-secondary); padding: 0.3rem 0; }
+  .acc-skill-list li::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+
+  /* ── Top stat cards (placeholder) ── */
+  .acc-statcard { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+  .acc-statcard .meta .k { font-size: 0.82rem; color: var(--text-muted); }
+  .acc-statcard .meta .v { font-size: 1.7rem; font-weight: 700; font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-primary); margin-top: 2px; }
+  .acc-statcard .ic { width: 48px; height: 48px; border-radius: 13px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--accent-tint); color: var(--accent); }
+  .acc-bars { display: flex; align-items: flex-end; gap: 3px; height: 36px; flex-shrink: 0; }
+  .acc-bars i { width: 5px; border-radius: 2px; background: var(--text-primary); display: block; }
+
+  /* ── Education (placeholder) ── */
+  .acc-edu { display: flex; gap: 14px; }
+  .acc-edu-logo { width: 46px; height: 46px; border-radius: 11px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--accent-tint); color: var(--accent); }
+  .acc-edu h4 { margin: 2px 0 0; font-size: 0.98rem; font-weight: 700; font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-primary); }
+  .acc-edu p { margin: 0.4rem 0 0; font-size: 0.83rem; line-height: 1.5; color: var(--text-secondary); }
+  .acc-edu .muted { color: var(--text-muted); }
+
+  /* ── Contests table (placeholder) ── */
+  .acc-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .acc-table th { text-align: left; color: var(--text-muted); font-weight: 500; padding: 0 0 0.75rem; }
+  .acc-table td { padding: 0.85rem 0; border-top: 1px solid var(--border); color: var(--text-secondary); vertical-align: top; }
+  .acc-table .idx { color: var(--text-muted); width: 28px; }
+  .acc-table a { color: var(--accent); text-decoration: none; font-weight: 500; }
+  .acc-table a:hover { text-decoration: underline; }
+  .acc-table .sub { display: block; color: var(--text-muted); font-size: 0.78rem; margin-top: 2px; }
+
+  /* ── Job history (placeholder) ── */
+  .acc-job { display: flex; gap: 14px; }
+  .acc-job-logo { width: 46px; height: 46px; border-radius: 11px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #4F46E5; color: #fff; font-weight: 700; font-family: 'Plus Jakarta Sans', sans-serif; }
+  .acc-job h4 { margin: 2px 0 0; font-size: 0.98rem; font-weight: 700; font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-primary); }
+  .acc-job .meta { font-size: 0.82rem; color: var(--text-muted); margin-top: 3px; }
+  .acc-job p { margin: 0.5rem 0 0; font-size: 0.83rem; line-height: 1.55; color: var(--text-secondary); }
+
+  /* ── Contribution graph (placeholder) ── */
+  .acc-contrib-sub { font-size: 0.85rem; color: var(--text-secondary); margin: 0 0 0.9rem; }
+  /* Full-bleed to the card edges so the always-on scrollbar sits outside the
+     content inset, spanning the whole section width. */
+  .acc-contrib-scroll { overflow-x: scroll; overflow-y: hidden; margin: 4px 12px 0; padding: 0 0 12px; scrollbar-width: thin; scrollbar-color: var(--accent) var(--bg-elevated); -webkit-mask-image: linear-gradient(to right, transparent 0, #000 32px, #000 calc(100% - 32px), transparent 100%); mask-image: linear-gradient(to right, transparent 0, #000 32px, #000 calc(100% - 32px), transparent 100%); }
+  /* Drop the fade on whichever edge is fully scrolled into view. */
+  .acc-contrib-scroll.at-start { -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 32px), transparent 100%); mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 32px), transparent 100%); }
+  .acc-contrib-scroll.at-end { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 32px, #000 100%); mask-image: linear-gradient(to right, transparent 0, #000 32px, #000 100%); }
+  .acc-contrib-scroll.at-start.at-end { -webkit-mask-image: none; mask-image: none; }
+  .acc-contrib-scroll::-webkit-scrollbar { height: 9px; -webkit-appearance: none; }
+  .acc-contrib-scroll::-webkit-scrollbar-track { background: var(--bg-elevated); border-radius: 999px; }
+  .acc-contrib-scroll::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 999px; border: 2px solid var(--bg-elevated); }
+  .acc-contrib-months { display: grid; grid-auto-flow: column; grid-auto-columns: 22px; gap: 5px; margin-bottom: 6px; width: max-content; font-size: 0.68rem; color: var(--text-muted); }
+  .acc-contrib-months span { white-space: nowrap; overflow: visible; }
+  .acc-contrib { display: grid; grid-template-rows: repeat(7, 22px); grid-auto-flow: column; grid-auto-columns: 22px; gap: 5px; width: max-content; }
+  .acc-contrib span { border-radius: 3px; }
+  .acc-contrib-legend { display: flex; align-items: center; justify-content: center; margin-top: 0.9rem; font-size: 0.74rem; color: var(--text-muted); }
+  .acc-contrib-scale { display: inline-flex; align-items: center; gap: 4px; line-height: 1; }
+  .acc-contrib-scale i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; vertical-align: middle; }
+
+  /* ── Problem solved (placeholder) ── */
+  .acc-ps-row { display: flex; align-items: center; gap: 12px; padding: 0.8rem 0; border-top: 1px solid var(--border); }
+  .acc-ps-row:first-child { border-top: none; padding-top: 0; }
+  .acc-ps-ic { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 0.82rem; font-family: 'Plus Jakarta Sans', sans-serif; }
+  .acc-ps-row .t { font-size: 0.85rem; color: var(--text-secondary); }
+  .acc-ps-row .n { margin-left: auto; font-size: 1.05rem; font-weight: 700; font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-primary); }
+
+  /* ── Subscription (plans match the homepage Pricing section) ── */
+  .acc-sub-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  @media (max-width: 620px) { .acc-sub-grid { grid-template-columns: 1fr; } }
+  .acc-sub-card { position: relative; display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 16px; border-radius: 12px; border: 1px solid var(--border); background: transparent; cursor: pointer; font-family: inherit; transition: border-color 140ms, background 140ms, transform 140ms; }
+  .acc-sub-card:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+  .acc-sub-card.is-selected { border-color: var(--accent); background: var(--accent-tint); }
+  .acc-sub-name { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1rem; font-weight: 700; color: var(--text-primary); }
+  .acc-sub-desc { font-size: 0.8rem; color: var(--text-muted); line-height: 1.4; }
+  .acc-sub-price { margin-top: 8px; font-size: 0.9rem; font-weight: 600; color: var(--text-secondary); }
+  .acc-sub-badge { position: absolute; top: 12px; right: 12px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-on-accent); background: var(--accent); border-radius: 6px; padding: 2px 7px; }
+
+  /* ── Activity status (real) ── */
+  .account-status-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+  .account-status-row { display: flex; align-items: center; gap: 0.85rem; width: 100%; background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 0.6rem 0.8rem; cursor: pointer; color: var(--text-primary); font-family: inherit; text-align: left; transition: background 120ms, border-color 120ms; }
+  .account-status-row:hover { background: var(--bg-elevated); }
+  .account-status-row.is-selected { background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .account-status-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--status-color); flex-shrink: 0; }
+  .account-status-dot-offline { background: transparent; box-shadow: inset 0 0 0 2px var(--status-color); }
+  .account-status-text { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-width: 0; }
+  .account-status-label { font-size: 0.95rem; font-weight: 500; line-height: 1.2; }
+  .account-status-desc { font-size: 0.8rem; color: var(--text-muted); line-height: 1.4; }
+  .account-status-check { display: inline-flex; align-items: center; color: var(--accent); flex-shrink: 0; }
+  .account-status-error, .account-pw-error { margin-top: 0.75rem; padding: 0.55rem 0.8rem; background: color-mix(in srgb, var(--danger) 7%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); border-radius: 7px; color: var(--danger-soft); font-size: 0.85rem; }
+
+  /* ── Password form (real) ── */
+  .account-pw-form { display: flex; flex-direction: column; gap: 0.85rem; }
+  .account-pw-field { display: flex; flex-direction: column; gap: 0.3rem; }
+  .account-pw-label { font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+  .account-pw-input { background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.75rem; color: var(--text-primary); font-size: 0.9rem; font-family: inherit; outline: none; transition: border-color 150ms, background 150ms; }
+  .account-pw-input::placeholder { color: var(--text-muted); }
+  .account-pw-input:focus { border-color: var(--accent); }
+  .account-pw-show { display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; color: var(--text-secondary); cursor: pointer; user-select: none; align-self: flex-start; }
+  .account-pw-show input { accent-color: var(--accent); cursor: pointer; }
+  .account-pw-actions { display: flex; justify-content: flex-end; }
+  .account-pw-submit, .modal-btn-confirm { background: var(--accent); border: 1px solid var(--accent); border-radius: 8px; padding: 0.55rem 1.1rem; color: var(--text-on-accent); font-family: inherit; font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: background 150ms, opacity 150ms; }
+  .account-pw-submit:hover:not(:disabled), .modal-btn-confirm:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .account-pw-submit:disabled, .modal-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  /* ── Danger zone (matches DangerZone.jsx / DangerZone.css in the desktop app) ── */
+  .account-danger { position: relative; border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent); border-radius: 16px; overflow: hidden; background: color-mix(in srgb, var(--danger) 5%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); --mx: 50%; --my: 50%; }
+  .account-dz-hd { display: flex; align-items: center; gap: 11px; padding: 16px 22px; border-bottom: 1px solid color-mix(in srgb, var(--danger) 22%, transparent); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+  .account-dz-icon { width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+  .account-dz-icon svg { width: 19px; height: 19px; }
+  .account-dz-hd h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.12rem; font-weight: 700; color: var(--danger); margin: 0; }
+  .account-dz-hd p { font-size: 0.78rem; color: var(--text-secondary); margin: 1px 0 0; }
+  .account-danger-row { display: flex; align-items: center; gap: 16px; padding: 16px 22px; border-bottom: 1px solid var(--border); border-top: none; }
+  .account-danger-row:last-child { border-bottom: none; }
+  .account-danger-text { min-width: 0; flex: 1; }
+  .account-danger-label { font-size: 0.95rem; font-weight: 600; color: var(--text-primary); margin: 0 0 3px; display: flex; align-items: center; gap: 9px; }
+  .account-danger-desc { font-size: 0.82rem; color: var(--text-secondary); margin: 0; line-height: 1.45; }
+  .account-danger-btn { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; font-family: inherit; font-size: 0.85rem; font-weight: 500; padding: 7px 15px; border-radius: 8px; cursor: pointer; color: var(--danger); background: transparent; border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); transition: background 130ms, color 130ms, border-color 130ms; white-space: nowrap; }
+  .account-danger-btn:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+  /* ── Modal ── */
+  .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--overlay-scrim); animation: acc-fade 0.18s ease; }
+  @keyframes acc-fade { from { opacity: 0; } to { opacity: 1; } }
+  .modal-card { width: 100%; max-width: 440px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-elev); padding: 22px 24px; }
+  .modal-title { margin: 0 0 8px; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 18px; font-weight: 700; color: var(--text-primary); }
+  .modal-message { margin: 0 0 16px; font-size: 14px; line-height: 1.55; color: var(--text-secondary); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+  .modal-btn { border-radius: 8px; padding: 0.55rem 1.1rem; font-family: inherit; font-size: 0.88rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); }
+  .modal-btn-cancel { background: var(--bg-card); color: var(--text-secondary); }
+  .modal-btn-cancel:hover { background: var(--bg-elevated); color: var(--text-primary); }
+  .modal-btn-destructive { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .modal-btn-destructive:hover:not(:disabled) { background: var(--danger-soft); border-color: var(--danger-soft); }
+  .dz-confirm-label { display: block; font-size: 13px; color: var(--text-secondary); margin-top: 6px; }
+  .dz-confirm-email { font-weight: 700; color: var(--text-primary); }
+  .dz-confirm-input { width: 100%; margin-top: 7px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.7rem; color: var(--text-primary); font-family: inherit; font-size: 0.9rem; outline: none; }
+  .dz-confirm-input:focus { border-color: var(--accent); }
+
+  .acc-loading { padding: 80px 0; text-align: center; color: var(--text-muted); font-size: 14px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="acc-dotgrid" aria-hidden="true"></div>
+  <div class="cursor-spotlight" aria-hidden="true"></div>
+
+  <div class="account-shell">
+    <div class="acc-loading" id="loading">Loading your account…</div>
+
+    <div class="account-page" id="page" hidden>
+      <div class="acc-dash">
+
+        <!-- ───────── LEFT COLUMN ───────── -->
+        <aside class="acc-col-left">
+
+          <!-- Profile + Account information (merged) -->
+          <section class="account-card">
+            <div class="acc-profile">
+              <div class="account-avatar-wrap">
+                <span id="avatar"></span>
+                <span class="account-status-badge" id="statusBadge"></span>
+              </div>
+              <div class="acc-name-row">
+                <h1 class="account-name" id="displayName"></h1>
+                <span class="account-tier-badge" id="tierBadge">Free</span>
+              </div>
+              <p class="acc-location"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg><span>Location not set</span></p>
+              <div class="acc-social">
+                <a href="#" aria-label="Twitter" title="Add Twitter"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
+                <a href="#" aria-label="LinkedIn" title="Add LinkedIn"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.34V9h3.42v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.13 2.06 2.06 0 0 1 0 4.13zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.73v20.54C0 23.22.79 24 1.77 24h20.45c.98 0 1.78-.78 1.78-1.73V1.73C24 .77 23.2 0 22.22 0z"/></svg></a>
+                <a href="#" aria-label="GitHub" title="Add GitHub"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58v-2.03c-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.75.08-.74.08-.74 1.21.09 1.84 1.24 1.84 1.24 1.07 1.84 2.81 1.31 3.5 1 .11-.78.42-1.31.76-1.61-2.67-.3-5.47-1.34-5.47-5.95 0-1.31.47-2.39 1.24-3.23-.13-.31-.54-1.53.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.65.25 2.87.12 3.18.77.84 1.24 1.92 1.24 3.23 0 4.62-2.81 5.64-5.49 5.94.43.37.81 1.1.81 2.22v3.29c0 .32.22.7.83.58A12.01 12.01 0 0 0 24 12.5C24 5.87 18.63.5 12 .5z"/></svg></a>
+                <button type="button" class="acc-g" id="googleSocial" aria-label="Link Google"></button>
+              </div>
+              <button class="acc-edit-btn" type="button">Edit Profile</button>
+              <div class="acc-stats">
+                <div class="acc-stat-cell"><span class="lbl">Projects</span><span class="num" id="profileProjects">—</span></div>
+                <div class="acc-stat-cell"><span class="lbl">AI tokens</span><span class="num" id="profileTokens">—</span></div>
+                <div class="acc-stat-cell"><span class="lbl">Time in app</span><span class="num" id="profileHours">—</span></div>
+              </div>
+            </div>
+
+            <div class="acc-card-divider"></div>
+
+            <div class="acc-sec-head"><h2 class="acc-sec-title">Account information</h2></div>
+            <dl class="account-info-grid">
+              <dt>Email</dt><dd id="infoEmail"></dd>
+              <dt>User ID</dt>
+              <dd class="account-userid-row"><code class="account-userid" id="infoUserId"></code>
+                <button class="account-copy-btn" id="copyIdBtn" aria-label="Copy user ID" title="Copy ID"></button>
+              </dd>
+              <dt>Joined</dt><dd id="infoJoined"></dd>
+              <dt>Last sign-in</dt><dd id="infoLastSignIn"></dd>
+            </dl>
+          </section>
+
+        </aside>
+
+        <!-- ───────── MAIN COLUMN ───────── -->
+        <div class="acc-col-main">
+
+          <!-- Subscription -->
+          <section class="account-card">
+            <div class="acc-sec-head"><h2 class="acc-sec-title">Subscription</h2></div>
+            <div class="acc-sub-grid" id="subGrid">
+              <button class="acc-sub-card" data-plan="Solo" type="button">
+                <span class="acc-sub-name">Solo</span>
+                <span class="acc-sub-desc">For independent lawyers.</span>
+                <span class="acc-sub-price">On request</span>
+              </button>
+              <button class="acc-sub-card is-selected" data-plan="Firm" type="button">
+                <span class="acc-sub-badge">Current</span>
+                <span class="acc-sub-name">Firm</span>
+                <span class="acc-sub-desc">For boutique and mid-sized firms.</span>
+                <span class="acc-sub-price">On request</span>
+              </button>
+              <button class="acc-sub-card" data-plan="Enterprise" type="button">
+                <span class="acc-sub-name">Enterprise</span>
+                <span class="acc-sub-desc">For large firms and legal teams.</span>
+                <span class="acc-sub-price">On request</span>
+              </button>
+            </div>
+          </section>
+
+          <div class="acc-main-grid">
+
+            <!-- Inner left -->
+            <div class="acc-main-col">
+
+              <!-- Activity status (REAL) -->
+              <section class="account-card">
+                <div class="acc-sec-head"><h2 class="acc-sec-title">Activity status</h2></div>
+                <p class="account-card-subtitle">How you appear to other members of your projects.</p>
+                <ul class="account-status-list" id="statusList"></ul>
+                <div class="account-status-error" id="statusError" hidden></div>
+              </section>
+
+              <!-- Contests (placeholder) -->
+              <section class="account-card">
+                <div class="acc-sec-head"><h2 class="acc-sec-title">Recent activity</h2></div>
+                <table class="acc-table">
+                  <thead>
+                    <tr><th class="idx">#</th><th>Activity</th><th>Date</th><th>Status</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td class="idx">12</td>
+                      <td><a href="#">Q3 Compliance Review</a><span class="sub">Project · Acme Holdings</span></td>
+                      <td>Jun 12, 2026</td>
+                      <td>Done</td>
+                    </tr>
+                    <tr>
+                      <td class="idx">13</td>
+                      <td><a href="#">NDA template update</a><span class="sub">Project · Internal</span></td>
+                      <td>Jun 09, 2026</td>
+                      <td>In review</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </section>
+
+            </div>
+
+            <!-- Inner right -->
+            <div class="acc-side-col">
+
+              <!-- Total contributions (placeholder) -->
+              <section class="account-card">
+                <div class="acc-sec-head"><h2 class="acc-sec-title">Activity graph</h2></div>
+                <div class="acc-contrib-scroll">
+                  <div class="acc-contrib-months" id="contribMonths" aria-hidden="true"></div>
+                  <div class="acc-contrib" id="contribGrid" aria-hidden="true"></div>
+                </div>
+                <div class="acc-contrib-legend">
+                  <span class="acc-contrib-scale">Less<i></i><i></i><i></i><i></i><i></i>More</span>
+                </div>
+              </section>
+
+              <!-- Problem solved (placeholder) -->
+              <section class="account-card">
+                <div class="acc-sec-head"><h2 class="acc-sec-title">Documents by source</h2></div>
+                <div class="acc-ps-row"><span class="acc-ps-ic" style="background:#F59E0B">PD</span><span class="t">Imported from PDF</span><span class="n">55</span></div>
+                <div class="acc-ps-row"><span class="acc-ps-ic" style="background:#2563EB">DO</span><span class="t">Created in DocVex</span><span class="n">105</span></div>
+                <div class="acc-ps-row"><span class="acc-ps-ic" style="background:#EAB308">SC</span><span class="t">Scanned &amp; OCR'd</span><span class="n">10</span></div>
+              </section>
+
+              <!-- Set a password (REAL — no-password accounts only) -->
+              <section class="account-card" id="setPwCard" hidden>
+                <div class="acc-sec-head"><h2 class="acc-sec-title">Set a password</h2></div>
+                <p class="account-card-subtitle" id="setPwSub">Add a password so you can sign in without Google.</p>
+                <form class="account-pw-form" id="setPwForm">
+                  <label class="account-pw-field"><span class="account-pw-label">Password</span>
+                    <input class="account-pw-input" type="password" id="setPwNext" autocomplete="new-password" minlength="8" placeholder="At least 8 characters" required></label>
+                  <label class="account-pw-field"><span class="account-pw-label">Confirm</span>
+                    <input class="account-pw-input" type="password" id="setPwConfirm" autocomplete="new-password" minlength="8" placeholder="Re-enter password" required></label>
+                  <label class="account-pw-show"><input type="checkbox" id="setPwShow"><span>Show passwords</span></label>
+                  <div class="account-pw-error" id="setPwError" hidden></div>
+                  <div class="account-pw-actions"><button type="submit" class="account-pw-submit" id="setPwSubmit">Save password</button></div>
+                </form>
+              </section>
+
+            </div>
+          </div>
+        </div>
+
+        <!-- Danger zone (REAL) — full width, left-aligned -->
+        <section class="account-danger">
+            <div class="account-dz-hd">
+              <div class="account-dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6A2 2 0 0 0 22 18L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>
+              <div>
+                <h2>Danger zone</h2>
+                <p>Irreversible actions for your account. Proceed with care.</p>
+              </div>
+            </div>
+            <div class="account-danger-row" id="resetPwRow" hidden>
+              <div class="account-danger-text"><p class="account-danger-label">Reset password</p><p class="account-danger-desc">Set a new password for email sign-in.</p></div>
+              <button class="account-danger-btn" id="resetPwBtn">Reset password</button>
+            </div>
+            <div class="account-danger-row">
+              <div class="account-danger-text"><p class="account-danger-label">Sign out</p><p class="account-danger-desc">End your current session on this device.</p></div>
+              <button class="account-danger-btn" data-dz="signout">Sign out</button>
+            </div>
+            <div class="account-danger-row">
+              <div class="account-danger-text"><p class="account-danger-label">Erase data</p><p class="account-danger-desc">Sign out from all devices and clear locally cached account data on this machine.</p></div>
+              <button class="account-danger-btn" data-dz="erase">Erase data</button>
+            </div>
+            <div class="account-danger-row">
+              <div class="account-danger-text"><p class="account-danger-label">Delete account</p><p class="account-danger-desc">Permanently remove your account, project memberships, and notifications. This cannot be undone.</p></div>
+              <button class="account-danger-btn" data-dz="delete">Delete account</button>
+            </div>
+          </section>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirmation modal (danger actions) -->
+  <div class="modal-backdrop" id="confirmModal" hidden>
+    <div class="modal-card" role="alertdialog" aria-modal="true">
+      <h3 class="modal-title" id="cmTitle"></h3>
+      <p class="modal-message" id="cmMessage"></p>
+      <label class="dz-confirm-label" id="cmEmailWrap" hidden>Type <span class="dz-confirm-email" id="cmEmail"></span> to confirm
+        <input type="text" class="dz-confirm-input" id="cmEmailInput" autocomplete="off" spellcheck="false"></label>
+      <div class="modal-actions">
+        <button type="button" class="modal-btn modal-btn-cancel" id="cmCancel">Cancel</button>
+        <button type="button" class="modal-btn modal-btn-destructive" id="cmConfirm"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reset password modal -->
+  <div class="modal-backdrop" id="resetModal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true">
+      <h3 class="modal-title">Reset password</h3>
+      <p class="modal-message">Set a new password for email sign-in.</p>
+      <form class="account-pw-form" id="resetForm">
+        <label class="account-pw-field"><span class="account-pw-label">New password</span>
+          <input class="account-pw-input" type="password" id="resetNext" autocomplete="new-password" minlength="8" placeholder="At least 8 characters" required></label>
+        <label class="account-pw-field"><span class="account-pw-label">Confirm</span>
+          <input class="account-pw-input" type="password" id="resetConfirm" autocomplete="new-password" minlength="8" placeholder="Re-enter password" required></label>
+        <label class="account-pw-show"><input type="checkbox" id="resetShow"><span>Show passwords</span></label>
+        <div class="account-pw-error" id="resetError" hidden></div>
+        <div class="modal-actions">
+          <button type="button" class="modal-btn modal-btn-cancel" id="resetCancel">Cancel</button>
+          <button type="submit" class="modal-btn modal-btn-confirm" id="resetSubmit">Update password</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+<script type="module">
+import { supabase } from './supabase.js';
+
+const $ = (id) => document.getElementById(id);
+const SUPABASE_AUTH_KEY = 'sb-pntxlvhkqfryyyxlqytr-auth-token';
+
+// Theme + navbar + footer are provided by chrome.js (shared site chrome).
+
+// ── Cursor-following spotlight (matches the homepage / app CursorSpotlight) ──
+(function initSpotlight() {
+  const el = document.querySelector('.cursor-spotlight');
+  if (!el) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { el.style.display = 'none'; return; }
+  const R = 215;
+  let x = window.innerWidth / 2, y = window.innerHeight / 2, frame = null;
+  function apply() {
+    frame = null;
+    const px = Math.round(x), py = Math.round(y);
+    el.style.transform = 'translate3d(' + (px - R) + 'px,' + (py - R) + 'px,0)';
+    el.style.backgroundPosition = (R - px) + 'px ' + (R - py) + 'px';
+  }
+  apply();
+  window.addEventListener('pointermove', (e) => {
+    x = e.clientX; y = e.clientY;
+    if (frame == null) frame = requestAnimationFrame(apply);
+  }, { passive: true });
+})();
+
+// ── Cursor-following border shine on every card ──
+(function initCardShine() {
+  function wire(el) {
+    el.addEventListener('pointermove', (e) => {
+      const r = el.getBoundingClientRect();
+      el.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+      el.style.setProperty('--my', (e.clientY - r.top) + 'px');
+    }, { passive: true });
+  }
+  document.querySelectorAll('.account-card, .account-danger').forEach(wire);
+})();
+
+// ── Subscription plan selection (Firm preselected) ──
+(function initSubscription() {
+  const grid = document.getElementById('subGrid');
+  if (!grid) return;
+  const cards = grid.querySelectorAll('.acc-sub-card');
+  cards.forEach((card) => {
+    card.addEventListener('click', () => {
+      cards.forEach((c) => {
+        c.classList.remove('is-selected');
+        const b = c.querySelector('.acc-sub-badge'); if (b) b.remove();
+      });
+      card.classList.add('is-selected');
+      const badge = document.createElement('span');
+      badge.className = 'acc-sub-badge';
+      badge.textContent = 'Current';
+      card.appendChild(badge);
+    });
+  });
+})();
+
+// ── Activity contribution graph (real data) ──
+let CONTRIB = null; // per-day counts, oldest → newest, whole weeks
+
+async function buildContrib() {
+  const grid = $('contribGrid');
+  if (!grid || !USER) return;
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  // Start ~53 weeks back, snapped to the previous Sunday so columns are whole weeks.
+  const start = new Date(today); start.setDate(start.getDate() - (7 * 53 - 1));
+  start.setDate(start.getDate() - start.getDay());
+  const DAYS = Math.floor((today - start) / 86400000) + 1;
+  const counts = new Array(DAYS).fill(0);
+
+  // Month labels — one cell per week column, labelled where a new month begins.
+  const monthsEl = $('contribMonths');
+  if (monthsEl) {
+    const MN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const weeks = Math.ceil(DAYS / 7);
+    let html = '', lastMonth = -1, lastLabelWeek = -2;
+    for (let w = 0; w < weeks; w++) {
+      const d = new Date(start); d.setDate(d.getDate() + w * 7);
+      const m = d.getMonth();
+      let label = '';
+      if (m !== lastMonth && w - lastLabelWeek >= 3) { label = MN[m]; lastLabelWeek = w; }
+      lastMonth = m;
+      html += '<span>' + label + '</span>';
+    }
+    monthsEl.innerHTML = html;
+  }
+  const idxOf = (iso) => {
+    const d = new Date(iso); if (isNaN(d)) return -1;
+    d.setHours(0, 0, 0, 0);
+    const diff = Math.floor((d - start) / 86400000);
+    return (diff >= 0 && diff < DAYS) ? diff : -1;
+  };
+
+  const sinceIso = start.toISOString();
+  const sources = [
+    supabase.from('project_ai_usage').select('created_at').eq('user_id', USER.id).gte('created_at', sinceIso),
+    supabase.from('chat_messages').select('created_at').eq('author_id', USER.id).gte('created_at', sinceIso),
+    supabase.from('notifications').select('created_at').eq('user_id', USER.id).gte('created_at', sinceIso),
+  ];
+  const results = await Promise.allSettled(sources);
+  results.forEach((r) => {
+    if (r.status === 'fulfilled' && r.value && Array.isArray(r.value.data)) {
+      r.value.data.forEach((row) => { const i = idxOf(row.created_at); if (i >= 0) counts[i]++; });
+    }
+  });
+
+  CONTRIB = counts;
+  renderContrib();
+  const sc = document.querySelector('.acc-contrib-scroll');
+  if (sc) {
+    const updateFade = () => {
+      sc.classList.toggle('at-start', sc.scrollLeft <= 1);
+      sc.classList.toggle('at-end', sc.scrollLeft + sc.clientWidth >= sc.scrollWidth - 1);
+    };
+    sc.addEventListener('scroll', updateFade, { passive: true });
+    window.addEventListener('resize', updateFade, { passive: true });
+    sc.scrollLeft = sc.scrollWidth; // start at the most recent week
+    updateFade();
+  }
+}
+
+function renderContrib() {
+  const grid = $('contribGrid');
+  if (!grid || !CONTRIB) return;
+  const dark = document.documentElement.getAttribute('data-theme') === 'ink';
+  // Light: GitHub greens on a pale base. Dark: black → green ramp.
+  const PAL = dark
+    ? ['rgba(255,255,255,0.06)', '#0e4429', '#006d32', '#26a641', '#39d353']
+    : ['rgba(15,23,42,0.07)', '#9be9a8', '#40c463', '#30a14e', '#216e39'];
+  const max = Math.max(1, ...CONTRIB);
+  const lvl = (c) => (c === 0 ? 0 : c >= max ? 4 : Math.min(4, 1 + Math.floor((c / max) * 3.999)));
+  let html = '';
+  for (let i = 0; i < CONTRIB.length; i++) html += '<span style="background:' + PAL[lvl(CONTRIB[i])] + '"></span>';
+  grid.innerHTML = html;
+  // Recolour the legend swatches to match the active palette.
+  document.querySelectorAll('.acc-contrib-scale i').forEach((el, i) => { el.style.background = PAL[i] || PAL[4]; });
+}
+
+// Recolour the graph (and its legend) when the site theme toggles.
+new MutationObserver(() => renderContrib())
+  .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+// ── Icons ──
+const COPY_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+const CHECK_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+const MAIL_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>';
+const GOOGLE_SVG = '<svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/><path d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>';
+
+const STATUS_OPTIONS = [
+  { key: 'online', label: 'Online', color: '#23a55a', description: 'Available and active.' },
+  { key: 'idle', label: 'Idle', color: '#f0b232', description: 'Away from the keyboard — replies may be delayed.' },
+  { key: 'dnd', label: 'Do Not Disturb', color: '#f23f43', description: "Focused work in progress — please don’t ping." },
+  { key: 'offline', label: 'Offline', color: '#80848e', description: 'Appear offline to other members while staying signed in.' },
+];
+const DEFAULT_STATUS = 'online';
+
+const DZ = {
+  signout: { title: 'Sign out?', message: "You'll need to sign in again to access your account.", confirmLabel: 'Sign out', busyLabel: 'Signing out…' },
+  erase: { title: 'Erase all account data?', message: 'This signs you out from every device and removes locally cached account data on this machine. You can sign back in afterwards.', confirmLabel: 'Erase everything', busyLabel: 'Erasing…' },
+  delete: { title: 'Delete your account?', message: 'This cannot be undone. Your account, project memberships, and notifications are permanently removed; projects you solely own are orphaned and pending invitations you sent are cleared.', confirmLabel: 'Delete account', busyLabel: 'Deleting…', requireEmail: true },
+};
+
+function fmtDate(iso, withTime) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return withTime ? d.toLocaleString() : d.toLocaleDateString();
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+let USER = null;
+let hasPassword = false;
+
+const PROJECT_PALETTE = ['#0891B2','#BE185D','#4F46E5','#047857','#B45309','#6D28D9','#DC2626','#0369A1','#DB2777','#059669','#7C3AED','#EA580C'];
+function projColor(seed) { let h = 0; seed = seed || ''; for (let i = 0; i < seed.length; i++) { h = ((h << 5) - h) + seed.charCodeAt(i); h |= 0; } return PROJECT_PALETTE[Math.abs(h) % PROJECT_PALETTE.length]; }
+
+
+function timeAgo(iso) {
+  if (!iso) return '—';
+  var then = new Date(iso).getTime();
+  if (isNaN(then)) return '—';
+  var mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + ' min ago';
+  var hrs = Math.round(mins / 60);
+  if (hrs < 24) return hrs === 1 ? '1 hour ago' : hrs + ' hours ago';
+  var days = Math.round(hrs / 24);
+  if (days === 1) return 'yesterday';
+  if (days < 7) return days + ' days ago';
+  if (days < 30) return Math.round(days / 7) + 'w ago';
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+async function init() {
+  const { data } = await supabase.auth.getSession();
+  if (!data || !data.session) { window.location.href = 'auth.html'; return; }
+  USER = data.session.user;
+  $('loading').hidden = true;
+  $('page').hidden = false;
+  renderAll();
+
+  // Authoritative "has a password?" check (covers passwords set on a Google account).
+  const identityHasPassword = providerSet().has('email');
+  if (identityHasPassword) { hasPassword = true; refreshPasswordUi(); }
+  else {
+    supabase.rpc('current_user_has_password').then(({ data, error }) => {
+      hasPassword = !error && data === true;
+      refreshPasswordUi();
+    }).catch(() => { hasPassword = false; refreshPasswordUi(); });
+  }
+
+  loadStats();
+
+  // Reflect changes from other tabs.
+  supabase.auth.onAuthStateChange((_e, session) => {
+    if (!session) { window.location.href = 'auth.html'; return; }
+    USER = session.user; renderAll(); refreshPasswordUi();
+  });
+}
+
+function fmtCompact(n) {
+  if (n == null || isNaN(n)) return '—';
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1).replace(/\.0$/, '') + 'k';
+  return String(n);
+}
+
+// ── Hours-in-app tracker (accumulates active time on this account session) ──
+function trackHours() {
+  const KEY = 'docvex.account.activeSeconds';
+  let secs = parseInt(localStorage.getItem(KEY) || '0', 10);
+  if (isNaN(secs)) secs = 0;
+  const renderHours = () => {
+    const mins = Math.floor(secs / 60);
+    // Show minutes until an hour has elapsed, then switch to hours.
+    const txt = mins < 60 ? mins + 'm' : (mins / 60).toFixed(1) + 'h';
+    [$('statHours'), $('profileHours')].forEach((el) => { if (el) el.textContent = txt; });
+  };
+  renderHours();
+  setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      secs += 5;
+      try { localStorage.setItem(KEY, String(secs)); } catch (e) {}
+      renderHours();
+    }
+  }, 5000);
+}
+
+function setStat(ids, txt) { ids.forEach((id) => { const el = $(id); if (el) el.textContent = txt; }); }
+
+async function loadStats() {
+  trackHours();
+  buildContrib();
+
+  // Projects: count of memberships for this user.
+  try {
+    const { count } = await supabase
+      .from('project_members')
+      .select('project_id', { count: 'exact', head: true })
+      .eq('user_id', USER.id);
+    setStat(['statProjects', 'profileProjects'], String(count == null ? 0 : count));
+  } catch (e) {
+    setStat(['statProjects', 'profileProjects'], '0');
+  }
+
+  // AI tokens used: sum of input + output tokens across this user's AI usage rows.
+  try {
+    const { data } = await supabase
+      .from('project_ai_usage')
+      .select('input_tokens, output_tokens')
+      .eq('user_id', USER.id);
+    const total = (data || []).reduce((s, r) => s + (r.input_tokens || 0) + (r.output_tokens || 0), 0);
+    setStat(['statTokens', 'profileTokens'], fmtCompact(total));
+  } catch (e) {
+    setStat(['statTokens', 'profileTokens'], '0');
+  }
+}
+
+function providerSet() {
+  return new Set([
+    ...((USER.identities || []).map((i) => i.provider)),
+    ...((USER.app_metadata && USER.app_metadata.providers) || []),
+  ]);
+}
+
+function displayName() {
+  const m = USER.user_metadata || {};
+  return m.full_name || m.name || (USER.email ? USER.email.split('@')[0] : null) || 'Account';
+}
+function activeStatus() { return (USER.user_metadata || {}).status || DEFAULT_STATUS; }
+
+function renderAll() {
+  // Avatar
+  const m = USER.user_metadata || {};
+  const av = $('avatar');
+  if (m.avatar_url) av.innerHTML = '<img class="account-avatar" src="' + esc(m.avatar_url) + '" alt="" referrerpolicy="no-referrer">';
+  else av.innerHTML = '<div class="account-avatar account-avatar-fallback">' + esc((USER.email || '?').charAt(0).toUpperCase()) + '</div>';
+
+  // Status badge on avatar
+  const st = STATUS_OPTIONS.find((o) => o.key === activeStatus()) || STATUS_OPTIONS[0];
+  const badge = $('statusBadge');
+  badge.style.setProperty('--status-color', st.color);
+  badge.classList.toggle('is-offline', st.key === 'offline');
+
+  $('displayName').textContent = displayName();
+
+  // Google link icon lives in the social row — coloured when linked, grayed when not.
+  const googleLinked = providerSet().has('google');
+  const gs = $('googleSocial');
+  if (gs) {
+    gs.innerHTML = GOOGLE_SVG;
+    gs.classList.toggle('is-linked', googleLinked);
+    gs.classList.toggle('is-unlinked', !googleLinked);
+    gs.disabled = googleLinked;
+    gs.title = googleLinked ? 'Google account linked' : 'Link your Google account';
+    gs.setAttribute('aria-label', googleLinked ? 'Google linked' : 'Link Google');
+  }
+
+  // Account info
+  $('infoEmail').textContent = USER.email || '—';
+  $('infoUserId').textContent = USER.id;
+  $('infoJoined').textContent = fmtDate(USER.created_at);
+  $('infoLastSignIn').textContent = fmtDate(USER.last_sign_in_at, true);
+
+  renderStatusList();
+}
+
+function renderStatusList() {
+  const list = $('statusList');
+  list.innerHTML = '';
+  const cur = activeStatus();
+  STATUS_OPTIONS.forEach((o) => {
+    const li = document.createElement('li');
+    const sel = o.key === cur;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'account-status-row' + (sel ? ' is-selected' : '');
+    btn.setAttribute('aria-pressed', String(sel));
+    btn.innerHTML =
+      '<span class="account-status-dot' + (o.key === 'offline' ? ' account-status-dot-offline' : '') + '" style="--status-color:' + o.color + '"></span>' +
+      '<span class="account-status-text"><span class="account-status-label">' + esc(o.label) + '</span><span class="account-status-desc">' + esc(o.description) + '</span></span>' +
+      (sel ? '<span class="account-status-check">' + CHECK_SVG + '</span>' : '');
+    btn.addEventListener('click', () => pickStatus(o.key));
+    li.appendChild(btn);
+    list.appendChild(li);
+  });
+}
+
+async function pickStatus(key) {
+  if (key === activeStatus()) return;
+  $('statusError').hidden = true;
+  // Optimistic.
+  USER = { ...USER, user_metadata: { ...(USER.user_metadata || {}), status: key } };
+  renderAll();
+  const { error } = await supabase.auth.updateUser({ data: { status: key } });
+  if (error) { $('statusError').textContent = error.message || 'Could not update status.'; $('statusError').hidden = false; }
+}
+
+function refreshPasswordUi() {
+  $('setPwCard').hidden = hasPassword;
+  $('resetPwRow').hidden = !hasPassword;
+  $('setPwSub').textContent = 'Add a password to ' + (USER.email || 'this account') + ' so you can sign in without Google.';
+}
+
+async function linkGoogle() {
+  try {
+    const { error } = await supabase.auth.linkIdentity({
+      provider: 'google',
+      options: { redirectTo: window.location.origin + window.location.pathname },
+    });
+    if (error) alert('Could not link Google: ' + (error.message || 'try again') + '\n\n(Manual linking must be enabled in Supabase Auth settings.)');
+  } catch (e) { alert('Could not link Google.'); }
+}
+
+// ── Link Google from the social row (only when not yet linked) ──
+$('googleSocial').addEventListener('click', () => {
+  if (USER && !providerSet().has('google')) linkGoogle();
+});
+
+// ── Copy user id ──
+$('copyIdBtn').innerHTML = COPY_SVG;
+$('copyIdBtn').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(USER.id);
+    $('copyIdBtn').innerHTML = CHECK_SVG;
+    setTimeout(() => { $('copyIdBtn').innerHTML = COPY_SVG; }, 1500);
+  } catch (e) {}
+});
+
+// ── Password helpers ──
+function wireShow(checkbox, inputs) {
+  checkbox.addEventListener('change', () => {
+    inputs.forEach((i) => { i.type = checkbox.checked ? 'text' : 'password'; });
+  });
+}
+wireShow($('setPwShow'), [$('setPwNext'), $('setPwConfirm')]);
+wireShow($('resetShow'), [$('resetNext'), $('resetConfirm')]);
+
+async function savePassword(next, confirm, errEl, submitBtn, onDone) {
+  errEl.hidden = true;
+  if ((next || '').length < 8) { errEl.textContent = 'Password must be at least 8 characters.'; errEl.hidden = false; return; }
+  if (next !== confirm) { errEl.textContent = "Passwords don't match."; errEl.hidden = false; return; }
+  const orig = submitBtn.textContent;
+  submitBtn.disabled = true; submitBtn.textContent = 'Saving…';
+  const { error } = await supabase.auth.updateUser({ password: next });
+  submitBtn.disabled = false; submitBtn.textContent = orig;
+  if (error) { errEl.textContent = error.message || 'Could not set the password.'; errEl.hidden = false; return; }
+  hasPassword = true; refreshPasswordUi();
+  onDone();
+}
+
+$('setPwForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  savePassword($('setPwNext').value, $('setPwConfirm').value, $('setPwError'), $('setPwSubmit'), () => {
+    $('setPwNext').value = ''; $('setPwConfirm').value = '';
+  });
+});
+
+// ── Reset password modal ──
+$('resetPwBtn').addEventListener('click', () => {
+  $('resetNext').value = ''; $('resetConfirm').value = ''; $('resetError').hidden = true; $('resetModal').hidden = false;
+});
+$('resetCancel').addEventListener('click', () => { $('resetModal').hidden = true; });
+$('resetForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  savePassword($('resetNext').value, $('resetConfirm').value, $('resetError'), $('resetSubmit'), () => { $('resetModal').hidden = true; });
+});
+
+// ── Danger zone confirmations ──
+let dzKind = null, dzBusy = false;
+function openDz(kind) {
+  dzKind = kind;
+  const c = DZ[kind];
+  $('cmTitle').textContent = c.title;
+  $('cmMessage').textContent = c.message;
+  $('cmConfirm').textContent = c.confirmLabel;
+  $('cmEmailWrap').hidden = !c.requireEmail;
+  if (c.requireEmail) { $('cmEmail').textContent = USER.email; $('cmEmailInput').value = ''; }
+  updateConfirmEnabled();
+  $('confirmModal').hidden = false;
+  if (c.requireEmail) setTimeout(() => $('cmEmailInput').focus(), 30);
+}
+function closeDz() { if (dzBusy) return; $('confirmModal').hidden = true; dzKind = null; }
+function updateConfirmEnabled() {
+  const c = DZ[dzKind] || {};
+  const ok = !c.requireEmail || $('cmEmailInput').value.trim().toLowerCase() === (USER.email || '').trim().toLowerCase();
+  $('cmConfirm').disabled = dzBusy || !ok;
+}
+$('cmEmailInput').addEventListener('input', updateConfirmEnabled);
+$('cmCancel').addEventListener('click', closeDz);
+$('confirmModal').addEventListener('mousedown', (e) => { if (e.target === $('confirmModal')) closeDz(); });
+document.querySelectorAll('[data-dz]').forEach((b) => b.addEventListener('click', () => openDz(b.getAttribute('data-dz'))));
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('confirmModal').hidden) closeDz();
+  else if (!$('resetModal').hidden) $('resetModal').hidden = true;
+});
+
+$('cmConfirm').addEventListener('click', async () => {
+  const kind = dzKind, c = DZ[kind];
+  if (!kind || dzBusy) return;
+  dzBusy = true; $('cmConfirm').textContent = c.busyLabel; $('cmConfirm').disabled = true; $('cmCancel').disabled = true;
+  try {
+    if (kind === 'signout') {
+      await supabase.auth.signOut();
+      window.location.href = 'index.html';
+    } else if (kind === 'erase') {
+      await supabase.auth.signOut({ scope: 'global' });
+      try { Object.keys(localStorage).forEach((k) => { if (/^sb-|^supabase\./.test(k)) localStorage.removeItem(k); }); } catch (e) {}
+      window.location.href = 'index.html';
+    } else if (kind === 'delete') {
+      const { error } = await supabase.functions.invoke('delete-user');
+      if (error) {
+        alert('Could not delete account: ' + (error.message || 'the server rejected the request.'));
+        dzBusy = false; $('cmConfirm').textContent = c.confirmLabel; $('cmCancel').disabled = false; updateConfirmEnabled();
+        return;
+      }
+      await supabase.auth.signOut();
+      window.location.href = 'auth.html';
+    }
+  } catch (err) {
+    alert('Action failed: ' + (err && err.message ? err.message : 'try again.'));
+    dzBusy = false; $('cmConfirm').textContent = c.confirmLabel; $('cmCancel').disabled = false; updateConfirmEnabled();
+  }
+});
+
+init();
+</script>
+<script type="module" src="chrome.js"></script>
+</body>
+</html>

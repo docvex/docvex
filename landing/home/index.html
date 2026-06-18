@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/">
 <title>DocVex — Intelligent legal workflows</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -22,7 +23,7 @@
     --accent-soft:#DCC9A3; --accent-tint:rgba(139,94,60,0.10);
     --shadow-card:0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
     --shadow-elev:0 18px 50px -24px rgba(15,23,42,0.30), 0 8px 24px -16px rgba(15,23,42,0.18);
-    --dot:color-mix(in srgb, var(--text-primary) 9%, transparent);
+    --dot:color-mix(in srgb, var(--text-primary) 16%, transparent);
   }
   [data-theme="ink"] {
     --bg-page:#0F172A; --bg-card:#1E293B; --bg-elevated:#2A3548; --bg-sidebar:#15213A; --bg-input:#15213A;
@@ -34,6 +35,18 @@
     --shadow-elev:0 24px 60px -22px rgba(0,0,0,0.65), 0 10px 30px -18px rgba(0,0,0,0.5);
     --dot:color-mix(in srgb, var(--text-primary) 11%, transparent);
   }
+
+  /* Dark theme: flatten the Security / Pricing / footer panels to the page
+     background instead of the lighter card/elevated tone. */
+  [data-theme="ink"] #security,
+  [data-theme="ink"] #pricing,
+  [data-theme="ink"] footer { background: var(--bg-page) !important; }
+
+  /* Dark theme: the large cream/tan accent panels become brown. Remapping the
+     accent vars locally turns the panel bg/border brown AND makes the inverted
+     chips/buttons (cream bg + accent text) read as brown-on-cream for contrast,
+     while body text + icons (text-on-accent) become cream for visibility. */
+  [data-theme="ink"] .accent-panel { --accent: #8B5E3C; --accent-hover: #74502F; --accent-soft: #DCC9A3; --text-on-accent: #F5F2EA; }
 
   @keyframes dv-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.55;transform:scale(.8)} }
   @keyframes dv-spin { to { transform: rotate(360deg) } }
@@ -74,40 +87,62 @@
        • Full-bleed SECTIONS — keep the masked dot grid so they read continuous
          with the ambient page background. */
   .spot-surface{ position:relative; }
-  .spot-surface::before{
-    content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
-    border-radius:inherit;
-    background:radial-gradient(circle 260px at var(--sx, -9999px) var(--sy, -9999px),
-      color-mix(in srgb, var(--spot-glow, var(--accent-soft)) 16%, transparent) 0%,
-      color-mix(in srgb, var(--spot-glow, var(--accent-soft)) 6%, transparent) 40%,
-      transparent 70%);
-  }
+  /* The cursor-following radial-gradient spotlight glow was removed. */
+  .spot-surface::before{ content:none; }
   .spot-surface > *{ position:relative; z-index:1; }
-  .spot-surface--dark{ --spot-dot:#DCC9A3; --spot-glow:#DCC9A3; }
 
-  /* Sections keep the masked dot-grid spotlight (higher specificity wins). */
-  section.spot-surface::before{
-    background:radial-gradient(circle at center, color-mix(in srgb, var(--spot-dot, var(--text-primary)) 10%, transparent) 1.45px, transparent 1.85px);
-    background-size:24px 24px; background-attachment:fixed;
-    mask-image:radial-gradient(circle 215px at var(--sx, -9999px) var(--sy, -9999px), #000 0%, #000 42%, transparent 100%);
-    -webkit-mask-image:radial-gradient(circle 215px at var(--sx, -9999px) var(--sy, -9999px), #000 0%, #000 42%, transparent 100%);
-  }
-  @media (prefers-reduced-motion: reduce) { .spot-surface::before{ display:none; } }
+  /* ── Left section timeline (scrollspy) — same rail/dot vocabulary as the
+       app's Versions tab: a 2px vertical line with a node per section. ── */
+  .dv-timeline{ position:fixed; left:24px; top:50%; transform:translateY(-50%); z-index:40; display:flex; flex-direction:column; opacity:1; pointer-events:auto; transition:opacity 280ms ease; }
+  .dv-timeline.is-hidden{ opacity:0; pointer-events:none; }
+  .dv-timeline::before{ content:''; position:absolute; left:6.5px; top:14px; bottom:14px; width:2px; transform:translateX(-50%); background:var(--border-strong); }
+  .dv-tl-dot{ position:relative; display:flex; align-items:center; gap:11px; padding:14px 0; background:none; border:none; cursor:pointer; font-family:inherit; }
+  .dv-tl-dot .d{ width:13px; height:13px; flex:none; box-sizing:border-box; border-radius:50%; background:var(--bg-page); border:2.5px solid var(--text-muted); transition:border-color 160ms, background 160ms, box-shadow 160ms; }
+  .dv-tl-dot .lbl{ font-size:12px; font-weight:600; letter-spacing:0.01em; color:var(--text-muted); white-space:nowrap; opacity:0; transform:translateX(-5px); transition:opacity 150ms, transform 150ms, color 150ms; }
+  .dv-timeline:hover .dv-tl-dot .lbl{ opacity:1; transform:none; }
+  .dv-tl-dot:hover .d{ border-color:var(--accent); }
+  .dv-tl-dot.is-active .d{ border-color:var(--accent); background:var(--accent); box-shadow:0 0 0 4px var(--accent-tint); }
+  .dv-tl-dot.is-active .lbl{ color:var(--text-primary); opacity:1; transform:none; }
+  @media (max-width:1180px){ .dv-timeline{ display:none; } }
+  @media (prefers-reduced-motion: reduce){ .dv-tl-dot .lbl{ transition:none; } }
 
   /* Header scroll transition: taller & transparent at top, compact & solid on scroll */
+  /* Body offset tracks navbar height: compact (68px) ↔ at-top (108px) */
+  body { padding-top:68px; transition:padding-top 0.15s ease; }
+  body.dvx-attop { padding-top:108px; }
   .dv-header{
+    position:fixed; top:0; left:0; right:0; z-index:50;
     backdrop-filter:blur(20px) saturate(180%); -webkit-backdrop-filter:blur(20px) saturate(180%);
     background:color-mix(in srgb, var(--bg-page) 72%, transparent);
     border-bottom:1px solid var(--border);
-    transition:background 0.35s ease, border-color 0.35s ease, backdrop-filter 0.35s ease;
+    transition:background 0.15s ease, border-color 0.15s ease, backdrop-filter 0.15s ease;
   }
-  .dv-header > div{ transition:padding 0.35s ease; }
+  .dv-header > div{ padding:14px clamp(20px,5vw,40px); transition:padding 0.15s ease; }
   .dv-header.at-top{
     background:transparent;
     border-bottom-color:transparent;
     backdrop-filter:none; -webkit-backdrop-filter:none;
   }
   .dv-header.at-top > div{ padding-top:34px; padding-bottom:34px; }
+
+  /* Navbar tabs — active-tab indicator (mirrors chrome.css .dvx-nav) */
+  .dvx-nav a{ position:relative; font-size:14px; font-weight:500; color:var(--text-secondary); text-decoration:none; padding:4px 0; transition:color 150ms; }
+  .dvx-nav a:hover{ color:var(--text-primary); }
+  .dvx-nav a::after{ content:''; position:absolute; left:0; right:0; bottom:-2px; height:2px; border-radius:2px; background:var(--accent); transform:scaleX(0); transform-origin:center; transition:transform 180ms ease; }
+  .dvx-nav a:hover::after{ transform:scaleX(0.5); }
+  .dvx-nav a.is-active{ color:var(--text-primary); font-weight:600; }
+  .dvx-nav a.is-active::after{ transform:scaleX(1); }
+
+  /* Morph pill shared with chrome.js pages */
+  .dvx-morph-pill{ position:fixed; top:0; left:0; z-index:10000; padding:6px 12px; border-radius:999px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-family:'Inter',system-ui,-apple-system,sans-serif; font-size:0.75rem; font-weight:500; white-space:nowrap; line-height:1.2; pointer-events:none; box-shadow:0 4px 12px rgba(0,0,0,0.4); animation:dvx-tip-in 120ms ease-out; transition:transform 90ms ease-out; will-change:transform; }
+  @keyframes dvx-tip-in{ from{opacity:0} to{opacity:1} }
+  .dvx-morph-pill.is-menu{ pointer-events:auto; padding:4px; border-radius:10px; min-width:180px; background:var(--bg-card); border-color:var(--border-strong); box-shadow:0 12px 32px rgba(0,0,0,0.5); white-space:normal; transition:none; will-change:transform; animation:dvx-tip-in 100ms ease-out; }
+  .dvx-morph-list{ margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:2px; }
+  .dvx-morph-item{ display:flex; align-items:center; gap:9px; width:100%; padding:0.55rem 0.8rem; border-radius:6px; font-family:'Inter',system-ui,-apple-system,sans-serif; font-size:0.85rem; font-weight:500; color:var(--text-primary); text-decoration:none; background:transparent; border:none; cursor:pointer; transition:background 120ms; }
+  .dvx-morph-item:hover:not(:disabled){ background:var(--bg-elevated); outline:none; }
+  .dvx-morph-item svg{ flex:none; }
+  .dvx-morph-danger{ color:var(--danger, #B91C1C); }
+  .dvx-morph-danger:hover:not(:disabled){ background:color-mix(in srgb, var(--danger, #B91C1C) 14%, transparent); color:var(--danger-soft, #DC2626); }
 
   /* Footer responsive columns */
   @media (max-width: 1024px){ .dv-footer-grid{ grid-template-columns:1fr 1fr !important; } }
@@ -120,28 +155,28 @@
 </head>
 <body>
 
-<div id="dv-root" data-theme="cream" style="position:relative; min-height:100vh; background:var(--bg-page); color:var(--text-primary); font-family:'Inter',system-ui,-apple-system,sans-serif; overflow-x:hidden;">
+<div id="dv-root" data-theme="cream" style="position:relative; min-height:100vh; background:var(--bg-page); color:var(--text-primary); font-family:'Inter',system-ui,-apple-system,sans-serif; overflow-x:clip;">
 
   <div aria-hidden="true" style="position:fixed; inset:0; z-index:0; pointer-events:none; background-image: radial-gradient(ellipse 85% 75% at center, transparent 0%, transparent 32%, var(--bg-page) 92%), radial-gradient(circle at center, var(--dot) 1.2px, transparent 1.6px); background-size:100% 100%, 24px 24px; background-position:center, 0 0;"></div>
   <div class="cursor-spotlight" aria-hidden="true"></div>
 
-  <div style="position:relative; z-index:2; padding-top:67px;">
+  <nav class="dv-timeline" id="dvTimeline" aria-label="Section navigation"></nav>
+
+  <div style="position:relative; z-index:2;">
 
     <!-- ============ NAV ============ -->
-    <header id="siteHeader" class="dv-header at-top" style="position:fixed; top:0; left:0; right:0; z-index:50;">
-      <div style="max-width:1440px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:14px clamp(20px,5vw,40px);">
-        <a href="#top" style="display:flex; align-items:center; gap:12px; text-decoration:none;">
-          <span style="width:38px; height:38px; border-radius:10px; overflow:hidden; display:flex; align-items:center; justify-content:center; background:#0F172A; box-shadow:var(--shadow-card); flex-shrink:0;">
-            <img src="assets/logo.png" alt="Docvex" style="width:100%; height:100%; object-fit:cover;">
-          </span>
-          <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:21px; font-weight:700; letter-spacing:0.02em; color:var(--text-primary);">Doc<span style="color:var(--accent);">V</span>ex</span>
+    <header id="siteHeader" class="dv-header at-top">
+      <div style="max-width:1440px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:20px;">
+        <a href="#top" style="display:flex; align-items:center; text-decoration:none;">
+          <img src="assets/logo-lockup.png" alt="DocVex — Intelligent Legal Workflows" style="height:40px; width:auto; display:block;">
         </a>
 
-        <nav style="display:flex; align-items:center; gap:30px;">
-          <a href="#features" style="font-size:14px; font-weight:500; color:var(--text-secondary); text-decoration:none;">Product</a>
-          <a href="#security" style="font-size:14px; font-weight:500; color:var(--text-secondary); text-decoration:none;">Security</a>
-          <a href="#pricing" style="font-size:14px; font-weight:500; color:var(--text-secondary); text-decoration:none;">Pricing</a>
-          <a href="#faq" style="font-size:14px; font-weight:500; color:var(--text-secondary); text-decoration:none;">FAQ</a>
+        <nav class="dvx-nav" style="display:flex; align-items:center; gap:30px;">
+          <a href="index.html" class="is-active">Home</a>
+          <a href="company.html">Company</a>
+          <a href="legal.html">Legal</a>
+          <a href="installers.html">Download</a>
+          <a href="enroll.html">Enroll</a>
         </nav>
 
         <div style="display:flex; align-items:center; gap:14px;">
@@ -149,8 +184,23 @@
             <svg data-theme-icon="cream" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
             <svg data-theme-icon="ink" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M12 3a6.4 6.4 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
           </button>
-          <a href="#demo" style="display:inline-flex; align-items:center; height:40px; padding:0 18px; border-radius:9px; background:var(--accent); color:var(--text-on-accent); font-size:14px; font-weight:600; text-decoration:none; box-shadow:var(--shadow-card);">Request demo</a>
-          <a href="#demo" style="display:inline-flex; align-items:center; height:40px; padding:0 18px; border-radius:9px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:14px; font-weight:600; text-decoration:none;">Sign up</a>
+          <span id="authButtons" style="display:contents;">
+            <a href="auth.html" style="display:inline-flex; align-items:center; height:40px; padding:0 14px; font-size:14px; font-weight:600; color:var(--text-secondary); text-decoration:none;">Sign in</a>
+            <a href="auth.html?mode=signup" style="display:inline-flex; align-items:center; height:40px; padding:0 18px; border-radius:9px; background:var(--accent); color:var(--text-on-accent); font-size:14px; font-weight:600; text-decoration:none; box-shadow:var(--shadow-card);">Sign up</a>
+          </span>
+          <div id="accountChip" hidden>
+            <button id="acctTrigger" type="button" title="Account" style="display:inline-flex; align-items:center; gap:10px; background:transparent; border:none; cursor:pointer; padding:4px 8px 4px 6px; border-radius:10px; transition:background 150ms;">
+              <span style="position:relative; flex-shrink:0; display:inline-flex;">
+                <span id="acctAvatar" style="width:36px; height:36px; border-radius:50%; overflow:hidden; display:inline-flex; align-items:center; justify-content:center; font-family:'Plus Jakarta Sans',sans-serif; font-size:15px; font-weight:700; color:#fff; background:#0369A1;"></span>
+                <span id="acctStatus" hidden style="position:absolute; bottom:-1px; right:-1px; width:12px; height:12px; border-radius:50%; box-shadow:0 0 0 2.5px var(--bg-page);"></span>
+              </span>
+              <span style="display:flex; flex-direction:column; line-height:1.2; text-align:left;">
+                <span id="acctName" style="font-size:13.5px; font-weight:600; color:var(--text-primary);"></span>
+                <span id="acctEmail" style="font-size:11.5px; color:var(--text-muted);"></span>
+              </span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:2px;"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </div>
         </div>
       </div>
     </header>
@@ -166,8 +216,15 @@
           <h1 style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(46px,7vw,80px); font-weight:800; line-height:0.98; letter-spacing:-0.04em; color:var(--text-primary);">Documents.<br><span style="color:var(--accent);">Solved.</span></h1>
           <p style="margin:22px 0 0; max-width:440px; font-size:clamp(16px,1.5vw,19px); line-height:1.6; color:var(--text-secondary);">Draft, review and sign without the busywork in between — in one quiet, private workspace built for the way firms actually work.</p>
           <div style="margin-top:30px; display:flex; flex-wrap:wrap; gap:12px;">
-            <a href="#demo" style="display:inline-flex; align-items:center; height:48px; padding:0 24px; border-radius:11px; background:var(--accent); color:var(--text-on-accent); font-size:15px; font-weight:600; text-decoration:none; box-shadow:var(--shadow-card);">Request a demo</a>
-            <a href="#features" style="display:inline-flex; align-items:center; height:48px; padding:0 24px; border-radius:11px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:15px; font-weight:600; text-decoration:none;">Join the waitlist</a>
+            <a href="enroll.html?mode=demo" style="display:inline-flex; align-items:center; height:48px; padding:0 24px; border-radius:11px; background:var(--accent); color:var(--text-on-accent); font-size:15px; font-weight:600; text-decoration:none; box-shadow:var(--shadow-card);">Request a demo</a>
+            <a href="enroll.html?mode=waitlist" style="display:inline-flex; align-items:center; height:48px; padding:0 24px; border-radius:11px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:15px; font-weight:600; text-decoration:none;">Join the waitlist</a>
+          </div>
+          <div style="margin-top:18px; display:flex; align-items:center; gap:10px;">
+            <span style="font-size:12px; font-weight:500; color:var(--text-muted);">Preview</span>
+            <div id="heroViewToggle" title="Switch the hero visual" style="display:inline-flex; align-items:center; gap:2px; padding:3px; border-radius:999px; background:var(--bg-elevated); border:1px solid var(--border);">
+              <button type="button" data-hero-view="app" class="hero-seg is-on" style="border:none; cursor:pointer; font-family:inherit; font-size:12px; font-weight:600; padding:6px 12px; border-radius:999px; background:var(--accent); color:var(--text-on-accent);">App</button>
+              <button type="button" data-hero-view="cabinet" class="hero-seg" style="border:none; cursor:pointer; font-family:inherit; font-size:12px; font-weight:600; padding:6px 12px; border-radius:999px; background:transparent; color:var(--text-secondary);">Cabinet</button>
+            </div>
           </div>
           <div style="margin-top:40px; display:grid; grid-template-columns:repeat(2,1fr); gap:22px 28px; max-width:460px;">
             <div><p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:16px; font-weight:700; color:var(--text-primary);">Drafting</p><p style="margin:4px 0 0; font-size:13px; color:var(--text-muted);">From your firm's templates.</p></div>
@@ -178,8 +235,10 @@
         </div>
 
         <div style="flex:1 1 460px; min-width:320px;">
+          <!-- Cabinet recreation (from the old website) — toggled from the header -->
+          <div id="heroCabinet" hidden></div>
           <!-- APP WINDOW MOCK -->
-          <div class="spot-surface" style="border-radius:16px; overflow:hidden; background:var(--bg-card); border:1px solid var(--border); box-shadow:var(--shadow-elev);">
+          <div id="heroAppPreview" class="spot-surface" style="border-radius:16px; overflow:hidden; background:var(--bg-card); border:1px solid var(--border); box-shadow:var(--shadow-elev);">
             <div style="display:flex; align-items:center; gap:14px; height:38px; padding:0 14px; background:var(--bg-elevated); border-bottom:1px solid var(--border);">
               <div data-os="mac" style="display:flex; gap:7px;"><span style="width:11px;height:11px;border-radius:50%;background:#ec6a5e;"></span><span style="width:11px;height:11px;border-radius:50%;background:#f4bf4f;"></span><span style="width:11px;height:11px;border-radius:50%;background:#61c454;"></span></div>
               <span style="flex:1; text-align:center; font-size:12px; font-weight:600; color:var(--text-muted); letter-spacing:0.04em;">Docvex — Vasilescu &amp; Partners</span>
@@ -388,10 +447,10 @@
               <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Smart search across your matters.</span>
               <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Legal updates feed.</span>
             </div>
-            <a href="#demo" style="display:flex; align-items:center; justify-content:center; height:46px; border-radius:11px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:14.5px; font-weight:600; text-decoration:none;">Talk to us</a>
+            <a href="enroll.html?mode=demo" style="display:flex; align-items:center; justify-content:center; height:46px; border-radius:11px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:14.5px; font-weight:600; text-decoration:none;">Talk to us</a>
           </div>
 
-          <div class="spot-surface" style="--spot-glow:var(--text-on-accent); background:var(--accent); border:1px solid var(--accent); border-radius:20px; padding:30px; box-shadow:var(--shadow-elev); position:relative;">
+          <div class="spot-surface accent-panel" style="--spot-glow:var(--text-on-accent); background:var(--accent); border:1px solid var(--accent); border-radius:20px; padding:30px; box-shadow:var(--shadow-elev); position:relative;">
             <span style="position:absolute; top:-12px; left:50%; transform:translateX(-50%); padding:5px 14px; border-radius:999px; background:var(--text-on-accent); color:var(--accent); font-size:10px; font-weight:700; letter-spacing:0.16em; text-transform:uppercase; white-space:nowrap;">Most popular</span>
             <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:24px; font-weight:700; color:var(--text-on-accent);">Firm</p>
             <p style="margin:5px 0 0; font-size:13.5px; color:color-mix(in srgb, var(--text-on-accent) 72%, transparent);">For boutique and mid-sized firms.</p>
@@ -403,7 +462,7 @@
               <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:color-mix(in srgb, var(--text-on-accent) 88%, transparent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-on-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Role-based permissions.</span>
               <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:color-mix(in srgb, var(--text-on-accent) 88%, transparent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-on-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Multi-matter view.</span>
             </div>
-            <a href="#demo" style="display:flex; align-items:center; justify-content:center; height:46px; border-radius:11px; background:var(--text-on-accent); color:var(--accent); font-size:14.5px; font-weight:700; text-decoration:none;">Request demo</a>
+            <a href="enroll.html?mode=demo" style="display:flex; align-items:center; justify-content:center; height:46px; border-radius:11px; background:var(--text-on-accent); color:var(--accent); font-size:14.5px; font-weight:700; text-decoration:none;">Request demo</a>
           </div>
 
           <div class="spot-surface" style="background:var(--bg-page); border:1px solid var(--border); border-radius:20px; padding:30px; box-shadow:var(--shadow-card);">
@@ -418,7 +477,7 @@
               <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> SSO and audit logs.</span>
               <span style="display:flex; align-items:flex-start; gap:10px; font-size:14px; color:var(--text-secondary);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> Dedicated success manager.</span>
             </div>
-            <a href="#demo" style="display:flex; align-items:center; justify-content:center; height:46px; border-radius:11px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:14.5px; font-weight:600; text-decoration:none;">Contact sales</a>
+            <a href="enroll.html?mode=demo" style="display:flex; align-items:center; justify-content:center; height:46px; border-radius:11px; background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text-primary); font-size:14.5px; font-weight:600; text-decoration:none;">Contact sales</a>
           </div>
         </div>
       </div>
@@ -461,14 +520,14 @@
 
     <!-- ============ FINAL CTA ============ -->
     <section id="demo" style="position:relative; max-width:1440px; margin:0 auto; padding:0 clamp(20px,5vw,40px) clamp(64px,9vw,120px);">
-      <div class="spot-surface" style="--spot-glow:var(--text-on-accent); position:relative; overflow:hidden; border-radius:28px; background:var(--accent); padding:clamp(48px,7vw,96px) clamp(24px,5vw,48px); text-align:center;">
+      <div class="spot-surface accent-panel" style="--spot-glow:var(--text-on-accent); position:relative; overflow:hidden; border-radius:28px; background:var(--accent); padding:clamp(48px,7vw,96px) clamp(24px,5vw,48px); text-align:center;">
         <div style="position:relative; max-width:680px; margin:0 auto;">
           <p style="margin:0; font-size:11px; font-weight:700; letter-spacing:0.3em; text-transform:uppercase; color:var(--text-on-accent);">docvex.ro</p>
           <h2 style="margin:16px 0 0; font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(32px,5vw,56px); font-weight:800; line-height:1.02; letter-spacing:-0.04em; color:var(--text-on-accent);">Modernize <span style="color:var(--accent-soft);">your legal workflow.</span></h2>
           <p style="margin:24px auto 0; max-width:460px; font-size:17px; line-height:1.6; color:color-mix(in srgb, var(--text-on-accent) 75%, transparent);">Cut the busywork. Get your evenings back.</p>
           <div style="margin-top:32px; display:flex; flex-wrap:wrap; gap:12px; justify-content:center;">
-            <a href="#demo" style="display:inline-flex; align-items:center; height:50px; padding:0 26px; border-radius:12px; background:var(--text-on-accent); color:var(--accent); font-size:15px; font-weight:700; text-decoration:none;">Request a demo</a>
-            <a href="#demo" style="display:inline-flex; align-items:center; height:50px; padding:0 26px; border-radius:12px; background:transparent; border:1px solid color-mix(in srgb, var(--text-on-accent) 40%, transparent); color:var(--text-on-accent); font-size:15px; font-weight:600; text-decoration:none;">Join early access</a>
+            <a href="enroll.html?mode=demo" style="display:inline-flex; align-items:center; height:50px; padding:0 26px; border-radius:12px; background:var(--text-on-accent); color:var(--accent); font-size:15px; font-weight:700; text-decoration:none;">Request a demo</a>
+            <a href="enroll.html?mode=waitlist" style="display:inline-flex; align-items:center; height:50px; padding:0 26px; border-radius:12px; background:transparent; border:1px solid color-mix(in srgb, var(--text-on-accent) 40%, transparent); color:var(--text-on-accent); font-size:15px; font-weight:600; text-decoration:none;">Join the waitlist</a>
           </div>
         </div>
       </div>
@@ -476,14 +535,13 @@
 
     <!-- ============ FOOTER ============ -->
     <footer style="position:relative; background:var(--bg-elevated); color:var(--text-primary); border-top:1px solid var(--border);">
-      <div style="max-width:1280px; margin:0 auto; padding:64px clamp(20px,5vw,40px);">
+      <div style="max-width:1440px; margin:0 auto; padding:64px clamp(20px,5vw,40px);">
         <div class="dv-footer-grid" style="display:grid; grid-template-columns:1.4fr 1fr 1fr 1.1fr; gap:40px;">
 
           <!-- Brand -->
           <div>
-            <div style="display:flex; align-items:center; gap:11px;">
-              <span style="width:34px; height:34px; border-radius:9px; overflow:hidden; background:#0F172A; box-shadow:0 0 0 1px var(--border); display:inline-flex; align-items:center; justify-content:center;"><img src="assets/logo.png" alt="Docvex" style="width:100%;height:100%;object-fit:cover;"></span>
-              <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:19px; font-weight:700; letter-spacing:0.02em; color:var(--text-primary);">Doc<span style="color:var(--accent);">V</span>ex</span>
+            <div style="display:flex; align-items:center;">
+              <img src="assets/logo-lockup.png" alt="DocVex — Intelligent Legal Workflows" style="height:40px; width:auto; display:block;">
             </div>
             <p style="margin:16px 0 0; max-width:24rem; font-size:14px; line-height:1.6; color:var(--text-muted);">Intelligent legal workflows for modern law firms.</p>
             <div style="margin-top:24px; display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text-muted);">
@@ -509,10 +567,10 @@
           <div>
             <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.22em; color:var(--accent);">Company</p>
             <ul style="margin:16px 0 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:10px;">
-              <li><a href="#about" style="font-size:14px; color:var(--text-muted); text-decoration:none;">About</a></li>
-              <li><a href="#customers" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Customers</a></li>
-              <li><a href="#careers" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Careers</a></li>
-              <li><a href="mailto:docvexteam@docvex.ro" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Contact</a></li>
+              <li><a href="company.html#about" style="font-size:14px; color:var(--text-muted); text-decoration:none;">About</a></li>
+              <li><a href="company.html#customers" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Customers</a></li>
+              <li><a href="company.html#careers" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Careers</a></li>
+              <li><a href="company.html#contact" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Contact</a></li>
             </ul>
           </div>
 
@@ -520,11 +578,11 @@
           <div>
             <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.22em; color:var(--accent);">Legal</p>
             <ul style="margin:16px 0 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:10px;">
-              <li><a href="#terms" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Terms &amp; Conditions</a></li>
-              <li><a href="#privacy" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Privacy Policy</a></li>
-              <li><a href="#cookies" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Cookie Policy</a></li>
-              <li><a href="#gdpr" style="font-size:14px; color:var(--text-muted); text-decoration:none;">GDPR Compliance</a></li>
-              <li><a href="#confidentiality" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Security &amp; Confidentiality</a></li>
+              <li><a href="legal.html#terms" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Terms &amp; Conditions</a></li>
+              <li><a href="legal.html#privacy" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Privacy Policy</a></li>
+              <li><a href="legal.html#cookies" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Cookie Policy</a></li>
+              <li><a href="legal.html#gdpr" style="font-size:14px; color:var(--text-muted); text-decoration:none;">GDPR Compliance</a></li>
+              <li><a href="legal.html#confidentiality" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Security &amp; Confidentiality</a></li>
             </ul>
           </div>
         </div>
@@ -539,12 +597,164 @@
 
 </div>
 <script>
+// ── Signed-in header: swap the Sign in / Sign up buttons for the user's
+//    avatar + name + email by reading the app's Supabase session from
+//    localStorage (shared when the site + app are served from the same origin). ──
+(function () {
+  var SUPABASE_AUTH_KEY = 'sb-pntxlvhkqfryyyxlqytr-auth-token';
+  var AVATAR_PALETTE = ['#0891B2','#BE185D','#4F46E5','#047857','#B45309','#6D28D9','#DC2626','#0369A1','#DB2777','#059669','#7C3AED','#EA580C'];
+  function djb2(seed) { var h = 0; seed = seed || ''; for (var i = 0; i < seed.length; i++) { h = ((h << 5) - h) + seed.charCodeAt(i); h |= 0; } return Math.abs(h); }
+  function avatarColor(seed) { return AVATAR_PALETTE[djb2(seed) % AVATAR_PALETTE.length]; }
+
+  // Activity-status colours (same as the app / account page).
+  var STATUS_COLORS = { online: '#23a55a', idle: '#f0b232', dnd: '#f23f43', offline: '#80848e' };
+
+  function readUser() {
+    var raw;
+    try { raw = localStorage.getItem(SUPABASE_AUTH_KEY); } catch (e) { return null; }
+    if (!raw) return null;
+    var parsed; try { parsed = JSON.parse(raw); } catch (e) { return null; }
+    // supabase-js v2 stores the session directly; older gotrue wraps it in currentSession.
+    var session = parsed && parsed.currentSession ? parsed.currentSession : parsed;
+    var user = (session && session.user) || (parsed && parsed.user);
+    if (!user) return null;
+    // Treat a long-expired access token with no refresh token as signed-out.
+    var exp = session && session.expires_at;
+    if (exp && !(session.refresh_token) && (exp * 1000) < Date.now()) return null;
+    return user;
+  }
+
+  function render() {
+    var auth = document.getElementById('authButtons');
+    var chip = document.getElementById('accountChip');
+    if (!auth || !chip) return;
+    var user = readUser();
+    // Clear the inline display too — it would otherwise override [hidden]'s
+    // display:none and keep the chip visible after sign-out until a refresh.
+    if (!user) { auth.style.display = 'contents'; chip.hidden = true; chip.style.display = 'none'; return; }
+
+    var meta = user.user_metadata || {};
+    var name = meta.full_name || meta.name || user.email || 'Account';
+    var email = user.email || '';
+    document.getElementById('acctName').textContent = name;
+    document.getElementById('acctEmail').textContent = email;
+
+    var av = document.getElementById('acctAvatar');
+    if (meta.avatar_url) {
+      av.style.background = 'transparent';
+      av.innerHTML = '<img src="' + String(meta.avatar_url).replace(/"/g, '&quot;') + '" alt="" referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover;">';
+    } else {
+      av.textContent = (name.trim()[0] || '?').toUpperCase();
+      av.style.background = avatarColor(user.id || email || name);
+    }
+
+    // Activity status circle on the avatar.
+    var statusDot = document.getElementById('acctStatus');
+    if (statusDot) {
+      var status = meta.status || 'online';
+      var color = STATUS_COLORS[status] || STATUS_COLORS.online;
+      if (status === 'offline') {
+        statusDot.style.background = 'var(--bg-page)';
+        statusDot.style.boxShadow = '0 0 0 2.5px var(--bg-page), inset 0 0 0 2px ' + color;
+      } else {
+        statusDot.style.background = color;
+        statusDot.style.boxShadow = '0 0 0 2.5px var(--bg-page)';
+      }
+      statusDot.title = status.charAt(0).toUpperCase() + status.slice(1);
+      statusDot.hidden = false;
+    }
+
+    auth.style.display = 'none';
+    chip.hidden = false;
+    chip.style.display = 'inline-flex';
+  }
+
+  render();
+  // Reflect sign-in / sign-out that happened in another tab while this one is open.
+  window.addEventListener('storage', function (e) { if (e.key === SUPABASE_AUTH_KEY) render(); });
+  // Live same-tab updates: re-render on sign-out / status change (USER_UPDATED).
+  if (readUser()) {
+    import('./supabase.js').then(function (m) { m.supabase.auth.onAuthStateChange(function () { render(); }); }).catch(function () {});
+  }
+
+  // ── Account chip morph pill (tooltip → dropdown) ──
+  (function () {
+    var trigger = document.getElementById('acctTrigger');
+    if (!trigger) return;
+    var pill = null, curX = 0, curY = 0, isMenu = false, oldRect = null, onKey = null, onDown = null;
+    var ICON_USER = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>';
+    var ICON_OUT  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>';
+    function getName() { var el = document.getElementById('acctName'); return (el && el.textContent) || 'Account'; }
+    function clamp(el) {
+      var w = el.offsetWidth, h = el.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+      return { x: Math.max(8, Math.min(curX - 8 - w, vw - 8 - w)), y: Math.max(8, Math.min(curY + 8, vh - 8 - h)) };
+    }
+    function removePill() { if (pill) { pill.remove(); pill = null; } }
+    function doSignOut() {
+      import('./supabase.js').then(function(m) { return m.supabase.auth.signOut(); })
+        .catch(function() { try { localStorage.removeItem(SUPABASE_AUTH_KEY); } catch(e) {} })
+        .then(function() { render(); });
+    }
+    function addDismiss() {
+      onKey = function(e) { if (e.key === 'Escape') closeMenu(); };
+      onDown = function(e) { if (pill && pill.contains(e.target)) return; if (trigger.contains(e.target)) return; closeMenu(); };
+      window.addEventListener('keydown', onKey);
+      window.addEventListener('mousedown', onDown, true);
+    }
+    function removeDismiss() {
+      if (onKey) { window.removeEventListener('keydown', onKey); onKey = null; }
+      if (onDown) { window.removeEventListener('mousedown', onDown, true); onDown = null; }
+    }
+    function openMenu() {
+      if (pill) { oldRect = pill.getBoundingClientRect(); removePill(); }
+      isMenu = true;
+      pill = document.createElement('div');
+      pill.className = 'dvx-morph-pill is-menu';
+      pill.setAttribute('role', 'menu');
+      pill.innerHTML =
+        '<ul class="dvx-morph-list" role="none">' +
+          '<li role="none"><a class="dvx-morph-item" href="account.html" role="menuitem">' + ICON_USER + 'Account</a></li>' +
+          '<li role="none"><button class="dvx-morph-item dvx-morph-danger" type="button" role="menuitem">' + ICON_OUT + 'Sign out</button></li>' +
+        '</ul>';
+      document.body.appendChild(pill);
+      pill.querySelector('.dvx-morph-danger').addEventListener('click', function() { closeMenu(); doSignOut(); });
+      var pos = clamp(pill);
+      pill.style.transition = 'none';
+      pill.style.transform = 'translate(' + pos.x + 'px,' + pos.y + 'px)';
+      void pill.offsetWidth;
+      if (oldRect) {
+        var nr = pill.getBoundingClientRect();
+        var sx = oldRect.width / nr.width, sy = oldRect.height / nr.height;
+        pill.style.transformOrigin = 'top right';
+        pill.style.transform = 'translate(' + pos.x + 'px,' + pos.y + 'px) scale(' + sx + ',' + sy + ')';
+        void pill.offsetWidth;
+        pill.style.transition = 'transform 220ms cubic-bezier(0.16,1,0.3,1)';
+        pill.style.transform = 'translate(' + pos.x + 'px,' + pos.y + 'px) scale(1,1)';
+        oldRect = null;
+      } else { pill.style.transition = ''; }
+      addDismiss();
+    }
+    function closeMenu() { isMenu = false; removeDismiss(); removePill(); }
+    trigger.addEventListener('mousemove', function(e) {
+      curX = e.clientX; curY = e.clientY;
+      if (isMenu) return;
+      if (!pill) { pill = document.createElement('div'); pill.className = 'dvx-morph-pill'; pill.setAttribute('role', 'tooltip'); document.body.appendChild(pill); }
+      pill.textContent = getName();
+      var pos = clamp(pill), first = !pill._placed; pill._placed = true;
+      if (first) { pill.style.transition = 'none'; pill.style.transform = 'translate(' + pos.x + 'px,' + pos.y + 'px)'; void pill.offsetWidth; pill.style.transition = ''; }
+      else { pill.style.transform = 'translate(' + pos.x + 'px,' + pos.y + 'px)'; }
+    });
+    trigger.addEventListener('mouseleave', function() { if (!isMenu) removePill(); });
+    trigger.addEventListener('click', function(e) { e.stopPropagation(); if (isMenu) closeMenu(); else openMenu(); });
+  })();
+})();
 (function () {
   var hdr = document.getElementById('siteHeader');
   if (hdr) {
     var onScroll = function () {
-      if (window.scrollY > 8) hdr.classList.remove('at-top');
-      else hdr.classList.add('at-top');
+      var atTop = window.scrollY <= 8;
+      hdr.classList.toggle('at-top', atTop);
+      document.body.classList.toggle('dvx-attop', atTop);
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     onScroll();
@@ -616,6 +826,155 @@
     apply();
     window.addEventListener('pointermove', onMove, { passive: true });
   })();
+})();
+</script>
+<script>
+// ── Hero visual toggle: App preview ↔ Cabinet (recreated from the old site's
+//    LuxuryCabinet). ──
+(function () {
+  var app = document.getElementById('heroAppPreview');
+  var cab = document.getElementById('heroCabinet');
+  var toggle = document.getElementById('heroViewToggle');
+  if (!app || !cab || !toggle) return;
+
+  function books(y, x, items) {
+    x = x || 60; var gap = 6, cur = x, out = '';
+    items.forEach(function (b) {
+      var yy = y + (78 - b.h);
+      out += '<rect x="' + cur + '" y="' + yy + '" width="' + b.w + '" height="' + b.h + '" fill="' + b.fill + '" stroke="#000" stroke-opacity="0.25"/>'
+           + '<rect x="' + cur + '" y="' + yy + '" width="1" height="' + b.h + '" fill="#F5F2EA" opacity="0.10"/>'
+           + '<rect x="' + cur + '" y="' + (yy + 12) + '" width="' + b.w + '" height="2" fill="#000" opacity="0.25"/>';
+      cur += b.w + gap;
+    });
+    return '<g>' + out + '</g>';
+  }
+
+  function cabinetSVG() {
+    var shelves = [210, 380, 550, 720].map(function (y) {
+      return '<g><rect x="48" y="' + y + '" width="544" height="14" fill="url(#walnutInterior)"/>'
+        + '<rect x="48" y="' + (y + 13) + '" width="544" height="2" fill="#000" opacity="0.45"/></g>';
+    }).join('');
+
+    var folders = [0, 9, 18, 27, 36, 45, 54].map(function (dy, i) {
+      return '<rect x="240" y="' + (478 + dy) + '" width="148" height="9" fill="' + (i % 2 === 0 ? '#F5F2EA' : '#E6D6B3') + '" stroke="#000" stroke-opacity="0.18"/>';
+    }).join('');
+
+    return '' +
+'<svg viewBox="0 0 640 860" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="DOCVEX walnut V cabinet" style="display:block;height:auto;width:100%;">' +
+  '<defs>' +
+    '<linearGradient id="walnutBase" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#A6724B"/><stop offset="55%" stop-color="#8B5E3C"/><stop offset="100%" stop-color="#5D3E25"/></linearGradient>' +
+    '<filter id="grainDark" x="0%" y="0%" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.85 0.012" numOctaves="5" seed="9" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 0.14 0 0 0 0 0.07 0 0 0 0 0.03 0 0 0 0.95 -0.30"/></filter>' +
+    '<filter id="grainLight" x="0%" y="0%" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.85 0.012" numOctaves="4" seed="9" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 1 0 0 0 0 0.85 0 0 0 0 0.62 0 0 0 0.42 -0.45"/></filter>' +
+    '<filter id="knots" x="0%" y="0%" width="100%" height="100%"><feTurbulence type="turbulence" baseFrequency="0.020 0.009" numOctaves="3" seed="3" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 0.05 0 0 0 0 0.02 0 0 0 0 0.01 0 0 0 0.5 -0.5"/></filter>' +
+    '<pattern id="walnut" patternUnits="userSpaceOnUse" x="0" y="0" width="640" height="860"><rect width="640" height="860" fill="url(#walnutBase)"/><rect width="640" height="860" filter="url(#knots)"/><rect width="640" height="860" filter="url(#grainDark)"/><rect width="640" height="860" filter="url(#grainLight)"/></pattern>' +
+    '<pattern id="walnutInterior" patternUnits="userSpaceOnUse" x="0" y="0" width="640" height="200"><rect width="640" height="200" fill="#7C5535"/><rect width="640" height="200" filter="url(#grainDark)" opacity="0.7"/><rect width="640" height="200" filter="url(#grainLight)" opacity="0.6"/></pattern>' +
+    '<linearGradient id="glass" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0F172A" stop-opacity="0.55"/><stop offset="45%" stop-color="#0F172A" stop-opacity="0.42"/><stop offset="100%" stop-color="#0F172A" stop-opacity="0.62"/></linearGradient>' +
+    '<linearGradient id="glassReflect" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F5F2EA" stop-opacity="0.18"/><stop offset="30%" stop-color="#F5F2EA" stop-opacity="0.03"/><stop offset="55%" stop-color="#F5F2EA" stop-opacity="0.12"/><stop offset="100%" stop-color="#F5F2EA" stop-opacity="0"/></linearGradient>' +
+    '<linearGradient id="backwall" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1E293B"/><stop offset="100%" stop-color="#0F172A"/></linearGradient>' +
+    '<linearGradient id="frame" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#0B1220"/><stop offset="50%" stop-color="#1E293B"/><stop offset="100%" stop-color="#0B1220"/></linearGradient>' +
+    '<radialGradient id="floor" cx="0.5" cy="0.5" r="0.5"><stop offset="0%" stop-color="#000" stop-opacity="0.55"/><stop offset="100%" stop-color="#000" stop-opacity="0"/></radialGradient>' +
+    '<clipPath id="doorClip"><rect x="40" y="40" width="560" height="760" rx="6"/></clipPath>' +
+  '</defs>' +
+  '<ellipse cx="320" cy="830" rx="280" ry="22" fill="url(#floor)"/>' +
+  '<rect x="24" y="24" width="592" height="792" rx="10" fill="url(#frame)"/>' +
+  '<rect x="24" y="24" width="592" height="792" rx="10" fill="none" stroke="#2B3A52" stroke-width="1" opacity="0.85"/>' +
+  '<rect x="40" y="40" width="560" height="760" rx="6" fill="url(#backwall)"/>' +
+  '<g clip-path="url(#doorClip)">' + shelves +
+    books(150, 60, [{w:22,h:60,fill:'#1E293B'},{w:18,h:56,fill:'#DCC9A3'},{w:24,h:58,fill:'#0F172A'},{w:16,h:52,fill:'#8B5E3C'},{w:28,h:60,fill:'#1E293B'},{w:20,h:54,fill:'#E6D6B3'},{w:22,h:58,fill:'#1E293B'},{w:18,h:56,fill:'#DCC9A3'},{w:26,h:60,fill:'#0F172A'},{w:20,h:54,fill:'#8B5E3C'},{w:22,h:58,fill:'#1E293B'},{w:18,h:56,fill:'#DCC9A3'},{w:24,h:60,fill:'#0F172A'}]) +
+    books(320, 60, [{w:38,h:60,fill:'#1E293B'},{w:38,h:60,fill:'#1E293B'},{w:38,h:60,fill:'#1E293B'},{w:30,h:58,fill:'#DCC9A3'},{w:30,h:58,fill:'#DCC9A3'},{w:30,h:58,fill:'#DCC9A3'},{w:38,h:60,fill:'#0F172A'},{w:38,h:60,fill:'#0F172A'},{w:38,h:60,fill:'#0F172A'}]) +
+    '<g><rect x="60" y="470" width="160" height="78" rx="3" fill="#5D3E25"/><rect x="60" y="470" width="160" height="14" fill="#4A311E"/><rect x="130" y="503" width="20" height="6" rx="1" fill="#DCC9A3"/><rect x="60" y="470" width="160" height="78" rx="3" fill="none" stroke="#000" stroke-opacity="0.35"/>' + folders +
+      '<rect x="410" y="470" width="180" height="78" rx="3" fill="#3A2718"/><rect x="410" y="470" width="180" height="14" fill="#291A0F"/><rect x="490" y="503" width="20" height="6" rx="1" fill="#DCC9A3"/><rect x="410" y="470" width="180" height="78" rx="3" fill="none" stroke="#000" stroke-opacity="0.35"/></g>' +
+    '<g><rect x="60" y="640" width="14" height="78" rx="7" fill="#DCC9A3"/><rect x="78" y="640" width="14" height="78" rx="7" fill="#8B5E3C"/><rect x="96" y="640" width="14" height="78" rx="7" fill="#DCC9A3"/><rect x="60" y="640" width="50" height="6" rx="2" fill="#000" opacity="0.35"/>' +
+      books(640, 130, [{w:30,h:78,fill:'#1E293B'},{w:26,h:76,fill:'#0F172A'},{w:28,h:78,fill:'#5D3E25'},{w:30,h:78,fill:'#1E293B'},{w:24,h:72,fill:'#DCC9A3'},{w:32,h:78,fill:'#0F172A'}]) +
+      '<rect x="460" y="660" width="130" height="58" rx="2" fill="#DCC9A3"/><rect x="460" y="660" width="130" height="6" fill="#8B5E3C"/><line x1="460" y1="690" x2="590" y2="690" stroke="#8B5E3C" stroke-width="1" opacity="0.6"/></g>' +
+  '</g>' +
+  '<g clip-path="url(#doorClip)"><polygon points="50,52 168,52 320,712 470,52 590,52 330,790 310,790" fill="url(#walnut)"/><polyline points="50,52 320,712 590,52" fill="none" stroke="#E6D6B3" stroke-opacity="0.08" stroke-width="1.5"/></g>' +
+  '<rect x="40" y="40" width="560" height="760" rx="6" fill="url(#glass)"/>' +
+  '<rect x="40" y="40" width="560" height="760" rx="6" fill="url(#glassReflect)"/>' +
+  '<rect x="92" y="40" width="48" height="760" fill="#F5F2EA" opacity="0.05"/>' +
+  '<line x1="320" y1="40" x2="320" y2="800" stroke="#000" stroke-opacity="0.55" stroke-width="1"/>' +
+  '<rect x="305" y="370" width="4" height="120" rx="1" fill="#0B1220"/><rect x="305" y="370" width="4" height="3" fill="#2B3A52"/>' +
+  '<rect x="331" y="370" width="4" height="120" rx="1" fill="#0B1220"/><rect x="331" y="370" width="4" height="3" fill="#2B3A52"/>' +
+  '<rect x="40" y="40" width="560" height="760" rx="6" fill="none" stroke="#0B1220" stroke-width="2"/>' +
+  '<rect x="24" y="24" width="592" height="3" rx="2" fill="#3A4A6A" opacity="0.6"/>' +
+  '<rect x="40" y="800" width="560" height="16" fill="#0B1220"/><rect x="40" y="800" width="560" height="1" fill="#2B3A52"/>' +
+'</svg>';
+  }
+
+  cab.innerHTML = '<div style="filter:drop-shadow(0 30px 60px rgba(0,0,0,0.45)); max-width:520px; margin:0 auto;">' + cabinetSVG() + '</div>';
+
+  function setView(view) {
+    var isCab = view === 'cabinet';
+    cab.hidden = !isCab;
+    app.style.display = isCab ? 'none' : '';
+    toggle.querySelectorAll('[data-hero-view]').forEach(function (b) {
+      var on = b.getAttribute('data-hero-view') === view;
+      b.classList.toggle('is-on', on);
+      b.style.background = on ? 'var(--accent)' : 'transparent';
+      b.style.color = on ? 'var(--text-on-accent)' : 'var(--text-secondary)';
+    });
+    try { localStorage.setItem('docvex.hero.view', view); } catch (e) {}
+  }
+
+  toggle.querySelectorAll('[data-hero-view]').forEach(function (b) {
+    b.addEventListener('click', function () { setView(b.getAttribute('data-hero-view')); });
+  });
+
+  var saved = 'app';
+  try { saved = localStorage.getItem('docvex.hero.view') || 'app'; } catch (e) {}
+  setView(saved);
+})();
+</script>
+<script>
+// ── Left section timeline (scrollspy) ──
+(function () {
+  var nav = document.getElementById('dvTimeline');
+  if (!nav) return;
+  var hero = document.querySelector('section'); // the hero section (first <section>)
+  var ITEMS = [
+    { label: 'Product',     el: document.getElementById('features') },
+    { label: 'Security',    el: document.getElementById('security') },
+    { label: 'Updates',     el: document.getElementById('updates') },
+    { label: 'Pricing',     el: document.getElementById('pricing') },
+    { label: 'FAQ',         el: document.getElementById('faq') },
+    { label: 'Get started', el: document.getElementById('demo') },
+  ].filter(function (it) { return it.el; });
+
+  var dots = ITEMS.map(function (it) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'dv-tl-dot';
+    b.innerHTML = '<span class="d"></span><span class="lbl">' + it.label + '</span>';
+    b.addEventListener('click', function () {
+      if (it.top) window.scrollTo({ top: 0, behavior: 'smooth' });
+      else it.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    nav.appendChild(b);
+    return b;
+  });
+
+  function setActive(i) {
+    for (var k = 0; k < dots.length; k++) dots[k].classList.toggle('is-active', k === i);
+  }
+
+  // Pick the section whose top is closest to (just above) the viewport's upper third.
+  function onScroll() {
+    var marker = window.innerHeight * 0.35;
+    // Hide the rail entirely while the hero section is still in view.
+    var heroRect = hero.getBoundingClientRect();
+    var inHero = heroRect.bottom - marker > 0;
+    nav.classList.toggle('is-hidden', inHero);
+    if (inHero) return;
+    var active = 0;
+    for (var i = 0; i < ITEMS.length; i++) {
+      var rect = ITEMS[i].el.getBoundingClientRect();
+      if (rect.top - marker <= 0) active = i;
+    }
+    setActive(active);
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll, { passive: true });
+  onScroll();
 })();
 </script>
 </body>

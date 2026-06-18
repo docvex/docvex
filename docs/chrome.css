@@ -1,0 +1,141 @@
+/* Shared site chrome — navbar + footer used on every sub-page (auth, account)
+   so they match the homepage. The homepage (index.html) keeps its own inline
+   copy with the scroll-aware hero treatment; this file reproduces the same
+   visual styling for the other tabs. Theme tokens live here too so any page
+   that loads chrome.css renders in the correct Cream / Ink palette. */
+
+:root, :root[data-theme="cream"] {
+  --bg-page:#F5F2EA; --bg-card:#FFFFFF; --bg-elevated:#FAF7F0; --bg-input:#FFFFFF;
+  --border:rgba(15,23,42,0.10); --border-strong:rgba(15,23,42,0.18);
+  --text-primary:#0F172A; --text-secondary:#1E293B; --text-muted:#6B7280;
+  --text-on-accent:#FFFFFF; --accent:#8B5E3C; --accent-hover:#74502F;
+  --accent-soft:#DCC9A3; --accent-tint:rgba(139,94,60,0.10);
+  --danger:#B91C1C; --danger-soft:#DC2626; --danger-text:#B91C1C; --success-soft:#22C55E;
+  --shadow-card:0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+  --shadow-elev:0 18px 50px -24px rgba(15,23,42,0.30), 0 8px 24px -16px rgba(15,23,42,0.18);
+  --overlay-scrim:rgba(15,23,42,0.45);
+  --dot:color-mix(in srgb, var(--text-primary) 16%, transparent);
+}
+:root[data-theme="ink"] {
+  --bg-page:#0F172A; --bg-card:#1E293B; --bg-elevated:#2A3548; --bg-input:#15213A;
+  --border:rgba(245,242,234,0.10); --border-strong:rgba(245,242,234,0.20);
+  --text-primary:#F5F2EA; --text-secondary:#C9CEDC; --text-muted:#8A93A8;
+  --text-on-accent:#0F172A; --accent:#DCC9A3; --accent-hover:#C8B58E;
+  --accent-soft:#8B5E3C; --accent-tint:rgba(220,201,163,0.12);
+  --danger:#EF4444; --danger-soft:#F87171; --danger-text:#FCA5A5; --success-soft:#4ADE80;
+  --shadow-card:0 1px 3px rgba(0,0,0,0.40), 0 1px 2px rgba(0,0,0,0.25);
+  --shadow-elev:0 24px 60px -22px rgba(0,0,0,0.65), 0 10px 30px -18px rgba(0,0,0,0.5);
+  --overlay-scrim:rgba(0,0,0,0.6);
+  --dot:color-mix(in srgb, var(--text-primary) 11%, transparent);
+}
+
+/* Reserve space for the fixed navbar (only on pages that render it). Matches the
+   homepage: taller reserve while the bar is in its at-top state, compacting on
+   scroll — both transition in lockstep with the header so content stays snug. */
+.dvx-has-navbar body { padding-top: 68px; transition: padding-top 0.15s ease; }
+.dvx-has-navbar.dvx-attop body { padding-top: 108px; }
+
+/* ── Navbar (mirrors the homepage .dv-header scroll-aware treatment) ── */
+.dvx-header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  background: color-mix(in srgb, var(--bg-page) 72%, transparent);
+  backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s ease, border-color 0.15s ease, backdrop-filter 0.15s ease;
+}
+.dvx-header-inner {
+  max-width: 1440px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 14px clamp(20px, 5vw, 40px);
+  transition: padding 0.15s ease;
+}
+.dvx-header.at-top {
+  background: transparent; border-bottom-color: transparent;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.dvx-header.at-top .dvx-header-inner { padding-top: 34px; padding-bottom: 34px; }
+.dvx-logo { display: flex; align-items: center; text-decoration: none; }
+.dvx-lockup { height: 40px; width: auto; display: block; }
+.dvx-nav { display: flex; align-items: center; gap: 30px; }
+.dvx-nav a { position: relative; font-size: 14px; font-weight: 500; color: var(--text-secondary); text-decoration: none; padding: 4px 0; transition: color 150ms; }
+.dvx-nav a:hover { color: var(--text-primary); }
+.dvx-nav a::after { content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; border-radius: 2px; background: var(--accent); transform: scaleX(0); transform-origin: center; transition: transform 180ms ease; }
+.dvx-nav a:hover::after { transform: scaleX(0.5); }
+.dvx-nav a.is-active { color: var(--text-primary); font-weight: 600; }
+.dvx-nav a.is-active::after { transform: scaleX(1); }
+@media (max-width: 760px) { .dvx-nav { display: none; } }
+.dvx-actions { display: flex; align-items: center; gap: 14px; }
+.dvx-theme { width: 38px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; cursor: pointer; color: var(--text-secondary); border-radius: 8px; }
+.dvx-theme:hover { color: var(--text-primary); background: var(--bg-elevated); }
+.dvx-signin { display: inline-flex; align-items: center; height: 40px; padding: 0 14px; font-size: 14px; font-weight: 600; color: var(--text-secondary); text-decoration: none; }
+.dvx-signin:hover { color: var(--text-primary); }
+.dvx-signup { display: inline-flex; align-items: center; height: 40px; padding: 0 18px; border-radius: 9px; background: var(--accent); color: var(--text-on-accent); font-size: 14px; font-weight: 600; text-decoration: none; box-shadow: var(--shadow-card); }
+.dvx-signup:hover { background: var(--accent-hover); }
+
+/* Account chip + dropdown */
+.dvx-chip { position: relative; }
+.dvx-chip-trigger { display: inline-flex; align-items: center; gap: 10px; background: transparent; border: none; cursor: pointer; padding: 4px 8px 4px 6px; border-radius: 10px; transition: background 150ms; }
+.dvx-chip-trigger:hover { background: var(--bg-elevated); }
+.dvx-chip-avatarwrap { position: relative; flex-shrink: 0; display: inline-flex; }
+.dvx-chip-avatar { width: 36px; height: 36px; border-radius: 50%; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 15px; font-weight: 700; color: #fff; background: #0369A1; }
+.dvx-chip-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.dvx-chip-status { position: absolute; bottom: -1px; right: -1px; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2.5px var(--bg-page); }
+.dvx-chip-text { display: flex; flex-direction: column; line-height: 1.2; text-align: left; }
+.dvx-chip-name { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+.dvx-chip-email { font-size: 11.5px; color: var(--text-muted); }
+
+/* ── Account chip morph pill (tooltip → dropdown) ── */
+.dvx-morph-pill {
+  position: fixed; top: 0; left: 0; z-index: 10000;
+  padding: 6px 12px; border-radius: 999px;
+  background: var(--bg-card); border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 0.75rem; font-weight: 500;
+  white-space: nowrap; line-height: 1.2; pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  animation: dvx-tip-in 120ms ease-out;
+  transition: transform 90ms ease-out;
+  will-change: transform;
+}
+@keyframes dvx-tip-in { from { opacity: 0; } to { opacity: 1; } }
+.dvx-morph-pill.is-menu {
+  pointer-events: auto; padding: 4px;
+  border-radius: 10px; min-width: 180px;
+  background: var(--bg-card); border-color: var(--border-strong);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  white-space: normal; transition: none; will-change: transform;
+  animation: dvx-tip-in 100ms ease-out;
+}
+.dvx-morph-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.dvx-morph-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 0.55rem 0.8rem; border-radius: 6px;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 0.85rem; font-weight: 500;
+  color: var(--text-primary); text-decoration: none;
+  background: transparent; border: none; cursor: pointer;
+  transition: background 120ms;
+}
+.dvx-morph-item:hover:not(:disabled) { background: var(--bg-elevated); outline: none; }
+.dvx-morph-item svg { flex: none; }
+.dvx-morph-danger { color: var(--danger-soft); }
+.dvx-morph-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger-soft); }
+.dvx-menu-account .dvx-morph-item:hover:not(:disabled) { background: transparent; }
+/* ── Footer ── */
+.dvx-footer { position: relative; background: var(--bg-elevated); color: var(--text-primary); border-top: 1px solid var(--border); }
+.dvx-footer-inner { max-width: 1440px; margin: 0 auto; padding: 64px clamp(20px, 5vw, 40px); }
+.dvx-footer-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1.1fr; gap: 40px; }
+.dvx-footer-brandrow { display: flex; align-items: center; gap: 11px; }
+.dvx-footer-lockup { height: 40px; width: auto; max-width: 100%; display: block; object-fit: contain; }
+.dvx-footer-tag { margin: 16px 0 0; max-width: 24rem; font-size: 14px; line-height: 1.6; color: var(--text-muted); }
+.dvx-footer-contact { margin-top: 24px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted); }
+.dvx-footer-contact a { color: inherit; text-decoration: none; }
+.dvx-footer-coltitle { margin: 0; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.22em; color: var(--accent); }
+.dvx-footer-col ul { margin: 16px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.dvx-footer-col a { font-size: 14px; color: var(--text-muted); text-decoration: none; }
+.dvx-footer-col a:hover { color: var(--text-primary); }
+.dvx-footer-bottom { margin-top: 48px; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--border); padding-top: 24px; font-size: 12px; color: var(--text-muted); }
+.dvx-footer-bottom p { margin: 0; }
+@media (max-width: 1024px) { .dvx-footer-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 640px) { .dvx-footer-grid { grid-template-columns: 1fr; } .dvx-footer-bottom { flex-direction: column; align-items: flex-start; } }
