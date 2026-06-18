@@ -4,6 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import FilePreview from '../components/FilePreview';
 import FileThumbnail from '../components/FileThumbnail';
+import CursorSpotlight from '../components/CursorSpotlight';
+import ProjectFiles from './Projects/ProjectFiles';
 import { ItemGlyph } from '../components/FilesWorkspace';
 import Tooltip from '../components/Tooltip';
 import { useMorphPill } from '../components/useMorphPill';
@@ -15,6 +17,7 @@ import { localFolderApi } from '../lib/localFolder';
 import { toLayoutPx } from '../lib/appZoom';
 import { recognizeCanvas, OCR_MAX_EDGE } from '../lib/ocr';
 import { loadOcrHistory, saveOcrHistory } from '../lib/extractionHistory';
+import { loadCaptions, saveCaptions, clearCaptions } from '../lib/captionsHistory';
 import { transcribeAudio } from '../lib/transcribe';
 import { onDocViewerAddFile, extractDocText, openExternal } from '../lib/platform';
 import { parseWhatsAppChat, splitTimestamp } from '../lib/whatsappChat';
@@ -1909,24 +1912,6 @@ function canvasToThumbDataUrl(source, maxEdge = HISTORY_THUMB_MAX_EDGE) {
   return c.toDataURL('image/png');
 }
 
-// Rebuilds a <canvas> from a history entry's stored thumbnail data URL, so
-// "Regenerate text" can re-run OCR on the saved snippet without needing the
-// original (unstored) full-resolution crop.
-function canvasFromDataUrl(dataUrl) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth;
-      c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
-      resolve(c);
-    };
-    img.onerror = () => reject(new Error("Couldn't read this snippet."));
-    img.src = dataUrl;
-  });
-}
-
 function formatVideoTime(s) {
   if (!s || !isFinite(s)) return '0:00';
   const h = Math.floor(s / 3600);
@@ -1992,6 +1977,27 @@ function shapeElements(shape, className, svgProps) {
   }
 }
 
+// Inverse of runOcr's `toNat`: maps a stored selection region (natural-
+// resolution px) back to stage-viewport px for the "locate selection" overlay.
+// `toStage` converts a natural-px point to stage px; `scale` is the live
+// natural→display ratio (for the highlight brush radius).
+function regionToStageShape(region, toStage, scale) {
+  if (!region) return null;
+  switch (region.kind) {
+    case 'rect': {
+      const a = toStage({ x: region.x1, y: region.y1 });
+      const b = toStage({ x: region.x2, y: region.y2 });
+      return { kind: 'rect', x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+    }
+    case 'union':
+      return { kind: 'union', points: region.points.map(toStage), r: region.r * scale };
+    case 'path':
+      return { kind: 'path', points: region.points.map(toStage) };
+    default:
+      return null;
+  }
+}
+
 // Width bounds (layout px) for the resizable "Extracted text" panel.
 const HISTORY_MIN_WIDTH = 240;
 // Zoom bounds and step for the media viewer.
@@ -2027,11 +2033,153 @@ function MediaOcrPane({ file, url, kind }) {
   // first so the newest snippet lands at the bottom of the list.
   const [history, setHistory] = useState(() => loadOcrHistory(file.path));
   const [copiedId, setCopiedId] = useState(null);
-  const [regeneratingId, setRegeneratingId] = useState(null);
-  const [regenError, setRegenError] = useState(null); // { id, message }
   const [historyWidth, setHistoryWidth] = useState(HISTORY_DEFAULT_WIDTH);
   const jobIdRef = useRef(0);
   const historyListRef = useRef(null);
+  // Compact-header-on-scroll (mirrors the Versions page): show the mini header
+  // once the masthead has scrolled away. Hysteresis avoids edge flicker.
+  const [historyScrolled, setHistoryScrolled] = useState(false);
+  useEffect(() => {
+    const el = historyListRef.current;
+    if (!el) return undefined;
+    const onScroll = () => setHistoryScrolled((s) => (s ? el.scrollTop > 8 : el.scrollTop > 28));
+    onScroll();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // "Locate selection": clicking a snippet thumbnail highlights where it was
+  // taken from, back on the picture/video. `highlightId` is the entry being
+  // shown; `highlightShape` is its region mapped to current stage-viewport px.
+  const [highlightId, setHighlightId] = useState(null);
+  const [highlightShape, setHighlightShape] = useState(null);
+  // Full-frame JPEG overlay shown while the video seeks to the right timestamp.
+  // Gives an instant "correct frame" appearance; cleared once seeked fires.
+  const [frameSnapOverlay, setFrameSnapOverlay] = useState(null);
+  // True while seeking between highlighted items — blanks the stage.
+  const [seekLoading, setSeekLoading] = useState(false);
+  // Latest value for the stable pan handler (a plain stage click dismisses it).
+  const highlightIdRef = useRef(null);
+  useEffect(() => { highlightIdRef.current = highlightId; }, [highlightId]);
+  // Re-map the stored region (natural px) to stage px every frame while a
+  // highlight is shown, so it stays glued through zoom/pan transitions and
+  // window resizes. The loop only runs while something is highlighted.
+  useEffect(() => {
+    if (!highlightId) { setHighlightShape(null); setFrameSnapOverlay(null); setSeekLoading(false); return undefined; }
+    const entry = history.find((e) => e.id === highlightId);
+    const el = mediaRef.current;
+    const stage = stageRef.current;
+    if (!entry?.region || !el || !stage) { setHighlightShape(null); setFrameSnapOverlay(null); setSeekLoading(false); return undefined; }
+
+    let raf = 0;
+    let dead = false;
+    let snapSeekListener = null;
+    let prevKey = '';
+
+    // Compute the selection outline in current stage-viewport px.
+    const computeShape = () => {
+      const sr = stage.getBoundingClientRect();
+      const mr = el.getBoundingClientRect();
+      const natW = kind === 'video' ? el.videoWidth : el.naturalWidth;
+      if (!mr.width || !natW) return null;
+      const scale = mr.width / natW;
+      const ox = mr.left - sr.left;
+      const oy = mr.top - sr.top;
+      const toStage = (p) => ({ x: p.x * scale + ox, y: p.y * scale + oy });
+      return regionToStageShape(entry.region, toStage, scale);
+    };
+
+    // rAF loop keeps the outline glued through zoom/pan/resize.
+    const tick = () => {
+      if (dead) return;
+      const shape = computeShape();
+      const key = JSON.stringify(shape);
+      if (key !== prevKey) { prevKey = key; setHighlightShape(shape); }
+      raf = requestAnimationFrame(tick);
+    };
+
+    if (kind === 'video' && typeof entry.videoTime === 'number') {
+      try { el.pause(); } catch { /* noop */ }
+      const needsSeek = Math.abs((el.currentTime || 0) - entry.videoTime) >= 0.05;
+
+      if (!needsSeek) {
+        // Already on the right frame — show everything immediately.
+        setSeekLoading(false);
+        setFrameSnapOverlay(null);
+        setHighlightShape(computeShape());
+      } else {
+        // Seeking needed. Show blank loading state immediately, then reveal
+        // both the correct frame and selection outline together on `seeked`.
+        // If a frameSnap was captured at extraction time, show it under the
+        // loading overlay so the transition is less abrupt.
+        setSeekLoading(true);
+        setHighlightShape(null);
+        if (entry.frameSnap) {
+          const mr = el.getBoundingClientRect();
+          const sr = stage.getBoundingClientRect();
+          setFrameSnapOverlay({
+            url: entry.frameSnap,
+            left: mr.left - sr.left,
+            top: mr.top - sr.top,
+            width: mr.width,
+            height: mr.height,
+          });
+        } else {
+          setFrameSnapOverlay(null);
+        }
+
+        const onSeeked = () => {
+          if (dead) return;
+          setSeekLoading(false);
+          setFrameSnapOverlay(null);
+          const shape = computeShape();
+          prevKey = JSON.stringify(shape);
+          setHighlightShape(shape);
+          raf = requestAnimationFrame(tick);
+        };
+        snapSeekListener = onSeeked;
+        el.addEventListener('seeked', snapSeekListener, { once: true });
+        try {
+          if (el.fastSeek) el.fastSeek(entry.videoTime);
+          else el.currentTime = entry.videoTime;
+        } catch {
+          el.removeEventListener('seeked', snapSeekListener);
+          snapSeekListener = null;
+          setSeekLoading(false);
+          setFrameSnapOverlay(null);
+          setHighlightShape(computeShape());
+          raf = requestAnimationFrame(tick);
+        }
+        return () => {
+          dead = true;
+          cancelAnimationFrame(raf);
+          if (snapSeekListener) el.removeEventListener('seeked', snapSeekListener);
+        };
+      }
+    } else {
+      setSeekLoading(false);
+      setFrameSnapOverlay(null);
+      setHighlightShape(computeShape());
+    }
+
+    // Start the rAF loop after the initial sync set.
+    prevKey = JSON.stringify(computeShape());
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      dead = true;
+      cancelAnimationFrame(raf);
+      if (snapSeekListener) el.removeEventListener('seeked', snapSeekListener);
+    };
+  }, [highlightId, history, kind]);
+
+  // Esc clears an active highlight (matches the tool's Esc-to-cancel).
+  useEffect(() => {
+    if (!highlightId) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setHighlightId(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [highlightId]);
 
   // ── Zoom / pan ───────────────────────────────────────────────────
   const [zoom, setZoom] = useState(1);
@@ -2044,14 +2192,21 @@ function MediaOcrPane({ file, url, kind }) {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  // Right sidebar tab (video only): 'extract' (OCR snippets) | 'captions'.
+  const [rightTab, setRightTab] = useState('extract');
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [controlsShown, setControlsShown] = useState(true);
   const controlsTimerRef = useRef(null);
+  // YouTube-style play/pause flash: { type: 'play'|'pause', seq: number }
+  // `seq` is incremented on each trigger so the element remounts and the
+  // animation restarts even if the user clicks the same action twice fast.
+  const [playbackFlash, setPlaybackFlash] = useState(null);
+  const flashSeqRef = useRef(0);
 
   const disarm = useCallback(() => {
     setArmed(false); setCursorPos(null); setDrag(null); setSelection(null);
-    setWorking(false); setErrorMsg(null);
+    setWorking(false); setErrorMsg(null); setHighlightId(null);
   }, []);
 
   const bumpControls = useCallback(() => {
@@ -2059,11 +2214,16 @@ function MediaOcrPane({ file, url, kind }) {
     clearTimeout(controlsTimerRef.current);
     controlsTimerRef.current = setTimeout(() => setControlsShown(false), 2500);
   }, []);
+  const triggerPlaybackFlash = useCallback((type) => {
+    flashSeqRef.current += 1;
+    setPlaybackFlash({ type, seq: flashSeqRef.current });
+  }, []);
   const togglePlay = useCallback(() => {
     const v = mediaRef.current;
     if (!v) return;
-    if (v.paused) v.play(); else v.pause();
-  }, []);
+    if (v.paused) { v.play(); triggerPlaybackFlash('play'); }
+    else { v.pause(); triggerPlaybackFlash('pause'); }
+  }, [triggerPlaybackFlash]);
   const seekTo = useCallback((val) => {
     const v = mediaRef.current;
     if (v) v.currentTime = val;
@@ -2145,7 +2305,11 @@ function MediaOcrPane({ file, url, kind }) {
       window.removeEventListener('mouseup', onUp);
       document.body.classList.remove('dv-media-panning');
       setIsDragging(false);
-      if (!moved && kind === 'video') togglePlay();
+      if (moved) return;
+      // A plain click dismisses an active "locate selection" highlight;
+      // otherwise it falls through to the video's click-to-play.
+      if (highlightIdRef.current) setHighlightId(null);
+      else if (kind === 'video') togglePlay();
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -2191,6 +2355,22 @@ function MediaOcrPane({ file, url, kind }) {
     const natW = kind === 'video' ? el.videoWidth : el.naturalWidth;
     const natH = kind === 'video' ? el.videoHeight : el.naturalHeight;
     if (!natW || !natH) return;
+    // For video, remember the exact moment OCR read the frame so clicking the
+    // snippet later can teleport the player back to it. Also capture a full-
+    // frame JPEG snapshot so the "jump to moment" button can show the correct
+    // frame instantly while the video seeks in the background.
+    const videoTime = kind === 'video' ? (el.currentTime || 0) : undefined;
+    let frameSnap;
+    if (kind === 'video') {
+      try {
+        const fc = document.createElement('canvas');
+        const fscale = Math.min(1, 720 / Math.max(natW, natH));
+        fc.width = Math.round(natW * fscale);
+        fc.height = Math.round(natH * fscale);
+        fc.getContext('2d').drawImage(el, 0, 0, fc.width, fc.height);
+        frameSnap = fc.toDataURL('image/jpeg', 0.82);
+      } catch { /* cross-origin or canvas taint — skip */ }
+    }
     const mr = el.getBoundingClientRect();
     if (!mr.width || !mr.height) { setSelection(null); return; }
     const mrRelLeft = mr.left - stageRect.left;
@@ -2219,6 +2399,20 @@ function MediaOcrPane({ file, url, kind }) {
         minX: Math.min(...pts.map((p) => p.x)), minY: Math.min(...pts.map((p) => p.y)),
         maxX: Math.max(...pts.map((p) => p.x)), maxY: Math.max(...pts.map((p) => p.y)),
       };
+    }
+
+    // Selection geometry in natural-resolution px — stored with the entry so
+    // clicking its thumbnail can re-draw the selection back onto the media at
+    // any zoom/size (see the "locate selection" highlight overlay below).
+    let region = null;
+    if (shape.kind === 'rect') {
+      const a = toNat({ x: shape.x1, y: shape.y1 });
+      const b = toNat({ x: shape.x2, y: shape.y2 });
+      region = { kind: 'rect', x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+    } else if (shape.kind === 'union') {
+      region = { kind: 'union', points: shape.points.map(toNat), r: shape.r / mapScale };
+    } else if (shape.kind === 'path') {
+      region = { kind: 'path', points: shape.points.map(toNat) };
     }
 
     const minX = Math.max(0, bbox.minX);
@@ -2278,7 +2472,7 @@ function MediaOcrPane({ file, url, kind }) {
     try {
       const text = await recognizeCanvas(canvas);
       if (jobIdRef.current === id) {
-        const entry = { id: `${Date.now()}-${id}`, thumb: canvasToThumbDataUrl(canvas), text, createdAt: Date.now() };
+        const entry = { id: `${Date.now()}-${id}`, thumb: canvasToThumbDataUrl(canvas), text, createdAt: Date.now(), region, natW, natH, videoTime, frameSnap };
         setHistory((prev) => [entry, ...prev]);
         setSelection(null);
         setWorking(false);
@@ -2395,6 +2589,7 @@ function MediaOcrPane({ file, url, kind }) {
 
   const toggleTool = () => {
     if (armed) { disarm(); return; }
+    setHighlightId(null);
     // Extraction only ever reads a paused frame — arm pauses the video.
     if (kind === 'video') { try { mediaRef.current?.pause(); } catch { /* noop */ } }
     setArmed(true);
@@ -2409,28 +2604,11 @@ function MediaOcrPane({ file, url, kind }) {
   };
 
   const removeHistoryEntry = (entryId) => {
+    if (highlightId === entryId) setHighlightId(null);
     setHistory((prev) => prev.filter((e) => e.id !== entryId));
   };
 
-  const clearHistory = () => setHistory([]);
-
-  // Re-runs OCR on a snippet's stored thumbnail and replaces its text —
-  // the timestamp on the rail stays put, only the recognized text updates.
-  const regenerateHistoryEntry = useCallback(async (entry) => {
-    if (regeneratingId) return;
-    setRegeneratingId(entry.id);
-    setRegenError(null);
-    try {
-      const canvas = await canvasFromDataUrl(entry.thumb);
-      const text = await recognizeCanvas(canvas);
-      setHistory((prev) => prev.map((e) => (e.id === entry.id ? { ...e, text } : e)));
-    } catch (e) {
-      setRegenError({ id: entry.id, message: String(e?.message || "Couldn't read this snippet.") });
-      setTimeout(() => setRegenError((cur) => (cur?.id === entry.id ? null : cur)), 3000);
-    } finally {
-      setRegeneratingId(null);
-    }
-  }, [regeneratingId]);
+  const clearHistory = () => { setHighlightId(null); setHistory([]); };
 
   // The shape shown to the user: the active drag in progress, or the idle
   // brush/shape preview that follows the cursor before any drag starts.
@@ -2504,9 +2682,29 @@ function MediaOcrPane({ file, url, kind }) {
         />
       )}
 
+      {frameSnapOverlay && (
+        <img
+          className="dv-frame-snap"
+          src={frameSnapOverlay.url}
+          alt=""
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            left: frameSnapOverlay.left,
+            top: frameSnapOverlay.top,
+            width: frameSnapOverlay.width,
+            height: frameSnapOverlay.height,
+            objectFit: 'fill',
+            pointerEvents: 'none',
+            zIndex: 2,
+          }}
+        />
+      )}
+
       {armed && (
         <div
           className="dv-ocr-overlay"
+          style={tool === 'square' ? { cursor: 'crosshair' } : undefined}
           onMouseMove={onOverlayMouseMove}
           onMouseLeave={() => { if (!drag) setCursorPos(null); }}
           onWheel={onOverlayWheel}
@@ -2551,6 +2749,43 @@ function MediaOcrPane({ file, url, kind }) {
         </div>
       )}
 
+      {/* "Locate selection" highlight — clicking a snippet thumbnail dims the
+          media and spotlights where that snippet was read from. Non-interactive
+          (pointer-events: none) so pan/zoom keep working; dismissed via Esc, a
+          plain stage click, or re-clicking the thumbnail. */}
+      {highlightShape && !armed && (
+        <div className="dv-ocr-highlight">
+          <svg className="dv-ocr-lasso" aria-hidden="true">
+            <defs>
+              <mask id={`${clipBase}-hl`}>
+                <rect width="100%" height="100%" fill="white" />
+                {shapeElements(highlightShape, undefined, { fill: 'black' })}
+              </mask>
+              {/* Brush stroke = union of overlapping circles. Clip ONE uniform
+                  fill to that union (like the live tool's tint) so it reads as
+                  a single smooth blob, not stacked circle outlines. */}
+              {highlightShape.kind === 'union' && (
+                <clipPath id={`${clipBase}-hlc`} clipPathUnits="userSpaceOnUse">
+                  {shapeElements(highlightShape)}
+                </clipPath>
+              )}
+            </defs>
+            <rect className="dv-ocr-lasso-scrim dv-ocr-highlight-scrim" width="100%" height="100%" mask={`url(#${clipBase}-hl)`} />
+            {highlightShape.kind === 'union'
+              ? <rect className="dv-ocr-highlight-union" width="100%" height="100%" clipPath={`url(#${clipBase}-hlc)`} />
+              : shapeElements(highlightShape, 'dv-ocr-lasso-outline dv-ocr-highlight-outline')}
+          </svg>
+        </div>
+      )}
+
+      {seekLoading && (
+        <div className="dv-seek-loading" aria-hidden="true">
+          <div className="dv-seek-loading-dots">
+            <span /><span /><span />
+          </div>
+        </div>
+      )}
+
       {/* Zoom controls — floating pill top-left, always visible. */}
       <div className="dv-zoom-controls">
         <button type="button" className="dv-zoom-btn" onClick={zoomOut} aria-label="Zoom out">−</button>
@@ -2559,6 +2794,19 @@ function MediaOcrPane({ file, url, kind }) {
       </div>
 
       {/* Custom video player — auto-hiding controls bar. */}
+      {kind === 'video' && playbackFlash && (
+        <div
+          key={playbackFlash.seq}
+          className="dv-playback-flash"
+          aria-hidden="true"
+          onAnimationEnd={() => setPlaybackFlash(null)}
+        >
+          <div className="dv-playback-flash-circle">
+            {playbackFlash.type === 'play' ? PlayGlyph : PauseGlyph}
+          </div>
+        </div>
+      )}
+
       {kind === 'video' && (
         <>
           <div className={`dv-player${!playing || controlsShown ? ' is-visible' : ''}`}>
@@ -2608,29 +2856,29 @@ function MediaOcrPane({ file, url, kind }) {
           morphs open from the button. Toolbar is always in the DOM so the
           grid-accordion can animate height on both open and close. */}
       <div className={`dv-ocr-btn-wrap${armed ? ' is-armed' : ''}`}>
-        <Tooltip content={armed ? 'Esc to cancel' : kind === 'video' ? 'Pauses the video — click the text to copy it' : 'Click the text you want to copy'}>
           <button type="button" className={`dv-ocr-btn${armed ? ' is-active' : ''}`} onClick={toggleTool}>
             {ScanTextGlyph}
             <span>Extract text</span>
             <span className="dv-ocr-btn-chevron">{ChevronGlyph}</span>
           </button>
-        </Tooltip>
         <div className={`dv-ocr-toolbar-wrap${armed ? ' is-open' : ''}`}>
           <div className="dv-ocr-toolbar">
-            <div className="dv-ocr-tools">
-              {OCR_TOOLS.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  className={`dv-ocr-tool${tool === t.id ? ' is-active' : ''}`}
-                  onClick={() => setTool(t.id)}
-                >
-                  {t.icon}
-                  <span>{t.label}</span>
-                </button>
-              ))}
+            <div className="dv-ocr-toolbar-inner">
+              <div className="dv-ocr-tools">
+                {OCR_TOOLS.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={`dv-ocr-tool${tool === t.id ? ' is-active' : ''}`}
+                    onClick={() => setTool(t.id)}
+                  >
+                    {t.icon}
+                    <span>{t.label}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="dv-ocr-tool-hint">{OCR_TOOLS.find((t) => t.id === tool)?.hint}</p>
             </div>
-            <p className="dv-ocr-tool-hint">{OCR_TOOLS.find((t) => t.id === tool)?.hint}</p>
           </div>
         </div>
       </div>
@@ -2653,18 +2901,69 @@ function MediaOcrPane({ file, url, kind }) {
     />
 
     <aside className="dv-ocr-history" style={{ width: `${historyWidth}px` }}>
-      <div className="dv-ocr-history-head">
-        <span>Extracted text</span>
+      {/* Videos get a tab bar to flip the sidebar between the OCR snippets and
+          the AI captions transcript; photos only ever show OCR snippets. */}
+      {kind === 'video' && (
+        <div className="dv-side-tabs">
+          <button
+            type="button"
+            className={`dv-side-tab${rightTab === 'extract' ? ' is-active' : ''}`}
+            onClick={() => setRightTab('extract')}
+          >
+            Text extraction
+          </button>
+          <button
+            type="button"
+            className={`dv-side-tab${rightTab === 'captions' ? ' is-active' : ''}`}
+            onClick={() => setRightTab('captions')}
+          >
+            AI captions
+          </button>
+        </div>
+      )}
+      {kind === 'video' && rightTab === 'captions' ? (
+        <CaptionsPanel file={file} url={url} currentTime={currentTime} onSeek={seekTo} />
+      ) : (
+      <>
+      {/* Compact header — fades/slides in once the masthead scrolls away
+          (mirrors the Versions page). Skipped for video so it doesn't overlap
+          the tab bar. */}
+      {kind !== 'video' && (
+      <div className={`dv-ocr-history-compact${historyScrolled ? ' is-visible' : ''}`} aria-hidden={!historyScrolled}>
+        <span className="dv-ocr-history-compact-title">Extracted text</span>
         {history.length > 0 && (
-          <button type="button" className="dv-ocr-history-clear" onClick={clearHistory}>Clear all</button>
+          <>
+            <span className="dv-ocr-history-compact-sep" aria-hidden="true">·</span>
+            <span className="dv-ocr-history-compact-count">{history.length}</span>
+          </>
         )}
       </div>
-      {history.length === 0 ? (
+      )}
+      <div className="dv-ocr-history-scroll" ref={historyListRef}>
+        {/* Masthead — accent eyebrow + display title + meta (Versions style). */}
+        <header className="dv-ocr-history-head">
+          <div className="dv-ocr-history-eyebrow">
+            <span>Snippets</span>
+            <span className="dv-ocr-history-eyebrow-muted">· from this file</span>
+          </div>
+          <h2 className="dv-ocr-history-title">Extracted text</h2>
+          <div className="dv-ocr-history-meta">
+            <span className="dv-ocr-history-count">
+              {history.length > 0
+                ? <><strong>{history.length}</strong> {history.length === 1 ? 'snippet' : 'snippets'}</>
+                : 'No snippets yet'}
+            </span>
+            {history.length > 0 && (
+              <button type="button" className="dv-ocr-history-clear" onClick={clearHistory}>Clear all</button>
+            )}
+          </div>
+        </header>
+        {history.length === 0 ? (
         <p className="dv-ocr-history-empty">
           Click “Extract text”, then click the {kind === 'video' ? 'video frame' : 'image'} to start collecting snippets here. They'll be here next time you open this file.
         </p>
       ) : (
-        <div className="dv-ocr-history-list" ref={historyListRef}>
+        <div className="dv-ocr-history-list">
           {[...history].reverse().map((entry) => {
             const { date, time } = formatHistoryTimestamp(entry.createdAt);
             return (
@@ -2677,38 +2976,42 @@ function MediaOcrPane({ file, url, kind }) {
                   </div>
                 </div>
                 <div className="dv-ocr-history-content">
-                  <div className="dv-ocr-history-thumb">
-                    <img src={entry.thumb} alt="" />
-                  </div>
+                  {entry.region ? (
+                    <Tooltip content={highlightId === entry.id ? 'Hide selection' : (kind === 'video' ? 'Jump to this moment & show the selection' : 'Show this selection on the image')}>
+                      <button
+                        type="button"
+                        className={`dv-ocr-history-thumb is-locatable${highlightId === entry.id ? ' is-active' : ''}`}
+                        onClick={() => setHighlightId((cur) => (cur === entry.id ? null : entry.id))}
+                      >
+                        <img src={entry.thumb} alt="" />
+                      </button>
+                    </Tooltip>
+                  ) : (
+                    <div className="dv-ocr-history-thumb">
+                      <img src={entry.thumb} alt="" />
+                    </div>
+                  )}
                   <div className="dv-ocr-history-card">
                     <p className={`dv-ocr-history-text${entry.text ? '' : ' is-empty'}`}>
                       {entry.text || 'No text found in this selection.'}
                     </p>
-                    {regenError?.id === entry.id && (
-                      <p className="dv-ocr-history-error">{regenError.message}</p>
-                    )}
-                  </div>
-                  <div className="dv-ocr-history-actions">
-                    {entry.text && (
-                      <button type="button" className="dv-ocr-history-act" onClick={() => copyHistoryEntry(entry)}>
-                        {copiedId === entry.id ? 'Copied' : 'Copy'}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="dv-ocr-history-act is-accent"
-                      onClick={() => regenerateHistoryEntry(entry)}
-                      disabled={regeneratingId === entry.id}
-                    >
-                      {regeneratingId === entry.id ? 'Reading…' : 'Regenerate text'}
-                    </button>
-                    <button type="button" className="dv-ocr-history-remove" aria-label="Remove" onClick={() => removeHistoryEntry(entry.id)}>×</button>
+                    <div className="dv-ocr-history-actions">
+                      {entry.text && (
+                        <button type="button" className="dv-ocr-history-act" onClick={() => copyHistoryEntry(entry)}>
+                          {copiedId === entry.id ? 'Copied' : 'Copy'}
+                        </button>
+                      )}
+                      <button type="button" className="dv-ocr-history-remove" aria-label="Remove" onClick={() => removeHistoryEntry(entry.id)}>×</button>
+                    </div>
                   </div>
                 </div>
               </div>
             );
           })}
         </div>
+      )}
+      </div>
+      </>
       )}
     </aside>
     </>
@@ -2742,57 +3045,406 @@ function FileTabThumb({ tab, isWhatsApp }) {
   );
 }
 
+// Sidebar tab item — wraps the file tile with a morph-pill so hover shows
+// the filename tooltip and right-click expands it into a context menu.
+function FileTabItem({ tab, isActive, isWhatsApp, onActivate, onClose }) {
+  const morphPill = useMorphPill({
+    hoverContent: tab.name,
+    menuItems: [
+      {
+        label: 'Open',
+        key: 'open',
+        onClick: () => localFolderApi.openPath(tab.path),
+      },
+      {
+        label: 'Open file location',
+        key: 'location',
+        onClick: () => localFolderApi.showInFolder(tab.path),
+      },
+      {
+        label: 'Properties',
+        key: 'properties',
+        onClick: () => localFolderApi.openPath(tab.path),
+        confirm: {
+          title: tab.name,
+          message: tab.path,
+          cancelLabel: 'Close',
+          confirmLabel: 'Open',
+        },
+      },
+      {
+        label: 'Close',
+        key: 'close',
+        onClick: () => onClose(),
+      },
+    ],
+  });
+
+  return (
+    <>
+      <div
+        role="tab"
+        aria-selected={isActive}
+        className={`dv-filetab${isActive ? ' is-active' : ''}`}
+        onClick={onActivate}
+        onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); onClose(); } }}
+        onMouseMove={morphPill.handleMouseMove}
+        onMouseLeave={morphPill.handleMouseLeave}
+        onContextMenu={morphPill.handleContextMenu}
+      >
+        <FileTabThumb tab={tab} isWhatsApp={isWhatsApp} />
+        <span className="dv-filetab-name">{tab.name}</span>
+        <button
+          type="button"
+          className="dv-filetab-close"
+          aria-label={`Close ${tab.name}`}
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+        >
+          ×
+        </button>
+      </div>
+      {morphPill.node}
+    </>
+  );
+}
+
 // ── Audio player pane ────────────────────────────────────────────────
-// Full-pane player for .mp3 / .wav / .ogg / etc opened from the Files
-// page. Same play/seek/waveform mechanics as VoiceNote, scaled up, plus
-// a volume slider. Uses a wider waveform than the chat voice notes —
-// computeWaveform/seededWave are keyed by `${src}:${bars}` so the two
-// bar counts don't collide in waveCache.
-const AUDIO_WAVE_BARS = 72;
+// Full-pane player for .mp3 / .wav / .ogg / etc opened from the Files page:
+// play/pause + volume, with the file's loudness "decibel line" along the
+// bottom doubling as the seek scrubber.
+
+// "Decibel line": a loudness envelope decoded from the file (RMS per
+// 1/AUDIO_SCOPE_HZ second, peak-normalised to 0..1). It's drawn full-width as a
+// static waveform with a playhead, and click/drag on it seeks. We decode the
+// envelope rather than tap the <audio> element through a MediaElementSource
+// because routing a cross-origin localfile:// element through Web Audio outputs
+// silence — it would mute playback. Cached per src so re-opens are instant.
+const AUDIO_SCOPE_HZ = 120;
+const envelopeCache = new Map();
+let scopeDecodeCtx = null;
+async function computeEnvelope(src, hz) {
+  const key = `${src}:${hz}`;
+  if (envelopeCache.has(key)) return envelopeCache.get(key);
+  try {
+    const res = await fetch(src);
+    const buf = await res.arrayBuffer();
+    if (!scopeDecodeCtx) scopeDecodeCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    const audio = await scopeDecodeCtx.decodeAudioData(buf);
+    const ch = audio.getChannelData(0);
+    const total = Math.max(1, Math.round(audio.duration * hz));
+    const per = Math.max(1, Math.floor(ch.length / total));
+    const env = new Float32Array(total);
+    let peak = 0;
+    for (let i = 0; i < total; i += 1) {
+      const start = i * per;
+      const end = Math.min(ch.length, start + per);
+      let sum = 0;
+      for (let j = start; j < end; j += 1) sum += ch[j] * ch[j];
+      const rms = Math.sqrt(sum / Math.max(1, end - start));
+      env[i] = rms;
+      if (rms > peak) peak = rms;
+    }
+    if (peak > 0) for (let i = 0; i < total; i += 1) env[i] = Math.min(1, env[i] / peak);
+    envelopeCache.set(key, env);
+    return env;
+  } catch {
+    return null;
+  }
+}
+
+// Resizable captions panel bounds (mirrors the OCR "Extracted text" panel).
+const CAPTIONS_MIN_WIDTH = 260;
+const CAPTIONS_MAX_WIDTH = 620;
+const CAPTIONS_DEFAULT_WIDTH = 360;
+
+// Rebuild a done-state captions object from the per-file cache, or null.
+function captionsFromCache(path) {
+  const c = loadCaptions(path);
+  return c
+    ? { state: 'done', text: c.text, segments: c.segments || [], language: c.language || null, createdAt: c.createdAt }
+    : null;
+}
+
+// Clock mm:ss for caption timestamps.
+function fmtClock(s) {
+  if (!Number.isFinite(s) || s < 0) return '0:00';
+  const mm = Math.floor(s / 60);
+  const ss = Math.floor(s % 60);
+  return `${mm}:${String(ss).padStart(2, '0')}`;
+}
+
+// Auto-growing textarea for correcting a caption line — sizes to its content so
+// long lines wrap without an inner scrollbar.
+function CaptionEditor({ value, onChange, ariaLabel }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      className="dv-caption-edit"
+      value={value}
+      rows={1}
+      aria-label={ariaLabel}
+      placeholder="(no speech — type to add)"
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
+// Shared AI-captions transcript panel — used by the audio player aside AND the
+// video pane's "AI captions" tab. Owns its own transcription state + per-file
+// cache; `currentTime`/`onSeek` come from whichever media element is playing.
+// Renders the `.dv-ocr-history-*` chrome (same as the OCR "Extracted text"
+// panel). `onCaptionsChange` (optional) lets a parent mirror the transcript —
+// the audio pane uses it to drive its now-playing karaoke lyrics.
+function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
+  const [captions, setCaptions] = useState(() => captionsFromCache(file.storage_path));
+  const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false); // edit transcript text to fix AI mistakes
+  const listRef = useRef(null);
+
+  useEffect(() => {
+    setCaptions(captionsFromCache(file.storage_path));
+    setCopied(false);
+    setEditing(false);
+  }, [url, file.storage_path]);
+
+  // Mirror the transcript out to any parent that wants it (audio-pane lyrics).
+  useEffect(() => { onCaptionsChange?.(captions); }, [captions, onCaptionsChange]);
+
+  const generate = useCallback(async () => {
+    setCaptions({ state: 'working' });
+    try {
+      const result = await transcribeAudio(url, file.mime_type, file.name);
+      const createdAt = Date.now();
+      // Cache the transcript per file so reopening it never re-spends tokens.
+      saveCaptions(file.storage_path, {
+        text: result.text, segments: result.segments, language: result.language, createdAt,
+      });
+      setCaptions({ state: 'done', text: result.text, segments: result.segments, language: result.language, createdAt });
+    } catch (e) {
+      setCaptions({ state: 'error', message: String(e?.message || e) });
+    }
+  }, [url, file.mime_type, file.name, file.storage_path]);
+
+  const regenerate = useCallback(() => {
+    clearCaptions(file.storage_path);
+    setCopied(false);
+    generate();
+  }, [file.storage_path, generate]);
+
+  const copyTranscript = async () => {
+    if (captions?.state !== 'done') return;
+    try {
+      await navigator.clipboard.writeText(captions.text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  };
+
+  // ── Manual edits (correct the AI's transcription) ───────────────────
+  // Persist on every change so an edit survives reopening the file, just like a
+  // freshly generated transcript. The onCaptionsChange effect mirrors edits to
+  // the now-playing lyrics.
+  const persistCaptions = useCallback((next) => {
+    setCaptions(next);
+    if (next?.state === 'done') {
+      saveCaptions(file.storage_path, {
+        text: next.text, segments: next.segments, language: next.language, createdAt: next.createdAt,
+      });
+    }
+  }, [file.storage_path]);
+
+  const editSegment = (i, value) => {
+    if (captions?.state !== 'done') return;
+    const segments = captions.segments.map((s, idx) => (idx === i ? { ...s, text: value } : s));
+    const text = segments.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim();
+    persistCaptions({ ...captions, segments, text });
+  };
+
+  const editFullText = (value) => {
+    if (captions?.state !== 'done') return;
+    persistCaptions({ ...captions, text: value });
+  };
+
+  // Active caption line follows playback; auto-scrolled into view.
+  const activeSegIndex = useMemo(() => {
+    if (captions?.state !== 'done') return -1;
+    return captions.segments.findIndex((s) => currentTime >= s.start && currentTime < s.end);
+  }, [captions, currentTime]);
+
+  useEffect(() => {
+    if (activeSegIndex < 0) return;
+    const line = listRef.current?.children?.[activeSegIndex];
+    line?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [activeSegIndex]);
+
+  return (
+    <div className="dv-ocr-history-scroll">
+      <header className="dv-ocr-history-head">
+        <div className="dv-ocr-history-eyebrow">
+          <span>Transcript</span>
+          <span className="dv-ocr-history-eyebrow-muted">· from this file</span>
+        </div>
+        <h2 className="dv-ocr-history-title">AI captions</h2>
+        <div className="dv-ocr-history-meta">
+          <span className="dv-ocr-history-count">
+            {captions?.state === 'done'
+              ? (captions.segments.length > 0
+                  ? <><strong>{captions.segments.length}</strong> {captions.segments.length === 1 ? 'line' : 'lines'}{captions.language ? ` · ${captions.language}` : ''}</>
+                  : 'Transcript ready')
+              : 'Not generated yet'}
+          </span>
+          {captions?.state === 'done' && (
+            <div className="dv-audio-captions-acts">
+              <button type="button" className="dv-ocr-history-clear" onClick={copyTranscript}>{copied ? 'Copied' : 'Copy'}</button>
+              <button type="button" className="dv-ocr-history-clear" onClick={() => setEditing((v) => !v)}>{editing ? 'Done' : 'Edit'}</button>
+              <button type="button" className="dv-ocr-history-clear" onClick={regenerate}>Regenerate</button>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {!captions ? (
+        <div className="dv-audio-captions-empty">
+          <p className="dv-ocr-history-empty">
+            Transcribe the audio in this file with AI. The result is saved to this file, so reopening it won’t spend tokens again.
+          </p>
+          <button type="button" className="dv-chip dv-audio-captions-btn" onClick={generate}>
+            {CaptionsGlyph}
+            <span>Generate AI captions</span>
+          </button>
+        </div>
+      ) : captions.state === 'working' ? (
+        <div className="dv-audio-captions-status">
+          <span className="dv-audio-captions-spinner" />
+          Transcribing…
+        </div>
+      ) : captions.state === 'error' ? (
+        <div className="dv-audio-captions-status is-error">
+          <span>{captions.message}</span>
+          <button type="button" className="dv-chip" onClick={generate}>Try again</button>
+        </div>
+      ) : captions.segments.length > 0 ? (
+        <div className="dv-ocr-history-list" ref={listRef}>
+          {captions.segments.map((seg, i) => (
+            editing ? (
+              <div
+                key={i}
+                className={`dv-ocr-history-item dv-audio-caption-row is-editing${i === activeSegIndex ? ' is-active' : ''}`}
+              >
+                <div className="dv-ocr-history-rail">
+                  <span className="dv-ocr-history-node" />
+                  <div className="dv-ocr-history-date">
+                    <button
+                      type="button"
+                      className="dv-ocr-history-date-d dv-caption-seek"
+                      onClick={() => onSeek(seg.start)}
+                      title="Jump to this moment"
+                    >
+                      {fmtClock(seg.start)}
+                    </button>
+                  </div>
+                </div>
+                <div className="dv-ocr-history-content">
+                  <CaptionEditor
+                    value={seg.text}
+                    onChange={(v) => editSegment(i, v)}
+                    ariaLabel={`Caption at ${fmtClock(seg.start)}`}
+                  />
+                </div>
+              </div>
+            ) : (
+              <button
+                key={i}
+                type="button"
+                className={`dv-ocr-history-item dv-audio-caption-row${i === activeSegIndex ? ' is-active' : ''}`}
+                onClick={() => onSeek(seg.start)}
+              >
+                <div className="dv-ocr-history-rail">
+                  <span className="dv-ocr-history-node" />
+                  <div className="dv-ocr-history-date">
+                    <span className="dv-ocr-history-date-d">{fmtClock(seg.start)}</span>
+                  </div>
+                </div>
+                <div className="dv-ocr-history-content">
+                  <div className="dv-ocr-history-card">
+                    <p className={`dv-ocr-history-text${seg.text ? '' : ' is-empty'}`}>{seg.text || ' '}</p>
+                  </div>
+                </div>
+              </button>
+            )
+          ))}
+        </div>
+      ) : editing ? (
+        <div className="dv-caption-fulledit">
+          <CaptionEditor
+            value={captions.text}
+            onChange={editFullText}
+            ariaLabel="Transcript"
+          />
+        </div>
+      ) : (
+        <p className="dv-ocr-history-empty">{captions.text || 'No speech detected in this file.'}</p>
+      )}
+    </div>
+  );
+}
 
 function AudioPlayerPane({ file, url }) {
   const audioRef = useRef(null);
-  const captionsListRef = useRef(null);
+  const scopeCanvasRef = useRef(null);
+  const scopeRafRef = useRef(0);
+  const lyricsRef = useRef(null); // karaoke lyric list (auto-scroll target)
+  const envRef = useRef(null);   // Float32Array loudness envelope | null
+  const ampCacheRef = useRef({ env: null, w: 0, amp: null }); // per-column peaks (recomputed on env/width change)
+  const scopeDraggingRef = useRef(false); // pointer-drag scrubbing on the decibel line
+  const [envReady, setEnvReady] = useState(false); // re-renders the resting waveform once decoded
   const [playing, setPlaying] = useState(false);
   const [cur, setCur] = useState(0);
   const [dur, setDur] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [wave, setWave] = useState(() => waveCache.get(`${url}:${AUDIO_WAVE_BARS}`) || null);
-  // null | { state: 'working' } | { state: 'done', text, segments } | { state: 'error', message }
-  const [captions, setCaptions] = useState(null);
-  const [copied, setCopied] = useState(false);
+  const [captionsWidth, setCaptionsWidth] = useState(CAPTIONS_DEFAULT_WIDTH);
+  // Transcript mirrored from the side CaptionsPanel — drives the now-playing
+  // karaoke lyrics over the controls. null until generated.
+  const [lyrics, setLyrics] = useState(() => captionsFromCache(file.storage_path));
 
   useEffect(() => {
-    setWave(waveCache.get(`${url}:${AUDIO_WAVE_BARS}`) || null);
     setFailed(false);
     setPlaying(false);
     setCur(0);
     setDur(0);
-    setCaptions(null);
-    setCopied(false);
-  }, [url]);
+    setLyrics(captionsFromCache(file.storage_path));
+    cancelAnimationFrame(scopeRafRef.current);
+    scopeRafRef.current = 0;
+  }, [url, file.storage_path]);
 
+  // Decode the loudness envelope that the "decibel line" waveform reads from.
   useEffect(() => {
-    if (!url || wave) return undefined;
+    envRef.current = null;
+    ampCacheRef.current = { env: null, w: 0, amp: null };
+    setEnvReady(false);
+    if (!url) return undefined;
     let cancelled = false;
-    computeWaveform(url, AUDIO_WAVE_BARS).then((w) => { if (!cancelled && w) setWave(w); });
+    computeEnvelope(url, AUDIO_SCOPE_HZ).then((env) => {
+      if (cancelled) return;
+      envRef.current = env;
+      setEnvReady(true);
+    });
     return () => { cancelled = true; };
-  }, [url, wave]);
+  }, [url]);
 
   const toggle = () => {
     const a = audioRef.current;
     if (!a) return;
     if (a.paused) a.play().catch(() => {}); else a.pause();
-  };
-  const seek = (e) => {
-    const a = audioRef.current;
-    if (!a || !dur || !Number.isFinite(dur)) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    a.currentTime = ratio * dur;
-    setCur(a.currentTime);
   };
   const fmt = (s) => {
     if (!Number.isFinite(s) || s < 0) return '0:00';
@@ -2820,37 +3472,224 @@ function AudioPlayerPane({ file, url }) {
     setCur(t);
   };
 
-  const generateCaptions = useCallback(async () => {
-    setCaptions({ state: 'working' });
-    try {
-      const result = await transcribeAudio(url, file.mime_type, file.name);
-      setCaptions({ state: 'done', text: result.text, segments: result.segments });
-    } catch (e) {
-      setCaptions({ state: 'error', message: String(e?.message || e) });
-    }
-  }, [url, file.mime_type, file.name]);
-
-  const copyTranscript = async () => {
-    if (captions?.state !== 'done') return;
-    try {
-      await navigator.clipboard.writeText(captions.text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch { /* clipboard unavailable */ }
+  // ── Decibel-line seeking ────────────────────────────────────────────
+  // The loudness waveform doubles as a scrubber: click/drag anywhere to jump
+  // to that point in the file (x position → time), with arrow-key fine control.
+  const effectiveDuration = () => {
+    const a = audioRef.current;
+    if (a && Number.isFinite(a.duration) && a.duration > 0) return a.duration;
+    return Number.isFinite(dur) && dur > 0 ? dur : 0;
+  };
+  const ratioFromClientX = (clientX) => {
+    const canvas = scopeCanvasRef.current;
+    if (!canvas) return 0;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0) return 0;
+    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+  };
+  const scopeSeekToRatio = (ratio) => {
+    const duration = effectiveDuration();
+    if (!duration) return;
+    const t = ratio * duration;
+    const a = audioRef.current;
+    if (a) a.currentTime = t;
+    setCur(t);
+    drawScope(ratio); // immediate feedback even while paused
+  };
+  const onScopePointerDown = (e) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    scopeCanvasRef.current?.focus();
+    scopeDraggingRef.current = true;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* unsupported */ }
+    scopeSeekToRatio(ratioFromClientX(e.clientX));
+  };
+  const onScopePointerMove = (e) => {
+    if (!scopeDraggingRef.current) return;
+    scopeSeekToRatio(ratioFromClientX(e.clientX));
+  };
+  const endScopeDrag = (e) => {
+    if (!scopeDraggingRef.current) return;
+    scopeDraggingRef.current = false;
+    try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* unsupported */ }
+  };
+  const onScopeKeyDown = (e) => {
+    const duration = effectiveDuration();
+    if (!duration) return;
+    const a = audioRef.current;
+    let t = a ? (a.currentTime || 0) : cur;
+    if (e.key === 'ArrowRight') t = Math.min(duration, t + 5);
+    else if (e.key === 'ArrowLeft') t = Math.max(0, t - 5);
+    else if (e.key === 'Home') t = 0;
+    else if (e.key === 'End') t = duration;
+    else return;
+    e.preventDefault();
+    if (a) a.currentTime = t;
+    setCur(t);
+    drawScope(t / duration);
   };
 
-  // Active caption line follows playback; auto-scrolled into view.
-  const activeSegIndex = useMemo(() => {
-    if (captions?.state !== 'done') return -1;
-    return captions.segments.findIndex((s) => cur >= s.start && cur < s.end);
-  }, [captions, cur]);
+  // Drag handle resizing the captions panel (raw clientX deltas, 1:1).
+  const beginCaptionsResize = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = captionsWidth;
+    document.body.classList.add('dv-ocr-resizing');
+    const onMove = (ev) => {
+      const delta = startX - ev.clientX;
+      setCaptionsWidth(Math.min(CAPTIONS_MAX_WIDTH, Math.max(CAPTIONS_MIN_WIDTH, startW + delta)));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('dv-ocr-resizing');
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
 
+  // ── "Decibel line" waveform + scrubber ──────────────────────────────
+  // Renders the whole file's loudness envelope as a static mirrored waveform
+  // across the canvas width, with the played portion in accent and a playhead
+  // marker at the current time. Doubles as a seek control (see the pointer/key
+  // handlers above). `overrideRatio` lets the scrubber paint the new position
+  // instantly while paused, before state/audio catch up.
+  const drawScope = useCallback((overrideRatio) => {
+    const canvas = scopeCanvasRef.current;
+    const ctx2d = canvas?.getContext('2d');
+    if (!canvas || !ctx2d) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth || 1;
+    const hgt = canvas.clientHeight || 1;
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(hgt * dpr)) {
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(hgt * dpr);
+    }
+    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx2d.clearRect(0, 0, w, hgt);
+
+    const cs = getComputedStyle(canvas);
+    const accent = cs.color || '#888';
+    const baseCol = (cs.getPropertyValue('--text-muted') || '').trim() || accent;
+
+    const env = envRef.current;
+    const audio = audioRef.current;
+    const duration = (audio && Number.isFinite(audio.duration) && audio.duration > 0)
+      ? audio.duration
+      : (Number.isFinite(dur) && dur > 0 ? dur : 0);
+    let ratio;
+    if (overrideRatio != null) ratio = Math.min(1, Math.max(0, overrideRatio));
+    else if (audio && duration) ratio = Math.min(1, Math.max(0, (audio.currentTime || 0) / duration));
+    else ratio = 0;
+    const playheadX = ratio * w;
+
+    const mid = hgt / 2;
+    const maxAmp = hgt / 2 - 4;
+    const cols = Math.max(2, Math.round(w));
+
+    // Per-column peak over the envelope range each pixel covers. Cached so a
+    // playing track (60 fps) doesn't re-scan the whole envelope every frame —
+    // only env identity or a width change invalidates it.
+    let amp = ampCacheRef.current.amp;
+    if (!amp || ampCacheRef.current.env !== env || ampCacheRef.current.w !== w) {
+      amp = new Array(cols + 1);
+      for (let c = 0; c <= cols; c += 1) {
+        if (!env || env.length === 0) { amp[c] = 0.03; continue; }
+        const a0 = Math.floor((c / cols) * env.length);
+        const a1 = Math.max(a0 + 1, Math.floor(((c + 1) / cols) * env.length));
+        let peak = 0;
+        for (let k = a0; k < a1 && k < env.length; k += 1) if (env[k] > peak) peak = env[k];
+        amp[c] = Math.max(0.03, peak); // floor so silence still draws a hairline
+      }
+      ampCacheRef.current = { env, w, amp };
+    }
+
+    const buildPath = () => {
+      ctx2d.beginPath();
+      for (let c = 0; c <= cols; c += 1) ctx2d.lineTo((c / cols) * w, mid - amp[c] * maxAmp);
+      for (let c = cols; c >= 0; c -= 1) ctx2d.lineTo((c / cols) * w, mid + amp[c] * maxAmp);
+      ctx2d.closePath();
+    };
+
+    // Full waveform (unplayed) in a muted tone.
+    buildPath();
+    ctx2d.fillStyle = baseCol;
+    ctx2d.globalAlpha = 0.3;
+    ctx2d.fill();
+
+    // Played portion in accent, clipped to the left of the playhead.
+    if (playheadX > 0) {
+      ctx2d.save();
+      ctx2d.beginPath();
+      ctx2d.rect(0, 0, playheadX, hgt);
+      ctx2d.clip();
+      buildPath();
+      ctx2d.fillStyle = accent;
+      ctx2d.globalAlpha = 0.9;
+      ctx2d.fill();
+      ctx2d.restore();
+    }
+    ctx2d.globalAlpha = 1;
+
+    // Playhead line + knob (glows while playing).
+    if (duration) {
+      ctx2d.strokeStyle = accent;
+      ctx2d.lineWidth = 2;
+      ctx2d.lineCap = 'round';
+      ctx2d.shadowColor = accent;
+      ctx2d.shadowBlur = playing ? 12 : 0;
+      ctx2d.beginPath();
+      ctx2d.moveTo(playheadX, 5);
+      ctx2d.lineTo(playheadX, hgt - 5);
+      ctx2d.stroke();
+      ctx2d.shadowBlur = 0;
+      ctx2d.fillStyle = accent;
+      ctx2d.beginPath();
+      ctx2d.arc(playheadX, mid, 4.5, 0, Math.PI * 2);
+      ctx2d.fill();
+    }
+  }, [dur, playing]);
+
+  const startScope = useCallback(() => {
+    cancelAnimationFrame(scopeRafRef.current);
+    const tick = () => {
+      drawScope();
+      scopeRafRef.current = requestAnimationFrame(tick);
+    };
+    scopeRafRef.current = requestAnimationFrame(tick);
+  }, [drawScope]);
+
+  const stopScope = useCallback(() => {
+    cancelAnimationFrame(scopeRafRef.current);
+    scopeRafRef.current = 0;
+    drawScope(); // final paint at the paused position
+  }, [drawScope]);
+
+  // Repaint the resting waveform on track change / seek / resize / envelope
+  // arrival. Skipped while playing — the rAF loop owns the canvas then.
   useEffect(() => {
-    if (activeSegIndex < 0) return;
-    const list = captionsListRef.current;
-    const line = list?.children?.[activeSegIndex];
-    line?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, [activeSegIndex]);
+    if (playing) return undefined;
+    const id = requestAnimationFrame(() => drawScope());
+    return () => cancelAnimationFrame(id);
+  }, [url, envReady, cur, dur, captionsWidth, playing, drawScope]);
+
+  useEffect(() => () => cancelAnimationFrame(scopeRafRef.current), []);
+
+  // ── Now-playing karaoke lyrics ──────────────────────────────────────
+  const hasLyrics = lyrics?.state === 'done' && lyrics.segments.length > 0;
+  const activeLyricIndex = useMemo(() => {
+    if (!hasLyrics) return -1;
+    return lyrics.segments.findIndex((s) => cur >= s.start && cur < s.end);
+  }, [hasLyrics, lyrics, cur]);
+
+  // Keep the active line centred as playback advances (mirrors the YT-Music
+  // lyrics view).
+  useEffect(() => {
+    if (activeLyricIndex < 0) return;
+    const el = lyricsRef.current?.children?.[activeLyricIndex];
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [activeLyricIndex]);
 
   if (failed) {
     return (
@@ -2864,47 +3703,40 @@ function AudioPlayerPane({ file, url }) {
     );
   }
 
-  const pct = dur && Number.isFinite(dur) ? Math.min(100, (cur / dur) * 100) : 0;
-  const bars = wave || seededWave(`${url}:${AUDIO_WAVE_BARS}`, AUDIO_WAVE_BARS);
-  const playedBars = Math.round((pct / 100) * bars.length);
-
   return (
-    <div className="dv-audio-pane">
-      <div className={`dv-audio-card${captions ? ' has-captions' : ''}`}>
-        <div className="dv-audio-icon">{MusicNoteGlyph}</div>
-        <div className="dv-audio-name" title={file.name}>{file.name}</div>
+    <div className="dv-audio-layout">
+      <div className={`dv-audio-pane${hasLyrics ? ' has-lyrics' : ''}`}>
         <audio
           ref={audioRef}
           src={url}
           preload="metadata"
-          onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
-          onEnded={() => { setPlaying(false); setCur(0); }}
+          onPlay={() => { setPlaying(true); startScope(); }}
+          onPause={() => { setPlaying(false); stopScope(); }}
+          onEnded={() => { setPlaying(false); setCur(0); stopScope(); }}
           onTimeUpdate={(e) => setCur(e.currentTarget.currentTime)}
           onLoadedMetadata={(e) => { setDur(e.currentTarget.duration); e.currentTarget.volume = volume; }}
           onDurationChange={(e) => setDur(e.currentTarget.duration)}
           onError={() => setFailed(true)}
         />
-        <div className="dv-audio-transport">
+        {hasLyrics && (
+          <div className="dv-audio-lyrics" ref={lyricsRef}>
+            {lyrics.segments.map((seg, i) => (
+              <button
+                key={i}
+                type="button"
+                className={`dv-lyric-line${seg.text ? '' : ' is-empty'}${i === activeLyricIndex ? ' is-active' : ''}${i < activeLyricIndex ? ' is-past' : ''}`}
+                onClick={() => seekTo(seg.start)}
+                title={fmt(seg.start)}
+              >
+                {seg.text || '♪'}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="dv-audio-deck">
           <button type="button" className="dv-audio-playbtn" onClick={toggle} aria-label={playing ? 'Pause' : 'Play'}>
             {playing ? PauseGlyph : PlayGlyph}
           </button>
-          <div className="dv-audio-track">
-            <div className={`dv-audio-wave${wave ? '' : ' is-estimate'}`} onClick={seek}>
-              {bars.map((v, i) => (
-                <span
-                  key={i}
-                  className={`dv-audio-tick${i < playedBars ? ' is-played' : ''}`}
-                  style={{ height: `${Math.round(v * 100)}%` }}
-                />
-              ))}
-              <span className="dv-audio-knob" style={{ left: `${pct}%` }} />
-            </div>
-            <div className="dv-audio-times">
-              <span>{fmt(cur)}</span>
-              <span>{fmt(dur)}</span>
-            </div>
-          </div>
         </div>
         <div className="dv-audio-volume">
           <button type="button" className="dv-audio-volume-btn" onClick={toggleMute} aria-label={muted ? 'Unmute' : 'Mute'}>
@@ -2921,51 +3753,36 @@ function AudioPlayerPane({ file, url }) {
             aria-label="Volume"
           />
         </div>
-        {!captions ? (
-          <button type="button" className="dv-chip dv-audio-captions-btn" onClick={generateCaptions}>
-            {CaptionsGlyph}
-            <span>Generate AI captions</span>
-          </button>
-        ) : captions.state === 'working' ? (
-          <div className="dv-audio-captions-status">
-            <span className="dv-audio-captions-spinner" />
-            Transcribing…
-          </div>
-        ) : captions.state === 'error' ? (
-          <div className="dv-audio-captions-status is-error">
-            <span>{captions.message}</span>
-            <button type="button" className="dv-chip" onClick={generateCaptions}>Try again</button>
-          </div>
-        ) : (
-          <div className="dv-audio-captions-panel">
-            <div className="dv-audio-captions-head">
-              <span>Captions{captions.language ? ` · ${captions.language}` : ''}</span>
-              <button type="button" className="dv-audio-captions-copy" onClick={copyTranscript}>
-                {copied ? 'Copied' : 'Copy transcript'}
-              </button>
-            </div>
-            {captions.segments.length > 0 ? (
-              <div className="dv-audio-captions-list" ref={captionsListRef}>
-                {captions.segments.map((seg, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    className={`dv-audio-caption-line${i === activeSegIndex ? ' is-active' : ''}`}
-                    onClick={() => seekTo(seg.start)}
-                  >
-                    <span className="dv-audio-caption-time">{fmt(seg.start)}</span>
-                    <span className="dv-audio-caption-text">{seg.text || ' '}</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="dv-audio-caption-text dv-audio-caption-empty">
-                {captions.text || 'No speech detected in this file.'}
-              </p>
-            )}
-          </div>
-        )}
+        <canvas
+          ref={scopeCanvasRef}
+          className="dv-audio-scope"
+          role="slider"
+          tabIndex={0}
+          aria-label="Seek through audio"
+          aria-valuemin={0}
+          aria-valuemax={Number.isFinite(dur) ? Math.round(dur) : 0}
+          aria-valuenow={Math.round(cur)}
+          aria-valuetext={`${fmt(cur)} of ${fmt(dur)}`}
+          title="Click or drag to seek"
+          onPointerDown={onScopePointerDown}
+          onPointerMove={onScopePointerMove}
+          onPointerUp={endScopeDrag}
+          onPointerCancel={endScopeDrag}
+          onKeyDown={onScopeKeyDown}
+        />
       </div>
+
+      <div
+        className="dv-ocr-resize"
+        onMouseDown={beginCaptionsResize}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize captions panel"
+      />
+
+      <aside className="dv-ocr-history dv-audio-captions-aside" style={{ width: `${captionsWidth}px` }}>
+        <CaptionsPanel file={file} url={url} currentTime={cur} onSeek={seekTo} onCaptionsChange={setLyrics} />
+      </aside>
     </div>
   );
 }
@@ -3072,6 +3889,9 @@ export default function DocViewer() {
     return [{ id: path, path, name: params.get('name') || 'Document', mime: params.get('mime') || '' }];
   });
   const [activeId, setActiveId] = useState(() => params.get('path') || null);
+  // Collapsible footer that embeds the main app's Files tab (ProjectFiles), so
+  // the project's files are reachable without leaving the viewer window.
+  const [filesOpen, setFilesOpen] = useState(false);
 
   // Subsequent double-clicks in the Files page push files here → new tabs.
   useEffect(() => onDocViewerAddFile((file) => {
@@ -3113,28 +3933,18 @@ export default function DocViewer() {
 
   return (
     <div className="dv-page">
+      <CursorSpotlight contain className="dv-cursor-spotlight" />
+      <div className="dv-page-main">
       <div className="dv-tabbar" role="tablist">
         {tabs.map((t) => (
-          <Tooltip key={t.id} content={t.name}>
-            <div
-              role="tab"
-              aria-selected={t.id === active.id}
-              className={`dv-filetab${t.id === active.id ? ' is-active' : ''}`}
-              onClick={() => setActiveId(t.id)}
-              onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(t.id); } }}
-            >
-              <FileTabThumb tab={t} isWhatsApp={waTabs.has(t.id)} />
-              <span className="dv-filetab-name">{t.name}</span>
-              <button
-                type="button"
-                className="dv-filetab-close"
-                aria-label={`Close ${t.name}`}
-                onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}
-              >
-                ×
-              </button>
-            </div>
-          </Tooltip>
+          <FileTabItem
+            key={t.id}
+            tab={t}
+            isActive={t.id === active.id}
+            isWhatsApp={waTabs.has(t.id)}
+            onActivate={() => setActiveId(t.id)}
+            onClose={() => closeTab(t.id)}
+          />
         ))}
       </div>
 
@@ -3142,6 +3952,25 @@ export default function DocViewer() {
         {/* Remount per active tab (keyed) — each pane renders its own file. */}
         <DocPane key={active.id} file={active} onWhatsAppDetected={() => markActiveWhatsApp(active.id)} />
       </div>
+      </div>
+      {/* Footer: the main app's Files tab embedded here (collapsible), so the
+          project's files are reachable without leaving the viewer. */}
+      <footer className={`dv-files-footer${filesOpen ? ' is-open' : ''}`}>
+        <button
+          type="button"
+          className="dv-files-footer-bar"
+          onClick={() => setFilesOpen((o) => !o)}
+          aria-expanded={filesOpen}
+        >
+          <span className="dv-files-footer-title">Project files</span>
+          <span className="dv-files-footer-chevron" aria-hidden="true">{filesOpen ? '▾' : '▴'}</span>
+        </button>
+        {filesOpen && (
+          <div className="dv-files-footer-body">
+            <ProjectFiles />
+          </div>
+        )}
+      </footer>
     </div>
   );
 }

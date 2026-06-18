@@ -24,6 +24,11 @@
 //        Claude has no audio input, so this calls OpenAI's Whisper API
 //        instead (DOC_AI_TRANSCRIBE_MODEL, default "whisper-1"). Requires
 //        the OPENAI_API_KEY secret — independent of ANTHROPIC_API_KEY.
+//        Optional speaker diarization: when DEEPGRAM_API_KEY is set, the audio
+//        is also run through Deepgram purely for speaker turns, and each Whisper
+//        segment gets a `speaker` index grafted on (Whisper keeps the text —
+//        stronger on Romanian). Without the key, segments ship speaker-less and
+//        the client falls back to a silence-gap heuristic.
 //
 // Claude is called over raw REST (x-api-key), same shape as legal-ai —
 // no SDK to bundle. Model defaults to claude-opus-4-7 (override via
@@ -57,6 +62,12 @@ const OCR_MODEL = Deno.env.get("DOC_AI_OCR_MODEL") ?? "claude-haiku-4-5-20251001
 // Audio transcription has no Claude equivalent — backed by OpenAI Whisper.
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 const TRANSCRIBE_MODEL = Deno.env.get("DOC_AI_TRANSCRIBE_MODEL") ?? "whisper-1";
+
+// Optional speaker diarization (Deepgram) — only speaker turns are used; the
+// transcript text still comes from Whisper. Absent the key, transcription works
+// exactly as before with no speaker labels.
+const DEEPGRAM_API_KEY = Deno.env.get("DEEPGRAM_API_KEY") ?? "";
+const DEEPGRAM_MODEL = Deno.env.get("DOC_AI_DIARIZE_MODEL") ?? "nova-2";
 
 const MAX_DOC_CHARS = 40000;
 const MAX_QUESTION_CHARS = 2000;
@@ -271,6 +282,62 @@ function base64ToBytes(b64: string): Uint8Array {
   return bytes;
 }
 
+// Run the audio through Deepgram with diarization on, returning a flat list of
+// words [{ start, end, speaker }] (speaker is an integer). Best-effort: the
+// caller swallows failures and keeps the Whisper-only transcript.
+async function deepgramWords(
+  bytes: Uint8Array,
+  mediaType: string,
+): Promise<Array<{ start: number; end: number; speaker: number }>> {
+  const resp = await fetch(
+    `https://api.deepgram.com/v1/listen?model=${encodeURIComponent(DEEPGRAM_MODEL)}&diarize=true&punctuate=true`,
+    {
+      method: "POST",
+      headers: { Authorization: `Token ${DEEPGRAM_API_KEY}`, "Content-Type": mediaType },
+      body: bytes,
+    },
+  );
+  if (!resp.ok) throw new Error(`deepgram_${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+  const data = await resp.json();
+  const words = data?.results?.channels?.[0]?.alternatives?.[0]?.words ?? [];
+  return Array.isArray(words)
+    ? words
+        .filter((w: { speaker?: unknown }) => Number.isInteger(w.speaker))
+        .map((w: { start?: number; end?: number; speaker: number }) => ({
+          start: w.start ?? 0, end: w.end ?? 0, speaker: w.speaker,
+        }))
+    : [];
+}
+
+// Graft a `speaker` index onto each Whisper segment by aligning it to the
+// Deepgram words in time: majority speaker among words whose midpoint lands in
+// the segment, else the nearest word by time.
+function assignSpeakers<T extends { start: number; end: number }>(
+  segments: T[],
+  words: Array<{ start: number; end: number; speaker: number }>,
+): Array<T & { speaker?: number }> {
+  if (words.length === 0) return segments;
+  return segments.map((seg) => {
+    const counts = new Map<number, number>();
+    for (const w of words) {
+      const mid = (w.start + w.end) / 2;
+      if (mid >= seg.start && mid < seg.end) counts.set(w.speaker, (counts.get(w.speaker) ?? 0) + 1);
+    }
+    let best: number | null = null;
+    let bestN = 0;
+    for (const [spk, n] of counts) if (n > bestN) { bestN = n; best = spk; }
+    if (best === null) {
+      const c = (seg.start + seg.end) / 2;
+      let nd = Infinity;
+      for (const w of words) {
+        const d = Math.abs((w.start + w.end) / 2 - c);
+        if (d < nd) { nd = d; best = w.speaker; }
+      }
+    }
+    return best === null ? seg : { ...seg, speaker: best };
+  });
+}
+
 async function handleTranscribe(body: { audio?: string; mediaType?: string; filename?: string }): Promise<Response> {
   if (!OPENAI_API_KEY) return jsonResponse({ ok: false, error: "ai_not_configured" }, 500);
 
@@ -306,13 +373,21 @@ async function handleTranscribe(body: { audio?: string; mediaType?: string; file
       throw new Error(`openai_${resp.status}: ${detail}`);
     }
     const data = await resp.json();
-    const segments = Array.isArray(data?.segments)
+    let segments = Array.isArray(data?.segments)
       ? data.segments.map((s: { start?: number; end?: number; text?: string }) => ({
           start: s.start ?? 0,
           end: s.end ?? 0,
           text: (s.text ?? "").trim(),
         }))
       : [];
+    // Best-effort speaker diarization: graft Deepgram speaker turns onto the
+    // Whisper segments. Failures (no key, Deepgram error) keep Whisper-only.
+    if (DEEPGRAM_API_KEY && segments.length > 0) {
+      try {
+        const words = await deepgramWords(bytes, mediaType);
+        segments = assignSpeakers(segments, words);
+      } catch (_) { /* diarization is optional — keep Whisper-only segments */ }
+    }
     return jsonResponse({ ok: true, text: (data?.text ?? "").trim(), segments, language: data?.language ?? null });
   } catch (err) {
     return jsonResponse({ ok: false, error: "ai_failed", detail: String((err as Error)?.message ?? err).slice(0, 400) }, 502);

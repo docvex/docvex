@@ -494,6 +494,23 @@ export default function Mail() {
     return (
       <div className="mx-page">
         <ConnectScreen connecting={connecting} error={connectError} onConnect={startConnect} />
+        {/* Dev-only: skip the OAuth gate so the Mail UI is reachable without a
+            linked mailbox (empty inbox). Not built in packaged/web releases. */}
+        {import.meta.env.DEV && (
+          <div style={{ textAlign: 'center', paddingBottom: 32 }}>
+            <button
+              type="button"
+              onClick={() => setConn({ connected: true, provider: 'gmail', email: 'debug@local' })}
+              style={{
+                font: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)',
+                background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                borderRadius: 8, padding: '6px 12px', cursor: 'pointer',
+              }}
+            >
+              Debug: open Mail without linking
+            </button>
+          </div>
+        )}
       </div>
     );
   }

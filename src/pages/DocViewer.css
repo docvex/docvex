@@ -5,19 +5,71 @@
   position: fixed;
   inset: var(--titlebar-h, 0px) 0 0 0;
   display: flex;
-  /* Row: the open-files list runs VERTICALLY down the window's left edge,
-     with the active document filling the rest. */
-  flex-direction: row;
+  /* Column: the main row (open-files list + document) on top, the collapsible
+     Project-files footer below. */
+  flex-direction: column;
   background: var(--bg-page);
   color: var(--text-primary);
 }
+/* Main row: open-files list down the left edge, active document filling the rest. */
+.dv-page-main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: row; }
+
+/* Footer: the main app's Files tab embedded here, collapsible. */
+.dv-files-footer {
+  position: relative; z-index: 1;
+  flex: none; display: flex; flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: var(--bg-page);
+}
+.dv-files-footer.is-open { height: 340px; }
+.dv-files-footer-bar {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  height: 36px; padding: 0 14px;
+  border: none; background: transparent; cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--text-secondary);
+}
+.dv-files-footer.is-open .dv-files-footer-bar { border-bottom: 1px solid var(--border); }
+.dv-files-footer-bar:hover { color: var(--text-primary); }
+.dv-files-footer-title { letter-spacing: 0.02em; }
+.dv-files-footer-chevron { margin-left: auto; color: var(--text-muted); font-size: 11px; }
+.dv-files-footer-body { flex: 1; min-height: 0; overflow: hidden; display: flex; }
+.dv-files-footer-body > * { flex: 1; min-width: 0; min-height: 0; }
 .dv-page-empty { align-items: center; justify-content: center; color: var(--text-muted); }
+
+/* Ambient dot grid + cursor spotlight (same effect as the app shell). These
+   sit BEHIND the page's children — which are lifted to z-index:1 — but above
+   the page's own background, so the frosted sidebars reveal them. */
+.dv-page::before {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-image: radial-gradient(
+    circle at center,
+    color-mix(in srgb, var(--text-primary) 9%, transparent) 1.2px,
+    transparent 1.6px
+  );
+  background-size: 24px 24px; background-position: 0 0;
+}
+.dv-cursor-spotlight {
+  position: absolute; top: 0; left: 0; width: 430px; height: 430px;
+  pointer-events: none; z-index: 0; will-change: transform;
+  background-image: radial-gradient(
+    circle at center,
+    color-mix(in srgb, var(--text-primary) 11%, transparent) 1.45px,
+    transparent 1.85px
+  );
+  background-size: 24px 24px;
+  mask-image: radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
+  -webkit-mask-image: radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
+}
+@media (prefers-reduced-motion: reduce) { .dv-cursor-spotlight { display: none; } }
 
 /* ── Open-files list (left sidebar of vertical tabs) ───────────────── */
 .dv-tabbar {
+  position: relative; z-index: 1;
   display: flex; flex-direction: column; align-items: stretch; gap: 2px;
   width: 132px; flex: none;
-  padding: 6px 5px; background: var(--bg-elevated);
+  padding: 6px 5px;
+  /* Transparent so the page's dot grid + cursor spotlight show through. */
+  background: transparent;
   border-right: 1px solid var(--border); overflow-y: auto; overflow-x: hidden;
   scrollbar-width: thin;
 }
@@ -33,7 +85,7 @@
   cursor: pointer; font: inherit; font-size: 11px; user-select: none;
 }
 .dv-filetab:hover { background: color-mix(in srgb, var(--bg-page) 55%, transparent); }
-.dv-filetab.is-active { background: var(--bg-page); color: var(--text-primary); border-color: var(--border); }
+.dv-filetab.is-active { background: var(--bg-page); color: var(--text-primary); border-color: var(--accent); }
 .dv-filetab-thumb {
   position: relative; display: grid; place-items: center;
   width: 100%; aspect-ratio: 4 / 3;
@@ -41,6 +93,12 @@
   background: var(--bg-page); overflow: hidden;
 }
 .dv-filetab.is-active .dv-filetab-thumb { background: var(--bg-card); }
+/* No real preview → only the MIME glyph renders. Drop the gray fill (and its
+   border) so the type icon sits on the transparent sidebar, not a gray box. */
+.dv-filetab-thumb:has(.project-files-icon),
+.dv-filetab.is-active .dv-filetab-thumb:has(.project-files-icon) {
+  background: transparent; border-color: transparent;
+}
 .dv-filetab-thumb img { width: 100%; height: 100%; object-fit: cover; }
 /* FileThumbnail fallbacks — sized like the Files window's tile thumb: the
    generic MIME icon centred, the colored extension badge at 46px. */
@@ -48,7 +106,7 @@
   width: 100%; height: 100%;
   display: grid; place-items: center; color: var(--accent);
 }
-.dv-filetab-thumb .fx-glyph { width: 34px; height: 34px; font-size: 9px; }
+.dv-filetab-thumb .fx-glyph { width: 52px; height: 52px; font-size: 12px; }
 .dv-filetab-name {
   min-width: 0; text-align: center; line-height: 1.3; word-break: break-word;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -64,7 +122,9 @@
 .dv-filetab-close:hover { background: var(--danger); }
 
 /* ── Active document ───────────────────────────────────────────────── */
-.dv-doc { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* z-index:1 + transparent bg: sits above the page's spotlight layers, but its
+   transparent interior lets the right sidebar's frosted backdrop sample them. */
+.dv-doc { position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .dv-doc-body { flex: 1; min-height: 0; overflow: auto; padding: 18px; }
 /* The text pane manages its own sticky toolbar + scroll, so it runs flush. */
 .dv-doc-body.is-flush { padding: 0; overflow: hidden; display: flex; }
@@ -762,6 +822,27 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 }
 .dv-zoom-pct:hover { color: #fff; }
 
+/* ── YouTube-style play/pause flash ─────────────────────────────── */
+.dv-playback-flash {
+  position: absolute; inset: 0; z-index: 5;
+  pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+}
+.dv-playback-flash-circle {
+  width: 72px; height: 72px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.52);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+  animation: dv-playback-pop 0.62s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+.dv-playback-flash-circle svg { width: 32px; height: 32px; }
+@keyframes dv-playback-pop {
+  0%   { transform: scale(0.72); opacity: 0;   }
+  18%  { transform: scale(1.0);  opacity: 0.92; }
+  55%  { transform: scale(1.0);  opacity: 0.92; }
+  100% { transform: scale(1.38); opacity: 0;   }
+}
+
 /* ── Custom video player ─────────────────────────────────────────── */
 /* Transparent click zone sits between the video and the OCR overlay. */
 .dv-player-click { position: absolute; inset: 0; z-index: 2; cursor: pointer; }
@@ -868,6 +949,38 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 /* Shape outline: stroke only, no fill (the fill div below supplies the tint). */
 .dv-ocr-lasso-outline { fill: none; stroke: var(--accent); stroke-width: 2; }
 
+/* "Locate selection" highlight — a persistent spotlight painted on the media
+   when a snippet thumbnail is clicked. Non-interactive so pan/zoom still work;
+   reuses the lasso scrim/outline look with a heavier dim + accent glow. */
+.dv-ocr-highlight { position: absolute; inset: 0; z-index: 4; pointer-events: none; overflow: hidden; }
+.dv-ocr-highlight-scrim { fill: rgba(0, 0, 0, 0.58); }
+.dv-ocr-highlight-outline { stroke-width: 2.5; filter: drop-shadow(0 0 6px var(--accent)); }
+/* Brush selection: one uniform fill clipped to the union of the brush
+   circles (no per-circle strokes), so it reads as a smooth blob. */
+.dv-ocr-highlight-union { fill: color-mix(in srgb, var(--accent) 30%, transparent); stroke: none; }
+
+/* Blank loading overlay shown while seeking between highlighted extractions. */
+.dv-seek-loading {
+  position: absolute; inset: 0; z-index: 6;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.dv-seek-loading-dots {
+  display: flex; gap: 7px;
+}
+.dv-seek-loading-dots span {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.75);
+  animation: dv-seek-dot 0.9s ease-in-out infinite;
+}
+.dv-seek-loading-dots span:nth-child(2) { animation-delay: 0.15s; }
+.dv-seek-loading-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes dv-seek-dot {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40%            { transform: scale(1);   opacity: 1; }
+}
+
 /* Flat accent-tint fill, clipped to the live preview shape via clip-path. */
 .dv-ocr-livefill {
   position: absolute; inset: 0; pointer-events: none; z-index: 4;
@@ -901,20 +1014,20 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
    filter:drop-shadow is used instead of box-shadow because box-shadow is
    clipped by clip-path; drop-shadow is applied after clip. */
 .dv-ocr-btn-wrap {
-  position: absolute; top: 12px; right: 12px; z-index: 6;
+  /* Under the zoom pill at top-left; tool dropdown opens downward. */
+  position: absolute; top: 56px; left: 12px; z-index: 6;
   display: flex; flex-direction: column; align-items: stretch;
   background: rgba(10, 12, 14, 0.92);
   backdrop-filter: blur(22px) saturate(1.8);
   border: 1px solid rgba(255, 255, 255, 0.09);
   filter: drop-shadow(0 8px 30px rgba(0, 0, 0, 0.65));
+  /* Collapsed = pill (matches zoom controls); armed = 14px rounded rect. */
   clip-path: inset(0 round 999px);
-  /* close: wait for grid to finish collapsing (170ms), then round corners */
-  transition: clip-path 240ms ease-in-out 170ms;
+  transition: clip-path 180ms ease-in;
 }
 .dv-ocr-btn-wrap.is-armed {
   clip-path: inset(0 round 14px);
-  /* open: spring immediately, no delay */
-  transition: clip-path 360ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: clip-path 340ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Grid-accordion: 0fr → 1fr animates height without JS measurements.
@@ -928,13 +1041,13 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
   transition: grid-template-rows 340ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Inner toolbar — overflow:hidden + min-height:0 required by the grid trick.
+/* Collapsing grid item — ONLY overflow:hidden + min-height:0 (the grid trick).
+   It carries NO padding/border, so at grid-template-rows:0fr it collapses to
+   exactly 0 height (no leaked sliver of the dropdown under the button). All
+   visual padding + the divider live on .dv-ocr-toolbar-inner.
    Content fades out fast on close, fades in with delay on open. */
 .dv-ocr-toolbar {
   overflow: hidden; min-height: 0;
-  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
-  padding: 8px 12px 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
   pointer-events: none; opacity: 0;
   transition: opacity 100ms ease;
 }
@@ -942,10 +1055,16 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
   pointer-events: auto; opacity: 1;
   transition: opacity 250ms ease 80ms;
 }
+.dv-ocr-toolbar-inner {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 8px 14px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
 
-.dv-ocr-tools { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; }
+/* Tools stacked vertically, left-aligned. */
+.dv-ocr-tools { display: flex; flex-direction: column; gap: 2px; align-items: stretch; }
 .dv-ocr-tool {
-  display: inline-flex; align-items: center; flex-direction: row-reverse; gap: 9px;
+  display: inline-flex; align-items: center; flex-direction: row; gap: 8px;
   padding: 7px 12px; border-radius: 9px; cursor: pointer;
   font: inherit; font-size: 13px; font-weight: 500;
   border: none; background: transparent;
@@ -955,8 +1074,8 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 .dv-ocr-tool:hover { color: rgba(255, 255, 255, 0.9); background: rgba(255, 255, 255, 0.07); }
 .dv-ocr-tool.is-active { background: rgba(255, 255, 255, 0.1); color: #fff; }
 .dv-ocr-tool-hint {
-  margin: 7px 0 0; font-size: 10.5px; line-height: 1.5;
-  color: rgba(255, 255, 255, 0.28); text-align: right;
+  margin: 8px 0 0; font-size: 10.5px; line-height: 1.5;
+  color: rgba(255, 255, 255, 0.28); text-align: left;
   max-width: 200px;
 }
 
@@ -999,10 +1118,10 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 .dv-ocr-error button:hover { opacity: 1; }
 
 /* Drag handle between the media stage and the extracted-text panel. */
-.dv-ocr-resize { flex: none; width: 6px; cursor: col-resize; position: relative; }
+.dv-ocr-resize { flex: none; width: 3px; cursor: col-resize; position: relative; }
 .dv-ocr-resize::after {
-  content: ''; position: absolute; inset: 0 2px; border-radius: 999px;
-  background: transparent; transition: background 120ms;
+  content: ''; position: absolute; inset: 0;
+  background: var(--border); transition: background 120ms;
 }
 .dv-ocr-resize:hover::after { background: color-mix(in srgb, var(--accent) 55%, transparent); }
 body.dv-ocr-resizing { cursor: col-resize; user-select: none; }
@@ -1013,31 +1132,73 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
    .rail"): a continuous rail with a date label + node per entry on the left,
    an elevated "release card" (thumb / text / actions) on the right. */
 .dv-ocr-history {
+  position: relative;
   flex: none; height: 100%; min-height: 0;
   display: flex; flex-direction: column;
-  border-left: 1px solid var(--border); background: var(--bg-page);
+  /* No own left border — the .dv-ocr-resize handle's line IS the divider
+     (var(--border) at rest, accent on hover/drag) so the two don't double up. */
+  /* Transparent so the page's dot grid + cursor spotlight show through. */
+  background: transparent;
   --ocr-line: var(--border-strong);
   --ocr-railw: 64px;
   --ocr-linex: 46px;
   --ocr-node-top: 18px;
 }
+/* Scroll area: holds the masthead + the list, so the masthead scrolls away
+   and the compact header takes over (mirrors the Versions page). */
+.dv-ocr-history-scroll { flex: 1; min-height: 0; overflow: auto; }
+
+/* Masthead — accent eyebrow + display title + meta, matching the Versions page
+   header's colouring + spacing (scaled to the panel). */
 .dv-ocr-history-head {
-  flex: none; display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 14px; border-bottom: 1px solid var(--border);
-  font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-  color: var(--text-muted);
+  flex: none; display: flex; flex-direction: column; gap: 10px;
+  padding: 18px 14px 14px; border-bottom: 1px solid var(--border);
 }
+.dv-ocr-history-eyebrow {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; font-weight: 700;
+  color: var(--accent);
+}
+.dv-ocr-history-eyebrow-muted { color: var(--text-muted); font-weight: 500; }
+.dv-ocr-history-title {
+  margin: 0; font-family: var(--font-display); font-size: 23px; font-weight: 700;
+  letter-spacing: -0.025em; line-height: 1.04; color: var(--text-primary);
+}
+.dv-ocr-history-meta {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  font-size: 12px; color: var(--text-secondary);
+}
+.dv-ocr-history-count strong { color: var(--text-primary); font-weight: 600; }
 .dv-ocr-history-clear {
-  border: none; background: none; cursor: pointer; font: inherit;
-  font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em;
+  flex: none; border: none; background: none; cursor: pointer; font: inherit;
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
   color: var(--accent); padding: 0;
 }
 .dv-ocr-history-clear:hover { color: var(--accent-hover); }
 .dv-ocr-history-empty {
   margin: 0; padding: 16px 14px; font-size: 12.5px; line-height: 1.5; color: var(--text-muted);
 }
+
+/* Compact header — fixed at the panel's top, fades/slides in on scroll. */
+.dv-ocr-history-compact {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 5;
+  height: 42px; display: flex; align-items: center; gap: 7px; padding: 0 14px;
+  background: color-mix(in srgb, var(--bg-page) 62%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  opacity: 0; transform: translateY(-10px); pointer-events: none;
+  transition: opacity 220ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dv-ocr-history-compact.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.dv-ocr-history-compact-title {
+  font-family: var(--font-display); font-size: 15px; font-weight: 700;
+  letter-spacing: -0.01em; color: var(--text-primary);
+}
+.dv-ocr-history-compact-sep { color: var(--text-muted); font-weight: 600; }
+.dv-ocr-history-compact-count { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+
 .dv-ocr-history-list {
-  flex: 1; min-height: 0; overflow: auto;
   display: flex; flex-direction: column; gap: 14px; padding: 12px 12px 192px;
 }
 .dv-ocr-history-item {
@@ -1053,45 +1214,49 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
   content: ''; position: absolute; left: var(--ocr-linex); top: 0; bottom: -14px; width: 2px;
   transform: translateX(-50%); background: var(--ocr-line);
 }
-.dv-ocr-history-item:first-child .dv-ocr-history-rail::before {
-  background: linear-gradient(to bottom, transparent 0, transparent var(--ocr-node-top), var(--ocr-line) var(--ocr-node-top));
-}
-.dv-ocr-history-item:last-child .dv-ocr-history-rail::before {
-  bottom: 0;
-  background: linear-gradient(to bottom, var(--ocr-line) 0, var(--ocr-line) var(--ocr-node-top), transparent var(--ocr-node-top));
-}
+.dv-ocr-history-item:last-child .dv-ocr-history-rail::before { bottom: 0; }
 
-/* Node dot on the rail line. */
+/* Node dot at the START (top) of the line; accent like AI → Extractions. */
 .dv-ocr-history-node {
-  position: absolute; left: var(--ocr-linex); top: var(--ocr-node-top);
+  position: absolute; left: var(--ocr-linex); top: 0;
   width: 11px; height: 11px; border-radius: 50%;
-  transform: translate(-50%, -50%); z-index: 2;
-  background: var(--bg-page); border: 2.5px solid var(--text-muted);
+  transform: translate(-50%, 0); z-index: 2;
+  background: var(--bg-page); border: 2.5px solid var(--accent);
 }
 
-/* Date label, right-aligned beside the line (Updates "rail-label"). */
+/* Date label, right-aligned beside the line, anchored at the top. */
 .dv-ocr-history-date {
   position: absolute; left: 0; width: calc(var(--ocr-linex) - 8px);
-  top: var(--ocr-node-top); transform: translateY(-50%);
+  top: 0; transform: none;
   text-align: right; display: flex; flex-direction: column; gap: 2px;
 }
 .dv-ocr-history-date-d { font-size: 11px; font-weight: 600; color: var(--text-primary); }
 .dv-ocr-history-date-t { font-size: 10px; color: var(--text-muted); }
 
-/* Thumb (outside the card) + "release card" (text / actions) for one snippet. */
+/* Image on the LEFT, flat text + actions to its RIGHT (like AI → Extractions). */
 .dv-ocr-history-content {
-  display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  display: flex; flex-direction: row; align-items: flex-start; gap: 12px; min-width: 0;
 }
 .dv-ocr-history-thumb {
-  width: 100%; flex-shrink: 0;
-  overflow: hidden;
+  flex: 0 0 40%; max-width: 200px; overflow: hidden;
 }
-.dv-ocr-history-thumb img { width: auto; max-width: 100%; height: auto; max-height: 360px; display: block; object-fit: contain; object-position: left center; }
+.dv-ocr-history-thumb img {
+  width: auto; max-width: 100%; height: auto; max-height: 240px;
+  display: block; object-fit: contain; object-position: left top; border-radius: 8px;
+}
+/* Clickable variant — clicking locates the snippet back on the media. The
+   accent ring follows the image's rounded corners, so the wrapper must not
+   clip the box-shadow. */
+button.dv-ocr-history-thumb {
+  padding: 0; border: none; background: none; cursor: pointer; overflow: visible;
+}
+button.dv-ocr-history-thumb img { transition: box-shadow 130ms ease; }
+button.dv-ocr-history-thumb:hover img { box-shadow: 0 0 0 2px var(--accent-soft); }
+button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent); }
 .dv-ocr-history-card {
-  display: flex; flex-direction: column; gap: 8px; min-width: 0;
-  align-self: flex-start; width: fit-content;
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
-  padding: 10px 12px; box-shadow: var(--shadow-card);
+  flex: 1 1 auto; min-width: 0; align-self: flex-start;
+  display: flex; flex-direction: column; gap: 8px;
+  background: transparent; border: none; border-radius: 0; padding: 0; box-shadow: none;
 }
 .dv-ocr-history-text {
   margin: 0;
@@ -1122,25 +1287,103 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
 /* (AI assistant panel removed — the doc viewer is now file display only.) */
 
 /* ── Audio player pane (mp3 / wav / ogg / m4a / flac …) ────────────────── */
-.dv-doc-body.is-audio { display: flex; align-items: center; justify-content: center; }
-.dv-audio-pane { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
-.dv-audio-card {
-  display: flex; flex-direction: column; align-items: center; gap: 18px;
-  width: min(440px, 100%); padding: 36px 32px;
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
-  box-shadow: var(--shadow-elev);
+.dv-doc-body.is-audio { display: flex; padding: 0; }
+.dv-audio-layout { flex: 1; min-width: 0; display: flex; height: 100%; }
+.dv-audio-pane {
+  position: relative; flex: 1; min-width: 0; height: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding-bottom: 104px;
 }
-.dv-audio-icon {
-  display: flex; align-items: center; justify-content: center;
-  width: 76px; height: 76px; border-radius: 50%;
-  background: var(--accent-soft); color: var(--accent);
+/* With lyrics, the karaoke fills the pane and the play button docks below it. */
+.dv-audio-pane.has-lyrics { justify-content: flex-start; }
+
+/* Now-playing karaoke lyrics — fills the pane above the controls, scrolls to
+   keep the active line centred, with a top/bottom fade like YouTube Music. */
+.dv-audio-lyrics {
+  flex: 1; min-height: 0; width: 100%; align-self: stretch;
+  overflow-y: auto; overflow-x: hidden;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 40vh 8% 40vh;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 18%, #000 82%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 18%, #000 82%, transparent 100%);
 }
-.dv-audio-icon svg { width: 34px; height: 34px; }
-.dv-audio-name {
-  width: 100%; text-align: center; font-weight: 600; font-size: 14px; color: var(--text-primary);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.dv-audio-lyrics::-webkit-scrollbar { display: none; }
+.dv-lyric-line {
+  display: block; width: 100%; text-align: center;
+  border: none; background: none; cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 23px; font-weight: 800; line-height: 1.32; letter-spacing: -0.015em;
+  padding: 10px 14px; border-radius: 12px;
+  color: var(--text-muted); opacity: 0.4;
+  transform: scale(1); transform-origin: center;
+  transition: color 240ms ease, opacity 240ms ease, transform 240ms ease, background 160ms ease;
 }
-.dv-audio-transport { display: flex; align-items: center; gap: 14px; width: 100%; }
+.dv-lyric-line:hover { opacity: 0.85; color: var(--text-secondary); background: var(--bg-elevated); }
+.dv-lyric-line.is-past { opacity: 0.3; }
+.dv-lyric-line.is-active { color: var(--text-primary); opacity: 1; transform: scale(1.06); }
+
+/* Play/pause deck — sits under the lyrics, above the decibel line. */
+.dv-audio-deck { flex: none; display: flex; align-items: center; justify-content: center; width: 100%; padding-top: 8px; }
+/* "Decibel line": the file's loudness envelope drawn across the bottom edge
+   (played portion in accent, plus a playhead). Doubles as a scrubber — click or
+   drag anywhere to seek. Accent-coloured; the canvas reads its fill from
+   `color`. Narrower than the pane + centred, sitting under the player card. */
+.dv-audio-scope {
+  position: absolute; left: 0; right: 0; bottom: 0; margin: 0 auto;
+  width: calc(100% - 160px); height: 88px;
+  color: var(--accent); display: block;
+  cursor: pointer; touch-action: none;
+  /* Soft fade at the very edges only, so the timeline reads end-to-end. */
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 4%, #000 96%, transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 4%, #000 96%, transparent 100%);
+}
+.dv-audio-scope:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px;
+}
+
+/* Sidebar tab bar (video pane): flip between Text extraction + AI captions. */
+.dv-side-tabs {
+  flex: none; display: flex; gap: 4px; padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.dv-side-tab {
+  flex: 1; padding: 7px 10px; border: none; border-radius: 8px;
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 600;
+}
+.dv-side-tab:hover { color: var(--text-primary); background: var(--bg-elevated); }
+.dv-side-tab.is-active { background: var(--accent-soft); color: var(--accent); }
+
+/* Captions side panel — reuses the OCR "Extracted text" panel chrome
+   (.dv-ocr-history*); these are the audio-specific additions. */
+.dv-audio-captions-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 6px 14px 16px; }
+.dv-audio-captions-acts { display: flex; align-items: center; gap: 14px; }
+.dv-audio-captions-aside .dv-audio-captions-status { padding: 14px; }
+/* Each caption line is a button that seeks to that moment; active = now playing. */
+.dv-audio-caption-row {
+  text-align: left; border: none; background: none; font: inherit; cursor: pointer; padding: 0;
+}
+.dv-audio-caption-row:hover .dv-ocr-history-text { color: var(--accent); }
+.dv-audio-caption-row.is-active .dv-ocr-history-node { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.dv-audio-caption-row.is-active .dv-ocr-history-text { color: var(--accent); font-weight: 600; }
+/* Edit mode — timestamp becomes a small seek button + the text an editable field. */
+.dv-audio-caption-row.is-editing { cursor: default; }
+.dv-caption-seek {
+  border: none; background: none; font: inherit; cursor: pointer; padding: 0;
+  color: inherit; text-decoration: underline; text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+.dv-caption-seek:hover { color: var(--accent); }
+.dv-caption-edit {
+  width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
+  font: inherit; font-size: 13px; line-height: 1.45; color: var(--text-primary);
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 9px;
+}
+.dv-caption-edit:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.dv-caption-edit::placeholder { color: var(--text-muted); }
+.dv-caption-fulledit { padding: 12px 14px; }
 .dv-audio-playbtn {
   flex: none; display: flex; align-items: center; justify-content: center;
   width: 48px; height: 48px; border-radius: 50%; border: none;
@@ -1148,29 +1391,10 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
 }
 .dv-audio-playbtn:hover { background: var(--accent-hover); }
 .dv-audio-playbtn svg { width: 22px; height: 22px; }
-.dv-audio-track { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-/* Waveform scrubber, same mechanics as .dv-wa-voice-wave but bigger. */
-.dv-audio-wave {
-  position: relative; width: 100%; height: 44px;
-  display: flex; align-items: center; gap: 2px; cursor: pointer;
+.dv-audio-volume {
+  position: absolute; left: 18px; bottom: 18px; z-index: 2;
+  display: flex; flex-direction: column-reverse; align-items: center; gap: 10px;
 }
-.dv-audio-tick {
-  flex: 1 1 0; min-height: 3px; border-radius: 999px;
-  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
-  pointer-events: none;
-}
-.dv-audio-tick.is-played { background: var(--accent); }
-.dv-audio-wave.is-estimate .dv-audio-tick { opacity: 0.55; }
-.dv-audio-knob {
-  position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%;
-  background: var(--accent); box-shadow: var(--shadow-card);
-  transform: translate(-50%, -50%); pointer-events: none;
-}
-.dv-audio-times {
-  display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-.dv-audio-volume { display: flex; align-items: center; gap: 10px; width: 100%; }
 .dv-audio-volume-btn {
   flex: none; display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; padding: 0; border: none; background: none;
@@ -1178,10 +1402,11 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
 }
 .dv-audio-volume-btn:hover { color: var(--text-primary); }
 .dv-audio-volume-btn svg { width: 18px; height: 18px; }
-.dv-audio-volume-slider { flex: 1; accent-color: var(--accent); }
+.dv-audio-volume-slider {
+  writing-mode: vertical-lr; direction: rtl;
+  width: 6px; height: 120px; flex: none; accent-color: var(--accent);
+}
 
-/* AI captions — widen the card once a transcript is showing. */
-.dv-audio-card.has-captions { width: min(640px, 100%); }
 .dv-audio-captions-btn svg { width: 16px; height: 16px; }
 .dv-audio-captions-status {
   display: flex; align-items: center; gap: 8px; width: 100%;

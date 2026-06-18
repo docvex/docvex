@@ -288,6 +288,54 @@
   min-height: 0;
 }
 
+/* Extractions tab — embeds the ExtractionsPanel, whose own sidebar + grid own
+   the scroll, so this wrapper just fills the tab area like the chat shell. */
+.ai-chat-page .aichat-extractions {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+/* Extractions toolbar — date-range picker + arrange toggle, shown above the
+   tab strip when the Extractions tab is active. */
+.aichat-exr-controls {
+  /* Same box as the Advisor's controls row (.aichat-chrome-tools): a 40px band
+     with 10px side padding, so the From field (left) and the arrange toggle
+     (right) line up with what's above/below when switching tabs, and the
+     vertical spacing matches the Advisor panel. */
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; height: 40px; box-sizing: border-box; padding: 0 10px;
+}
+.aichat-exr-dates { display: flex; align-items: center; gap: 10px; }
+.aichat-exr-field {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; color: var(--text-muted);
+}
+.aichat-exr-field input[type="date"] {
+  font: inherit; font-size: 12.5px; font-weight: 500;
+  color: var(--text-primary); background: var(--bg-input); color-scheme: light dark;
+  border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px;
+}
+.aichat-exr-field input[type="date"]:focus { outline: none; border-color: var(--accent); }
+.aichat-exr-clear {
+  border: none; background: none; color: var(--accent); cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 600; padding: 4px 6px;
+}
+.aichat-exr-clear:hover { color: var(--accent-hover); }
+.aichat-exr-arrange {
+  display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+}
+.aichat-exr-seg {
+  /* Inactive = neutral (transparent, muted text); active = solid accent fill —
+     clearly different colours so the selected option reads at a glance. */
+  border: none; background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 7px; cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.aichat-exr-seg:hover:not(.is-active) { color: var(--text-primary); background: var(--accent-tint); }
+.aichat-exr-seg.is-active { background: var(--accent); color: var(--text-on-accent); }
+
 /* Mail tab — embeds the full Mail page. The assistant container is
    overflow:hidden with no padding, so this wrapper owns the scroll and re-adds
    the page measure the Mail page normally gets from the app shell, keeping the
@@ -1109,6 +1157,12 @@
   align-items: center;
   gap: 2px;
   font-size: 0.92rem;
+}
+/* Gavel "slam" loader (animated SVG) before the rotating thinking word. */
+.ai-chat-page .aichat-thinking-gavel {
+  width: 30px; height: 30px; flex-shrink: 0;
+  margin-right: 8px;
+  vertical-align: middle;
 }
 .ai-chat-page .aichat-thinking-text {
   font-weight: 500;

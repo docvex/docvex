@@ -120,8 +120,10 @@ const webState = {
 // Duplicate of main.js's guessMimeFromName — extension-based MIME
 // inference for files the browser handed us without metadata. Kept
 // in sync by convention; if a third copy shows up, extract to a
-// shared util.
-function guessMimeFromName(name) {
+// shared util. Exported so surfaces that only know a filename (e.g. the
+// Extractions tab, which stores paths but not MIME) can build a thumbnail
+// descriptor the resolver will actually act on.
+export function guessMimeFromName(name) {
   const i = name.lastIndexOf('.');
   if (i < 0) return '';
   const ext = name.slice(i + 1).toLowerCase();

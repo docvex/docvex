@@ -19,6 +19,8 @@ import FileThumbnail from '../../components/FileThumbnail';
 import Tooltip from '../../components/Tooltip';
 import { useMorphPill } from '../../components/useMorphPill';
 import Mail from '../Mail';
+import ExtractionsPanel, { ExtractionsIcon } from '../../components/ExtractionsPanel';
+import gavelLoader from '../../gavel-loader.svg';
 import './ProjectScoped.css';
 import './ProjectAI.css';
 import './ProjectChatVariantB.css';
@@ -98,6 +100,7 @@ function ThinkingStatus({ query }) {
   }, [set]);
   return (
     <span className="aichat-thinking" role="status" aria-label="DocVex AI is working">
+      <img className="aichat-thinking-gavel" src={gavelLoader} alt="" aria-hidden="true" />
       <span className="aichat-thinking-text" key={i}>{set[i]}</span>
       <span className="aichat-thinking-dots" aria-hidden="true"><span /><span /><span /></span>
     </span>
@@ -281,7 +284,12 @@ export default function ProjectAIChat() {
   // Top navbar view (like the team chat's Team/Private tabs): the Advisor tab is
   // the AI chat; Timeline is a placeholder tab (intentionally empty for now);
   // Mail embeds the AI-drafted inbox.
-  const [aiView, setAiView] = useState('advisor'); // 'advisor' | 'timeline' | 'mail'
+  const [aiView, setAiView] = useState('advisor'); // 'advisor' | 'timeline' | 'mail' | 'extractions'
+  // Extractions-tab controls (rendered above the tab strip): date-range filter
+  // + arrange-by toggle, passed down to <ExtractionsPanel>.
+  const [exrFrom, setExrFrom] = useState('');
+  const [exrTo, setExrTo] = useState('');
+  const [exrArrange, setExrArrange] = useState('date'); // 'date' | 'file'
   const [val, setVal] = useState('');
   const [streaming, setStreaming] = useState(false);
   // The AI message currently being revealed with the typewriter effect:
@@ -1135,8 +1143,44 @@ export default function ProjectAIChat() {
       >
         {I.inbox({ width: 16, height: 16 })}Mail
       </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={aiView === 'extractions'}
+        className={`dvx-tab${aiView === 'extractions' ? ' is-active' : ''}`}
+        onClick={() => setAiView('extractions')}
+      >
+        {ExtractionsIcon({ width: 16, height: 16 })}Extractions
+      </button>
     </div>
   );
+
+  // Extractions-tab toolbar — sits ABOVE the tab strip (same slot the Advisor's
+  // chromeTools use): a from–to date-range picker and an arrange-by toggle.
+  const extractionsControls = (
+    <div className="aichat-exr-controls">
+      <div className="aichat-exr-dates">
+        <label className="aichat-exr-field">
+          <span>From</span>
+          <input type="date" value={exrFrom} max={exrTo || undefined} onChange={(e) => setExrFrom(e.target.value)} />
+        </label>
+        <label className="aichat-exr-field">
+          <span>To</span>
+          <input type="date" value={exrTo} min={exrFrom || undefined} onChange={(e) => setExrTo(e.target.value)} />
+        </label>
+        {(exrFrom || exrTo) && (
+          <button type="button" className="aichat-exr-clear" onClick={() => { setExrFrom(''); setExrTo(''); }}>Clear</button>
+        )}
+      </div>
+      <div className="aichat-exr-arrange" role="group" aria-label="Arrange">
+        <button type="button" className={`aichat-exr-seg${exrArrange === 'date' ? ' is-active' : ''}`} onClick={() => setExrArrange('date')}>By date</button>
+        <button type="button" className={`aichat-exr-seg${exrArrange === 'file' ? ' is-active' : ''}`} onClick={() => setExrArrange('file')}>By file</button>
+      </div>
+    </div>
+  );
+
+  // Controls shown above the tab strip for the current view.
+  const aboveTabs = aiView === 'advisor' ? chromeTools : aiView === 'extractions' ? extractionsControls : null;
 
   return (
     <div
@@ -1168,7 +1212,7 @@ export default function ProjectAIChat() {
           tab strip below the search-bar section to match the chrome layout. */}
       {!chromeEl && (
         <div className="aichat-chrome-bar">
-          {aiView === 'advisor' ? chromeTools : null}
+          {aboveTabs}
           {aiTabs}
         </div>
       )}
@@ -1178,6 +1222,10 @@ export default function ProjectAIChat() {
       ) : aiView === 'mail' ? (
         // Mail tab — the AI-drafted inbox (the full Mail page) embedded here.
         <div className="aichat-mail"><Mail /></div>
+      ) : aiView === 'extractions' ? (
+        // Extractions tab — every "Extract text" snippet collected in the Doc
+        // Viewer, with an All-files / per-file sidebar.
+        <div className="aichat-extractions"><ExtractionsPanel from={exrFrom} to={exrTo} arrange={exrArrange} /></div>
       ) : (
       <div className="aichat-shell">
         {/* Conversation rail — hidden entirely when there are no chats (the
@@ -1482,7 +1530,7 @@ export default function ProjectAIChat() {
       {/* Chrome tools (collapse · chat name · search) + the navbar, lifted into
           the window topbar. The Advisor/Timeline/Mail tab strip sits BELOW the
           search-bar section. On non-Advisor tabs only the navbar shows. */}
-      {chromeEl && createPortal(<>{aiView === 'advisor' ? chromeTools : null}{aiTabs}</>, chromeEl)}
+      {chromeEl && createPortal(<>{aboveTabs}{aiTabs}</>, chromeEl)}
       {/* No composer when there are no chats (empty state's button is the only
           entry point) or on the Timeline tab. */}
       {aiView === 'advisor' && hasThreads && (footerEl ? createPortal(composer, footerEl) : composer)}

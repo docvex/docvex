@@ -1,6 +1,14 @@
-# CLAUDE.md
+# CLAUDE.md — Docvex application
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+> **Scope:** This file documents the **Docvex application** — the Electron
+> desktop app and its web-app variant served under `/app`. The separate
+> **marketing website** (docvex.ro, source in `landing/`) has its own guide:
+> [`landing/CLAUDE.md`](landing/CLAUDE.md). Don't conflate the two — the "Web
+> build vs Electron build" section below is the *app's* browser variant, NOT the
+> marketing site. They share only the GitHub Pages `docs/` folder (the site at
+> the root, the app SPA under `docs/app/`).
 
 > **Note (2026-06):** Migration 031 removed the cloud file store and the
 > GitHub-style branching/change-request system described in older versions of

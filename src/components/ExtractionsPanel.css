@@ -1,0 +1,311 @@
+/* "Extractions" tab (AI section). Two-pane: an "All files" + per-file sidebar
+   on the left, a scrollable grid of extracted-text snippet cards on the right.
+   All colours via tokens.css — no hex literals. */
+
+.exr-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  /* Transparent so the app shell's cursor-spotlight + dot grid show through. */
+  background: transparent;
+}
+
+/* ── Sidebar: All files + the files that have extracted text ── */
+.exr-sidebar {
+  flex: 0 0 176px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 12px;
+  border-right: 1px solid var(--border);
+  /* Same frosted glass as the chat footer (.sv-footer). */
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  overflow-y: auto;
+}
+
+.exr-side-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.exr-side-item:hover { background: var(--accent-tint); color: var(--text-primary); }
+/* Active = solid primary accent (same hue as the count badge / tab underline),
+   not the soft (brown) accent. Icon + count flip to read on the accent fill. */
+.exr-side-item.is-active { background: var(--accent); color: var(--text-on-accent); }
+
+.exr-side-all { font-weight: 600; }
+
+.exr-side-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.exr-side-item.is-active .exr-side-icon { color: var(--text-on-accent); }
+
+.exr-side-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exr-side-count {
+  flex-shrink: 0;
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  /* Accent — same colour as the selected tab's underline. */
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+/* On the active (accent-filled) All-files button, invert the badge so it stays
+   legible instead of blending into the accent background. */
+.exr-side-item.is-active .exr-side-count { background: var(--text-on-accent); color: var(--accent); }
+
+.exr-side-divider {
+  height: 1px;
+  margin: 8px 4px;
+  background: var(--border);
+}
+
+/* File tiles — Files-window style (preview on top, name underneath), matching
+   the Doc Viewer's open-files sidebar (.dv-filetab). */
+.exr-file-tiles { display: flex; flex-direction: column; gap: 4px; }
+.exr-file-tile {
+  position: relative;
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+  width: 100%; min-width: 0; padding: 6px;
+  border: 1px solid transparent; border-radius: 9px;
+  background: transparent; color: var(--text-secondary);
+  cursor: pointer; font: inherit; font-size: 11px; text-align: center; user-select: none;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.exr-file-tile:hover { background: var(--accent-tint); color: var(--text-primary); }
+.exr-file-tile.is-active { background: var(--bg-card); color: var(--text-primary); border-color: var(--border); }
+.exr-file-thumb {
+  position: relative; display: grid; place-items: center;
+  width: 100%; aspect-ratio: 4 / 3;
+  border: 1px solid var(--border); border-radius: 7px;
+  background: var(--bg-page); overflow: hidden;
+}
+.exr-file-tile.is-active .exr-file-thumb { background: var(--bg-elevated); }
+.exr-file-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.exr-file-thumb .project-files-icon {
+  width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent);
+}
+.exr-file-thumb .fx-glyph { width: 34px; height: 34px; font-size: 9px; }
+/* Snippet count — circular badge whose CENTRE sits on the thumbnail's top-right
+   corner (straddling it). The thumb is inset by the tile's 6px padding; the
+   badge lives on the tile (not inside .exr-file-thumb) so its outer half isn't
+   clipped by the thumb's overflow:hidden. */
+.exr-file-count {
+  position: absolute; top: 6px; right: 6px;
+  transform: translate(50%, -50%);
+  min-width: 17px; height: 17px; padding: 0 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; background: var(--accent); color: var(--text-on-accent);
+  font-size: 10px; font-weight: 700; line-height: 1;
+  z-index: 2;
+}
+.exr-file-name {
+  min-width: 0; text-align: center; line-height: 1.3; word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.exr-side-empty {
+  margin: 8px 11px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* ── Main: timeline-rail list (same format as the Doc Viewer's "Extracted
+   text" panel) — date rail + node dot, full-width thumbnail, then a text card
+   with actions. ── */
+.exr-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px clamp(18px, 3%, 40px) 48px;
+  /* rail geometry (mirrors the Doc Viewer's --ocr-* vars). Lines are gray by
+     default; only the scrolled-to section's line turns accent (see .is-current). */
+  --exr-line: var(--border-strong);
+  --exr-railw: 64px;
+  --exr-linex: 46px;
+  --exr-node-top: 18px;
+}
+
+.exr-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 860px;
+}
+
+.exr-history-item {
+  display: grid;
+  grid-template-columns: var(--exr-railw) 1fr;
+  gap: 10px;
+  position: relative;
+}
+
+/* Rail line — bridges the item height plus the flex gap so adjacent entries
+   connect; first/last items fade the line in/out at the node. */
+.exr-history-rail { position: relative; }
+/* The timeline line is drawn ONCE per items-container, so its length matches
+   that container exactly — running in line with the file-origin tile beside it
+   (All-files view) and breaking cleanly between file groups. Per-item nodes sit
+   on it. Lines are gray by default (node circles are accent); the scrolled-to
+   section's line turns accent. */
+.exr-history-list, .exr-group-items { position: relative; }
+.exr-history-list:not(.is-all)::before,
+.exr-group-items::before {
+  content: ''; position: absolute; left: var(--exr-linex); top: 0; bottom: 0; width: 2px;
+  transform: translateX(-50%); background: var(--exr-line);
+  transition: background 150ms ease;
+}
+/* Highlight the section currently scrolled to — its timeline line turns accent
+   (the others stay gray). Colour only — no glow/thickening. */
+.exr-group.is-current .exr-group-items::before {
+  background: var(--accent);
+}
+
+/* Node + date sit at the START (top) of the line, not partway down it. */
+.exr-history-node {
+  position: absolute; left: var(--exr-linex); top: 0;
+  width: 11px; height: 11px; border-radius: 50%;
+  transform: translate(-50%, 0); z-index: 2;
+  background: var(--bg-page); border: 2.5px solid var(--accent);
+}
+
+.exr-history-date {
+  position: absolute; left: 0; width: calc(var(--exr-linex) - 8px);
+  top: 0; transform: none;
+  text-align: right; display: flex; flex-direction: column; gap: 2px;
+}
+.exr-history-date-d { font-size: 11px; font-weight: 600; color: var(--text-primary); }
+.exr-history-date-t { font-size: 10px; color: var(--text-muted); }
+
+/* Image on the LEFT, the extracted-text card to its RIGHT. */
+.exr-history-content {
+  display: flex; flex-direction: row; align-items: flex-start; gap: 12px; min-width: 0;
+}
+.exr-history-thumb { flex: 0 0 auto; width: 200px; max-width: 40%; overflow: hidden; }
+.exr-history-thumb img {
+  width: auto; max-width: 100%; height: auto; max-height: 240px;
+  display: block; object-fit: contain; object-position: left top;
+  border-radius: 8px;
+}
+
+/* Flat text section — no card background/border/shadow, just the text + Copy. */
+.exr-history-card {
+  flex: 1 1 auto; min-width: 0; align-self: flex-start;
+  display: flex; flex-direction: column; gap: 8px;
+  background: transparent; border: none; border-radius: 0;
+  padding: 0; box-shadow: none;
+}
+
+/* All-files view: each consecutive same-file run is a section laid out as
+   [ sticky origin gutter | timeline items ]. The origin gutter cell stretches
+   to the section's full height, giving its sticky tile its scroll range. */
+.exr-history-list.is-all { gap: 0; max-width: 1000px; }
+.exr-group {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  /* default align-items:stretch → the origin cell spans the section height */
+}
+.exr-group + .exr-group { margin-top: 16px; }
+.exr-group-origin { min-width: 0; }
+.exr-group-items { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+/* Source-file tile — same Files-window shape as the sidebar (.exr-file-tile).
+   Sticky: it locks to the top of the scroll while its section is in view, then
+   the next section's tile takes over. Right-aligned in the gutter to sit near
+   the timeline line. */
+.exr-railtile {
+  position: sticky; top: 4px;
+  width: 116px; margin-left: auto;
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+  padding: 5px; border: 1px solid transparent; border-radius: 9px;
+  background: transparent; color: var(--text-secondary);
+  cursor: pointer; font: inherit; font-size: 10.5px; text-align: center;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.exr-railtile:hover { background: var(--accent-tint); color: var(--text-primary); border-color: var(--border); }
+.exr-railtile-thumb {
+  position: relative; display: grid; place-items: center;
+  width: 100%; aspect-ratio: 4 / 3;
+  border: 1px solid var(--border); border-radius: 7px;
+  background: var(--bg-page); overflow: hidden;
+}
+.exr-railtile-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.exr-railtile-thumb .project-files-icon {
+  width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent);
+}
+.exr-railtile-thumb .fx-glyph { width: 28px; height: 28px; font-size: 8px; }
+.exr-railtile-name {
+  min-width: 0; line-height: 1.25; word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.exr-history-text {
+  margin: 0;
+  font-size: 12.5px; line-height: 1.5; color: var(--text-primary);
+  white-space: pre-wrap; word-break: break-word; user-select: text;
+  max-width: 72ch;
+}
+.exr-history-text.is-empty { color: var(--text-muted); font-style: italic; }
+
+.exr-history-actions {
+  display: flex; align-items: center; justify-content: flex-start; gap: 6px;
+}
+.exr-history-act {
+  border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary);
+  font: inherit; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+}
+.exr-history-act:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Empty state (no extracted text anywhere) ── */
+.exr-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  min-height: 320px;
+  text-align: center;
+  color: var(--text-muted);
+}
+.exr-empty-icon { color: var(--text-muted); opacity: 0.7; }
+.exr-empty h3 {
+  margin: 4px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.exr-empty p {
+  margin: 0;
+  max-width: 360px;
+  font-size: 13px;
+  line-height: 1.6;
+}

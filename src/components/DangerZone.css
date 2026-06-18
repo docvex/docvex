@@ -6,13 +6,28 @@
   border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent);
   border-radius: 16px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--danger) 4%, var(--bg-card));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--danger) 3%, transparent) 0%,
+    color-mix(in srgb, var(--danger) 9%, transparent) 25%,
+    color-mix(in srgb, var(--danger) 13%, transparent) 50%,
+    color-mix(in srgb, var(--danger) 9%, transparent) 75%,
+    color-mix(in srgb, var(--danger) 3%, transparent) 100%
+  );
+  background-size: 300% 100%, auto;
+  animation: dz-shimmer 9s linear infinite;
+}
+@keyframes dz-shimmer {
+  0%   { background-position: 0% 0, 0% 0; }
+  100% { background-position: 300% 0, 0% 0; }
 }
 .dz-hd {
   display: flex; align-items: center; gap: 11px;
   padding: 16px 22px;
   border-bottom: 1px solid color-mix(in srgb, var(--danger) 22%, transparent);
   background: color-mix(in srgb, var(--danger) 8%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 .dz-hd-icon {
   width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
@@ -117,6 +132,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .dz-card { animation: none; }
   .dz-confirm,
   .dz-confirm.is-closing,
   .dz-confirm-panel,
