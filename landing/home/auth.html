@@ -1,23 +1,30 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="cream" data-dvx-no-navbar>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/">
 <title>Sign in — DocVex</title>
 <meta name="robots" content="noindex, nofollow">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Cinzel:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="chrome.css">
+<script>(function(){try{var t=localStorage.getItem('docvex.site.theme')||'cream';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 <style>
   /* ── DocVex "The Cabinet" auth screen — ported from the main app
        (src/components/auth/authCabinet.css). Fixed light brand treatment,
        not theme-reactive. All classes auv-prefixed. ── */
   *, *::before, *::after { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
+  html, body { margin: 0; }
+  /* Fill the viewport as a column: navbar (fixed) · cabinet (fills) · footer.
+     The cabinet flexes to the remaining height so the footer is always visible
+     and the page itself never scrolls. */
   body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
     background: #F5F2EA; color: #0F172A;
+    min-height: 100vh; display: flex; flex-direction: column;
   }
 
   /* Brand palette (from tokens.css) */
@@ -27,10 +34,25 @@
   }
 
   /* ── Page shell + ambient dot-grid backdrop (cream surface, ink dots) ── */
+  /* Cabinet fills the viewport minus half the footer, so ~half the footer
+     peeks below the fold. --dvx-foot-half is set to footerHeight/2 by JS. */
   .auth-page {
-    position: relative; min-height: 100%; width: 100%;
-    overflow-x: hidden; overflow-y: auto;
+    position: relative; flex: 0 0 auto; width: 100%; display: flex;
+    min-height: calc(100vh - var(--dvx-foot-half, 180px));
   }
+
+  /* Back-to-site button (replaces the navbar on the login tab). */
+  .auv-back {
+    /* Sit just to the right of the navy brand panel (its width is the same clamp). */
+    position: fixed; top: 18px; left: calc(clamp(360px, 38%, 460px) + 18px); z-index: 60;
+    display: inline-flex; align-items: center; gap: 7px;
+    background: rgba(255,255,255,0.72); border: 1px solid rgba(15,23,42,0.12);
+    border-radius: 999px; padding: 8px 15px 8px 11px;
+    font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; color: #1E293B;
+    cursor: pointer; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 6px 18px -8px rgba(15,23,42,0.3); transition: background 150ms, border-color 150ms;
+  }
+  .auv-back:hover { background: #fff; border-color: rgba(15,23,42,0.24); }
   .auth-page::before {
     content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
     background-image:
@@ -55,15 +77,15 @@
   .auv-fade { animation: auvFade .35s ease both; }
 
   /* ── Cabinet layout ── */
-  .auv-root { position: relative; z-index: 1; min-height: 100vh; width: 100%; }
-  .auv-cabinet { display: flex; min-height: 100vh; background: transparent; }
+  .auv-root { position: relative; z-index: 1; flex: 1; min-height: 0; width: 100%; display: flex; }
+  .auv-cabinet { display: flex; flex: 1; min-height: 0; background: transparent; }
 
   /* Left: brand panel (deep ink) */
   .auv-cab-brand {
     position: relative; width: clamp(360px, 38%, 460px); flex-shrink: 0;
     background: var(--auv-ink); overflow: hidden; isolation: isolate;
     display: flex; flex-direction: column; justify-content: space-between;
-    padding: 46px 42px; color: var(--auv-cream);
+    padding: 34px 38px; color: var(--auv-cream);
   }
   .auv-cab-brand::before {
     content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
@@ -72,23 +94,9 @@
       radial-gradient(circle at center, rgba(220, 201, 163, 0.10) 1.2px, transparent 1.6px);
     background-size: 100% 100%, 24px 24px; background-position: center, 0 0;
   }
-  .auv-cab-brand-spot {
-    position: absolute; top: 0; left: 0; z-index: 0; width: 430px; height: 430px;
-    pointer-events: none; will-change: transform;
-    background-image: radial-gradient(circle at center, rgba(220, 201, 163, 0.18) 1.45px, transparent 1.85px);
-    background-size: 24px 24px;
-    -webkit-mask-image: radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
-    mask-image: radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
-  }
-
-  /* Brand lockup (logo glyph + wordmark) */
-  .auv-cab-lockup { position: relative; z-index: 1; display: flex; align-items: center; gap: 13px; user-select: none; }
-  .auv-cab-lockup img { width: 46px; height: 46px; border-radius: 11px; object-fit: cover; -webkit-user-drag: none; }
-  .auv-cab-lockup .wm {
-    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 25px; font-weight: 700;
-    letter-spacing: 0.02em; color: var(--auv-cream);
-  }
-  .auv-cab-lockup .wm span { color: var(--auv-sand); }
+  /* Brand lockup (the full DocVex logo image) */
+  .auv-cab-lockup { position: relative; z-index: 1; display: block; user-select: none; }
+  .auv-cab-lockup img { width: auto; height: 92px; max-width: 100%; object-fit: contain; -webkit-user-drag: none; display: block; }
 
   .auv-cab-pitch { position: relative; z-index: 1; }
   .auv-cab-h2 { font-family: 'Cinzel', serif; font-size: 30px; font-weight: 600; line-height: 1.18; color: var(--auv-cream); margin: 0 0 22px; letter-spacing: 0.01em; }
@@ -105,8 +113,9 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), inset 0 -1px 0 rgba(0, 0, 0, 0.25);
   }
 
-  /* Right: form panel (transparent — backdrop shows through) */
-  .auv-cab-form { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 40px 56px; background: transparent; }
+  /* Right: form panel (transparent — backdrop shows through). Scrolls inside
+     itself on short screens so the page (and footer) stay put. */
+  .auv-cab-form { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 28px 48px; background: transparent; overflow-y: auto; }
   .auv-cab-form-inner { width: 100%; max-width: 380px; }
 
   /* ── Form vocabulary ── */
@@ -210,29 +219,28 @@
     .auv-cab-brand { display: none; }
     .auv-cab-form { padding: 32px 24px; }
     .auv-home { color: var(--auv-slate); }
+    .auv-back { left: 18px; }
   }
   @media (prefers-reduced-motion: reduce) {
     .auv-fade, .auv-done-mark { animation: none !important; }
-    .auv-cab-brand-spot, .cursor-spotlight { display: none; }
+    .cursor-spotlight { display: none; }
   }
 </style>
 </head>
 <body>
+<button class="auv-back" id="authBack" type="button">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+  Back
+</button>
+
 <div class="auth-page">
   <div class="cursor-spotlight" id="spotlight" aria-hidden="true"></div>
-
-  <a href="index.html" class="auv-home">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-    Back to site
-  </a>
 
   <div class="auv-root auv-cabinet">
     <!-- ── Left: brand panel ── -->
     <aside class="auv-cab-brand">
-      <div class="auv-cab-brand-spot" id="brandSpot" aria-hidden="true"></div>
       <div class="auv-cab-lockup">
-        <img src="assets/logo.png" alt="DocVex">
-        <span class="wm">Doc<span>V</span>ex</span>
+        <img src="assets/logo-lockup.png" alt="DocVex — Intelligent Legal Workflows">
       </div>
       <div class="auv-cab-pitch">
         <h2 class="auv-cab-h2">Documents.<br><span>Solved.</span></h2>
@@ -366,10 +374,15 @@ import { supabase } from './supabase.js';
 
 (function () {
   var root = document.getElementById('formInner');
-  // Where to go after a successful sign-in / sign-up.
+  // Where to go after a successful sign-in / sign-up. Honour ?redirect=<page.html>
+  // (same-site relative page only) so gated tabs can bounce back here and return.
   var HOME_URL = 'index.html';
+  try {
+    var rd = new URLSearchParams(window.location.search).get('redirect');
+    if (rd && /^[a-z0-9_\-]+\.html$/i.test(rd)) HOME_URL = rd;
+  } catch (e) {}
   // Absolute URL of this page (no query) — used as the OAuth redirect target.
-  var REDIRECT_URL = window.location.origin + window.location.pathname;
+  var REDIRECT_URL = window.location.origin + window.location.pathname + (HOME_URL !== 'index.html' ? '?redirect=' + HOME_URL : '');
 
   // ── View switching (signin / signup / done) ──
   function showView(name) {
@@ -546,18 +559,41 @@ import { supabase } from './supabase.js';
     return m;
   }
 
-  // ── Cursor spotlight (form side + brand panel) ──
-  var spot = document.getElementById('spotlight');
-  var brandSpot = document.getElementById('brandSpot');
-  var brand = document.querySelector('.auv-cab-brand');
-  window.addEventListener('mousemove', function (e) {
-    var x = e.clientX - 215, y = e.clientY - 215;
-    spot.style.transform = 'translate(' + x + 'px,' + y + 'px)';
-    if (brand) {
-      var r = brand.getBoundingClientRect();
-      brandSpot.style.transform = 'translate(' + (e.clientX - r.left - 215) + 'px,' + (e.clientY - r.top - 215) + 'px)';
+  // ── Back button (navbar is hidden on this tab) ──
+  var backBtn = document.getElementById('authBack');
+  if (backBtn) backBtn.addEventListener('click', function () {
+    if (window.history.length > 1) window.history.back();
+    else window.location.href = 'index.html';
+  });
+
+  // ── Size the cabinet so ~half the footer peeks below the fold ──
+  function setFootHalf() {
+    var f = document.querySelector('.dvx-footer');
+    if (f) document.documentElement.style.setProperty('--dvx-foot-half', Math.round(f.offsetHeight / 2) + 'px');
+  }
+  window.addEventListener('load', setFootHalf);
+  window.addEventListener('resize', setFootHalf);
+  setTimeout(setFootHalf, 60);
+  setTimeout(setFootHalf, 350);
+
+  // ── Single cursor spotlight (form side) ──
+  // Counter-shift the background-position so the brighter dots stay pinned to the
+  // base grid (same trick as the homepage / account / installers spotlights);
+  // moving only the transform makes the dots swim out of alignment.
+  (function () {
+    var spot = document.getElementById('spotlight');
+    if (!spot) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { spot.style.display = 'none'; return; }
+    var R = 215, frame = null, x = window.innerWidth / 2, y = window.innerHeight / 2;
+    function apply() {
+      frame = null;
+      var px = Math.round(x), py = Math.round(y);
+      spot.style.transform = 'translate3d(' + (px - R) + 'px,' + (py - R) + 'px,0)';
+      spot.style.backgroundPosition = (R - px) + 'px ' + (R - py) + 'px';
     }
-  }, { passive: true });
+    apply();
+    window.addEventListener('pointermove', function (e) { x = e.clientX; y = e.clientY; if (frame == null) frame = requestAnimationFrame(apply); }, { passive: true });
+  })();
 
   // ── OAuth return: supabase-js exchanges the ?code automatically (detectSessionInUrl).
   //    Wait for the session, then send the user home. ──
@@ -584,5 +620,6 @@ import { supabase } from './supabase.js';
   if (params.get('mode') === 'signup') { showStep(0); showView('signup'); }
 })();
 </script>
+<script type="module" src="chrome.js"></script>
 </body>
 </html>

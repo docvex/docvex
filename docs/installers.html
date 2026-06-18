@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en" data-theme="cream">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/">
+<title>Download — DocVex</title>
+<meta name="description" content="Download the DocVex desktop app — native installers for macOS and Windows.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="chrome.css">
+<script>(function(){try{var t=localStorage.getItem('docvex.site.theme')||'cream';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<!-- Auth gate: the Downloads tab is only available to signed-in users. -->
+<script>(function(){
+  try {
+    var raw = localStorage.getItem('sb-pntxlvhkqfryyyxlqytr-auth-token');
+    var ok = false;
+    if (raw) {
+      var p = JSON.parse(raw);
+      var s = (p && p.currentSession) ? p.currentSession : p;
+      var u = (s && s.user) || (p && p.user);
+      var exp = s && s.expires_at;
+      ok = !!u && !(exp && !s.refresh_token && (exp * 1000) < Date.now());
+    }
+    if (!ok) window.location.replace('/auth.html?redirect=installers.html');
+  } catch (e) { window.location.replace('/auth.html?redirect=installers.html'); }
+})();</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    background: var(--bg-page); color: var(--text-primary);
+  }
+  /* Ambient dot-grid + cursor spotlight (matches the homepage / account page). */
+  .inst-dotgrid {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      radial-gradient(ellipse 85% 75% at center, transparent 0%, transparent 32%, var(--bg-page) 92%),
+      radial-gradient(circle at center, var(--dot) 1.2px, transparent 1.6px);
+    background-size: 100% 100%, 24px 24px; background-position: center, 0 0;
+  }
+  .cursor-spotlight {
+    position: fixed; top: 0; left: 0; width: 430px; height: 430px;
+    pointer-events: none; z-index: 0; will-change: transform;
+    background-image: radial-gradient(circle at center, color-mix(in srgb, var(--text-primary) 10%, transparent) 1.45px, transparent 1.85px);
+    background-size: 24px 24px;
+    mask-image: radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
+    -webkit-mask-image: radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
+  }
+  @media (prefers-reduced-motion: reduce) { .cursor-spotlight { display: none; } }
+
+  @keyframes inst-pulse-dot { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:.55;transform:scale(.82);} }
+  @keyframes inst-pulse-glow { 0%,100%{opacity:.55;transform:translate(-50%,-50%) scale(1);} 50%{opacity:.9;transform:translate(-50%,-50%) scale(1.06);} }
+  .inst-rise { transition: transform .25s ease, box-shadow .25s ease, border-color .15s ease, background .15s ease; }
+  .inst-rise:hover { transform: translateY(-2px); }
+
+  .inst-section { position: relative; z-index: 1; padding: clamp(48px,7vw,84px) clamp(20px,5vw,40px) clamp(56px,8vw,96px); }
+  .inst-glow {
+    pointer-events: none; position: absolute; left: 50%; top: 150px;
+    width: 760px; height: 520px; max-width: 90vw; transform: translate(-50%,-50%);
+    border-radius: 50%; filter: blur(80px);
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 26%, transparent), color-mix(in srgb, var(--accent-soft) 12%, transparent) 45%, transparent 75%);
+    animation: inst-pulse-glow 6s ease-in-out infinite;
+  }
+  .inst-inner { position: relative; max-width: 760px; margin: 0 auto; text-align: center; }
+
+  .inst-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    background: var(--bg-card); border-radius: 999px; padding: 6px 14px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.22em; color: var(--accent);
+    box-shadow: var(--shadow-card);
+  }
+  .inst-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: inst-pulse-dot 2s ease-in-out infinite; }
+  .inst-badge .sep { opacity: .55; }
+
+  .inst-h1 { margin: 26px 0 0; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: clamp(38px,6vw,56px); line-height: 1.04; letter-spacing: -0.03em; color: var(--text-primary); }
+  .inst-h1 .accent { color: var(--accent); }
+  .inst-sub { margin: 18px auto 0; max-width: 440px; font-size: 17px; line-height: 1.6; color: var(--text-muted); }
+
+  .inst-primary-wrap { margin-top: 34px; display: flex; justify-content: center; }
+  .inst-primary {
+    display: inline-flex; align-items: center; gap: 15px;
+    background: var(--accent); color: var(--text-on-accent);
+    padding: 17px 30px; border-radius: 999px; text-decoration: none;
+  }
+  .inst-primary:hover { background: var(--accent-hover); }
+  .inst-primary .label { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.1; }
+  .inst-primary .label .t { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; font-size: 17px; }
+  .inst-primary .label .m { font-size: 12px; font-weight: 500; opacity: .75; }
+
+  .inst-chips { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .inst-chip {
+    display: inline-flex; align-items: center; gap: 11px;
+    border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary);
+    padding: 11px 17px; border-radius: 14px; text-decoration: none; box-shadow: var(--shadow-card);
+  }
+  .inst-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+  .inst-chip .col { display: flex; flex-direction: column; line-height: 1.2; text-align: left; }
+  .inst-chip .col .l { font-size: 13px; font-weight: 600; }
+  .inst-chip .col .m { font-size: 11px; color: var(--text-muted); }
+  .inst-chip.is-ghost { background: transparent; box-shadow: none; }
+
+  .inst-other { margin-top: 38px; padding-top: 28px; border-top: 1px solid var(--border); }
+  .inst-other-title { margin: 0 0 14px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.22em; color: var(--text-muted); }
+  .inst-switch { margin-top: 22px; background: none; border: none; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--accent); }
+  .inst-switch:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+  .inst-note { margin-top: 30px; font-size: 12.5px; color: var(--text-muted); }
+  .inst-note a { color: var(--accent); text-decoration: none; }
+  .inst-note a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="inst-dotgrid" aria-hidden="true"></div>
+  <div class="cursor-spotlight" aria-hidden="true"></div>
+
+  <main>
+    <section class="inst-section">
+      <div class="inst-glow" aria-hidden="true"></div>
+      <div class="inst-inner">
+        <span class="inst-badge"><span class="dot"></span><span id="instVersion">Latest release</span><span id="instDateWrap" hidden>&nbsp;<span class="sep">·</span>&nbsp;<span id="instDate"></span></span></span>
+
+        <h1 class="inst-h1">Download DocVex<br>for <span class="accent" id="instOsLabel">macOS</span></h1>
+        <p class="inst-sub">Draft. Review. Sign. The full DocVex desktop app, native on your machine.</p>
+
+        <div class="inst-primary-wrap">
+          <a class="inst-primary inst-rise" id="instPrimary" href="#">
+            <span id="instPrimaryIcon"></span>
+            <span class="label"><span class="t" id="instPrimaryTitle">Download</span><span class="m" id="instPrimaryMeta"></span></span>
+          </a>
+        </div>
+
+        <div class="inst-chips" id="instMore"></div>
+
+        <div class="inst-other">
+          <p class="inst-other-title">Also available for <span id="instOtherLabel">Windows</span></p>
+          <div class="inst-chips" id="instOther"></div>
+          <button class="inst-switch" id="instSwitch" type="button"></button>
+        </div>
+
+        <p class="inst-note">All installers are verified &amp; signed, served straight from <a id="instRepoLink" href="#" target="_blank" rel="noopener">GitHub Releases</a>.</p>
+      </div>
+    </section>
+  </main>
+
+<script>
+(function () {
+  // The native app's release repo (same one the in-app updater reads).
+  var REPO = 'docvex/docvex';
+  var FALLBACK = 'https://github.com/' + REPO + '/releases/latest';
+
+  var DOWNLOAD_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>';
+  var APPLE_ICON = '<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" style="flex:none;"><path d="M16.365 1.43c0 1.14-.42 2.2-1.12 2.99-.84.95-2.2 1.68-3.32 1.59-.14-1.12.42-2.3 1.08-3.04C13.76 2 15.2 1.32 16.365 1.43zM20.5 17.06c-.55 1.27-.82 1.84-1.53 2.96-.99 1.57-2.39 3.53-4.12 3.54-1.54.01-1.94-1-4.03-.99-2.09.01-2.53 1.01-4.07.99-1.73-.02-3.05-1.78-4.04-3.35C-.02 16.9-.32 12.07 1.36 9.5c1.04-1.6 2.69-2.55 4.24-2.55 1.58 0 2.57 1.06 3.87 1.06 1.27 0 2.04-1.06 3.87-1.06 1.39 0 2.86.76 3.91 2.07-3.44 1.88-2.88 6.79.45 8.04z"/></svg>';
+  var WIN_ICON = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" style="flex:none;"><path d="M3 5.1 10.5 4v7.5H3V5.1zM11.5 3.86 21 2.5v9H11.5V3.86zM3 12.5h7.5V20L3 18.9V12.5zM11.5 12.5H21V21.5l-9.5-1.36V12.5z"/></svg>';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var state = { os: null, override: null, release: null };
+
+  function detect() {
+    var os = 'other';
+    try {
+      var ua = navigator.userAgent || '';
+      var plat = ((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '').toLowerCase();
+      if (/mac/.test(plat) || /mac os x|macintosh/i.test(ua)) os = 'mac';
+      else if (/win/.test(plat) || /windows/i.test(ua)) os = 'win';
+    } catch (e) {}
+    state.os = os;
+  }
+
+  function fmtSize(b) {
+    if (b == null) return '';
+    var mb = b / 1048576;
+    if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+    return Math.round(mb) + ' MB';
+  }
+  function fmtDate(d) {
+    try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+    catch (e) { return ''; }
+  }
+
+  function fetchRelease() {
+    fetch('https://api.github.com/repos/' + REPO + '/releases/latest', { headers: { 'Accept': 'application/vnd.github+json' } })
+      .then(function (r) { if (!r.ok) throw new Error('no release'); return r.json(); })
+      .then(function (j) { state.release = { tag: j.tag_name, date: j.published_at, assets: j.assets || [] }; render(); })
+      .catch(function () { state.release = null; render(); });
+  }
+
+  function buildLists() {
+    var isWin = (state.override || (state.os === 'win' ? 'win' : 'mac')) === 'win';
+    var assets = (state.release && state.release.assets) ? state.release.assets.slice() : [];
+    var consumed = [];
+    function resolve(match) {
+      for (var i = 0; i < assets.length; i++) {
+        var a = assets[i];
+        if (consumed.indexOf(a) !== -1) continue;
+        if (match(a.name)) { consumed.push(a); return a; }
+      }
+      return null;
+    }
+    function mk(spec) {
+      var a = resolve(spec.match);
+      var size = a ? fmtSize(a.size) : '';
+      var meta = [spec.arch, size].filter(Boolean).join('  ·  ');
+      return { key: spec.key, label: spec.label, recommended: !!spec.recommended, href: a ? a.browser_download_url : FALLBACK, meta: meta, available: !!a };
+    }
+    var macSpecs = [
+      { key: 'as', label: 'Apple Silicon', arch: 'M1–M4 Macs', recommended: true, match: function (n) { return /arm64\.dmg$/i.test(n); } },
+      { key: 'intel', label: 'Intel', arch: '2020 & earlier', match: function (n) { return /\.dmg$/i.test(n) && !/arm64/i.test(n) && !/universal/i.test(n); } },
+      { key: 'uni', label: 'Universal', arch: 'Any Mac', match: function (n) { return /universal\.dmg$/i.test(n); } },
+      { key: 'zip', label: 'macOS · ZIP', arch: 'Manual install', match: function (n) { return /\.zip$/i.test(n) && /(mac|darwin|osx)/i.test(n); } }
+    ];
+    var macList = macSpecs.map(mk);
+    var winList = [ mk({ key: 'exe', label: 'Windows Installer', arch: '64-bit · .exe', recommended: true, match: function (n) { return /\.exe$/i.test(n); } }) ];
+    var activeList = isWin ? winList : macList;
+    var otherList = isWin ? macList : winList;
+    var primary = activeList.filter(function (x) { return x.recommended; })[0] || activeList[0];
+    var more = activeList.filter(function (x) { return x !== primary; });
+    return { isWin: isWin, primary: primary, more: more, otherList: otherList };
+  }
+
+  function chip(item, ghost) {
+    return '<a href="' + item.href + '" class="inst-chip inst-rise' + (ghost ? ' is-ghost' : '') + '">' +
+      DOWNLOAD_ICON +
+      '<span class="col"><span class="l">' + item.label + '</span><span class="m">' + (item.meta || 'GitHub Releases') + '</span></span></a>';
+  }
+
+  function render() {
+    var v = buildLists();
+    var osLabel = v.isWin ? 'Windows' : 'macOS';
+    var otherLabel = v.isWin ? 'macOS' : 'Windows';
+
+    $('instOsLabel').textContent = osLabel;
+    $('instOtherLabel').textContent = otherLabel;
+    $('instVersion').textContent = state.release ? state.release.tag : 'Latest release';
+    if (state.release && state.release.date) { $('instDate').textContent = fmtDate(state.release.date); $('instDateWrap').hidden = false; }
+    else { $('instDateWrap').hidden = true; }
+
+    $('instPrimaryIcon').innerHTML = v.isWin ? WIN_ICON : APPLE_ICON;
+    $('instPrimary').setAttribute('href', v.primary.href);
+    $('instPrimaryTitle').textContent = 'Download for ' + osLabel;
+    $('instPrimaryMeta').textContent = v.primary.meta || 'GitHub Releases';
+
+    $('instMore').innerHTML = v.more.map(function (i) { return chip(i, false); }).join('');
+    $('instOther').innerHTML = v.otherList.map(function (i) { return chip(i, true); }).join('');
+
+    var sw = $('instSwitch');
+    sw.textContent = 'Not on ' + osLabel + '? Switch to the ' + otherLabel + ' view →';
+
+    $('instRepoLink').setAttribute('href', FALLBACK);
+  }
+
+  $('instSwitch').addEventListener('click', function () {
+    var cur = state.override || (state.os === 'win' ? 'win' : 'mac');
+    state.override = cur === 'win' ? 'mac' : 'win';
+    render();
+  });
+
+  detect();
+  render();        // immediate paint with fallback links
+  fetchRelease();  // then fill in live version / date / sizes
+})();
+
+// Cursor-following spotlight (matches the homepage / account page).
+(function () {
+  var el = document.querySelector('.cursor-spotlight');
+  if (!el) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { el.style.display = 'none'; return; }
+  var R = 215, frame = null, x = window.innerWidth / 2, y = window.innerHeight / 2;
+  function apply() {
+    frame = null;
+    var px = Math.round(x), py = Math.round(y);
+    el.style.transform = 'translate3d(' + (px - R) + 'px,' + (py - R) + 'px,0)';
+    el.style.backgroundPosition = (R - px) + 'px ' + (R - py) + 'px';
+  }
+  apply();
+  window.addEventListener('pointermove', function (e) { x = e.clientX; y = e.clientY; if (frame == null) frame = requestAnimationFrame(apply); }, { passive: true });
+})();
+</script>
+<script type="module" src="chrome.js"></script>
+</body>
+</html>

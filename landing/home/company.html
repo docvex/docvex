@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en" data-theme="cream">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Company — DocVex</title>
+<meta name="description" content="About DocVex — our mission, customers, and careers.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="chrome.css">
+<script>(function(){try{var t=localStorage.getItem('docvex.site.theme')||'cream';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    background: var(--bg-page); color: var(--text-primary);
+  }
+
+  .lg-shell { max-width: 1440px; margin: 0 auto; padding: clamp(28px,4vw,48px) clamp(20px,5vw,40px) 80px; }
+  .lg-head { margin: 0 0 8px; }
+  .lg-eyebrow { margin: 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.26em; color: var(--accent); }
+  .lg-title { margin: 12px 0 0; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: clamp(34px,5vw,48px); letter-spacing: -0.03em; color: var(--text-primary); }
+  .lg-lead { margin: 14px 0 0; max-width: 640px; font-size: 16px; line-height: 1.6; color: var(--text-muted); }
+
+  .lg-layout { display: grid; grid-template-columns: 220px 1fr; gap: clamp(28px,4vw,56px); margin-top: 40px; align-items: start; }
+  @media (max-width: 860px) { .lg-layout { grid-template-columns: 1fr; } .lg-toc { position: static !important; } }
+
+  .lg-toc { position: sticky; top: 84px; }
+  .lg-toc-title { margin: 0 0 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: var(--text-muted); }
+  .lg-toc ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .lg-toc a { display: block; padding: 8px 12px; border-radius: 9px; border-left: 2px solid transparent; font-size: 13.5px; font-weight: 500; color: var(--text-secondary); text-decoration: none; transition: background 150ms, color 150ms, border-color 150ms; }
+  .lg-toc a:hover { background: var(--bg-elevated); color: var(--text-primary); }
+  .lg-toc a.is-active { background: var(--accent-tint); border-left-color: var(--accent); color: var(--accent); }
+
+  .lg-doc { min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+  .lg-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: clamp(22px,3vw,32px); box-shadow: var(--shadow-card); scroll-margin-top: 84px; }
+  .lg-card h2 { margin: 0 0 4px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: -0.01em; color: var(--text-primary); }
+  .lg-card .lg-sub { margin: 0 0 16px; font-size: 13px; color: var(--text-muted); }
+  .lg-card h3 { margin: 22px 0 6px; font-size: 15px; font-weight: 600; color: var(--text-primary); }
+  .lg-card p { margin: 0 0 12px; font-size: 14.5px; line-height: 1.7; color: var(--text-secondary); }
+  .lg-card ul.lg-list { margin: 0 0 12px; padding-left: 1.1rem; }
+  .lg-card ul.lg-list li { font-size: 14.5px; line-height: 1.7; color: var(--text-secondary); margin-bottom: 4px; }
+  .lg-card a { color: var(--accent); text-decoration: none; }
+  .lg-card a:hover { text-decoration: underline; }
+
+  .lg-contact-btn { display: inline-flex; align-items: center; gap: 9px; margin-top: 6px; padding: 12px 22px; border-radius: 999px; background: var(--accent); color: var(--text-on-accent); font-weight: 600; font-size: 14px; text-decoration: none; box-shadow: var(--shadow-card); }
+  .lg-contact-btn:hover { background: var(--accent-hover); text-decoration: none; }
+</style>
+</head>
+<body>
+  <div class="lg-shell">
+    <header class="lg-head">
+      <p class="lg-eyebrow">DocVex</p>
+      <h1 class="lg-title">Company</h1>
+      <p class="lg-lead">Who we are and how to reach us — the company links from the site footer, in one place.</p>
+    </header>
+
+    <div class="lg-layout">
+      <nav class="lg-toc" aria-label="Company sections">
+        <p class="lg-toc-title">On this page</p>
+        <ul>
+          <li><a href="#about">About</a></li>
+          <li><a href="#customers">Customers</a></li>
+          <li><a href="#careers">Careers</a></li>
+          <li><a href="#contact">Contact</a></li>
+        </ul>
+      </nav>
+
+      <div class="lg-doc">
+        <section class="lg-card" id="about">
+          <h2>About</h2>
+          <p class="lg-sub">Intelligent legal workflows for modern law firms.</p>
+          <p>DocVex is a desktop-first workspace that helps legal teams draft, review, organize, and sign documents without the busywork. We pair a native, privacy-respecting app with focused AI tooling so firms spend less time on administration and more time on their clients.</p>
+          <h3>Our mission</h3>
+          <p>To give every firm — from solo practitioners to large practices — software that respects the confidentiality of legal work while removing the friction from everyday document operations.</p>
+          <h3>How we build</h3>
+          <p>Privacy by design, files kept local to your machine, and a calm, considered interface. We sweat the details so your team can move quickly with confidence.</p>
+        </section>
+
+        <section class="lg-card" id="customers">
+          <h2>Customers</h2>
+          <p class="lg-sub">Built for legal teams of every size.</p>
+          <p>DocVex serves law firms, in-house legal departments, and independent practitioners who need a dependable home for their documents and matters.</p>
+          <ul class="lg-list">
+            <li>Boutique and solo practices streamlining intake to close.</li>
+            <li>Growing firms standardizing drafting from shared templates.</li>
+            <li>In-house teams keeping sensitive work confidential by default.</li>
+          </ul>
+          <p>Want to see how DocVex fits your practice? <a href="#contact">Get in touch</a> for a walkthrough.</p>
+        </section>
+
+        <section class="lg-card" id="careers">
+          <h2>Careers</h2>
+          <p class="lg-sub">Help us modernize legal work.</p>
+          <p>We're a small, product-focused team building software at the intersection of law and thoughtful design. We value craftsmanship, clear communication, and respect for the people who use what we make.</p>
+          <p>We don't have public openings listed right now, but we're always glad to hear from exceptional engineers, designers, and legal-tech minds. Send us a note and tell us what you'd love to build.</p>
+          <a class="lg-contact-btn" href="mailto:docvexteam@docvex.ro?subject=Careers%20at%20DocVex">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+            Email us your CV
+          </a>
+        </section>
+
+        <section class="lg-card" id="contact">
+          <h2>Contact</h2>
+          <p class="lg-sub">We'd love to hear from you.</p>
+          <p>For product questions, demos, partnerships, or support, reach the DocVex team directly:</p>
+          <ul class="lg-list">
+            <li>Email: <a href="mailto:docvexteam@docvex.ro">docvexteam@docvex.ro</a></li>
+            <li>Web: <a href="https://docvex.ro">docvex.ro</a></li>
+          </ul>
+          <a class="lg-contact-btn" href="mailto:docvexteam@docvex.ro">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+            Email the team
+          </a>
+        </section>
+      </div>
+    </div>
+  </div>
+
+<script type="module" src="chrome.js"></script>
+<script>
+  (function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll('.lg-toc a'));
+    var map = {};
+    links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+    var obs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) {
+          links.forEach(function (l) { l.classList.remove('is-active'); });
+          var a = map[en.target.id]; if (a) a.classList.add('is-active');
+        }
+      });
+    }, { rootMargin: '-40% 0px -55% 0px', threshold: 0 });
+    document.querySelectorAll('.lg-card').forEach(function (s) { obs.observe(s); });
+  })();
+</script>
+</body>
+</html>
