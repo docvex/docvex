@@ -14,6 +14,7 @@ import { localFolderApi, isElectronBranch } from '../lib/localFolder';
 import { readProjectsDir } from '../lib/projectsDir';
 import {
   isMac,
+  openExternal,
   windowMinimize,
   windowToggleMaximize,
   windowClose,
@@ -22,6 +23,12 @@ import {
   windowIsFullscreen,
   onWindowFullscreenChanged,
 } from '../lib/platform';
+
+// The marketing site's account dashboard (docvex.ro/account.html). "Open
+// account" in the title bar opens this in the user's browser, handing the
+// current Supabase session across in the URL fragment (see openAccount) so the
+// site adopts it and opens straight on the dashboard.
+const ACCOUNT_DASHBOARD_URL = 'https://docvex.ro/account.html';
 import brandIcon from '../favicon.ico';
 import './TitleBar.css';
 
@@ -314,9 +321,9 @@ const SPLIT_HIDDEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings
 
 export default function TitleBar() {
   const { session, logout } = useAuth();
-  const { selectedProject, closePicker } = useSelectedProject();
+  const { selectedProject } = useSelectedProject();
   const { hasUpdate, latestVersion, currentVersion } = useUpdates();
-  const { layout, setLayout, setFocusedPane, customLayouts, addCustomLayout, applyCustomLayout, updateCustomLayout, renameCustomLayout, removeCustomLayout, activeCustomLayout } = useSplitView();
+  const { layout, setLayout, customLayouts, addCustomLayout, applyCustomLayout, updateCustomLayout, renameCustomLayout, removeCustomLayout, activeCustomLayout } = useSplitView();
   // Inline "save current layout" affordance in the split menu: when armed it
   // swaps the "Save current…" button for a name field.
   const [savingLayout, setSavingLayout] = useState(false);
@@ -327,17 +334,21 @@ export default function TitleBar() {
   const { captureAndOpen: openReportProblem, capturing: reportCapturing } = useReportProblem();
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  // Open the Account page exactly like the sidebar's Account tab does: collapse
-  // any split layout back to a single fullscreen window, focus the primary
-  // pane, and close the project picker before navigating. Without this the
-  // topbar's "Open account" left the workspace split intact, so Account opened
-  // inside a pane instead of taking over the window. Mirrors Sidebar's
-  // handleTabClick.
+  // "Open account" opens the website's account dashboard in the user's default
+  // browser instead of the in-app Account page. The app and the site are
+  // different origins, so the session can't transfer through shared storage —
+  // we hand it across in the URL fragment (dvx_at / dvx_rt) and the site adopts
+  // it, landing straight on the dashboard instead of prompting sign-in. A
+  // fragment never reaches a server, and the site strips it from the URL the
+  // moment it's consumed.
   const openAccount = () => {
-    closePicker();
-    setFocusedPane(0);
-    setLayout('single');
-    navigate('/account');
+    let url = ACCOUNT_DASHBOARD_URL;
+    const at = session?.access_token;
+    const rt = session?.refresh_token;
+    if (at && rt) {
+      url += '#dvx_at=' + encodeURIComponent(at) + '&dvx_rt=' + encodeURIComponent(rt);
+    }
+    openExternal(url);
   };
   // The doc-viewer is a secondary window (boots at /doc-viewer); it's a plain
   // file viewer, so it hides the Split-layout and Theme controls.

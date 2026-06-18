@@ -596,10 +596,16 @@
   </div>
 
 </div>
-<script>
+<script type="module">
+import { supabase } from './supabase.js';
 // ── Signed-in header: swap the Sign in / Sign up buttons for the user's
 //    avatar + name + email by reading the app's Supabase session from
 //    localStorage (shared when the site + app are served from the same origin). ──
+// A module (like account.html / chrome.js) so the static `import` above works.
+// This block previously used dynamic import() inside a CLASSIC script, which some
+// browsers' parsers reject ("Unexpected token '/'") — aborting the whole block.
+// Guarded so an unexpected session shape can't throw and abort the module either.
+try {
 (function () {
   var SUPABASE_AUTH_KEY = 'sb-pntxlvhkqfryyyxlqytr-auth-token';
   var AVATAR_PALETTE = ['#0891B2','#BE185D','#4F46E5','#047857','#B45309','#6D28D9','#DC2626','#0369A1','#DB2777','#059669','#7C3AED','#EA580C'];
@@ -674,7 +680,7 @@
   window.addEventListener('storage', function (e) { if (e.key === SUPABASE_AUTH_KEY) render(); });
   // Live same-tab updates: re-render on sign-out / status change (USER_UPDATED).
   if (readUser()) {
-    import('./supabase.js').then(function (m) { m.supabase.auth.onAuthStateChange(function () { render(); }); }).catch(function () {});
+    supabase.auth.onAuthStateChange(function () { render(); });
   }
 
   // ── Account chip morph pill (tooltip → dropdown) ──
@@ -691,7 +697,7 @@
     }
     function removePill() { if (pill) { pill.remove(); pill = null; } }
     function doSignOut() {
-      import('./supabase.js').then(function(m) { return m.supabase.auth.signOut(); })
+      supabase.auth.signOut()
         .catch(function() { try { localStorage.removeItem(SUPABASE_AUTH_KEY); } catch(e) {} })
         .then(function() { render(); });
     }
@@ -748,6 +754,11 @@
     trigger.addEventListener('click', function(e) { e.stopPropagation(); if (isMenu) closeMenu(); else openMenu(); });
   })();
 })();
+} catch (e) { /* the account chip is non-essential — never let it halt the header/theme wiring */ }
+</script>
+<script>
+// ── Header scroll transition (taller & transparent at top → compact & solid on
+//    scroll). Its own block so nothing above can stop it from wiring up. ──
 (function () {
   var hdr = document.getElementById('siteHeader');
   if (hdr) {
@@ -760,6 +771,10 @@
     onScroll();
   }
 })();
+</script>
+<script>
+// ── Theme toggle + OS detection + cursor spotlight. Own block so dvToggleTheme
+//    is always defined for the header button, even if code above errors. ──
 (function () {
   var root = document.getElementById('dv-root');
   if (!root) return;

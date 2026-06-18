@@ -239,14 +239,15 @@ All under `src/context/`. Every hook returns plain objects; no Redux / Zustand. 
 | `plan.js` | `PLAN = { tier: 'Free', features: [...] }` placeholder — read in Account page AND Sidebar footer pill; update both when wiring real plans. |
 | `platform.js` | Electron / web adapter: `isElectron`, `getAppVersion`, `isPackaged`, `showInFolder`, `openPath`, `onDeepLink`, `onAccountSwitch`, `openOAuthUrl`, `checkForUpdates`, `installUpdate`, `onUpdateStatus`, `showOSNotification`. Web stubs out anything that can't work in a browser. |
 | `legalFeed.js` | Legal Newsfeed (Newsletter) data layer. `listLegalUpdates()` (embeds the user's `legal_update_states`), `setUpdateRead`/`setUpdatePinned`/`setUpdateSaved`, `getWeeklyDigest()` (invokes `legal-ai`'s `digest` action, cached 1 h in `sessionStorage`). |
-| `ocr.js` / `transcribe.js` | Doc Viewer "Extract text" (Claude OCR) and audio captions (Whisper) — both call the `doc-ai` Edge Function. |
-| `extractionHistory.js` | Per-file localStorage history of OCR snippets for the Doc Viewer. |
+| `ocr.js` / `transcribe.js` | Doc Viewer "Extract text" (Claude OCR) and audio/video captions (Whisper) — both call the `doc-ai` Edge Function. `transcribe.js` ships only the audio: for **video** it extracts the audio track in-renderer (Web Audio `decodeAudioData` → downmix + resample to 16 kHz mono → 16-bit PCM WAV; **no ffmpeg dep**) so the upload stays under Whisper's 25 MB cap (~13 min of speech). |
+| `extractionHistory.js` | Per-file localStorage history of OCR snippets for the Doc Viewer (a *list* per file). |
+| `captionsHistory.js` | Per-file localStorage cache of the audio pane's AI transcript — *one* result per file (text + timed segments + language), so reopening a file restores captions instantly instead of re-paying for Whisper. Key prefix `docvex:doc-viewer:captions:`. |
 
 ~15 other newer lib files (`activityMetrics.js`, `admin.js`, `extractFileText.js`, `fileDragBus.js`, `folderColors.js`, `hiddenFiles.js`, `launchGate.js`, `mail.js`, `openDocxWindow.js`, `privateMessages.js`, `projectAi.js`, `thumbnailDescriptor.js`, `thumbnailResolver.js`, `whatsappChat.js`, `useChatFind.js`) aren't documented here yet — read directly.
 
 ## Supabase data model
 
-Project ID `pntxlvhkqfryyyxlqytr` (eu-west-1, organization `docvex.ro`). Modify via the `claude_ai_Supabase` MCP tools (`list_tables`, `apply_migration`, etc.). **No cloud file store** — migration 031 dropped `project_files`, `change_requests`, `change_request_items`, `branch_changes`, `project_member_branches`, the `projects` / `projects-pending` storage buckets, and `projects.main_version`.
+Project ID `pntxlvhkqfryyyxlqytr` (eu-west-1, organization `docvex.ro`). Modify via the `claude_ai_Supabase` MCP tools (`list_tables`, `apply_migration`, etc.). **No cloud file store** — migration 031 (`drop_branching_and_cloud_files`, 2026-06-02) dropped the tables `project_files`, `change_requests`, `change_request_items`, `branch_changes`, `project_member_branches`, the `projects.main_version` column, and the branching RPCs. The `projects` / `projects-pending` **storage buckets still physically exist** in the project but are orphaned — the app no longer reads or writes them (files are local-only). They're a cleanup candidate, not a live dependency.
 
 ### Tables (current, post migration 031)
 
@@ -287,7 +288,7 @@ Project ID `pntxlvhkqfryyyxlqytr` (eu-west-1, organization `docvex.ro`). Modify 
 
 ### Storage
 
-No Supabase Storage buckets — project files are local-only (`lib/localFolder.js`, `.docvex.json` sidecar via `lib/localBranchMeta.js`).
+Project files are local-only (`lib/localFolder.js`, `.docvex.json` sidecar via `lib/localBranchMeta.js`) — the app reads/writes no Supabase Storage bucket. The legacy `projects` / `projects-pending` buckets still exist in the project but are orphaned (see the data-model note above); the only live bucket is `email-assets` (public), used by the email Edge Functions.
 
 ### Edge Functions (`supabase/functions/`)
 
@@ -348,7 +349,7 @@ Newer root pages not detailed here: `Launch` (`/launch`, pre-app launcher hub), 
 | `TeamTree` | Org-chart view of project members + roles. |
 | `InviteAccept` | Token-driven invite acceptance; public so unauthenticated invitees can land here and bounce through `/auth`. |
 
-Newer project-scoped pages not detailed here: `ProjectAI` / `ProjectAIChat` (`/ai`, `/ai-chat` — backed by the `project-ai` Edge Function + `project_ai_usage`).
+Newer project-scoped pages not detailed here: `ProjectAI` / `ProjectAIChat` (`/ai`, `/ai-chat` — backed by the `project-ai` Edge Function + `project_ai_usage`). `ProjectAIChat` is a multi-view shell (`aiView`: **Advisor / Timeline / Mail / Extractions**) — Mail embeds the `Mail` page, and **Extractions** embeds `components/ExtractionsPanel` (every Doc Viewer "Extract text" snippet across all files, with an All-files / per-file sidebar + a date-range and arrange-by toolbar, read from the per-file `lib/extractionHistory.js` stores and refreshed cross-window via the `storage` event).
 
 Shared layout: `ProjectScoped.css` provides the standard project page frame (sticky header, content container).
 
@@ -398,7 +399,7 @@ Dismissal: Escape, scroll (capture), outside `mousedown`, or mouseleave on the m
 
 ### File previews
 
-`FileThumbnail` resolves a poster URL (cached thumbnail or MIME glyph). `FilePreview` renders PDF (pdf.js) / image / video / text inline. Double-clicking a file in the Files page opens it in the **Doc Viewer** (`/doc-viewer`, `src/pages/DocViewer.jsx`) — a dedicated window with a `classify(mime, name)` dispatcher per mime type: photo/video get an "Extract text" OCR **lasso** tool (freeform Photoshop-style selection, clipped canvas → `lib/ocr.js`) with a persisted, resizable extraction-history panel (`lib/extractionHistory.js`); audio gets a player + AI transcript (`lib/transcribe.js`, Whisper); `.docx` renders via `docx-preview` (lazy-imported, `lib/openDocxWindow.js`).
+`FileThumbnail` resolves a poster URL (cached thumbnail or MIME glyph). `FilePreview` renders PDF (pdf.js) / image / video / text inline. Double-clicking a file in the Files page opens it in the **Doc Viewer** (`/doc-viewer`, `src/pages/DocViewer.jsx`) — a dedicated window with a `classify(mime, name)` dispatcher per mime type: photo/video get an "Extract text" OCR **lasso** tool (freeform Photoshop-style selection, clipped canvas → `lib/ocr.js`) with a persisted, resizable extraction-history panel (`lib/extractionHistory.js`); audio/video get a custom player whose **loudness-envelope canvas doubles as the seek control** (the full-file waveform is the scrubber — click / drag / arrow-key to seek; `role="slider"`), **YouTube-Music-style karaoke lyrics** in the player pane (the active timed segment highlights + auto-scrolls to centre), and a side AI-captions panel with **inline editing** of the generated transcript (fix mistranscriptions, recompute joined text). Captions come from `lib/transcribe.js` (Whisper) and are cached per file via `lib/captionsHistory.js`; the panel pushes edits/regenerations back to the player's lyrics live via an `onCaptionsChange` callback. `.docx` renders via `docx-preview` (lazy-imported, `lib/openDocxWindow.js`).
 
 ## Conventions
 

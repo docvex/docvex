@@ -268,9 +268,26 @@
   .account-pw-submit:hover:not(:disabled), .modal-btn-confirm:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
   .account-pw-submit:disabled, .modal-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
-  /* ── Danger zone (matches DangerZone.jsx / DangerZone.css in the desktop app) ── */
-  .account-danger { position: relative; border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent); border-radius: 16px; overflow: hidden; background: color-mix(in srgb, var(--danger) 5%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); --mx: 50%; --my: 50%; }
-  .account-dz-hd { display: flex; align-items: center; gap: 11px; padding: 16px 22px; border-bottom: 1px solid color-mix(in srgb, var(--danger) 22%, transparent); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+  /* ── Danger zone (mirrors DangerZone.jsx / DangerZone.css in the desktop app:
+        an animated shimmering red gradient card, a blurred translucent header,
+        and an in-card confirmation that morphs over the rows) ── */
+  .account-danger {
+    position: relative; --mx: 50%; --my: 50%;
+    border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent);
+    border-radius: 16px; overflow: hidden;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--danger) 3%, transparent) 0%,
+      color-mix(in srgb, var(--danger) 9%, transparent) 25%,
+      color-mix(in srgb, var(--danger) 13%, transparent) 50%,
+      color-mix(in srgb, var(--danger) 9%, transparent) 75%,
+      color-mix(in srgb, var(--danger) 3%, transparent) 100%
+    );
+    background-size: 300% 100%;
+    animation: dz-shimmer 9s linear infinite;
+  }
+  @keyframes dz-shimmer { 0% { background-position: 0% 0; } 100% { background-position: 300% 0; } }
+  .account-dz-hd { display: flex; align-items: center; gap: 11px; padding: 16px 22px; border-bottom: 1px solid color-mix(in srgb, var(--danger) 22%, transparent); background: color-mix(in srgb, var(--danger) 8%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
   .account-dz-icon { width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
   .account-dz-icon svg { width: 19px; height: 19px; }
   .account-dz-hd h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.12rem; font-weight: 700; color: var(--danger); margin: 0; }
@@ -282,6 +299,31 @@
   .account-danger-desc { font-size: 0.82rem; color: var(--text-secondary); margin: 0; line-height: 1.45; }
   .account-danger-btn { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; font-family: inherit; font-size: 0.85rem; font-weight: 500; padding: 7px 15px; border-radius: 8px; cursor: pointer; color: var(--danger); background: transparent; border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); transition: background 130ms, color 130ms, border-color 130ms; white-space: nowrap; }
   .account-danger-btn:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+  /* In-card confirmation morph — a danger button transforms the card into its
+     confirmation: the rows blur + recede behind a tinted scrim while the panel
+     rises into place. Localised to the card (absolute inset:0, clipped by the
+     card's overflow:hidden) — exactly like the app's .dz-confirm. */
+  .dz-confirm {
+    position: absolute; inset: 0; z-index: 3;
+    display: flex; align-items: center; justify-content: center;
+    padding: 22px; overflow-y: auto;
+    background: color-mix(in srgb, var(--bg-card) 80%, transparent);
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+    animation: dz-confirm-in 200ms ease-out;
+  }
+  .dz-confirm.is-closing { animation: dz-confirm-out 180ms ease-in forwards; }
+  @keyframes dz-confirm-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes dz-confirm-out { from { opacity: 1; } to { opacity: 0; } }
+  .dz-confirm-panel { width: 100%; max-width: 480px; animation: dz-confirm-rise 260ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .dz-confirm.is-closing .dz-confirm-panel { animation: dz-confirm-sink 180ms ease-in forwards; }
+  @keyframes dz-confirm-rise { from { opacity: 0; transform: translateY(12px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes dz-confirm-sink { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(8px) scale(0.98); } }
+  .dz-confirm .modal-title, .dz-confirm .modal-message { margin-left: 0; margin-right: 0; }
+  @media (prefers-reduced-motion: reduce) {
+    .account-danger { animation: none; }
+    .dz-confirm, .dz-confirm.is-closing, .dz-confirm-panel, .dz-confirm.is-closing .dz-confirm-panel { animation: none; }
+  }
 
   /* ── Modal ── */
   .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--overlay-scrim); animation: acc-fade 0.18s ease; }
@@ -491,43 +533,43 @@
               <div class="account-danger-text"><p class="account-danger-label">Delete account</p><p class="account-danger-desc">Permanently remove your account, project memberships, and notifications. This cannot be undone.</p></div>
               <button class="account-danger-btn" data-dz="delete">Delete account</button>
             </div>
+
+            <!-- In-card confirmation (danger actions) — morphs over the rows, like the desktop app -->
+            <div class="dz-confirm" id="dzConfirm" role="alertdialog" aria-modal="true" hidden>
+              <div class="dz-confirm-panel">
+                <h3 class="modal-title" id="cmTitle"></h3>
+                <p class="modal-message" id="cmMessage"></p>
+                <label class="dz-confirm-label" id="cmEmailWrap" hidden>Type <span class="dz-confirm-email" id="cmEmail"></span> to confirm
+                  <input type="text" class="dz-confirm-input" id="cmEmailInput" autocomplete="off" spellcheck="false"></label>
+                <div class="modal-actions">
+                  <button type="button" class="modal-btn modal-btn-cancel" id="cmCancel">Cancel</button>
+                  <button type="button" class="modal-btn modal-btn-destructive" id="cmConfirm"></button>
+                </div>
+              </div>
+            </div>
+
+            <!-- In-card reset-password — morphs over the rows, same as the danger confirmations -->
+            <div class="dz-confirm" id="dzReset" role="dialog" aria-modal="true" hidden>
+              <div class="dz-confirm-panel">
+                <h3 class="modal-title">Reset password</h3>
+                <p class="modal-message">Set a new password for email sign-in.</p>
+                <form class="account-pw-form" id="resetForm">
+                  <label class="account-pw-field"><span class="account-pw-label">New password</span>
+                    <input class="account-pw-input" type="password" id="resetNext" autocomplete="new-password" minlength="8" placeholder="At least 8 characters" required></label>
+                  <label class="account-pw-field"><span class="account-pw-label">Confirm</span>
+                    <input class="account-pw-input" type="password" id="resetConfirm" autocomplete="new-password" minlength="8" placeholder="Re-enter password" required></label>
+                  <label class="account-pw-show"><input type="checkbox" id="resetShow"><span>Show passwords</span></label>
+                  <div class="account-pw-error" id="resetError" hidden></div>
+                  <div class="modal-actions">
+                    <button type="button" class="modal-btn modal-btn-cancel" id="resetCancel">Cancel</button>
+                    <button type="submit" class="modal-btn modal-btn-confirm" id="resetSubmit">Update password</button>
+                  </div>
+                </form>
+              </div>
+            </div>
           </section>
 
       </div>
-    </div>
-  </div>
-
-  <!-- Confirmation modal (danger actions) -->
-  <div class="modal-backdrop" id="confirmModal" hidden>
-    <div class="modal-card" role="alertdialog" aria-modal="true">
-      <h3 class="modal-title" id="cmTitle"></h3>
-      <p class="modal-message" id="cmMessage"></p>
-      <label class="dz-confirm-label" id="cmEmailWrap" hidden>Type <span class="dz-confirm-email" id="cmEmail"></span> to confirm
-        <input type="text" class="dz-confirm-input" id="cmEmailInput" autocomplete="off" spellcheck="false"></label>
-      <div class="modal-actions">
-        <button type="button" class="modal-btn modal-btn-cancel" id="cmCancel">Cancel</button>
-        <button type="button" class="modal-btn modal-btn-destructive" id="cmConfirm"></button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Reset password modal -->
-  <div class="modal-backdrop" id="resetModal" hidden>
-    <div class="modal-card" role="dialog" aria-modal="true">
-      <h3 class="modal-title">Reset password</h3>
-      <p class="modal-message">Set a new password for email sign-in.</p>
-      <form class="account-pw-form" id="resetForm">
-        <label class="account-pw-field"><span class="account-pw-label">New password</span>
-          <input class="account-pw-input" type="password" id="resetNext" autocomplete="new-password" minlength="8" placeholder="At least 8 characters" required></label>
-        <label class="account-pw-field"><span class="account-pw-label">Confirm</span>
-          <input class="account-pw-input" type="password" id="resetConfirm" autocomplete="new-password" minlength="8" placeholder="Re-enter password" required></label>
-        <label class="account-pw-show"><input type="checkbox" id="resetShow"><span>Show passwords</span></label>
-        <div class="account-pw-error" id="resetError" hidden></div>
-        <div class="modal-actions">
-          <button type="button" class="modal-btn modal-btn-cancel" id="resetCancel">Cancel</button>
-          <button type="submit" class="modal-btn modal-btn-confirm" id="resetSubmit">Update password</button>
-        </div>
-      </form>
     </div>
   </div>
 
@@ -599,13 +641,23 @@ async function buildContrib() {
   if (!grid || !USER) return;
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  // Start ~53 weeks back, snapped to the previous Sunday so columns are whole weeks.
-  const start = new Date(today); start.setDate(start.getDate() - (7 * 53 - 1));
+  // Start at the month the user signed up, snapped to the previous Sunday so
+  // columns stay whole weeks (falls back to ~53 weeks back if the signup date
+  // is unavailable). The signup month is force-labelled below so it reads as the
+  // graph's starting month even when the Sunday-snap dips into the prior month.
+  const joined = USER.created_at ? new Date(USER.created_at) : null;
+  const hasJoined = joined && !isNaN(joined.getTime());
+  let start;
+  if (hasJoined) start = new Date(joined.getFullYear(), joined.getMonth(), 1);
+  else { start = new Date(today); start.setDate(start.getDate() - (7 * 53 - 1)); }
   start.setDate(start.getDate() - start.getDay());
+  const signupMonth = hasJoined ? joined.getMonth() : -99;
   const DAYS = Math.floor((today - start) / 86400000) + 1;
   const counts = new Array(DAYS).fill(0);
 
-  // Month labels — one cell per week column, labelled where a new month begins.
+  // Month labels — one cell per week column, labelled where a new month begins
+  // (kept ≥3 columns apart so labels never collide); the signup month is always
+  // labelled within the first two columns.
   const monthsEl = $('contribMonths');
   if (monthsEl) {
     const MN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -615,7 +667,7 @@ async function buildContrib() {
       const d = new Date(start); d.setDate(d.getDate() + w * 7);
       const m = d.getMonth();
       let label = '';
-      if (m !== lastMonth && w - lastLabelWeek >= 3) { label = MN[m]; lastLabelWeek = w; }
+      if (m !== lastMonth && (w - lastLabelWeek >= 3 || (w <= 1 && m === signupMonth))) { label = MN[m]; lastLabelWeek = w; }
       lastMonth = m;
       html += '<span>' + label + '</span>';
     }
@@ -952,17 +1004,30 @@ $('setPwForm').addEventListener('submit', (e) => {
   });
 });
 
-// ── Reset password modal ──
-$('resetPwBtn').addEventListener('click', () => {
-  $('resetNext').value = ''; $('resetConfirm').value = ''; $('resetError').hidden = true; $('resetModal').hidden = false;
-});
-$('resetCancel').addEventListener('click', () => { $('resetModal').hidden = true; });
+// ── Reset password (in-card morph, same presentation as the danger confirmations) ──
+function openReset() {
+  $('resetNext').value = ''; $('resetConfirm').value = ''; $('resetError').hidden = true;
+  const ov = $('dzReset');
+  ov.classList.remove('is-closing');
+  ov.hidden = false;
+  setTimeout(() => $('resetNext').focus(), 30);
+}
+function closeReset() {
+  if ($('resetSubmit').disabled) return; // mid-save — don't dismiss
+  const ov = $('dzReset');
+  if (ov.hidden) return;
+  ov.classList.add('is-closing');
+  setTimeout(() => { ov.hidden = true; ov.classList.remove('is-closing'); }, 180);
+}
+$('resetPwBtn').addEventListener('click', openReset);
+$('resetCancel').addEventListener('click', closeReset);
+$('dzReset').addEventListener('mousedown', (e) => { if (e.target === $('dzReset')) closeReset(); });
 $('resetForm').addEventListener('submit', (e) => {
   e.preventDefault();
-  savePassword($('resetNext').value, $('resetConfirm').value, $('resetError'), $('resetSubmit'), () => { $('resetModal').hidden = true; });
+  savePassword($('resetNext').value, $('resetConfirm').value, $('resetError'), $('resetSubmit'), closeReset);
 });
 
-// ── Danger zone confirmations ──
+// ── Danger zone confirmations (in-card morph, like the desktop app) ──
 let dzKind = null, dzBusy = false;
 function openDz(kind) {
   dzKind = kind;
@@ -973,10 +1038,19 @@ function openDz(kind) {
   $('cmEmailWrap').hidden = !c.requireEmail;
   if (c.requireEmail) { $('cmEmail').textContent = USER.email; $('cmEmailInput').value = ''; }
   updateConfirmEnabled();
-  $('confirmModal').hidden = false;
+  const ov = $('dzConfirm');
+  ov.classList.remove('is-closing');
+  ov.hidden = false;
   if (c.requireEmail) setTimeout(() => $('cmEmailInput').focus(), 30);
 }
-function closeDz() { if (dzBusy) return; $('confirmModal').hidden = true; dzKind = null; }
+function closeDz() {
+  if (dzBusy) return;
+  const ov = $('dzConfirm');
+  if (ov.hidden) { dzKind = null; return; }
+  // Play the sink/fade-out, then hide — mirrors the app's .is-closing morph.
+  ov.classList.add('is-closing');
+  setTimeout(() => { ov.hidden = true; ov.classList.remove('is-closing'); dzKind = null; }, 180);
+}
 function updateConfirmEnabled() {
   const c = DZ[dzKind] || {};
   const ok = !c.requireEmail || $('cmEmailInput').value.trim().toLowerCase() === (USER.email || '').trim().toLowerCase();
@@ -984,12 +1058,12 @@ function updateConfirmEnabled() {
 }
 $('cmEmailInput').addEventListener('input', updateConfirmEnabled);
 $('cmCancel').addEventListener('click', closeDz);
-$('confirmModal').addEventListener('mousedown', (e) => { if (e.target === $('confirmModal')) closeDz(); });
+$('dzConfirm').addEventListener('mousedown', (e) => { if (e.target === $('dzConfirm')) closeDz(); });
 document.querySelectorAll('[data-dz]').forEach((b) => b.addEventListener('click', () => openDz(b.getAttribute('data-dz'))));
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!$('confirmModal').hidden) closeDz();
-  else if (!$('resetModal').hidden) $('resetModal').hidden = true;
+  if (!$('dzConfirm').hidden) closeDz();
+  else if (!$('dzReset').hidden) closeReset();
 });
 
 $('cmConfirm').addEventListener('click', async () => {
@@ -1020,7 +1094,23 @@ $('cmConfirm').addEventListener('click', async () => {
   }
 });
 
-init();
+// The desktop app hands its Supabase session across in the URL fragment
+// (#dvx_at=<access>&dvx_rt=<refresh>) — different origins can't share storage,
+// so this is how the app's "Open account" signs you in here. Adopt it before
+// init so we land on the dashboard instead of bouncing to sign-in, then strip
+// the tokens from the URL so they don't linger in history or the address bar.
+async function adoptHandoffSession() {
+  const raw = window.location.hash.replace(/^#/, '');
+  if (!raw) return;
+  const params = new URLSearchParams(raw);
+  const access_token = params.get('dvx_at');
+  const refresh_token = params.get('dvx_rt');
+  if (!access_token || !refresh_token) return;
+  try { await supabase.auth.setSession({ access_token, refresh_token }); } catch (e) {}
+  history.replaceState(null, '', window.location.pathname + window.location.search);
+}
+
+adoptHandoffSession().then(init);
 </script>
 <script type="module" src="chrome.js"></script>
 </body>

@@ -107,30 +107,30 @@
 
 <script type="module" src="chrome.js"></script>
 <script type="module">
-import { supabase } from ‘/supabase.js’;
+import { supabase } from './supabase.js';
 
 var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 var $ = function (id) { return document.getElementById(id); };
 
-$(‘enSubmit’).addEventListener(‘click’, function () {
-  var name = $(‘enName’).value.trim();
-  var firm = $(‘enFirm’).value.trim();
-  var email = $(‘enEmail’).value.trim();
-  var message = $(‘enMessage’).value.trim();
-  var err = $(‘enError’);
+$('enSubmit').addEventListener('click', function () {
+  var name = $('enName').value.trim();
+  var firm = $('enFirm').value.trim();
+  var email = $('enEmail').value.trim();
+  var message = $('enMessage').value.trim();
+  var err = $('enError');
   err.hidden = true;
-  if (!EMAIL_RE.test(email)) { err.textContent = ‘Please enter a valid email address.’; err.className = ‘en-msg err’; err.hidden = false; return; }
-  var btn = $(‘enSubmit’);
-  btn.disabled = true; var orig = btn.textContent; btn.textContent = ‘Sending…’;
-  supabase.from(‘enrollments’).insert({ type: ‘waitlist’, name: name || null, email: email, firm: firm || null, message: message || null }).then(function (res) {
+  if (!EMAIL_RE.test(email)) { err.textContent = 'Please enter a valid email address.'; err.className = 'en-msg err'; err.hidden = false; return; }
+  var btn = $('enSubmit');
+  btn.disabled = true; var orig = btn.textContent; btn.textContent = 'Sending…';
+  supabase.from('enrollments').insert({ type: 'waitlist', name: name || null, email: email, firm: firm || null, message: message || null }).then(function (res) {
     if (res.error) {
-      err.textContent = ‘Something went wrong. Please try again or email docvexteam@docvex.ro.’;
-      err.className = ‘en-msg err’; err.hidden = false;
+      err.textContent = 'Something went wrong. Please try again or email docvexteam@docvex.ro.';
+      err.className = 'en-msg err'; err.hidden = false;
       btn.disabled = false; btn.textContent = orig;
       return;
     }
-    $(‘enForm’).hidden = true;
-    $(‘enDone’).hidden = false;
+    $('enForm').hidden = true;
+    $('enDone').hidden = false;
   });
 });
 </script>

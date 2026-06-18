@@ -296,10 +296,10 @@ function wire() {
 
   renderChip();
   window.addEventListener('storage', (e) => { if (e.key === SUPABASE_AUTH_KEY) renderChip(); });
-  // Live same-tab updates: re-render on sign-out / status change (USER_UPDATED).
-  if (readUser()) {
-    import('./supabase.js').then((m) => { m.supabase.auth.onAuthStateChange(() => renderChip()); }).catch(() => {});
-  }
+  // Live same-tab updates: re-render on sign-in / sign-out / status change.
+  // Registered unconditionally so a session adopted after load (e.g. the desktop
+  // app's "Open account" hands one across in the URL) updates the chip without a reload.
+  import('./supabase.js').then((m) => { m.supabase.auth.onAuthStateChange(() => renderChip()); }).catch(() => {});
 
   wireChipMorph();
 }
