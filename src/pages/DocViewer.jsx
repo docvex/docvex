@@ -119,6 +119,14 @@ function classify(mime, name) {
   if (e === 'docx' || m === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return { kind: 'docx', mime: m };
   // Legacy binary Word (.doc / .dot): can't render in-browser — extract text.
   if (e === 'doc' || e === 'dot' || m === 'application/msword') return { kind: 'doc', mime: 'application/msword' };
+  // Spreadsheets (Excel / CSV) — rendered as a styled table via SheetJS. Checked
+  // before the text branch so a .csv (often text/csv or text/plain) lands here.
+  if (e === 'xlsx' || e === 'xls' || e === 'csv'
+    || m === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    || m === 'application/vnd.ms-excel'
+    || m === 'text/csv') {
+    return { kind: 'sheet', mime: m };
+  }
   if (m.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'tif', 'tiff', 'heic', 'avif'].includes(e)) {
     return { kind: 'image', mime: m.startsWith('image/') ? m : 'image/png' };
   }
@@ -128,7 +136,7 @@ function classify(mime, name) {
   if (m.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'flac', 'wma', 'weba', 'aif', 'aiff'].includes(e)) {
     return { kind: 'audio', mime: m.startsWith('audio/') ? m : (AUDIO_MIME_BY_EXT[e] || 'audio/mpeg') };
   }
-  if (m.startsWith('text/') || ['txt', 'md', 'rtf', 'log', 'csv', 'json', 'xml', 'html', 'htm'].includes(e)) {
+  if (m.startsWith('text/') || ['txt', 'md', 'rtf', 'log', 'json', 'xml', 'html', 'htm'].includes(e)) {
     return { kind: 'text', mime: e === 'md' ? 'text/markdown' : 'text/plain' };
   }
   return { kind: 'other', mime: m };
@@ -2250,6 +2258,18 @@ function MediaOcrPane({ file, url, kind }) {
   }, [playing]);
   useEffect(() => () => clearTimeout(controlsTimerRef.current), []);
 
+  // ── Live AI captions (video) ─────────────────────────────────────
+  // Mirror the generated transcript (pushed up from the side CaptionsPanel and
+  // seeded from the per-file cache) so the line at the current time can show as
+  // a subtitle over the decibel line. null until captions exist.
+  const [captions, setCaptions] = useState(() => captionsFromCache(file.storage_path));
+  useEffect(() => { setCaptions(captionsFromCache(file.storage_path)); }, [file.storage_path]);
+  const activeCaption = useMemo(() => {
+    if (kind !== 'video' || captions?.state !== 'done') return null;
+    const seg = captions.segments.find((s) => currentTime >= s.start && currentTime < s.end);
+    return seg?.text?.trim() || null;
+  }, [kind, captions, currentTime]);
+
   // ── Zoom / pan ───────────────────────────────────────────────────
   // Reset on file change.
   useEffect(() => { setZoom(1); setPanX(0); setPanY(0); }, [file.path]);
@@ -2809,19 +2829,24 @@ function MediaOcrPane({ file, url, kind }) {
 
       {kind === 'video' && (
         <>
+          {/* Live AI caption — the active transcript line as a subtitle in the
+              bottom-left over the decibel line. Stays visible even when the
+              controls (and the scope) fade out during playback. */}
+          {activeCaption && (
+            <div className="dv-video-caption">{activeCaption}</div>
+          )}
           <div className={`dv-player${!playing || controlsShown ? ' is-visible' : ''}`}>
             <div className="dv-player-scrim" />
             <div className="dv-player-controls">
-              <input
-                type="range"
-                className="dv-player-seek"
-                min="0"
-                max={duration || 1}
-                step="any"
-                value={currentTime}
-                onChange={(e) => seekTo(parseFloat(e.target.value))}
-                style={{ '--pct': `${(currentTime / (duration || 1)) * 100}%` }}
-                aria-label="Seek"
+              <MediaScope
+                mediaRef={mediaRef}
+                url={url}
+                currentTime={currentTime}
+                duration={duration}
+                playing={playing}
+                onSeek={seekTo}
+                className="dv-player-scope"
+                label="Seek through video"
               />
               <div className="dv-player-row">
                 <button type="button" className="dv-player-btn" onClick={togglePlay} aria-label={playing ? 'Pause' : 'Play'}>
@@ -2922,7 +2947,7 @@ function MediaOcrPane({ file, url, kind }) {
         </div>
       )}
       {kind === 'video' && rightTab === 'captions' ? (
-        <CaptionsPanel file={file} url={url} currentTime={currentTime} onSeek={seekTo} />
+        <CaptionsPanel file={file} url={url} currentTime={currentTime} onSeek={seekTo} onCaptionsChange={setCaptions} />
       ) : (
       <>
       {/* Compact header — fades/slides in once the masthead scrolls away
@@ -3396,6 +3421,236 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
   );
 }
 
+// ── Shared loudness "decibel line" scrubber ──────────────────────────
+// The video overlay renders this to match the audio pane's seek line: it
+// decodes the media's loudness envelope (computeEnvelope demuxes the audio
+// track of audio AND video URLs alike), paints it across the canvas as a
+// mirrored waveform with the played portion in accent + a glowing playhead, and
+// doubles as a seek control (click / drag / arrow keys). The parent owns the
+// <audio>/<video> element and playback state; MediaScope only visualises and
+// seeks via onSeek. Colours come from CSS — `color` is the played/playhead
+// accent, `--text-muted` the unplayed base — so each host (.dv-audio-scope /
+// .dv-player-scope) themes it. Mirrors AudioPlayerPane's inline scope.
+function MediaScope({ mediaRef, url, currentTime, duration, playing, onSeek, className = '', label = 'Seek' }) {
+  const canvasRef = useRef(null);
+  const rafRef = useRef(0);
+  const envRef = useRef(null);   // Float32Array loudness envelope | null
+  const ampCacheRef = useRef({ env: null, w: 0, amp: null }); // per-column peaks
+  const draggingRef = useRef(false);
+  const [envReady, setEnvReady] = useState(false);
+
+  const fmt = (s) => {
+    if (!Number.isFinite(s) || s < 0) return '0:00';
+    const mm = Math.floor(s / 60);
+    const ss = Math.floor(s % 60);
+    return `${mm}:${String(ss).padStart(2, '0')}`;
+  };
+
+  // Decode the loudness envelope the waveform reads from.
+  useEffect(() => {
+    envRef.current = null;
+    ampCacheRef.current = { env: null, w: 0, amp: null };
+    setEnvReady(false);
+    if (!url) return undefined;
+    let cancelled = false;
+    computeEnvelope(url, AUDIO_SCOPE_HZ).then((env) => {
+      if (cancelled) return;
+      envRef.current = env;
+      setEnvReady(true);
+    });
+    return () => { cancelled = true; };
+  }, [url]);
+
+  const effectiveDuration = () => {
+    const m = mediaRef.current;
+    if (m && Number.isFinite(m.duration) && m.duration > 0) return m.duration;
+    return Number.isFinite(duration) && duration > 0 ? duration : 0;
+  };
+
+  const drawScope = useCallback((overrideRatio) => {
+    const canvas = canvasRef.current;
+    const ctx2d = canvas?.getContext('2d');
+    if (!canvas || !ctx2d) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth || 1;
+    const hgt = canvas.clientHeight || 1;
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(hgt * dpr)) {
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(hgt * dpr);
+    }
+    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx2d.clearRect(0, 0, w, hgt);
+
+    const cs = getComputedStyle(canvas);
+    const accent = cs.color || '#888';
+    const baseCol = (cs.getPropertyValue('--text-muted') || '').trim() || accent;
+
+    const env = envRef.current;
+    const media = mediaRef.current;
+    const dur2 = (media && Number.isFinite(media.duration) && media.duration > 0)
+      ? media.duration
+      : (Number.isFinite(duration) && duration > 0 ? duration : 0);
+    let ratio;
+    if (overrideRatio != null) ratio = Math.min(1, Math.max(0, overrideRatio));
+    else if (media && dur2) ratio = Math.min(1, Math.max(0, (media.currentTime || 0) / dur2));
+    else ratio = 0;
+    const playheadX = ratio * w;
+
+    const mid = hgt / 2;
+    const maxAmp = hgt / 2 - 4;
+    const cols = Math.max(2, Math.round(w));
+
+    let amp = ampCacheRef.current.amp;
+    if (!amp || ampCacheRef.current.env !== env || ampCacheRef.current.w !== w) {
+      amp = new Array(cols + 1);
+      for (let c = 0; c <= cols; c += 1) {
+        if (!env || env.length === 0) { amp[c] = 0.03; continue; }
+        const a0 = Math.floor((c / cols) * env.length);
+        const a1 = Math.max(a0 + 1, Math.floor(((c + 1) / cols) * env.length));
+        let peak = 0;
+        for (let k = a0; k < a1 && k < env.length; k += 1) if (env[k] > peak) peak = env[k];
+        amp[c] = Math.max(0.03, peak);
+      }
+      ampCacheRef.current = { env, w, amp };
+    }
+
+    const buildPath = () => {
+      ctx2d.beginPath();
+      for (let c = 0; c <= cols; c += 1) ctx2d.lineTo((c / cols) * w, mid - amp[c] * maxAmp);
+      for (let c = cols; c >= 0; c -= 1) ctx2d.lineTo((c / cols) * w, mid + amp[c] * maxAmp);
+      ctx2d.closePath();
+    };
+
+    buildPath();
+    ctx2d.fillStyle = baseCol;
+    ctx2d.globalAlpha = 0.3;
+    ctx2d.fill();
+
+    if (playheadX > 0) {
+      ctx2d.save();
+      ctx2d.beginPath();
+      ctx2d.rect(0, 0, playheadX, hgt);
+      ctx2d.clip();
+      buildPath();
+      ctx2d.fillStyle = accent;
+      ctx2d.globalAlpha = 0.9;
+      ctx2d.fill();
+      ctx2d.restore();
+    }
+    ctx2d.globalAlpha = 1;
+
+    if (dur2) {
+      ctx2d.strokeStyle = accent;
+      ctx2d.lineWidth = 2;
+      ctx2d.lineCap = 'round';
+      ctx2d.shadowColor = accent;
+      ctx2d.shadowBlur = playing ? 12 : 0;
+      ctx2d.beginPath();
+      ctx2d.moveTo(playheadX, 5);
+      ctx2d.lineTo(playheadX, hgt - 5);
+      ctx2d.stroke();
+      ctx2d.shadowBlur = 0;
+      ctx2d.fillStyle = accent;
+      ctx2d.beginPath();
+      ctx2d.arc(playheadX, mid, 4.5, 0, Math.PI * 2);
+      ctx2d.fill();
+    }
+  }, [duration, playing, mediaRef]);
+
+  const ratioFromClientX = (clientX) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return 0;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0) return 0;
+    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+  };
+  const seekToRatio = (ratio) => {
+    const d = effectiveDuration();
+    if (!d) return;
+    onSeek?.(ratio * d);
+    drawScope(ratio); // immediate feedback even while paused
+  };
+  const onPointerDown = (e) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    canvasRef.current?.focus();
+    draggingRef.current = true;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* unsupported */ }
+    seekToRatio(ratioFromClientX(e.clientX));
+  };
+  const onPointerMove = (e) => {
+    if (!draggingRef.current) return;
+    seekToRatio(ratioFromClientX(e.clientX));
+  };
+  const endDrag = (e) => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* unsupported */ }
+  };
+  const onKeyDown = (e) => {
+    const d = effectiveDuration();
+    if (!d) return;
+    const m = mediaRef.current;
+    let t = m ? (m.currentTime || 0) : currentTime;
+    if (e.key === 'ArrowRight') t = Math.min(d, t + 5);
+    else if (e.key === 'ArrowLeft') t = Math.max(0, t - 5);
+    else if (e.key === 'Home') t = 0;
+    else if (e.key === 'End') t = d;
+    else return;
+    e.preventDefault();
+    onSeek?.(t);
+    drawScope(t / d);
+  };
+
+  // rAF loop while playing.
+  useEffect(() => {
+    if (!playing) return undefined;
+    const tick = () => { drawScope(); rafRef.current = requestAnimationFrame(tick); };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [playing, drawScope]);
+
+  // Resting repaint on source / envelope / time / size change (the rAF loop
+  // owns the canvas while playing).
+  useEffect(() => {
+    if (playing) return undefined;
+    const id = requestAnimationFrame(() => drawScope());
+    return () => cancelAnimationFrame(id);
+  }, [url, envReady, currentTime, duration, playing, drawScope]);
+
+  // Repaint when the canvas is resized (e.g. window / pane resize).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => { if (!playing) drawScope(); });
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, [playing, drawScope]);
+
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className={`dv-scope ${className}`.trim()}
+      role="slider"
+      tabIndex={0}
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={Number.isFinite(duration) ? Math.round(duration) : 0}
+      aria-valuenow={Math.round(currentTime)}
+      aria-valuetext={`${fmt(currentTime)} of ${fmt(duration)}`}
+      title="Click or drag to seek"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onKeyDown={onKeyDown}
+    />
+  );
+}
+
 function AudioPlayerPane({ file, url }) {
   const audioRef = useRef(null);
   const scopeCanvasRef = useRef(null);
@@ -3787,6 +4042,126 @@ function AudioPlayerPane({ file, url }) {
   );
 }
 
+// Excel-style column label for a 0-based index (0 → A, 25 → Z, 26 → AA…).
+function colLabel(n) {
+  let s = '';
+  let i = n + 1;
+  while (i > 0) { const r = (i - 1) % 26; s = String.fromCharCode(65 + r) + s; i = Math.floor((i - 1) / 26); }
+  return s;
+}
+
+// Cap on rendered rows — a huge sheet would otherwise build a multi-thousand-row
+// DOM table and stall the viewer. The rest stays in the file (open externally).
+const SHEET_MAX_ROWS = 2000;
+
+// Spreadsheet pane — renders .xlsx / .xls / .csv as a styled, scrollable table
+// with sticky A/B/C column headers + 1/2/3 row numbers (and a tab strip when the
+// workbook has multiple sheets). SheetJS is lazy-imported so its weight isn't
+// paid until a spreadsheet is opened (mirrors docx-preview for .docx).
+function SpreadsheetPane({ file, url }) {
+  const [state, setState] = useState({ status: 'loading', sheets: [], error: null });
+  const [active, setActive] = useState(0);
+
+  useEffect(() => {
+    setState({ status: 'loading', sheets: [], error: null });
+    setActive(0);
+    if (!url) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const buf = await (await fetch(url)).arrayBuffer();
+        const XLSX = await import('xlsx');
+        if (cancelled) return;
+        const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true });
+        const sheets = wb.SheetNames.map((name) => {
+          // header:1 → rows of cell arrays; raw:false → number/date formats applied.
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false });
+          return { name, rows };
+        });
+        setState({ status: sheets.length ? 'ready' : 'empty', sheets, error: null });
+      } catch (e) {
+        if (!cancelled) setState({ status: 'error', sheets: [], error: String(e?.message || e) });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [url]);
+
+  if (state.status === 'loading') return <div className="dv-loading">Reading spreadsheet…</div>;
+  if (state.status === 'error') {
+    return (
+      <div className="dv-noview">
+        <p className="dv-noview-title">Couldn't read this spreadsheet</p>
+        <p className="dv-noview-sub">{file.name}</p>
+        <button type="button" className="dv-chip" onClick={() => localFolderApi.openPath(file.storage_path)}>
+          Open in default app
+        </button>
+      </div>
+    );
+  }
+  if (state.status === 'empty') {
+    return (
+      <div className="dv-noview">
+        <p className="dv-noview-title">This spreadsheet is empty</p>
+        <p className="dv-noview-sub">{file.name}</p>
+      </div>
+    );
+  }
+
+  const sheet = state.sheets[active] || state.sheets[0];
+  const allRows = sheet.rows;
+  const rows = allRows.slice(0, SHEET_MAX_ROWS);
+  const truncated = allRows.length - rows.length;
+  const colCount = rows.reduce((mx, r) => Math.max(mx, r.length), 0);
+  const cols = Array.from({ length: colCount });
+
+  return (
+    <div className="dv-sheet">
+      {state.sheets.length > 1 && (
+        <div className="dv-sheet-tabs" role="tablist">
+          {state.sheets.map((s, i) => (
+            <button
+              key={`${s.name}-${i}`}
+              type="button"
+              role="tab"
+              className={`dv-sheet-tab${i === active ? ' is-active' : ''}`}
+              aria-selected={i === active}
+              onClick={() => setActive(i)}
+            >
+              {s.name || `Sheet ${i + 1}`}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="dv-sheet-scroll">
+        <table className="dv-sheet-table">
+          <thead>
+            <tr>
+              <th className="dv-sheet-corner" />
+              {cols.map((_, c) => <th key={c} className="dv-sheet-colhead">{colLabel(c)}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, r) => (
+              <tr key={r}>
+                <th className="dv-sheet-rowhead">{r + 1}</th>
+                {cols.map((_, c) => {
+                  const v = row[c];
+                  return <td key={c}>{v == null ? '' : String(v)}</td>;
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {truncated > 0 && (
+        <div className="dv-sheet-note">
+          Showing the first {SHEET_MAX_ROWS.toLocaleString()} rows of {allRows.length.toLocaleString()} — open the file in its app to see the rest.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DocPane({ file, onWhatsAppDetected }) {
   const { kind, mime } = useMemo(() => classify(file.mime, file.name), [file.mime, file.name]);
   const url = useMemo(() => localUrlFor(file.path), [file.path]);
@@ -3837,7 +4212,7 @@ function DocPane({ file, onWhatsAppDetected }) {
   }, [kind, file.path]);
 
   return (
-    <div className={`dv-doc-body${kind === 'text' ? ' is-flush' : ''}${kind === 'image' || kind === 'video' ? ' is-media' : ''}${kind === 'audio' ? ' is-audio' : ''}`}>
+    <div className={`dv-doc-body${kind === 'text' ? ' is-flush' : ''}${kind === 'image' || kind === 'video' ? ' is-media' : ''}${kind === 'audio' ? ' is-audio' : ''}${kind === 'sheet' ? ' is-sheet' : ''}`}>
       {kind === 'docx' ? (
         <div ref={docxRef} className="dv-docx" />
       ) : kind === 'doc' ? (
@@ -3860,6 +4235,8 @@ function DocPane({ file, onWhatsAppDetected }) {
         <MediaOcrPane file={{ ...previewFile, path: file.path }} url={url} kind={kind} />
       ) : kind === 'audio' ? (
         <AudioPlayerPane file={previewFile} url={url} />
+      ) : kind === 'sheet' ? (
+        <SpreadsheetPane file={previewFile} url={url} />
       ) : kind === 'text' ? (
         <DocTextPane file={previewFile} url={url} dir={dir} sep={sep} onWhatsAppDetected={onWhatsAppDetected} />
       ) : kind === 'other' ? (

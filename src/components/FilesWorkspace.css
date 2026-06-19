@@ -851,7 +851,13 @@
 .fx-tile-thumb .fx-glyph { width: 46px; height: 46px; font-size: 11px; }
 .fx-glyph-pdf { background: #B91C1C; }
 .fx-glyph-doc { background: #2563EB; }
-.fx-glyph-xls { background: #15803D; }
+.fx-glyph-xls { position: relative; overflow: hidden; background: linear-gradient(135deg, #15803D 0%, #0D9488 100%); }
+.fx-glyph-xls .fx-glyph-sheet {
+  width: 56%;
+  height: 56%;
+  color: #fff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+}
 .fx-glyph-ppt { background: #C2410C; }
 .fx-glyph-zip { background: #7C3AED; }
 .fx-glyph-img { background: linear-gradient(135deg, #14B8A6, #0EA5E9); }
@@ -889,6 +895,20 @@
 }
 /* List view is tiny (24px) — drop the corner tag, the triangle carries it. */
 .fx-list-thumb .fx-glyph-vid-tag { display: none; }
+/* Audio badge — a speaker with sound waves on a media gradient, mirroring the
+   video badge. Reuses .fx-glyph-vid-tag for the corner format tag (so it also
+   hides in the tiny list view). */
+.fx-glyph-aud {
+  position: relative;
+  background: linear-gradient(135deg, #0EA5E9 0%, #6D28D9 100%);
+  overflow: hidden;
+}
+.fx-glyph-aud .fx-glyph-audio {
+  width: 52%;
+  height: 52%;
+  color: #fff;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
+}
 /* Plain-text badge reads as a sheet of paper: white fill, black label, with a
    border so it stays visible on the (now background-less) thumb + light page. */
 .fx-glyph-txt { background: #fff; color: #111; border: 1px solid var(--border); }

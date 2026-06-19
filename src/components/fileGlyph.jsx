@@ -56,6 +56,15 @@ const VideoGlyph = (
   </svg>
 );
 
+// Audio files — a speaker with sound waves (the "volume" mark).
+const AudioGlyph = (
+  <svg {...COMMON_PROPS}>
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+    <path d="M18.8 5.2a9 9 0 0 1 0 13.6" />
+  </svg>
+);
+
 const ImageGlyph = (
   <svg {...COMMON_PROPS}>
     <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -90,6 +99,8 @@ export function glyphForFile(mime, name) {
   if (m === PPTX_MIME || lcName.endsWith('.pptx')) return PptxGlyph;
   if (m.startsWith('image/')) return ImageGlyph;
   if (m.startsWith('video/')) return VideoGlyph;
+  // Audio — match by MIME, or by extension when the OS didn't resolve a type.
+  if (m.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|oga|flac|opus|wma|aiff?)$/i.test(lcName)) return AudioGlyph;
   if (m.startsWith('text/')) return TextGlyph;
   return FileGlyph;
 }

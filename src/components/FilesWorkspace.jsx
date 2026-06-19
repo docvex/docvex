@@ -190,10 +190,11 @@ function extCategory(ext) {
   if (e === 'ai') return 'ai';
   if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'heic', 'bmp', 'tif', 'tiff'].includes(e)) return 'img';
   if (['mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v'].includes(e)) return 'vid';
+  if (['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus', 'wma', 'aif', 'aiff'].includes(e)) return 'aud';
   if (['txt', 'md', 'rtf', 'log'].includes(e)) return 'txt';
   return 'gen';
 }
-const EXT_GLYPH_LABEL = { pdf: 'PDF', doc: 'DOC', xls: 'XLS', ppt: 'PPT', zip: 'ZIP', img: 'IMG', vid: 'MP4', txt: 'TXT', psd: 'PSD', ai: 'AI', gen: 'FILE' };
+const EXT_GLYPH_LABEL = { pdf: 'PDF', doc: 'DOC', xls: 'XLS', ppt: 'PPT', zip: 'ZIP', img: 'IMG', vid: 'MP4', aud: 'AUD', txt: 'TXT', psd: 'PSD', ai: 'AI', gen: 'FILE' };
 
 // Colored ext-label badge — shown for files with no real preview.
 function ExtGlyph({ ext }) {
@@ -208,6 +209,33 @@ function ExtGlyph({ ext }) {
           <path d="M8 5.14v13.72a1 1 0 0 0 1.53.85l10.78-6.86a1 1 0 0 0 0-1.7L9.53 4.29A1 1 0 0 0 8 5.14z" fill="currentColor" />
         </svg>
         <span className="fx-glyph-vid-tag">{EXT_GLYPH_LABEL[cat]}</span>
+      </span>
+    );
+  }
+  // Audio reads as audio at a glance: a speaker with sound waves on a media
+  // gradient, the real format tucked into the corner (like the video badge).
+  if (cat === 'aud') {
+    return (
+      <span className="fx-glyph fx-glyph-aud">
+        <svg className="fx-glyph-audio" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M11 5.14 6 9H2v6h4l5 3.86V5.14z" fill="currentColor" />
+          <path d="M15.6 8.6a5 5 0 0 1 0 6.8M18.9 5.3a9 9 0 0 1 0 13.4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+        </svg>
+        <span className="fx-glyph-vid-tag">{(ext || 'aud').toUpperCase()}</span>
+      </span>
+    );
+  }
+  // Spreadsheets (Excel / CSV / Numbers) read as a grid at a glance, with the
+  // real format in the corner — CSV vs XLSX matters, where a flat "XLS" badge
+  // mislabelled them.
+  if (cat === 'xls') {
+    return (
+      <span className="fx-glyph fx-glyph-xls">
+        <svg className="fx-glyph-sheet" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
+          <path d="M3 9.5h18M9 9.5V20M15 9.5V20M3 14.75h18" fill="none" stroke="currentColor" strokeWidth="1.7" />
+        </svg>
+        <span className="fx-glyph-vid-tag">{(ext || 'xls').toUpperCase()}</span>
       </span>
     );
   }
