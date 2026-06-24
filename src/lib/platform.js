@@ -190,6 +190,49 @@ export function onDocViewerAddFile(cb) {
   return electronAPI?.onDocViewerAddFile ? electronAPI.onDocViewerAddFile(cb) : (() => {});
 }
 
+// File mutations (trash, rename) need to reach two audiences:
+//   • SAME renderer — the doc-viewer's tab sidebar and its embedded Files tab
+//     live in one window, so a `window` event refreshes the footer directly,
+//     with no IPC round-trip (works even if the preload/main process hasn't
+//     reloaded, and on web).
+//   • OTHER windows — the main window's Files tab, reached via IPC; main fans
+//     the broadcast back out to every window EXCEPT the sender (the sender
+//     already handled it through the local `window` event).
+const FILES_REMOVED_EVENT = 'docvex:files-removed';
+const FILES_CHANGED_EVENT = 'docvex:files-changed';
+
+// Tell every window that `paths` (file or folder paths) were just trashed /
+// deleted, so the doc-viewer can close their tabs and other Files tabs re-list.
+export function notifyFilesRemoved(paths) {
+  try { window.dispatchEvent(new CustomEvent(FILES_REMOVED_EVENT, { detail: paths })); } catch { /* noop */ }
+  electronAPI?.notifyFilesRemoved?.(paths);
+}
+
+// Subscribe to the "files removed" signal (same-window event + cross-window
+// IPC). Returns an unsubscribe fn.
+export function onFilesRemoved(cb) {
+  const onLocal = (e) => cb(e.detail);
+  window.addEventListener(FILES_REMOVED_EVENT, onLocal);
+  const unsubIpc = electronAPI?.onFilesRemoved ? electronAPI.onFilesRemoved(cb) : null;
+  return () => { window.removeEventListener(FILES_REMOVED_EVENT, onLocal); unsubIpc?.(); };
+}
+
+// Announce a generic on-disk file change (e.g. a rename) so every window's
+// Files tab re-lists.
+export function notifyFilesChanged() {
+  try { window.dispatchEvent(new Event(FILES_CHANGED_EVENT)); } catch { /* noop */ }
+  electronAPI?.notifyFilesChanged?.();
+}
+
+// Subscribe to the "files changed" signal (same-window event + cross-window
+// IPC). Returns an unsubscribe fn.
+export function onFilesChanged(cb) {
+  const onLocal = () => cb();
+  window.addEventListener(FILES_CHANGED_EVENT, onLocal);
+  const unsubIpc = electronAPI?.onFilesChanged ? electronAPI.onFilesChanged(cb) : null;
+  return () => { window.removeEventListener(FILES_CHANGED_EVENT, onLocal); unsubIpc?.(); };
+}
+
 // Extract readable text from a legacy .doc file (parsed in the Electron main
 // process). Resolves { text } or { error }; { error:'unsupported' } on web.
 export function extractDocText(filePath) {
@@ -202,6 +245,13 @@ export function extractDocText(filePath) {
 // or on web (no filesystem / IPC).
 export function prepareWhatsAppZip(zipPath) {
   return electronAPI?.prepareWhatsAppZip ? electronAPI.prepareWhatsAppZip(zipPath) : Promise.resolve({ ok: false });
+}
+
+// Same, for an already-extracted WhatsApp export FOLDER: locate its chat
+// transcript so the caller can open the reconstructed conversation in the
+// doc-viewer. Resolves { ok, chatPath, name } or { ok: false } (incl. web).
+export function prepareWhatsAppFolder(dirPath) {
+  return electronAPI?.prepareWhatsAppFolder ? electronAPI.prepareWhatsAppFolder(dirPath) : Promise.resolve({ ok: false });
 }
 
 // Content-based WhatsApp recognition for the Files tab. Resolves a

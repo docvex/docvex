@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import FileThumbnail from './FileThumbnail';
+import { OfficeFileIcon } from './fileGlyph';
 import Tooltip from './Tooltip';
 import { useMorphPill } from './useMorphPill';
 import { usePaneChromeSlot, usePaneChromePortalEl } from '../context/PaneChromeContext';
@@ -109,6 +110,7 @@ function Icon({ name, size = 16, strokeWidth = 1.8, className = '', filled = fal
     case 'copy': return <svg {...p}><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>;
     case 'paste': return <svg {...p}><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" ry="1" /></svg>;
     case 'cut': return <svg {...p}><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><line x1="20" y1="4" x2="8.12" y2="15.88" /><line x1="14.47" y1="14.48" x2="20" y2="20" /><line x1="8.12" y1="8.12" x2="12" y2="12" /></svg>;
+    case 'refresh': return <svg {...p}><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>;
     default: return null;
   }
 }
@@ -131,15 +133,45 @@ function FolderGlyph({ filled = false, size = 42, color }) {
   );
 }
 
-// Glyph for a folder-kind item: the Recycle bin entry gets the trash icon;
-// a folder probed as a WhatsApp export (it CONTAINS a chat transcript — see
-// isWhatsAppExport) gets the WhatsApp mark like the export zips do; every
-// other folder gets the folder glyph (optionally a custom colour).
+// A FILLED trash can — shown for the Recycle bin entry when it holds at least
+// one file, so a glance reads "the bin has something in it". The empty bin uses
+// the outline trash icon instead.
+function FullBinGlyph({ size = 42 }) {
+  return (
+    <svg className="fx-bin-full" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      {/* handle */}
+      <path d="M9.5 5V4.4A1.4 1.4 0 0 1 10.9 3h2.2A1.4 1.4 0 0 1 14.5 4.4V5"
+        fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      {/* lid */}
+      <rect x="3.4" y="5.2" width="17.2" height="2.1" rx="1.05" fill="currentColor" />
+      {/* filled can body */}
+      <path d="M5.6 8.4h12.8l-0.9 11.1A2 2 0 0 1 15.5 21.4H8.5a2 2 0 0 1-2-1.9z" fill="currentColor" />
+    </svg>
+  );
+}
+
+// Glyph for a folder-kind item: the Recycle bin entry gets the trash icon —
+// FILLED when it holds files, outline when empty; a folder probed as a
+// WhatsApp export (it CONTAINS a chat transcript — see isWhatsAppExport) gets
+// the WhatsApp mark like the export zips do; every other folder gets the folder
+// glyph (optionally a custom colour).
 function FolderOrBinGlyph({ item, size = 42, color }) {
   if (item.binEntry) {
-    return <span className="fx-bin-glyph"><Icon name="trash" size={Math.round(size * 0.92)} strokeWidth={1.6} /></span>;
+    const s = Math.round(size * 0.92);
+    const full = item.binCount > 0;
+    return (
+      <span className={`fx-bin-glyph${full ? ' is-full' : ''}`}>
+        {full ? <FullBinGlyph size={s} /> : <Icon name="trash" size={s} strokeWidth={1.6} />}
+      </span>
+    );
   }
-  if (item.isWhatsApp) return <span className="fx-glyph fx-glyph-whatsapp">{WhatsAppMark}</span>;
+  if (item.isWhatsApp) {
+    return (
+      <WithWhatsAppBadge>
+        <FolderGlyph filled={!item.empty} size={size} color={color} />
+      </WithWhatsAppBadge>
+    );
+  }
   return <FolderGlyph filled={!item.empty} size={size} color={color} />;
 }
 
@@ -168,6 +200,31 @@ function FolderColorRow({ current, onPick }) {
   );
 }
 
+// Right-click menu header for a recognised WhatsApp export (and the folder
+// colour-swatch row when it's an editable folder). Returns undefined when
+// neither applies, so the menu has no header.
+function whatsappMenuHeader(item, isFolder, canEdit, folderColor, onSetColor) {
+  const isWa = isWhatsAppExport(item);
+  const showColors = isFolder && !item.binEntry && canEdit;
+  if (!isWa && !showColors) return undefined;
+  return (closeMenu) => (
+    <>
+      {isWa && (
+        <div className="fx-wa-menu-head">
+          <span className="fx-wa-menu-head-mark">{WhatsAppMark}</span>
+          <span className="fx-wa-menu-head-text">
+            <span className="fx-wa-menu-head-title">WhatsApp chat export</span>
+            <span className="fx-wa-menu-head-sub">Open to read the conversation</span>
+          </span>
+        </div>
+      )}
+      {showColors && (
+        <FolderColorRow current={folderColor} onPick={(v) => { onSetColor?.(item.id, v); closeMenu(); }} />
+      )}
+    </>
+  );
+}
+
 const STATUS_LABEL = { deleted: 'In bin', synced: '' };
 
 // Tile-zoom bounds (px, the grid's min column width). Below the threshold
@@ -182,9 +239,15 @@ const FX_LIST_THRESHOLD = 96;
 function extCategory(ext) {
   const e = (ext || '').toLowerCase();
   if (e === 'pdf') return 'pdf';
-  if (['doc', 'docx', 'odt', 'pages'].includes(e)) return 'doc';
-  if (['xls', 'xlsx', 'csv', 'numbers'].includes(e)) return 'xls';
-  if (['ppt', 'pptx', 'key'].includes(e)) return 'ppt';
+  // Word and everything it can save/export to (incl. templates, macro-enabled,
+  // RTF and the OpenDocument / Pages equivalents).
+  if (['doc', 'docx', 'docm', 'dot', 'dotx', 'dotm', 'rtf', 'odt', 'pages'].includes(e)) return 'doc';
+  // Excel and everything it can save/export to (workbooks, macro-enabled,
+  // binary, templates, CSV and the OpenDocument / Numbers equivalents).
+  if (['xls', 'xlsx', 'xlsm', 'xlsb', 'xlt', 'xltx', 'xltm', 'csv', 'ods', 'numbers'].includes(e)) return 'xls';
+  // PowerPoint and everything it can save/export to (decks, macro-enabled,
+  // shows, templates and the OpenDocument / Keynote equivalents).
+  if (['ppt', 'pptx', 'pptm', 'pps', 'ppsx', 'ppsm', 'pot', 'potx', 'potm', 'odp', 'key'].includes(e)) return 'ppt';
   if (['zip', 'rar', '7z', 'tar', 'gz'].includes(e)) return 'zip';
   if (e === 'psd') return 'psd';
   if (e === 'ai') return 'ai';
@@ -199,47 +262,87 @@ const EXT_GLYPH_LABEL = { pdf: 'PDF', doc: 'DOC', xls: 'XLS', ppt: 'PPT', zip: '
 // Colored ext-label badge — shown for files with no real preview.
 function ExtGlyph({ ext }) {
   const cat = extCategory(ext);
-  // Videos read as a video at a glance: a centred play triangle on a vibrant
-  // gradient (instead of small "MP4" text on a near-black square), with the
-  // format tucked into the corner. Far more visible on both themes.
+  // Videos read as a video at a glance: a centred play triangle, with the
+  // format tucked into the corner.
   if (cat === 'vid') {
     return (
       <span className="fx-glyph fx-glyph-vid">
         <svg className="fx-glyph-play" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M8 5.14v13.72a1 1 0 0 0 1.53.85l10.78-6.86a1 1 0 0 0 0-1.7L9.53 4.29A1 1 0 0 0 8 5.14z" fill="currentColor" />
         </svg>
-        <span className="fx-glyph-vid-tag">{EXT_GLYPH_LABEL[cat]}</span>
       </span>
     );
   }
-  // Audio reads as audio at a glance: a speaker with sound waves on a media
-  // gradient, the real format tucked into the corner (like the video badge).
+  // Audio reads as audio at a glance: a decibel line — a row of equalizer bars
+  // of varying heights (a sound waveform / level meter).
   if (cat === 'aud') {
     return (
       <span className="fx-glyph fx-glyph-aud">
         <svg className="fx-glyph-audio" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M11 5.14 6 9H2v6h4l5 3.86V5.14z" fill="currentColor" />
-          <path d="M15.6 8.6a5 5 0 0 1 0 6.8M18.9 5.3a9 9 0 0 1 0 13.4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+          <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M3 10.5v3" />
+            <path d="M6.5 7.5v9" />
+            <path d="M10 4.5v15" />
+            <path d="M13.5 8.5v7" />
+            <path d="M17 6v12" />
+            <path d="M20.5 9.5v5" />
+          </g>
         </svg>
-        <span className="fx-glyph-vid-tag">{(ext || 'aud').toUpperCase()}</span>
       </span>
     );
   }
-  // Spreadsheets (Excel / CSV / Numbers) read as a grid at a glance, with the
-  // real format in the corner — CSV vs XLSX matters, where a flat "XLS" badge
-  // mislabelled them.
+  // Microsoft Office files use authentic Office file icons — a white document
+  // with the brand-colour letter badge (Word / Excel / PowerPoint).
+  if (cat === 'doc') {
+    return <span className="fx-glyph fx-glyph-icon"><OfficeFileIcon kind="word" className="fx-type-icon" /></span>;
+  }
   if (cat === 'xls') {
+    return <span className="fx-glyph fx-glyph-icon"><OfficeFileIcon kind="excel" className="fx-type-icon" /></span>;
+  }
+  // Archives (zip / rar / 7z / tar / gz) read as a zipped folder, Windows-style:
+  // a folder with a zipper (teeth + pull) down the middle.
+  if (cat === 'zip') {
     return (
-      <span className="fx-glyph fx-glyph-xls">
-        <svg className="fx-glyph-sheet" viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
-          <path d="M3 9.5h18M9 9.5V20M15 9.5V20M3 14.75h18" fill="none" stroke="currentColor" strokeWidth="1.7" />
+      <span className="fx-glyph fx-glyph-icon">
+        <svg className="fx-type-icon" viewBox="0 0 24 24" aria-hidden="true">
+          {/* folder */}
+          <path className="fx-type-base" d="M2.6 6.6a2.2 2.2 0 0 1 2.2-2.2h4.2l2 2h8.2a2.2 2.2 0 0 1 2.2 2.2v8.6a2.2 2.2 0 0 1-2.2 2.2H4.8a2.2 2.2 0 0 1-2.2-2.2z" />
+          {/* zipper teeth (thick dashed line down the middle) */}
+          <line className="fx-zip-teeth" x1="12" y1="9.2" x2="12" y2="19.3" />
+          {/* zipper pull — slider + tab */}
+          <circle className="fx-type-detail" cx="12" cy="9.4" r="1.8" />
+          <rect className="fx-type-detail" x="11.25" y="9.4" width="1.5" height="3.5" rx="0.75" />
         </svg>
-        <span className="fx-glyph-vid-tag">{(ext || 'xls').toUpperCase()}</span>
       </span>
     );
   }
-  return <span className={`fx-glyph fx-glyph-${cat}`}>{EXT_GLYPH_LABEL[cat]}</span>;
+  // Image types (img / psd) — a picture: a frame with a sun + mountains.
+  if (cat === 'img' || cat === 'psd') {
+    return (
+      <span className="fx-glyph fx-glyph-icon">
+        <svg className="fx-type-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <rect className="fx-type-base" x="3" y="4" width="18" height="16" rx="2.6" />
+          <circle className="fx-type-detail" cx="8.5" cy="9.5" r="2" />
+          <path className="fx-type-detail" d="M4 19 L9.5 12.5 L13 16 L16 12.5 L20 19 Z" />
+        </svg>
+      </span>
+    );
+  }
+  // PowerPoint — authentic Office file icon (see doc/xls above).
+  if (cat === 'ppt') {
+    return <span className="fx-glyph fx-glyph-icon"><OfficeFileIcon kind="ppt" className="fx-type-icon" /></span>;
+  }
+  // Everything else (doc / txt / pdf / ai / generic) — a document with text lines.
+  return (
+    <span className="fx-glyph fx-glyph-icon">
+      <svg className="fx-type-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <rect className="fx-type-base" x="4" y="2.5" width="16" height="19" rx="2.6" />
+        <rect className="fx-type-detail" x="7" y="7" width="10" height="1.8" rx="0.9" />
+        <rect className="fx-type-detail" x="7" y="11" width="10" height="1.8" rx="0.9" />
+        <rect className="fx-type-detail" x="7" y="15" width="7" height="1.8" rx="0.9" />
+      </svg>
+    </span>
+  );
 }
 
 // A WhatsApp "Export chat" produces a .zip — or, extracted, a folder —
@@ -259,12 +362,62 @@ const WhatsAppMark = (
   </svg>
 );
 
+// Recognised WhatsApp conversation (a .zip export, a loose exported .txt, …) —
+// two stacked layers that slide vertically on hover. At rest it shows the file's
+// OWN type icon; on hover that icon is pushed up and out while the WhatsApp logo
+// slides up into view from below. The container clips (overflow:hidden) so each
+// layer enters / exits cleanly. All motion is CSS (see .fx-wa-zip-glyph).
+function WhatsAppMorphGlyph({ ext }) {
+  return (
+    <span className="fx-glyph fx-glyph-icon fx-wa-zip-glyph">
+      {/* File-type layer — the file's own icon at rest, pushed up on hover. */}
+      <span className="fx-wa-layer fx-wa-layer-folder">
+        <ExtGlyph ext={ext} />
+      </span>
+      {/* WhatsApp layer — parked below at rest, slides up into view on hover.
+          Scaled down + centred so the logo reads smaller than the type icon. */}
+      <span className="fx-wa-layer fx-wa-layer-wa">
+        <svg className="fx-type-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path className="fx-wa-mark-path" transform="translate(3.6 3.6) scale(0.7)" d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.6-6.1c-.3-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-2-1.2 7.4 7.4 0 0 1-1.4-1.7c-.1-.3 0-.4.1-.5l.4-.5.3-.4v-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 2.9 2.9 0 0 0-.9 2.2 5 5 0 0 0 1.1 2.7 11.5 11.5 0 0 0 4.4 3.9c2.6 1 2.6.7 3.1.6a2.6 2.6 0 0 0 1.7-1.2 2.1 2.1 0 0 0 .1-1.2c-.1-.1-.3-.2-.5-.3z" />
+        </svg>
+      </span>
+    </span>
+  );
+}
+
+// Previously wrapped a recognised WhatsApp file/folder glyph with a persistent
+// green corner pill. The pill was removed per request — recognition still drives
+// the hover tooltip, right-click header, and "open conversation" action, but the
+// glyph itself is no longer marked. Kept as a pass-through so the call sites
+// (file + folder glyphs) don't need to branch.
+function WithWhatsAppBadge({ children }) {
+  return <>{children}</>;
+}
+
 // Resolve a file's fallback glyph: the WhatsApp mark for recognised export
 // zips, otherwise the extension badge. Exported — the doc-viewer's open-files
 // sidebar renders its tiles with the same glyph so both surfaces match.
 export function ItemGlyph({ item }) {
-  if (isWhatsAppExport(item)) return <span className="fx-glyph fx-glyph-whatsapp">{WhatsAppMark}</span>;
+  // Anything recognised as a WhatsApp conversation (a .zip export, a loose
+  // exported .txt, etc.) uses the same vertical-push glyph: a zipped folder at
+  // rest that slides up on hover to reveal the WhatsApp logo from below.
+  if (isWhatsAppExport(item)) return <WhatsAppMorphGlyph ext={item.ext} />;
   return <ExtGlyph ext={item.ext} />;
+}
+
+// Real file thumbnail (poster / video slideshow / type glyph). Video files get
+// a cassette-tape frame layered over the poster — dark perforated bands above
+// and below the thumbnail. The frame is CSS-hidden when no real poster resolved
+// (the type-glyph badge is showing) and in the tiny list view, so it only
+// dresses an actual video preview. See .fx-cassette in FilesWorkspace.css.
+export function ItemThumbnail({ item }) {
+  const isVideo = extCategory(item.ext) === 'vid';
+  return (
+    <>
+      <FileThumbnail descriptor={item.descriptor} glyph={<ItemGlyph item={item} />} />
+      {isVideo ? <span className="fx-cassette" aria-hidden="true" /> : null}
+    </>
+  );
 }
 
 // Countdown pill for a bin item — "Deletes in N days" (turns red near the
@@ -328,24 +481,40 @@ function trashHoverContent(item) {
   );
 }
 
+// Hover-tooltip content for a recognised WhatsApp export: the file name with a
+// WhatsApp badge + a "recognised as WhatsApp convo" note below it.
+function whatsappHoverContent(item) {
+  return (
+    <span className="fx-hover-rich fx-hover-wa">
+      <span className="fx-hover-wa-mark">{WhatsAppMark}</span>
+      <span className="fx-hover-wa-text">
+        <span className="fx-hover-name">{item.name}</span>
+        <span className="fx-hover-wa-note">Opens as a readable WhatsApp chat</span>
+      </span>
+    </span>
+  );
+}
+
 // Right-click menu for a file / folder item. Tab-aware: in the bin, items
 // offer Restore + Delete forever; in drafts, the usual Open / Rename /
 // Properties / Open-file-location / Delete. Falsy entries collapse via
 // useMorphPill's filter.
-function itemMenuItems(item, { tab, onOpen, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut }) {
+function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut }) {
   // The Recycle bin entry opens the bin; when it holds files it can also be
   // emptied (permanent delete of everything inside).
   if (item.binEntry) {
-    const entries = [{ key: 'open', label: 'Open trash', onClick: () => onOpen?.(item) }];
+    // The Trash entry's menu is intentionally just two actions: open it, or
+    // empty it (the latter only when it actually holds something).
+    const entries = [{ key: 'open', label: 'Open', onClick: () => onOpen?.(item) }];
     if (item.binCount > 0) {
       entries.push({
         key: 'empty',
-        label: 'Empty trash',
+        label: 'Empty',
         danger: true,
         onClick: () => onEmptyBin?.(),
         confirm: {
           title: 'Empty the trash?',
-          message: `All ${item.binCount} file${item.binCount === 1 ? '' : 's'} in the trash will be permanently deleted from your computer. This can’t be undone.`,
+          message: `All ${item.binCount} item${item.binCount === 1 ? '' : 's'} in the trash will be permanently deleted from your computer. This can’t be undone.`,
           confirmLabel: 'Empty trash',
           cancelLabel: 'Cancel',
         },
@@ -395,13 +564,20 @@ function itemMenuItems(item, { tab, onOpen, onRename, onProperties, onOpenLocati
   if (isFolder) {
     return [
       { key: 'open', label: 'Open', onClick: () => onOpen?.(item) },
+      // "Open" now browses any folder; a WhatsApp export's reconstructed
+      // conversation moves to this dedicated entry.
+      item.isWhatsApp && { key: 'open-content', label: 'Open conversation', onClick: () => onOpenContent?.(item) },
       !bulk && canEdit && localPath && { key: 'rename', label: 'Rename', onClick: () => onRename?.(item) },
       localPath && { key: 'loc', label: 'Open file location', onClick: () => onOpenLocation?.(item) },
       deleteEntry,
     ];
   }
+  const isArchive = extCategory(item.ext) === 'zip';
   return [
     { key: 'open',   label: 'Open',               onClick: () => onOpen?.(item) },
+    // A compressed file can be unpacked and browsed in place (zip extracts to a
+    // sibling folder; other formats open in the OS archiver).
+    isArchive && { key: 'open-content', label: 'Open contents', onClick: () => onOpenContent?.(item) },
     !bulk && canEdit && { key: 'rename', label: 'Rename',  onClick: () => onRename?.(item) },
     canEdit && onCopy && { key: 'copy', label: bulk ? `Copy ${bulkCount} items` : 'Copy', onClick: () => onCopy?.(item) },
     canEdit && onCut && { key: 'cut', label: bulk ? `Cut ${bulkCount} items` : 'Cut', onClick: () => onCut?.(item) },
@@ -476,25 +652,27 @@ function InlineNameInput({ initial = '', placeholder, onCommit, onCancel, classN
 }
 
 // ── Tile ──────────────────────────────────────────────────────────────
-function Tile({ item, tab, selected, onSelect, onOpen, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
+function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
-  const isDropTarget = isFolder && !item.binEntry && dropFolderId === item.id;
+  const isDropTarget = isFolder && dropFolderId === item.id;
+  const isBinDrop = item.binEntry && isDropTarget;
   const isCut = !isFolder && cutPaths?.has(item._raw?.path);
   const folderColor = isFolder && !item.binEntry ? folderColors?.[item.id] : undefined;
   const morph = useMorphPill({
-    hoverContent: tab === 'trash' && !item.binEntry ? trashHoverContent(item) : item.name,
-    menuItems: itemMenuItems(item, { tab, onOpen, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut }),
-    // Folders get a colour-swatch row atop their menu.
-    menuHeader: isFolder && !item.binEntry && canEdit
-      ? (closeMenu) => <FolderColorRow current={folderColor} onPick={(v) => { onSetColor?.(item.id, v); closeMenu(); }} />
-      : undefined,
+    hoverContent: tab === 'trash' && !item.binEntry ? trashHoverContent(item)
+      : isWhatsAppExport(item) ? whatsappHoverContent(item)
+      : item.name,
+    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut }),
+    // WhatsApp exports get a "recognised as WhatsApp convo" header; folders get
+    // a colour-swatch row atop their menu (both shown if it's a WhatsApp folder).
+    menuHeader: whatsappMenuHeader(item, isFolder, canEdit, folderColor, onSetColor),
   });
   if (renaming) {
     return (
       <div className={`fx-tile${isFolder ? ' is-folder' : ''} is-renaming`}>
         <span className="fx-tile-thumb">
-          {isFolder ? <FolderGlyph filled={!item.empty} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ItemGlyph item={item} />} />}
+          {isFolder ? <FolderGlyph filled={!item.empty} color={folderColor} /> : <ItemThumbnail item={item} />}
         </span>
         <span>
           <InlineNameInput className="fx-tile-name" initial={displayBaseName(item)} onCommit={(name) => onCommitName(renamedName(item, name))} onCancel={onCancelName} />
@@ -507,7 +685,7 @@ function Tile({ item, tab, selected, onSelect, onOpen, onRename, onProperties, o
       <button
         type="button"
         data-fx-id={item.id}
-        className={`fx-tile${isFolder ? ' is-folder' : ''}${selected ? ' is-selected' : ''}${status === 'deleted' ? ' is-deleted' : ''}${isDropTarget ? ' is-droptarget' : ''}${isCut ? ' is-cut' : ''}`}
+        className={`fx-tile${isFolder ? ' is-folder' : ''}${selected ? ' is-selected' : ''}${status === 'deleted' ? ' is-deleted' : ''}${isDropTarget ? ' is-droptarget' : ''}${isBinDrop ? ' is-bindrop' : ''}${isCut ? ' is-cut' : ''}`}
         onClick={(e) => onSelect(item, e)}
         onDoubleClick={() => onOpen(item)}
         onMouseMove={morph.handleMouseMove}
@@ -516,16 +694,16 @@ function Tile({ item, tab, selected, onSelect, onOpen, onRename, onProperties, o
         draggable={draggable && !item.binEntry ? true : undefined}
         onDragStart={draggable && !item.binEntry ? (e) => beginItemDrag?.(item, e) : undefined}
         onDragEnd={draggable && !item.binEntry ? () => endItemDrag?.() : undefined}
-        onDragOver={isFolder && !item.binEntry ? (e) => onFolderDragOver?.(item, e) : undefined}
-        onDragLeave={isFolder && !item.binEntry ? () => onFolderDragLeave?.(item) : undefined}
-        onDrop={isFolder && !item.binEntry ? (e) => onFolderDrop?.(item, e) : undefined}
+        onDragOver={isFolder ? (e) => onFolderDragOver?.(item, e) : undefined}
+        onDragLeave={isFolder ? () => onFolderDragLeave?.(item) : undefined}
+        onDrop={isFolder ? (e) => onFolderDrop?.(item, e) : undefined}
       >
         {/* Bin items show a circular elapsed-time countdown; drafts carry no ribbon. */}
         {tab === 'trash' && <CountdownRing days={item.deletesInDays} size={20} className="fx-tile-countdown" />}
         {/* Recycle bin entry shows how many items are inside. */}
         {item.binEntry && item.binCount > 0 && <span className="fx-bin-count">{item.binCount}</span>}
         <span className="fx-tile-thumb">
-          {isFolder ? <FolderOrBinGlyph item={item} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ItemGlyph item={item} />} />}
+          {isFolder ? <FolderOrBinGlyph item={item} color={folderColor} /> : <ItemThumbnail item={item} />}
         </span>
         <span>
           <span className="fx-tile-name">{displayBaseName(item)}</span>
@@ -549,26 +727,27 @@ function NewFolderTile({ onCommit, onCancel }) {
 }
 
 // ── List row ──────────────────────────────────────────────────────────
-function Row({ item, tab, selected, onSelect, onOpen, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
+function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
   const isBin = tab === 'trash';
-  const isDropTarget = isFolder && !item.binEntry && dropFolderId === item.id;
+  const isDropTarget = isFolder && dropFolderId === item.id;
+  const isBinDrop = item.binEntry && isDropTarget;
   const isCut = !isFolder && cutPaths?.has(item._raw?.path);
   const folderColor = isFolder && !item.binEntry ? folderColors?.[item.id] : undefined;
   const morph = useMorphPill({
-    hoverContent: isBin && !item.binEntry ? trashHoverContent(item) : item.name,
-    menuItems: itemMenuItems(item, { tab, onOpen, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut }),
-    menuHeader: isFolder && !item.binEntry && canEdit
-      ? (closeMenu) => <FolderColorRow current={folderColor} onPick={(v) => { onSetColor?.(item.id, v); closeMenu(); }} />
-      : undefined,
+    hoverContent: isBin && !item.binEntry ? trashHoverContent(item)
+      : isWhatsAppExport(item) ? whatsappHoverContent(item)
+      : item.name,
+    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut }),
+    menuHeader: whatsappMenuHeader(item, isFolder, canEdit, folderColor, onSetColor),
   });
   if (renaming) {
     return (
       <div className="fx-list-row is-renaming">
         <span className="fx-list-name">
           <span className="fx-list-thumb">
-            {isFolder ? <FolderGlyph filled={!item.empty} size={20} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ItemGlyph item={item} />} />}
+            {isFolder ? <FolderGlyph filled={!item.empty} size={20} color={folderColor} /> : <ItemThumbnail item={item} />}
           </span>
           <InlineNameInput className="fx-name" initial={displayBaseName(item)} onCommit={(name) => onCommitName(renamedName(item, name))} onCancel={onCancelName} />
         </span>
@@ -581,7 +760,7 @@ function Row({ item, tab, selected, onSelect, onOpen, onRename, onProperties, on
       <button
         type="button"
         data-fx-id={item.id}
-        className={`fx-list-row${isBin ? ' is-bin' : ''}${selected ? ' is-selected' : ''}${status === 'deleted' ? ' is-deleted' : ''}${isDropTarget ? ' is-droptarget' : ''}${isCut ? ' is-cut' : ''}`}
+        className={`fx-list-row${isBin ? ' is-bin' : ''}${selected ? ' is-selected' : ''}${status === 'deleted' ? ' is-deleted' : ''}${isDropTarget ? ' is-droptarget' : ''}${isBinDrop ? ' is-bindrop' : ''}${isCut ? ' is-cut' : ''}`}
         onClick={(e) => onSelect(item, e)}
         onDoubleClick={() => onOpen(item)}
         onMouseMove={morph.handleMouseMove}
@@ -590,14 +769,14 @@ function Row({ item, tab, selected, onSelect, onOpen, onRename, onProperties, on
         draggable={draggable && !item.binEntry ? true : undefined}
         onDragStart={draggable && !item.binEntry ? (e) => beginItemDrag?.(item, e) : undefined}
         onDragEnd={draggable && !item.binEntry ? () => endItemDrag?.() : undefined}
-        onDragOver={isFolder && !item.binEntry ? (e) => onFolderDragOver?.(item, e) : undefined}
-        onDragLeave={isFolder && !item.binEntry ? () => onFolderDragLeave?.(item) : undefined}
-        onDrop={isFolder && !item.binEntry ? (e) => onFolderDrop?.(item, e) : undefined}
+        onDragOver={isFolder ? (e) => onFolderDragOver?.(item, e) : undefined}
+        onDragLeave={isFolder ? () => onFolderDragLeave?.(item) : undefined}
+        onDrop={isFolder ? (e) => onFolderDrop?.(item, e) : undefined}
       >
         <span className="fx-list-name">
           {isBin && <CountdownRing days={item.deletesInDays} size={18} className="fx-row-countdown" />}
           <span className="fx-list-thumb">
-            {isFolder ? <FolderOrBinGlyph item={item} size={20} color={folderColor} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ItemGlyph item={item} />} />}
+            {isFolder ? <FolderOrBinGlyph item={item} size={20} color={folderColor} /> : <ItemThumbnail item={item} />}
           </span>
           <span className="fx-name">{displayBaseName(item)}</span>
           {item.binEntry && item.binCount > 0 && <span className="fx-bin-count is-inline">{item.binCount}</span>}
@@ -646,8 +825,9 @@ export default function FilesWorkspace({
   items,             // file items
   loading,
   // actions
-  onOpen, onRename, onDelete, onRestore, onNewFolder, onUpload, onUploadFolder, onOpenLocation,
+  onOpen, onOpenContent, onRename, onDelete, onRestore, onNewFolder, onUpload, onUploadFolder, onOpenLocation,
   onEmptyBin,
+  onRefresh,         // () => void — re-list the folder (toolbar refresh button)
   onDebugSeedTrash,  // DEV-only — seed the bin with staggered-expiry dummy items
   onOpenDirectory,   // () => void — open the current folder in the OS file manager
   onDropFiles,       // ([{ file, relPath }]) => void — drag-and-drop import,
@@ -875,8 +1055,17 @@ export default function FilesWorkspace({
     () => (folders || []).filter((f) => !f.binEntry && matches(f.name)).sort(byName),
     [folders, q], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  // Compressed archives (zip / rar / 7z / tar / gz) are "compressed folders" —
+  // arrange them with the folders: they sort to the FRONT of the file list so,
+  // rendered right after the real folders, they sit next to them. Within each
+  // group (archives, then plain files) it's still A→Z.
+  const isArchiveItem = (f) => extCategory(f.ext) === 'zip';
   const shownItems = useMemo(
-    () => (items || []).filter((f) => matches(f.name)).sort(byName),
+    () => (items || []).filter((f) => matches(f.name)).sort((a, b) => {
+      const aa = isArchiveItem(a) ? 0 : 1;
+      const bb = isArchiveItem(b) ? 0 : 1;
+      return aa !== bb ? aa - bb : byName(a, b);
+    }),
     [items, q], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // Bin → folders → files, in render order. Drives both the grid/list and the
@@ -1114,8 +1303,22 @@ export default function FilesWorkspace({
 
   // Folder drop target — moving dragged files/folders into that folder.
   const dragHasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('application/x-docvex-files');
+  // Reconstruct a serialized drag item into the { name, kind, _raw|_dir } shape
+  // the delete handler reads (path AND name on the inner object).
+  const deleteItemFromData = (d) => (d.kind === 'folder'
+    ? { name: d.name, kind: 'folder', _dir: { path: d.path, name: d.name } }
+    : { name: d.name, kind: 'file', _raw: { path: d.path, name: d.name } });
   const onFolderDragOver = (folder, e) => {
-    if (!onMoveItems || folder.binEntry || !dragHasFiles(e)) return;
+    // The Recycle bin entry is a drop target for delete: drop files/folders on
+    // it to move them to the trash.
+    if (folder.binEntry) {
+      if (!onDelete || !dragHasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (dropFolderId !== folder.id) setDropFolderId(folder.id);
+      return;
+    }
+    if (!onMoveItems || !dragHasFiles(e)) return;
     // Don't accept a folder dropped onto itself / its own descendants — the
     // live payload comes from the drag bus since dragover can't read dataTransfer.
     const targetPath = folder._dir?.path;
@@ -1127,7 +1330,18 @@ export default function FilesWorkspace({
   };
   const onFolderDragLeave = (folder) => { setDropFolderId((cur) => (cur === folder.id ? null : cur)); };
   const onFolderDrop = (folder, e) => {
-    if (!onMoveItems || folder.binEntry || !dragHasFiles(e)) return;
+    // Drop on the Recycle bin entry → delete (move each dragged item to trash).
+    if (folder.binEntry) {
+      if (!onDelete || !dragHasFiles(e)) return;
+      e.preventDefault();
+      setDropFolderId(null);
+      let data = null;
+      try { data = JSON.parse(e.dataTransfer.getData('application/x-docvex-files')); } catch { /* malformed */ }
+      const toDelete = (data?.items || []).filter((d) => d?.path).map(deleteItemFromData);
+      toDelete.forEach((it) => onDelete(it));
+      return;
+    }
+    if (!onMoveItems || !dragHasFiles(e)) return;
     e.preventDefault();
     setDropFolderId(null);
     let data = null;
@@ -1162,7 +1376,7 @@ export default function FilesWorkspace({
   // Common props every Tile/Row needs.
   const itemCommon = {
     tab,
-    onSelect, onOpen,
+    onSelect, onOpen, onOpenContent,
     onRename: requestRename,
     onProperties: setPropsItem,
     onOpenLocation, onDelete, onRestore, onEmptyBin,
@@ -1204,6 +1418,9 @@ export default function FilesWorkspace({
     <>
       <div className="fx-chrome-tools">
         <div className="fx-pathbar-nav">
+          {onRefresh && (
+            <Tooltip content="Refresh"><button onClick={() => onRefresh()}><Icon name="refresh" size={14} /></button></Tooltip>
+          )}
           <Tooltip content="Back"><button onClick={() => onBack?.()} disabled={!canBack}><Icon name="chev-left" size={14} /></button></Tooltip>
           <Tooltip content="Forward"><button disabled><Icon name="chev-right" size={14} /></button></Tooltip>
           <Tooltip content="Up one level"><button onClick={() => onUp?.()} disabled={!canUp}><Icon name="chev-up" size={14} /></button></Tooltip>
@@ -1232,6 +1449,24 @@ export default function FilesWorkspace({
           })}
         </nav>
         <div style={{ flex: 1 }} />
+        {/* Icon-size slider — drives the same tileSize as Ctrl+scroll zoom
+            (smallest size flips to the list view). Sits just left of search. */}
+        <Tooltip content="Icon size">
+          <div className="fx-size-slider">
+            <span className="fx-size-dot fx-size-dot-sm" aria-hidden="true" />
+            <input
+              type="range"
+              className="fx-size-range"
+              min={FX_MIN_TILE}
+              max={FX_MAX_TILE}
+              step={2}
+              value={tileSize}
+              onChange={(e) => setTileSize(Number(e.target.value))}
+              aria-label="Icon size"
+            />
+            <span className="fx-size-dot fx-size-dot-lg" aria-hidden="true" />
+          </div>
+        </Tooltip>
         <div className={`fx-search${query ? ' is-active' : ''}`}>
           <Icon name="search" size={15} className="fx-search-glyph" />
           <input
@@ -1552,7 +1787,7 @@ function PropertiesModal({ item, onClose }) {
           </button>
         </div>
         <div className="fx-props-thumb">
-          {isFolder ? <FolderGlyph filled={!item.empty} /> : <FileThumbnail descriptor={item.descriptor} glyph={<ItemGlyph item={item} />} />}
+          {isFolder ? <FolderGlyph filled={!item.empty} /> : <ItemThumbnail item={item} />}
         </div>
         <dl className="fx-props-list">
           {rows.map(([label, value, isPath]) => (

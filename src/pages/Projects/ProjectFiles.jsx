@@ -11,7 +11,7 @@ import {
   isElectronBranch,
   readLocalBlob,
 } from '../../lib/localFolder';
-import { openDocx, isDocxFile, openFileWindow, canViewInBrowser, openDocViewerWindow, prepareWhatsAppZip, detectWhatsApp } from '../../lib/platform';
+import { openDocx, isDocxFile, openFileWindow, canViewInBrowser, openDocViewerWindow, prepareWhatsAppZip, prepareWhatsAppFolder, detectWhatsApp, notifyFilesRemoved, onFilesRemoved, onFilesChanged } from '../../lib/platform';
 import { openDocxInWindow } from '../../lib/openDocxWindow';
 import { readProjectsDir } from '../../lib/projectsDir';
 import {
@@ -80,7 +80,7 @@ function localUrlFor(path, cacheBust) {
 // picks on their computer ("My drafts"); deleting a file moves it into a
 // hidden `.docvex-trash` recycle bin ("Recently deleted") that auto-purges
 // after 30 days.
-export default function ProjectFiles() {
+export default function ProjectFiles({ embedded = false } = {}) {
   const { selectedProject, loading: projLoading, openPicker } = useSelectedProject();
   const projectId = selectedProject?.id || null;
   const { notify } = useNotifications();
@@ -162,7 +162,9 @@ export default function ProjectFiles() {
   const [waByPath, setWaByPath] = useState(() => ({}));
   const waCandidatesKey = [
     ...browseDirs.map((d) => d.path),
-    ...browseFiles.filter((f) => /\.zip$/i.test(f.name || '')).map((f) => f.path),
+    // Folders + .zip archives carry their transcript inside; a loose .txt IS the
+    // transcript (an extracted `_chat.txt`), so probe those by content too.
+    ...browseFiles.filter((f) => /\.(zip|txt)$/i.test(f.name || '')).map((f) => f.path),
   ].filter(Boolean).join('\n');
   useEffect(() => {
     if (!isElectronBranch || !waCandidatesKey) return undefined;
@@ -309,6 +311,25 @@ export default function ProjectFiles() {
     return () => { unsub?.(); localFolderApi.unwatch(); };
   }, [localFolder, refetchTrash]);
 
+  // ── Cross-window change sync ──────────────────────────────────────────
+  // The disk watcher only ever pings the main window, so a delete or rename in
+  // another window (or the doc-viewer's tab sidebar) leaves other Files tabs —
+  // notably the doc-viewer's embedded one — stale. These broadcasts re-list
+  // every instance: files:removed after a trash, files:changed after a rename.
+  useEffect(() => {
+    if (!hasLocalFolderApi || !localFolder) return undefined;
+    const relist = () => {
+      localFolderApi.listAll(localFolder).then(({ files: list, error }) => {
+        if (!error) setLocalFiles(list || []);
+      });
+      setBrowseTick((t) => t + 1);
+      refetchTrash();
+    };
+    const unsubRemoved = onFilesRemoved(relist);
+    const unsubChanged = onFilesChanged(relist);
+    return () => { unsubRemoved?.(); unsubChanged?.(); };
+  }, [localFolder, refetchTrash]);
+
   // Reset folder navigation when the project / picked folder changes.
   useEffect(() => {
     // While showing the warm-seeded project at its root, keep the seeded root
@@ -383,6 +404,9 @@ export default function ProjectFiles() {
         return next;
       });
     }
+    // Let the doc-viewer close any tab showing this now-deleted file (and any
+    // other Files tab re-list).
+    notifyFilesRemoved([filePath]);
     setBrowseTick((t) => t + 1);
     await refetchLocalFiles();
     await refetchTrash();
@@ -435,6 +459,8 @@ export default function ProjectFiles() {
   const primTrashFolder = useCallback(async (folderPath) => {
     const { ok, stored, error } = await localFolderApi.trashFolder({ dir: localFolder, path: folderPath });
     if (error || ok === false) return { ok: false, error };
+    // Close doc-viewer tabs for any file that lived inside this folder.
+    notifyFilesRemoved([folderPath]);
     setSidecar((prev) => {
       // Drop any sidecar entries whose files just went to the bin.
       let next = prev;
@@ -503,6 +529,21 @@ export default function ProjectFiles() {
     if (!dir?.path) return;
     setFolderStack((stack) => [...stack, { name: dir.name, path: dir.path }]);
   }, []);
+
+  // Open a WhatsApp export folder's reconstructed conversation in the
+  // doc-viewer (transcript located inside it by the main process). Falls back
+  // to browsing the folder when it isn't really a WhatsApp export / on web.
+  const handleOpenWhatsAppFolder = useCallback(async (dir) => {
+    if (!dir?.path) return;
+    try {
+      const prepped = await prepareWhatsAppFolder(dir.path);
+      if (prepped?.ok && prepped.chatPath) {
+        openDocViewerWindow({ path: prepped.chatPath, name: prepped.name || dir.name, mime: 'text/plain' });
+        return;
+      }
+    } catch { /* fall through to browse */ }
+    handleEnterFolder(dir);
+  }, [handleEnterFolder]);
 
   const handleNavigateCrumb = useCallback((index) => {
     setFolderStack((stack) => (index < 0 ? [] : stack.slice(0, index + 1)));
@@ -973,6 +1014,27 @@ export default function ProjectFiles() {
     await refetchTrash();
   }, [localFolder, notify, refetchTrash]);
 
+  // Restore every file of a deleted folder back to where it lived.
+  const handleRestoreGroup = useCallback(async (item) => {
+    const recs = item?._trashGroup || [];
+    if (!recs.length) return;
+    const okAll = await primRestoreMany(recs.map((r) => r.stored));
+    notify(okAll
+      ? { category: 'file', variant: 'success', icon: 'check', title: 'Restored', body: `“${item.name}” is back in your folder.`, dedupeKey: `fx-restore-grp:${item.id}` }
+      : { category: 'file', variant: 'error', title: 'Some files couldn’t be restored', body: `Part of “${item.name}” could not be put back.`, dedupeKey: `fx-restore-grp-err:${item.id}` });
+  }, [primRestoreMany, notify]);
+
+  // Permanently delete every file of a deleted folder.
+  const handlePermanentDeleteGroup = useCallback(async (item) => {
+    const recs = item?._trashGroup || [];
+    if (!recs.length) return;
+    for (const r of recs) {
+      await localFolderApi.deleteFromTrash({ dir: localFolder, stored: r.stored });
+    }
+    notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Permanently deleted', body: `“${item.name}” is gone for good.`, dedupeKey: `fx-perm-del-grp:${item.id}` });
+    await refetchTrash();
+  }, [localFolder, notify, refetchTrash]);
+
   // ── Guards (after all hooks) ──────────────────────────────────────────
   if (projLoading && !selectedProject) return null;
   if (!selectedProject) {
@@ -1001,6 +1063,17 @@ export default function ProjectFiles() {
   // The Recycle bin lives INSIDE the My drafts panel as a special folder at
   // the root — opening it shows the deleted files (with restore / delete-
   // forever + the 30-day countdown). No separate tab.
+  // Count bin contents the way they're shown: a deleted folder is ONE item, not
+  // each file inside it (matching the collapsed folder display below).
+  const trashDisplayCount = (() => {
+    const groups = new Set();
+    let loose = 0;
+    for (const t of trashItems) {
+      if (t.folderGroup) groups.add(t.folderGroup);
+      else loose += 1;
+    }
+    return groups.size + loose;
+  })();
   const binEntryItem = {
     id: '__recycle-bin',
     kind: 'folder',
@@ -1008,12 +1081,11 @@ export default function ProjectFiles() {
     empty: trashItems.length === 0,
     status: 'synced',
     binEntry: true,
-    binCount: trashItems.length,
+    binCount: trashDisplayCount,
   };
-  // Only surface the bin entry at the drafts root (not inside subfolders).
-  const draftFolders = folderStack.length === 0
-    ? [binEntryItem, ...realDraftFolders]
-    : realDraftFolders;
+  // Surface the bin entry as the first item in every folder (it opens the one
+  // project-wide Trash regardless of where you are in the tree).
+  const draftFolders = [binEntryItem, ...realDraftFolders];
 
   const draftItems = browseFiles.map((lf) => {
     const fid = sidecar.byFilename.get((lf.name || '').toLowerCase());
@@ -1027,19 +1099,30 @@ export default function ProjectFiles() {
       modifiedLabel: formatDate(lf.mtimeIso),
       author: 'You',
       status: 'synced',
-      // Content-probed verdict for .zip archives (true/false once resolved;
-      // undefined while pending / for non-zips → FilesWorkspace falls back
-      // to its name heuristic until the probe lands).
+      // Content-probed verdict for .zip archives and loose .txt transcripts
+      // (true/false once resolved; undefined while pending / for other types →
+      // FilesWorkspace falls back to its name heuristic until the probe lands).
       isWhatsApp: lf.path ? waByPath[lf.path] : undefined,
       descriptor: describeLocalFile({ localFile: lf, localUrl, cloud: null, bytesChanged: false, localContentHash: null }),
       _raw: lf,
     };
   });
 
-  const binItems = trashItems.map((t) => {
+  // Files deleted as part of a folder share a `folderGroup`; collapse each
+  // group into ONE folder item (Windows-style) so the bin shows the deleted
+  // folder, not every file inside it. Loose files stay individual.
+  const binFolderItems = [];
+  const binFileItems = [];
+  const trashGroups = new Map();
+  for (const t of trashItems) {
+    if (t.folderGroup) {
+      if (!trashGroups.has(t.folderGroup)) trashGroups.set(t.folderGroup, []);
+      trashGroups.get(t.folderGroup).push(t);
+      continue;
+    }
     const synthetic = { name: t.originalName, path: t.path, mimeType: t.mimeType, mtimeIso: t.deletedAt };
     const localUrl = localUrlFor(t.path, t.deletedAt);
-    return {
+    binFileItems.push({
       id: t.stored,
       kind: 'file',
       name: t.originalName,
@@ -1052,8 +1135,24 @@ export default function ProjectFiles() {
       descriptor: describeLocalFile({ localFile: synthetic, localUrl, cloud: null, bytesChanged: false, localContentHash: null }),
       _raw: synthetic,
       _trash: t,
-    };
-  });
+    });
+  }
+  for (const [gid, recs] of trashGroups) {
+    const first = recs[0];
+    const totalBytes = recs.reduce((sum, r) => sum + (r.sizeBytes || 0), 0);
+    binFolderItems.push({
+      id: `trashgroup:${gid}`,
+      kind: 'folder',
+      name: first.folderName || 'Folder',
+      empty: recs.length === 0,
+      status: 'deleted',
+      deletesInDays: daysUntilPurge(first.deletedAt),
+      sizeLabel: formatBytes(totalBytes),
+      modifiedLabel: formatDate(first.deletedAt),
+      // The underlying trash records, for whole-folder restore / delete-forever.
+      _trashGroup: recs,
+    });
+  }
 
   // Breadcrumb. In the bin, the crumb chain is Project › Recycle bin (clicking
   // the project name exits the bin back to drafts).
@@ -1071,8 +1170,37 @@ export default function ProjectFiles() {
   // ── Workspace action handlers ─────────────────────────────────────────
   const fxOpen = (item) => {
     if (item.binEntry) { setFilesTab('trash'); return; }   // open the recycle bin
-    if (item.kind === 'folder') { if (item._dir) handleEnterFolder(item._dir); return; }
+    if (item.kind === 'folder') {
+      // Double-clicking any folder — including a WhatsApp export — browses its
+      // contents. The export's reconstructed conversation is reachable from the
+      // right-click menu's "Open conversation" instead.
+      if (item._dir) handleEnterFolder(item._dir);
+      return;
+    }
     handleOpenLocalFile(item._raw);
+  };
+  // The menu's "Open content(s)". For a folder it browses the files (bypassing
+  // the WhatsApp conversation a WhatsApp export folder opens by default). For a
+  // compressed file it unpacks the archive: a .zip extracts to a sibling folder
+  // we then navigate into; other formats open in the OS archiver.
+  const fxOpenContent = async (item) => {
+    if (item?._dir) {
+      // A WhatsApp export folder's menu entry opens the reconstructed
+      // conversation (double-click now browses instead).
+      if (item.isWhatsApp && item._dir.path) { handleOpenWhatsAppFolder(item._dir); return; }
+      handleEnterFolder(item._dir);
+      return;
+    }
+    const src = item?._raw?.path;
+    if (!src) return;
+    const res = await localFolderApi.extractArchive(src);
+    if (res?.ok && res.extracted && res.path) {
+      setBrowseTick((t) => t + 1);
+      await refetchLocalFiles();
+      handleEnterFolder({ path: res.path, name: res.path.split(/[\\/]/).pop() });
+    } else if (res && !res.ok) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t open the archive', body: res.error || 'The compressed file could not be opened.', dedupeKey: 'fx-extract-fail' });
+    }
   };
   const fxCrumbNav = (path) => {
     if (path === '__drafts') { setFilesTab('drafts'); return; } // leave the bin
@@ -1089,11 +1217,18 @@ export default function ProjectFiles() {
     handleRenameLocalFile(item._raw, newName);
   };
   const fxDelete = (item) => {
-    if (filesTab === 'trash') { handlePermanentDelete(item._trash); return; }
+    if (filesTab === 'trash') {
+      if (item?._trashGroup) { handlePermanentDeleteGroup(item); return; }
+      handlePermanentDelete(item._trash);
+      return;
+    }
     if (item.kind === 'folder') { if (item._dir) handleDeleteFolder(item._dir); return; }
     handleDeleteLocalCard(item._raw);
   };
-  const fxRestore = (item) => { if (item?._trash) handleRestoreFromTrash(item._trash); };
+  const fxRestore = (item) => {
+    if (item?._trashGroup) { handleRestoreGroup(item); return; }
+    if (item?._trash) handleRestoreFromTrash(item._trash);
+  };
   const fxOpenLocation = (item) => {
     const p = item?.kind === 'folder' ? item?._dir?.path : item?._raw?.path;
     if (p) localFolderApi.showInFolder(p);
@@ -1147,14 +1282,19 @@ export default function ProjectFiles() {
     onUp: fxUp,
     canBack: fxCanUp,
     canUp: fxCanUp,
-    folders: filesTab === 'drafts' ? draftFolders : [],
-    items: filesTab === 'drafts' ? draftItems : binItems,
+    folders: filesTab === 'drafts' ? draftFolders : binFolderItems,
+    items: filesTab === 'drafts' ? draftItems : binFileItems,
     loading: filesTab === 'trash' ? trashLoading : localLoading,
     onOpen: fxOpen,
+    onOpenContent: fxOpenContent,
     onRename: fxRename,
     onDelete: fxDelete,
     onRestore: fxRestore,
     onOpenLocation: fxOpenLocation,
+    // No toolbar refresh button — the doc-viewer's "Files" chrome has its own
+    // refresh (which broadcasts files:changed → relist), and the main Files page
+    // auto-refreshes on the disk watcher.
+    onRefresh: undefined,
     onNewFolder: fxNewFolder,
     onUpload: fxUpload,
     onUploadFolder: fxUploadFolder,

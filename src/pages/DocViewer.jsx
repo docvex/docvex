@@ -1,4 +1,5 @@
 import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -6,11 +7,13 @@ import FilePreview from '../components/FilePreview';
 import FileThumbnail from '../components/FileThumbnail';
 import CursorSpotlight from '../components/CursorSpotlight';
 import ProjectFiles from './Projects/ProjectFiles';
-import { ItemGlyph } from '../components/FilesWorkspace';
+import { PaneChromeProvider, usePaneChromePortalRef } from '../context/PaneChromeContext';
+import { ItemGlyph, ItemThumbnail } from '../components/FilesWorkspace';
 import Tooltip from '../components/Tooltip';
 import { useMorphPill } from '../components/useMorphPill';
 import { describeLocalFile } from '../lib/thumbnailDescriptor';
 import { localFolderApi } from '../lib/localFolder';
+import { getCachedPdf } from '../lib/pdfCache';
 // Cursor coords / innerWidth / DOMRects are viewport px; the left/top/width
 // CSS we set are layout px — under the app's CSS-zoom downscale the two
 // differ (see lib/appZoom).
@@ -18,8 +21,12 @@ import { toLayoutPx } from '../lib/appZoom';
 import { recognizeCanvas, OCR_MAX_EDGE } from '../lib/ocr';
 import { loadOcrHistory, saveOcrHistory } from '../lib/extractionHistory';
 import { loadCaptions, saveCaptions, clearCaptions } from '../lib/captionsHistory';
+import { loadEnvelope, saveEnvelope } from '../lib/audioEnvelopeCache';
+import { loadCaptionSettings, saveCaptionSettings } from '../lib/captionPosition';
 import { transcribeAudio } from '../lib/transcribe';
-import { onDocViewerAddFile, extractDocText, openExternal } from '../lib/platform';
+import { askProjectAi } from '../lib/projectAi';
+import { onDocViewerAddFile, extractDocText, openExternal, onFilesRemoved, notifyFilesChanged } from '../lib/platform';
+import { extractFileText } from '../lib/extractFileText';
 import { parseWhatsAppChat, splitTimestamp } from '../lib/whatsappChat';
 import './DocViewer.css';
 
@@ -43,6 +50,15 @@ function localUrlFor(path, thumb) {
 function extOf(name) {
   const m = /\.([a-z0-9]+)$/i.exec(name || '');
   return m ? m[1].toLowerCase() : '';
+}
+// Human file size ("426 kB", "1.2 MB") for the attachment meta line.
+function formatBytes(n) {
+  if (n == null || !Number.isFinite(n)) return '';
+  if (n < 1024) return `${n} B`;
+  const units = ['kB', 'MB', 'GB', 'TB'];
+  let v = n / 1024; let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
 }
 
 // Mirrors guessMimeFromName in main.js — used when the file listing's
@@ -111,6 +127,15 @@ function buildDayResolver(messages) {
 function dateInputKey(v) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v || '');
   return m ? (+m[1]) * 10000 + (+m[2]) * 100 + (+m[3]) : null;
+}
+// Inverse of dateInputKey: a comparable key (y*10000+m*100+d) → "2023-01-15"
+// for an <input type="date">. null/invalid → '' (empty input).
+function keyToDateInput(key) {
+  if (key == null) return '';
+  const y = Math.floor(key / 10000);
+  const mo = Math.floor((key % 10000) / 100);
+  const d = key % 100;
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 function classify(mime, name) {
   const m = (mime || '').toLowerCase();
@@ -314,11 +339,152 @@ function EmailContactCard({ email }) {
   );
 }
 
+// A document attachment (PDF / Word / Excel / PowerPoint / OpenDocument / zip)
+// inside a chat bubble — rendered as a rich card: an OS-generated page preview
+// on top (Windows Shell / macOS QuickLook via the localfile `?thumb=` handler;
+// absent for archives or where no provider exists), a meta row (type icon,
+// filename, "TYPE · size", timestamp), and an Open / Save-as action footer.
+const DOC_THUMB_EXTS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', 'rtf']);
+function DocAttachment({ name, fullPath, time, caption, pages }) {
+  const [noThumb, setNoThumb] = useState(false);
+  const [size, setSize] = useState(null);
+  const [pdfPages, setPdfPages] = useState(null);
+  const [pdfThumb, setPdfThumb] = useState(null);
+  // Prefer WhatsApp's own page count (works for every doc type); fall back to
+  // the count pdf.js derives when rendering a PDF's thumbnail.
+  const pageCount = pages != null ? pages : pdfPages;
+  const ext = extOf(name);
+  const fileUrl = fullPath ? localUrlFor(fullPath) : null;
+  // PDFs use a pdf.js-rendered first-page image (reliable everywhere); other
+  // doc types fall back to the OS thumbnailer via the localfile `?thumb=` route.
+  const thumbUrl = ext === 'pdf'
+    ? pdfThumb
+    : ((fullPath && DOC_THUMB_EXTS.has(ext)) ? localUrlFor(fullPath, 480) : null);
+  const showThumb = Boolean(thumbUrl) && !noThumb;
+  // Drop WhatsApp's export-id prefix ("00000939-…") from the shown name; the
+  // real `name`/`fullPath` (with prefix) is still used to open/resolve the file.
+  const displayName = String(name || '').replace(/^\d{4,}-/, '');
+
+  // File size via a 1-byte Range request — the localfile handler answers with
+  // `content-range: bytes 0-0/<total>`, so we learn the size without shipping
+  // the whole file or adding an IPC round-trip.
+  useEffect(() => {
+    if (!fileUrl) return undefined;
+    let cancelled = false;
+    fetch(fileUrl, { headers: { Range: 'bytes=0-0' } })
+      .then((r) => {
+        const cr = r.headers.get('content-range');
+        const m = cr && /\/(\d+)\s*$/.exec(cr);
+        const cl = r.headers.get('content-length');
+        const n = m ? parseInt(m[1], 10) : (cl ? parseInt(cl, 10) : NaN);
+        if (!cancelled && Number.isFinite(n)) setSize(n);
+      })
+      .catch(() => { /* size is cosmetic — just omit it */ });
+    return () => { cancelled = true; };
+  }, [fileUrl]);
+
+  // PDFs (reliable via pdf.js, no OS dependency): page count + a real first-page
+  // thumbnail rendered to a canvas. The parsed doc is cached so opening the file
+  // later reuses it. Other formats don't carry a portable page count.
+  useEffect(() => {
+    if (ext !== 'pdf' || !fileUrl) return undefined;
+    let cancelled = false;
+    let objUrl = null;
+    (async () => {
+      try {
+        const doc = await getCachedPdf(fullPath, fileUrl);
+        if (cancelled) return;
+        if (doc?.numPages) setPdfPages(doc.numPages);
+        const page = await doc.getPage(1);
+        const base = page.getViewport({ scale: 1 });
+        const vp = page.getViewport({ scale: Math.min(2, 480 / base.width) });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.ceil(vp.width);
+        canvas.height = Math.ceil(vp.height);
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+        if (cancelled) return;
+        const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.85));
+        if (cancelled || !blob) return;
+        objUrl = URL.createObjectURL(blob);
+        setPdfThumb(objUrl);
+      } catch { /* thumbnail + page count are cosmetic */ }
+    })();
+    return () => { cancelled = true; if (objUrl) URL.revokeObjectURL(objUrl); };
+  }, [ext, fileUrl, fullPath]);
+
+  const typeLabel = DOC_TYPES[ext]?.label || (ext ? ext.toUpperCase() : 'FILE');
+  const sub = [
+    pageCount != null ? `${pageCount} ${pageCount === 1 ? 'page' : 'pages'}` : null,
+    typeLabel,
+    size != null ? formatBytes(size) : null,
+  ].filter(Boolean).join(' · ');
+  const open = () => localFolderApi.openPath(fullPath);
+
+  return (
+    <div className={`dv-wa-doccard${showThumb ? ' has-thumb' : ''}`}>
+      {showThumb && (
+        <button type="button" className="dv-wa-doccard-preview" onClick={open} aria-label={`Open ${displayName}`}>
+          <img src={thumbUrl} alt={displayName} loading="lazy" decoding="async" onError={() => setNoThumb(true)} />
+        </button>
+      )}
+      <button type="button" className="dv-wa-doccard-meta" onClick={open}>
+        {docIconFor(name)}
+        <span className="dv-wa-doccard-info">
+          <Tooltip content={displayName}><span className="dv-wa-doccard-name">{displayName}</span></Tooltip>
+          <span className="dv-wa-doccard-sub">{sub}</span>
+        </span>
+        {time && <span className="dv-wa-doccard-time">{time}</span>}
+      </button>
+      {caption}
+      <div className="dv-wa-doccard-actions">
+        <button type="button" className="dv-wa-doccard-btn" onClick={open}>Open</button>
+      </div>
+    </div>
+  );
+}
+
+// Inline image attachment. On load we measure the photo's intrinsic ratio and
+// size the bubble to match it: the display width is the height-capped width
+// (so a landscape photo is wide, a portrait one narrow), floored by a minimum
+// so tall/narrow photos don't squeeze the bubble to a sliver. The width is
+// published as `--media-w` on the enclosing bubble; CSS clamps the caption to
+// it so the caption text can't stretch the bubble wider than the image.
+const IMG_MAX_W = 330;
+const IMG_MAX_H = 420;
+const IMG_MIN_W = 170;
+function ImageAttachment({ url, name, fullPath, onError }) {
+  const onLoad = (e) => {
+    const img = e.currentTarget;
+    const nw = img.naturalWidth;
+    const nh = img.naturalHeight;
+    if (!nw || !nh) return;
+    const w = Math.round(Math.max(IMG_MIN_W, Math.min(IMG_MAX_W, IMG_MAX_H * (nw / nh))));
+    img.style.width = `${w}px`;
+    img.style.aspectRatio = `${nw} / ${nh}`;
+    const bubble = img.closest('.dv-wa-bubble');
+    if (bubble) bubble.style.setProperty('--media-w', `${w}px`);
+  };
+  return (
+    <Tooltip content={name}>
+      <img
+        className="dv-wa-media"
+        src={url}
+        alt={name}
+        loading="lazy"
+        decoding="async"
+        onLoad={onLoad}
+        onError={onError}
+        onClick={() => localFolderApi.openPath(fullPath)}
+      />
+    </Tooltip>
+  );
+}
+
 // One media attachment inside a chat bubble. Resolves the referenced filename
 // against the export folder (same dir as _chat.txt) and renders it inline:
 // image / video / <audio> for voice notes, or a clickable chip for documents
 // and anything that fails to load (e.g. the file wasn't included in the export).
-function ChatAttachment({ name, dir, sep, time }) {
+function ChatAttachment({ name, dir, sep, time, caption, pages }) {
   const [failed, setFailed] = useState(false);
   const fullPath = dir ? `${dir}${sep}${name}` : name;
   const kind = mediaKindOf(name);
@@ -332,19 +498,7 @@ function ChatAttachment({ name, dir, sep, time }) {
   }
 
   if (url && !failed && kind === 'image') {
-    return (
-      <Tooltip content={name}>
-        <img
-          className="dv-wa-media"
-          src={url}
-          alt={name}
-          loading="lazy"
-          decoding="async"
-          onError={() => setFailed(true)}
-          onClick={() => localFolderApi.openPath(fullPath)}
-        />
-      </Tooltip>
-    );
+    return <ImageAttachment url={url} name={name} fullPath={fullPath} onError={() => setFailed(true)} />;
   }
   if (url && !failed && kind === 'video') {
     // The OS-thumb poster paints instantly; if the handler can't generate
@@ -355,21 +509,22 @@ function ChatAttachment({ name, dir, sep, time }) {
   if (url && !failed && kind === 'audio') {
     return <VoiceNote src={url} onError={() => setFailed(true)} />;
   }
-  // Document / unknown / missing → a chip that opens the file in the OS app.
+  // Referenced but absent from the export folder → the same "not included in
+  // this export" placeholder WhatsApp's own <Media omitted> markers get, rather
+  // than a broken-looking filename chip. (WhatsApp caps the media it bundles,
+  // so most of a long chat's photos/videos/voice notes simply aren't there.)
   const missing = failed || !url;
-  return (
-    <Tooltip content={missing ? `${name} (not found in this folder)` : name}>
-      <button
-        type="button"
-        className={`dv-wa-file${missing ? ' is-missing' : ''}`}
-        onClick={() => { if (url) localFolderApi.openPath(fullPath); }}
-        disabled={missing}
-      >
-        {docIconFor(name)}
-        <span className="dv-wa-file-name">{name}</span>
-      </button>
-    </Tooltip>
-  );
+  if (missing) {
+    const label = MEDIA_MISSING_LABEL[isSticker(name) ? 'sticker' : kind] || 'Attachment';
+    return (
+      <Tooltip content={`${name} — not included in this export`}>
+        <span className="dv-wa-omitted">{PaperclipGlyph}{label} — not included in this export</span>
+      </Tooltip>
+    );
+  }
+  // Present document / archive / unknown → a rich card (thumbnail + meta + the
+  // caption above a full-width Open button), opening the file in the OS app.
+  return <DocAttachment name={name} fullPath={fullPath} time={time} caption={caption} pages={pages} />;
 }
 
 // Friendly label for an "exported without media" placeholder.
@@ -377,6 +532,13 @@ const OMITTED_LABEL = {
   image: 'Photo', photo: 'Photo', video: 'Video', audio: 'Audio',
   'voice message': 'Voice message', gif: 'GIF', sticker: 'Sticker',
   document: 'Document', 'contact card': 'Contact card', media: 'Media',
+};
+// Label for a media file that's REFERENCED in the transcript but isn't in the
+// export folder — WhatsApp's "Attach Media" only bundles the most recent media
+// up to a size cap, so most of a long chat's photos/videos/voice notes simply
+// aren't included. Keyed by mediaKindOf (+ a sticker special-case).
+const MEDIA_MISSING_LABEL = {
+  image: 'Photo', video: 'Video', audio: 'Voice message', sticker: 'Sticker', file: 'Document',
 };
 
 // Wrap every occurrence of the (lowercased) search query `q` in <mark> so it
@@ -557,7 +719,7 @@ const WA_EARLIER_CHUNK = 1200;
 // Memoized: every prop is referentially stable across a rail resize / other
 // DocTextPane-local state commits, so the (large) conversation subtree only
 // re-renders when something it actually shows changes.
-const WhatsAppChat = React.memo(function WhatsAppChat({ messages, dir, sep, highlight, query, rawQuery, onQueryChange, dateFrom, dateTo, onDateFromChange, onDateToChange, rangeActive, timeInRange, railOpen, onToggleRail }) {
+const WhatsAppChat = React.memo(function WhatsAppChat({ variant = 'whatsapp', messages, dir, sep, highlight, query, rawQuery, onQueryChange, dateFrom, dateTo, dateMin, dateMax, onDateFromChange, onDateToChange, onResetDates, rangeActive, timeInRange, railOpen, onToggleRail, footerSlot = null, headerSlot = null }) {
   // `query` is the deferred copy (drives the expensive filtering); `rawQuery`
   // is what the header's search input shows so typing never lags behind.
   // `rangeActive`/`timeInRange` come from DocTextPane (shared with the rail).
@@ -574,6 +736,29 @@ const WhatsAppChat = React.memo(function WhatsAppChat({ messages, dir, sep, high
   const showNames = useMemo(() => {
     const s = new Set(messages.filter((m) => !m.system && m.sender).map((m) => m.sender));
     return s.size > 2;
+  }, [messages]);
+
+  // Conversation tallies shown in the footer (middle-dot separated). Reuses the
+  // rail's bucketing for media/voice/stickers/docs/links/calls/contacts; text
+  // messages are the non-system, non-attachment, non-call lines.
+  const stats = useMemo(() => {
+    const { media, stickers, voice, docs, contacts, links, calls } = buildRailContent(messages);
+    let textCount = 0;
+    for (const m of messages) {
+      if (m.system || m.attachment || m.omitted) continue;
+      if (m.text && detectCall(m.text)) continue;
+      if (m.text) textCount += 1;
+    }
+    return [
+      { one: 'message', many: 'messages', n: textCount },
+      { one: 'media file', many: 'media', n: media.length },
+      { one: 'voice note', many: 'voice notes', n: voice.length },
+      { one: 'sticker', many: 'stickers', n: stickers.length },
+      { one: 'document', many: 'documents', n: docs.length },
+      { one: 'link', many: 'links', n: links.length },
+      { one: 'call', many: 'calls', n: calls.length },
+      { one: 'contact', many: 'contacts', n: contacts.length },
+    ].filter((s) => s.n > 0);
   }, [messages]);
 
   const rows = useMemo(() => buildRenderRows(messages), [messages]);
@@ -704,10 +889,21 @@ const WhatsAppChat = React.memo(function WhatsAppChat({ messages, dir, sep, high
     return d;
   };
 
+  // Docvex skin: incoming messages get a colour-hashed initial avatar to the
+  // left of the bubble (own messages have none), mirroring the Team chat tab.
+  // Only in GROUP chats though — a 1:1 has a single other party, so the circles
+  // are noise there (same `showNames` rule WhatsApp uses to hide sender names).
+  // Returns null in the WhatsApp skin, for own messages, in 1:1s, or no sender.
+  const docvex = variant === 'docvex';
+  const avatarFor = (sender, mine) => (docvex && !mine && sender && showNames)
+    ? <span className="dv-wa-avatar" style={{ background: senderColor(sender) }} aria-hidden="true">{(sender.trim()[0] || '?').toUpperCase()}</span>
+    : null;
+
   // A call rendered as a WhatsApp-style call bubble (left = incoming, right =
   // outgoing when we know the caller; system call lines default to incoming).
-  const callBubble = (call, mine, clock, index) => (
+  const callBubble = (call, mine, clock, index, sender) => (
     <div className={`dv-wa-row ${mine ? 'is-out' : 'is-in'}`} ref={setRowRef([index])}>
+      {avatarFor(sender, mine)}
       <div className={`dv-wa-bubble dv-wa-call-bubble${call.missed ? ' is-missed' : call.duration ? ' is-answered' : ''}`}>
         <span className="dv-wa-call-bubble-icon">{call.type === 'video' ? VideoGlyph : PhoneGlyph}</span>
         <span className="dv-wa-call-bubble-text">
@@ -720,93 +916,11 @@ const WhatsAppChat = React.memo(function WhatsAppChat({ messages, dir, sep, high
       </div>
     </div>
   );
+  // The search + date-range controls live in a sticky FOOTER at the bottom of
+  // the chat section (see the <footer className="dv-wa-footer"> after the
+  // message list, and .dv-wa-footer in DocViewer.css).
   return (
-    <div className="dv-wa">
-      {meSender && (
-        <div className="dv-wa-header">
-          <div className="dv-wa-header-controls">
-          {/* Search pill — same chrome as the AI chat tab's header search:
-              expanding focus ring, Ctrl/⌘+F hint that fades on focus, count
-              chip, clear button. Enter/Shift+Enter walk the matches. */}
-          <div className={`dv-wa-find${(rawQuery || '').trim() ? ' is-active' : ''}`}>
-            <span className="dv-wa-find-icon">{SearchGlyph}</span>
-            <input
-              ref={findInputRef}
-              type="text"
-              value={rawQuery || ''}
-              onChange={(e) => onQueryChange?.(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape' && (rawQuery || '')) { e.stopPropagation(); onQueryChange?.(''); return; }
-                if (e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) goMatch(-1); else goMatch(1); }
-              }}
-              placeholder="Search this chat"
-              aria-label="Search messages in this chat"
-            />
-            {q ? (
-              <span className={`dv-wa-find-count${visibleRows.length === 0 ? ' is-empty' : ''}`} aria-live="polite">
-                {visibleRows.length ? `${(nav ? nav.pos : 0) + 1}/${visibleRows.length}` : 'No results'}
-              </span>
-            ) : null}
-            {(rawQuery || '') ? (
-              <button type="button" className="dv-wa-find-clear" onClick={() => { onQueryChange?.(''); findInputRef.current?.focus(); }} aria-label="Clear search">
-                {ClearGlyph}
-              </button>
-            ) : (
-              <span className="dv-wa-find-kbd" aria-hidden="true">
-                <kbd>{/mac/i.test(navigator.platform) ? '⌘' : 'Ctrl'}</kbd>
-                <span className="dv-wa-find-kbd-plus">+</span>
-                <kbd>F</kbd>
-              </span>
-            )}
-          </div>
-          {/* Date-range controls — show only messages between From and To
-              (either bound optional). The same range filters the rail's
-              Media / Links / Docs / … sections (state lives in DocTextPane). */}
-          <div className={`dv-wa-dates${rangeActive ? ' is-active' : ''}`}>
-            <span className="dv-wa-dates-label">From</span>
-            <input
-              type="date"
-              className="dv-wa-date"
-              value={dateFrom || ''}
-              max={dateTo || undefined}
-              onChange={(e) => onDateFromChange?.(e.target.value)}
-              aria-label="Show content from this date"
-            />
-            <span className="dv-wa-dates-label">to</span>
-            <input
-              type="date"
-              className="dv-wa-date"
-              value={dateTo || ''}
-              min={dateFrom || undefined}
-              onChange={(e) => onDateToChange?.(e.target.value)}
-              aria-label="Show content up to this date"
-            />
-            {rangeActive && (
-              <button
-                type="button"
-                className="dv-wa-find-clear"
-                onClick={() => { onDateFromChange?.(''); onDateToChange?.(''); }}
-                aria-label="Clear date filter"
-              >
-                {ClearGlyph}
-              </button>
-            )}
-          </div>
-          </div>
-          {/* Burger — shows/hides the Media, links & docs rail. */}
-          <Tooltip content={railOpen ? 'Hide media, links & docs' : 'Show media, links & docs'}>
-            <button
-              type="button"
-              className={`dv-wa-burger${railOpen ? ' is-active' : ''}`}
-              onClick={() => onToggleRail?.()}
-              aria-pressed={Boolean(railOpen)}
-              aria-label="Toggle media, links and docs panel"
-            >
-              {BurgerGlyph}
-            </button>
-          </Tooltip>
-        </div>
-      )}
+    <div className={`dv-wa${docvex ? ' is-docvex' : ''}`}>
       <div className="dv-wa-inner">
         {(q || rangeActive) && visibleRows.length === 0 && (
           <div className="dv-wa-noresults">
@@ -856,6 +970,7 @@ const WhatsAppChat = React.memo(function WhatsAppChat({ messages, dir, sep, high
               <React.Fragment key={ri}>
                 {dayDivider && <div className="dv-wa-day"><span>{dayDivider}</span></div>}
                 <div className={`dv-wa-row ${mine ? 'is-out' : 'is-in'}`} ref={setRowRef(row.items.map((it) => it.index))}>
+                  {avatarFor(row.sender, mine)}
                   <div className="dv-wa-bubble has-media dv-wa-album">
                     {!mine && showNames && (
                       <span className="dv-wa-name" style={{ color: senderColor(row.sender) }}>{q ? markMatches(row.sender, q, 'an') : row.sender}</span>
@@ -888,7 +1003,7 @@ const WhatsAppChat = React.memo(function WhatsAppChat({ messages, dir, sep, high
             return (
               <React.Fragment key={ri}>
                 {dayDivider && <div className="dv-wa-day"><span>{dayDivider}</span></div>}
-                {callBubble(msgCall, mine, clock, row.index)}
+                {callBubble(msgCall, mine, clock, row.index, m.sender)}
               </React.Fragment>
             );
           }
@@ -898,25 +1013,40 @@ const WhatsAppChat = React.memo(function WhatsAppChat({ messages, dir, sep, high
           // the "View contact" button can run flush to the bubble's bottom),
           // so suppress the generic floated time for those.
           const isContact = Boolean(m.attachment) && extOf(m.attachment.name) === 'vcf';
+          // Document / archive attachments render as a self-contained card that
+          // carries its own timestamp — suppress the bubble's floated clock so
+          // it isn't shown twice.
+          const isDoc = Boolean(m.attachment) && !isContact && mediaKindOf(m.attachment.name) === 'file';
           return (
             <React.Fragment key={ri}>
               {dayDivider && <div className="dv-wa-day"><span>{dayDivider}</span></div>}
               <div className={`dv-wa-row ${mine ? 'is-out' : 'is-in'}`} ref={setRowRef([row.index])}>
+                {avatarFor(m.sender, mine)}
                 <div className={`dv-wa-bubble${hasMedia ? ' has-media' : ''}${isContact ? ' is-contact' : ''}`}>
                   {!mine && showNames && (
                     <span className="dv-wa-name" style={{ color: senderColor(m.sender) }}>{q ? markMatches(m.sender, q, 'sn') : m.sender}</span>
                   )}
                   {m.attachment ? (
                     <>
-                      <ChatAttachment name={m.attachment.name} dir={dir} sep={sep} time={isContact ? clock : null} />
-                      {caption && <span className="dv-wa-text dv-wa-caption">{linkifyChat(caption, q)}</span>}
+                      <ChatAttachment
+                        name={m.attachment.name}
+                        dir={dir}
+                        sep={sep}
+                        time={(isContact || isDoc) ? clock : null}
+                        pages={m.attachment.pages}
+                        caption={isDoc && caption ? <span className="dv-wa-text dv-wa-caption">{linkifyChat(caption, q)}</span> : null}
+                      />
+                      {/* Media (image/video/audio) keep the caption below the
+                          thumbnail; for the document card it's embedded inside
+                          (above the Open button) instead. */}
+                      {caption && !isDoc && <span className="dv-wa-text dv-wa-caption">{linkifyChat(caption, q)}</span>}
                     </>
                   ) : m.omitted ? (
                     <span className="dv-wa-omitted">{PaperclipGlyph}{OMITTED_LABEL[m.omitted] || 'Attachment'} — not included in this export</span>
                   ) : (
                     <span className="dv-wa-text">{renderMessageText(m.text, q)}</span>
                   )}
-                  {clock && !isContact && <span className="dv-wa-time">{clock}</span>}
+                  {clock && !isContact && !isDoc && <span className="dv-wa-time">{clock}</span>}
                 </div>
               </div>
             </React.Fragment>
@@ -924,6 +1054,122 @@ const WhatsAppChat = React.memo(function WhatsAppChat({ messages, dir, sep, high
         })}
         <div ref={endRef} aria-hidden="true" />
       </div>
+      {meSender && (() => {
+        const controlsNode = (
+        <div className="dv-wa-controls">
+          <div className="dv-wa-header-controls">
+            {/* Search pill — reuses the Files tab's .fx-search styling (its CSS
+                is loaded here via the embedded Files browser) so it's identical.
+                Enter / Shift+Enter walk the matches; count chip + Ctrl/⌘+F hint. */}
+            <div className={`fx-search${(rawQuery || '').trim() ? ' is-active' : ''}`}>
+              <span className="fx-search-glyph">{SearchGlyph}</span>
+              <input
+                ref={findInputRef}
+                type="text"
+                value={rawQuery || ''}
+                onChange={(e) => onQueryChange?.(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && (rawQuery || '')) { e.stopPropagation(); onQueryChange?.(''); return; }
+                  if (e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) goMatch(-1); else goMatch(1); }
+                }}
+                placeholder="Search this chat"
+                aria-label="Search messages in this chat"
+              />
+              {q ? (
+                <span className={`dv-wa-find-count${visibleRows.length === 0 ? ' is-empty' : ''}`} aria-live="polite">
+                  {visibleRows.length ? `${(nav ? nav.pos : 0) + 1}/${visibleRows.length}` : 'No results'}
+                </span>
+              ) : null}
+              {(rawQuery || '') ? (
+                <button type="button" className="fx-search-clear" onClick={() => { onQueryChange?.(''); findInputRef.current?.focus(); }} aria-label="Clear search">
+                  {ClearGlyph}
+                </button>
+              ) : (
+                <span className="fx-search-kbd" aria-hidden="true">
+                  <kbd>{/mac/i.test(navigator.platform) ? '⌘' : 'Ctrl'}</kbd>
+                  <span className="fx-search-kbd-plus">+</span>
+                  <kbd>F</kbd>
+                </span>
+              )}
+            </div>
+            {/* Date-range controls — show only messages between From and To
+                (either bound optional). The same range filters the rail's
+                Media / Links / Docs / … sections (state lives in DocTextPane). */}
+            <div className={`dv-wa-dates${rangeActive ? ' is-active' : ''}`}>
+              <span className="dv-wa-dates-label">From</span>
+              <input
+                type="date"
+                className="dv-wa-date"
+                value={dateFrom || ''}
+                min={dateMin || undefined}
+                max={dateTo || dateMax || undefined}
+                onChange={(e) => onDateFromChange?.(e.target.value)}
+                aria-label="Show content from this date"
+              />
+              <span className="dv-wa-dates-label">to</span>
+              <input
+                type="date"
+                className="dv-wa-date"
+                value={dateTo || ''}
+                min={dateFrom || dateMin || undefined}
+                max={dateMax || undefined}
+                onChange={(e) => onDateToChange?.(e.target.value)}
+                aria-label="Show content up to this date"
+              />
+              {rangeActive && (
+                <button
+                  type="button"
+                  className="dv-wa-find-clear"
+                  onClick={() => onResetDates?.()}
+                  aria-label="Reset to the full date range"
+                >
+                  {ClearGlyph}
+                </button>
+              )}
+            </div>
+          </div>
+          {/* Burger — shows/hides the Media, links & docs rail. Hidden in the
+              Docvex skin, where the rail is pinned open beside the chat. */}
+          {!docvex && (
+            <Tooltip content={railOpen ? 'Hide media, links & docs' : 'Show media, links & docs'}>
+              <button
+                type="button"
+                className={`dv-wa-burger${railOpen ? ' is-active' : ''}`}
+                onClick={() => onToggleRail?.()}
+                aria-pressed={Boolean(railOpen)}
+                aria-label="Toggle media, links and docs panel"
+              >
+                {BurgerGlyph}
+              </button>
+            </Tooltip>
+          )}
+        </div>
+        );
+        // Footer now carries the conversation tallies (messages · media · …)
+        // instead of the controls, which moved up to the header slot.
+        const footerNode = (
+        <footer className="dv-wa-footer">
+          <div className="dv-wa-stats">
+            {stats.length ? stats.map((s, i) => (
+              <React.Fragment key={s.many}>
+                {i > 0 && <span className="dv-wa-stat-dot" aria-hidden="true">·</span>}
+                <span className="dv-wa-stat">
+                  <strong>{s.n.toLocaleString()}</strong> {s.n === 1 ? s.one : s.many}
+                </span>
+              </React.Fragment>
+            )) : <span className="dv-wa-stat dv-wa-stat-empty">No messages</span>}
+          </div>
+        </footer>
+        );
+        // Controls portal up above the tab bars; the stats footer spans the
+        // full pane width (chat + media rail) via the slot below the split.
+        return (
+          <>
+            {headerSlot ? createPortal(controlsNode, headerSlot) : controlsNode}
+            {footerSlot ? createPortal(footerNode, footerSlot) : footerNode}
+          </>
+        );
+      })()}
     </div>
   );
 });
@@ -1354,7 +1600,8 @@ function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, ti
 
   return (
     <aside className="dv-wa-rail" style={width ? { width: `${width}px`, flex: 'none' } : undefined}>
-      <div className="dv-wa-rail-head">Media, links &amp; docs</div>
+      {/* No section title — the tabs sit flush at the top, in line with the
+          AI-advisor tab strip on other file types. */}
       <div className="dv-wa-rail-tabs" role="tablist">
         {tabs.map((t) => (
           <Tooltip key={t.id} content={t.label}>
@@ -1600,7 +1847,10 @@ const PRE_MAX_CHARS = 4 * 1024 * 1024;
 function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
   const [content, setContent] = useState(null);
   const [error, setError] = useState(null);
-  const [mode, setMode] = useState('whatsapp'); // 'whatsapp' | 'plain'
+  // Default to the Docvex skin for recognised WhatsApp convos (the user can
+  // switch to the Plain-text view). Only matters once the content parses as a
+  // chat — plain text always renders below.
+  const [mode, setMode] = useState('docvex'); // 'docvex' | 'plain'
   const [query, setQuery] = useState('');
   // "Find in chat" target — { index, n }. The bumped `n` makes the chat's
   // scroll effect re-fire even when the same message is requested twice.
@@ -1627,12 +1877,32 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
   const RAIL_MIN = 4 * 108 + 3 * 4 + 2 * 12 + 2 + 10;
   const RAIL_BASE = RAIL_MIN;
   const [railWidth, setRailWidth] = useState(null);
+  // Docvex skin only: the conversation column is a fixed, draggable width (the
+  // media rail fills the rest). Persisted across files so the chat ↔ media split
+  // is remembered the next time a conversation is opened. null → 50/50 default.
+  const CHAT_COL_MIN = 360;
+  const [chatW, setChatW] = useState(() => {
+    const w = readDvLayout().chatW;
+    return typeof w === 'number' ? w : null;
+  });
   // Burger toggle (chat header, right edge). CLOSED by default — opening
   // adds the rail as its own section BESIDE the conversation (the split
   // widens by the rail's width, the conversation keeps its size).
   const [railOpen, setRailOpen] = useState(false);
   const toggleRail = useCallback(() => setRailOpen((v) => !v), []);
   const splitRef = useRef(null);
+  // The chat column's inner scroller — wrapped so a custom overlay scrollbar can
+  // sit OUTSIDE it (the native bar is hidden), keeping the sticky tab strip and
+  // footer full-width instead of being narrowed by the gutter.
+  const chatScrollRef = useRef(null);
+  // Slot below the chat+media split that the conversation footer (search + date
+  // range + view toggle) portals into, so it spans the FULL width — across the
+  // media / stickers rail too, not just the chat column.
+  const [footerSlot, setFooterSlot] = useState(null);
+  // Slot ABOVE the tab bars that the search + date-range controls portal into,
+  // so they sit at the very top of the conversation section (the footer below
+  // now carries the conversation stats instead).
+  const [headerSlot, setHeaderSlot] = useState(null);
   // Both drags write widths STRAIGHT to the DOM (rAF-coalesced) and commit
   // React state once on mouseup. Routing every mousemove through setState
   // re-rendered the whole split — hundreds of chat rows plus every rail
@@ -1684,6 +1954,23 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
     }, () => setRailWidth(lastRail));
   };
 
+  // Docvex skin: handle between the conversation and the media rail. Resizes the
+  // chat column (fixed width); the rail flexes to fill the rest. Persisted.
+  const startChatColResize = (e) => {
+    const split = splitRef.current;
+    const chatEl = split?.querySelector('.dv-wa-chatcol');
+    if (!split || !chatEl) return;
+    const startW = toLayoutPx(chatEl.getBoundingClientRect().width);
+    const paneW = toLayoutPx(split.getBoundingClientRect().width);
+    let last = startW;
+    dragHorizontal(e, (dx) => {
+      const maxChat = Math.max(CHAT_COL_MIN, paneW - RAIL_MIN - 6);
+      last = Math.max(CHAT_COL_MIN, Math.min(maxChat, startW + dx));
+      chatEl.style.flex = 'none';
+      chatEl.style.width = `${last}px`;
+    }, () => { setChatW(last); writeDvLayout({ chatW: last }); });
+  };
+
   useEffect(() => {
     let cancelled = false;
     setContent(null);
@@ -1719,17 +2006,44 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const dayResolver = useMemo(() => buildDayResolver(chat.messages), [chat.messages]);
+  // The conversation's own date span (first → last parseable message). The
+  // From/To inputs default to these so the user sees the real range and narrows
+  // inward, rather than starting from blank fields.
+  const dateBounds = useMemo(() => {
+    let min = null; let max = null;
+    for (const m of chat.messages) {
+      const k = dayResolver(m.time);
+      if (k == null) continue;
+      if (min == null || k < min) min = k;
+      if (max == null || k > max) max = k;
+    }
+    return { minKey: min, maxKey: max, from: keyToDateInput(min), to: keyToDateInput(max) };
+  }, [chat.messages, dayResolver]);
+  // Seed (and re-seed on a new conversation) the inputs to the full span.
+  useEffect(() => {
+    setDateFrom(dateBounds.from);
+    setDateTo(dateBounds.to);
+  }, [dateBounds.from, dateBounds.to]);
   const fromKey = dateInputKey(dateFrom);
   const toKey = dateInputKey(dateTo);
-  const rangeActive = fromKey != null || toKey != null;
+  // "Active" only once the user narrows INSIDE the conversation's own span —
+  // the default (full span) shows everything, exactly as an empty filter did,
+  // so unparseable-timestamp lines aren't hidden just because defaults are set.
+  const rangeActive = (fromKey != null && (dateBounds.minKey == null || fromKey > dateBounds.minKey))
+    || (toKey != null && (dateBounds.maxKey == null || toKey < dateBounds.maxKey));
   const timeInRange = useCallback((time) => {
-    if (fromKey == null && toKey == null) return true;
+    if (!rangeActive) return true;
     const k = dayResolver(time);
     if (k == null) return false; // unparseable timestamp — hide while filtering
     if (fromKey != null && k < fromKey) return false;
     if (toKey != null && k > toKey) return false;
     return true;
-  }, [dayResolver, fromKey, toKey]);
+  }, [dayResolver, fromKey, toKey, rangeActive]);
+  // Clear/reset returns the inputs to the full conversation span (not blank).
+  const resetDates = useCallback(() => {
+    setDateFrom(dateBounds.from);
+    setDateTo(dateBounds.to);
+  }, [dateBounds.from, dateBounds.to]);
 
   // The search input (in the chat's POV header) stays controlled by `query`,
   // but everything expensive (filtering + re-rendering thousands of rows)
@@ -1740,82 +2054,129 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
   if (error) return <div className="dv-noview"><p className="dv-noview-title">Couldn't read the file</p><p className="dv-noview-sub">{error}</p></div>;
   if (content == null) return <div className="dv-loading">Loading text…</div>;
 
-  const showChat = chat.isWhatsApp && mode === 'whatsapp';
+  const showChat = chat.isWhatsApp && mode === 'docvex';
+  // Docvex skin pins the media rail open beside the conversation and splits the
+  // space up to the extraction panel 50/50 (no fixed width, no resize handle).
+  const docvex = mode === 'docvex';
+  const railShown = docvex || railOpen;
+
+  // Display-mode toggle (WhatsApp / Docvex / Plain text). Lives in the chat's
+  // footer next to the search + date controls (and in a footer of its own in
+  // plain-text mode so you can always switch back).
+  const modeToggle = chat.isWhatsApp ? (
+    <div className="dv-text-toggle" role="group" aria-label="Display mode">
+      <button
+        type="button"
+        className={`dv-text-toggle-btn${mode === 'docvex' ? ' is-active' : ''}`}
+        onClick={() => setMode('docvex')}
+        aria-pressed={mode === 'docvex'}
+      >
+        {DocvexGlyph}
+        Docvex
+      </button>
+      <button
+        type="button"
+        className={`dv-text-toggle-btn${mode === 'plain' ? ' is-active' : ''}`}
+        onClick={() => setMode('plain')}
+        aria-pressed={mode === 'plain'}
+      >
+        Plain text
+      </button>
+    </div>
+  ) : null;
 
   return (
     <div className="dv-text-pane">
-      {chat.isWhatsApp && (
-        <div className="dv-text-toolbar">
-          <div className="dv-text-toggle" role="group" aria-label="Display mode">
-            <button
-              type="button"
-              className={`dv-text-toggle-btn${mode === 'whatsapp' ? ' is-active' : ''}`}
-              onClick={() => setMode('whatsapp')}
-              aria-pressed={mode === 'whatsapp'}
-            >
-              {WhatsAppGlyph}
-              WhatsApp
-            </button>
-            <button
-              type="button"
-              className={`dv-text-toggle-btn${mode === 'plain' ? ' is-active' : ''}`}
-              onClick={() => setMode('plain')}
-              aria-pressed={mode === 'plain'}
-            >
-              Plain text
-            </button>
-          </div>
-        </div>
-      )}
       {showChat ? (
+        <>
+        {/* Full-width slot ABOVE the tab bars — the search + date controls
+            portal in here so they top the whole conversation section. */}
+        <div className="dv-wa-headerslot" ref={setHeaderSlot} />
         <div
-          className="dv-wa-split"
+          className={`dv-wa-split${docvex ? ' is-fluid' : ''}`}
           ref={splitRef}
-          // Derived width: the conversation's width, plus the rail's when
-          // open (the resize handles contribute no layout width — their
-          // negative margins straddle the boundaries). max-width:100% caps
-          // the total at the pane edge.
-          style={{ width: `${CHAT_BASE + (railOpen ? Math.round(railWidth ?? RAIL_BASE) : 0)}px` }}
+          // WhatsApp skin: derived width — the conversation's width plus the
+          // rail's when the burger opens it (the resize handles contribute no
+          // layout width; max-width:100% caps it at the pane edge). Docvex skin
+          // (is-fluid): no inline width — the split fills the pane up to the
+          // extraction panel and chat + rail share it 50/50 via CSS.
+          style={docvex ? undefined : { width: `${CHAT_BASE + (railOpen ? Math.round(railWidth ?? RAIL_BASE) : 0)}px` }}
         >
-          <div className="dv-wa-chatcol">
-            <WhatsAppChat
-              messages={chat.messages}
-              dir={dir}
-              sep={sep}
-              highlight={findReq}
-              query={deferredQuery}
-              rawQuery={query}
-              onQueryChange={setQuery}
-              dateFrom={dateFrom}
-              dateTo={dateTo}
-              onDateFromChange={setDateFrom}
-              onDateToChange={setDateTo}
-              rangeActive={rangeActive}
-              timeInRange={timeInRange}
-              railOpen={railOpen}
-              onToggleRail={toggleRail}
-            />
+          <div
+            className="dv-wa-chatcol"
+            // Docvex: fixed, draggable width once the user has resized it (else
+            // 50/50 via CSS). WhatsApp skin keeps its own fixed CHAT_BASE width.
+            style={docvex && chatW != null ? { flex: 'none', width: `${chatW}px` } : undefined}
+          >
+            {/* View-mode tabs (Docvex / Plain text) — a tab strip at the top-left
+                of the conversation section, styled like the media rail's tabbar
+                and in line with it. Outside the scroller so the scrollbar gutter
+                never narrows it. */}
+            {modeToggle}
+            {/* Scroller wrapped so the custom overlay scrollbar (below) sits in a
+                right-edge gutter instead of taking layout width. */}
+            <div className="dv-wa-chatscroll-wrap">
+              <div className="dv-wa-chatscroll" ref={chatScrollRef}>
+                <WhatsAppChat
+                  variant={mode}
+                  messages={chat.messages}
+                  dir={dir}
+                  sep={sep}
+                  highlight={findReq}
+                  query={deferredQuery}
+                  rawQuery={query}
+                  onQueryChange={setQuery}
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  dateMin={dateBounds.from}
+                  dateMax={dateBounds.to}
+                  onDateFromChange={setDateFrom}
+                  onDateToChange={setDateTo}
+                  onResetDates={resetDates}
+                  rangeActive={rangeActive}
+                  timeInRange={timeInRange}
+                  railOpen={railOpen}
+                  onToggleRail={toggleRail}
+                  footerSlot={footerSlot}
+                  headerSlot={headerSlot}
+                />
+              </div>
+              <SidebarScrollbar scrollRef={chatScrollRef} refreshKey={chat.messages} />
+            </div>
           </div>
-          {railOpen && (
+          {/* Docvex: draggable divider between the conversation and the media rail. */}
+          {docvex && railShown && (
+            <div className="dv-wa-resizer" onMouseDown={startChatColResize} role="separator" aria-orientation="vertical" title="Drag to resize the conversation" />
+          )}
+          {railShown && (
             <>
-              <WhatsAppRail messages={chat.messages} dir={dir} sep={sep} onFindInChat={findInChat} width={railWidth ?? RAIL_BASE} rangeActive={rangeActive} timeInRange={timeInRange} />
-              <div className="dv-wa-resizer" onMouseDown={startRailResize} role="separator" aria-orientation="vertical" title="Drag to resize the panel" />
+              <WhatsAppRail messages={chat.messages} dir={dir} sep={sep} onFindInChat={findInChat} width={docvex ? null : (railWidth ?? RAIL_BASE)} rangeActive={rangeActive} timeInRange={timeInRange} />
+              {!docvex && <div className="dv-wa-resizer" onMouseDown={startRailResize} role="separator" aria-orientation="vertical" title="Drag to resize the panel" />}
             </>
           )}
         </div>
+        {/* Full-width footer slot — the conversation footer portals in here so
+            it spans the chat + media rail. */}
+        <div className="dv-wa-footerslot" ref={setFooterSlot} />
+        </>
       ) : (
-        <div className="dv-text-scroll">
-          {content.length > PRE_MAX_CHARS && (
-            <div className="dv-text-truncated">
-              Showing the first {Math.round(PRE_MAX_CHARS / (1024 * 1024))} MB — switch to the WhatsApp view for the full conversation.
-            </div>
-          )}
-          {isMarkdown ? (
-            <div className="dv-text-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{content.slice(0, PRE_MAX_CHARS)}</ReactMarkdown></div>
-          ) : (
-            <pre className="dv-text-pre">{content.slice(0, PRE_MAX_CHARS)}</pre>
-          )}
-        </div>
+        <>
+          {/* Same view-mode tab strip pinned at the top-left in plain-text mode,
+              so you can always switch back to the Docvex view. */}
+          {modeToggle}
+          <div className="dv-text-scroll">
+            {content.length > PRE_MAX_CHARS && (
+              <div className="dv-text-truncated">
+                Showing the first {Math.round(PRE_MAX_CHARS / (1024 * 1024))} MB — switch to the Docvex view for the full conversation.
+              </div>
+            )}
+            {isMarkdown ? (
+              <div className="dv-text-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{content.slice(0, PRE_MAX_CHARS)}</ReactMarkdown></div>
+            ) : (
+              <pre className="dv-text-pre">{content.slice(0, PRE_MAX_CHARS)}</pre>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
@@ -1824,6 +2185,12 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
 const WhatsAppGlyph = (
   <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
     <path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.6-6.1c-.3-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-2-1.2 7.4 7.4 0 0 1-1.4-1.7c-.1-.3 0-.4.1-.5l.4-.5.3-.4v-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 2.9 2.9 0 0 0-.9 2.2 5 5 0 0 0 1.1 2.7 11.5 11.5 0 0 0 4.4 3.9c2.6 1 2.6.7 3.1.6a2.6 2.6 0 0 0 1.7-1.2 2.1 2.1 0 0 0 .1-1.2c-.1-.1-.3-.2-.5-.3z" />
+  </svg>
+);
+// Speech-bubble mark for the Docvex (Team-chat-styled) view toggle.
+const DocvexGlyph = (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.5 8.5 0 0 1-.9-3.8A8.38 8.38 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z" />
   </svg>
 );
 
@@ -2013,9 +2380,183 @@ const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 8;
 const ZOOM_STEP = 1.3;
 const HISTORY_MAX_WIDTH = 960;
+// One default width for the side panel across ALL file types (it's the same
+// panel everywhere). Defaults to the max so the panel opens at full width;
+// still resizable down to HISTORY_MIN_WIDTH.
 const HISTORY_DEFAULT_WIDTH = HISTORY_MAX_WIDTH;
 
-function MediaOcrPane({ file, url, kind }) {
+// Persisted doc-viewer column layout (px). Shared across files so resizing the
+// chat / media / advisor columns in one WhatsApp conversation is remembered the
+// next time any conversation (or document) is opened.
+//   chatW    — width of the conversation column (chat ↔ media split)
+//   advisorW — width of the side panel (AI advisor / extracted-text)
+const DV_LAYOUT_KEY = 'docvex:doc-viewer:layout:v1';
+function readDvLayout() {
+  try { const v = JSON.parse(localStorage.getItem(DV_LAYOUT_KEY)); if (v && typeof v === 'object') return v; } catch { /* ignore */ }
+  return {};
+}
+function writeDvLayout(patch) {
+  try { localStorage.setItem(DV_LAYOUT_KEY, JSON.stringify({ ...readDvLayout(), ...patch })); } catch { /* ignore */ }
+}
+
+// Side-panel tab labels. Which tabs a file type shows is decided by
+// sideTabsForKind: Text extraction is for images + video, AI captions for
+// audio + video, and the AI advisor is available for every file type. All three
+// live in ONE tabbed side panel (the "AI advisor" panel) beside the document.
+const SIDE_TAB_LABELS = { extract: 'Text extraction', captions: 'AI captions', advisor: 'AI advisor' };
+// The Multitool always shows all three tools; each pane renders a graceful empty
+// state for a tool that doesn't apply to its file type.
+function sideTabsForKind() {
+  return ['extract', 'captions', 'advisor'];
+}
+
+// Tab bar shared by every file type's side panel. `tabs` is the ordered list of
+// tab ids the host wants shown (see sideTabsForKind).
+function SidePanelTabs({ tabs = ['extract', 'captions'], active, onChange, slot = null }) {
+  const el = (
+    <div className="dv-side-tabs">
+      {tabs.map((id) => (
+        <button
+          key={id}
+          type="button"
+          className={`dv-side-tab${active === id ? ' is-active' : ''}`}
+          onClick={() => onChange(id)}
+        >
+          {SIDE_TAB_LABELS[id]}
+        </button>
+      ))}
+    </div>
+  );
+  // When a slot is given (the Multitool topbar), render the tabs there instead
+  // of inline above the panel content.
+  return slot ? createPortal(el, slot) : el;
+}
+// Paper-plane send glyph for the advisor composer (mirrors the main app's
+// AI-tab composer send button).
+const AdvisorSendGlyph = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M22 2 11 13" />
+    <path d="M22 2 15 22l-4-9-9-4z" />
+  </svg>
+);
+
+// Per-file AI advisor — a lightweight chat about the open file, available on
+// every file type's side panel. Backed by the project-ai Edge Function
+// (askProjectAi); shows an inline notice when the AI key isn't configured. The
+// conversation is per-mount (resets when the file changes), not persisted.
+function AdvisorPanel({ file }) {
+  const [messages, setMessages] = useState([]); // [{ role, content }]
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const scrollRef = useRef(null);
+
+  // Reset the thread when the panel is reused for a different file.
+  useEffect(() => { setMessages([]); setInput(''); setError(null); }, [file.storage_path]);
+
+  // Keep the newest turn in view.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, busy]);
+
+  const send = useCallback(async () => {
+    const q = input.trim();
+    if (!q || busy) return;
+    const next = [...messages, { role: 'user', content: q }];
+    setMessages(next);
+    setInput('');
+    setBusy(true);
+    setError(null);
+    const res = await askProjectAi({ messages: next, fileNames: [file.name] });
+    setBusy(false);
+    if (res.error) { setError('The AI advisor is unavailable right now.'); return; }
+    setMessages((m) => [...m, { role: 'assistant', content: res.text }]);
+  }, [input, busy, messages, file.name]);
+
+  return (
+    <div className="dv-advisor">
+      <div className="dv-advisor-scroll" ref={scrollRef}>
+        <header className="dv-ocr-history-head">
+          <div className="dv-ocr-history-eyebrow">
+            <span>AI advisor</span>
+            <span className="dv-ocr-history-eyebrow-muted">· about this file</span>
+          </div>
+          <h2 className="dv-ocr-history-title">Ask about this file</h2>
+        </header>
+        {messages.length === 0 && !busy ? (
+          <p className="dv-ocr-history-empty">
+            Ask the AI advisor anything about <strong>{file.name}</strong> — a summary, the key points, or what to do next.
+          </p>
+        ) : (
+          <div className="dv-advisor-msgs">
+            {messages.map((m, i) => (
+              <div key={i} className={`dv-advisor-msg is-${m.role}`}>{m.content}</div>
+            ))}
+            {busy && <div className="dv-advisor-msg is-assistant is-typing">Thinking…</div>}
+          </div>
+        )}
+        {error && (
+          <div className="dv-ocr-error" role="alert">
+            <span>{error}</span>
+            <button type="button" aria-label="Dismiss" onClick={() => setError(null)}>×</button>
+          </div>
+        )}
+      </div>
+      <div className="dv-advisor-compose">
+        {/* Mirrors the main app's AI-tab composer (.dvx-composer): a frosted
+            rounded surface, textarea on top, a round accent send button below. */}
+        <div
+          className="dv-advisor-composer"
+          onMouseMove={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            e.currentTarget.style.setProperty('--spot-x', `${e.clientX - r.left}px`);
+            e.currentTarget.style.setProperty('--spot-y', `${e.clientY - r.top}px`);
+          }}
+        >
+          <textarea
+            className="dv-advisor-composer-textarea"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+            placeholder="Ask about this file…"
+            rows={1}
+          />
+          <div className="dv-advisor-composer-toolbar">
+            <div className="dv-advisor-composer-spacer" />
+            <button
+              type="button"
+              className="dv-advisor-composer-send"
+              onClick={send}
+              disabled={busy || !input.trim()}
+              aria-label="Send"
+            >
+              {AdvisorSendGlyph}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Caption snap layout (px within the video stage):
+//  • CAP_PAD      — edge inset for the top / left / right snap targets
+//  • CAP_BOTTOM   — keep the caption clear of the timeline + controls bar
+//  • CAP_TOPRIGHT — top-right target drops below the zoom pill + Extract-text
+//                   button (both now live in the stage's top-right corner)
+//  • CAP_SNAP     — snap when the caption centre is within this distance
+const CAP_PAD = 16;
+const CAP_BOTTOM = 118;
+const CAP_TOPRIGHT = 108;
+const CAP_SNAP = 46;
+// Fixed nominal half-size used ONLY to place the snap dots, so they sit in the
+// same spot regardless of the current caption's width/height (the snap-target
+// centres still use the real half-size so the box lands fully inside the stage).
+const CAP_DOT_HALFW = 80;
+const CAP_DOT_HALFH = 18;
+
+function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = null }) {
   const stageRef = useRef(null);
   const mediaRef = useRef(null);
   const clipIdRef = useRef(`dvocr-${Math.random().toString(36).slice(2)}`);
@@ -2270,18 +2811,164 @@ function MediaOcrPane({ file, url, kind }) {
     return seg?.text?.trim() || null;
   }, [kind, captions, currentTime]);
 
+  // ── Movable caption (YouTube-style) ──────────────────────────────
+  // `captionSettings` = { x, y, enabled }: x/y are the caption centre as a %
+  // of the stage, loaded from a GLOBAL store so the placement (and on/off
+  // state) is shared across files and survives app restarts. Dragging updates
+  // it live and persists on drop.
+  const captionRef = useRef(null);
+  const [captionSettings, setCaptionSettings] = useState(loadCaptionSettings);
+  const [draggingCaption, setDraggingCaption] = useState(false);
+  // Snap targets shown while dragging (caption-centre px within the stage) +
+  // the id of the one currently engaged.
+  const [snapAnchors, setSnapAnchors] = useState(null);
+  const [activeSnap, setActiveSnap] = useState(null);
+
+  const toggleCaptions = useCallback(() => {
+    setCaptionSettings((s) => {
+      const next = { ...s, enabled: !s.enabled };
+      saveCaptionSettings({ enabled: next.enabled });
+      return next;
+    });
+  }, []);
+
+  // The 9 snap targets (corners + edge-centres + middle) as caption-centre px,
+  // each carrying the text alignment to apply when snapped there. Left column →
+  // left-aligned, right column → right-aligned, centre column → centred. The
+  // top-right target sits under the zoom pill + Extract-text button; the bottom
+  // row stays above the timeline/controls.
+  const captionSnapAnchors = useCallback((sr, halfW, halfH) => {
+    // Snap-target CENTRES (x/y) — the caption box's centre when snapped here.
+    // They use the REAL half-size so the box pins its edge at CAP_PAD and stays
+    // fully inside the stage. These are viewport px, tested against the cursor.
+    const leftX = CAP_PAD + halfW;
+    const centreX = sr.width / 2;
+    const rightX = sr.width - CAP_PAD - halfW;
+    const topY = CAP_PAD + halfH;
+    const midY = sr.height / 2;
+    const bottomY = sr.height - CAP_BOTTOM - halfH;
+    const topRightY = CAP_TOPRIGHT + halfH;
+    // DOT positions (dx/dy) — where the snap dot is DRAWN. They use a FIXED
+    // nominal half-size so the dots stay in the same place no matter how wide /
+    // tall the current caption is (xPct/yPct are stage-relative %, since CSS px
+    // ≠ viewport px under the app's CSS-zoom).
+    const dLeftX = CAP_PAD + CAP_DOT_HALFW;
+    const dRightX = sr.width - CAP_PAD - CAP_DOT_HALFW;
+    const dTopY = CAP_PAD + CAP_DOT_HALFH;
+    const dBottomY = sr.height - CAP_BOTTOM - CAP_DOT_HALFH;
+    const dTopRightY = CAP_TOPRIGHT + CAP_DOT_HALFH;
+    return [
+      { id: 'tl', x: leftX, y: topY, dx: dLeftX, dy: dTopY, align: 'left' },
+      { id: 'tc', x: centreX, y: topY, dx: centreX, dy: dTopY, align: 'center' },
+      { id: 'tr', x: rightX, y: topRightY, dx: dRightX, dy: dTopRightY, align: 'right' },
+      { id: 'ml', x: leftX, y: midY, dx: dLeftX, dy: midY, align: 'left' },
+      { id: 'mc', x: centreX, y: midY, dx: centreX, dy: midY, align: 'center' },
+      { id: 'mr', x: rightX, y: midY, dx: dRightX, dy: midY, align: 'right' },
+      { id: 'bl', x: leftX, y: bottomY, dx: dLeftX, dy: dBottomY, align: 'left' },
+      { id: 'bc', x: centreX, y: bottomY, dx: centreX, dy: dBottomY, align: 'center' },
+      { id: 'br', x: rightX, y: bottomY, dx: dRightX, dy: dBottomY, align: 'right' },
+    ].map((a) => ({ ...a, xPct: (a.dx / sr.width) * 100, yPct: (a.dy / sr.height) * 100 }));
+  }, []);
+
+  // Keep the caption clear of the timeline/controls whenever the stage resizes
+  // (window resize, Files footer opening) — never raises a higher placement.
+  useEffect(() => {
+    if (kind !== 'video' || typeof ResizeObserver === 'undefined') return undefined;
+    const stage = stageRef.current;
+    if (!stage) return undefined;
+    const clamp = () => {
+      const sr = stage.getBoundingClientRect();
+      if (!sr.height) return;
+      const capEl = captionRef.current;
+      const halfH = capEl ? capEl.getBoundingClientRect().height / 2 : 18;
+      const maxYpct = ((sr.height - CAP_BOTTOM - halfH) / sr.height) * 100;
+      setCaptionSettings((s) => (s.y > maxYpct ? { ...s, y: Math.max(0, maxYpct) } : s));
+    };
+    const ro = new ResizeObserver(clamp);
+    ro.observe(stage);
+    return () => ro.disconnect();
+  }, [kind]);
+
+  const onCaptionMouseDown = useCallback((e) => {
+    // Don't fight the OCR lasso or start a stage pan when grabbing the caption.
+    if (armed) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const stage = stageRef.current;
+    const capEl = captionRef.current;
+    if (!stage || !capEl) return;
+    const sr = stage.getBoundingClientRect();
+    const cr = capEl.getBoundingClientRect();
+    // Keep the grab point under the cursor (no jump to centre on grab).
+    const grabDx = e.clientX - (cr.left + cr.width / 2);
+    const grabDy = e.clientY - (cr.top + cr.height / 2);
+    const halfW = cr.width / 2;
+    const halfH = cr.height / 2;
+    const anchors = captionSnapAnchors(sr, halfW, halfH);
+    // Never let the caption drop under the timeline/controls.
+    const maxY = sr.height - CAP_BOTTOM - halfH;
+    setSnapAnchors(anchors);
+    setDraggingCaption(true);
+    let latest = null;
+    const onMove = (ev) => {
+      let cx = ev.clientX - grabDx - sr.left;
+      let cy = ev.clientY - grabDy - sr.top;
+      cx = Math.max(halfW, Math.min(sr.width - halfW, cx));
+      cy = Math.max(halfH, Math.min(maxY, cy));
+      // Snap to the nearest target within range; otherwise align by column.
+      let best = null; let bestDist = CAP_SNAP;
+      for (const a of anchors) {
+        const d = Math.hypot(cx - a.x, cy - a.y);
+        if (d < bestDist) { bestDist = d; best = a; }
+      }
+      let align;
+      if (best) { cx = best.x; cy = best.y; align = best.align; setActiveSnap(best.id); }
+      else { align = cx / sr.width <= 0.34 ? 'left' : cx / sr.width >= 0.66 ? 'right' : 'center'; setActiveSnap(null); }
+      // Store the alignment-relevant EDGE (left edge for left, right edge for
+      // right, centre for centre) so the caption pins to that side: text-align
+      // reads naturally and the box stays put as the line length changes.
+      const anchorX = align === 'left' ? cx - halfW : align === 'right' ? cx + halfW : cx;
+      latest = { x: (anchorX / sr.width) * 100, y: (cy / sr.height) * 100, align };
+      setCaptionSettings((s) => ({ ...s, ...latest }));
+    };
+    const onUp = () => {
+      setDraggingCaption(false);
+      setSnapAnchors(null);
+      setActiveSnap(null);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (latest) saveCaptionSettings(latest);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [armed, captionSnapAnchors]);
+
   // ── Zoom / pan ───────────────────────────────────────────────────
   // Reset on file change.
   useEffect(() => { setZoom(1); setPanX(0); setPanY(0); }, [file.path]);
   // Keep panStateRef current so the drag closure reads the latest value.
   useEffect(() => { panStateRef.current = { x: panX, y: panY }; }, [panX, panY]);
 
-  const zoomIn = useCallback(() => setZoom(z => Math.min(ZOOM_MAX, +(z * ZOOM_STEP).toFixed(3))), []);
+  // Scale the pan by the zoom factor so the point at the stage centre stays put
+  // through a zoom change — zooming in/out happens around the current view
+  // centre (the panned-to spot) rather than the image's own centre.
+  const reanchorPan = useCallback((factor) => {
+    setPanX((px) => px * factor);
+    setPanY((py) => py * factor);
+  }, []);
+
+  const zoomIn = useCallback(() => setZoom(z => {
+    const next = Math.min(ZOOM_MAX, +(z * ZOOM_STEP).toFixed(3));
+    reanchorPan(next / z);
+    return next;
+  }), [reanchorPan]);
   const zoomOut = useCallback(() => setZoom(z => {
     const next = z / ZOOM_STEP;
     if (next <= 1) { setPanX(0); setPanY(0); return 1; }
-    return Math.max(ZOOM_MIN, +next.toFixed(3));
-  }), []);
+    const clamped = Math.max(ZOOM_MIN, +next.toFixed(3));
+    reanchorPan(clamped / z);
+    return clamped;
+  }), [reanchorPan]);
   const zoomReset = useCallback(() => { setZoom(1); setPanX(0); setPanY(0); }, []);
 
   // Non-passive wheel listener for scroll-to-zoom (passive: false required for preventDefault).
@@ -2292,14 +2979,16 @@ function MediaOcrPane({ file, url, kind }) {
       if (armed) return;
       e.preventDefault();
       setZoom(z => {
-        const next = e.deltaY < 0 ? z * ZOOM_STEP : z / ZOOM_STEP;
-        if (next <= 1 && e.deltaY > 0) { setPanX(0); setPanY(0); return 1; }
-        return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +next.toFixed(3)));
+        const raw = e.deltaY < 0 ? z * ZOOM_STEP : z / ZOOM_STEP;
+        if (raw <= 1 && e.deltaY > 0) { setPanX(0); setPanY(0); return 1; }
+        const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +raw.toFixed(3)));
+        reanchorPan(next / z);
+        return next;
       });
     };
     stage.addEventListener('wheel', onWheel, { passive: false });
     return () => stage.removeEventListener('wheel', onWheel);
-  }, [armed]);
+  }, [armed, reanchorPan]);
 
   // Stage mousedown: pan when zoomed, or click-to-play for video (replaces dv-player-click).
   const onStageMouseDown = useCallback((e) => {
@@ -2806,7 +3495,7 @@ function MediaOcrPane({ file, url, kind }) {
         </div>
       )}
 
-      {/* Zoom controls — floating pill top-left, always visible. */}
+      {/* Zoom controls — floating pill top-right, always visible. */}
       <div className="dv-zoom-controls">
         <button type="button" className="dv-zoom-btn" onClick={zoomOut} aria-label="Zoom out">−</button>
         <button type="button" className="dv-zoom-pct" onClick={zoomReset} title="Reset zoom">{Math.round(zoom * 100)}%</button>
@@ -2829,11 +3518,40 @@ function MediaOcrPane({ file, url, kind }) {
 
       {kind === 'video' && (
         <>
-          {/* Live AI caption — the active transcript line as a subtitle in the
-              bottom-left over the decibel line. Stays visible even when the
-              controls (and the scope) fade out during playback. */}
-          {activeCaption && (
-            <div className="dv-video-caption">{activeCaption}</div>
+          {/* Snap targets — shown while dragging the caption. Corners +
+              edge-centres + middle; the engaged one lights up. */}
+          {draggingCaption && snapAnchors && (
+            <div className="dv-caption-snaps" aria-hidden="true">
+              {snapAnchors.map((a) => (
+                <span
+                  key={a.id}
+                  className={`dv-caption-snap${activeSnap === a.id ? ' is-active' : ''}`}
+                  style={{ left: `${a.xPct}%`, top: `${a.yPct}%` }}
+                />
+              ))}
+            </div>
+          )}
+          {/* Live AI caption — the active transcript line as a subtitle.
+              Drag it anywhere over the video (YouTube-style); it snaps to the
+              edges/corners and aligns its text to match. The spot is remembered
+              globally and stays clear of the timeline. */}
+          {captionSettings.enabled && activeCaption && (
+            <div
+              ref={captionRef}
+              className={`dv-video-caption${draggingCaption ? ' is-dragging' : ''}${armed ? ' is-locked' : ''}`}
+              style={{
+                left: `${captionSettings.x}%`,
+                top: `${captionSettings.y}%`,
+                // Pin the edge that matches the alignment (left edge / centre /
+                // right edge) so x is that edge's position.
+                transform: `translate(${captionSettings.align === 'left' ? '0%' : captionSettings.align === 'right' ? '-100%' : '-50%'}, -50%)`,
+                textAlign: captionSettings.align,
+              }}
+              onMouseDown={onCaptionMouseDown}
+              title="Drag to reposition"
+            >
+              {activeCaption}
+            </div>
           )}
           <div className={`dv-player${!playing || controlsShown ? ' is-visible' : ''}`}>
             <div className="dv-player-scrim" />
@@ -2868,6 +3586,17 @@ function MediaOcrPane({ file, url, kind }) {
                     aria-label="Volume"
                   />
                 </div>
+                {captions?.state === 'done' && (
+                  <button
+                    type="button"
+                    className={`dv-player-btn dv-player-cc${captionSettings.enabled ? ' is-active' : ''}`}
+                    onClick={toggleCaptions}
+                    aria-label={captionSettings.enabled ? 'Hide captions' : 'Show captions'}
+                    aria-pressed={captionSettings.enabled}
+                  >
+                    {CaptionsGlyph}
+                  </button>
+                )}
                 <button type="button" className="dv-player-btn" onClick={toggleFullscreen} aria-label="Toggle fullscreen">
                   {FullscreenGlyph}
                 </button>
@@ -2917,53 +3646,17 @@ function MediaOcrPane({ file, url, kind }) {
       )}
     </div>
 
-    <div
-      className="dv-ocr-resize"
-      onMouseDown={beginHistoryResize}
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize extracted text panel"
-    />
-
-    <aside className="dv-ocr-history" style={{ width: `${historyWidth}px` }}>
-      {/* Videos get a tab bar to flip the sidebar between the OCR snippets and
-          the AI captions transcript; photos only ever show OCR snippets. */}
-      {kind === 'video' && (
-        <div className="dv-side-tabs">
-          <button
-            type="button"
-            className={`dv-side-tab${rightTab === 'extract' ? ' is-active' : ''}`}
-            onClick={() => setRightTab('extract')}
-          >
-            Text extraction
-          </button>
-          <button
-            type="button"
-            className={`dv-side-tab${rightTab === 'captions' ? ' is-active' : ''}`}
-            onClick={() => setRightTab('captions')}
-          >
-            AI captions
-          </button>
-        </div>
-      )}
-      {kind === 'video' && rightTab === 'captions' ? (
+    {(() => {
+    const sidePanel = (
+    <aside className={`dv-ocr-history${sidePanelSlot ? ' dv-side-portal' : ''}`} style={sidePanelSlot ? undefined : { width: `${historyWidth}px` }}>
+      {/* Tab strip portals into the Multitool topbar when slotted, else inline. */}
+      <SidePanelTabs tabs={sideTabsForKind(kind)} active={rightTab} onChange={setRightTab} slot={sideTabsSlot} />
+      {rightTab === 'advisor' ? (
+        <AdvisorPanel file={file} />
+      ) : rightTab === 'captions' ? (
         <CaptionsPanel file={file} url={url} currentTime={currentTime} onSeek={seekTo} onCaptionsChange={setCaptions} />
       ) : (
       <>
-      {/* Compact header — fades/slides in once the masthead scrolls away
-          (mirrors the Versions page). Skipped for video so it doesn't overlap
-          the tab bar. */}
-      {kind !== 'video' && (
-      <div className={`dv-ocr-history-compact${historyScrolled ? ' is-visible' : ''}`} aria-hidden={!historyScrolled}>
-        <span className="dv-ocr-history-compact-title">Extracted text</span>
-        {history.length > 0 && (
-          <>
-            <span className="dv-ocr-history-compact-sep" aria-hidden="true">·</span>
-            <span className="dv-ocr-history-compact-count">{history.length}</span>
-          </>
-        )}
-      </div>
-      )}
       <div className="dv-ocr-history-scroll" ref={historyListRef}>
         {/* Masthead — accent eyebrow + display title + meta (Versions style). */}
         <header className="dv-ocr-history-head">
@@ -3039,6 +3732,11 @@ function MediaOcrPane({ file, url, kind }) {
       </>
       )}
     </aside>
+    );
+    return sidePanelSlot
+      ? createPortal(sidePanel, sidePanelSlot)
+      : (<><div className="dv-ocr-resize" onMouseDown={beginHistoryResize} role="separator" aria-orientation="vertical" aria-label="Resize extracted text panel" />{sidePanel}</>);
+    })()}
     </>
   );
 }
@@ -3061,20 +3759,70 @@ function FileTabThumb({ tab, isWhatsApp }) {
     localContentHash: null,
   }), [tab.path, tab.name, tab.mime]);
   return (
-    <span className="dv-filetab-thumb">
-      <FileThumbnail
-        descriptor={descriptor}
-        glyph={<ItemGlyph item={{ name: tab.name, ext: extOf(tab.name), isWhatsApp: isWhatsApp || undefined }} />}
-      />
+    <span className="fx-tile-thumb">
+      {/* Reuses the Files-tab thumbnail (poster + type glyph + the cassette-tape
+          frame for videos). */}
+      <ItemThumbnail item={{ name: tab.name, ext: extOf(tab.name), descriptor, isWhatsApp: isWhatsApp || undefined }} />
     </span>
   );
 }
 
-// Sidebar tab item — wraps the file tile with a morph-pill so hover shows
-// the filename tooltip and right-click expands it into a context menu.
-function FileTabItem({ tab, isActive, isWhatsApp, onActivate, onClose }) {
+// Split a filename into an editable base + extension (".pdf"), so a rename
+// edits only the base — the extension is re-attached on commit (mirrors the
+// Files page so the format is never changed by accident). Dotfiles / no-ext
+// names pass through unchanged.
+function splitBaseExt(name) {
+  const n = String(name || '');
+  const i = n.lastIndexOf('.');
+  if (i <= 0 || i === n.length - 1) return { base: n, ext: '' };
+  return { base: n.slice(0, i), ext: n.slice(i) };
+}
+function joinBaseExt(base, originalName) {
+  const { ext } = splitBaseExt(originalName);
+  const b = String(base || '').trim();
+  if (!ext) return b;
+  return b.toLowerCase().endsWith(ext.toLowerCase()) ? b : b + ext;
+}
+
+// Sidebar tab item — wraps the file tile with a morph-pill so hover shows the
+// filename tooltip and right-click expands it into a context menu. The menu
+// mirrors the Files page's file right-click (Open / Rename / Properties / Open
+// file location), minus the in-app-clipboard Copy/Cut and Delete, plus Close.
+function FileTabItem({ tab, isActive, isWhatsApp, onActivate, onClose, onRename }) {
+  // Inline rename — same UX as the Files page tiles: an in-place input that
+  // edits the base name only and commits on Enter / blur (Escape cancels).
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef(null);
+
+  const beginRename = useCallback(() => {
+    setDraft(splitBaseExt(tab.name).base);
+    setEditing(true);
+  }, [tab.name]);
+
+  useLayoutEffect(() => {
+    if (!editing) return;
+    const el = inputRef.current;
+    if (el) { el.focus(); el.select(); }
+  }, [editing]);
+
+  const commitRename = useCallback(() => {
+    setEditing((wasEditing) => {
+      if (wasEditing) {
+        const next = joinBaseExt(draft, tab.name);
+        if (next && next !== tab.name) onRename?.(tab, next);
+      }
+      return false;
+    });
+  }, [draft, tab, onRename]);
+
   const morphPill = useMorphPill({
-    hoverContent: tab.name,
+    hoverContent: isWhatsApp ? (
+      <span className="dv-filetab-wa-hover">
+        <span className="dv-filetab-wa-name">{tab.name}</span>
+        <span className="dv-filetab-wa-note">Recognized as WhatsApp convo</span>
+      </span>
+    ) : tab.name,
     menuItems: [
       {
         label: 'Open',
@@ -3082,9 +3830,9 @@ function FileTabItem({ tab, isActive, isWhatsApp, onActivate, onClose }) {
         onClick: () => localFolderApi.openPath(tab.path),
       },
       {
-        label: 'Open file location',
-        key: 'location',
-        onClick: () => localFolderApi.showInFolder(tab.path),
+        label: 'Rename',
+        key: 'rename',
+        onClick: () => beginRename(),
       },
       {
         label: 'Properties',
@@ -3096,6 +3844,11 @@ function FileTabItem({ tab, isActive, isWhatsApp, onActivate, onClose }) {
           cancelLabel: 'Close',
           confirmLabel: 'Open',
         },
+      },
+      {
+        label: 'Open file location',
+        key: 'location',
+        onClick: () => localFolderApi.showInFolder(tab.path),
       },
       {
         label: 'Close',
@@ -3110,15 +3863,33 @@ function FileTabItem({ tab, isActive, isWhatsApp, onActivate, onClose }) {
       <div
         role="tab"
         aria-selected={isActive}
-        className={`dv-filetab${isActive ? ' is-active' : ''}`}
-        onClick={onActivate}
+        className={`fx-tile dv-filetab-item${isActive ? ' is-selected' : ''}`}
+        onClick={editing ? undefined : onActivate}
         onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); onClose(); } }}
-        onMouseMove={morphPill.handleMouseMove}
+        onMouseMove={editing ? undefined : morphPill.handleMouseMove}
         onMouseLeave={morphPill.handleMouseLeave}
-        onContextMenu={morphPill.handleContextMenu}
+        onContextMenu={editing ? undefined : morphPill.handleContextMenu}
       >
         <FileTabThumb tab={tab} isWhatsApp={isWhatsApp} />
-        <span className="dv-filetab-name">{tab.name}</span>
+        {editing ? (
+          <input
+            ref={inputRef}
+            className="fx-tile-name fx-inline-input"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+              else if (e.key === 'Escape') { e.preventDefault(); setEditing(false); }
+            }}
+            onBlur={commitRename}
+            aria-label={`Rename ${tab.name}`}
+          />
+        ) : (
+          <span><span className="fx-tile-name">{splitBaseExt(tab.name).base}</span></span>
+        )}
         <button
           type="button"
           className="dv-filetab-close"
@@ -3150,6 +3921,9 @@ let scopeDecodeCtx = null;
 async function computeEnvelope(src, hz) {
   const key = `${src}:${hz}`;
   if (envelopeCache.has(key)) return envelopeCache.get(key);
+  // Persistent cache: paints instantly on reopen instead of re-decoding.
+  const stored = loadEnvelope(key);
+  if (stored) { envelopeCache.set(key, stored); return stored; }
   try {
     const res = await fetch(src);
     const buf = await res.arrayBuffer();
@@ -3171,6 +3945,7 @@ async function computeEnvelope(src, hz) {
     }
     if (peak > 0) for (let i = 0; i < total; i += 1) env[i] = Math.min(1, env[i] / peak);
     envelopeCache.set(key, env);
+    saveEnvelope(key, env);
     return env;
   } catch {
     return null;
@@ -3178,9 +3953,11 @@ async function computeEnvelope(src, hz) {
 }
 
 // Resizable captions panel bounds (mirrors the OCR "Extracted text" panel).
-const CAPTIONS_MIN_WIDTH = 260;
-const CAPTIONS_MAX_WIDTH = 620;
-const CAPTIONS_DEFAULT_WIDTH = 360;
+// The side panel is the same across every file type, so the audio captions
+// aside shares the media panel's width bounds + default exactly.
+const CAPTIONS_MIN_WIDTH = HISTORY_MIN_WIDTH;
+const CAPTIONS_MAX_WIDTH = HISTORY_MAX_WIDTH;
+const CAPTIONS_DEFAULT_WIDTH = HISTORY_DEFAULT_WIDTH;
 
 // Rebuild a done-state captions object from the per-file cache, or null.
 function captionsFromCache(path) {
@@ -3431,13 +4208,25 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
 // seeks via onSeek. Colours come from CSS — `color` is the played/playhead
 // accent, `--text-muted` the unplayed base — so each host (.dv-audio-scope /
 // .dv-player-scope) themes it. Mirrors AudioPlayerPane's inline scope.
+// Seek-knob radius: resting size, and the expanded size on hover / scrubbing.
+const KNOB_MIN = 4.5;
+const KNOB_MAX = 8;
+
 function MediaScope({ mediaRef, url, currentTime, duration, playing, onSeek, className = '', label = 'Seek' }) {
   const canvasRef = useRef(null);
   const rafRef = useRef(0);
   const envRef = useRef(null);   // Float32Array loudness envelope | null
   const ampCacheRef = useRef({ env: null, w: 0, amp: null }); // per-column peaks
   const draggingRef = useRef(false);
+  const hoveringRef = useRef(false);
+  // YouTube-style seek knob that grows on hover / while scrubbing. The radius is
+  // eased on its own rAF (knobAnimRef) so it animates even while paused.
+  const knobRRef = useRef(KNOB_MIN);
+  const expandRef = useRef(false);
+  const knobAnimRef = useRef(0);
+  const playingRef = useRef(playing);
   const [envReady, setEnvReady] = useState(false);
+  useEffect(() => { playingRef.current = playing; }, [playing]);
 
   const fmt = (s) => {
     if (!Number.isFinite(s) || s < 0) return '0:00';
@@ -3550,12 +4339,38 @@ function MediaScope({ mediaRef, url, currentTime, duration, playing, onSeek, cla
       ctx2d.lineTo(playheadX, hgt - 5);
       ctx2d.stroke();
       ctx2d.shadowBlur = 0;
+      // Playhead knob — grows on hover / scrub (radius eased in knobRRef), with
+      // a soft glow once enlarged.
+      const knobR = knobRRef.current;
       ctx2d.fillStyle = accent;
+      ctx2d.shadowColor = accent;
+      ctx2d.shadowBlur = knobR > KNOB_MIN + 0.4 ? 10 : 0;
       ctx2d.beginPath();
-      ctx2d.arc(playheadX, mid, 4.5, 0, Math.PI * 2);
+      ctx2d.arc(playheadX, mid, knobR, 0, Math.PI * 2);
       ctx2d.fill();
+      ctx2d.shadowBlur = 0;
     }
   }, [duration, playing, mediaRef]);
+
+  // Ease the knob radius toward its target on its own rAF — repaints itself
+  // while paused; the play loop already repaints each frame while playing.
+  const animateKnob = useCallback(() => {
+    cancelAnimationFrame(knobAnimRef.current);
+    const step = () => {
+      const target = expandRef.current ? KNOB_MAX : KNOB_MIN;
+      const cur = knobRRef.current;
+      const next = cur + (target - cur) * 0.3;
+      knobRRef.current = Math.abs(target - next) < 0.15 ? target : next;
+      if (!playingRef.current) drawScope();
+      if (knobRRef.current !== target) knobAnimRef.current = requestAnimationFrame(step);
+    };
+    knobAnimRef.current = requestAnimationFrame(step);
+  }, [drawScope]);
+  const setKnobExpanded = useCallback((on) => {
+    if (expandRef.current === on) return;
+    expandRef.current = on;
+    animateKnob();
+  }, [animateKnob]);
 
   const ratioFromClientX = (clientX) => {
     const canvas = canvasRef.current;
@@ -3576,6 +4391,7 @@ function MediaScope({ mediaRef, url, currentTime, duration, playing, onSeek, cla
     e.stopPropagation();
     canvasRef.current?.focus();
     draggingRef.current = true;
+    setKnobExpanded(true);
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* unsupported */ }
     seekToRatio(ratioFromClientX(e.clientX));
   };
@@ -3586,8 +4402,12 @@ function MediaScope({ mediaRef, url, currentTime, duration, playing, onSeek, cla
   const endDrag = (e) => {
     if (!draggingRef.current) return;
     draggingRef.current = false;
+    // Stay big only if the pointer is still hovering the scrubber.
+    setKnobExpanded(hoveringRef.current);
     try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* unsupported */ }
   };
+  const onPointerEnter = () => { hoveringRef.current = true; setKnobExpanded(true); };
+  const onPointerLeave = () => { hoveringRef.current = false; if (!draggingRef.current) setKnobExpanded(false); };
   const onKeyDown = (e) => {
     const d = effectiveDuration();
     if (!d) return;
@@ -3628,7 +4448,7 @@ function MediaScope({ mediaRef, url, currentTime, duration, playing, onSeek, cla
     return () => ro.disconnect();
   }, [playing, drawScope]);
 
-  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+  useEffect(() => () => { cancelAnimationFrame(rafRef.current); cancelAnimationFrame(knobAnimRef.current); }, []);
 
   return (
     <canvas
@@ -3646,12 +4466,14 @@ function MediaScope({ mediaRef, url, currentTime, duration, playing, onSeek, cla
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
       onKeyDown={onKeyDown}
     />
   );
 }
 
-function AudioPlayerPane({ file, url }) {
+function AudioPlayerPane({ file, url, sidePanelSlot = null, sideTabsSlot = null }) {
   const audioRef = useRef(null);
   const scopeCanvasRef = useRef(null);
   const scopeRafRef = useRef(0);
@@ -3667,6 +4489,8 @@ function AudioPlayerPane({ file, url }) {
   const [muted, setMuted] = useState(false);
   const [failed, setFailed] = useState(false);
   const [captionsWidth, setCaptionsWidth] = useState(CAPTIONS_DEFAULT_WIDTH);
+  // Shared side-panel tabs — audio supports AI captions, not text extraction.
+  const [rightTab, setRightTab] = useState('captions');
   // Transcript mirrored from the side CaptionsPanel — drives the now-playing
   // karaoke lyrics over the controls. null until generated.
   const [lyrics, setLyrics] = useState(() => captionsFromCache(file.storage_path));
@@ -4027,17 +4851,24 @@ function AudioPlayerPane({ file, url }) {
         />
       </div>
 
-      <div
-        className="dv-ocr-resize"
-        onMouseDown={beginCaptionsResize}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize captions panel"
-      />
-
-      <aside className="dv-ocr-history dv-audio-captions-aside" style={{ width: `${captionsWidth}px` }}>
-        <CaptionsPanel file={file} url={url} currentTime={cur} onSeek={seekTo} onCaptionsChange={setLyrics} />
+      {(() => {
+      const sidePanel = (
+      <aside className={`dv-ocr-history dv-audio-captions-aside${sidePanelSlot ? ' dv-side-portal' : ''}`} style={sidePanelSlot ? undefined : { width: `${captionsWidth}px` }}>
+        {/* Audio gets AI captions + AI advisor (no text extraction). */}
+        <SidePanelTabs tabs={sideTabsForKind('audio')} active={rightTab} onChange={setRightTab} slot={sideTabsSlot} />
+        {rightTab === 'advisor' ? (
+          <AdvisorPanel file={file} />
+        ) : rightTab === 'extract' ? (
+          <div className="dv-ocr-history-scroll"><p className="dv-ocr-history-empty">Text extraction isn’t available for audio files.</p></div>
+        ) : (
+          <CaptionsPanel file={file} url={url} currentTime={cur} onSeek={seekTo} onCaptionsChange={setLyrics} />
+        )}
       </aside>
+      );
+      return sidePanelSlot
+        ? createPortal(sidePanel, sidePanelSlot)
+        : (<><div className="dv-ocr-resize" onMouseDown={beginCaptionsResize} role="separator" aria-orientation="vertical" aria-label="Resize captions panel" />{sidePanel}</>);
+      })()}
     </div>
   );
 }
@@ -4162,7 +4993,161 @@ function SpreadsheetPane({ file, url }) {
   );
 }
 
-function DocPane({ file, onWhatsAppDetected }) {
+// Shared right-hand panel for document file types (PDF / Word / Excel / text /
+// legacy .doc / other). Same chrome as the photo/video OCR panel, but instead
+// of a lasso it offers a one-click whole-document text extraction
+// (lib/extractFileText, or the main-process parser for legacy .doc) saved into
+// the SAME per-file history store — so every file type has a consistent panel.
+function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = null }) {
+  const [history, setHistory] = useState(() => loadOcrHistory(file.storage_path));
+  const [working, setWorking] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
+  // Documents only get the AI advisor (text extraction is images/video only).
+  const [rightTab, setRightTab] = useState('advisor');
+
+  useEffect(() => { setHistory(loadOcrHistory(file.storage_path)); }, [file.storage_path]);
+  useEffect(() => { saveOcrHistory(file.storage_path, history); }, [file.storage_path, history]);
+
+  const extractable = kind !== 'other';
+
+  const runExtract = useCallback(async () => {
+    setWorking(true);
+    setErrorMsg(null);
+    try {
+      let text = '';
+      if (kind === 'doc') {
+        const res = await extractDocText(file.storage_path);
+        if (res?.error) throw new Error(res.error === 'unsupported' ? 'This file type can’t be read as text.' : res.error);
+        text = res?.text || '';
+      } else {
+        const blob = await (await fetch(url)).blob();
+        const res = await extractFileText(blob, file.name);
+        if (res?.error) {
+          throw new Error(res.error === 'unsupported'
+            ? 'This file type can’t be read as text.'
+            : res.error === 'empty' ? 'No readable text found in this file.' : res.error);
+        }
+        text = res.text || '';
+      }
+      if (!text.trim()) { setErrorMsg('No readable text found in this file.'); return; }
+      const entry = { id: `doc-${Date.now()}-${Math.round(Math.random() * 1e6)}`, text: text.trim(), createdAt: Date.now() };
+      setHistory((h) => [entry, ...h]);
+    } catch (e) {
+      setErrorMsg(String(e?.message || e));
+    } finally {
+      setWorking(false);
+    }
+  }, [kind, url, file.name, file.storage_path]);
+
+  const copyEntry = async (entry) => {
+    try {
+      await navigator.clipboard.writeText(entry.text || '');
+      setCopiedId(entry.id);
+      setTimeout(() => setCopiedId((c) => (c === entry.id ? null : c)), 1500);
+    } catch { /* clipboard unavailable */ }
+  };
+
+  return (
+    <aside className={`dv-ocr-history dv-doc-extract${fill ? ' dv-side-portal' : ''}`} style={fill ? undefined : { width: `${width}px` }}>
+      <SidePanelTabs tabs={sideTabsForKind(kind)} active={rightTab} onChange={setRightTab} slot={sideTabsSlot} />
+      {rightTab === 'advisor' ? (
+        <AdvisorPanel file={file} />
+      ) : rightTab === 'captions' ? (
+        <CaptionsPanel file={file} url={url} currentTime={0} onSeek={() => {}} onCaptionsChange={() => {}} />
+      ) : (
+      <>
+      <div className="dv-doc-extract-bar">
+        <button type="button" className="dv-doc-extract-btn" onClick={runExtract} disabled={working || !extractable}>
+          {ScanTextGlyph}
+          <span>{working ? 'Extracting…' : 'Extract text'}</span>
+        </button>
+      </div>
+      {errorMsg && (
+        <div className="dv-ocr-error dv-doc-extract-error" role="alert">
+          <span>{errorMsg}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => setErrorMsg(null)}>×</button>
+        </div>
+      )}
+      <div className="dv-ocr-history-scroll">
+        <header className="dv-ocr-history-head">
+          <div className="dv-ocr-history-eyebrow">
+            <span>Snippets</span>
+            <span className="dv-ocr-history-eyebrow-muted">· from this file</span>
+          </div>
+          <h2 className="dv-ocr-history-title">Extracted text</h2>
+          <div className="dv-ocr-history-meta">
+            <span className="dv-ocr-history-count">
+              {history.length > 0
+                ? <><strong>{history.length}</strong> {history.length === 1 ? 'snippet' : 'snippets'}</>
+                : 'No snippets yet'}
+            </span>
+            {history.length > 0 && (
+              <button type="button" className="dv-ocr-history-clear" onClick={() => setHistory([])}>Clear all</button>
+            )}
+          </div>
+        </header>
+        {history.length === 0 ? (
+          <p className="dv-ocr-history-empty">
+            {extractable
+              ? 'Click “Extract text” to read this document’s text. It’s saved here for next time you open the file.'
+              : 'This file type can’t be read as text.'}
+          </p>
+        ) : (
+          <div className="dv-ocr-history-list">
+            {[...history].reverse().map((entry) => {
+              const { date, time } = formatHistoryTimestamp(entry.createdAt);
+              return (
+                <div key={entry.id} className="dv-ocr-history-item">
+                  <div className="dv-ocr-history-rail">
+                    <span className="dv-ocr-history-node" />
+                    <div className="dv-ocr-history-date">
+                      <span className="dv-ocr-history-date-d">{date}</span>
+                      <span className="dv-ocr-history-date-t">{time}</span>
+                    </div>
+                  </div>
+                  <div className="dv-ocr-history-content">
+                    <div className="dv-ocr-history-card">
+                      <p className={`dv-ocr-history-text${entry.text ? '' : ' is-empty'}`}>
+                        {entry.text || 'No text found.'}
+                      </p>
+                      <div className="dv-ocr-history-actions">
+                        {entry.text && (
+                          <button type="button" className="dv-ocr-history-act" onClick={() => copyEntry(entry)}>
+                            {copiedId === entry.id ? 'Copied' : 'Copy'}
+                          </button>
+                        )}
+                        <button type="button" className="dv-ocr-history-remove" aria-label="Remove" onClick={() => setHistory((prev) => prev.filter((e) => e.id !== entry.id))}>×</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      </>
+      )}
+    </aside>
+  );
+}
+
+// Lays out a document preview. Its side panel (just the AI advisor for plain
+// documents — extraction/captions are media-only) portals into the right card.
+function DocumentWithPanel({ file, url, kind, mainClass = '', sidePanelSlot = null, sideTabsSlot = null, children }) {
+  return (
+    <>
+      <div className={`dv-doc-main ${mainClass}`.trim()}>{children}</div>
+      {sidePanelSlot && createPortal(
+        <DocExtractPanel file={file} url={url} kind={kind} sideTabsSlot={sideTabsSlot} fill />,
+        sidePanelSlot,
+      )}
+    </>
+  );
+}
+
+function DocPane({ file, onWhatsAppDetected, sidePanelSlot = null, sideTabsSlot = null }) {
   const { kind, mime } = useMemo(() => classify(file.mime, file.name), [file.mime, file.name]);
   const url = useMemo(() => localUrlFor(file.path), [file.path]);
   // Folder holding this file — a WhatsApp export's media siblings live here.
@@ -4211,45 +5196,207 @@ function DocPane({ file, onWhatsAppDetected }) {
     return () => { cancelled = true; };
   }, [kind, file.path]);
 
+  // image/video keep their integrated OCR pane; audio keeps its captions pane.
+  // Every OTHER type renders inside the shared split (preview + Extract-text
+  // panel) so the right panel is consistent and present for all file types.
+  const isMedia = kind === 'image' || kind === 'video';
+  const isAudio = kind === 'audio';
+  const isSplit = !isMedia && !isAudio;
+
+  const bodyClass = isMedia ? 'dv-doc-body is-media'
+    : isAudio ? 'dv-doc-body is-audio'
+    : 'dv-doc-body is-split';
+
+  // Flush (fills, no padding) for the panes that manage their own scroll;
+  // padded block for the document renderers (matches the old body padding).
+  const mainClass = kind === 'text' || kind === 'sheet' ? 'is-flush' : '';
+
+  let content;
+  if (kind === 'docx') {
+    content = <div ref={docxRef} className="dv-docx" />;
+  } else if (kind === 'doc') {
+    content = (docErr || docText === '') ? (
+      <div className="dv-noview">
+        <p className="dv-noview-title">{docErr ? "Couldn't read the .doc document" : 'The document has no text'}</p>
+        <p className="dv-noview-sub">{file.name}</p>
+        <button type="button" className="dv-chip" onClick={() => localFolderApi.openPath(file.path)}>Open in default app</button>
+      </div>
+    ) : docText === null ? (
+      <div className="dv-loading">Reading document…</div>
+    ) : (
+      <div className="dv-text-doc">
+        {docText.split(/\n/).map((line, i) => <p key={i}>{line || ' '}</p>)}
+      </div>
+    );
+  } else if (kind === 'sheet') {
+    content = <SpreadsheetPane file={previewFile} url={url} />;
+  } else if (kind === 'text') {
+    content = <DocTextPane file={previewFile} url={url} dir={dir} sep={sep} onWhatsAppDetected={onWhatsAppDetected} />;
+  } else if (kind === 'other') {
+    content = (
+      <div className="dv-noview">
+        <p className="dv-noview-title">This file type can't be previewed</p>
+        <p className="dv-noview-sub">{file.name}</p>
+        <button type="button" className="dv-chip" onClick={() => localFolderApi.openPath(file.path)}>Open in default app</button>
+      </div>
+    );
+  } else {
+    content = <FilePreview file={previewFile} signedUrl={url} onOpen={null} />;
+  }
+
   return (
-    <div className={`dv-doc-body${kind === 'text' ? ' is-flush' : ''}${kind === 'image' || kind === 'video' ? ' is-media' : ''}${kind === 'audio' ? ' is-audio' : ''}${kind === 'sheet' ? ' is-sheet' : ''}`}>
-      {kind === 'docx' ? (
-        <div ref={docxRef} className="dv-docx" />
-      ) : kind === 'doc' ? (
-        (docErr || docText === '') ? (
-          <div className="dv-noview">
-            <p className="dv-noview-title">{docErr ? "Couldn't read the .doc document" : 'The document has no text'}</p>
-            <p className="dv-noview-sub">{file.name}</p>
-            <button type="button" className="dv-chip" onClick={() => localFolderApi.openPath(file.path)}>
-              Open in default app
-            </button>
-          </div>
-        ) : docText === null ? (
-          <div className="dv-loading">Reading document…</div>
-        ) : (
-          <div className="dv-text-doc">
-            {docText.split(/\n/).map((line, i) => <p key={i}>{line || ' '}</p>)}
-          </div>
-        )
-      ) : kind === 'image' || kind === 'video' ? (
-        <MediaOcrPane file={{ ...previewFile, path: file.path }} url={url} kind={kind} />
-      ) : kind === 'audio' ? (
-        <AudioPlayerPane file={previewFile} url={url} />
-      ) : kind === 'sheet' ? (
-        <SpreadsheetPane file={previewFile} url={url} />
-      ) : kind === 'text' ? (
-        <DocTextPane file={previewFile} url={url} dir={dir} sep={sep} onWhatsAppDetected={onWhatsAppDetected} />
-      ) : kind === 'other' ? (
-        <div className="dv-noview">
-          <p className="dv-noview-title">This file type can't be previewed</p>
-          <p className="dv-noview-sub">{file.name}</p>
-          <button type="button" className="dv-chip" onClick={() => localFolderApi.openPath(file.path)}>
-            Open in default app
-          </button>
-        </div>
+    <div className={bodyClass}>
+      {isMedia ? (
+        <MediaOcrPane file={{ ...previewFile, path: file.path }} url={url} kind={kind} sidePanelSlot={sidePanelSlot} sideTabsSlot={sideTabsSlot} />
+      ) : isAudio ? (
+        <AudioPlayerPane file={previewFile} url={url} sidePanelSlot={sidePanelSlot} sideTabsSlot={sideTabsSlot} />
       ) : (
-        <FilePreview file={previewFile} signedUrl={url} onOpen={null} />
+        <DocumentWithPanel file={previewFile} url={url} kind={kind} mainClass={mainClass} sidePanelSlot={sidePanelSlot} sideTabsSlot={sideTabsSlot}>
+          {content}
+        </DocumentWithPanel>
       )}
+    </div>
+  );
+}
+
+// Custom vertical scrollbar for the tabs sidebar — lives OUTSIDE the scroll
+// view (a sibling overlaid in the right gutter) so the native bar can be
+// hidden. Tracks the scroller's metrics and drives scrollTop on drag / track
+// click. `refreshKey` recomputes the thumb when the tab list changes height.
+function SidebarScrollbar({ scrollRef, refreshKey }) {
+  const [thumb, setThumb] = useState(null); // { top, height } in %, or null when no overflow
+
+  const recompute = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    if (scrollHeight <= clientHeight + 1) { setThumb(null); return; }
+    setThumb({
+      top: (scrollTop / scrollHeight) * 100,
+      height: (clientHeight / scrollHeight) * 100,
+    });
+  }, [scrollRef]);
+
+  useLayoutEffect(() => { recompute(); }, [recompute, refreshKey]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return undefined;
+    el.addEventListener('scroll', recompute, { passive: true });
+    let ro;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(recompute);
+      ro.observe(el);
+      // Also watch the content child so the thumb updates when the scrollHeight
+      // grows (e.g. chat "Show earlier") — observing only `el` misses that, since
+      // the scroller's own box size doesn't change.
+      if (el.firstElementChild) ro.observe(el.firstElementChild);
+    }
+    return () => { el.removeEventListener('scroll', recompute); ro?.disconnect(); };
+  }, [recompute, scrollRef]);
+
+  // Drag the thumb → scroll proportionally (thumb travel maps to scroll range).
+  const onThumbDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = scrollRef.current;
+    const track = e.currentTarget.parentElement;
+    if (!el || !track) return;
+    const startY = e.clientY;
+    const startScroll = el.scrollTop;
+    const trackH = track.clientHeight;
+    const thumbH = (el.clientHeight / el.scrollHeight) * trackH;
+    const maxTravel = Math.max(1, trackH - thumbH);
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    const ratio = maxScroll / maxTravel;
+    const onMove = (ev) => { el.scrollTop = startScroll + (ev.clientY - startY) * ratio; };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  // Click the track (not the thumb) → page the view so the thumb centres there.
+  const onTrackDown = (e) => {
+    const el = scrollRef.current;
+    if (!el || e.target !== e.currentTarget) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = (e.clientY - rect.top) / rect.height;
+    const target = ratio * el.scrollHeight - el.clientHeight / 2;
+    el.scrollTop = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, target));
+  };
+
+  if (!thumb) return null;
+  return (
+    <div className="dv-tabbar-scroll" onMouseDown={onTrackDown}>
+      <div
+        className="dv-tabbar-thumb"
+        style={{ top: `${thumb.top}%`, height: `${thumb.height}%` }}
+        onMouseDown={onThumbDown}
+      />
+    </div>
+  );
+}
+
+// Small / large square markers flanking the Open-files icon-size slider.
+const SmallTileGlyph = (
+  <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="8" y="8" width="8" height="8" rx="1.5" /></svg>
+);
+const LargeTileGlyph = (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
+);
+// Refresh glyph mirroring the main app's pane-chrome refresh button (SplitView).
+const DvRefreshGlyph = (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
+);
+
+// Pane chrome IDENTICAL to the main app's SplitView pane chrome: a refresh
+// button + title + "· description" on the left and a destination dropdown (the
+// open-documents picker) on the right. `extra` renders just left of the
+// dropdown (e.g. the Recently-open icon-size slider); `row2Ref` is a portal
+// target where an embedded page's toolbar renders as a merged 2nd row.
+// `tabsRef` is a portal target inside the topbar — a pane portals its side-panel
+// tab strip (Text extraction / AI captions / AI advisor) into it, so the tabs
+// live IN the chrome instead of as a separate row below it. When set, the tabs
+// take the row (the title/description are dropped).
+function DvChrome({ title, desc = null, onRefresh = null, extra = null, row2Ref = null, tabsRef = null }) {
+  return (
+    <div className="dv-chrome">
+      <div className={`dv-chrome-row${tabsRef ? ' dv-chrome-row--tabs' : ''}`}>
+        {onRefresh && (
+          <Tooltip content="Refresh"><button type="button" className="dv-chrome-refresh" onClick={() => onRefresh()} aria-label="Refresh">{DvRefreshGlyph}</button></Tooltip>
+        )}
+        {tabsRef ? (
+          <div className="dv-chrome-tabs" ref={tabsRef} />
+        ) : (
+          <>
+            <div className="dv-chrome-head">
+              <span className="dv-chrome-title">{title}</span>
+              {desc && <span className="dv-chrome-dot" aria-hidden="true">·</span>}
+              {desc && <span className="dv-chrome-desc">{desc}</span>}
+            </div>
+            <div className="dv-chrome-spacer" />
+            {extra}
+          </>
+        )}
+      </div>
+      {row2Ref && <div className="dv-chrome-row2" ref={row2Ref} />}
+    </div>
+  );
+}
+
+// Files card — wraps the embedded Files browser in a PaneChromeProvider so its
+// toolbar (folder nav + breadcrumb + search) portals up into the chrome's 2nd
+// row, exactly like the main app (one merged bar instead of a separate pathbar).
+// The chrome refresh (left of the title) re-lists the embedded browser.
+function DvFilesCard() {
+  const setPortalEl = usePaneChromePortalRef();
+  return (
+    <div className="dv-files-browse">
+      <DvChrome title="Files" onRefresh={() => notifyFilesChanged()} row2Ref={setPortalEl} />
+      <div className="dv-files-browse-body"><ProjectFiles embedded /></div>
     </div>
   );
 }
@@ -4257,6 +5404,71 @@ function DocPane({ file, onWhatsAppDetected }) {
 // ── Tabbed viewer ───────────────────────────────────────────────────────
 export default function DocViewer() {
   const [params] = useSearchParams();
+
+  // Files browser footer is resizable: a horizontal handle at its top edge.
+  const [footerHeight, setFooterHeight] = useState(340);
+  const beginFooterResize = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = footerHeight;
+    document.body.classList.add('dv-row-resizing');
+    const onMove = (ev) => {
+      const next = startH + toLayoutPx(startY - ev.clientY);
+      const cap = Math.max(200, window.innerHeight - 220);
+      setFooterHeight(Math.min(cap, Math.max(160, next)));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('dv-row-resizing');
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  // Recently-open column (full-height, left of everything): a scrollable column
+  // of file tiles, at a fixed persisted width.
+  const RAIL_MIN = 150;
+  const RAIL_MAX = 460;
+  const railScrollRef = useRef(null);
+  const [railW] = useState(() => {
+    const w = readDvLayout().railW;
+    return typeof w === 'number' ? Math.min(RAIL_MAX, Math.max(RAIL_MIN, w)) : 230;
+  });
+
+  // The right card is a slot: each file's pane portals its tabbed side panel
+  // (Text extraction / AI captions / AI advisor) into it. Width persisted.
+  const [sidePanelSlot, setSidePanelSlot] = useState(null);
+  // Slot inside the Multitool topbar where the active pane portals its side-panel
+  // tab strip (Text extraction / AI captions / AI advisor).
+  const [sideTabsSlot, setSideTabsSlot] = useState(null);
+  const ADVISOR_MIN = 240;
+  const ADVISOR_MAX = 960;
+  const [advisorW, setAdvisorW] = useState(() => {
+    const w = readDvLayout().advisorW;
+    return typeof w === 'number' ? Math.min(ADVISOR_MAX, Math.max(ADVISOR_MIN, w)) : 360;
+  });
+  const beginAdvisorResize = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = advisorW;
+    let lastW = startW;
+    document.body.classList.add('dv-ocr-resizing');
+    const onMove = (ev) => {
+      lastW = Math.min(ADVISOR_MAX, Math.max(ADVISOR_MIN, startW + toLayoutPx(startX - ev.clientX)));
+      setAdvisorW(lastW);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('dv-ocr-resizing');
+      writeDvLayout({ advisorW: lastW });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
 
   // Tabs are keyed by the file's on-disk path (re-opening the same file just
   // re-activates its tab). The first tab comes from the boot query string.
@@ -4266,19 +5478,60 @@ export default function DocViewer() {
     return [{ id: path, path, name: params.get('name') || 'Document', mime: params.get('mime') || '' }];
   });
   const [activeId, setActiveId] = useState(() => params.get('path') || null);
-  // Collapsible footer that embeds the main app's Files tab (ProjectFiles), so
-  // the project's files are reachable without leaving the viewer window.
-  const [filesOpen, setFilesOpen] = useState(false);
 
-  // Subsequent double-clicks in the Files page push files here → new tabs.
+  // Subsequent double-clicks in the Files page push files here → new tabs. The
+  // just-opened file goes to the FRONT of the list (most-recently-opened first);
+  // an already-open file is moved to the front, keeping its tab object (so any
+  // rename is preserved).
   useEffect(() => onDocViewerAddFile((file) => {
     if (!file?.path) return;
     const id = file.path;
-    setTabs((prev) => (prev.some((t) => t.id === id)
-      ? prev
-      : [...prev, { id, path: file.path, name: file.name || 'Document', mime: file.mime || '' }]));
+    setTabs((prev) => {
+      const existing = prev.find((t) => t.id === id);
+      const rest = prev.filter((t) => t.id !== id);
+      const entry = existing || { id, path: file.path, name: file.name || 'Document', mime: file.mime || '' };
+      return [entry, ...rest];
+    });
     setActiveId(id);
   }), []);
+
+  // A Files tab just trashed/deleted file(s) — close any tab showing one. A
+  // folder delete arrives as the folder path, so also close tabs inside it.
+  // Closing the last surviving tab closes the window (matches closeTab).
+  useEffect(() => onFilesRemoved((paths) => {
+    const norm = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    const removed = (Array.isArray(paths) ? paths : [paths]).map(norm).filter(Boolean);
+    if (removed.length === 0) return;
+    const isGone = (p) => { const t = norm(p); return removed.some((r) => t === r || t.startsWith(`${r}/`)); };
+    setTabs((prev) => {
+      const next = prev.filter((t) => !isGone(t.path));
+      if (next.length === prev.length) return prev;
+      if (next.length === 0) {
+        setTimeout(() => { try { window.close(); } catch { /* noop */ } }, 0);
+        return next;
+      }
+      setActiveId((cur) => (next.some((t) => t.id === cur) ? cur : next[next.length - 1].id));
+      return next;
+    });
+  }), []);
+
+  // Rename the file behind a tab on disk, then re-key the tab to its new path
+  // (the tab id IS the path). Keeps the old name on failure (silent — the
+  // inline input simply reverts to the existing name).
+  const renameTab = useCallback(async (tab, newName) => {
+    const { dir, sep } = dirAndSep(tab.path);
+    if (!dir || !newName || newName === tab.name) return;
+    const res = await localFolderApi.renameFile({ dir, fromName: tab.name, toName: newName });
+    if (!res || res.error) return;
+    const newPath = `${dir}${sep}${newName}`;
+    setTabs((prev) => prev.map((t) => (t.id === tab.id
+      ? { ...t, id: newPath, path: newPath, name: newName }
+      : t)));
+    setActiveId((cur) => (cur === tab.id ? newPath : cur));
+    // Propagate the rename to every Files tab (the doc-viewer's own embedded
+    // one + the main window) so their listings show the new name.
+    notifyFilesChanged();
+  }, []);
 
   const closeTab = (id) => {
     setTabs((prev) => {
@@ -4297,12 +5550,23 @@ export default function DocViewer() {
     });
   };
 
+  // Activate a tab — used when clicking a Recently-open tile. Selection only;
+  // the list order is left untouched (clicking a tile no longer rearranges it).
+  const activateTab = useCallback((id) => {
+    setActiveId(id);
+  }, []);
+
   // Tabs whose content parsed as a WhatsApp conversation (reported by the
   // text pane) — their sidebar tiles show the WhatsApp mark.
   const [waTabs, setWaTabs] = useState(() => new Set());
   const markActiveWhatsApp = useCallback((id) => {
     setWaTabs((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
   }, []);
+
+  // Bumped to remount (reload) the active document pane — drives the chrome
+  // refresh buttons on the Documents / Multitool cards.
+  const [reloadKey, setReloadKey] = useState(0);
+  const reloadActive = useCallback(() => setReloadKey((k) => k + 1), []);
 
   const active = tabs.find((t) => t.id === activeId) || tabs[0] || null;
 
@@ -4311,43 +5575,80 @@ export default function DocViewer() {
   return (
     <div className="dv-page">
       <CursorSpotlight contain className="dv-cursor-spotlight" />
-      <div className="dv-page-main">
-      <div className="dv-tabbar" role="tablist">
-        {tabs.map((t) => (
-          <FileTabItem
-            key={t.id}
-            tab={t}
-            isActive={t.id === active.id}
-            isWhatsApp={waTabs.has(t.id)}
-            onActivate={() => setActiveId(t.id)}
-            onClose={() => closeTab(t.id)}
-          />
-        ))}
-      </div>
 
-      <div className="dv-doc">
-        {/* Remount per active tab (keyed) — each pane renders its own file. */}
-        <DocPane key={active.id} file={active} onWhatsAppDetected={() => markActiveWhatsApp(active.id)} />
-      </div>
-      </div>
-      {/* Footer: the main app's Files tab embedded here (collapsible), so the
-          project's files are reachable without leaving the viewer. */}
-      <footer className={`dv-files-footer${filesOpen ? ' is-open' : ''}`}>
-        <button
-          type="button"
-          className="dv-files-footer-bar"
-          onClick={() => setFilesOpen((o) => !o)}
-          aria-expanded={filesOpen}
-        >
-          <span className="dv-files-footer-title">Project files</span>
-          <span className="dv-files-footer-chevron" aria-hidden="true">{filesOpen ? '▾' : '▴'}</span>
-        </button>
-        {filesOpen && (
-          <div className="dv-files-footer-body">
-            <ProjectFiles />
+      {/* Body: the full-height "Recently open" column on the left, then the
+          right column (Documents + Multitool on top, Files browser below). */}
+      <div className="dv-body-row">
+        {/* Open-file tiles — a bare full-height column (no section chrome); each
+            tile is a Files-page-style item; clicking one makes it active. */}
+        <div className="dv-files-recent">
+          <div className="dv-files-recent-list">
+            <div className="dv-files-recent-scroll" ref={railScrollRef}>
+              {tabs.map((t) => (
+                <FileTabItem
+                  key={t.id}
+                  tab={t}
+                  isActive={t.id === activeId}
+                  isWhatsApp={waTabs.has(t.id)}
+                  onActivate={() => activateTab(t.id)}
+                  onClose={() => closeTab(t.id)}
+                  onRename={renameTab}
+                />
+              ))}
+            </div>
+            <SidebarScrollbar scrollRef={railScrollRef} refreshKey={tabs.length} />
           </div>
-        )}
-      </footer>
+        </div>
+
+        {/* Right column — Documents + Multitool on top, Files browser below. */}
+        <div className="dv-right-col">
+          {/* Main row: the document card + the Multitool card side by side. */}
+          <div className="dv-main-row">
+            {/* Document card — "Documents" chrome + the active file's body. */}
+            <div className="dv-doc-card">
+              <DvChrome title="Documents" desc={active?.name} onRefresh={reloadActive} />
+              <div className="dv-section-body">
+                <div className="dv-section-pane dv-doc">
+                  {/* Remount per active tab (keyed, + reloadKey so the chrome
+                      refresh reloads it). Its side panel (Text extraction / AI
+                      captions / AI advisor) portals into the Multitool card. */}
+                  <DocPane key={`${active.id}:${reloadKey}`} file={active} sidePanelSlot={sidePanelSlot} sideTabsSlot={sideTabsSlot} onWhatsAppDetected={() => markActiveWhatsApp(active.id)} />
+                </div>
+              </div>
+            </div>
+
+            {/* Draggable gutter between the document and the side panel. */}
+            <div
+              className="dv-advisor-resize"
+              onMouseDown={beginAdvisorResize}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize side panel"
+            />
+
+            {/* Multitool card — hosts the active file's tabbed side panel,
+                portalled into the slot below by its pane. */}
+            <aside className="dv-advisor-card" style={{ width: `${advisorW}px` }}>
+              <DvChrome title="Multitool" desc={active?.name} onRefresh={reloadActive} />
+              <div className="dv-advisor-slot" ref={setSidePanelSlot} />
+            </aside>
+          </div>
+
+          {/* Files browser — its own rounded card at the bottom of the column. */}
+          <footer className="dv-files-footer" style={{ height: `${footerHeight}px` }}>
+            <div
+              className="dv-footer-resize"
+              onMouseDown={beginFooterResize}
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize files panel height"
+            />
+            <PaneChromeProvider>
+              <DvFilesCard />
+            </PaneChromeProvider>
+          </footer>
+        </div>
+      </div>
     </div>
   );
 }

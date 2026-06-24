@@ -489,11 +489,33 @@ function createDocViewerWindow(file) {
   if (file?.path) query.path = file.path;
   if (file?.name) query.name = file.name;
   if (file?.mime) query.mime = file.mime;
-  // Open on the same monitor as the base app.
+  // Open on the same monitor as the base app, maximized to fill the screen the
+  // first time it's created (the window is reused for later files via tabs).
   docViewerWindow = createAppWindow({ query, bounds: centeredOnDisplayOf(mainWindow, 1200, 800) });
+  docViewerWindow.maximize();
   docViewerWindow.on('closed', () => { docViewerWindow = null; });
 }
 ipcMain.on('window:open-doc-viewer', (_, file) => createDocViewerWindow(file));
+
+// A Files-tab instance just trashed/deleted some paths. Fan the event out to
+// every OTHER window (the file watcher only ever pings the main window) so the
+// doc-viewer can close tabs that show a now-deleted file AND any other Files
+// tab can re-list. The sender window is skipped — it already refreshed itself
+// (and closed its own tabs) via a same-renderer `window` event in platform.js.
+ipcMain.on('files:removed', (e, paths) => {
+  const list = Array.isArray(paths) ? paths : [paths];
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed() && w.webContents !== e.sender) w.webContents.send('files:removed', list);
+  }
+});
+
+// Generic on-disk change (e.g. a rename from the doc-viewer tab sidebar) — fan
+// it out to every other window's Files tab. Sender skipped (same reason).
+ipcMain.on('files:changed', (e) => {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed() && w.webContents !== e.sender) w.webContents.send('files:changed');
+  }
+});
 
 // Extract readable text from a legacy .doc (OLE binary) via word-extractor in
 // the main process — the sandboxed renderer can't parse that format. Returns
@@ -520,7 +542,10 @@ ipcMain.handle('doc:extract-text', async (_e, filePath) => {
 //
 // A WhatsApp line starts with a bracketed/locale-loose timestamp; this signature
 // keeps us from hijacking arbitrary zips that merely happen to contain a .txt.
-const WHATSAPP_SIGNATURE = /(^|\n)[\s‎‏]*\[?\s*\d{1,4}[./-]\d{1,2}[./-]\d{1,4},?\s+\d{1,2}:\d{2}/;
+// Tolerances for real-world exports: any leading invisible/direction marks or
+// BOM, `[`-bracketed (iOS) or bare (Android) dates, `/ . -` date separators,
+// and a `:` OR `.` time separator (some EU locales export `21.42`).
+const WHATSAPP_SIGNATURE = /(^|\n)[\s‎‏‪-‮⁦-⁩﻿]*\[?\s*\d{1,4}[./-]\d{1,2}[./-]\d{1,4},?\s+\d{1,2}[:.]\d{2}/;
 
 // Recursively find the best transcript candidate inside an extracted export.
 // Preference: an exact `_chat.txt` → a "WhatsApp Chat …".txt → the largest .txt.
@@ -583,6 +608,22 @@ ipcMain.handle('whatsapp:prepare-zip', async (_e, zipPath) => {
     const name = /^_chat\.txt$/i.test(base)
       ? path.basename(zipPath).replace(/\.zip$/i, '')
       : base.replace(/\.txt$/i, '');
+    return { ok: true, chatPath, name };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+});
+
+// A WhatsApp export can also live as an already-extracted FOLDER (transcript +
+// media side by side). Locate the transcript inside it so the Files tab can
+// open the reconstructed conversation directly — no extraction step.
+ipcMain.handle('whatsapp:prepare-folder', async (_e, dirPath) => {
+  if (typeof dirPath !== 'string' || !dirPath) return { ok: false };
+  try {
+    const chatPath = await findChatTranscript(dirPath);
+    if (!chatPath || !(await looksLikeWhatsApp(chatPath))) return { ok: false };
+    const base = path.basename(chatPath);
+    const name = /^_chat\.txt$/i.test(base) ? path.basename(dirPath) : base.replace(/\.txt$/i, '');
     return { ok: true, chatPath, name };
   } catch (err) {
     return { ok: false, error: String(err?.message || err) };
@@ -658,6 +699,11 @@ ipcMain.handle('whatsapp:detect', async (_e, paths) => {
         hit = Boolean(chatPath && (await looksLikeWhatsApp(chatPath)));
       } else if (/\.zip$/i.test(p)) {
         hit = await zipContainsWhatsAppChat(p);
+      } else if (/\.txt$/i.test(p)) {
+        // A loose, already-extracted transcript dropped in on its own
+        // (`_chat.txt` / "WhatsApp Chat with NAME.txt"): recognise it by its
+        // first bytes carrying WhatsApp's timestamp signature.
+        hit = await looksLikeWhatsApp(p);
       }
       waDetectCache.set(key, hit);
       out[p] = hit;
@@ -1804,6 +1850,54 @@ ipcMain.handle('local-folder:open-path', async (_, targetPath) => {
   return shell.openPath(targetPath);
 });
 
+// "Save as…" — copy a file already on disk (e.g. a WhatsApp chat attachment in
+// the export folder) to a user-chosen location via the native save dialog.
+ipcMain.handle('local-folder:save-as', async (_, srcPath) => {
+  try {
+    if (typeof srcPath !== 'string' || !srcPath) return { ok: false };
+    const st = await fsp.stat(srcPath);
+    if (!st.isFile()) return { ok: false, error: 'Not a file' };
+    const res = await dialog.showSaveDialog({ defaultPath: path.basename(srcPath) });
+    if (res.canceled || !res.filePath) return { ok: false, canceled: true };
+    await fsp.copyFile(srcPath, res.filePath);
+    return { ok: true, path: res.filePath };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+// "Open contents" for a compressed file in the Files tab. A .zip is unpacked
+// into a sibling folder named after the archive (deduped if it already exists)
+// so the user can browse it inline; other formats (rar/7z/tar/gz) have no
+// bundled extractor, so they're handed to the OS archiver via shell.openPath.
+// Returns { ok, extracted, path } — `path` is the new folder when extracted.
+ipcMain.handle('local-folder:extract-archive', async (_, srcPath) => {
+  try {
+    if (typeof srcPath !== 'string' || !srcPath) return { ok: false };
+    const st = await fsp.stat(srcPath);
+    if (!st.isFile()) return { ok: false, error: 'Not a file' };
+
+    if (!/\.zip$/i.test(srcPath)) {
+      // No native extractor for this format — open it in the OS archiver.
+      const err = await shell.openPath(srcPath);
+      return err ? { ok: false, error: err } : { ok: true, extracted: false };
+    }
+
+    // Always unpack into ONE sibling folder named after the archive. If it
+    // already exists, merge into it (extract-zip overwrites same-named files)
+    // rather than spawning "name (2)", "name (3)" duplicates.
+    const parent = path.dirname(srcPath);
+    const baseName = path.basename(srcPath).replace(/\.zip$/i, '');
+    const dest = path.join(parent, `${baseName} - unzipped`);
+    await fsp.mkdir(dest, { recursive: true });
+    const { default: extract } = await import('extract-zip');
+    await extract(srcPath, { dir: dest });
+    return { ok: true, extracted: true, path: dest };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
 // Reveal a local file in the OS file manager (Explorer on Windows,
 // Finder on macOS, the default file manager on Linux) with the file
 // pre-selected. Wired to the "Show in explorer" context-menu item
@@ -2109,6 +2203,14 @@ ipcMain.handle('local-folder:trash-folder', async (_, payload) => {
     const deletedAt = new Date(nowMs).toISOString();
     const stored = [];
     let counter = 0;
+    // Tag every file from this delete with one group id + the folder's own name
+    // and parent location, so the bin can show ONE folder item (Windows-style)
+    // instead of each file, and restore can recreate the folder where it lived.
+    const folderGroup = `g${nowMs}`;
+    const folderName = path.basename(resolved);
+    const folderRelDir = path
+      .relative(normalizedDir, path.dirname(resolved))
+      .split(path.sep).join('/');
     // Recursively trash every file under the folder, preserving each file's
     // location relative to the project root so restore puts it back exactly.
     const walk = async (current) => {
@@ -2128,7 +2230,7 @@ ipcMain.handle('local-folder:trash-folder', async (_, payload) => {
         counter += 1;
         try {
           await fsp.rename(full, path.join(tdir, storedName));
-          meta[storedName] = { originalName: entry.name, deletedAt, originalRelDir };
+          meta[storedName] = { originalName: entry.name, deletedAt, originalRelDir, folderGroup, folderName, folderRelDir };
           stored.push(storedName);
         } catch { /* skip unreadable */ }
       }
@@ -2199,6 +2301,11 @@ ipcMain.handle('local-folder:list-trash', async (_, dir) => {
         originalName,
         deletedAt: rec.deletedAt || stat.mtime.toISOString(),
         originalRelDir: rec.originalRelDir || '',
+        // Present only for files that were trashed as part of a folder delete —
+        // lets the renderer collapse them into one folder item in the bin.
+        folderGroup: rec.folderGroup || null,
+        folderName: rec.folderName || '',
+        folderRelDir: rec.folderRelDir || '',
         sizeBytes: stat.size,
         mimeType: guessMimeFromName(originalName),
         path: full,
@@ -2376,7 +2483,13 @@ app.whenReady().then(() => {
       // to the normal full-file stream; callers must therefore check the
       // response's content-type before treating the bytes as an image.
       const thumbW = parseInt(url.searchParams.get('thumb') || '', 10);
-      if (Number.isFinite(thumbW) && thumbW > 0 && /^(image\/(jpeg|png|bmp|tiff|heic|heif)|video\/)/.test(mime)) {
+      // Documents (PDF / Office / OpenDocument) get a page thumbnail from the
+      // SAME OS provider as photos/videos — matched by extension because legacy
+      // Office (.doc/.xls/.ppt) reports application/octet-stream, not a real mime.
+      const thumbExt = path.extname(filePath).slice(1).toLowerCase();
+      const isDocThumb = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', 'rtf'].includes(thumbExt);
+      const isMediaThumb = /^(image\/(jpeg|png|bmp|tiff|heic|heif)|video\/)/.test(mime);
+      if (Number.isFinite(thumbW) && thumbW > 0 && (isMediaThumb || isDocThumb)) {
         const body = await thumbnailFor(filePath, stat.mtimeMs, Math.min(1024, thumbW), mime);
         if (body) {
           return new Response(body.buffer, {
@@ -2391,6 +2504,11 @@ app.whenReady().then(() => {
             },
           });
         }
+        // No thumbnail could be produced (Linux, no shell provider installed,
+        // etc.). For documents, DON'T fall through to streaming the raw multi-MB
+        // file to an <img> — signal "no image" so the renderer shows its type
+        // icon instead. (Images/videos still fall through to the normal stream.)
+        if (isDocThumb) return new Response('No thumbnail', { status: 415, headers: cors });
       }
       // Honour HTTP Range requests so <audio>/<video> can seek and read
       // duration. Chromium needs a 206 partial response for this; an .ogg

@@ -721,8 +721,8 @@ export default function TitleBar() {
                 )}
               >
                 <div className="tb-usage">
-                  {usageMeters.map((m) => (
-                    <TbUsageMeter key={m.key} {...m} />
+                  {usageMeters.map(({ key, ...m }) => (
+                    <TbUsageMeter key={key} {...m} />
                   ))}
                 </div>
               </Tooltip>

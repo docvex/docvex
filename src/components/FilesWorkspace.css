@@ -518,6 +518,31 @@
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 .fx-crumb-sep { color: var(--text-muted); opacity: 0.55; flex: 0 0 auto; }
+/* Icon-size slider (left of the search box). Drives the tile/icon size; the
+   flanking dots hint at small → large. */
+.fx-size-slider { display: flex; align-items: center; gap: 7px; margin-right: 4px; }
+.fx-size-dot {
+  flex: none; border-radius: 2px; background: var(--text-muted);
+}
+.fx-size-dot-sm { width: 5px; height: 5px; }
+.fx-size-dot-lg { width: 9px; height: 9px; }
+.fx-size-range {
+  appearance: none; -webkit-appearance: none;
+  width: 96px; height: 4px; border-radius: 999px; cursor: pointer;
+  background: var(--border-strong);
+  transition: background 140ms ease;
+}
+.fx-size-range:hover { background: color-mix(in srgb, var(--accent) 35%, var(--border-strong)); }
+.fx-size-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--bg-card);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); cursor: grab;
+  transition: transform 120ms ease;
+}
+.fx-size-range::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.15); }
+.fx-size-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
 .fx-search {
   display: flex; align-items: center; gap: 8px;
   padding: 5px 8px 5px 11px;
@@ -615,7 +640,7 @@
    (the list view stays full-bleed via the base rule above). Top + bottom match
    so the grid sits symmetrically between the toolbar and the action bar. */
 .fx-canvas:has(> .fx-grid) {
-  padding: 16px 22px 16px;
+  padding: 10px 14px 12px;
 }
 /* Team edit mode → subtle red wash behind the file items, so the whole
    workspace (not just the toolbar) reads as "editing the main branch". */
@@ -676,7 +701,7 @@
      --fx-tile drives both column width and thumb height. */
   grid-template-columns: repeat(auto-fill, var(--fx-tile, 168px));
   justify-content: start;
-  gap: 14px;
+  gap: 8px;
   margin-bottom: 8px;
 }
 
@@ -706,7 +731,6 @@
   font: inherit;
 }
 .fx-tile:hover {
-  transform: translateY(-1px);
   background: var(--bg-card);
   box-shadow: var(--shadow-card);
   border-color: var(--border-strong);
@@ -725,6 +749,14 @@
 .fx-list-row.is-droptarget {
   background: var(--accent-tint);
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* Dragging onto the Recycle bin entry → the same drop cue as a folder, but in
+   danger red (it's a "drop to delete" target, not a move target). */
+.fx-tile.is-bindrop {
+  border-color: var(--danger);
+}
+.fx-list-row.is-bindrop {
+  box-shadow: inset 0 0 0 1px var(--danger);
 }
 /* Files cut to the clipboard render dimmed until pasted (Explorer-style). */
 .fx-tile.is-cut, .fx-list-row.is-cut { opacity: 0.45; }
@@ -786,6 +818,23 @@
   margin-bottom: 4px;
   border-bottom: 1px solid var(--border);
 }
+/* "Recognised as WhatsApp convo" header atop a WhatsApp export's right-click
+   menu (lives in the portalled morph pill, so this rule is document-global). */
+.fx-wa-menu-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 11px 9px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+/* Bare WhatsApp glyph (no tinted tile) — its own brand green at left. */
+.fx-wa-menu-head-mark {
+  flex: none; width: 26px; height: 26px; display: grid; place-items: center;
+  color: #25D366;
+}
+.fx-wa-menu-head-mark .fx-glyph-wa-logo { width: 100%; height: 100%; }
+.fx-wa-menu-head-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.fx-wa-menu-head-title { font-size: 12px; font-weight: 700; color: var(--text-primary); }
+.fx-wa-menu-head-sub { font-size: 11px; font-weight: 500; color: var(--text-muted); }
 .fx-color-swatch {
   width: 20px;
   height: 20px;
@@ -825,15 +874,19 @@
   color: #fff;
   font-size: 11px;
   font-weight: 700;
-  line-height: 18px;
-  text-align: center;
+  line-height: 1;
+  /* Flex-centre so the digit sits dead-centre regardless of font metrics
+     (line-height centring drifted it slightly off). */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   box-sizing: border-box;
 }
 /* Inline variant in the list row — sits next to the name, not a corner. */
 .fx-bin-count.is-inline {
   position: static;
   margin-left: 8px;
-  display: inline-block;
+  display: inline-flex;
 }
 
 /* Colored ext-label glyph (from the design) — shown when a file has no
@@ -848,18 +901,34 @@
   letter-spacing: 0.06em;
   text-align: center;
 }
-.fx-tile-thumb .fx-glyph { width: 46px; height: 46px; font-size: 11px; }
-.fx-glyph-pdf { background: #B91C1C; }
-.fx-glyph-doc { background: #2563EB; }
-.fx-glyph-xls { position: relative; overflow: hidden; background: linear-gradient(135deg, #15803D 0%, #0D9488 100%); }
-.fx-glyph-xls .fx-glyph-sheet {
-  width: 56%;
-  height: 56%;
-  color: #fff;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+/* Match the folder glyph's footprint so file icons read at the same size as
+   folders and scale with the tile zoom. The folder is 112% of the thumb height
+   (thumb height = --fx-tile × 0.58), i.e. ~0.65 × --fx-tile. Sized off the zoom
+   var directly so it resolves the same with or without the WhatsApp host. */
+.fx-tile-thumb .fx-glyph {
+  width: calc(var(--fx-tile, 168px) * 0.65);
+  height: calc(var(--fx-tile, 168px) * 0.65);
+  font-size: 11px;
 }
-.fx-glyph-ppt { background: #C2410C; }
-.fx-glyph-zip { background: #7C3AED; }
+
+/* Filled type icons (document / picture / slide) — an accent shape with darker
+   accent details, filling the glyph like the other type icons. */
+.fx-glyph-icon { background: transparent; color: var(--accent); }
+.fx-glyph-icon .fx-type-icon { width: 100%; height: 100%; display: block; }
+.fx-type-base { fill: currentColor; }
+.fx-type-detail { fill: color-mix(in srgb, var(--accent) 52%, #000); }
+
+.fx-glyph-pdf { background: var(--danger); }
+/* Microsoft Office files (Word / Excel / PowerPoint) render the authentic
+   full-colour Office file icon via <OfficeFileIcon> on a transparent thumb
+   (.fx-glyph-icon) — no coloured tile, see fileGlyph.jsx. */
+/* Zipped-folder archive icon — the zipper teeth are a thick dashed line in a
+   darker accent down the folder's middle. */
+.fx-zip-teeth {
+  stroke: color-mix(in srgb, var(--accent) 52%, #000);
+  stroke-width: 3;
+  stroke-dasharray: 1 1.3;
+}
 .fx-glyph-img { background: linear-gradient(135deg, #14B8A6, #0EA5E9); }
 /* Recognised WhatsApp export zip — the WhatsApp logo on its brand green. */
 .fx-glyph-whatsapp { background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); }
@@ -867,6 +936,97 @@
   width: 64%; height: 64%; color: #fff;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
 }
+
+/* Recognised WhatsApp export — the file keeps its real document-type glyph and
+   the brand-green WhatsApp pill is ALWAYS shown in the corner. On hover the pill
+   grows out from its corner, squares off and dissolves — transforming into the
+   file thumbnail it sits on. The host shrinks to the glyph so the badge anchors
+   to the glyph's corner (relative sizing → scales with tile zoom / list size). */
+.fx-wa-host { position: relative; display: inline-grid; place-items: center; }
+.fx-wa-badge {
+  /* Anchored exactly to the glyph's top-right corner. Width is 42% of the
+     glyph, so scaling by 1/0.42 from that corner makes the pill grow to cover
+     the glyph precisely — matching the file's own thumbnail size + corners. */
+  position: absolute; right: 0; top: 0;
+  width: 42%; aspect-ratio: 1;
+  display: grid; place-items: center;
+  /* 50% (a perfect circle on a square pill) instead of a huge fixed px radius,
+     so the corner-squaring interpolates proportionally and stays in sync with
+     the scale rather than snapping square near the end. */
+  border-radius: 50%;
+  background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
+  color: #fff;
+  /* Grow from the corner so the pill expands across the glyph as it morphs. */
+  transform-origin: top right;
+  transition: transform 340ms cubic-bezier(0.16, 1, 0.3, 1), border-radius 340ms ease;
+  pointer-events: none;
+}
+.fx-wa-badge .fx-glyph-wa-logo { width: 64%; height: 64%; }
+/* Hover the file (tile / list row / doc-viewer tab): the pill scales up from its
+   corner to exactly cover the glyph and squares its corners to match the
+   thumbnail's radius — staying green with the WhatsApp logo. */
+.fx-tile:hover .fx-wa-badge,
+.fx-list-row:hover .fx-wa-badge,
+.dv-filetab:hover .fx-wa-badge,
+.fx-wa-host:hover .fx-wa-badge {
+  transform: scale(2.381);
+  border-radius: 20%;
+}
+/* Fade the file's own glyph out as the pill expands over it, so the old icon
+   never peeks from behind the matched-size pill. (The glyph is the host's only
+   non-badge child.) */
+.fx-wa-host > :not(.fx-wa-badge) { transition: opacity 200ms ease; }
+.fx-tile:hover .fx-wa-host > :not(.fx-wa-badge),
+.fx-list-row:hover .fx-wa-host > :not(.fx-wa-badge),
+.dv-filetab:hover .fx-wa-host > :not(.fx-wa-badge),
+.fx-wa-host:hover > :not(.fx-wa-badge) { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .fx-wa-badge { transition-duration: 1ms; }
+}
+
+/* ── WhatsApp ZIP export — vertical push glyph ───────────────────────────
+   Two stacked, clipped layers. At rest: a plain accent folder (reads like any
+   other folder). On hover: the folder slides UP and out of frame while the
+   WhatsApp logo slides UP into view from below. Smooth, both directions. */
+.fx-wa-zip-glyph { position: relative; overflow: hidden; }
+.fx-wa-layer {
+  position: absolute; inset: 0;
+  display: block;
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.fx-wa-layer .fx-type-icon { width: 100%; height: 100%; display: block; }
+/* The base layer hosts the file's own ExtGlyph (a nested .fx-glyph) — make it
+   fill the layer regardless of the tile/list sizing rules. */
+.fx-wa-layer > .fx-glyph { width: 100%; height: 100%; }
+/* File-type icon sits in frame; WhatsApp is parked one glyph-height below. */
+.fx-wa-layer-folder { transform: translateY(0); }
+.fx-wa-layer-wa { transform: translateY(100%); }
+.fx-wa-layer-wa .fx-wa-mark-path { fill: #25D366; }
+
+.fx-tile:hover .fx-wa-zip-glyph .fx-wa-layer-folder,
+.fx-list-row:hover .fx-wa-zip-glyph .fx-wa-layer-folder,
+.dv-filetab:hover .fx-wa-zip-glyph .fx-wa-layer-folder,
+.fx-wa-zip-glyph:hover .fx-wa-layer-folder { transform: translateY(-100%); }
+
+.fx-tile:hover .fx-wa-zip-glyph .fx-wa-layer-wa,
+.fx-list-row:hover .fx-wa-zip-glyph .fx-wa-layer-wa,
+.dv-filetab:hover .fx-wa-zip-glyph .fx-wa-layer-wa,
+.fx-wa-zip-glyph:hover .fx-wa-layer-wa { transform: translateY(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-wa-layer { transition-duration: 1ms; }
+}
+
+/* WhatsApp hover-tooltip note (inside the morph pill). */
+.fx-hover-wa { align-items: center; gap: 9px; }
+.fx-hover-wa-mark {
+  flex: none; width: 22px; height: 22px; display: grid; place-items: center;
+  border-radius: 6px; color: #fff;
+  background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
+}
+.fx-hover-wa-mark .fx-glyph-wa-logo { width: 66%; height: 66%; }
+.fx-hover-wa-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.fx-hover-wa-note { font-size: 0.82em; opacity: 0.7; }
 /* Video badge — a play triangle on a vibrant media gradient (was flat near-
    black with "MP4" text, which barely read on the Ink theme). The format tag
    sits in the corner; the triangle scales with the badge so it works at both
@@ -877,8 +1037,8 @@
   overflow: hidden;
 }
 .fx-glyph-vid .fx-glyph-play {
-  width: 46%;
-  height: 46%;
+  width: 100%;
+  height: 100%;
   color: #fff;
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
 }
@@ -895,17 +1055,46 @@
 }
 /* List view is tiny (24px) — drop the corner tag, the triangle carries it. */
 .fx-list-thumb .fx-glyph-vid-tag { display: none; }
-/* Audio badge — a speaker with sound waves on a media gradient, mirroring the
-   video badge. Reuses .fx-glyph-vid-tag for the corner format tag (so it also
-   hides in the tiny list view). */
+
+/* ── Video cassette-tape frame ──────────────────────────────────────────
+   Layered over an actual video poster: dark perforated bands above AND below
+   the thumbnail — the exposed edges of a video tape / film strip. No z-index
+   (auto) so it sits over the static poster image but UNDER the duration pill
+   (z-index 1), which stays readable. Hidden when only the type-glyph badge is
+   showing (no real poster resolved) and in the tiny list view, so it only
+   dresses a real preview. */
+.fx-cassette { position: absolute; inset: 0; pointer-events: none; }
+.fx-cassette::before,
+.fx-cassette::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 16%;
+  min-height: 9px;
+  background-color: rgba(90, 92, 98, 0.82);
+  /* Evenly-spaced perforation holes punched along the band. */
+  background-image: radial-gradient(circle, rgba(244, 240, 230, 0.92) 0 1.6px, transparent 2px);
+  background-size: 11px 100%;
+  background-repeat: repeat-x;
+  background-position: center;
+}
+.fx-cassette::before { top: 0; border-bottom: 1px solid rgba(0, 0, 0, 0.2); }
+.fx-cassette::after { bottom: 0; border-top: 1px solid rgba(0, 0, 0, 0.2); }
+/* Only frame a real poster — hide over the type-glyph badge and in list view. */
+.fx-tile-thumb:has(.fx-glyph) .fx-cassette { display: none; }
+.fx-list-thumb .fx-cassette { display: none; }
+/* Audio badge — a decibel line (equalizer bars) on a media gradient, mirroring
+   the video badge. Reuses .fx-glyph-vid-tag for the corner format tag (so it
+   also hides in the tiny list view). */
 .fx-glyph-aud {
   position: relative;
   background: linear-gradient(135deg, #0EA5E9 0%, #6D28D9 100%);
   overflow: hidden;
 }
 .fx-glyph-aud .fx-glyph-audio {
-  width: 52%;
-  height: 52%;
+  width: 100%;
+  height: 100%;
   color: #fff;
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
 }
@@ -915,6 +1104,24 @@
 .fx-glyph-psd { background: #001E36; color: #31A8FF; }
 .fx-glyph-ai  { background: #1A0A00; color: #FF9A00; }
 .fx-glyph-gen { background: var(--text-muted); }
+
+/* ── Unified file-type glyphs ──────────────────────────────────────────
+   Every type glyph shares one style: NO badge fill — just the label / inner
+   glyph drawn in the theme accent straight on the (transparent) thumb, so the
+   thumbnails read as a consistent set that re-tints with the selected theme.
+   The WhatsApp badge (green), the ZIP/WinRAR books (brand colours), and the
+   Microsoft Office tiles (Word / Excel / PowerPoint — their own brand-matched
+   app-colour tiles, defined above) are intentionally excluded. */
+.fx-glyph-pdf,
+.fx-glyph-img, .fx-glyph-vid, .fx-glyph-aud, .fx-glyph-txt, .fx-glyph-psd,
+.fx-glyph-ai, .fx-glyph-gen {
+  background: transparent;
+  color: var(--accent);
+  border: none;
+}
+.fx-glyph-vid .fx-glyph-play,
+.fx-glyph-aud .fx-glyph-audio,
+.fx-glyph-vid-tag { color: var(--accent); }
 
 .fx-tile-name {
   font-size: 13px;
@@ -1105,6 +1312,11 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  /* Fill the toolbar so the inner flex:1 spacer can push the search box to the
+     right edge (without this the row is content-width and the spacer collapses,
+     leaving search hugging the breadcrumbs). */
+  flex: 1;
+  min-width: 0;
   padding: 0 10px 12px 4px;
 }
 /* Tile mode (no list header after it): trim the bottom padding so the bar's
@@ -1151,7 +1363,8 @@
    collapsed to the text height in the center-aligned grid above). Sized to sit
    in the 30px thumb with breathing room so it reads like the other icons
    instead of a full-bleed colored block. */
-.fx-list-thumb .fx-glyph { width: 24px; height: 24px; aspect-ratio: 1 / 1; font-size: 8px; border-radius: 5px; letter-spacing: 0.02em; }
+/* Match the folder glyph (fills the 30px list thumb). */
+.fx-list-thumb .fx-glyph { width: 30px; height: 30px; aspect-ratio: 1 / 1; font-size: 8px; border-radius: 5px; letter-spacing: 0.02em; }
 /* Fill the box and show the MIDDLE of the thumbnail (center-crop) so a
    tall poster isn't anchored to its top edge. */
 .fx-list-thumb img {
@@ -1580,8 +1793,10 @@
   font: inherit;
   color: var(--text-primary);
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  /* No border/box — edit in place, showing just the text + native selection
+     (the bordered box made the thumb shift and read as a separate field). */
+  border: none;
+  border-radius: 0;
   padding: 3px 6px;
   outline: none;
   box-shadow: none;
@@ -1593,7 +1808,10 @@
   text-overflow: ellipsis;
   -webkit-line-clamp: unset;
 }
-.fx-tile-name.fx-inline-input { text-align: center; font-size: 12.5px; font-weight: 600; margin-top: 2px; }
+/* Match the name span's box exactly (font-size / line-height / no padding /
+   no margin) so swapping the label for the input doesn't grow the name block —
+   keeps the vertically-centered thumbnail perfectly still while renaming. */
+.fx-tile-name.fx-inline-input { text-align: center; font-size: 13px; font-weight: 600; line-height: 1.25; margin-top: 0; padding: 0; }
 .fx-name.fx-inline-input { font-size: 13px; font-weight: 500; flex: 1; min-width: 0; }
 /* Renaming / new-folder draft shells are non-interactive (plain divs reusing
    the tile/row classes) — kill the hover lift + pointer cues. */

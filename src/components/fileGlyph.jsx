@@ -1,6 +1,13 @@
 import React from 'react';
 import { DOCX_MIME, PPTX_MIME } from '../lib/thumbnails';
 
+// Office Open XML + legacy binary MIME types, kept here next to the
+// glyph dispatcher (thumbnails.js only exports the two it needs).
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const DOC_MIME = 'application/msword';
+const PPT_MIME = 'application/vnd.ms-powerpoint';
+const XLS_MIME = 'application/vnd.ms-excel';
+
 // Single MIME → SVG glyph map for the whole app. Replaces the two
 // parallel maps that used to live in ProjectFiles.jsx and
 // ChangeRequestsView.jsx — same glyphs, slightly different ordering
@@ -35,19 +42,54 @@ const PdfGlyph = (
   </svg>
 );
 
-const DocxGlyph = (
-  <svg {...COMMON_PROPS}>
-    {PaperBase}
-    <text x="7.5" y="18" fontSize="5.4" fontWeight="700" fill="currentColor" stroke="none">DOC</text>
-  </svg>
-);
+// ── Microsoft Office file icons ─────────────────────────────────────
+// Authentic Word / Excel / PowerPoint file icons: a white document with
+// faint brand-coloured content hints and the app's letter badge sitting on
+// the lower-left corner — the recognizable real Office look, in Microsoft's
+// own brand colours (not the app palette). Full-colour SVGs (explicit fills,
+// not currentColor), so the container's accent colour doesn't affect them.
+const OFFICE_SPECS = {
+  word: {
+    color: '#185ABD',
+    letter: 'W',
+    content: (
+      <path d="M6.8 5.9h10.4M6.8 8.5h10.4M6.8 11.1h7" stroke="#185ABD" strokeOpacity="0.5" strokeWidth="1.25" strokeLinecap="round" />
+    ),
+  },
+  excel: {
+    color: '#107C41',
+    letter: 'X',
+    content: (
+      <path d="M6.8 6.1h10.4M6.8 9h10.4M10.6 4.6v6.9M14.1 4.6v6.9" stroke="#107C41" strokeOpacity="0.5" strokeWidth="1.1" />
+    ),
+  },
+  ppt: {
+    color: '#C43E1C',
+    letter: 'P',
+    content: (
+      <>
+        <circle cx="9.3" cy="7.6" r="3.1" fill="none" stroke="#C43E1C" strokeOpacity="0.5" strokeWidth="1.2" />
+        <path d="M14.2 6h3.2M14.2 8.5h3.2M14.2 11h3.2" stroke="#C43E1C" strokeOpacity="0.5" strokeWidth="1.2" strokeLinecap="round" />
+      </>
+    ),
+  },
+};
 
-const PptxGlyph = (
-  <svg {...COMMON_PROPS}>
-    {PaperBase}
-    <text x="7.6" y="18" fontSize="5.4" fontWeight="700" fill="currentColor" stroke="none">PPT</text>
-  </svg>
-);
+export function OfficeFileIcon({ kind, className }) {
+  const s = OFFICE_SPECS[kind] || OFFICE_SPECS.word;
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden="true" style={{ width: '100%', height: '100%' }}>
+      <rect x="4.6" y="2.5" width="14.8" height="19" rx="1.7" fill="#fff" stroke="rgba(0,0,0,0.16)" strokeWidth="0.8" />
+      {s.content}
+      <rect x="1.8" y="11.4" width="11" height="10.1" rx="1.8" fill={s.color} />
+      <text x="7.3" y="19.3" textAnchor="middle" fontFamily="var(--font-display, sans-serif)" fontSize="8.6" fontWeight="700" fill="#fff">{s.letter}</text>
+    </svg>
+  );
+}
+
+const DocxGlyph = <OfficeFileIcon kind="word" />;
+const PptxGlyph = <OfficeFileIcon kind="ppt" />;
+const XlsxGlyph = <OfficeFileIcon kind="excel" />;
 
 const VideoGlyph = (
   <svg {...COMMON_PROPS}>
@@ -56,12 +98,15 @@ const VideoGlyph = (
   </svg>
 );
 
-// Audio files — a speaker with sound waves (the "volume" mark).
+// Audio files — a decibel line: equalizer bars of varying heights (waveform).
 const AudioGlyph = (
   <svg {...COMMON_PROPS}>
-    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-    <path d="M15.5 8.5a5 5 0 0 1 0 7" />
-    <path d="M18.8 5.2a9 9 0 0 1 0 13.6" />
+    <path d="M3 10.5v3" />
+    <path d="M6.5 7.5v9" />
+    <path d="M10 4.5v15" />
+    <path d="M13.5 8.5v7" />
+    <path d="M17 6v12" />
+    <path d="M20.5 9.5v5" />
   </svg>
 );
 
@@ -95,8 +140,9 @@ export function glyphForFile(mime, name) {
   const m = (mime || '').toLowerCase();
   const lcName = (name || '').toLowerCase();
   if (m === 'application/pdf') return PdfGlyph;
-  if (m === DOCX_MIME || lcName.endsWith('.docx')) return DocxGlyph;
-  if (m === PPTX_MIME || lcName.endsWith('.pptx')) return PptxGlyph;
+  if (m === DOCX_MIME || m === DOC_MIME || /\.docx?$/.test(lcName)) return DocxGlyph;
+  if (m === PPTX_MIME || m === PPT_MIME || /\.pptx?$/.test(lcName)) return PptxGlyph;
+  if (m === XLSX_MIME || m === XLS_MIME || /\.xlsx?$/.test(lcName)) return XlsxGlyph;
   if (m.startsWith('image/')) return ImageGlyph;
   if (m.startsWith('video/')) return VideoGlyph;
   // Audio — match by MIME, or by extension when the OS didn't resolve a type.

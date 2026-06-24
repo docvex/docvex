@@ -39,6 +39,29 @@ const ATTACHED_PAREN_RE = /^([\s\S]+?\.[A-Za-z0-9]{1,5})\s*\(file attached\)\s*$
 const OMITTED_RE = /^(image|photo|video|audio|voice message|GIF|sticker|document|contact card)\s+omitted\.?$/i;
 const MEDIA_OMITTED_RE = /^<\s*Media omitted\s*>$/i;
 
+// WhatsApp appends an auto descriptor next to a document attachment — the file's
+// display name plus a " • N pages" / " • <size>" tail (e.g. "contract …docx • 3
+// pages"). That just duplicates the file card, so it's dropped; genuine
+// user-typed captions are kept. Matches the filename with or without the
+// numeric export-id prefix WhatsApp adds ("00000939-…").
+function isRedundantDocCaption(caption, name) {
+  const cap = (caption || '').trim().toLowerCase();
+  if (!cap) return false;
+  const file = (name || '').trim().toLowerCase();
+  const fileNoPrefix = file.replace(/^\d{4,}-/, '');
+  // Strip a trailing " • N pages" / " • <size>" descriptor, then compare.
+  const base = cap.replace(/\s*[•·]\s*(\d+\s*pages?|[\d.]+\s*(?:bytes|b|kb|mb|gb|tb))\s*$/i, '').trim();
+  const hadDescriptor = base !== cap;
+  if (hadDescriptor && base === '') return true;      // just "• 3 pages"
+  return base === file || base === fileNoPrefix;       // "<filename> • 3 pages" / bare filename
+}
+
+// Pull the page count WhatsApp embeds in a document descriptor ("… • 3 pages").
+function pagesFromDocCaption(caption) {
+  const m = String(caption || '').match(/[•·]\s*(\d+)\s*pages?\b/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 // Returns { attachment: { name, caption } | null, omitted: kind | null }.
 // `name` is the on-disk filename to resolve against the export folder;
 // `caption` is any text the user typed alongside the media.
@@ -47,8 +70,13 @@ function detectAttachment(text) {
   let m = t.match(ATTACHED_ANGLE_RE);
   if (m) {
     const name = m[1].trim();
-    const caption = (t.slice(0, m.index) + t.slice(m.index + m[0].length)).trim();
-    return { attachment: { name, caption }, omitted: null };
+    let caption = (t.slice(0, m.index) + t.slice(m.index + m[0].length)).trim();
+    let pages = null;
+    if (isRedundantDocCaption(caption, name)) {
+      pages = pagesFromDocCaption(caption); // keep WhatsApp's page count; drop the rest
+      caption = '';
+    }
+    return { attachment: { name, caption, pages }, omitted: null };
   }
   m = t.match(ATTACHED_PAREN_RE);
   if (m) return { attachment: { name: m[1].trim(), caption: '' }, omitted: null };

@@ -5,35 +5,133 @@
   position: fixed;
   inset: var(--titlebar-h, 0px) 0 0 0;
   display: flex;
-  /* Column: the main row (open-files list + document) on top, the collapsible
-     Project-files footer below. */
+  /* Column of rounded "cards" (like the main app's surfaces): the document card
+     on top, the Project-files card below, with a gutter showing the dot grid. */
   flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  box-sizing: border-box;
   background: var(--bg-page);
   color: var(--text-primary);
 }
-/* Main row: open-files list down the left edge, active document filling the rest. */
-.dv-page-main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: row; }
 
-/* Footer: the main app's Files tab embedded here, collapsible. */
+/* Main row: the document card + the AI-advisor card, side by side. */
+/* Body row: the full-height "Recently open" column on the left + the right
+   column (Documents/Multitool on top, Files browser below). */
+.dv-body-row { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; gap: 10px; }
+.dv-right-col { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.dv-main-row { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; }
+
+/* Document card — file tabs (header) + the active file's body. */
+.dv-doc-card {
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  position: relative; z-index: 1;
+  /* No card fill: the section body is transparent so the dot-grid + cursor
+     spotlight on .dv-page show through. A 1px border (like the main app's
+     panels) traces the rounded outline; only the inner top bar + any footer
+     (which carry their own fills) read as filled bars. */
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+/* AI advisor — its own rounded card beside the document. */
+.dv-advisor-card {
+  flex: none; min-height: 0;
+  display: flex; flex-direction: column;
+  position: relative; z-index: 1;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+/* Header is compact; the slot (portal target) fills the rest. */
+.dv-advisor-slot { flex: 1; min-height: 0; min-width: 0; display: flex; }
+.dv-advisor-slot > * { flex: 1; min-width: 0; min-height: 0; }
+/* A pane's side panel portalled into the slot fills it (drops the inline width
+   it uses when docked beside its document). The `.dv-advisor-slot >` prefix
+   lifts specificity above `.dv-ocr-history { flex: none }` (defined later in the
+   file) so the panel grows to the full Multitool width instead of shrinking to
+   its content. */
+.dv-advisor-slot > .dv-side-portal { flex: 1; min-width: 0; width: auto; }
+
+/* Draggable gutter between the two cards (transparent, accent line on hover). */
+.dv-advisor-resize { flex: none; width: 10px; cursor: col-resize; position: relative; z-index: 2; }
+.dv-advisor-resize::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px;
+  transform: translateX(-50%); border-radius: 999px; background: transparent; transition: background 120ms;
+}
+.dv-advisor-resize:hover::after { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+body.dv-ocr-resizing .dv-advisor-resize::after { background: var(--accent); }
+
+/* Footer region: holds the Open-files card + the Files-browser card side by
+   side (each its own rounded card). Height is set inline (resizable via the top
+   handle); the region itself is transparent. */
 .dv-files-footer {
   position: relative; z-index: 1;
-  flex: none; display: flex; flex-direction: column;
-  border-top: 1px solid var(--border);
-  background: var(--bg-page);
+  flex: none; min-height: 0; display: flex; flex-direction: column;
+  background: transparent;
 }
-.dv-files-footer.is-open { height: 340px; }
-.dv-files-footer-bar {
-  flex: none; display: flex; align-items: center; gap: 8px;
-  height: 36px; padding: 0 14px;
-  border: none; background: transparent; cursor: pointer;
-  font: inherit; font-size: 12px; font-weight: 600; color: var(--text-secondary);
+.dv-files-footer-body { flex: 1; min-height: 0; overflow: visible; display: flex; }
+/* Open-files card (left) + Files-browser card (right), separated by a gutter. */
+.dv-files-browse {
+  flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  position: relative; z-index: 1;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
 }
-.dv-files-footer.is-open .dv-files-footer-bar { border-bottom: 1px solid var(--border); }
-.dv-files-footer-bar:hover { color: var(--text-primary); }
-.dv-files-footer-title { letter-spacing: 0.02em; }
-.dv-files-footer-chevron { margin-left: auto; color: var(--text-muted); font-size: 11px; }
-.dv-files-footer-body { flex: 1; min-height: 0; overflow: hidden; display: flex; }
-.dv-files-footer-body > * { flex: 1; min-width: 0; min-height: 0; }
+/* Body below the "Files" header holds the embedded Files browser. */
+.dv-files-browse-body { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.dv-files-browse-body > * { flex: 1; min-width: 0; min-height: 0; }
+.dv-files-recent {
+  /* Hug a single tile column (tile + the scroll's 8px side padding) so there's
+     no empty band to the right of the tiles. */
+  --fx-tile: 96px;
+  flex: none; min-width: 0; min-height: 0;
+  width: calc(var(--fx-tile) + 20px);
+  display: flex; flex-direction: column;
+  position: relative; z-index: 1;
+  background: transparent;
+  overflow: hidden;
+}
+/* Horizontal handle along the footer's top edge (resize the footer height). */
+.dv-footer-resize {
+  flex: none; height: 4px; margin-top: -1px; cursor: row-resize;
+  position: relative; z-index: 2;
+}
+.dv-footer-resize::after {
+  content: ''; position: absolute; inset: 0;
+  background: transparent; transition: background 120ms;
+}
+.dv-footer-resize:hover::after { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+body.dv-row-resizing { cursor: row-resize; user-select: none; }
+body.dv-row-resizing .dv-footer-resize::after { background: var(--accent); }
+/* Gutter between the Open-files card and the Files-browser card. */
+.dv-split-resize { flex: none; width: 10px; cursor: col-resize; position: relative; z-index: 2; }
+.dv-split-resize::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px;
+  transform: translateX(-50%); border-radius: 999px; background: transparent; transition: background 120ms;
+}
+.dv-split-resize:hover::after { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
+/* Icon-size slider in the "Recently open" header (.dv-captab-bar.has-aside). */
+.dv-files-recent-zoom {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--text-muted); text-transform: none; letter-spacing: 0;
+}
+.dv-files-recent-zoom input[type="range"] {
+  width: 72px; height: 14px; cursor: pointer; accent-color: var(--accent);
+  background: transparent;
+}
+.dv-files-recent-zoom svg { flex: none; opacity: 0.8; }
+.dv-files-recent-empty { padding: 14px 12px; color: var(--text-muted); font-size: 12px; }
+/* Positioned wrapper so the custom scrollbar overlays the tile list (below the
+   header), not the whole rail. */
+.dv-files-recent-list { position: relative; flex: 1; min-height: 0; display: flex; }
 .dv-page-empty { align-items: center; justify-content: center; color: var(--text-muted); }
 
 /* Ambient dot grid + cursor spotlight (same effect as the app shell). These
@@ -62,64 +160,138 @@
 }
 @media (prefers-reduced-motion: reduce) { .dv-cursor-spotlight { display: none; } }
 
-/* ── Open-files list (left sidebar of vertical tabs) ───────────────── */
+/* ── Open-files list (the footer's "Recently opened" rail) ─────────── */
+/* The scroller is wrapped (.dv-files-recent-list) so the scrollbar can live
+   OUTSIDE the scroll view: the native bar is hidden and a custom one
+   (.dv-tabbar-scroll) is overlaid in a right-edge gutter, clear of the tiles. */
 .dv-tabbar {
-  position: relative; z-index: 1;
-  display: flex; flex-direction: column; align-items: stretch; gap: 2px;
-  width: 132px; flex: none;
-  padding: 6px 5px;
+  flex: 1 1 auto; min-width: 0;
+  /* Tile grid mirroring the Files window (.fx-grid) so the recently-opened
+     items read as the same file tiles. auto-fill fixed-width tracks, packed
+     from the left. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  align-content: start; gap: 6px;
+  /* Extra right padding reserves the gutter the custom scrollbar overlays, so
+     it never sits on top of a tile. Constant, so the layout never shifts. */
+  padding: 8px 12px 8px 8px;
   /* Transparent so the page's dot grid + cursor spotlight show through. */
   background: transparent;
-  border-right: 1px solid var(--border); overflow-y: auto; overflow-x: hidden;
-  scrollbar-width: thin;
+  overflow-y: auto; overflow-x: hidden;
+  /* Hide the native scrollbar — the custom one replaces it. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-/* One open file = a Files-window-style tile: thumbnail (or type icon) on
-   top, the name underneath, close button floating over the thumb's corner
-   (revealed on hover). */
+.dv-tabbar::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+/* Custom vertical scrollbar — a sibling of the scroll view (so it's outside it),
+   pinned to the right gutter. The track tints on hover; the thumb is draggable
+   and the track is click-to-page (wired in DocViewer.jsx). */
+.dv-tabbar-scroll {
+  position: absolute; z-index: 3;
+  top: 4px; bottom: 4px; right: 2px;
+  width: 6px; border-radius: 999px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+.dv-files-recent-list:hover .dv-tabbar-scroll { background: color-mix(in srgb, var(--text-primary) 7%, transparent); }
+.dv-tabbar-thumb {
+  position: absolute; left: 0; right: 0;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  min-height: 24px;
+  cursor: grab;
+  transition: background 120ms ease;
+}
+.dv-tabbar-thumb:hover { background: color-mix(in srgb, var(--scrollbar-thumb) 65%, var(--text-primary)); }
+.dv-tabbar-thumb:active { cursor: grabbing; background: color-mix(in srgb, var(--scrollbar-thumb) 45%, var(--text-primary)); }
+/* ── Open-file tiles ────────────────────────────────────────────────────
+   Each open file is rendered like a Files-page item (thumbnail / type glyph on
+   top, name below) inside the footer's "Open files" rail. App tokens so it
+   matches the Files page's tiles. */
+.dv-files-recent-scroll {
+  /* Reuses the Files tab's tile (.fx-tile) at its default size: drives --fx-tile
+     (column width + thumb height) and uses the same auto-fill fixed-track grid
+     as .fx-grid so the items render exactly like the Files tab. */
+  --fx-tile: 96px;
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  display: grid; grid-template-columns: repeat(auto-fill, var(--fx-tile, 96px));
+  gap: 6px; padding: 8px; align-content: start; justify-content: start;
+  scrollbar-width: none;
+}
+.dv-files-recent-scroll::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .dv-filetab {
   position: relative;
-  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
-  width: 100%; min-width: 0; padding: 6px;
-  border: 1px solid transparent;
-  border-radius: 9px; background: transparent; color: var(--text-secondary);
-  cursor: pointer; font: inherit; font-size: 11px; user-select: none;
+  display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 7px;
+  min-width: 0; padding: 8px 8px 9px;
+  border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--text-primary);
+  cursor: pointer; font: inherit; font-size: 13px; user-select: none; text-align: center;
+  transition: transform 120ms, box-shadow 120ms, border-color 120ms, background 120ms;
 }
-.dv-filetab:hover { background: color-mix(in srgb, var(--bg-page) 55%, transparent); }
-.dv-filetab.is-active { background: var(--bg-page); color: var(--text-primary); border-color: var(--accent); }
+.dv-filetab:hover {
+  transform: translateY(-1px); background: var(--bg-card);
+  box-shadow: var(--shadow-card); border-color: var(--border-strong);
+}
+/* Selection ring hugs the WHOLE tile (thumbnail + name), not just the thumb. */
+.dv-filetab.is-active { background: var(--bg-card); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .dv-filetab-thumb {
   position: relative; display: grid; place-items: center;
-  width: 100%; aspect-ratio: 4 / 3;
-  border: 1px solid var(--border); border-radius: 7px;
-  background: var(--bg-page); overflow: hidden;
+  width: 100%; height: calc(var(--dv-open-tile, 96px) * 0.58); border-radius: 7px;
+  background: var(--bg-elevated); overflow: hidden; transition: box-shadow 120ms;
 }
-.dv-filetab.is-active .dv-filetab-thumb { background: var(--bg-card); }
-/* No real preview → only the MIME glyph renders. Drop the gray fill (and its
-   border) so the type icon sits on the transparent sidebar, not a gray box. */
+/* MIME-glyph tiles drop the gray fill so the badge sits on the tile, like the
+   Files page. */
 .dv-filetab-thumb:has(.project-files-icon),
-.dv-filetab.is-active .dv-filetab-thumb:has(.project-files-icon) {
-  background: transparent; border-color: transparent;
-}
-.dv-filetab-thumb img { width: 100%; height: 100%; object-fit: cover; }
-/* FileThumbnail fallbacks — sized like the Files window's tile thumb: the
-   generic MIME icon centred, the colored extension badge at 46px. */
-.dv-filetab-thumb .project-files-icon {
-  width: 100%; height: 100%;
-  display: grid; place-items: center; color: var(--accent);
-}
-.dv-filetab-thumb .fx-glyph { width: 52px; height: 52px; font-size: 12px; }
+.dv-filetab-thumb:has(.fx-glyph) { background: transparent; }
+.dv-filetab-thumb .project-files-thumb,
+.dv-filetab-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.dv-filetab-thumb .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent); }
+.dv-filetab-thumb .fx-glyph { width: 42px; height: 42px; font-size: 10px; }
 .dv-filetab-name {
-  min-width: 0; text-align: center; line-height: 1.3; word-break: break-word;
+  min-width: 0; text-align: center; font-size: 12px; font-weight: 600;
+  color: var(--text-primary); line-height: 1.25; word-break: break-word;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
+.dv-filetab-rename {
+  width: 100%; min-width: 0; box-sizing: border-box;
+  text-align: center; font: inherit; font-size: 12px; font-weight: 600; line-height: 1.25;
+  padding: 0; border: none; border-radius: 0; background: transparent; color: var(--text-primary);
+}
+.dv-filetab-rename:focus { outline: none; box-shadow: none; }
 .dv-filetab-close {
-  position: absolute; top: 9px; right: 9px;
+  /* Floats on the thumbnail's top-right corner (revealed on hover). */
+  position: absolute; top: 8px; right: 8px; transform: translate(50%, -50%);
   display: inline-flex; align-items: center; justify-content: center;
-  width: 17px; height: 17px; border: none; border-radius: 5px;
-  background: rgba(11, 20, 26, 0.5); color: #fff; cursor: pointer; font-size: 12px; line-height: 1;
+  width: 24px; height: 24px; border: 1.5px solid var(--bg-card); border-radius: 999px;
+  background: rgba(11, 20, 26, 0.72); color: #fff; cursor: pointer; font-size: 15px; line-height: 1;
   opacity: 0; transition: opacity 100ms ease, background 100ms ease;
 }
-.dv-filetab:hover .dv-filetab-close, .dv-filetab-close:focus-visible { opacity: 1; }
+.dv-filetab-item:hover .dv-filetab-close, .dv-filetab-close:focus-visible { opacity: 1; }
 .dv-filetab-close:hover { background: var(--danger); }
+/* WhatsApp hover-tooltip note (morph pill) for a recognised chat export. */
+.dv-filetab-wa-hover { display: flex; flex-direction: column; line-height: 1.25; }
+.dv-filetab-wa-note { font-size: 0.82em; opacity: 0.7; }
+
+/* ── Section tabs (Document / Files / AI advisor) ───────────────────────────
+   Underline tabs, same chrome as the side-panel tabs (.dv-side-tab). */
+.dv-sectiontabs {
+  flex: none; display: flex; align-items: stretch; gap: 0;
+  padding: 0 8px; background: var(--bg-page); border-bottom: 1px solid var(--border);
+}
+.dv-sectiontab {
+  appearance: none; display: inline-flex; align-items: center; gap: 0.5rem;
+  background: transparent; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  padding: 0.7rem 1rem; font: inherit; font-size: 0.88rem; font-weight: 500;
+  color: var(--text-muted); cursor: pointer; transition: color 150ms, border-color 150ms;
+}
+.dv-sectiontab:hover:not(.is-active) { color: var(--text-secondary); }
+.dv-sectiontab.is-active { color: var(--text-primary); border-bottom-color: var(--accent); }
+
+/* ── Section body — the selected section fills it (others display:none). ──── */
+.dv-section-body { flex: 1 1 auto; min-height: 0; display: flex; position: relative; z-index: 1; }
+.dv-section-pane { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.dv-files-section, .dv-advisor-section { flex-direction: column; }
+.dv-files-section > *, .dv-advisor-section > * { flex: 1; min-width: 0; min-height: 0; }
 
 /* ── Active document ───────────────────────────────────────────────── */
 /* z-index:1 + transparent bg: sits above the page's spotlight layers, but its
@@ -132,21 +304,119 @@
 .dv-doc-body .file-preview-video,
 .dv-doc-body .file-preview-pdf-static { height: 100%; }
 
+/* Document split: preview + shared Extract-text panel as a flex row (mirrors
+   the media pane's stage + OCR panel). The body itself runs flush; the inner
+   .dv-doc-main carries the preview's padding/scroll. */
+.dv-doc-body.is-split { display: flex; padding: 0; overflow: hidden; }
+.dv-doc-main { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: auto; padding: 18px; }
+.dv-doc-main.is-flush { padding: 0; overflow: hidden; display: flex; }
+
+/* Extract-text panel chrome (it reuses .dv-ocr-history for the list). */
+.dv-doc-extract-bar { flex: none; padding: 14px 14px 4px; }
+.dv-doc-extract-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; padding: 10px 14px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-elevated); color: var(--text-primary);
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.dv-doc-extract-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.dv-doc-extract-btn:disabled { opacity: 0.55; cursor: default; }
+.dv-doc-extract-btn svg { width: 18px; height: 18px; flex: none; }
+/* Static (in-flow) error, not the media pane's floating bottom-centre pill. */
+.dv-doc-extract-error { position: static; transform: none; left: auto; bottom: auto; margin: 8px 14px 0; max-width: none; }
+
 /* ── Text pane: plain / markdown / WhatsApp ────────────────────────── */
 .dv-text-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .dv-text-toolbar {
   flex: none; display: flex; align-items: center; gap: 8px;
   padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-elevated);
 }
-/* Segmented toggle, pinned top-left, swaps plain text ↔ WhatsApp styling. */
-.dv-text-toggle { display: inline-flex; padding: 3px; gap: 2px; border-radius: 9px; background: var(--bg-page); border: 1px solid var(--border); }
-.dv-text-toggle-btn {
-  display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: none; border-radius: 7px;
-  background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 550;
+/* View-mode tabs (Docvex / Plain text) — a tab strip at the top-left of the
+   conversation section, styled to MATCH the media rail's tabbar (.dv-wa-rail-tabs
+   / .dv-wa-rail-tab): a --bg-card strip with a bottom border, underline tabs
+   that go muted → secondary on hover → primary with an accent underline.
+   Unlike the rail tabs these don't stretch (flex:none) so they hug the left. */
+.dv-text-toggle {
+  flex: none; display: flex; align-items: stretch;
+  /* Integrated as a chrome tab bar: the chrome's --bg-sidebar fill + its 8px
+     horizontal inset (matches .dv-chrome-row spacing). */
+  padding: 0 8px;
+  background: var(--bg-sidebar); border-bottom: 1px solid var(--border);
 }
-.dv-text-toggle-btn:hover { color: var(--text-primary); }
-.dv-text-toggle-btn.is-active { background: var(--bg-card); color: var(--text-primary); box-shadow: var(--shadow-card); }
+/* Top bar of the chat column (flex:none) — outside the scroller, so it spans the
+   full width and lines up with the rail's tabbar across the top of the section. */
+.dv-wa-chatcol > .dv-text-toggle { flex: none; }
+.dv-text-toggle-btn {
+  flex: none;
+  appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  padding: 0.7rem 1rem; background: transparent; border: none;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  font-family: var(--font-body); font-size: 0.88rem; font-weight: 500;
+  color: var(--text-muted); cursor: pointer; transition: color 150ms, border-color 150ms;
+}
+.dv-text-toggle-btn svg { flex: none; width: 16px; height: 16px; }
+.dv-text-toggle-btn:hover:not(.is-active) { color: var(--text-secondary); }
+.dv-text-toggle-btn.is-active { color: var(--text-primary); border-bottom-color: var(--accent); }
 .dv-text-scroll { flex: 1; min-height: 0; overflow: auto; }
+
+/* Chat search + date + rail controls relocated into the view-mode toolbar
+   (WhatsAppChat portals its header here). Re-themed from the WhatsApp green
+   header to the app palette and laid out in one horizontal row. */
+.dv-text-toolbar-find {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px;
+  /* Map the WhatsApp surface vars the controls read onto app tokens. */
+  --wa-text: var(--text-primary); --wa-meta: var(--text-muted);
+  --wa-link: var(--accent); --wa-header-border: var(--border);
+}
+.dv-text-toolbar-find:empty { display: none; }
+.dv-wa-header.is-toolbar {
+  position: static; margin: 0; padding: 0; gap: 12px;
+  background: none; border: none; box-shadow: none;
+  flex: 1; min-width: 0; align-items: center; justify-content: flex-start;
+}
+.dv-wa-header.is-toolbar .dv-wa-header-controls {
+  flex-direction: row; align-items: center; gap: 12px; flex: 1; min-width: 0;
+}
+/* App-themed find pill + date inputs (the WhatsApp originals hard-code white
+   fills and a green focus ring for the wallpaper header). */
+.dv-wa-header.is-toolbar .dv-wa-find { background: var(--bg-input); }
+.dv-wa-header.is-toolbar .dv-wa-find:focus-within {
+  border-color: var(--accent); background: var(--bg-card);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.dv-wa-header.is-toolbar .dv-wa-find:focus-within .dv-wa-find-icon { color: var(--accent); }
+.dv-wa-header.is-toolbar .dv-wa-find-kbd kbd { background: var(--bg-elevated); }
+.dv-wa-header.is-toolbar .dv-wa-find-clear { background: var(--bg-elevated); color: var(--text-muted); }
+.dv-wa-header.is-toolbar .dv-wa-find-clear:hover { background: var(--border); color: var(--text-primary); }
+.dv-wa-header.is-toolbar .dv-wa-date { background: var(--bg-input); }
+.dv-wa-header.is-toolbar .dv-wa-date:focus {
+  border-color: var(--accent); background: var(--bg-card);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+/* Burger picks up app text tokens (was white-on-green) and pins to the right. */
+.dv-wa-header.is-toolbar .dv-wa-burger { color: var(--text-muted); margin-left: auto; }
+.dv-wa-header.is-toolbar .dv-wa-burger:hover { color: var(--text-secondary); }
+.dv-wa-header.is-toolbar .dv-wa-burger.is-active { color: var(--accent); }
+
+/* Same app-token re-theme for the controls inside the conversation footer. The
+   footer is portalled OUTSIDE .dv-wa, so it never inherits the WhatsApp surface
+   vars — the find pill / date inputs would otherwise keep their hard-coded white
+   fills + green focus ring. Match the Project-files footer's app palette. */
+/* Date range pinned LEFT, search pill pinned RIGHT. The search pill reuses the
+   Files tab's .fx-search styling verbatim (markup + CSS), so it's identical. */
+.dv-wa-controls .dv-wa-header-controls { flex: 1; min-width: 0; justify-content: space-between; }
+.dv-wa-controls .dv-wa-dates { order: 1; color: var(--text-muted); }
+.dv-wa-controls .fx-search { order: 2; flex: 0 0 auto; }
+/* The match-position chip (Files search has no equivalent) tucked before the
+   clear/hint, themed to the app palette. */
+.dv-wa-controls .dv-wa-find-count { color: var(--text-muted); }
+.dv-wa-controls .dv-wa-date { background: var(--bg-input); border-color: var(--border); color: var(--text-primary); }
+.dv-wa-controls .dv-wa-date:focus {
+  border-color: var(--accent); background: var(--bg-card);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
 
 /* Chat + rail split. Width comes inline from DocTextPane (conversation
    width + the rail's when the burger opens it as a separate section beside
@@ -154,7 +424,28 @@
    the two sections (resizes the conversation) and on the rail's right edge
    (resizes the rail). */
 .dv-wa-split { flex: 1; max-width: 100%; display: flex; min-height: 0; min-width: 0; }
-.dv-wa-chatcol { flex: 1; min-width: 0; overflow-y: auto; }
+/* Chat column no longer scrolls itself — it's a flex column holding the top tab
+   strip (full-width) and an inner scroller, so the native scrollbar can't narrow
+   the strip or the footer. */
+/* overflow visible so the scrollbar (centered on the right edge, on the resize
+   handle) isn't clipped. */
+.dv-wa-chatcol { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: visible; }
+/* Positioned wrap so the custom overlay scrollbar pins to the scroll area's right
+   gutter (clear of the top tab strip). */
+.dv-wa-chatscroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
+/* The actual scroller — native bar hidden; the custom .dv-tabbar-scroll overlays. */
+.dv-wa-chatscroll { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; -ms-overflow-style: none; }
+.dv-wa-chatscroll::-webkit-scrollbar { width: 0; height: 0; display: none; }
+/* No track background — only the thumb shows. Centered on the chat column's
+   right edge so the resize handle (which straddles that edge) cuts through the
+   middle of the scroll thumb. */
+.dv-wa-chatscroll-wrap .dv-tabbar-scroll { background: transparent; right: -3px; left: auto; }
+/* Docvex skin: the split fills the pane up to the extraction panel, and the
+   conversation + always-on media rail share that width equally (no inline
+   width, no resize handle — see DocTextPane). */
+.dv-wa-split.is-fluid { width: 100%; }
+.dv-wa-split.is-fluid .dv-wa-chatcol,
+.dv-wa-split.is-fluid .dv-wa-rail { flex: 1 1 0; min-width: 0; }
 /* Drag handle between the rail and the conversation — straddles the rail's
    right border, widening into an accent strip on hover/drag. */
 .dv-wa-resizer {
@@ -167,7 +458,9 @@
   /* Bordered on both sides: left against the conversation, right against the
      pane's free space (the resize handle rides that right edge). */
   border-left: 1px solid var(--border); border-right: 1px solid var(--border);
-  background: var(--bg-card);
+  /* No section fill — the tile body is transparent so the dot-grid shows through
+     (the tabbar topbar keeps its own --bg-card fill). */
+  background: transparent;
   /* Map the WhatsApp contact-card palette onto app tokens so a ContactCard
      reused here themes with the rail (cream + ink) instead of the wallpaper. */
   --wa-text: var(--text-primary); --wa-meta: var(--text-muted);
@@ -181,27 +474,30 @@
   /* Seven sections never fit one row on a narrow rail — wrap into as many
      rows as needed instead of crushing every label into an ellipsis. */
   flex: none; display: flex; align-items: stretch; flex-wrap: wrap;
-  background: var(--bg-card); border-bottom: 1px solid var(--border);
+  /* Integrated as a chrome tab bar: the chrome's --bg-sidebar fill + 8px
+     horizontal inset (matches .dv-chrome-row spacing). */
+  padding: 0 8px;
+  background: var(--bg-sidebar); border-bottom: 1px solid var(--border);
 }
 .dv-wa-rail-tab {
   /* The min-width is the wrap threshold: each section keeps at least room
      for its icon + label + count, and the row breaks when they don't fit. */
   flex: 1 1 auto; min-width: 104px;
-  appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;
+  appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
   padding: 0.7rem 0.25rem; background: transparent; border: none;
   border-bottom: 2px solid transparent; margin-bottom: -1px;
-  font-family: var(--font-body); font-size: 0.8rem; font-weight: 500; color: var(--text-muted);
+  font-family: var(--font-body); font-size: 0.88rem; font-weight: 500; color: var(--text-muted);
   cursor: pointer; transition: color 150ms, border-color 150ms;
   /* Hairline under every tab so wrapped rows stay separated; the active
      tab's 2px accent border paints over it. */
   box-shadow: inset 0 -1px 0 var(--border);
 }
-.dv-wa-rail-tab svg { flex: none; width: 15px; height: 15px; }
+.dv-wa-rail-tab svg { flex: none; width: 16px; height: 16px; }
 .dv-wa-rail-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dv-wa-rail-tab:hover:not(.is-active) { color: var(--text-secondary); }
 .dv-wa-rail-tab.is-active { color: var(--text-primary); border-bottom-color: var(--accent); }
 .dv-wa-rail-count {
-  font-size: 0.66rem; font-weight: 600; color: var(--text-muted);
+  font-size: 0.75rem; font-weight: 500; color: var(--text-muted);
   background: var(--bg-elevated); padding: 1px 6px; border-radius: 999px;
   min-width: 16px; text-align: center; font-variant-numeric: tabular-nums;
 }
@@ -351,7 +647,29 @@
 }
 /* Left-aligned chat column (not centred). Holds the message inset that used
    to live on .dv-wa, so the header above can run full-bleed. */
-.dv-wa-inner { max-width: 820px; margin: 0; padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 3px; }
+.dv-wa-inner { max-width: 820px; margin: 0; padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 3px; }
+/* Full-width slot below the chat+media split that the conversation footer
+   portals into, so the footer spans the chat AND the media rail. */
+.dv-wa-footerslot { flex: none; }
+.dv-wa-footerslot:empty { display: none; }
+/* Full-width slot ABOVE the chat+media split — the search + date controls
+   portal in here so they top the conversation section, above the tab bars. */
+.dv-wa-headerslot { flex: none; }
+.dv-wa-headerslot:empty { display: none; }
+
+/* Controls bar (search + date range) — a sticky top bar above the tab bars.
+   Mirrors the Project-files footer palette (frosted --bg-page over blur). */
+.dv-wa-controls {
+  flex: none;
+  margin: 0; padding: 8px 16px; min-height: 48px;
+  display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 10px 14px;
+  background: var(--bg-sidebar);
+}
+/* The controls run in a ROW (the legacy header stacked them vertically). */
+.dv-wa-controls .dv-wa-header-controls {
+  flex-direction: row; align-items: center; flex-wrap: wrap; gap: 10px 14px;
+}
+.dv-wa-controls .dv-wa-burger { margin-left: auto; }
 
 /* Chat header — a full-bleed, square, sticky bar flush to the top/left/right
    of the chat section. The search pill and the From → To date controls stack
@@ -367,6 +685,40 @@
   display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
   min-width: 0;
 }
+
+/* Chat footer — a sticky bar at the BOTTOM of the conversation that holds the
+   search pill + From → To date range. Styled to MATCH the Project-files footer
+   (.fx-bottombar): a frosted --bg-page tint over backdrop blur, a plain top
+   border, no drop shadow. Stays in view while the messages scroll behind it. */
+.dv-wa-footer {
+  position: sticky; bottom: 0; z-index: 5;
+  /* Same height as the Project-files footer (.fx-bottombar): ~32px control row
+     + 10px top/bottom padding ≈ 52px. */
+  margin: 0; padding: 10px 22px; min-height: 52px;
+  display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  font-size: 11.5px; color: var(--text-muted);
+}
+/* In the footer the controls run in a ROW (the header stacked them vertically). */
+.dv-wa-footer .dv-wa-header-controls {
+  flex-direction: row; align-items: center; flex-wrap: wrap; gap: 10px 14px;
+}
+/* Burger (rail toggle, WhatsApp skin only) sits at the far right of the footer. */
+.dv-wa-footer .dv-wa-burger { margin-left: auto; }
+
+/* Conversation tallies — "12 messages · 4 media · 2 voice notes · …" with a
+   middle dot between each. */
+.dv-wa-stats {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px;
+  min-width: 0;
+}
+.dv-wa-stat { white-space: nowrap; color: var(--text-muted); }
+.dv-wa-stat strong { font-weight: 650; color: var(--text-secondary); }
+.dv-wa-stat-dot { color: var(--text-muted); opacity: 0.6; user-select: none; }
+.dv-wa-stat-empty { font-style: italic; }
 
 /* Burger — toggles the Media, links & docs rail. Chrome-less: just the
    icon, vertically centred against the header's controls; solid white while
@@ -629,8 +981,11 @@ img.dv-wa-media { cursor: pointer; }
 }
 .dv-wa-voice-time { flex: none; min-width: 30px; text-align: right; font-size: 11px; color: var(--wa-meta); font-variant-numeric: tabular-nums; }
 
-/* Caption text under a media item. */
-.dv-wa-caption { display: block; padding: 4px 6px 0; }
+/* Caption text under a media item. For an image, ImageAttachment publishes the
+   photo's measured display width as `--media-w` on the bubble; clamp the caption
+   to it so a long caption can't stretch the bubble wider than the image (the
+   bubble then shrink-wraps to the photo's aspect ratio). */
+.dv-wa-caption { display: block; padding: 4px 6px 0; max-width: var(--media-w, 100%); }
 
 /* Document chip + the "missing file" fallback. */
 .dv-wa-file {
@@ -648,6 +1003,52 @@ img.dv-wa-media { cursor: pointer; }
 }
 .dv-wa-file.is-missing { cursor: default; opacity: 0.6; }
 .dv-wa-file.is-missing:hover { background: rgba(11, 20, 26, 0.06); }
+
+/* Rich document/archive attachment card: page thumbnail (when available) on
+   top, a meta row (type icon · filename · TYPE·size · time), and an Open /
+   Save-as action footer. */
+.dv-wa-doccard { display: flex; flex-direction: column; width: min(330px, 100%); }
+.dv-wa-doccard-preview {
+  display: block; width: 100%; max-height: 230px; overflow: hidden;
+  border: none; padding: 0; background: #fff; cursor: pointer;
+  border-radius: 7px 7px 0 0;
+}
+.dv-wa-doccard-preview img { display: block; width: 100%; max-height: 230px; object-fit: cover; object-position: top center; }
+.dv-wa-doccard-meta {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 11px; border: none; background: var(--bg-card); color: var(--wa-text);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.dv-wa-doccard.has-thumb .dv-wa-doccard-meta { border-radius: 0 0 7px 7px; }
+.dv-wa-doccard:not(.has-thumb) .dv-wa-doccard-meta { border-radius: 7px; }
+.dv-wa-doccard-meta:hover { background: color-mix(in srgb, var(--bg-card) 92%, var(--text-primary)); }
+.dv-wa-doccard-meta .dv-doc-ic svg { width: 32px; height: 32px; }
+.dv-wa-doccard-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.dv-wa-doccard-name {
+  font-size: 13px; font-weight: 600; line-height: 1.25; word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.dv-wa-doccard-sub { font-size: 11.5px; color: var(--wa-meta); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Timestamp in the meta row, pinned to the row's bottom-right. */
+.dv-wa-doccard-time { flex: none; align-self: flex-end; margin-left: 8px; font-size: 11px; color: var(--wa-meta); white-space: nowrap; }
+/* Caption sits between the meta row and the Open button (not under it). */
+.dv-wa-doccard > .dv-wa-caption { padding: 2px 11px 4px; }
+.dv-wa-doccard-actions { display: flex; align-items: stretch; margin-top: 2px; }
+/* Open spans the full width of the card / bubble. */
+.dv-wa-doccard-btn {
+  flex: 1; padding: 7px 4px; border: none; background: none; cursor: pointer;
+  color: var(--wa-link); font: inherit; font-size: 13px; font-weight: 600; text-align: center; border-radius: 6px;
+}
+.dv-wa-doccard-btn:hover { background: rgba(0, 0, 0, 0.06); }
+[data-theme="ink"] .dv-wa-doccard-btn:hover { background: rgba(255, 255, 255, 0.08); }
+/* Let the card meet the bubble edges (it brings its own surfaces + radius). */
+.dv-wa-bubble.has-media:has(.dv-wa-doccard) { padding: 3px; }
+/* The card is a fixed ~330px wide; cap its bubble to match so the bubble hugs
+   the card instead of stretching to the message max-width and leaving dead
+   space beside it. (The Docvex selector outweighs `.dv-wa.is-docvex
+   .dv-wa-bubble`'s max-width.) */
+.dv-wa-bubble:has(.dv-wa-doccard),
+.dv-wa.is-docvex .dv-wa-bubble:has(.dv-wa-doccard) { max-width: min(330px, 100%); }
 
 /* "Media omitted" placeholder (export without media). */
 .dv-wa-omitted {
@@ -752,6 +1153,76 @@ img.dv-wa-media { cursor: pointer; }
 }
 [data-theme="ink"] .dv-wa-contact-avatar { background: #2a3942; color: #aebac1; }
 [data-theme="ink"] .dv-wa-contact-action:hover:not(:disabled) { background: rgba(255, 255, 255, 0.05); }
+
+/* ── "Docvex" skin ──────────────────────────────────────────────────
+   Same parsed transcript as the WhatsApp view, restyled to match the
+   app's Team chat tab (ProjectChat / .vb-msg). Because the WhatsApp
+   bubble/system/day/link colours all read from these --wa-* vars, the
+   whole conversation re-themes to the app palette (Cream + Ink, no
+   separate dark block needed) just by overriding them. A few structural
+   rules add the team's card bubbles, asymmetric radius, accent-tinted
+   own bubble, initial avatars, and line-style day dividers. Reusing the
+   WhatsApp markup keeps search, albums, calls, attachments + the media
+   rail working unchanged. */
+.dv-wa.is-docvex {
+  background-color: transparent;
+  background-image: none;
+  --wa-in: var(--bg-card);
+  --wa-out: color-mix(in srgb, var(--accent) 16%, var(--bg-page));
+  --wa-text: var(--text-primary);
+  --wa-meta: var(--text-muted);
+  --wa-system-bg: var(--bg-elevated);
+  --wa-system-text: var(--text-secondary);
+  --wa-day-bg: var(--bg-elevated);
+  --wa-day-text: var(--text-muted);
+  --wa-link: var(--accent);
+  --wa-header-bg: var(--bg-sidebar);
+  --wa-header-border: var(--border);
+}
+/* Avatar + bubble share one row, top-aligned (avatar beside the name). */
+.dv-wa.is-docvex .dv-wa-row { align-items: flex-start; gap: 8px; }
+/* The Docvex skin fills the pane, so drop the 820px column cap — otherwise
+   right-aligned (own) messages stop at the end of that column instead of
+   reaching the right edge / scrollbar. */
+.dv-wa.is-docvex .dv-wa-inner { max-width: none; }
+.dv-wa-avatar {
+  flex: none; width: 32px; height: 32px; margin-top: 2px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-family: var(--font-display); font-weight: 700;
+  font-size: 13px; text-transform: uppercase; user-select: none;
+}
+/* Team-chat bubble: card fill + hairline border, asymmetric corners, no tail. */
+.dv-wa.is-docvex .dv-wa-bubble {
+  max-width: 55%; padding: 9px 13px;
+  border: 1px solid var(--border); border-radius: 12px 12px 12px 4px;
+  box-shadow: none;
+}
+.dv-wa.is-docvex .dv-wa-bubble.has-media { padding: 4px 4px 6px; }
+.dv-wa.is-docvex .dv-wa-row.is-in .dv-wa-bubble { border-radius: 12px 12px 12px 4px; }
+.dv-wa.is-docvex .dv-wa-row.is-out .dv-wa-bubble {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--bg-page));
+  border-radius: 12px 12px 4px 12px;
+  /* Own messages keep their text left-aligned (the bubble itself sits right). */
+  text-align: left;
+}
+.dv-wa.is-docvex .dv-wa-bubble::before { display: none; }   /* drop the WhatsApp tail */
+/* Author name in the team's display font (keeps its per-sender colour). */
+.dv-wa.is-docvex .dv-wa-name { font-family: var(--font-display); font-weight: 700; font-size: 12.5px; margin-bottom: 3px; }
+/* Line-style day divider (centred label flanked by hairlines), like .dvx-day-divider. */
+.dv-wa.is-docvex .dv-wa-day { align-items: center; gap: 12px; margin: 18px 0 10px; }
+.dv-wa.is-docvex .dv-wa-day::before,
+.dv-wa.is-docvex .dv-wa-day::after {
+  content: ""; flex: 1; height: 1px; max-width: 240px; background: var(--border);
+}
+.dv-wa.is-docvex .dv-wa-day span {
+  padding: 0; background: none; box-shadow: none;
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.08em; color: var(--text-muted);
+}
+/* System + encryption notices as soft pills in the app palette. */
+.dv-wa.is-docvex .dv-wa-system span,
+.dv-wa.is-docvex .dv-wa-encryption { border: 1px solid var(--border); box-shadow: none; }
+
 .dv-docx-error { color: var(--text-muted); padding: 24px; text-align: center; }
 .dv-loading { color: var(--text-muted); padding: 24px; text-align: center; }
 
@@ -794,7 +1265,7 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 
 /* ── Zoom controls ───────────────────────────────────────────────── */
 .dv-zoom-controls {
-  position: absolute; top: 12px; left: 12px; z-index: 6;
+  position: absolute; top: 12px; right: 12px; z-index: 6;
   display: flex; align-items: center;
   background: rgba(10, 12, 14, 0.92);
   backdrop-filter: blur(22px) saturate(1.8);
@@ -888,19 +1359,43 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
   outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px;
 }
 
-/* Live AI caption — the active transcript line shown as a subtitle horizontally
-   centred over the decibel line. Its own always-visible layer (z above the
-   .dv-player controls) so it persists when the controls fade during playback. */
+/* Live AI caption — the active transcript line shown as a subtitle. Its own
+   always-visible layer (z above the .dv-player controls) so it persists when
+   the controls fade during playback. Position (left/top) is set inline from the
+   user's saved placement; it's draggable anywhere over the video. */
 .dv-video-caption {
-  position: absolute; left: 50%; bottom: 128px; z-index: 4;
-  transform: translateX(-50%);
+  position: absolute; z-index: 4;
+  transform: translate(-50%, -50%);
+  /* Size to the text (capped at max-width) so the box never collapses to the
+     left→edge gap when right-anchored — otherwise the line wraps into a sliver. */
+  width: max-content;
   max-width: min(82%, 780px);
   padding: 8px 16px; border-radius: 10px;
   background: rgba(0, 0, 0, 0.6);
   -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
   color: #fff; font-size: 22px; line-height: 1.4; font-weight: 600;
   text-align: center; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
-  pointer-events: none; user-select: none;
+  user-select: none; cursor: grab; pointer-events: auto;
+  transition: box-shadow 120ms ease;
+}
+.dv-video-caption:hover { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.28); }
+.dv-video-caption.is-dragging { cursor: grabbing; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.45); transition: none; }
+/* During OCR (armed) let clicks fall through to the lasso. */
+.dv-video-caption.is-locked { pointer-events: none; cursor: default; }
+
+/* Snap targets shown while dragging the caption. */
+.dv-caption-snaps { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.dv-caption-snap {
+  position: absolute; width: 11px; height: 11px; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 255, 255, 0.26);
+  border: 1.5px solid rgba(255, 255, 255, 0.72);
+  transition: transform 90ms ease, background 90ms ease, box-shadow 90ms ease;
+}
+.dv-caption-snap.is-active {
+  background: var(--accent); border-color: #fff;
+  transform: translate(-50%, -50%) scale(1.7);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 /* Controls row */
@@ -915,6 +1410,14 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 .dv-player-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
 .dv-player-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
 .dv-player-btn:last-child svg { width: 16px; height: 16px; } /* volume + fullscreen smaller */
+/* Captions (CC) toggle — sized like fullscreen; an accent underline marks "on". */
+.dv-player-cc { position: relative; }
+.dv-player-cc svg { width: 18px; height: 18px; }
+.dv-player-cc.is-active { color: #fff; }
+.dv-player-cc.is-active::after {
+  content: ''; position: absolute; left: 7px; right: 7px; bottom: 5px;
+  height: 2px; border-radius: 2px; background: var(--accent);
+}
 .dv-player-time {
   font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, 0.62);
   white-space: nowrap; user-select: none; padding: 0 4px;
@@ -1019,8 +1522,8 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
    filter:drop-shadow is used instead of box-shadow because box-shadow is
    clipped by clip-path; drop-shadow is applied after clip. */
 .dv-ocr-btn-wrap {
-  /* Under the zoom pill at top-left; tool dropdown opens downward. */
-  position: absolute; top: 56px; left: 12px; z-index: 6;
+  /* Under the zoom pill at top-right; tool dropdown opens downward. */
+  position: absolute; top: 56px; right: 12px; z-index: 6;
   display: flex; flex-direction: column; align-items: stretch;
   background: rgba(10, 12, 14, 0.92);
   backdrop-filter: blur(22px) saturate(1.8);
@@ -1401,18 +1904,228 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
   outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px;
 }
 
-/* Sidebar tab bar (video pane): flip between Text extraction + AI captions. */
+/* Sidebar tab bar — shared by every file type's side panel. Which tabs show is
+   per file type (sideTabsForKind): Text extraction (image/video), AI captions
+   (audio/video), AI advisor (all). */
+/* Underline tab bar matching the main app's AI tab strip (.dvx-tab): muted
+   labels, an accent underline under the active tab, no pill fills. */
 .dv-side-tabs {
-  flex: none; display: flex; gap: 4px; padding: 10px 12px;
+  flex: none; display: flex; align-items: stretch; gap: 0; padding: 0;
+  background: var(--bg-card);
   border-bottom: 1px solid var(--border);
 }
 .dv-side-tab {
-  flex: 1; padding: 7px 10px; border: none; border-radius: 8px;
-  background: transparent; color: var(--text-secondary); cursor: pointer;
-  font: inherit; font-size: 12px; font-weight: 600;
+  appearance: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  background: transparent; border: none;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  padding: 0.7rem 1rem;
+  font: inherit; font-size: 0.88rem; font-weight: 500;
+  color: var(--text-muted); cursor: pointer;
+  transition: color 150ms, border-color 150ms;
 }
-.dv-side-tab:hover { color: var(--text-primary); background: var(--bg-elevated); }
-.dv-side-tab.is-active { background: var(--accent-soft); color: var(--accent); }
+.dv-side-tab:hover:not(.is-active) { color: var(--text-secondary); }
+.dv-side-tab.is-active { color: var(--text-primary); border-bottom-color: var(--accent); }
+
+/* ── Section header tabs ───────────────────────────────────────────────
+   Each card (Documents / Multitool / Recently open / Files) carries one of
+   these as its header. IDENTICAL to the app's tabs (.dv-side-tab / .fx-tab):
+   a --bg-card strip with a bottom border + underline tabs (muted → secondary
+   on hover → primary with an accent underline). */
+.dv-captab-bar {
+  flex: none; display: flex; align-items: stretch; gap: 0; padding: 0;
+  background: var(--bg-card); border-bottom: 1px solid var(--border);
+}
+/* Variant with a trailing control (e.g. the Recently-open icon-size slider). */
+.dv-captab-bar.has-aside { justify-content: space-between; padding-right: 8px; }
+.dv-captab {
+  appearance: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  background: transparent; border: none;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  padding: 0.7rem 1rem;
+  font: inherit; font-size: 0.88rem; font-weight: 500;
+  color: var(--text-muted); cursor: pointer;
+  transition: color 150ms, border-color 150ms;
+}
+.dv-captab svg { width: 16px; height: 16px; flex: none; }
+.dv-captab:hover:not(.is-active) { color: var(--text-secondary); }
+.dv-captab.is-active { color: var(--text-primary); border-bottom-color: var(--accent); }
+
+/* ── Section chrome ────────────────────────────────────────────────────
+   Each card's header is a pane chrome IDENTICAL to the main app's SplitView
+   pane chrome (.sv-chrome): a --bg-sidebar bar with a refresh button + title +
+   "· description" on the left and a destination dropdown on the right, plus an
+   optional 2nd row where a page toolbar portals in (the Files folder nav). */
+.dv-chrome {
+  flex: none; display: flex; flex-direction: column;
+  background: var(--bg-sidebar); border-bottom: 1px solid var(--border);
+}
+/* Documents chrome merges with the tab bar (Docvex / Plain text) directly below
+   it — drop the divider so the title + tabs read as one bar. */
+.dv-doc-card > .dv-chrome { border-bottom: none; }
+/* Multitool: same treatment — the chrome title flows into the Text extraction /
+   AI captions / AI advisor tab bar below it, styled exactly like the Documents
+   tab bar (.dv-text-toggle): a --bg-sidebar strip with an 8px inset. */
+.dv-advisor-card > .dv-chrome { border-bottom: none; }
+.dv-advisor-slot .dv-side-tabs { padding: 0 8px; background: var(--bg-sidebar); }
+.dv-chrome-row { display: flex; align-items: center; gap: 4px; padding: 5px 8px; min-height: 38px; box-sizing: border-box; }
+.dv-chrome-refresh {
+  flex: 0 0 auto; width: 26px; height: 26px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; border-radius: 7px; background: none; cursor: pointer;
+  color: var(--text-secondary); transition: background 120ms, color 120ms;
+}
+.dv-chrome-refresh:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.dv-chrome-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-left: 2px; flex: 0 1 auto; }
+.dv-chrome-title { font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-primary); white-space: nowrap; flex-shrink: 0; }
+.dv-chrome-dot { flex: 0 0 auto; color: var(--text-muted); font-size: 11.5px; line-height: 1; }
+.dv-chrome-desc { font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.dv-chrome-spacer { flex: 1 1 auto; min-width: 8px; }
+/* 2nd row — the embedded Files toolbar (folder nav + breadcrumb + search)
+   portals here, so the chrome + that toolbar read as ONE bar (like the app). */
+.dv-chrome-row2 { display: flex; flex-direction: column; align-items: stretch; justify-content: center; padding: 0; }
+.dv-chrome-row2:empty { display: none; }
+
+/* Topbar variant hosting the side-panel tab strip (Multitool): drop the row's
+   vertical padding so the tabs' underline sits on the chrome's bottom border;
+   keep the refresh button vertically centered. */
+.dv-chrome-row--tabs { padding: 0 8px; align-items: stretch; }
+.dv-chrome-row--tabs .dv-chrome-refresh { align-self: center; }
+.dv-chrome-tabs { flex: 1 1 auto; min-width: 0; display: flex; align-items: stretch; }
+/* The portalled .dv-side-tabs sheds its own bar fill/border and fills the slot. */
+.dv-chrome-tabs .dv-side-tabs {
+  flex: 1; min-width: 0; background: transparent; border-bottom: none;
+  overflow-x: auto; scrollbar-width: none;
+}
+.dv-chrome-tabs .dv-side-tabs::-webkit-scrollbar { width: 0; height: 0; display: none; }
+.dv-chrome-tabs .dv-side-tab { padding-left: 0.6rem; padding-right: 0.6rem; white-space: nowrap; }
+
+/* Tab-picker dropdown in a header — IDENTICAL to the main app's SplitView
+   destination dropdown (.sv-chrome-dest / .sv-chrome-menu). */
+.dv-captab-menu-wrap { position: relative; display: flex; align-items: center; margin-left: auto; padding: 0 8px; min-width: 0; max-width: 60%; }
+.dv-captab-dest {
+  display: flex; align-items: center; gap: 6px; width: auto; max-width: 100%;
+  padding: 4px 8px; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--bg-input); cursor: pointer; color: var(--text-secondary); font-size: 12px;
+}
+.dv-captab-dest svg { width: 13px; height: 13px; flex: none; transition: transform 200ms cubic-bezier(.16, 1, .3, 1); }
+.dv-captab-dest.is-open svg { transform: rotate(180deg); }
+.dv-captab-dest-label {
+  flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-body);
+}
+.dv-captab-dest:hover, .dv-captab-dest.is-open { border-color: var(--border-strong); color: var(--text-primary); }
+.dv-captab-menu {
+  position: absolute; top: calc(100% + 2px); right: 0;
+  min-width: 220px; max-height: 320px; overflow: auto; z-index: 50;
+  display: flex; flex-direction: column; gap: 1px; padding: 5px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow-elev);
+  transform-origin: top right; animation: dv-captab-menu-morph 190ms cubic-bezier(.16, 1, .3, 1);
+}
+@keyframes dv-captab-menu-morph { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
+.dv-captab-menu-item {
+  text-align: left; padding: 7px 10px; border: none; border-radius: 6px; background: none;
+  cursor: pointer; font-size: 13px; color: var(--text-primary); font-family: var(--font-body);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dv-captab-menu-item:hover { background: var(--accent-tint); }
+.dv-captab-menu-item.is-active { color: var(--accent); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) {
+  .dv-captab-menu { animation: none; }
+  .dv-captab-dest svg { transition: none; }
+}
+
+/* ── AI advisor panel ─────────────────────────────────────────────────
+   A per-file chat that fills the side panel below the tab bar: a scrolling
+   message log + a pinned composer at the bottom. */
+.dv-advisor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.dv-advisor-scroll { flex: 1; min-height: 0; overflow: auto; padding-bottom: 8px; }
+.dv-advisor-msgs { display: flex; flex-direction: column; gap: 10px; padding: 4px 14px 8px; }
+.dv-advisor-msg {
+  max-width: 88%; padding: 9px 12px; border-radius: 12px;
+  font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+}
+.dv-advisor-msg.is-user {
+  align-self: flex-end;
+  background: var(--accent); color: var(--text-on-accent);
+  border-bottom-right-radius: 4px;
+}
+.dv-advisor-msg.is-assistant {
+  align-self: flex-start;
+  background: var(--bg-elevated); color: var(--text-primary);
+  border: 1px solid var(--border); border-bottom-left-radius: 4px;
+}
+.dv-advisor-msg.is-typing { color: var(--text-muted); font-style: italic; }
+/* Footer bar matching the Team-chat composer footer (.vb-team > .vb-composer-wrap):
+   a --bg-sidebar bar with a top border, holding the floating rounded composer
+   card inset by the padding. */
+.dv-advisor-compose {
+  flex: none; padding: 10px 18px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+/* Composer surface mirroring the main app's AI-tab composer (.dvx-composer):
+   a frosted rounded card with an accent focus ring; the textarea sits on top
+   and a round accent send button on the toolbar row below. */
+.dv-advisor-composer {
+  position: relative; isolation: isolate;
+  display: flex; flex-direction: column; gap: 0;
+  background: transparent;
+  border: 1px solid var(--border); border-radius: 14px;
+  padding: 8px 10px; box-shadow: var(--shadow-card);
+  transition: border-color 120ms, box-shadow 120ms;
+}
+/* Frosted fill on a content-less pseudo so textarea repaints don't re-run the
+   backdrop blur. */
+.dv-advisor-composer::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  z-index: 0; pointer-events: none;
+  background: color-mix(in srgb, var(--bg-page) 82%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+/* Cursor-following spotlight glow (tracks --spot-x/--spot-y set on mousemove in
+   the JSX) — same as the team-chat composer's ::after. */
+.dv-advisor-composer::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  z-index: 0; pointer-events: none;
+  background: radial-gradient(
+    180px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 5%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 2%, transparent) 40%,
+    transparent 72%
+  );
+  opacity: 0; transition: opacity 260ms ease;
+}
+.dv-advisor-composer:hover::after,
+.dv-advisor-composer:focus-within::after { opacity: 0.6; }
+.dv-advisor-composer > * { position: relative; z-index: 1; }
+.dv-advisor-composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow-card);
+}
+.dv-advisor-composer-textarea {
+  appearance: none; background: transparent; border: none; outline: none; resize: none;
+  font: inherit; font-size: 0.92rem; line-height: 1.5; color: var(--text-primary);
+  padding: 6px 4px; min-height: 24px; max-height: 120px; width: 100%;
+}
+.dv-advisor-composer-textarea::placeholder { color: var(--text-muted); }
+.dv-advisor-composer-toolbar { display: flex; align-items: center; gap: 4px; }
+.dv-advisor-composer-spacer { flex: 1; }
+.dv-advisor-composer-send {
+  appearance: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0;
+  border: none; border-radius: 50%;
+  background: var(--accent); color: var(--text-on-accent); cursor: pointer;
+  transition: background 120ms, color 120ms, opacity 120ms;
+}
+.dv-advisor-composer-send svg { margin: 0; }
+.dv-advisor-composer-send:hover { background: var(--accent-hover); color: var(--text-on-accent); }
+.dv-advisor-composer-send:disabled {
+  /* No fill when there's nothing to send — just the muted icon (team-chat parity). */
+  background: transparent; color: var(--text-muted); cursor: not-allowed;
+}
 
 /* Captions side panel — reuses the OCR "Extracted text" panel chrome
    (.dv-ocr-history*); these are the audio-specific additions. */

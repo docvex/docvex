@@ -495,6 +495,35 @@ export const localFolderApi = {
     return '';
   },
 
+  // "Save as…" — copy a file already on disk to a user-chosen location. Electron
+  // opens the native save dialog (main does the copy); web falls back to a
+  // browser download of the file's blob (the closest equivalent in a sandbox).
+  saveAs: async (target) => {
+    if (hasElectron) return electronApi.saveAs(target);
+    try {
+      const blob = await localFolderApi.readLocalBlob(target);
+      if (!blob) return { ok: false };
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = String(target || '').split(/[\\/]/).pop() || 'file';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
+  },
+
+  // "Open contents" of a compressed file — Electron unpacks a .zip into a
+  // sibling folder (other formats open in the OS archiver). No web equivalent
+  // (the sandbox can't write a sibling folder), so it's a no-op there.
+  extractArchive: async (target) => {
+    if (hasElectron) return electronApi.extractArchive(target);
+    return { ok: false, error: 'Not supported on web' };
+  },
+
   // Reveal a file in the OS file manager (Explorer / Finder) with the
   // file pre-selected. Electron-only; web returns a no-op success
   // shape since browsers can't drive the host's file manager.

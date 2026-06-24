@@ -129,6 +129,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('doc-viewer:add-file', listener);
   },
 
+  // Announce that some local paths were just trashed/deleted, and subscribe to
+  // the broadcast main fans back out to every window. Lets the doc-viewer close
+  // tabs for deleted files and keeps every Files tab's listing in sync.
+  notifyFilesRemoved: (paths) => ipcRenderer.send('files:removed', paths),
+  onFilesRemoved: (cb) => {
+    const listener = (_e, paths) => cb(paths);
+    ipcRenderer.on('files:removed', listener);
+    return () => ipcRenderer.removeListener('files:removed', listener);
+  },
+
+  // Generic "a file changed on disk" (rename, etc.) broadcast — tells every
+  // window's Files tab to re-list. Used so a rename in the doc-viewer tab
+  // sidebar propagates to the Files tabs (the watcher only pings the main
+  // window, so the doc-viewer's own embedded Files tab would otherwise miss it).
+  notifyFilesChanged: () => ipcRenderer.send('files:changed'),
+  onFilesChanged: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on('files:changed', listener);
+    return () => ipcRenderer.removeListener('files:changed', listener);
+  },
+
   // Extract text from a legacy .doc file (main process parses the binary).
   extractDocText: (filePath) => ipcRenderer.invoke('doc:extract-text', filePath),
 
@@ -136,6 +157,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // transcript. Resolves { ok, chatPath, name } when it's a WhatsApp export
   // (so the doc-viewer can reconstruct it with media), else { ok: false }.
   prepareWhatsAppZip: (zipPath) => ipcRenderer.invoke('whatsapp:prepare-zip', zipPath),
+
+  // Same, for an already-extracted WhatsApp export FOLDER: locate the
+  // transcript inside it. Resolves { ok, chatPath, name } or { ok: false }.
+  prepareWhatsAppFolder: (dirPath) => ipcRenderer.invoke('whatsapp:prepare-folder', dirPath),
 
   // Content-based WhatsApp recognition for the Files tab: given folder /
   // .zip paths, resolves { [path]: bool } by inspecting their CONTENTS in
@@ -202,6 +227,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteFolder: (payload) => ipcRenderer.invoke('local-folder:delete-folder', payload),
     move: (payload) => ipcRenderer.invoke('local-folder:move', payload),
     openPath: (target) => ipcRenderer.invoke('local-folder:open-path', target),
+    saveAs: (target) => ipcRenderer.invoke('local-folder:save-as', target),
+    extractArchive: (target) => ipcRenderer.invoke('local-folder:extract-archive', target),
     showInFolder: (target) => ipcRenderer.invoke('local-folder:show-in-folder', target),
     // Filesystem watcher — main wraps a single fs.watch handle around
     // the requested dir. Renderer pairs `watch(dir)` with a handler
