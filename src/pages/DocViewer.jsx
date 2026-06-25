@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -1423,6 +1423,25 @@ const BurgerGlyph = (
   </svg>
 );
 
+// Wrap every case-insensitive occurrence of `q` in `text` with a <mark>, for the
+// plain-text view's search highlight. Returns the raw string when q is empty.
+function highlightPlain(text, q) {
+  if (!q) return text;
+  const out = [];
+  const lower = text.toLowerCase();
+  const ql = q.toLowerCase();
+  let i = 0; let k = 0;
+  for (;;) {
+    const idx = lower.indexOf(ql, i);
+    if (idx === -1) { out.push(text.slice(i)); break; }
+    if (idx > i) out.push(text.slice(i, idx));
+    out.push(<mark key={k} className="dv-text-mark">{text.slice(idx, idx + q.length)}</mark>);
+    k += 1;
+    i = idx + q.length;
+  }
+  return out;
+}
+
 // Hover / right-click chrome for one rail entry — the same morph pill the
 // file grids use: hovering shows the cursor-following name pill, and a
 // right-click FLIP-morphs that pill into the Open / Find-in-chat menu
@@ -2051,6 +2070,36 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
   // conversations — React catches the list up between keystrokes.
   const deferredQuery = useDeferredValue(query);
 
+  // Plain-text view honours the same search + date range as the chat view. With
+  // no filter active it shows the RAW export verbatim (fidelity); once a query
+  // or a date range is set it falls back to a reconstructed, filtered listing
+  // (one line per message) so search + From/To actually do something here too.
+  const plainQuery = (deferredQuery || '').trim();
+  const plainText = useMemo(() => {
+    if (!chat.isWhatsApp) return content;
+    const ql = plainQuery.toLowerCase();
+    if (!ql && !rangeActive) return content;
+    const out = [];
+    for (const m of chat.messages) {
+      if (rangeActive && !timeInRange(m.time)) continue;
+      const body = m.attachment ? m.attachment.name : (m.omitted ? '<media omitted>' : (m.text || ''));
+      const line = m.system
+        ? `${m.time ? `[${m.time}] ` : ''}${m.text || ''}`
+        : `[${m.time}] ${m.sender || ''}: ${body}`;
+      if (ql && !line.toLowerCase().includes(ql)) continue;
+      out.push(line);
+    }
+    return out.join('\n');
+  }, [chat, content, plainQuery, rangeActive, timeInRange]);
+  const plainMatchCount = useMemo(() => {
+    const q = plainQuery.toLowerCase();
+    if (!q) return 0;
+    const t = plainText.toLowerCase();
+    let n = 0; let i = 0;
+    while ((i = t.indexOf(q, i)) !== -1) { n += 1; i += q.length; }
+    return n;
+  }, [plainText, plainQuery]);
+
   if (error) return <div className="dv-noview"><p className="dv-noview-title">Couldn't read the file</p><p className="dv-noview-sub">{error}</p></div>;
   if (content == null) return <div className="dv-loading">Loading text…</div>;
 
@@ -2161,11 +2210,74 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
         </>
       ) : (
         <>
+          {/* Search + From → To bar (same controls as the chat view), so the
+              plain-text view can be searched and date-filtered too. WhatsApp
+              chats only — a plain non-chat file has no message dates. */}
+          {chat.isWhatsApp && (
+            <div className="dv-wa-controls">
+              <div className="dv-wa-header-controls">
+                <div className={`dv-wa-dates${rangeActive ? ' is-active' : ''}`}>
+                  <span className="dv-wa-dates-label">From</span>
+                  <input
+                    type="date"
+                    className="dv-wa-date"
+                    value={dateFrom || ''}
+                    min={dateBounds.from || undefined}
+                    max={dateTo || dateBounds.to || undefined}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    aria-label="Show content from this date"
+                  />
+                  <span className="dv-wa-dates-label">to</span>
+                  <input
+                    type="date"
+                    className="dv-wa-date"
+                    value={dateTo || ''}
+                    min={dateFrom || dateBounds.from || undefined}
+                    max={dateBounds.to || undefined}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    aria-label="Show content up to this date"
+                  />
+                  {rangeActive && (
+                    <button type="button" className="fx-search-clear" onClick={resetDates} aria-label="Reset to the full date range">
+                      {ClearGlyph}
+                    </button>
+                  )}
+                </div>
+                <div className={`fx-search${(query || '').trim() ? ' is-active' : ''}`}>
+                  <span className="fx-search-glyph">{SearchGlyph}</span>
+                  <input
+                    type="text"
+                    value={query || ''}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Escape' && (query || '')) { e.stopPropagation(); setQuery(''); } }}
+                    placeholder="Search this text"
+                    aria-label="Search the plain text"
+                  />
+                  {plainQuery ? (
+                    <span className={`dv-wa-find-count${plainMatchCount === 0 ? ' is-empty' : ''}`} aria-live="polite">
+                      {plainMatchCount ? plainMatchCount.toLocaleString() : 'No results'}
+                    </span>
+                  ) : null}
+                  {(query || '') ? (
+                    <button type="button" className="fx-search-clear" onClick={() => setQuery('')} aria-label="Clear search">
+                      {ClearGlyph}
+                    </button>
+                  ) : (
+                    <span className="fx-search-kbd" aria-hidden="true">
+                      <kbd>{/mac/i.test(navigator.platform) ? '⌘' : 'Ctrl'}</kbd>
+                      <span className="fx-search-kbd-plus">+</span>
+                      <kbd>F</kbd>
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           {/* Same view-mode tab strip pinned at the top-left in plain-text mode,
               so you can always switch back to the Docvex view. */}
           {modeToggle}
           <div className="dv-text-scroll">
-            {content.length > PRE_MAX_CHARS && (
+            {!chat.isWhatsApp && content.length > PRE_MAX_CHARS && (
               <div className="dv-text-truncated">
                 Showing the first {Math.round(PRE_MAX_CHARS / (1024 * 1024))} MB — switch to the Docvex view for the full conversation.
               </div>
@@ -2173,7 +2285,7 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
             {isMarkdown ? (
               <div className="dv-text-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{content.slice(0, PRE_MAX_CHARS)}</ReactMarkdown></div>
             ) : (
-              <pre className="dv-text-pre">{content.slice(0, PRE_MAX_CHARS)}</pre>
+              <pre className="dv-text-pre">{highlightPlain(plainText.slice(0, PRE_MAX_CHARS), plainQuery)}</pre>
             )}
           </div>
         </>
@@ -2440,25 +2552,23 @@ const AdvisorSendGlyph = (
   </svg>
 );
 
-// Per-file AI advisor — a lightweight chat about the open file, available on
-// every file type's side panel. Backed by the project-ai Edge Function
-// (askProjectAi); shows an inline notice when the AI key isn't configured. The
-// conversation is per-mount (resets when the file changes), not persisted.
-function AdvisorPanel({ file }) {
+// Per-file AI advisor state, lifted to the Multitool card so its composer can be
+// a SINGLE footer shared across all three tabs (Text extraction / AI captions /
+// AI advisor) while the message thread lives in the AI-advisor tab. Provided at
+// the DocViewer level: portals keep the React tree intact, so the advisor thread
+// (portalled into the Multitool slot) still sees this context. Backed by the
+// project-ai Edge Function (askProjectAi); resets when the active file changes.
+const MultitoolAdvisorContext = React.createContext(null);
+function useMultitoolAdvisor() { return useContext(MultitoolAdvisorContext); }
+
+function MultitoolAdvisorProvider({ file, footSlot = null, children }) {
   const [messages, setMessages] = useState([]); // [{ role, content }]
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const scrollRef = useRef(null);
 
-  // Reset the thread when the panel is reused for a different file.
-  useEffect(() => { setMessages([]); setInput(''); setError(null); }, [file.storage_path]);
-
-  // Keep the newest turn in view.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, busy]);
+  // Reset the thread when the active file changes.
+  useEffect(() => { setMessages([]); setInput(''); setError(null); setBusy(false); }, [file?.id]);
 
   const send = useCallback(async () => {
     const q = input.trim();
@@ -2468,11 +2578,87 @@ function AdvisorPanel({ file }) {
     setInput('');
     setBusy(true);
     setError(null);
-    const res = await askProjectAi({ messages: next, fileNames: [file.name] });
+    const res = await askProjectAi({ messages: next, fileNames: [file?.name] });
     setBusy(false);
     if (res.error) { setError('The AI advisor is unavailable right now.'); return; }
     setMessages((m) => [...m, { role: 'assistant', content: res.text }]);
-  }, [input, busy, messages, file.name]);
+  }, [input, busy, messages, file?.name]);
+
+  const value = useMemo(
+    () => ({ messages, input, setInput, busy, error, setError, send, fileName: file?.name, footSlot }),
+    [messages, input, busy, error, send, file?.name, footSlot],
+  );
+  return <MultitoolAdvisorContext.Provider value={value}>{children}</MultitoolAdvisorContext.Provider>;
+}
+
+// Portal helper: render a tab's footer action into the single shared Multitool
+// footer slot. No-op until the slot exists. Used by each active tab's panel so
+// the footer always shows the action relevant to the current tab.
+function MultitoolFooter({ children }) {
+  const adv = useMultitoolAdvisor();
+  if (!adv?.footSlot) return null;
+  return createPortal(children, adv.footSlot);
+}
+
+// Shared Multitool footer — the advisor composer, rendered once at the card
+// level so it's the SAME footer under every tab. Drives the lifted advisor
+// state; the reply shows in the AI-advisor tab's thread.
+function MultitoolComposer() {
+  const adv = useMultitoolAdvisor();
+  if (!adv) return null;
+  const { input, setInput, busy, send } = adv;
+  return (
+    <div className="dv-advisor-compose">
+      {/* Mirrors the main app's AI-tab composer (.dvx-composer): a frosted
+          rounded surface, textarea on top, a round accent send button below. */}
+      <div
+        className="dv-advisor-composer"
+        onMouseMove={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          e.currentTarget.style.setProperty('--spot-x', `${e.clientX - r.left}px`);
+          e.currentTarget.style.setProperty('--spot-y', `${e.clientY - r.top}px`);
+        }}
+      >
+        <textarea
+          className="dv-advisor-composer-textarea"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+          placeholder="Ask about this file…"
+          rows={1}
+        />
+        <div className="dv-advisor-composer-toolbar">
+          <div className="dv-advisor-composer-spacer" />
+          <button
+            type="button"
+            className="dv-advisor-composer-send"
+            onClick={send}
+            disabled={busy || !input.trim()}
+            aria-label="Send"
+          >
+            {AdvisorSendGlyph}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Per-file AI advisor thread — the AI-advisor tab's content. The composer now
+// lives in the shared Multitool footer (MultitoolComposer); this just renders
+// the conversation, reading the lifted advisor state from context.
+function AdvisorPanel({ file }) {
+  const adv = useMultitoolAdvisor();
+  const messages = adv?.messages || [];
+  const busy = adv?.busy || false;
+  const error = adv?.error || null;
+  const scrollRef = useRef(null);
+
+  // Keep the newest turn in view.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, busy]);
 
   return (
     <div className="dv-advisor">
@@ -2486,7 +2672,7 @@ function AdvisorPanel({ file }) {
         </header>
         {messages.length === 0 && !busy ? (
           <p className="dv-ocr-history-empty">
-            Ask the AI advisor anything about <strong>{file.name}</strong> — a summary, the key points, or what to do next.
+            Ask the AI advisor anything about <strong>{file.name}</strong> — a summary, the key points, or what to do next. Use the box below; it stays put while you switch tabs.
           </p>
         ) : (
           <div className="dv-advisor-msgs">
@@ -2499,43 +2685,13 @@ function AdvisorPanel({ file }) {
         {error && (
           <div className="dv-ocr-error" role="alert">
             <span>{error}</span>
-            <button type="button" aria-label="Dismiss" onClick={() => setError(null)}>×</button>
+            <button type="button" aria-label="Dismiss" onClick={() => adv?.setError?.(null)}>×</button>
           </div>
         )}
       </div>
-      <div className="dv-advisor-compose">
-        {/* Mirrors the main app's AI-tab composer (.dvx-composer): a frosted
-            rounded surface, textarea on top, a round accent send button below. */}
-        <div
-          className="dv-advisor-composer"
-          onMouseMove={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            e.currentTarget.style.setProperty('--spot-x', `${e.clientX - r.left}px`);
-            e.currentTarget.style.setProperty('--spot-y', `${e.clientY - r.top}px`);
-          }}
-        >
-          <textarea
-            className="dv-advisor-composer-textarea"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-            placeholder="Ask about this file…"
-            rows={1}
-          />
-          <div className="dv-advisor-composer-toolbar">
-            <div className="dv-advisor-composer-spacer" />
-            <button
-              type="button"
-              className="dv-advisor-composer-send"
-              onClick={send}
-              disabled={busy || !input.trim()}
-              aria-label="Send"
-            >
-              {AdvisorSendGlyph}
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* The composer is the advisor tab's footer action — rendered into the
+          single shared Multitool footer slot. */}
+      <MultitoolFooter><MultitoolComposer /></MultitoolFooter>
     </div>
   );
 }
@@ -3657,6 +3813,16 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
         <CaptionsPanel file={file} url={url} currentTime={currentTime} onSeek={seekTo} onCaptionsChange={setCaptions} />
       ) : (
       <>
+      {/* "Extract text" in the shared Multitool footer — arms the lasso so you
+          can paint over the {kind} to read it. */}
+      <MultitoolFooter>
+        <div className="dv-doc-extract-bar">
+          <button type="button" className="dv-doc-extract-btn" onClick={toggleTool}>
+            {ScanTextGlyph}
+            <span>{armed ? 'Cancel selection' : 'Extract text'}</span>
+          </button>
+        </div>
+      </MultitoolFooter>
       <div className="dv-ocr-history-scroll" ref={historyListRef}>
         {/* Masthead — accent eyebrow + display title + meta (Versions style). */}
         <header className="dv-ocr-history-head">
@@ -4087,6 +4253,7 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
   }, [activeSegIndex]);
 
   return (
+    <>
     <div className="dv-ocr-history-scroll">
       <header className="dv-ocr-history-head">
         <div className="dv-ocr-history-eyebrow">
@@ -4115,12 +4282,8 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
       {!captions ? (
         <div className="dv-audio-captions-empty">
           <p className="dv-ocr-history-empty">
-            Transcribe the audio in this file with AI. The result is saved to this file, so reopening it won’t spend tokens again.
+            Transcribe the audio in this file with AI — use <strong>Generate captions</strong> in the footer below. The result is saved to this file, so reopening it won’t spend tokens again.
           </p>
-          <button type="button" className="dv-chip dv-audio-captions-btn" onClick={generate}>
-            {CaptionsGlyph}
-            <span>Generate AI captions</span>
-          </button>
         </div>
       ) : captions.state === 'working' ? (
         <div className="dv-audio-captions-status">
@@ -4195,6 +4358,21 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
         <p className="dv-ocr-history-empty">{captions.text || 'No speech detected in this file.'}</p>
       )}
     </div>
+    {/* "Generate captions" lives in the shared Multitool footer. */}
+    <MultitoolFooter>
+      <div className="dv-doc-extract-bar">
+        <button
+          type="button"
+          className="dv-doc-extract-btn"
+          onClick={captions?.state === 'done' ? regenerate : generate}
+          disabled={captions?.state === 'working'}
+        >
+          {CaptionsGlyph}
+          <span>{captions?.state === 'working' ? 'Transcribing…' : captions?.state === 'done' ? 'Regenerate captions' : 'Generate captions'}</span>
+        </button>
+      </div>
+    </MultitoolFooter>
+    </>
   );
 }
 
@@ -5057,12 +5235,15 @@ function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = 
         <CaptionsPanel file={file} url={url} currentTime={0} onSeek={() => {}} onCaptionsChange={() => {}} />
       ) : (
       <>
-      <div className="dv-doc-extract-bar">
-        <button type="button" className="dv-doc-extract-btn" onClick={runExtract} disabled={working || !extractable}>
-          {ScanTextGlyph}
-          <span>{working ? 'Extracting…' : 'Extract text'}</span>
-        </button>
-      </div>
+      {/* "Extract text" lives in the shared Multitool footer. */}
+      <MultitoolFooter>
+        <div className="dv-doc-extract-bar">
+          <button type="button" className="dv-doc-extract-btn" onClick={runExtract} disabled={working || !extractable}>
+            {ScanTextGlyph}
+            <span>{working ? 'Extracting…' : 'Extract text'}</span>
+          </button>
+        </div>
+      </MultitoolFooter>
       {errorMsg && (
         <div className="dv-ocr-error dv-doc-extract-error" role="alert">
           <span>{errorMsg}</span>
@@ -5443,6 +5624,9 @@ export default function DocViewer() {
   // Slot inside the Multitool topbar where the active pane portals its side-panel
   // tab strip (Text extraction / AI captions / AI advisor).
   const [sideTabsSlot, setSideTabsSlot] = useState(null);
+  // Single Multitool footer slot — the active tab portals its primary action
+  // (Extract text / Generate captions / advisor composer) here.
+  const [footSlot, setFootSlot] = useState(null);
   const ADVISOR_MIN = 240;
   const ADVISOR_MAX = 960;
   const [advisorW, setAdvisorW] = useState(() => {
@@ -5568,12 +5752,38 @@ export default function DocViewer() {
   const [reloadKey, setReloadKey] = useState(0);
   const reloadActive = useCallback(() => setReloadKey((k) => k + 1), []);
 
+  // All four windows (Documents / Multitool / Recently open / Files) are shown
+  // at once, but exactly ONE is "selected" (focused) — like the main app's
+  // split-view panes. The windows look identical regardless; the only effect of
+  // selection is that ONLY the selected window shows its footer (chat stats /
+  // advisor composer / Files action bar). See the `.is-selected` footer-gating
+  // rules in DocViewer.css.
+  const [selectedWindow, setSelectedWindow] = useState('documents');
+  // Selection is wired via a NATIVE capture-phase listener on the page (not a
+  // React onMouseDown) because each window's interactive content is PORTALLED
+  // into it — React synthetic events follow the React tree, so a click on the
+  // Multitool's portalled side panel would never reach a React handler on the
+  // card. Native DOM events follow the real DOM tree, where the portalled nodes
+  // DO live inside their window's root (tagged with data-dvwin).
+  const pageRef = useRef(null);
+  useEffect(() => {
+    const el = pageRef.current;
+    if (!el) return undefined;
+    const onDown = (e) => {
+      const root = e.target?.closest?.('[data-dvwin]');
+      if (root) setSelectedWindow(root.getAttribute('data-dvwin'));
+    };
+    el.addEventListener('mousedown', onDown, true);
+    return () => el.removeEventListener('mousedown', onDown, true);
+  }, []);
+
   const active = tabs.find((t) => t.id === activeId) || tabs[0] || null;
 
   if (!active) return <div className="dv-page dv-page-empty">No file to display.</div>;
 
   return (
-    <div className="dv-page">
+    <MultitoolAdvisorProvider file={active} footSlot={footSlot}>
+    <div className="dv-page" ref={pageRef}>
       <CursorSpotlight contain className="dv-cursor-spotlight" />
 
       {/* Body: the full-height "Recently open" column on the left, then the
@@ -5581,7 +5791,10 @@ export default function DocViewer() {
       <div className="dv-body-row">
         {/* Open-file tiles — a bare full-height column (no section chrome); each
             tile is a Files-page-style item; clicking one makes it active. */}
-        <div className="dv-files-recent">
+        <div
+          className={`dv-files-recent${selectedWindow === 'recent' ? ' is-selected' : ''}`}
+          data-dvwin="recent"
+        >
           <div className="dv-files-recent-list">
             <div className="dv-files-recent-scroll" ref={railScrollRef}>
               {tabs.map((t) => (
@@ -5605,7 +5818,10 @@ export default function DocViewer() {
           {/* Main row: the document card + the Multitool card side by side. */}
           <div className="dv-main-row">
             {/* Document card — "Documents" chrome + the active file's body. */}
-            <div className="dv-doc-card">
+            <div
+              className={`dv-doc-card${selectedWindow === 'documents' ? ' is-selected' : ''}`}
+              data-dvwin="documents"
+            >
               <DvChrome title="Documents" desc={active?.name} onRefresh={reloadActive} />
               <div className="dv-section-body">
                 <div className="dv-section-pane dv-doc">
@@ -5628,14 +5844,26 @@ export default function DocViewer() {
 
             {/* Multitool card — hosts the active file's tabbed side panel,
                 portalled into the slot below by its pane. */}
-            <aside className="dv-advisor-card" style={{ width: `${advisorW}px` }}>
+            <aside
+              className={`dv-advisor-card${selectedWindow === 'multitool' ? ' is-selected' : ''}`}
+              style={{ width: `${advisorW}px` }}
+              data-dvwin="multitool"
+            >
               <DvChrome title="Multitool" desc={active?.name} onRefresh={reloadActive} />
               <div className="dv-advisor-slot" ref={setSidePanelSlot} />
+              {/* Single footer shared across all Multitool tabs — each active
+                  tab portals its action (Extract text / Generate captions /
+                  advisor composer) into this slot. */}
+              <div className="dv-advisor-footerslot" ref={setFootSlot} />
             </aside>
           </div>
 
           {/* Files browser — its own rounded card at the bottom of the column. */}
-          <footer className="dv-files-footer" style={{ height: `${footerHeight}px` }}>
+          <footer
+            className={`dv-files-footer${selectedWindow === 'files' ? ' is-selected' : ''}`}
+            style={{ height: `${footerHeight}px` }}
+            data-dvwin="files"
+          >
             <div
               className="dv-footer-resize"
               onMouseDown={beginFooterResize}
@@ -5650,5 +5878,6 @@ export default function DocViewer() {
         </div>
       </div>
     </div>
+    </MultitoolAdvisorProvider>
   );
 }
