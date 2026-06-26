@@ -473,29 +473,66 @@ const createWindow = () => {
 };
 
 // Document-viewer window — opened from the Files page when a file is double-
-// clicked. There is a SINGLE shared window with Chrome-style tabs: the first
-// file boots the window at /doc-viewer with the file in the query; every
-// subsequent file is pushed into the existing window as a new tab via
-// `doc-viewer:add-file` (the renderer appends/activates the tab).
-let docViewerWindow = null;
-function createDocViewerWindow(file) {
-  if (docViewerWindow && !docViewerWindow.isDestroyed()) {
-    if (docViewerWindow.isMinimized()) docViewerWindow.restore();
-    docViewerWindow.focus();
-    docViewerWindow.webContents.send('doc-viewer:add-file', file || {});
-    return;
+// clicked. Each file gets its OWN dedicated window (one file = one window); the
+// window boots at /doc-viewer with the file in the query and shows just that
+// document. Opening more files spawns more windows side by side.
+// Registry of open doc-viewer windows so the main app's sidebar can list every
+// open document and refocus / close one on click. Keyed by BrowserWindow id →
+// { id, name, path, mime }. Kept in sync as viewer windows open and close; any
+// change is broadcast to every window via the `doc-viewer:tabs` channel.
+const docViewerWindows = new Map();
+function docViewerTabList() {
+  return [...docViewerWindows.values()];
+}
+function broadcastDocViewerTabs() {
+  const list = docViewerTabList();
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('doc-viewer:tabs', list);
   }
+}
+
+function createDocViewerWindow(file) {
   const query = { docViewer: '1' };
   if (file?.path) query.path = file.path;
   if (file?.name) query.name = file.name;
   if (file?.mime) query.mime = file.mime;
-  // Open on the same monitor as the base app, maximized to fill the screen the
-  // first time it's created (the window is reused for later files via tabs).
-  docViewerWindow = createAppWindow({ query, bounds: centeredOnDisplayOf(mainWindow, 1200, 800) });
-  docViewerWindow.maximize();
-  docViewerWindow.on('closed', () => { docViewerWindow = null; });
+  // A freshly-created "New file" opens with the AI generator armed so the
+  // advisor prompts for what to put in the (currently empty) document.
+  if (file?.generate) query.generate = '1';
+  // Open on the same monitor as the base app, maximized to fill the screen.
+  const win = createAppWindow({ query, bounds: centeredOnDisplayOf(mainWindow, 1200, 800) });
+  win.maximize();
+  // Track it for the main app's "Open files" sidebar section, and drop it from
+  // the registry when the window closes.
+  docViewerWindows.set(win.id, {
+    id: win.id,
+    name: file?.name || 'Document',
+    path: file?.path || null,
+    mime: file?.mime || null,
+  });
+  broadcastDocViewerTabs();
+  win.on('closed', () => {
+    docViewerWindows.delete(win.id);
+    broadcastDocViewerTabs();
+  });
+  return win;
 }
 ipcMain.on('window:open-doc-viewer', (_, file) => createDocViewerWindow(file));
+
+// Sidebar "Open files" section IPC: snapshot the open viewers, and refocus /
+// close a specific one by its BrowserWindow id.
+ipcMain.handle('doc-viewer:list', () => docViewerTabList());
+ipcMain.on('doc-viewer:focus', (_e, id) => {
+  const w = BrowserWindow.fromId(id);
+  if (w && !w.isDestroyed()) {
+    if (w.isMinimized()) w.restore();
+    w.focus();
+  }
+});
+ipcMain.on('doc-viewer:close', (_e, id) => {
+  const w = BrowserWindow.fromId(id);
+  if (w && !w.isDestroyed()) w.close();
+});
 
 // A Files-tab instance just trashed/deleted some paths. Fan the event out to
 // every OTHER window (the file watcher only ever pings the main window) so the
@@ -2146,6 +2183,23 @@ async function purgeTrashDir(dir, olderThanDays = TRASH_RETENTION_DAYS, nowMs = 
   return purged;
 }
 
+// Rename with a short retry on Windows lock errors. A file that was just
+// written (flush still settling, antivirus scanning) or is briefly held by a
+// preview window can throw EPERM/EBUSY on rename; a couple of quick retries
+// clears the transient case (a file genuinely open in another app still fails).
+async function renameWithRetry(from, to, attempts = 5) {
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      await fsp.rename(from, to);
+      return;
+    } catch (err) {
+      const transient = err?.code === 'EPERM' || err?.code === 'EBUSY' || err?.code === 'EACCES';
+      if (!transient || i === attempts - 1) throw err;
+      await new Promise((r) => setTimeout(r, 120 * (i + 1)));
+    }
+  }
+}
+
 // Move a single file into the bin. `path` must resolve inside `dir`.
 ipcMain.handle('local-folder:trash-file', async (_, payload) => {
   const dir = payload?.dir;
@@ -2166,13 +2220,16 @@ ipcMain.handle('local-folder:trash-file', async (_, payload) => {
     const nowMs = Date.now();
     const stored = mintStoredName(originalName, nowMs);
     await fsp.mkdir(trashDir(dir), { recursive: true });
-    await fsp.rename(resolved, path.join(trashDir(dir), stored));
+    await renameWithRetry(resolved, path.join(trashDir(dir), stored));
     const meta = await readTrashMeta(dir);
     meta[stored] = { originalName, deletedAt: new Date(nowMs).toISOString(), originalRelDir };
     await writeTrashMeta(dir, meta);
     return { ok: true, stored, error: null };
   } catch (err) {
     if (err?.code === 'ENOENT') return { ok: false, error: 'File not found' };
+    if (err?.code === 'EPERM' || err?.code === 'EBUSY' || err?.code === 'EACCES') {
+      return { ok: false, error: 'The file is open in another program (e.g. Word or the preview window). Close it and try again.' };
+    }
     return { ok: false, error: err?.message || String(err) };
   }
 });

@@ -190,6 +190,23 @@ export function onDocViewerAddFile(cb) {
   return electronAPI?.onDocViewerAddFile ? electronAPI.onDocViewerAddFile(cb) : (() => {});
 }
 
+// Open doc-viewer windows registry — backs the main app sidebar's "Open files"
+// section. `listDocViewerTabs` snapshots the open viewers; `onDocViewerTabs`
+// subscribes to live open/close changes (unsubscribe fn returned); focus/close
+// act on a viewer by its window id. All no-op / empty on web (no extra windows).
+export function listDocViewerTabs() {
+  return electronAPI?.listDocViewerTabs ? electronAPI.listDocViewerTabs() : Promise.resolve([]);
+}
+export function onDocViewerTabs(cb) {
+  return electronAPI?.onDocViewerTabs ? electronAPI.onDocViewerTabs(cb) : (() => {});
+}
+export function focusDocViewerTab(id) {
+  electronAPI?.focusDocViewerTab?.(id);
+}
+export function closeDocViewerTab(id) {
+  electronAPI?.closeDocViewerTab?.(id);
+}
+
 // File mutations (trash, rename) need to reach two audiences:
 //   • SAME renderer — the doc-viewer's tab sidebar and its embedded Files tab
 //     live in one window, so a `window` event refreshes the footer directly,

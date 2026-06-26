@@ -200,6 +200,8 @@
 .ai-hub .field-l { font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 9px; display: flex; align-items: center; gap: 7px; }
 .ai-hub .field textarea { width: 100%; border: none; background: transparent; resize: vertical; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-primary); line-height: 1.55; outline: none; min-height: 64px; }
 .ai-hub .field textarea::placeholder { color: var(--text-muted); }
+/* Interactive ask_user panel inside the input field, above the input row. */
+.ai-hub .ai-inpanels { padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .ai-hub .field-foot { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 
 .ai-hub .chips { display: flex; gap: 7px; flex-wrap: wrap; }

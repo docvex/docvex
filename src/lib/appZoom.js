@@ -1,10 +1,10 @@
-// App-wide 20% downscale. The whole UI renders smaller via a plain CSS
-// `zoom: 0.8` baked into the app's own stylesheet (`:root` in src/index.css) —
-// a stylesheet-level scale, NOT Electron's webFrame zoom. webFrame stays
-// reserved for the Settings "Display scale" preference, which composes
-// independently on top (total visual scale = BASE_APP_ZOOM × display scale).
-// On web there is no webFrame, so platform.setAppZoom folds this baseline into
-// the inline `zoom` it writes on <html> — keep the constant and the index.css
+// App base zoom. The former 20% downscale (`zoom: 0.8`) has been removed —
+// BASE_APP_ZOOM is now 1 (`:root { zoom: 1 }` in src/index.css). The Settings
+// "Display scale" preference still composes on top: webFrame zoom on Electron,
+// inline CSS `zoom` on <html> on web (platform.setAppZoom). Because display
+// scale is itself CSS zoom on web, the viewport-vs-layout split below still
+// applies whenever a non-1 scale is active — appZoom() reads the LIVE zoom so
+// toLayoutPx compensates automatically. Keep the constant and the index.css
 // declaration in sync.
 //
 // CSS zoom keeps layout, scrollbars and position:fixed behaving, but it splits
@@ -20,7 +20,11 @@
 // and need no conversion. webFrame zoom needs NO compensating — it scales
 // clientX and layout identically.
 
-export const BASE_APP_ZOOM = 0.8;
+// Base app zoom = 1 (the former 0.8 baseline downscale was removed). The
+// Settings display-scale preference still composes on top of this via
+// platform.setAppZoom; appZoom() reads the LIVE computed zoom so that scale is
+// still compensated by toLayoutPx.
+export const BASE_APP_ZOOM = 1;
 
 // Effective CSS zoom on the root right now. Read live (rather than assuming
 // BASE_APP_ZOOM) so web display-scale — which is also CSS zoom — is

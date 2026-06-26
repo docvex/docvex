@@ -2,10 +2,8 @@ import React from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import UpdateProgressBar from './UpdateProgressBar';
-import ProjectPickerPanel from './ProjectPickerPanel';
 import SwitchProjectLoader from './SwitchProjectLoader';
-import SplitContainer from './SplitView';
-import { useSplitView } from '../context/SplitViewContext';
+import ContentShell from './SplitView';
 import CursorSpotlight from './CursorSpotlight';
 import './AppShell.css';
 
@@ -26,7 +24,6 @@ export function isProjectScopedRoute(pathname) {
   if (pathname === '/generate' || pathname.startsWith('/generate/')) return true;
   if (pathname === '/automate' || pathname.startsWith('/automate/')) return true;
   if (pathname === '/ai' || pathname.startsWith('/ai/')) return true;
-  if (pathname === '/ai-chat' || pathname.startsWith('/ai-chat/')) return true;
   if (pathname === '/projects' || pathname === '/projects/') return false;
   if (pathname === '/projects/new') return false;
   if (pathname.startsWith('/projects/')) {
@@ -39,14 +36,18 @@ export function isProjectScopedRoute(pathname) {
   return false;
 }
 
+// The sidebar's "Personal" section tabs (Activity / Newsletter / Versions).
+// These all render their content full-bleed — no chrome frame (border / rounded
+// corners / shadow) and no gaps around the content section — so they read as one
+// consistent editorial surface. Keep in sync with Sidebar's personalItems.
+const FLUSH_CONTENT_ROUTES = new Set(['/', '/newsletter', '/versions']);
+
 export default function AppShell() {
   const { pathname } = useLocation();
-  const { paneCount } = useSplitView();
   const showBanner = isProjectScopedRoute(pathname);
-  const isSplit = paneCount > 1;
-  // Primary pane content (the live, sidebar-driven view). SplitContainer wraps
-  // it: in single mode as one pane with the in-pane nav chrome pinned above a
-  // scroll area; in split mode tiled alongside the extra panes.
+  const flushContent = FLUSH_CONTENT_ROUTES.has(pathname);
+  // The live, sidebar-driven view. ContentShell wraps it as one pane with the
+  // in-pane nav chrome (left rail + header) pinned above a scroll area.
   const primary = showBanner ? (
     <div className="project-page-frame">
       <Outlet />
@@ -56,24 +57,25 @@ export default function AppShell() {
   );
   return (
       <div className="app-shell">
-        <Sidebar />
-        <main className={`main-content ${isSplit ? 'main-content--split' : 'main-content--single'}`}>
-          {/* Cursor-following spotlight that brightens the ambient dot grid.
-              A real element moved by a direct transform write (not a CSS-var
-              `::after`) to avoid a document-wide style recalc on every move. */}
-          <CursorSpotlight />
-          {/* On project-scoped routes the page content is wrapped in a rounded
-              "sheet" panel. In split mode the content area is tiled into
-              independent panes by SplitContainer; the primary pane keeps the
-              live (sidebar-driven) view, the rest are separately-navigable. */}
-          <SplitContainer primary={primary} />
-        </main>
-        {/* Secondary project-picker panel — slides out from behind the
-            sidebar when SelectedProjectContext.pickerOpen flips. Mounted
-            unconditionally so the slide-in/out animates on every toggle.
-            Sidebar.jsx's "Select a project" trigger, the dimmed Files/To-dos
-            rows, and ProjectBanner's "Switch" button all call openPicker(). */}
-        <ProjectPickerPanel />
+        {/* App chrome — a single bordered, rounded frame that wraps the vertical
+            sidebar AND the content area so they read as one window-in-window
+            surface, inset from the frameless window edges (the ambient dot grid
+            shows around it). */}
+        <div className="app-chrome">
+          <Sidebar />
+          <main className={`main-content main-content--single${flushContent ? ' main-content--flush' : ''}`}>
+            {/* Cursor-following spotlight that brightens the ambient dot grid.
+                A real element moved by a direct transform write (not a CSS-var
+                `::after`) to avoid a document-wide style recalc on every move. */}
+            <CursorSpotlight />
+            {/* On project-scoped routes the page content is wrapped in a rounded
+                "sheet" panel. ContentShell renders it as a single pane with the
+                in-pane nav chrome (left rail + header). */}
+            <ContentShell primary={primary} />
+          </main>
+        </div>
+        {/* Project picking now lives in the Hub tab (/projects) — the old
+            slide-out picker panel was removed. */}
         {/* Full-screen project-switch overlay (z-index 45, below sidebar at 50)
             — appears when SelectedProjectContext.beginSwitch() is called, stays
             up for at least 500ms so the transition reads as deliberate even

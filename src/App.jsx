@@ -15,9 +15,9 @@ import AppRoutes from './AppRoutes';
 // user is on the /dashboard sub-route — the "working in this project"
 // surface. Browsing a project's Overview (/projects/:id) is intentionally
 // non-mutating: it's read-only management, so it shouldn't hijack the
-// sidebar's selection. The picker (ProjectPickerPanel) sets the selection
-// explicitly before navigating to /dashboard, so the picker → dashboard
-// flow still works without relying on the auto-select here. Deep-links
+// sidebar's selection. The Hub (/projects) sets the selection explicitly
+// before navigating to /dashboard, so the Hub → dashboard flow still works
+// without relying on the auto-select here. Deep-links
 // and refreshes directly to /dashboard still resolve correctly because
 // this effect fires on that route.
 //

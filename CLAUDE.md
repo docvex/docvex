@@ -16,9 +16,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > `.docvex.json` sidecar via `lib/localBranchMeta.js`). The provider stack,
 > routing, and Supabase schema below reflect the post-pivot state. Newer
 > surfaces — Hub (project list at `/projects`; the standalone `/launch` hub was
-> removed), Doc Viewer (`/doc-viewer`), Admin, Settings, Mail, Project AI / AI
-> Chat, SplitView panes — exist but aren't documented in depth here; read the
-> source directly.
+> removed), Doc Viewer (`/doc-viewer`, incl. the AI "Generate" advisor), Admin,
+> Settings, Mail, the Project AI hub — exist but aren't documented in
+> depth here; read the source directly.
 
 Docvex is a team-collaboration desktop + web app for projects (chat, AI
 tools, legal newsfeed) on top of Supabase (auth, Postgres + RLS, Realtime,
@@ -30,6 +30,8 @@ no cloud file store. The Electron build is the primary surface; the web build
 
 ```powershell
 npm start                 # electron-forge start (dev + Vite HMR + DevTools open)
+npm run start:multi       # launch several dev instances in parallel (scripts/run-many.mjs;
+                          # sets DOCVEX_ALLOW_MULTI=1 to skip the single-instance lock)
 npm run package           # build app folder in out/ (no installer)
 npm run make              # build platform installers (Squirrel.exe on Windows)
 npm run publish           # make + upload artifacts to GitHub Releases as a draft
@@ -39,6 +41,11 @@ npm run publish           # make + upload artifacts to GitHub Releases as a draf
 npm run web:dev           # Vite dev server with web entry (src/web.jsx)
 npm run web:build         # vite build → dist-web/ (run scripts/web-deploy.mjs
                           # separately to copy dist-web/ into docs/app/)
+
+# Marketing site (separate workspace in landing/ — see landing/CLAUDE.md):
+npm run landing:dev       # landing dev server
+npm run landing:build     # build the marketing site
+npm run landing:deploy    # build + scripts/landing-deploy.mjs → docs/
 
 # Release workflow (uses npm-version lifecycle hooks defined in package.json):
 npm run release:patch     # bump x.x.(x+1), commit, tag, push, publish, regenerate web
@@ -85,6 +92,7 @@ No tests, no linter (`npm run lint` is a stub).
 - **Supabase JS 2** — auth, Postgres + RLS, Realtime, Edge Functions
 - **pdf.js 5** for in-app PDF preview (`pdfjs-dist`), **html2canvas** for the Report-a-Problem screenshot capture
 - **docx-preview** for rendering `.docx` files (Doc Viewer / `lib/openDocxWindow.js`); lazy-imported so its weight isn't paid until a Word doc is opened
+- **Document generation/export** (lazy-imported): **docx** + **pptxgenjs** + **xlsx** (SheetJS) + **jspdf** build real Office files in `lib/documentGen.js` (the AI "Generate" feature — Anthropic Skills sandbox path with a local-builder fallback); **jspdf + html2canvas** power `lib/exportPdf.js` (the office-preview "Convert to PDF"). **word-extractor** (main process) reads legacy `.doc`.
 - **react-markdown + remark-gfm** for rendered release notes
 - **update-electron-app** → `update.electronjs.org` feed for packaged auto-updates
 - **`doc-ai` Edge Function** — Claude (OCR) + OpenAI Whisper (audio transcription) powering the Doc Viewer's "Extract text" and captions tools
@@ -104,22 +112,27 @@ MemoryRouter
       SelectedProjectProvider — per-user storage; auto-clears on access loss
         UpdatesProvider
           NotificationsProvider — source hooks need auth + updates
-            SplitViewProvider
-              ChatUnreadProvider
-                <App />
+            ChatUnreadProvider
+              <App />
             <NotificationCenter />  — sibling of <App />, toasts at z 9999
 ```
+
+`web.jsx` uses the identical provider order, differing only in router
+(`BrowserRouter basename='/app'`). The former `SplitViewProvider` was removed —
+SplitView is now a single-pane shell (`components/SplitView.jsx`) that publishes
+its header/footer chrome through `PaneChromeContext` (per-pane, in-memory)
+rather than a global multi-pane context.
 
 ### Routing
 
 `src/AppRoutes.jsx` defines the full route tree, extracted so it can be rendered both by the main window shell (with the sidebar) and by each SplitView pane (sidebar-less, own MemoryRouter) — `Shell` / `ProjectShell` are passed in as props so the two surfaces can't drift. All page modules are `React.lazy`-imported.
 
-- `/auth`, `/launch` — full-screen, no shell.
+- `/auth` — full-screen, no shell. (The standalone `/launch` hub was removed; the project list at `/projects` is the in-app hub.)
 - `/doc-viewer` — full-screen Doc Viewer window (file preview + Legal AI panel), opened from the Files page.
 - `/` — wraps everything in `Shell`.
   - Public: `/` (Activity feed), `/versions` (release history; `/updates` redirects here), `/newsletter`, `/notifications` (redirects to `/`), `/invite/:token`.
   - Dev-only: `/debug`.
-  - `ProtectedRoute`: `/account`, `/settings`, `/admin`, all `/projects/*`, and project-scoped tools (`/files`, `/clients`, `/todos`, `/chat`, `/generate`, `/automate`, `/ai`, `/ai-chat`, `/mail`) which read the active project from `SelectedProjectContext` rather than a URL param.
+  - `ProtectedRoute`: `/account`, `/settings`, `/admin`, all `/projects/*`, and project-scoped tools (`/files`, `/clients`, `/todos`, `/chat`, `/generate`, `/automate`, `/ai`, `/mail`) which read the active project from `SelectedProjectContext` rather than a URL param.
   - `/projects/:projectId` wraps `Overview` + `Dashboard` in `ProjectShell`, sharing one fetch and one Realtime channel.
 
 ### Main ↔ Renderer IPC contract
@@ -127,10 +140,14 @@ MemoryRouter
 `src/preload.js` is the only bridge — exposes `window.electronAPI` via `contextBridge`. Adding any main capability requires editing both files.
 
 - **OAuth / deep-links:** `oauth:open-external` (send), `oauth:callback-url` (receive); `app:get-startup-deep-link` (one-shot pull of a `docvex://` URL captured from `process.argv` at cold start).
-- **Updates:** `app:get-version`, `app:is-packaged`, `update:check`, `update:install`, `update:status` (main → renderer lifecycle events).
+- **Updates:** `app:get-version`, `app:is-packaged`, `app:get-platform-info` (`{ platform, arch }`), `update:check`, `update:install`, `update:status` (main → renderer lifecycle events), `update:download-and-install` (macOS self-updater — downloads + extracts + re-signs the arch zip).
+- **Window controls (frameless):** `window:minimize / toggle-maximize / close / is-maximized / maximized-changed / is-fullscreen / fullscreen-changed`, and `window:auth-state` (`'locked' | 'app' | 'unlock'` — drives the title-bar chrome before auth). Backs the custom React `TitleBar`. `setZoomFactor` / `getZoomFactor` wrap webFrame zoom (Settings display-scale).
+- **In-app file windows / Doc Viewer:** `app:open-file-window`, `app:open-html-window`, `app:open-docx` (Word fallback chain), `window:open-doc-viewer`; the Doc Viewer multi-tab bus is `doc-viewer:add-file / list / focus / close / tabs`.
+- **Cross-window file sync:** `files:removed` (paths) and `files:changed` broadcast so other windows refresh their listings.
+- **Legacy-format extraction (main-process):** `doc:extract-text` (legacy `.doc` via word-extractor), `whatsapp:prepare-zip / prepare-folder / detect` (WhatsApp export ingest).
 - **Dev menus:** `account:switch-to` (dev-only Account menu), `debug:clear-cache`, `debug:send-test-notifications`, `debug:send-email-previews`.
 - **External URLs:** `app:open-external` is filtered to `http(s)` only — preserve that filter when adding sibling channels.
-- **Local folder (Files page):** `local-folder:pick / list / download / write-files / delete-files / rename-file / open-path / show-in-folder / watch / unwatch / changed / read-sidecar / write-sidecar`. The watcher is debounced 200 ms; only the active folder is watched.
+- **Local folder (Files page), `local-folder:*`:** `pick / project-dir / list / list-recursive / download / write-files / delete-files / rename-file / create-folder / delete-folder / move / open-path / save-as / extract-archive / show-in-folder / watch / unwatch / changed / read-sidecar / write-sidecar`, plus a recycle-bin set writing a `.docvex-trash/` folder: `trash-file / trash-folder / list-trash / restore-from-trash / delete-from-trash / purge-trash` (sweeps entries > 30 days). The watcher is debounced ~200 ms; only the active folder is watched.
 
 ### Custom protocol `docvex://`
 
@@ -152,7 +169,7 @@ Critical dev-mode detail: when `process.defaultApp` is true (under `electron-for
 
 ### Custom `localfile://` protocol
 
-Registered with privileges `standard | secure | supportFetchAPI | stream | bypassCSP | corsEnabled` so `<img src>`, `<video src>`, AND `fetch()` from the Vite dev origin all work. The renderer URL-encodes the full path as one segment; `protocol.handle('localfile', …)` decodes it, streams via `fs.createReadStream` wrapped in a `Response` (so `<video>` byte-range works without buffering whole videos in memory).
+Registered with privileges `standard | secure | supportFetchAPI | stream | bypassCSP | corsEnabled` so `<img src>`, `<video src>`, AND `fetch()` from the Vite dev origin all work. The renderer URL-encodes the full path as one segment; `protocol.handle('localfile', …)` decodes it, streams via `fs.createReadStream` wrapped in a `Response` (so `<video>` byte-range works without buffering whole videos in memory). A `?thumb=N` query returns an OS-downscaled thumbnail (cached, bounded) for image/doc tiles; HTTP Range requests are honoured (206) for media seeking.
 
 ### Auto-update pipeline
 
@@ -200,12 +217,15 @@ Adding a third theme = 30-line addition (new `:root[data-theme="…"]` block + e
 
 ## Context layer
 
-All under `src/context/`. Every hook returns plain objects; no Redux / Zustand. Persistence keys all share the `docvex.*` prefix. Newer contexts (`AppPrefsContext`, `ChatUnreadContext`, `PaneChromeContext`, `SplitViewContext`) exist but aren't fully documented here yet.
+All under `src/context/`. Every hook returns plain objects; no Redux / Zustand. Persistence keys all share the `docvex.*` prefix. `SplitViewContext` was removed (see the provider-stack note above); `PaneChromeContext` is in-memory and per-pane (publishes a pane's header/footer chrome into the SplitView shell via `usePaneChromeSlot`).
 
 | Context | Exported shape (via `useXxx()`) | Persistence |
 | --- | --- | --- |
-| **AuthContext** | `{ session, loading, lastAuthEvent, signInWithEmail, signUpWithEmail, signInWithGoogle, linkGoogle, signOut, eraseData, deleteAccount }` | Supabase-js native (`sb-*` keys); `lastAuthEvent.at` timestamps repeated events so downstream effects can distinguish back-to-back TOKEN_REFRESHED firings. |
-| **ThemeContext** | `{ theme, setTheme, themes: [{ id, label, description, swatchOrder }] }` | `docvex.theme.<userId|_anonymous>` |
+| **AuthContext** | `{ session, loading, lastAuthEvent, signInWithEmail, signUpWithEmail, signInWithGoogle, linkGoogle, setPassword, signOut, logout, eraseData, deleteAccount }` | Supabase-js native (`sb-*` keys); `lastAuthEvent.at` timestamps repeated events so downstream effects can distinguish back-to-back TOKEN_REFRESHED firings. |
+| **AppPrefsContext** | `{ prefs: { textSize, thumbnails, reduceMotion, fileView, language, showTokenUsage }, setPref(key, value), resetPrefs }` | `docvex.appPrefs.<userId>` (JSON). Side-effects on change: `data-reduce-motion` on `<html>`, display-scale via `appScale`/`platform.setAppZoom`. |
+| **ChatUnreadContext** | `{ unreadCount, markRead() }` | `docvex.chat.lastRead.<userId>.<projectId>` (ISO ts); Realtime sub on `chat_messages` per project. |
+| **PaneChromeContext** | `usePaneChromeSlot({description})` (publish), `usePaneChromePortalEl()` / `usePaneChromeFooterEl()` (chrome targets) | None — in-memory, one provider per SplitView pane. |
+| **ThemeContext** | `{ theme (resolved `cream`/`ink`), themePreference (`cream`/`ink`/`system`), setTheme, themes: [{ id, label, description, swatchOrder }] }` | `docvex.theme.<userId>` (+ `docvex.theme.last` signed-out fallback). `system` tracks the OS via `matchMedia`. |
 | **SelectedProjectContext** | `{ selectedProjectId, selectedProject, loading, selectProject(id, prefetched?), clearSelection, patchSelectedProject(patch), pickerOpen, openPicker, closePicker, togglePicker, switching, switchingToName, beginSwitch(name) }` | `docvex.selectedProject.<userId>` |
 | **ProjectContext** (URL-scoped) | `{ project, role, members, customRoles, loading, error, refresh, refreshCustomRoles, removeMemberLocal, setMemberRoleLocal, removeCustomRoleLocal }` | None — Realtime subs + optimistic local mutations |
 | **NotificationsContext** | `{ notifications, activeToasts, unreadCount, notify(payload), dismissToast(id), markRead(id), markAllRead, remove(id), clearAll }` | `docvex.notifications.v1.<userId|_anonymous>` (debounced). `HISTORY_CAP = 100`, `MAX_ACTIVE_TOASTS = 3`. |
@@ -215,7 +235,7 @@ All under `src/context/`. Every hook returns plain objects; no Redux / Zustand. 
 **Provider-order constraints** to remember:
 - ThemeProvider above everything else that renders so `data-theme` is set before first paint.
 - AppPrefsProvider sits below ThemeProvider, above SelectedProjectProvider.
-- SplitViewProvider / ChatUnreadProvider wrap `<App />` inside NotificationsProvider (pane layout + chat unread badges).
+- ChatUnreadProvider wraps `<App />` inside NotificationsProvider (chat unread badges). `NotificationCenter` is a sibling of `<App />`, not nested.
 - `NotificationCenter` mounts as a sibling of `<App />` so its toasts (z 9999) render above any modal.
 
 ## Library layer (`src/lib/`)
@@ -243,13 +263,33 @@ All under `src/context/`. Every hook returns plain objects; no Redux / Zustand. 
 | `extractionHistory.js` | Per-file localStorage history of OCR snippets for the Doc Viewer (a *list* per file). |
 | `captionsHistory.js` | Per-file localStorage cache of the audio pane's AI transcript — *one* result per file (text + timed segments + language), so reopening a file restores captions instantly instead of re-paying for Whisper. Key prefix `docvex:doc-viewer:captions:`. |
 
-~15 other newer lib files (`activityMetrics.js`, `admin.js`, `extractFileText.js`, `fileDragBus.js`, `folderColors.js`, `hiddenFiles.js`, `launchGate.js`, `mail.js`, `openDocxWindow.js`, `privateMessages.js`, `projectAi.js`, `thumbnailDescriptor.js`, `thumbnailResolver.js`, `whatsappChat.js`, `useChatFind.js`) aren't documented here yet — read directly.
+Other notable `lib/` modules (read source for depth):
+
+| File | Purpose |
+| --- | --- |
+| `projectAi.js` | Client wrapper for the `project-ai` Edge Function + the `AI_MODELS` picker catalog. Backs the AI hub. |
+| `documentGen.js` | AI document generation — builds `.docx`/`.pptx`/`.xlsx`/`.pdf` via the Anthropic Skills sandbox (Path A) with local builders (docx / pptxgenjs / SheetJS / jsPDF) as the offline fallback (Path B). |
+| `exportPdf.js` | Office-preview → PDF (lazy `html2canvas` + `jspdf`), one page per rendered element. |
+| `conversationHistory.js` | Per-file localStorage cache of the Doc Viewer AI-advisor thread + generated-doc iterations (`docvex:doc-viewer:conversation:<path>`). |
+| `mail.js` | Gmail/Outlook OAuth client for the Mail tab (`mail-sync` / `mail-callback`), three-leg PKCE-style flow. |
+| `admin.js` | `get_admin_stats` aggregates + admin-allowlist CRUD (`app_admins`). |
+| `appZoom.js` / `appScale.js` | `appZoom.js`: base-zoom constant (now **1**) + `toLayoutPx` viewport→layout-px helper. `appScale.js`: normalises the Settings display-scale preference (70–125%, 5% steps). |
+| `audioEnvelopeCache.js` / `captionPosition.js` | Doc Viewer audio: cached waveform envelope (LRU, base64 in localStorage) and the persisted caption-overlay position. |
+| `chat.js` / `privateMessages.js` | Supabase IO for `chat_messages` (+ reactions, threads, pins) and `private_messages` (DMs). |
+| `extractFileText.js` | Best-effort text extraction (txt/PDF/DOCX/XLSX) for AI attachments. |
+| `useChatFind.js` | Find-in-conversation via the CSS Custom Highlight API (no DOM mutation). |
+| `fileDragBus.js` / `folderColors.js` / `projectsDir.js` / `projectFilesPrefetch.js` | Files-page support: rich drag-preview bus; per-folder colour tags; per-user "projects folder" pref; background Files warm-cache (Electron-only). |
+| `thumbnailDescriptor.js` / `thumbnailResolver.js` | Unified thumbnail descriptor builders + resolution hook (poster URL → docx render → MIME glyph fallback chain). |
+| `whatsappChat.js` | WhatsApp `.txt` export parser/detector (Android + iOS layouts). |
+| `activityMetrics.js` | Personal Activity-page metrics (heatmap, streak, breakdown). |
 
 ## Supabase data model
 
-Project ID `pntxlvhkqfryyyxlqytr` (eu-west-1, organization `docvex.ro`). Modify via the `claude_ai_Supabase` MCP tools (`list_tables`, `apply_migration`, etc.). **No cloud file store** — migration 031 (`drop_branching_and_cloud_files`, 2026-06-02) dropped the tables `project_files`, `change_requests`, `change_request_items`, `branch_changes`, `project_member_branches`, the `projects.main_version` column, and the branching RPCs. The `projects` / `projects-pending` **storage buckets still physically exist** in the project but are orphaned — the app no longer reads or writes them (files are local-only). They're a cleanup candidate, not a live dependency.
+Project ID `pntxlvhkqfryyyxlqytr` (eu-west-1, organization `docvex.ro`). Modify via the `claude_ai_Supabase` MCP tools (`list_tables`, `apply_migration`, etc.). **No cloud file store** — the `drop_branching_and_cloud_files` migration (2026-06-02, "migration 031") dropped the tables `project_files`, `change_requests`, `change_request_items`, `branch_changes`, `project_member_branches`, the `projects.main_version` column, and the branching RPCs. The `projects` / `projects-pending` **storage buckets still physically exist** in the project but are orphaned — the app no longer reads or writes them (files are local-only). They're a cleanup candidate, not a live dependency.
 
-### Tables (current, post migration 031)
+Migrations continued **after** the branching drop (it is NOT the latest): the admin stack (`admin_stats_rpc`, `app_admins_table_and_rpcs`, `app_services_inventory`), the Mail stack (`create_user_mail_connections`, `create_mail_oauth_states`), and `create_enrollments` (the current latest, 2026-06-17). Use `list_migrations` for the authoritative order.
+
+### Tables (current)
 
 | Table | Notable columns | Notes |
 | --- | --- | --- |
@@ -264,6 +304,12 @@ Project ID `pntxlvhkqfryyyxlqytr` (eu-west-1, organization `docvex.ro`). Modify 
 | `private_messages` | — | DM messages; see `lib/privateMessages.js`. |
 | `legal_updates` | `id, slug unique, category, impact (low/medium/high), title, source?, citations?, summary?, areas text[], raw_content?, ai_status, published_at, created_at, updated_at` | Global Legal Newsfeed, not project-scoped. Migration 029. Public read (`for select using (true)`); written only by `legal-ai` Edge Function (service role) or seed. |
 | `legal_update_states` | PK `(user_id, update_id)`, `read_at?, pinned_at?, saved_at?, updated_at` | Per-user read/pin/save flags. Migration 029. RLS: `user_id = auth.uid()`. |
+| `chat_message_reactions` | `(message_id, user_id, emoji)` | Emoji reactions on `chat_messages` (migration 026). Toggled via `lib/chat.js`. |
+| `app_admins` | app-admin allowlist | Backs `is_app_admin` / the Admin page gate. Not project-scoped. |
+| `app_services` | service-inventory rows | Powers the Admin "Developer Console" service tracker (Supabase/Anthropic/Resend/domains). |
+| `user_mail_connections` | per-user mailbox tokens (encrypted at rest) | Gmail/Outlook OAuth connections for the Mail tab; tokens AES-GCM-encrypted by `mail-sync` (`MAIL_TOKEN_KEY`). |
+| `mail_oauth_states` | OAuth nonce/state rows | Short-lived CSRF/state records for the Mail OAuth round-trip (`mail-callback`). |
+| `enrollments` | — | Present but unused (0 rows) — future feature; no live code path. |
 
 ### RPCs
 
@@ -276,6 +322,8 @@ Project ID `pntxlvhkqfryyyxlqytr` (eu-west-1, organization `docvex.ro`). Modify 
 | `get_member_profiles` / `get_member_profiles_status` | `(p_project_id uuid)` — joins `project_members` with auth user metadata (+ status). |
 | `get_project_ai_usage(project_id, since?)` | SECURITY INVOKER, defaults `since` to start of current month. Monthly usage aggregate for the Project AI tab. |
 | `get_admin_stats` | SECURITY DEFINER, email-allowlisted. Admin-page live metrics — see `lib/admin.js`. |
+| `is_app_admin` | SECURITY DEFINER. True when the caller is in the `app_admins` allowlist — gates the Admin page + admin RPCs. |
+| `current_user_has_password` | Whether the signed-in user has a password set (vs. OAuth-only) — drives the Account "set/change password" affordance. |
 | `set_chat_message_pin` | Pin/unpin a chat message (migration 026). |
 
 **Dropped in migration 031 — do not use:** `approve_change_request`, `approve_change_requests`, `_apply_change_request_items`, `reject_change_request`, `reject_change_request_item`.
@@ -296,11 +344,11 @@ Project files are local-only (`lib/localFolder.js`, `.docvex.json` sidecar via `
 
 `legal-ai` — Claude-powered Legal Newsfeed AI. Raw REST to the Anthropic Messages API, model `claude-opus-4-7` (override via `LEGAL_AI_MODEL`). `{ action: 'digest' }` returns a weekly briefing (`{ ok, summary, highImpactCount, total, generatedAt }`, or `{ ok:false, error:'ai_not_configured' }` at 200 so the client falls back); `{ action: 'ingest', items: [...] }` classifies + summarises raw legal text into `legal_updates` (service role, gated on `x-ingest-secret` matching `LEGAL_INGEST_SECRET`). Needs `ANTHROPIC_API_KEY`.
 
-`doc-ai` — backs the Doc Viewer's `task: 'ocr'` (Claude, `lib/ocr.js`) and `task: 'transcribe'` (Whisper, `lib/transcribe.js`).
+`doc-ai` — Doc Viewer AI. Actions: `ask / summary / risks / romanian / draft / review` (Claude, `claude-opus-4-7`, override `DOC_AI_MODEL`), `ocr` (Claude, `claude-haiku-4-5`, `lib/ocr.js`), `transcribe` (OpenAI `whisper-1`, `lib/transcribe.js`; optional `DEEPGRAM_API_KEY` for speaker diarization). Needs `ANTHROPIC_API_KEY` (+ `OPENAI_API_KEY` for transcribe).
 
-`mail-sync` / `mail-callback` — Gmail/Outlook OAuth sync for the Mail tab.
+`mail-sync` / `mail-callback` — Gmail/Outlook OAuth sync for the Mail tab. `mail-sync` (JWT-gated) proxies the OAuth exchange and encrypts tokens at rest (`MAIL_TOKEN_KEY`); `mail-callback` is **public** (`verify_jwt = false`) — it bridges the provider redirect back to `docvex://` (or web `/mail`) via the `state` nonce. Needs `GOOGLE_CLIENT_ID/SECRET` and/or `MS_CLIENT_ID/SECRET`.
 
-`project-ai` — backs the Project AI / AI Chat pages and `project_ai_usage` logging.
+`project-ai` — backs the AI hub (`/ai`) and `project_ai_usage` logging. Actions `ask / suggest / generate / office`; model `claude-opus-4-7` (override `PROJECT_AI_MODEL`), with `office`/code-execution defaulting to `claude-sonnet-4-6` (`OFFICE_MODEL`). Deployed as a neutral Claude.ai-style assistant (not a legal advisor); supports the real `ask_user` tool. Needs `ANTHROPIC_API_KEY`.
 
 ## Local project files
 
@@ -332,7 +380,11 @@ UI: `NotificationToast` auto-dismisses after `duration` (5 s default; `persisten
 | `Updates` (`/versions`) | Release history, current vs latest, "Check now", installer state badge. |
 | `Newsletter` (`/newsletter`) | Legal Newsfeed — Romanian legislation/compliance briefing. Typographically-led feed (masthead, AI-weekly line, Section/Impact/Search filters, day-grouped `ed-article` rows with category eyebrow + impact mark, AI-brief lead, "Affects …" meta line, per-item read/pin/mark/save). Data is real (`legal_updates` + `legal_update_states` via `lib/legalFeed.js`); AI weekly line from `legal-ai`'s `digest` action, cached 1 h (`docvex:legal-digest:v1`), with a local fallback when the AI key isn't configured. Public personal route (not behind `ProtectedRoute`), reached from the **Personal** sidebar section. Styles `ed-`-prefixed in `Newsletter.css`. |
 
-Newer root pages not detailed here: `Launch` (`/launch`, pre-app launcher hub), `Admin` (`/admin`), `Settings` (`/settings`), `Debug` (`/debug`, dev-only), `DocViewer` (`/doc-viewer`).
+Other root pages (read source for depth):
+- `Admin` (`/admin`) — "Developer Console": `app_services` inventory tracker, mailbox-intelligence panel, live platform metrics (`get_admin_stats`), destructive-ops danger zone. App-admin-gated (`app_admins` allowlist / `is_app_admin`).
+- `Settings` (`/settings`) — app preferences (theme, display scale, thumbnails, file view, reduce motion, token-usage indicator, language) + the Electron "projects folder" picker.
+- `Mail` (`/mail`) — personal inbox with real Gmail/Outlook OAuth sync (`mail-sync` / `mail-callback`); AI-drafts replies in the user's voice with tone/length controls.
+- `Debug` (`/debug`, dev-only), `DocViewer` (`/doc-viewer`).
 
 ### Project-scoped (`src/pages/Projects/`)
 
@@ -349,7 +401,7 @@ Newer root pages not detailed here: `Launch` (`/launch`, pre-app launcher hub), 
 | `TeamTree` | Org-chart view of project members + roles. |
 | `InviteAccept` | Token-driven invite acceptance; public so unauthenticated invitees can land here and bounce through `/auth`. |
 
-Newer project-scoped pages not detailed here: `ProjectAI` / `ProjectAIChat` (`/ai`, `/ai-chat` — backed by the `project-ai` Edge Function + `project_ai_usage`). `ProjectAIChat` is a multi-view shell (`aiView`: **Advisor / Timeline / Mail / Extractions**) — Mail embeds the `Mail` page, and **Extractions** embeds `components/ExtractionsPanel` (every Doc Viewer "Extract text" snippet across all files, with an All-files / per-file sidebar + a date-range and arrange-by toolbar, read from the per-file `lib/extractionHistory.js` stores and refreshed cross-window via the `storage` event).
+Newer project-scoped page (read source for depth): `ProjectAI` (`/ai`) — backed by the `project-ai` Edge Function + `project_ai_usage`. It's the **AI hub**: a Command Center landing (its command bar seeds the Generate tool) plus five tools (Generate / Review / Research / Automate / Compliance) defined in `Projects/ProjectAITools.jsx` with shared constants/icons in `Projects/aiHub.jsx`. (The former `ProjectAIChat` page at `/ai-chat` and the hub's conversational **Ask** tool were removed — plain Q&A chat lives only in the Doc Viewer advisor now. `components/ExtractionsPanel` and `lib/extractionHistory.js` still exist but are no longer mounted by any page.)
 
 Shared layout: `ProjectScoped.css` provides the standard project page frame (sticky header, content container).
 
@@ -392,10 +444,12 @@ Dismissal: Escape, scroll (capture), outside `mousedown`, or mouseleave on the m
 
 ### Layout
 
-- **AppShell** — wraps Sidebar + content; mounts the global ReportProblem modal.
-- **Sidebar** — 60 px collapsed, 220 px expanded on `:hover` / `.locked`. `.label` elements fade via opacity. Anything interactive that should respond when expanded needs `pointer-events: auto` in the `:hover` / `.locked` rule (see `.lock-btn`). Auth-aware footer swaps between Account NavLink + avatar / username / tier and a "Sign in" CTA.
-- **ProjectPickerPanel** — sliding drawer of all projects (sorted by recency), triggered from the sidebar.
+- **AppShell** — wraps Sidebar + content; mounts the global ReportProblem modal, the `CursorSpotlight`, the `UpdateProgressBar`, and the `SplitView` content shell.
+- **Sidebar** — 60 px collapsed, 220 px expanded on `:hover` / `.locked`. `.label` elements fade via opacity. Anything interactive that should respond when expanded needs `pointer-events: auto` in the `:hover` / `.locked` rule (see `.lock-btn`). Auth-aware footer swaps between Account NavLink + avatar / username / tier and a "Sign in" CTA. Has a cursor-following spotlight glow (see the zoom/native-event Conventions notes).
+- **TitleBar** — custom frameless title bar (Electron): window controls + Documentation/Theme/Updates/Account, driven by the `window:*` IPC. Layout reserves `--titlebar-h`. (`ProjectPickerPanel` was removed.)
+- **SplitView** — single-pane content shell; portals a pane's header/footer chrome into fixed slots via `PaneChromeContext` (it replaced the old multi-pane SplitView + its context).
 - **ProjectBanner** — small **fixed-position pill** at top-centre of the viewport ("Working in <project>"), border-radius 999 px, shadow `0 8px 24px rgba(0,0,0,0.32)`. Not in-flow — `.project-page-frame` resets its `margin-top` accordingly.
+- **Other shared components:** `CursorSpotlight` (cursor-tracked radial glow), `AskUserPanel` (interactive `ask_user`-tool controls above a composer), `GavelThinking` (AI loading indicator), `TokenUsagePill` (per-chat token total, gated on the `showTokenUsage` pref), `AiSphere` (animated AI orb), `PageMasthead` (shared eyebrow/title/description header), `SwitchProjectLoader`, `ActivityMetrics`, `DangerZone`, `fileGlyph`.
 
 ### File previews
 
@@ -406,6 +460,8 @@ Dismissal: Escape, scroll (capture), outside `mousedown`, or mouseleave on the m
 - **Styling:** plain CSS files alongside components (`Foo.jsx` + `Foo.css`); zero CSS-in-JS / Tailwind. Use only `var(--…)` from `tokens.css`. Adding a hard-coded hex is a smell — there's a semantic token for almost everything.
 - **SVG icons:** inline JSX constants at the top of the file that uses them — no icon library. Stroke icons use `currentColor` so they inherit hover / active states.
 - **`display: contents` wrappers** for synthetic event hosts that shouldn't add a layout box (e.g. Tooltip's `.tooltip-trigger-wrap`).
+- **App base zoom is `1`** (`:root { zoom: 1 }` in `index.css`; `BASE_APP_ZOOM = 1` in `lib/appZoom.js`). The former 20% downscale (`zoom: 0.8`) was removed. The Settings "Display scale" preference still composes on top — webFrame zoom on Electron, inline CSS `zoom` on `<html>` on web (`platform.setAppZoom`). Any code that writes a **viewport** coordinate (`clientX`, a `getBoundingClientRect()` value) into a **CSS length** (a `style.left`/`transform`, an SVG coord, a `--spot-x`-style gradient var) must still pass it through `toLayoutPx()` — it's an identity at base zoom 1 but compensates the web display-scale (also CSS zoom). Ratios of two viewport values (percent splitters, seek bars) cancel the zoom and need no conversion.
+- **Spotlight / cursor-tracked glows over portalled content** must use a **native** `addEventListener('mousemove')` on the host node, not React's `onMouseMove`. React synthetic events bubble along the React tree, so a handler on an ancestor whose visual children are `createPortal`'d elsewhere (e.g. the Doc Viewer advisor card, whose side panel portals into `.dv-advisor-slot`) never fires over that content — only on the host's own border/padding. Native listeners follow the real DOM tree where the portal nodes actually live.
 - **5-stop animated gradient pill** (`.updates-banner-uptodate` and similar status pills): `linear-gradient(120deg, 5% / 16% / 18% / 16% / 5%)`, `background-size: 300% 100%`, 8 s shimmer keyframe; centred dot with `box-shadow: 0 0 0 6px ...` halo. Reusing this shape keeps "status pill" semantically consistent across the app.
 - **Auth-derived display:** display name resolution is `user_metadata.full_name || user_metadata.name || user.email`. Avatar is `user_metadata.avatar_url` (Google) with a deterministic first-letter circle fallback (palette of 12 colours, djb2 hash on the id). Helper is duplicated across a few components (`Account.jsx`, `Sidebar.jsx`, ...) — keep them in sync if you change one.
 - **Notification dedupe keys** are mandatory for anything that can fire repeatedly (uploads, downloads, errors). The notify() resolver coalesces / replaces / inserts based on category + dedupeKey, so a bad key spams the user.

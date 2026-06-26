@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ICONS as I, MATTER as D } from './aiHub';
-import { askProjectAi, generateDocument } from '../../lib/projectAi';
+import { generateDocument } from '../../lib/projectAi';
 import Tooltip from '../../components/Tooltip';
 
 // The six AI-hub tool surfaces, ported from the Claude Design "ai-tab-v1"
@@ -70,7 +70,7 @@ const GEN_TEMPLATES = [
   { id: 'client', icon: 'inbox', t: 'Client letter', d: 'Status update in plain language' },
 ];
 
-export function GenerateTool({ projectName, fileNames }) {
+export function GenerateTool({ projectName, fileNames, seedInstructions, onSeedConsumed }) {
   const [sel, setSel] = useState('submissions');
   const [state, setState] = useState('idle'); // idle | thinking | done | error
   const [instructions, setInstructions] = useState('');
@@ -83,6 +83,16 @@ export function GenerateTool({ projectName, fileNames }) {
   // Reset the output whenever the template changes — the previous draft no
   // longer matches the selected document type.
   useEffect(() => { setState('idle'); setResult({ title: '', paras: [] }); }, [sel]);
+
+  // The landing command bar parks the user's typed request here: drop it into
+  // the instructions field once, then tell the parent to clear the seed.
+  useEffect(() => {
+    if (seedInstructions) {
+      setInstructions(seedInstructions);
+      onSeedConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedInstructions]);
 
   const run = async () => {
     const myReq = ++reqId.current;
@@ -222,115 +232,6 @@ export function ReviewTool() {
             </div>
           </div>
         ))}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────── ASK ───────────────────────────
-// Map a UI message to the Anthropic role/content shape. Seeded demo
-// messages carry `paras` (HTML); live ones carry plain `text`.
-function toApiMessages(list) {
-  return list.map((m) => ({
-    role: m.who === 'me' ? 'user' : 'assistant',
-    content: m.text != null
-      ? m.text
-      : (m.paras || []).map((p) => String(p).replace(/<[^>]+>/g, '')).join('\n\n'),
-  }));
-}
-
-export function AskTool({ projectName, fileNames, seedQuestion, onSeedConsumed }) {
-  const [msgs, setMsgs] = useState([
-    { who: 'ai', text: `Hi! I'm DocVex AI. Ask me anything about ${projectName || 'this matter'} — I can summarize the files, explain deadlines and obligations, or help you prepare a strategy. How can I help?` },
-  ]);
-  const [val, setVal] = useState('');
-  const [streaming, setStreaming] = useState(false);
-  const scroller = useRef(null);
-  const sendRef = useRef(null);
-
-  const suggest = ['Was the Defendant put on notice?', 'What evidence supports the delay?', 'Summarize the defences in the statement of defence'];
-
-  const send = async (q) => {
-    const text = (q != null ? String(q) : val).trim();
-    if (!text || streaming) return;
-    setVal('');
-    const next = [...msgs, { who: 'me', text }];
-    setMsgs(next);
-    setStreaming(true);
-    const { text: answer, error } = await askProjectAi({
-      messages: toApiMessages(next),
-      projectName,
-      fileNames,
-    });
-    setStreaming(false);
-    setMsgs((m) => [...m, error
-      ? { who: 'ai', text: error.message === 'ai_not_configured'
-        ? 'The AI assistant is not configured (the AI key is missing). Contact your administrator.'
-        : 'Couldn’t get an answer right now. Please try again in a moment.', isError: true }
-      : { who: 'ai', text: answer }]);
-  };
-  sendRef.current = send;
-
-  // Command-bar seed: when the landing routes a typed question here, fire it
-  // once and tell the parent to clear the seed.
-  useEffect(() => {
-    if (seedQuestion && sendRef.current) {
-      sendRef.current(seedQuestion);
-      onSeedConsumed?.();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seedQuestion]);
-
-  useEffect(() => { if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight; }, [msgs, streaming]);
-
-  return (
-    <div style={{ marginTop: 22 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16 }}>
-        <span className="cmd-ctx" style={{ fontSize: '0.8rem' }}>{I.files({ width: 14, height: 14 })} DocVex AI knows the matter’s <b>{(fileNames || []).length} files</b> (by name) and answers in context</span>
-      </div>
-      <div ref={scroller} style={{ maxHeight: 480, overflowY: 'auto', paddingRight: 6 }}>
-        <div className="chat">
-          {msgs.map((m, i) => (
-            <div key={i} className={`bubble ${m.who === 'me' ? 'me' : ''}`}>
-              <div className="bubble-av" style={m.who === 'ai' ? { background: 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--cat-role)))', color: '#fff' } : {}}>{m.who === 'me' ? 'You' : I.spark({ width: 17, height: 17 })}</div>
-              <div className="bubble-c">
-                <div className="bubble-name">{m.who === 'me' ? 'You' : 'DocVex AI'}</div>
-                {m.who === 'me'
-                  ? <div className="bubble-msg">{m.text}</div>
-                  : (m.paras
-                    ? (
-                      <div className="bubble-msg">
-                        {m.paras.map((p, j) => <p key={j} dangerouslySetInnerHTML={{ __html: p.replace(/<sup data-c="(\d+)"><\/sup>/g, '<sup class="cite">$1</sup>') }} />)}
-                        <div className="sources">
-                          <div className="sources-l">Sources</div>
-                          {m.sources.map((s, j) => (
-                            <div className="source" key={j}><span className="src-n">{s.n}</span><b>{s.f}</b><span className="pg">{s.pg}</span></div>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                    : (
-                      <div className="bubble-msg">
-                        {answerParagraphs(m.text).map((p, j) => <p key={j}>{p}</p>)}
-                      </div>
-                    ))}
-              </div>
-            </div>
-          ))}
-          {streaming && (
-            <div className="bubble">
-              <div className="bubble-av" style={{ background: 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--cat-role)))', color: '#fff' }}>{I.spark({ width: 17, height: 17 })}</div>
-              <div className="bubble-c"><div className="bubble-name">DocVex AI</div><div className="bubble-msg"><span className="thinking"><span /><span /><span /></span></div></div>
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="chips" style={{ margin: '16px 0 12px' }}>
-        {suggest.map((s, i) => <button type="button" key={i} className="chip" onClick={() => send(s)}>{I.spark()}{s}</button>)}
-      </div>
-      <div className="field" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', padding: 14 }}>
-        <textarea style={{ minHeight: 26 }} rows={1} value={val} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask anything about the matter…" />
-        <button type="button" className="btn btn-primary" disabled={streaming} onClick={() => send()}>{I.send()} Ask</button>
       </div>
     </div>
   );

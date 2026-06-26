@@ -145,53 +145,58 @@ export default function ActivityPage() {
     [filtered],
   );
 
+  // Filter tab strip — rendered both inline (under the masthead) and inside the
+  // on-scroll compact "mini header" (passed as PageMasthead's compactRight) so
+  // filtering stays available once the big title scrolls away.
+  const renderFilters = () => (
+    <div className="activity-filters" role="tablist" aria-label="Filter activity">
+      {filterTabs.map((tab) => {
+        const active = filter === tab.id;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            data-cat={tab.id}
+            className={`activity-filter${active ? ' is-active' : ''}`}
+            onClick={() => setFilter(tab.id)}
+          >
+            {tab.id !== 'all' && <span className="activity-filter-dot" />}
+            <span>{tab.label}</span>
+            <span className="activity-filter-count">{catCounts[tab.id] || 0}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
     <div className="activity-page">
       <PageMasthead
         eyebrow="Live feed"
         title="Activity"
-        compact={false}
-        actions={(
-          <>
-            <button type="button" className="act-btn" onClick={markAllRead} disabled={unreadCount === 0}>
-              Mark all read
-            </button>
-            <button type="button" className="act-btn" onClick={clearAll} disabled={notifications.length === 0}>
-              Clear all
-            </button>
-          </>
-        )}
+        compactRight={notifications.length > 0 ? renderFilters() : null}
       >
         A running record of everything happening across every project you're part of —
         files added or changed, invites, role updates, releases and sign-ins.
       </PageMasthead>
 
       {notifications.length > 0 && (
-        <div className="activity-tabbar" role="tablist" aria-label="Filter activity">
-          <div className="activity-filters">
-            {filterTabs.map((tab) => {
-              const active = filter === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  data-cat={tab.id}
-                  className={`activity-filter${active ? ' is-active' : ''}`}
-                  onClick={() => setFilter(tab.id)}
-                >
-                  {tab.id !== 'all' && <span className="activity-filter-dot" />}
-                  <span>{tab.label}</span>
-                  <span className="activity-filter-count">{catCounts[tab.id] || 0}</span>
-                </button>
-              );
-            })}
+        <div className="activity-tabbar">
+          {renderFilters()}
+          {/* Bulk actions sit in line with the filter tabs (right-aligned). */}
+          <div className="activity-tabbar-actions">
+            <button type="button" className="act-btn" onClick={markAllRead} disabled={unreadCount === 0}>
+              Mark all read
+            </button>
+            <button type="button" className="act-btn" onClick={clearAll} disabled={notifications.length === 0}>
+              Clear all
+            </button>
           </div>
         </div>
       )}
 
-      <div className="activity-feed-scroll">
       {notifications.length === 0 ? (
         <div className="activity-empty">
           {BellOffIcon}
@@ -228,7 +233,6 @@ export default function ActivityPage() {
           ))}
         </div>
       )}
-      </div>
     </div>
   );
 }

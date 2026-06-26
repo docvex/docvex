@@ -129,6 +129,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('doc-viewer:add-file', listener);
   },
 
+  // Open doc-viewer windows registry — the main app's "Open files" sidebar
+  // section lists every open document viewer and can refocus / close one.
+  // `onDocViewerTabs` pushes the current list whenever a viewer opens/closes.
+  listDocViewerTabs: () => ipcRenderer.invoke('doc-viewer:list'),
+  focusDocViewerTab: (id) => ipcRenderer.send('doc-viewer:focus', id),
+  closeDocViewerTab: (id) => ipcRenderer.send('doc-viewer:close', id),
+  onDocViewerTabs: (cb) => {
+    const listener = (_e, list) => cb(list);
+    ipcRenderer.on('doc-viewer:tabs', listener);
+    return () => ipcRenderer.removeListener('doc-viewer:tabs', listener);
+  },
+
   // Announce that some local paths were just trashed/deleted, and subscribe to
   // the broadcast main fans back out to every window. Lets the doc-viewer close
   // tabs for deleted files and keeps every Files tab's listing in sync.

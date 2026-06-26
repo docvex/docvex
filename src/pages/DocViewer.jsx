@@ -4,14 +4,9 @@ import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import FilePreview from '../components/FilePreview';
-import FileThumbnail from '../components/FileThumbnail';
 import CursorSpotlight from '../components/CursorSpotlight';
-import ProjectFiles from './Projects/ProjectFiles';
-import { PaneChromeProvider, usePaneChromePortalRef } from '../context/PaneChromeContext';
-import { ItemGlyph, ItemThumbnail } from '../components/FilesWorkspace';
 import Tooltip from '../components/Tooltip';
 import { useMorphPill } from '../components/useMorphPill';
-import { describeLocalFile } from '../lib/thumbnailDescriptor';
 import { localFolderApi } from '../lib/localFolder';
 import { getCachedPdf } from '../lib/pdfCache';
 // Cursor coords / innerWidth / DOMRects are viewport px; the left/top/width
@@ -24,18 +19,29 @@ import { loadCaptions, saveCaptions, clearCaptions } from '../lib/captionsHistor
 import { loadEnvelope, saveEnvelope } from '../lib/audioEnvelopeCache';
 import { loadCaptionSettings, saveCaptionSettings } from '../lib/captionPosition';
 import { transcribeAudio } from '../lib/transcribe';
-import { askProjectAi } from '../lib/projectAi';
-import { onDocViewerAddFile, extractDocText, openExternal, onFilesRemoved, notifyFilesChanged } from '../lib/platform';
+import { askProjectAi, AI_MODELS, DEFAULT_AI_MODEL, coerceModel, makeAskAnswers } from '../lib/projectAi';
+import { useAppPrefs } from '../context/AppPrefsContext';
+import AskUserPanel from '../components/AskUserPanel';
+import TokenUsagePill from '../components/TokenUsagePill';
+import { docKindFromName, buildDocumentBlobSmart, mimeForKind, inferDocKind, withKindExtension, labelForKind } from '../lib/documentGen';
+import { renderedOfficeToPdfBlob } from '../lib/exportPdf';
+import { loadConversation, saveConversation, clearConversation } from '../lib/conversationHistory';
+import { extractDocText, openExternal, onFilesRemoved, notifyFilesChanged } from '../lib/platform';
 import { extractFileText } from '../lib/extractFileText';
 import { parseWhatsAppChat, splitTimestamp } from '../lib/whatsappChat';
+import gavelLoader from '../gavel-loader.svg';
 import './DocViewer.css';
+// The Generate tab's chat reuses the main app's AI-advisor bubbles/markdown so it
+// looks identical. Those rules are scoped under .ai-hub / .ai-chat-page (we apply
+// both classes to the thread wrapper); width is neutralised in DocViewer.css.
+import './Projects/ProjectAI.css';
+import './Projects/ProjectAIChat.css';
 
 // Full-screen document viewer window (opened from the Files page when a file
-// is double-clicked). A SINGLE shared window with Chrome-style tabs: the first
-// file arrives in the query string; subsequent double-clicks are pushed in via
-// `onDocViewerAddFile` and appended as new tabs. Each tab previews the original
-// file — image / video / PDF / text via FilePreview, .docx via docx-preview,
-// and a fallback (with an OS-open button) for everything else.
+// is double-clicked). Each opened file gets its OWN window — the file arrives in
+// the query string and the window previews just that one document: image /
+// video / PDF / text via FilePreview, .docx via docx-preview, and a fallback
+// (with an OS-open button) for everything else.
 
 // `thumb` asks the localfile handler for a downscaled copy (see main.js) —
 // the chat/rail never paint full-resolution photos, which is what made
@@ -137,6 +143,259 @@ function keyToDateInput(key) {
   const d = key % 100;
   return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
+
+// ── Date-range picker (calendar modal) ────────────────────────────────────
+// The WhatsApp conversation's From → To filter is driven by a single button
+// (showing "from — to") that opens a modal over the conversation: two month
+// calendars (left picks the From day, right picks the To day) with a live
+// tally of everything that falls inside the chosen window between them.
+const CAL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const CAL_MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const CAL_WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+function keyParts(key) {
+  return { y: Math.floor(key / 10000), mo: Math.floor((key % 10000) / 100), d: key % 100 };
+}
+function partsToKey(y, mo, d) { return y * 10000 + mo * 100 + d; }
+// "2023-01-15" → "15 Jan 2023" for the trigger button. Empty → an en-dash.
+function formatDateLabel(v) {
+  const k = dateInputKey(v);
+  if (k == null) return '—';
+  const { y, mo, d } = keyParts(k);
+  return `${d} ${CAL_MONTHS_SHORT[mo - 1]} ${y}`;
+}
+
+const CalendarGlyph = (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+);
+
+// Every month from minKey's month through maxKey's month (inclusive), so the
+// picker can lay the whole conversation history out at once.
+function monthsBetween(minKey, maxKey) {
+  if (minKey == null || maxKey == null) return [];
+  const a = keyParts(minKey);
+  const b = keyParts(maxKey);
+  const out = [];
+  let y = a.y; let mo = a.mo;
+  while ((y < b.y || (y === b.y && mo <= b.mo)) && out.length < 1200) {
+    out.push({ y, mo });
+    mo += 1; if (mo > 12) { mo = 1; y += 1; }
+  }
+  return out;
+}
+
+// One month grid (title + day cells), no navigation — the modal stacks every
+// month in the span. `fromKey`/`toKey` highlight the selected range; days
+// outside [minKey, maxKey] are disabled. Clicking a day calls onPickDay(key).
+function MonthGrid({ view, fromKey, toKey, minKey, maxKey, onPickDay, onHoverDay }) {
+  const firstDow = new Date(view.y, view.mo - 1, 1).getDay();
+  const daysInMonth = new Date(view.y, view.mo, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < firstDow; i += 1) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d += 1) cells.push(d);
+  return (
+    <div className="dv-cal">
+      <div className="dv-cal-head">
+        <span className="dv-cal-title">{CAL_MONTHS[view.mo - 1]} {view.y}</span>
+      </div>
+      <div className="dv-cal-grid" onMouseLeave={() => onHoverDay?.(null)}>
+        {CAL_WEEKDAYS.map((w) => <span key={w} className="dv-cal-dow">{w}</span>)}
+        {cells.map((d, i) => {
+          if (d == null) return <span key={`e${i}`} className="dv-cal-cell is-empty" aria-hidden="true" />;
+          const key = partsToKey(view.y, view.mo, d);
+          const disabled = (minKey != null && key < minKey) || (maxKey != null && key > maxKey);
+          const isFrom = key === fromKey;
+          const isTo = key === toKey;
+          const inRange = fromKey != null && toKey != null && key >= fromKey && key <= toKey;
+          const cls = `dv-cal-cell${inRange ? ' is-range' : ''}${isFrom ? ' is-from' : ''}${isTo ? ' is-to' : ''}`;
+          return (
+            <button
+              key={d}
+              type="button"
+              className={cls}
+              disabled={disabled}
+              onClick={() => onPickDay(key)}
+              onMouseEnter={onHoverDay ? () => onHoverDay(key) : undefined}
+            >
+              {d}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Count every conversation item (messages, media, voice, …) whose source
+// message falls inside [fromKey, toKey]. `railAll` is the prebuilt bucket set
+// so we only re-run the cheap filter as the draft range changes.
+function countInRange(messages, railAll, dayResolver, fromKey, toKey) {
+  const inRange = (time) => {
+    const k = dayResolver(time);
+    if (k == null) return false;
+    if (fromKey != null && k < fromKey) return false;
+    if (toKey != null && k > toKey) return false;
+    return true;
+  };
+  const cnt = (arr) => arr.reduce((n, it) => (inRange(messages[it.msgIndex]?.time) ? n + 1 : n), 0);
+  let textCount = 0;
+  let days = new Set();
+  for (const m of messages) {
+    const k = dayResolver(m.time);
+    if (k != null && (fromKey == null || k >= fromKey) && (toKey == null || k <= toKey)) days.add(k);
+    if (m.system || m.attachment || m.omitted) continue;
+    if (m.text && detectCall(m.text)) continue;
+    if (m.text && inRange(m.time)) textCount += 1;
+  }
+  return [
+    { key: 'days', one: 'day', many: 'days', n: days.size },
+    { key: 'messages', one: 'message', many: 'messages', n: textCount },
+    { key: 'media', one: 'media file', many: 'media', n: cnt(railAll.media) },
+    { key: 'voice', one: 'voice note', many: 'voice notes', n: cnt(railAll.voice) },
+    { key: 'stickers', one: 'sticker', many: 'stickers', n: cnt(railAll.stickers) },
+    { key: 'docs', one: 'document', many: 'documents', n: cnt(railAll.docs) },
+    { key: 'links', one: 'link', many: 'links', n: cnt(railAll.links) },
+    { key: 'calls', one: 'call', many: 'calls', n: cnt(railAll.calls) },
+    { key: 'contacts', one: 'contact', many: 'contacts', n: cnt(railAll.contacts) },
+  ];
+}
+
+// Shared date-range picker state. When the picker is open, its content REPLACES
+// the conversation bodies: the calendar grid takes the messages body and the
+// in-range tally takes the rail's files body. The provider holds the draft
+// (start day → end day, with hover preview) and exposes it to both views.
+const DateRangeCtx = React.createContext(null);
+
+function DateRangeProvider({ open, messages, dayResolver, fromKey, toKey, minKey, maxKey, onChange, onReset, children }) {
+  const railAll = useMemo(() => buildRailContent(messages), [messages]);
+  const safeMin = minKey ?? fromKey ?? partsToKey(new Date().getFullYear(), 1, 1);
+  const safeMax = maxKey ?? toKey ?? safeMin;
+  // dTo === null means a range is mid-selection (start picked, end pending).
+  const [dFrom, setDFrom] = useState(fromKey ?? safeMin);
+  const [dTo, setDTo] = useState(toKey ?? safeMax);
+  const [hoverKey, setHoverKey] = useState(null);
+  const months = useMemo(() => monthsBetween(safeMin, safeMax), [safeMin, safeMax]);
+
+  // Re-seed the draft from the applied range each time the picker opens.
+  useEffect(() => {
+    if (open) { setDFrom(fromKey ?? safeMin); setDTo(toKey ?? safeMax); setHoverKey(null); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const selecting = dTo == null;
+  // Visual + stat range: while selecting, preview against the hovered day.
+  let lo = dFrom;
+  let hi = dTo;
+  if (selecting) {
+    if (hoverKey != null) { lo = Math.min(dFrom, hoverKey); hi = Math.max(dFrom, hoverKey); }
+    else { lo = dFrom; hi = dFrom; }
+  }
+
+  // Push a COMPLETE range up so the conversation filters; skip while selecting.
+  useEffect(() => {
+    if (dTo != null) onChange(keyToDateInput(dFrom), keyToDateInput(dTo));
+  }, [dFrom, dTo, onChange]);
+
+  // Click 1 starts a new range (start day, end pending); click 2 closes it,
+  // ordering the two days regardless of which was clicked first.
+  const onPickDay = (key) => {
+    if (dTo != null) { setDFrom(key); setDTo(null); return; }
+    if (key < dFrom) { setDTo(dFrom); setDFrom(key); } else { setDTo(key); }
+  };
+
+  const stats = useMemo(
+    () => countInRange(messages, railAll, dayResolver, lo, hi),
+    [messages, railAll, dayResolver, lo, hi],
+  );
+
+  const active = lo > safeMin || hi < safeMax;
+  const reset = () => { onReset(); setDFrom(safeMin); setDTo(safeMax); setHoverKey(null); };
+
+  const value = { months, lo, hi, selecting, hoverKey, safeMin, safeMax, onPickDay, setHoverKey, stats, active, reset };
+  return <DateRangeCtx.Provider value={value}>{children}</DateRangeCtx.Provider>;
+}
+
+// The picker content — replaces the messages body (the rail/sidebar isn't
+// rendered while it's open, so it spans the full conversation width). Every
+// month from the start of the file's history to the end fills + scrolls. The
+// live in-range tally lives in the conversation footer (see DateRangeFooter).
+function DateRangeCalendars({ closing = false, onExited, onClose }) {
+  const c = useContext(DateRangeCtx);
+  if (!c) return null;
+  return (
+    <div
+      className={`dv-daterange-calwrap${closing ? ' is-closing' : ''}`}
+      // Click on the backdrop (the overlay itself, not its calendar/footer
+      // children) dismisses the picker.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose?.();
+      }}
+      onAnimationEnd={(e) => {
+        if (closing && e.target === e.currentTarget) onExited?.();
+      }}
+    >
+      <div
+        className="dv-daterange-calscroll"
+        onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
+      >
+        {c.months.map((m) => (
+          <MonthGrid
+            key={`${m.y}-${m.mo}`}
+            view={m}
+            fromKey={c.lo}
+            toKey={c.hi}
+            minKey={c.safeMin}
+            maxKey={c.safeMax}
+            onPickDay={c.onPickDay}
+            onHoverDay={c.selecting ? c.setHoverKey : undefined}
+          />
+        ))}
+      </div>
+      {/* In-range tally sits under the calendars, inside the picker overlay. */}
+      <DateRangeFooter />
+      {/* Actions under the tally — close (dismiss), reset (clear the range),
+          select (keep the live-applied range and close). */}
+      <div className="dv-daterange-actions">
+        <button type="button" className="dv-daterange-btn" onClick={onClose}>Close</button>
+        <button type="button" className="dv-daterange-btn" onClick={c.reset} disabled={!c.active}>Reset</button>
+        <button type="button" className="dv-daterange-btn is-primary" onClick={onClose}>Select</button>
+      </div>
+    </div>
+  );
+}
+
+// In-range tally rendered into the conversation footer (replacing the normal
+// "messages · media · …" tallies while the picker is open). Styled like the old
+// modal — a card surface with big bold counts — laid out as a horizontal bar.
+function DateRangeFooter() {
+  const c = useContext(DateRangeCtx);
+  if (!c) return null;
+  return (
+    <footer className="dv-daterange-footer">
+      <ul className="dv-daterange-stats-list">
+        {c.stats.map((s) => (
+          <li key={s.key} className={`dv-daterange-stat${s.n === 0 ? ' is-zero' : ''}`}>
+            <span className="dv-daterange-stat-n">{s.n.toLocaleString()}</span>
+            <span className="dv-daterange-stat-label">{s.n === 1 ? s.one : s.many}</span>
+          </li>
+        ))}
+      </ul>
+    </footer>
+  );
+}
+
+// The trigger that replaces the inline From/To inputs: one button showing the
+// selected range as "from — to" (a connecting line between the two dates).
+function DateRangeButton({ from, to, active, open, onClick }) {
+  return (
+    <button type="button" className={`dv-wa-daterange${active ? ' is-active' : ''}${open ? ' is-open' : ''}`} onClick={onClick} aria-haspopup="dialog" aria-expanded={open || undefined}>
+      <span className="dv-wa-daterange-icon">{CalendarGlyph}</span>
+      <span className="dv-wa-daterange-date">{formatDateLabel(from)}</span>
+      <span className="dv-wa-daterange-line" aria-hidden="true" />
+      <span className="dv-wa-daterange-date">{formatDateLabel(to)}</span>
+    </button>
+  );
+}
+
 function classify(mime, name) {
   const m = (mime || '').toLowerCase();
   const e = extOf(name);
@@ -151,6 +410,11 @@ function classify(mime, name) {
     || m === 'application/vnd.ms-excel'
     || m === 'text/csv') {
     return { kind: 'sheet', mime: m };
+  }
+  // PowerPoint (OOXML only — legacy binary .ppt can't be unzipped, falls through
+  // to 'other'). Previewed as slide cards by parsing the pptx zip.
+  if (e === 'pptx' || m === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+    return { kind: 'pptx', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' };
   }
   if (m.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'tif', 'tiff', 'heic', 'avif'].includes(e)) {
     return { kind: 'image', mime: m.startsWith('image/') ? m : 'image/png' };
@@ -719,7 +983,7 @@ const WA_EARLIER_CHUNK = 1200;
 // Memoized: every prop is referentially stable across a rail resize / other
 // DocTextPane-local state commits, so the (large) conversation subtree only
 // re-renders when something it actually shows changes.
-const WhatsAppChat = React.memo(function WhatsAppChat({ variant = 'whatsapp', messages, dir, sep, highlight, query, rawQuery, onQueryChange, dateFrom, dateTo, dateMin, dateMax, onDateFromChange, onDateToChange, onResetDates, rangeActive, timeInRange, railOpen, onToggleRail, footerSlot = null, headerSlot = null }) {
+const WhatsAppChat = React.memo(function WhatsAppChat({ variant = 'whatsapp', messages, dir, sep, highlight, query, rawQuery, onQueryChange, dateFrom, dateTo, onOpenDates, datesOpen, rangeActive, timeInRange, railOpen, onToggleRail, footerSlot = null, headerSlot = null }) {
   // `query` is the deferred copy (drives the expensive filtering); `rawQuery`
   // is what the header's search input shows so typing never lags behind.
   // `rangeActive`/`timeInRange` come from DocTextPane (shared with the rail).
@@ -1092,41 +1356,10 @@ const WhatsAppChat = React.memo(function WhatsAppChat({ variant = 'whatsapp', me
                 </span>
               )}
             </div>
-            {/* Date-range controls — show only messages between From and To
-                (either bound optional). The same range filters the rail's
-                Media / Links / Docs / … sections (state lives in DocTextPane). */}
-            <div className={`dv-wa-dates${rangeActive ? ' is-active' : ''}`}>
-              <span className="dv-wa-dates-label">From</span>
-              <input
-                type="date"
-                className="dv-wa-date"
-                value={dateFrom || ''}
-                min={dateMin || undefined}
-                max={dateTo || dateMax || undefined}
-                onChange={(e) => onDateFromChange?.(e.target.value)}
-                aria-label="Show content from this date"
-              />
-              <span className="dv-wa-dates-label">to</span>
-              <input
-                type="date"
-                className="dv-wa-date"
-                value={dateTo || ''}
-                min={dateFrom || dateMin || undefined}
-                max={dateMax || undefined}
-                onChange={(e) => onDateToChange?.(e.target.value)}
-                aria-label="Show content up to this date"
-              />
-              {rangeActive && (
-                <button
-                  type="button"
-                  className="dv-wa-find-clear"
-                  onClick={() => onResetDates?.()}
-                  aria-label="Reset to the full date range"
-                >
-                  {ClearGlyph}
-                </button>
-              )}
-            </div>
+            {/* Date-range trigger — one button showing "from — to"; clicking
+                opens the calendar modal over the conversation (state lives in
+                DocTextPane, which also owns the From → To filter). */}
+            <DateRangeButton from={dateFrom} to={dateTo} active={rangeActive} open={datesOpen} onClick={() => onOpenDates?.()} />
           </div>
           {/* Burger — shows/hides the Media, links & docs rail. Hidden in the
               Docvex skin, where the rail is pinned open beside the chat. */}
@@ -2024,6 +2257,8 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
   // range: every Media/Links/Docs/… entry hides with its message.
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  // Calendar modal (the From → To picker) open state.
+  const [dateModalOpen, setDateModalOpen] = useState(false);
   const dayResolver = useMemo(() => buildDayResolver(chat.messages), [chat.messages]);
   // The conversation's own date span (first → last parseable message). The
   // From/To inputs default to these so the user sees the real range and narrows
@@ -2063,6 +2298,11 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
     setDateFrom(dateBounds.from);
     setDateTo(dateBounds.to);
   }, [dateBounds.from, dateBounds.to]);
+  // Stable apply for the calendar modal's live draft (from/to are date inputs).
+  const applyDates = useCallback((from, to) => {
+    setDateFrom(from);
+    setDateTo(to);
+  }, []);
 
   // The search input (in the chat's POV header) stays controlled by `query`,
   // but everything expensive (filtering + re-rendering thousands of rows)
@@ -2099,6 +2339,24 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
     while ((i = t.indexOf(q, i)) !== -1) { n += 1; i += q.length; }
     return n;
   }, [plainText, plainQuery]);
+
+  // The date picker is open AND this is a chat — its content replaces the
+  // message + file bodies in place (tab strips stay).
+  const pickerOpen = dateModalOpen && chat.isWhatsApp;
+  // Keep the calendar screen mounted while it fades out, so the close is
+  // animated rather than an instant unmount. `pickerClosing` drives the
+  // fade-out keyframe; onAnimationEnd unmounts. (Declared before the early
+  // returns below so the Hook order stays stable.)
+  const [pickerMounted, setPickerMounted] = useState(false);
+  const [pickerClosing, setPickerClosing] = useState(false);
+  useEffect(() => {
+    if (pickerOpen) {
+      setPickerMounted(true);
+      setPickerClosing(false);
+    } else if (pickerMounted) {
+      setPickerClosing(true);
+    }
+  }, [pickerOpen, pickerMounted]);
 
   if (error) return <div className="dv-noview"><p className="dv-noview-title">Couldn't read the file</p><p className="dv-noview-sub">{error}</p></div>;
   if (content == null) return <div className="dv-loading">Loading text…</div>;
@@ -2141,6 +2399,17 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
         {/* Full-width slot ABOVE the tab bars — the search + date controls
             portal in here so they top the whole conversation section. */}
         <div className="dv-wa-headerslot" ref={setHeaderSlot} />
+        <DateRangeProvider
+          open={pickerOpen}
+          messages={chat.messages}
+          dayResolver={dayResolver}
+          fromKey={fromKey}
+          toKey={toKey}
+          minKey={dateBounds.minKey}
+          maxKey={dateBounds.maxKey}
+          onChange={applyDates}
+          onReset={resetDates}
+        >
         <div
           className={`dv-wa-split${docvex ? ' is-fluid' : ''}`}
           ref={splitRef}
@@ -2155,6 +2424,8 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
             className="dv-wa-chatcol"
             // Docvex: fixed, draggable width once the user has resized it (else
             // 50/50 via CSS). WhatsApp skin keeps its own fixed CHAT_BASE width.
+            // While the picker is open the rail is hidden, so the column spans
+            // the full width (ignore any saved fixed width).
             style={docvex && chatW != null ? { flex: 'none', width: `${chatW}px` } : undefined}
           >
             {/* View-mode tabs (Docvex / Plain text) — a tab strip at the top-left
@@ -2162,8 +2433,9 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
                 and in line with it. Outside the scroller so the scrollbar gutter
                 never narrows it. */}
             {modeToggle}
-            {/* Scroller wrapped so the custom overlay scrollbar (below) sits in a
-                right-edge gutter instead of taking layout width. */}
+            {/* The date picker is an overlay (rendered below over the whole
+                split), so the messages body stays mounted and visible behind
+                it — the WhatsAppChat header controls keep portalling normally. */}
             <div className="dv-wa-chatscroll-wrap">
               <div className="dv-wa-chatscroll" ref={chatScrollRef}>
                 <WhatsAppChat
@@ -2177,15 +2449,15 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
                   onQueryChange={setQuery}
                   dateFrom={dateFrom}
                   dateTo={dateTo}
-                  dateMin={dateBounds.from}
-                  dateMax={dateBounds.to}
-                  onDateFromChange={setDateFrom}
-                  onDateToChange={setDateTo}
-                  onResetDates={resetDates}
+                  onOpenDates={() => setDateModalOpen((v) => !v)}
+                  datesOpen={pickerOpen}
                   rangeActive={rangeActive}
                   timeInRange={timeInRange}
                   railOpen={railOpen}
                   onToggleRail={toggleRail}
+                  /* While the picker is open its tally takes the footer, so the
+                     chat's own footer portal is suppressed (renders inline,
+                     hidden with the messages body). */
                   footerSlot={footerSlot}
                   headerSlot={headerSlot}
                 />
@@ -2199,14 +2471,36 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
           )}
           {railShown && (
             <>
-              <WhatsAppRail messages={chat.messages} dir={dir} sep={sep} onFindInChat={findInChat} width={docvex ? null : (railWidth ?? RAIL_BASE)} rangeActive={rangeActive} timeInRange={timeInRange} />
+              <WhatsAppRail
+                messages={chat.messages}
+                dir={dir}
+                sep={sep}
+                onFindInChat={findInChat}
+                width={docvex ? null : (railWidth ?? RAIL_BASE)}
+                rangeActive={rangeActive}
+                timeInRange={timeInRange}
+              />
               {!docvex && <div className="dv-wa-resizer" onMouseDown={startRailResize} role="separator" aria-orientation="vertical" title="Drag to resize the panel" />}
             </>
           )}
+          {/* Date picker — overlays the whole split (messages + media rail)
+              rather than replacing them; messages/media stay visible behind. */}
+          {pickerMounted && (
+            <DateRangeCalendars
+              closing={pickerClosing}
+              onClose={() => setDateModalOpen(false)}
+              onExited={() => {
+                setPickerMounted(false);
+                setPickerClosing(false);
+              }}
+            />
+          )}
         </div>
         {/* Full-width footer slot — the conversation footer portals in here so
-            it spans the chat + media rail. */}
+            it spans the chat + media rail. The picker's in-range tally now
+            lives under the calendars (inside the overlay), not here. */}
         <div className="dv-wa-footerslot" ref={setFooterSlot} />
+        </DateRangeProvider>
         </>
       ) : (
         <>
@@ -2216,33 +2510,6 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
           {chat.isWhatsApp && (
             <div className="dv-wa-controls">
               <div className="dv-wa-header-controls">
-                <div className={`dv-wa-dates${rangeActive ? ' is-active' : ''}`}>
-                  <span className="dv-wa-dates-label">From</span>
-                  <input
-                    type="date"
-                    className="dv-wa-date"
-                    value={dateFrom || ''}
-                    min={dateBounds.from || undefined}
-                    max={dateTo || dateBounds.to || undefined}
-                    onChange={(e) => setDateFrom(e.target.value)}
-                    aria-label="Show content from this date"
-                  />
-                  <span className="dv-wa-dates-label">to</span>
-                  <input
-                    type="date"
-                    className="dv-wa-date"
-                    value={dateTo || ''}
-                    min={dateFrom || dateBounds.from || undefined}
-                    max={dateBounds.to || undefined}
-                    onChange={(e) => setDateTo(e.target.value)}
-                    aria-label="Show content up to this date"
-                  />
-                  {rangeActive && (
-                    <button type="button" className="fx-search-clear" onClick={resetDates} aria-label="Reset to the full date range">
-                      {ClearGlyph}
-                    </button>
-                  )}
-                </div>
                 <div className={`fx-search${(query || '').trim() ? ' is-active' : ''}`}>
                   <span className="fx-search-glyph">{SearchGlyph}</span>
                   <input
@@ -2355,6 +2622,59 @@ const FullscreenGlyph = (
     <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
     <path d="M3 16v3a2 2 0 0 0 2 2h3" />
     <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+  </svg>
+);
+
+// Document glyph — the AI-document version cards in the advisor thread.
+const DocCardGlyph = (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 3 14 8 19 8" />
+    <line x1="9" y1="13" x2="15" y2="13" />
+    <line x1="9" y1="17" x2="13" y2="17" />
+  </svg>
+);
+
+// Per-doc-type glyphs for the version card (a page outline + a type-specific
+// mark): Word = text lines, PowerPoint = bar chart, Excel = grid, PDF = label.
+const DocPageBase = (<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><polyline points="14 3 14 8 19 8" /></>);
+const VerWordGlyph = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {DocPageBase}
+    <line x1="8.5" y1="12.5" x2="15.5" y2="12.5" /><line x1="8.5" y1="15.5" x2="15.5" y2="15.5" /><line x1="8.5" y1="18" x2="12.5" y2="18" />
+  </svg>
+);
+const VerSlidesGlyph = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {DocPageBase}
+    <line x1="9" y1="18.5" x2="9" y2="14.5" /><line x1="12" y1="18.5" x2="12" y2="12.5" /><line x1="15" y1="18.5" x2="15" y2="16" />
+  </svg>
+);
+const VerSheetGlyph = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {DocPageBase}
+    <line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="16.5" x2="16" y2="16.5" /><line x1="12" y1="11.5" x2="12" y2="18.5" />
+  </svg>
+);
+const VerPdfGlyph = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {DocPageBase}
+    <text x="11.5" y="18.4" textAnchor="middle" fontSize="6.2" fontWeight="700" fill="currentColor" stroke="none">PDF</text>
+  </svg>
+);
+// ext → [color class suffix, glyph]
+const VERSION_ICON = {
+  docx: ['doc', VerWordGlyph], doc: ['doc', VerWordGlyph],
+  pptx: ['ppt', VerSlidesGlyph], ppt: ['ppt', VerSlidesGlyph],
+  xlsx: ['xls', VerSheetGlyph], xls: ['xls', VerSheetGlyph],
+  pdf: ['pdf', VerPdfGlyph],
+};
+
+// Crosshair / re-centre glyph — the "Center video" button under Extract text.
+const CenterGlyph = (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="3.2" />
+    <path d="M12 2v3.4M12 18.6V22M2 12h3.4M18.6 12H22" />
   </svg>
 );
 
@@ -2515,7 +2835,7 @@ function writeDvLayout(patch) {
 // sideTabsForKind: Text extraction is for images + video, AI captions for
 // audio + video, and the AI advisor is available for every file type. All three
 // live in ONE tabbed side panel (the "AI advisor" panel) beside the document.
-const SIDE_TAB_LABELS = { extract: 'Text extraction', captions: 'AI captions', advisor: 'AI advisor' };
+const SIDE_TAB_LABELS = { extract: 'Extract text', captions: 'Captions', advisor: 'Generate' };
 // The Multitool always shows all three tools; each pane renders a graceful empty
 // state for a tool that doesn't apply to its file type.
 function sideTabsForKind() {
@@ -2551,6 +2871,218 @@ const AdvisorSendGlyph = (
     <path d="M22 2 15 22l-4-9-9-4z" />
   </svg>
 );
+// Stop glyph — a filled square, shown in place of send while the AI is thinking.
+const AdvisorStopGlyph = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+  </svg>
+);
+
+// Small glyphs for the per-answer Copy / Retry actions (match the main app's).
+const AdvCopyGlyph = (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>);
+const AdvCheckGlyph = (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>);
+const AdvRetryGlyph = (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8" /><path d="M3 3v5h5" /></svg>);
+const AdvSparkGlyph = (<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" /></svg>);
+const AdvBranchGlyph = (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>);
+
+// ── Chat presentation (copied from the main app's AI advisor so the Generate
+//    tab reads identically) ──────────────────────────────────────────────────
+// Typewriter — reveals an AI answer character-by-character through Markdown.
+function AdvTypewriter({ text, onDone, onTick }) {
+  const [n, setN] = useState(0);
+  const doneRef = useRef(onDone); const tickRef = useRef(onTick);
+  doneRef.current = onDone; tickRef.current = onTick;
+  useEffect(() => {
+    const total = text.length;
+    if (!total) { doneRef.current && doneRef.current(); return undefined; }
+    let raf = 0; let start = 0;
+    const dur = Math.min(Math.max(total / 90, 0.4), 6) * 1000;
+    const step = (ts) => {
+      if (!start) start = ts;
+      const p = Math.min((ts - start) / dur, 1);
+      const eased = 1 - Math.pow(1 - p, 2);
+      setN(Math.floor(eased * total));
+      tickRef.current && tickRef.current();
+      if (p < 1) raf = requestAnimationFrame(step);
+      else { setN(total); doneRef.current && doneRef.current(); }
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [text]);
+  return (
+    <div className="aichat-md aichat-typing">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text.slice(0, n)}</ReactMarkdown>
+      <span className="aichat-caret" aria-hidden="true" />
+    </div>
+  );
+}
+
+const ADV_THINKING_SETS = {
+  write: ['Drafting', 'Composing', 'Choosing the words', 'Polishing'],
+  legal: ['Reviewing', 'Checking the clauses', 'Weighing the details', 'Consulting the rules'],
+  files: ['Reading the file', 'Scanning the document', 'Gathering context', 'Looking things up'],
+  general: ['Thinking', 'Working on it', 'Reasoning', 'Putting it together'],
+};
+function advPickThinking(text) {
+  const t = (text || '').toLowerCase();
+  if (/(write|draft|compose|letter|contract|report|essay|rewrite|rephrase|generate|create|presentation|slide|spreadsheet)/.test(t)) return 'write';
+  if (/(legal|\blaw\b|clause|statute|regulation|complian|liabilit|court|\bcase\b|tax)/.test(t)) return 'legal';
+  if (/(file|document|summar|read|explain|key points)/.test(t)) return 'files';
+  return 'general';
+}
+function AdvThinkingStatus({ query }) {
+  const set = useMemo(() => ADV_THINKING_SETS[advPickThinking(query)], [query]);
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    setI(0);
+    const id = window.setInterval(() => setI((n) => (n + 1) % set.length), 2000);
+    return () => window.clearInterval(id);
+  }, [set]);
+  return (
+    <span className="aichat-thinking" role="status" aria-label="DocVex AI is working">
+      <img className="aichat-thinking-gavel" src={gavelLoader} alt="" aria-hidden="true" />
+      <span className="aichat-thinking-text" key={i}>{set[i]}</span>
+      <span className="aichat-thinking-dots" aria-hidden="true"><span /><span /><span /></span>
+    </span>
+  );
+}
+
+// Pull the structured blocks out of an assistant reply:
+//   • <docvex:document kind="…">…</docvex:document> — the FULL document, emitted
+//     only when the user asks to create/edit it.
+//   • <docvex:questions>… one per line …</docvex:questions> — clarifying
+//     questions the model needs answered first (rendered in the document pane).
+// A normal answer has neither, so we don't touch the file. Returns
+// { chat, document, kind, questions }.
+function parseAdvisorReply(text) {
+  let rest = String(text || '');
+  const linesOf = (block) => block
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+    .filter(Boolean);
+  let questions = null;
+  const qm = /<docvex:questions>([\s\S]*?)<\/docvex:questions>/i.exec(rest);
+  if (qm) {
+    questions = linesOf(qm[1]);
+    rest = `${rest.slice(0, qm.index)}${rest.slice(qm.index + qm[0].length)}`;
+    if (!questions.length) questions = null;
+  }
+  let options = null;
+  const om = /<docvex:options>([\s\S]*?)<\/docvex:options>/i.exec(rest);
+  if (om) {
+    options = linesOf(om[1]);
+    rest = `${rest.slice(0, om.index)}${rest.slice(om.index + om[0].length)}`;
+    if (!options.length) options = null;
+  }
+  let document = null;
+  let kind = null;
+  const dm = /<docvex:document(?:\s+kind="?([a-z]+)"?)?\s*>([\s\S]*?)<\/docvex:document>/i.exec(rest);
+  if (dm) {
+    kind = (dm[1] || '').toLowerCase() || null;
+    document = (dm[2] || '').trim();
+    rest = `${rest.slice(0, dm.index)}${rest.slice(dm.index + dm[0].length)}`;
+  }
+  const chat = rest.replace(/\n{3,}/g, '\n\n').trim();
+  return { chat, document, kind, questions, options };
+}
+
+// Does the user's latest message ask to create or change the document? Used to
+// decide whether a reply that carried NO document block is a protocol failure
+// we should force a retry on.
+const DOC_INTENT_RE = /\b(create|creat\w*|generat\w*|regenerat\w*|re-?generat\w*|write|writ\w*|draft|redraft\w*|make|remake|remade|build|rebuild|redo|re-?do|redoing|add|adds|adding|insert\w*|append\w*|includ\w*|change\w*|edit\w*|modif\w*|updat\w*|revis\w*|rewrit\w*|replac\w*|remov\w*|delet\w*|renam\w*|reorder\w*|expand\w*|shorten\w*|fix|fill|again|do over|do it again|try again|start over|another version|new version|version \d+|v\d+|another (?:slide|page|section|row)|new (?:slide|page|section|row)|turn (?:it|this) into)\b/i;
+function wantsDocIntent(t) { return DOC_INTENT_RE.test(String(t || '')); }
+
+// The model sometimes writes the WHOLE document as plain chat text, forgetting
+// the <docvex:document> wrapper — so no real file gets produced. Detect that
+// (a long reply that reads like a document: a shouty title, several markdown
+// headings, multiple numbered clauses, or CSV-ish rows) so we can force a
+// wrapped retry. A sentence or two of normal conversation never trips this.
+function looksLikeUnwrappedDoc(text) {
+  const t = String(text || '');
+  if (t.length < 400) return false;
+  const headings = (t.match(/^#{1,3}\s+\S/gm) || []).length;
+  const numbered = (t.match(/^\s*\d+\.\s+\S/gm) || []).length;
+  const capsTitle = /^[A-Z][A-Z0-9 ,'&.\-]{8,}$/m.test(t);
+  const csvish = (t.match(/^[^\n,]+,[^\n,]+,/gm) || []).length >= 3;
+  return headings >= 2 || numbered >= 3 || csvish || (capsTitle && t.length > 600);
+}
+
+// Did the model drift back to vanilla-assistant behaviour — refusing to make the
+// file, or dumping a plain outline / "paste into PowerPoint" instructions —
+// instead of emitting the document block? These are the exact phrasings that
+// signal a protocol break, so we force a corrective retry.
+const DRIFT_RE = /(can'?t (?:actually )?(?:create|generate|export|produce|make|build|modify|edit)|i'?m (?:unable|not able)|only (?:provide|give you|output)(?: the)? (?:text|content|outline)|paste (?:it |this |the )?(?:above |outline )?into|outline view|copy[- ]?paste|copy each|python(?:-pptx)? script|ready to (?:drop|paste) into|import (?:slides|into) (?:powerpoint|google)|i can only (?:provide|give|produce)|turn the outline)/i;
+function looksLikeDrift(t) { return DRIFT_RE.test(String(t || '')); }
+
+// In generate mode the default is: ANY message produces a new document version
+// (so an edit always becomes a clickable version, never a chat dump). We only
+// hold back the forced document for a clear PURE QUESTION — the user asking ABOUT
+// the document rather than asking to change it. An action request ("can you add
+// …", "please …") or anything with a doc-intent verb is NOT a pure question.
+const INFO_LEAD_RE = /^(what|why|how|when|who|which|where|is|are|was|were|does|do|did|can i|could i|explain|summari[sz]e|describe|define|tell me)\b/i;
+const ACTION_LEAD_RE = /^(can|could|would|will)\s+you\b|^please\b/i;
+function looksLikePureQuestion(t) {
+  const s = String(t || '').trim();
+  if (!s) return false;
+  if (wantsDocIntent(s)) return false;     // "add a clause", "make it shorter" → an edit
+  if (ACTION_LEAD_RE.test(s)) return false; // "can you also mention …" → an action request
+  return INFO_LEAD_RE.test(s) || /\?\s*$/.test(s);
+}
+
+// Collapse consecutive same-role string turns into one (keeps the API history
+// valid when, e.g., an assistant note and a "saved version" marker land back to
+// back). All generate-mode history is plain strings — the document content rides
+// in the seed turn + the live write_document tool call, never inline tags.
+function mergeStringTurns(seq) {
+  const out = [];
+  for (const m of seq) {
+    const last = out[out.length - 1];
+    if (last && last.role === m.role && typeof last.content === 'string' && typeof m.content === 'string') {
+      last.content = `${last.content}\n${m.content}`;
+    } else {
+      out.push({ role: m.role, content: m.content });
+    }
+  }
+  return out;
+}
+
+// Build the API conversation for generate-mode. The document-builder PERSONA +
+// protocol now live in the Edge function's system prompt (docTools mode), so this
+// only supplies: (1) a seed turn carrying the CURRENT on-disk document (the active
+// version) so edits are full rewrites of it, and (2) the visible thread as plain
+// strings. The model produces/updates the file through the `write_document` tool,
+// not inline tags — so there's nothing to parse and nothing to drift.
+function buildGenMessages(displayed, file, versions, activeVersion) {
+  // Seed with the version that's actually on disk right now (the user may have
+  // re-selected an earlier one), falling back to the most recent.
+  const active = versions.find((v) => v.n === activeVersion)
+    || (versions.length ? versions[versions.length - 1] : null);
+  const seq = [];
+  if (active?.text) {
+    seq.push({
+      role: 'user',
+      content:
+        `Here is the CURRENT content of the document you are building ("${file?.name || 'document'}"). ` +
+        `When I ask for a change, take THIS and save the complete updated version with write_document:\n\n` +
+        `<<<CURRENT DOCUMENT>>>\n${active.text}\n<<<END>>>`,
+    });
+    seq.push({
+      role: 'assistant',
+      content: 'Understood — I have the current document and will save a complete new version with write_document whenever you ask for a change.',
+    });
+  }
+  for (const m of displayed) {
+    if (m.role === 'user' || m.role === 'assistant') {
+      seq.push({ role: m.role, content: m.apiText || m.content });
+    } else if (m.role === 'artifact') {
+      // A past generation: record it as a brief marker. The full text of the
+      // CURRENT version is already in the seed turn above, so we don't need to
+      // replay every historical version's body.
+      seq.push({ role: 'assistant', content: `(Saved Version ${m.version}${m.instructions ? ` — ${String(m.instructions).slice(0, 200)}` : ''}.)` });
+    }
+  }
+  return mergeStringTurns(seq);
+}
 
 // Per-file AI advisor state, lifted to the Multitool card so its composer can be
 // a SINGLE footer shared across all three tabs (Text extraction / AI captions /
@@ -2561,32 +3093,451 @@ const AdvisorSendGlyph = (
 const MultitoolAdvisorContext = React.createContext(null);
 function useMultitoolAdvisor() { return useContext(MultitoolAdvisorContext); }
 
-function MultitoolAdvisorProvider({ file, footSlot = null, children }) {
-  const [messages, setMessages] = useState([]); // [{ role, content }]
+function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false, onDocWritten, onRenameFile, children }) {
+  const [messages, setMessages] = useState([]); // [{ role, content } | { role:'artifact', version, instructions }]
+  // Split-conversation branches. Splitting from a message keeps the ORIGINAL
+  // thread intact and starts a new branch; nav pills under the header switch
+  // between them. branchStoreRef holds every branch's messages; the active
+  // branch's also live in `messages` (kept in sync below).
+  const [branches, setBranches] = useState([{ id: 'main', label: 'Main' }]);
+  const [activeBranchId, setActiveBranchId] = useState('main');
+  const branchStoreRef = useRef({ main: [] });
+  const branchSeqRef = useRef(0);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  // Re-selecting / opening a saved version writes it to disk — a quick file op
+  // that should NOT show the chat's thinking bubble (it jitters the thread).
+  // The preview pane shows a spinner off this flag instead.
+  const [switching, setSwitching] = useState(false);
+  // Dev-only ask_user preview, driven from the debug tray above the tab bar.
+  const [debugAsk, setDebugAsk] = useState(null);
   const [error, setError] = useState(null);
+  // Bumped to invalidate an in-flight turn's result when the user hits Stop.
+  const turnSeqRef = useRef(0);
+  // Every generated iteration of the document — Claude-style: each shows as a
+  // version card in the thread and can be re-selected to preview it.
+  const [versions, setVersions] = useState([]); // [{ n, text, instructions }]
+  const [activeVersion, setActiveVersion] = useState(null);
+  const versionCountRef = useRef(0);
+  // Clarifying questions the model asked before it can write the document — shown
+  // as an interactive Q&A panel over the document pane (not in the chat). Each is
+  // { q, a }. Empty when nothing is pending.
+  const [questions, setQuestions] = useState([]);
+  // Discrete decision choices the model offered — shown as clickable buttons
+  // above the composer; clicking one sends it as the user's reply.
+  const [options, setOptions] = useState([]);
+  // Running input+output token total for this advisor session (shown when the
+  // "Show token usage" setting is on).
+  const { prefs: appPrefs } = useAppPrefs();
+  const [tokens, setTokens] = useState(0);
+  const addUsage = useCallback((u) => { if (u) setTokens((t) => t + (u.input_tokens || 0) + (u.output_tokens || 0)); }, []);
+  // A pending ask_user tool call in the NON-generate "ask about this file" advisor
+  // (genMode keeps its own document-clarification protocol). Null when none.
+  // { id, input, assistantContent, base } — `base` is the api messages to resume from.
+  const [pendingAsk, setPendingAsk] = useState(null);
+  // Which document engine builds the file: 'skills' (Anthropic Agent Skills —
+  // high-fidelity, = claude.ai) or 'local' (instant themed local builder).
+  // Persisted so the choice sticks across files/sessions.
+  const [engine, setEngineState] = useState(() => {
+    try { return localStorage.getItem('docvex:doc-engine') === 'local' ? 'local' : 'skills'; }
+    catch { return 'skills'; }
+  });
+  const setEngine = useCallback((e) => {
+    const v = e === 'local' ? 'local' : 'skills';
+    setEngineState(v);
+    try { localStorage.setItem('docvex:doc-engine', v); } catch { /* noop */ }
+  }, []);
+  // Which Claude model answers in chat AND builds documents. Persisted; coerced
+  // to a known id so a stale value can't break the request.
+  const [model, setModelState] = useState(() => {
+    try { return coerceModel(localStorage.getItem('docvex:ai-model') || DEFAULT_AI_MODEL); }
+    catch { return DEFAULT_AI_MODEL; }
+  });
+  const setModel = useCallback((id) => {
+    const v = coerceModel(id);
+    setModelState(v);
+    try { localStorage.setItem('docvex:ai-model', v); } catch { /* noop */ }
+  }, []);
 
-  // Reset the thread when the active file changes.
-  useEffect(() => { setMessages([]); setInput(''); setError(null); setBusy(false); }, [file?.id]);
+  // In generate-mode this file is the advisor-driven document. A freshly-created
+  // file is a "wildcard" (no extension) — we DON'T assume docx; the kind is
+  // resolved from what the user describes (inferDocKind) at generation time, and
+  // the file is renamed to carry the resulting extension. Once it has a
+  // recognised extension, that locks the kind.
+  const genMode = !!generateMode;
+
+  // Load any saved thread + versions for this file (persisted per file path), or
+  // reset to empty when the active file changes. Keyed on the tab id (NOT the
+  // path) so a generate-time rename — which changes the path but keeps the id —
+  // doesn't wipe the in-progress thread.
+  useEffect(() => {
+    setInput(''); setError(null); setBusy(false); setQuestions([]); setOptions([]);
+    const saved = file?.path ? loadConversation(file.path) : null;
+    const vers = saved?.versions || [];
+    // Restore the branch set if present; otherwise wrap the saved/empty thread in
+    // a single "Main" branch.
+    const savedBranches = Array.isArray(saved?.branches) && saved.branches.length ? saved.branches : null;
+    if (savedBranches) {
+      const store = {};
+      savedBranches.forEach((b) => { store[b.id] = b.messages || []; });
+      branchStoreRef.current = store;
+      setBranches(savedBranches.map((b) => ({ id: b.id, label: b.label, splits: b.splits || [] })));
+      const active = saved.activeBranchId && store[saved.activeBranchId] ? saved.activeBranchId : savedBranches[0].id;
+      setActiveBranchId(active);
+      setMessages(store[active] || []);
+      branchSeqRef.current = savedBranches.filter((b) => b.id !== 'main').length;
+    } else {
+      const msgs = saved?.messages || [];
+      branchStoreRef.current = { main: msgs };
+      setBranches([{ id: 'main', label: 'Main' }]);
+      setActiveBranchId('main');
+      setMessages(msgs);
+      branchSeqRef.current = 0;
+    }
+    setVersions(vers);
+    versionCountRef.current = vers.reduce((mx, v) => Math.max(mx, v.n || 0), 0);
+    // The last generated iteration is what's currently on disk.
+    setActiveVersion(vers.length ? vers[vers.length - 1].n : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file?.id]);
+
+  // Keep the active branch's messages mirrored into the store so a branch switch
+  // (or persist) always sees the latest thread.
+  useEffect(() => { branchStoreRef.current[activeBranchId] = messages; }, [messages, activeBranchId]);
+
+  // Persist the thread + versions + every branch whenever they change so
+  // reopening the file restores all split conversations.
+  useEffect(() => {
+    if (!file?.path) return;
+    const branchRecords = branches.map((b) => ({
+      id: b.id, label: b.label, splits: b.splits || [],
+      messages: b.id === activeBranchId ? messages : (branchStoreRef.current[b.id] || []),
+    }));
+    saveConversation(file.path, { messages, versions, branches: branchRecords, activeBranchId });
+  }, [file?.path, messages, versions, branches, activeBranchId]);
+
+  // Build `text` into `kind`, write it to disk, and reload the preview. If the
+  // file's current name doesn't already carry `kind`'s extension (a wildcard, or
+  // a kind change), rename it first — preserving the sidecar id — and tell the
+  // parent so the tab re-labels. Shared by a fresh generation and re-selecting a
+  // past version.
+  const writeDoc = useCallback(async (text, kindArg) => {
+    const p = String(file?.path || '');
+    const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+    const dir = cut >= 0 ? p.slice(0, cut) : '';
+    const curName = cut >= 0 ? p.slice(cut + 1) : p;
+    const kind = kindArg || docKindFromName(curName) || 'docx';
+    const targetName = withKindExtension(curName, kind);
+    // Build with the selected engine: 'skills' prefers Anthropic's Office Skills
+    // (high-fidelity, auto-falls back to the local builder if unavailable),
+    // 'local' goes straight to the themed local builder.
+    const blob = await buildDocumentBlobSmart(kind, text, { engine, model });
+    if (targetName !== curName) {
+      // Rename the wildcard/placeholder to its real extension before filling it.
+      await localFolderApi.renameFile({ dir, fromName: curName, toName: targetName });
+    }
+    const wr = await localFolderApi.writeFiles({ dir, files: [{ filename: targetName, blob }] });
+    if (wr?.error || !wr?.results?.[0]?.ok) throw new Error(wr?.error || wr?.results?.[0]?.error || 'write_failed');
+    notifyFilesChanged();
+    if (targetName !== curName) {
+      // The thread now lives under the NEW path (the save effect re-keys on
+      // file.path); drop the stale old-path entry so a future same-named new
+      // file (another "Untitled") can't inherit this conversation.
+      clearConversation(p);
+      onRenameFile?.(targetName, mimeForKind(kind));
+    }
+    onDocWritten?.();
+  }, [file?.path, onDocWritten, onRenameFile, engine, model]);
+
+  // Apply one generate-mode model result: build a new document version
+  // (write_document), pause for a clarifying question (ask_user), or just show a
+  // plain reply. Shared by runTurn and the ask_user resume so both continue into a
+  // saved version identically. `baseMsgs` is what to resume from if it asks.
+  const applyGenResult = useCallback(async (res, lastUserText, baseMsgs) => {
+    if (res.tool === 'write_document' && res.toolUse?.input) {
+      const input = res.toolUse.input;
+      // Lock to the file's real extension once it has one; else honour the kind
+      // the model chose, falling back to inference from the request + content.
+      const lockedKind = docKindFromName(file?.name || '');
+      const askedKind = ['docx', 'pptx', 'xlsx', 'pdf'].includes(input.kind) ? input.kind : null;
+      const kind = lockedKind || askedKind || inferDocKind(`${lastUserText}\n${input.content || ''}`);
+      const note = (res.text && res.text.trim())
+        || (input.summary && String(input.summary).trim())
+        || (versionCountRef.current ? 'Here’s an updated version.' : 'Here’s your document.');
+      setMessages((m) => [...m, { role: 'assistant', content: note, at: Date.now() }]);
+      try {
+        await writeDoc(String(input.content || ''), kind);
+        const n = versionCountRef.current + 1;
+        versionCountRef.current = n;
+        setVersions((v) => [...v, { n, text: String(input.content || ''), instructions: lastUserText, kind }]);
+        setActiveVersion(n);
+        setMessages((m) => [...m, { role: 'artifact', version: n, instructions: lastUserText, at: Date.now() }]);
+      } catch (e) {
+        setError('Couldn’t save the document.');
+      }
+      return;
+    }
+    if (res.tool === 'ask_user' && res.askUser) {
+      setMessages((m) => [...m, { role: 'assistant', content: res.text || 'A couple of quick questions first.', at: Date.now() }]);
+      setPendingAsk({ id: res.askUser.id, input: res.askUser.input, assistantContent: res.assistantContent, base: baseMsgs, gen: true });
+      return;
+    }
+    // A pure conversational answer (a question that doesn't change the document).
+    setMessages((m) => [...m, { role: 'assistant', content: res.text || '', at: Date.now() }]);
+  }, [file, writeDoc]);
+
+  // One assistant turn. In generate-mode the model drives the file through the
+  // `write_document` tool: every create/change request saves a NEW version, and
+  // the user can iterate without limit. We pin tool_choice to write_document when
+  // the request clearly wants a document, so it can never refuse or drift to prose.
+  // `convo` is the visible thread up to and including the latest user message.
+  const runTurn = useCallback(async (convo, lastUserText) => {
+    const seq = ++turnSeqRef.current;
+    const stopped = () => turnSeqRef.current !== seq;
+    if (genMode) {
+      const baseMsgs = buildGenMessages(convo, file, versions, activeVersion);
+      const k = docKindFromName(file?.name || '') || '';
+      // Three-way decision:
+      //  - clear doc intent ("add a clause", "make it shorter", "redo") → FORCE a
+      //    new version so an edit always lands as a clickable version.
+      //  - anything else (a pure question, a greeting, small talk, an ambiguous
+      //    ask) → tool_choice stays auto, so the model can answer in text OR call
+      //    ask_user to confirm whether it should generate. We never force a
+      //    document the user didn't clearly ask for.
+      const clearDocIntent = wantsDocIntent(lastUserText);
+      let res = await askProjectAi({ messages: baseMsgs, fileNames: [], model, docTools: true, forceDocument: clearDocIntent, docKind: k || undefined });
+      if (res.error) {
+        setError(res.error.message === 'ai_not_configured' ? 'The AI isn’t configured to generate documents.' : 'Couldn’t reach the AI right now.');
+        return;
+      }
+      addUsage(res.usage);
+      // Guaranteed-document fallback: a clear doc-intent request that came back as
+      // plain text (no tool) → retry once with tool_choice PINNED to
+      // write_document, so the edit becomes a real version instead of a chat reply.
+      if (res.tool !== 'write_document' && res.tool !== 'ask_user' && clearDocIntent) {
+        const retry = await askProjectAi({ messages: baseMsgs, fileNames: [], model, docTools: true, forceDocument: true, docKind: k || undefined });
+        addUsage(retry.usage);
+        if (!retry.error && retry.tool === 'write_document') res = retry;
+      }
+      if (stopped()) return;
+      await applyGenResult(res, lastUserText, baseMsgs);
+      return;
+    }
+    // Non-generate "ask about this file" mode — prepend a Claude-like persona so
+    // it's warm, direct and doesn't pile on disclaimers/refusals.
+    const persona = 'You are DocVex AI — behave like Claude on the web: a capable, friendly, direct assistant. Just help with what is asked. Do not add unnecessary disclaimers, hedges, or "consult a professional" boilerplate, and do not refuse reasonable requests.';
+    const apiMsgs = [
+      { role: 'user', content: persona },
+      { role: 'assistant', content: 'Understood — I’ll be direct and genuinely helpful.' },
+      ...convo.filter((m) => m.role === 'user' || m.role === 'assistant').map((m) => ({ role: m.role, content: m.apiText || m.content })),
+    ];
+    const res = await askProjectAi({ messages: apiMsgs, fileNames: [file?.name], model });
+    if (stopped()) return;
+    if (res.error) { setError('The AI advisor is unavailable right now.'); return; }
+    addUsage(res.usage);
+    // The model asked an interactive question via the ask_user tool — surface it
+    // above the composer and pause until the user answers.
+    if (res.stopReason === 'tool_use' && res.askUser) {
+      setMessages((m) => [...m, { role: 'assistant', content: res.text || 'I have a quick question.', at: Date.now() }]);
+      setPendingAsk({ id: res.askUser.id, input: res.askUser.input, assistantContent: res.assistantContent, base: apiMsgs });
+      return;
+    }
+    setMessages((m) => [...m, { role: 'assistant', content: res.text, at: Date.now() }]);
+  }, [genMode, file, versions, activeVersion, model, addUsage, applyGenResult]);
+
+  // Stop the in-flight turn: invalidate its result (so nothing lands in the
+  // thread when the request returns) and drop the thinking state immediately.
+  const stop = useCallback(() => {
+    turnSeqRef.current += 1;
+    setBusy(false);
+  }, []);
+
+  // Resolve a pending ask_user question. The non-generate advisor just continues
+  // the conversation; in generate mode (pa.gen) the answers feed straight into a
+  // document — we resume with docTools + forceDocument so the next step is a saved
+  // version, not more chat.
+  const resolveAsk = useCallback(async (opts = {}) => {
+    if (!pendingAsk || busy) return;
+    const questions = pendingAsk.input?.questions || [];
+    const answers = opts.dismissed
+      ? makeAskAnswers([], {}, { dismissed: true })
+      : opts.typedText != null
+        ? { answers: questions.map((qq) => ({ question_id: qq.id, response_type: 'free_text', text: opts.typedText })) }
+        : makeAskAnswers(questions, opts.perQuestion || {});
+    setMessages((m) => [...m, { role: 'user', content: opts.dismissed ? 'Skipped.' : (opts.typedText || 'Answered.'), at: Date.now() }]);
+    const pa = pendingAsk;
+    setPendingAsk(null);
+    setBusy(true); setError(null);
+    const apiMsgs = [
+      ...pa.base,
+      { role: 'assistant', content: pa.assistantContent || [{ type: 'tool_use', id: pa.id, name: 'ask_user', input: pa.input }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: pa.id, content: JSON.stringify(answers) }] },
+    ];
+    if (pa.gen) {
+      // Generate mode: continue into a document. Don't force on a dismissal (the
+      // user opted out of giving detail — let the model proceed however it sees fit).
+      const k = docKindFromName(file?.name || '') || '';
+      const res = await askProjectAi({ messages: apiMsgs, fileNames: [], model, docTools: true, forceDocument: !opts.dismissed, docKind: k || undefined });
+      setBusy(false);
+      if (res.error) { setError('Couldn’t reach the AI right now.'); return; }
+      addUsage(res.usage);
+      await applyGenResult(res, opts.typedText || pa.input?.questions?.[0]?.prompt || 'the answers above', apiMsgs);
+      return;
+    }
+    const res = await askProjectAi({ messages: apiMsgs, fileNames: [file?.name], model });
+    setBusy(false);
+    if (res.error) { setError('The AI advisor is unavailable right now.'); return; }
+    addUsage(res.usage);
+    if (res.stopReason === 'tool_use' && res.askUser) {
+      setMessages((m) => [...m, { role: 'assistant', content: res.text || 'I have a quick question.', at: Date.now() }]);
+      setPendingAsk({ id: res.askUser.id, input: res.askUser.input, assistantContent: res.assistantContent, base: apiMsgs });
+      return;
+    }
+    setMessages((m) => [...m, { role: 'assistant', content: res.text, at: Date.now() }]);
+  }, [pendingAsk, busy, file, model, addUsage, applyGenResult]);
 
   const send = useCallback(async () => {
     const q = input.trim();
     if (!q || busy) return;
-    const next = [...messages, { role: 'user', content: q }];
+    // While a question is pending, a typed message answers it (free-text).
+    if (pendingAsk) { setInput(''); resolveAsk({ typedText: q }); return; }
+    const next = [...messages, { role: 'user', content: q, at: Date.now() }];
     setMessages(next);
     setInput('');
     setBusy(true);
     setError(null);
-    const res = await askProjectAi({ messages: next, fileNames: [file?.name] });
+    setOptions([]);
+    await runTurn(next, q);
     setBusy(false);
-    if (res.error) { setError('The AI advisor is unavailable right now.'); return; }
-    setMessages((m) => [...m, { role: 'assistant', content: res.text }]);
-  }, [input, busy, messages, file?.name]);
+  }, [input, busy, messages, runTurn, pendingAsk, resolveAsk]);
+
+  // Click a decision button: send that choice as the user's reply.
+  const chooseOption = useCallback(async (optionText) => {
+    if (busy || !optionText) return;
+    setOptions([]);
+    const next = [...messages, { role: 'user', content: optionText, at: Date.now() }];
+    setMessages(next);
+    setBusy(true); setError(null);
+    await runTurn(next, optionText);
+    setBusy(false);
+  }, [busy, messages, runTurn]);
+
+  // Retry an assistant answer: drop it (and anything after) and re-run the turn
+  // from the conversation up to that point — matches the main app's Retry.
+  const regenerate = useCallback(async (index) => {
+    if (busy) return;
+    const convo = messages.slice(0, index);
+    const lastUser = [...convo].reverse().find((m) => m.role === 'user');
+    setMessages(convo);
+    setBusy(true); setError(null);
+    await runTurn(convo, lastUser?.content || '');
+    setBusy(false);
+  }, [busy, messages, runTurn]);
+
+  // Branch a new conversation from a given message: keep the history up to (and
+  // including) that message and drop everything after, so the thread continues
+  // in a new direction from that point. Clears any pending question/options.
+  const branchFrom = useCallback((index) => {
+    if (busy) return;
+    setOptions([]);
+    setPendingAsk(null);
+    // Snapshot the current (original) branch so it stays navigable via its pill,
+    // then start a NEW branch with the thread sliced up to `index`.
+    branchStoreRef.current[activeBranchId] = messages;
+    const sliced = messages.slice(0, index + 1);
+    const n = (branchSeqRef.current += 1);
+    const newId = `b${n}`;
+    const label = `Split ${n}`;
+    branchStoreRef.current[newId] = sliced;
+    setBranches((bs) => [
+      // Record the split on the PARENT branch so a marker shows at that point.
+      ...bs.map((b) => (b.id === activeBranchId
+        ? { ...b, splits: [...(b.splits || []), { afterIndex: index, branchId: newId, label }] }
+        : b)),
+      { id: newId, label },
+    ]);
+    setActiveBranchId(newId);
+    setMessages(sliced);
+  }, [busy, messages, activeBranchId]);
+
+  // Switch the visible thread to another branch (nav pills). Saves the current
+  // branch first so nothing is lost.
+  const switchBranch = useCallback((id) => {
+    if (busy || id === activeBranchId) return;
+    branchStoreRef.current[activeBranchId] = messages;
+    setOptions([]);
+    setPendingAsk(null);
+    setActiveBranchId(id);
+    setMessages(branchStoreRef.current[id] || []);
+  }, [busy, activeBranchId, messages]);
+
+  // Re-select a past iteration: rewrite the file to that version's text + kind
+  // (which may re-extension the file) and reload.
+  const selectVersion = useCallback(async (n) => {
+    if (busy || switching) return;
+    const v = versions.find((x) => x.n === n);
+    if (!v) return;
+    setSwitching(true); setError(null);
+    try { await writeDoc(v.text, v.kind || docKindFromName(file?.name || '')); setActiveVersion(n); }
+    catch (e) { setError('Couldn’t load that version.'); }
+    setSwitching(false);
+  }, [busy, switching, versions, writeDoc, file?.name]);
+
+  // Make a version the on-disk file, then open it in its designated OS app
+  // (Word / PowerPoint / Excel / the default PDF viewer).
+  const openVersion = useCallback(async (n) => {
+    if (busy || switching) return;
+    const v = versions.find((x) => x.n === n);
+    if (!v) return;
+    setSwitching(true); setError(null);
+    try {
+      const kind = v.kind || docKindFromName(file?.name || '') || 'docx';
+      await writeDoc(v.text, kind);
+      setActiveVersion(n);
+      // Resolve the on-disk path (writeDoc may have renamed to the real extension).
+      const p = String(file?.path || '');
+      const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+      const dir = cut >= 0 ? p.slice(0, cut) : '';
+      const curName = cut >= 0 ? p.slice(cut + 1) : p;
+      const targetName = withKindExtension(curName, kind);
+      const sep = p.includes('\\') ? '\\' : '/';
+      await localFolderApi.openPath(dir ? `${dir}${sep}${targetName}` : targetName);
+    } catch (e) { setError('Couldn’t open that version.'); }
+    setSwitching(false);
+  }, [busy, switching, versions, writeDoc, file?.path, file?.name]);
+
+  // Answer the pending clarifying questions: clear the panel, record the Q&A as a
+  // turn (compact bubble; full detail goes to the model), and continue.
+  const submitQuestions = useCallback(async (answered) => {
+    if (busy) return;
+    const rows = (answered || []).filter((x) => x?.q);
+    setQuestions([]);
+    const detail = rows.map((x) => `- ${x.q}\n  ${x.a?.trim() ? x.a.trim() : '(no preference — use your best judgement)'}`).join('\n');
+    const summary = `Here are my answers:\n${detail}\n\nGo ahead and create the document.`;
+    const answeredCount = rows.filter((x) => x.a?.trim()).length;
+    const userMsg = { role: 'user', content: `Answered ${answeredCount}/${rows.length} question${rows.length === 1 ? '' : 's'}.`, apiText: summary, at: Date.now() };
+    const next = [...messages, userMsg];
+    setMessages(next);
+    setBusy(true); setError(null);
+    await runTurn(next, summary);
+    setBusy(false);
+  }, [busy, messages, runTurn]);
+
+  // Dismiss the questions and let the model proceed with sensible defaults.
+  const skipQuestions = useCallback(async () => {
+    if (busy) return;
+    setQuestions([]);
+    const summary = 'Go ahead with sensible defaults — no extra details to add.';
+    const next = [...messages, { role: 'user', content: 'Use sensible defaults.', apiText: summary, at: Date.now() }];
+    setMessages(next);
+    setBusy(true); setError(null);
+    await runTurn(next, summary);
+    setBusy(false);
+  }, [busy, messages, runTurn]);
 
   const value = useMemo(
-    () => ({ messages, input, setInput, busy, error, setError, send, fileName: file?.name, footSlot }),
-    [messages, input, busy, error, send, file?.name, footSlot],
+    () => ({ messages, input, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk }),
+    [messages, input, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk],
   );
   return <MultitoolAdvisorContext.Provider value={value}>{children}</MultitoolAdvisorContext.Provider>;
 }
@@ -2600,23 +3551,220 @@ function MultitoolFooter({ children }) {
   return createPortal(children, adv.footSlot);
 }
 
+// Model picker — a compact popover in the composer toolbar. Lets the user pick
+// which Claude model answers in chat AND builds documents, with a one-line
+// "best for" note per model so the choice is informed. Applies to every tab.
+function ModelPicker() {
+  const adv = useMultitoolAdvisor();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+  if (!adv?.setModel) return null;
+  const current = AI_MODELS.find((m) => m.id === adv.model) || AI_MODELS[0];
+  return (
+    <div className="dv-model-picker" ref={ref}>
+      <button
+        type="button"
+        className="dv-model-trigger"
+        onClick={() => setOpen((o) => !o)}
+        disabled={adv.busy}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title="Choose the AI model"
+      >
+        <span className="dv-model-trigger-dot" aria-hidden="true" />
+        <span className="dv-model-trigger-label">{current.label}</span>
+        <svg className="dv-model-trigger-chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+      </button>
+      {open && (
+        <div className="dv-model-menu" role="listbox" aria-label="AI model">
+          <div className="dv-model-menu-head">Model</div>
+          {AI_MODELS.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              role="option"
+              aria-selected={m.id === adv.model}
+              className={`dv-model-opt${m.id === adv.model ? ' is-active' : ''}`}
+              onClick={() => { adv.setModel(m.id); setOpen(false); }}
+            >
+              <span className="dv-model-opt-top">
+                <span className="dv-model-opt-name">{m.label}</span>
+                <span className="dv-model-opt-tag">{m.tagline}</span>
+                {m.id === adv.model && (
+                  <svg className="dv-model-opt-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true"><path d="M5 13l4 4L19 7" /></svg>
+                )}
+              </span>
+              <span className="dv-model-opt-best">{m.best}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Shared Multitool footer — the advisor composer, rendered once at the card
 // level so it's the SAME footer under every tab. Drives the lifted advisor
 // state; the reply shows in the AI-advisor tab's thread.
+// Dev-only sample ask_user payloads — preview how each response_type renders in
+// the shared AskUserPanel (the same UI the model drives via the ask_user tool),
+// without waiting for the model to actually call it.
+const DEBUG_ASKS = {
+  choice: [{
+    id: 'fmt', prompt: 'Which format should the summary take?', response_type: 'single_select',
+    options: [
+      { id: 'bullets', label: 'Bullet points', description: 'Short, scannable lines' },
+      { id: 'prose', label: 'Narrative', description: 'Flowing paragraphs' },
+      { id: 'table', label: 'Comparison table' },
+    ],
+  }],
+  multi: [{
+    id: 'secs', prompt: 'Which sections should I include?', response_type: 'multi_select',
+    options: [
+      { id: 'intro', label: 'Introduction' },
+      { id: 'risk', label: 'Risk analysis', description: 'Flags + likelihood' },
+      { id: 'timeline', label: 'Timeline' },
+      { id: 'budget', label: 'Budget' },
+    ],
+  }],
+  confirm: [{
+    id: 'ovr', prompt: 'This replaces the current version. Proceed?', response_type: 'confirm',
+    options: [{ id: 'yes', label: 'Overwrite' }, { id: 'no', label: 'Keep current' }],
+  }],
+  prompt: [{ id: 'title', prompt: 'What should the document be titled?', response_type: 'free_text' }],
+  multiQ: [
+    { id: 'tone', prompt: 'What tone should it strike?', response_type: 'single_select', options: [{ id: 'formal', label: 'Formal' }, { id: 'plain', label: 'Plain English' }] },
+    { id: 'len', prompt: 'Roughly how long?', response_type: 'free_text' },
+  ],
+};
+
+// Dev-only ask_user preview tray — rendered as its own section ABOVE the side
+// panel's tab bar (Extract text / Captions / Generate). Drives the shared
+// `debugAsk` state in context; the preview panel itself renders in the composer.
+function MultitoolDebugTray() {
+  const adv = useMultitoolAdvisor();
+  if (!import.meta.env.DEV || !adv) return null;
+  const { debugAsk, setDebugAsk } = adv;
+  return (
+    <div className="dv-ask-debug-section">
+      <div className="dv-ask-debug" role="group" aria-label="Preview ask_user rendering">
+        <span className="dv-ask-debug-label">ask_user preview</span>
+        <button type="button" onClick={() => setDebugAsk(DEBUG_ASKS.choice)}>Choice</button>
+        <button type="button" onClick={() => setDebugAsk(DEBUG_ASKS.multi)}>Multi-select</button>
+        <button type="button" onClick={() => setDebugAsk(DEBUG_ASKS.confirm)}>Confirm</button>
+        <button type="button" onClick={() => setDebugAsk(DEBUG_ASKS.prompt)}>Prompt</button>
+        <button type="button" onClick={() => setDebugAsk(DEBUG_ASKS.multiQ)}>2 questions</button>
+        {debugAsk && <button type="button" className="dv-ask-debug-clear" onClick={() => setDebugAsk(null)}>Clear</button>}
+      </div>
+    </div>
+  );
+}
+
 function MultitoolComposer() {
   const adv = useMultitoolAdvisor();
+  const [askSlot, setAskSlot] = useState(null);
+  // Keep the panel mounted briefly after it's dismissed so the exit animation
+  // (collapse + fade) can play before it unmounts.
+  const advQuestions = adv?.questions || [];
+  const wantPanels = !!(adv && (adv.debugAsk || adv.pendingAsk
+    || (adv.genMode && advQuestions.length > 0) || (adv.options?.length > 0)));
+  const [panelMounted, setPanelMounted] = useState(wantPanels);
+  const [panelExiting, setPanelExiting] = useState(false);
+  const lastPanelsRef = useRef(null);
+  useEffect(() => {
+    if (wantPanels) { setPanelMounted(true); setPanelExiting(false); return undefined; }
+    if (!panelMounted) return undefined;
+    setPanelExiting(true);
+    const t = window.setTimeout(() => { setPanelMounted(false); setPanelExiting(false); }, 480);
+    return () => window.clearTimeout(t);
+  }, [wantPanels, panelMounted]);
   if (!adv) return null;
-  const { input, setInput, busy, send } = adv;
+  const {
+    input, setInput, busy, send, stop, genMode, options = [], chooseOption, engine = 'skills', setEngine,
+    questions = [], submitQuestions, skipQuestions, pendingAsk, resolveAsk, debugAsk, setDebugAsk,
+  } = adv;
+  // genMode clarifying questions, shaped for the shared AskUserPanel (free-text).
+  const genQuestions = questions.map((p, i) => ({ id: String(i), prompt: p.q, response_type: 'free_text' }));
+  // While an ask_user is active (or exiting) the composer becomes its answer
+  // surface: the model picker / token pill / engine toggle hide and the send
+  // button is replaced by the panel's Submit/Skip (portalled via askSlot).
+  const activeAskQs = debugAsk || pendingAsk?.input?.questions || (genMode && genQuestions.length ? genQuestions : null);
+  const asking = panelMounted;
+  // The live panels content (captured so the exit animation can keep showing it
+  // after the underlying ask state clears).
+  const panelsInner = wantPanels ? (
+    <>
+            {debugAsk && (
+              <AskUserPanel
+                questions={debugAsk}
+                actionsSlot={askSlot}
+                onSubmit={(perQuestion) => { try { console.log('[ask_user preview] answers:', perQuestion); } catch { /* noop */ } setDebugAsk(null); }}
+                onDismiss={() => setDebugAsk(null)}
+              />
+            )}
+            {/* Interactive ask_user panel (non-generate advisor). */}
+            {pendingAsk && (
+              <AskUserPanel
+                questions={pendingAsk.input?.questions || []}
+                actionsSlot={askSlot}
+                onSubmit={(perQuestion) => resolveAsk?.({ perQuestion })}
+                onDismiss={() => resolveAsk?.({ dismissed: true })}
+              />
+            )}
+            {/* generate-mode clarifying questions. */}
+            {genMode && genQuestions.length > 0 && (
+              <AskUserPanel
+                questions={genQuestions}
+                actionsSlot={askSlot}
+                onSubmit={(perQuestion) => submitQuestions?.(questions.map((p, i) => ({ q: p.q, a: perQuestion[String(i)] || '' })))}
+                onDismiss={() => skipQuestions?.()}
+              />
+            )}
+            {/* Decision buttons offered by the AI — clicking one sends it as the reply. */}
+            {options.length > 0 && (
+              <div className="dv-advisor-options" role="group" aria-label="Choose an option">
+                {options.map((opt, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="dv-advisor-option"
+                    onClick={() => chooseOption?.(opt)}
+                    disabled={busy}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            )}
+    </>
+  ) : null;
+  if (panelsInner) lastPanelsRef.current = panelsInner;
+
   return (
     <div className="dv-advisor-compose">
-      {/* Mirrors the main app's AI-tab composer (.dvx-composer): a frosted
-          rounded surface, textarea on top, a round accent send button below. */}
+      {/* ask_user / clarifying questions / decision options — their OWN section
+          above the composer, kept mounted through the exit animation. */}
+      {panelMounted && (
+        <div className={`dv-advisor-inpanels${panelExiting ? ' is-exiting' : ''}`}>
+          {wantPanels ? panelsInner : lastPanelsRef.current}
+        </div>
+      )}
+      {/* Frosted composer card (.dvx-composer style): textarea + send button. */}
       <div
         className="dv-advisor-composer"
         onMouseMove={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
-          e.currentTarget.style.setProperty('--spot-x', `${e.clientX - r.left}px`);
-          e.currentTarget.style.setProperty('--spot-y', `${e.clientY - r.top}px`);
+          // Layout-space vars (see the advisor-card handler) — divide by zoom.
+          e.currentTarget.style.setProperty('--spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
+          e.currentTarget.style.setProperty('--spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
         }}
       >
         <textarea
@@ -2624,25 +3772,226 @@ function MultitoolComposer() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder="Ask about this file…"
+          placeholder={genMode ? 'Message DocVex AI…' : 'Ask about this file…'}
           rows={1}
         />
         <div className="dv-advisor-composer-toolbar">
+          {/* The model picker / token pill / engine toggle are hidden while an
+              ask_user is active (the composer is the answer surface then). */}
+          {!asking && (
+            <>
+              {/* Model picker — applies to chat answers AND document generation. */}
+              <ModelPicker />
+              {adv.showTokenUsage && <TokenUsagePill tokens={adv.tokens || 0} />}
+              {/* Engine toggle (generate mode only): pick which builder makes the
+                  file. "Designer" = Anthropic Agent Skills (high-fidelity, = claude.ai,
+                  slower); "Instant" = themed local builder (offline, immediate). */}
+              {genMode && setEngine && (
+                <div
+                  className="dv-engine-toggle"
+                  role="radiogroup"
+                  aria-label="Document engine"
+                  title="Designer: high-fidelity styling via Claude (slower). Instant: themed local builder (immediate)."
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={engine === 'skills'}
+                    className={`dv-engine-opt${engine === 'skills' ? ' is-active' : ''}`}
+                    onClick={() => setEngine('skills')}
+                    disabled={busy}
+                  >
+                    Designer
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={engine === 'local'}
+                    className={`dv-engine-opt${engine === 'local' ? ' is-active' : ''}`}
+                    onClick={() => setEngine('local')}
+                    disabled={busy}
+                  >
+                    Instant
+                  </button>
+                </div>
+              )}
+            </>
+          )}
           <div className="dv-advisor-composer-spacer" />
+          {asking ? (
+            // The active ask panel portals its Submit/Skip into this slot.
+            <div className="dv-advisor-ask-actions" ref={setAskSlot} />
+          ) : busy ? (
+            // While the AI is thinking, the send button becomes a Stop button.
+            <button
+              type="button"
+              className="dv-advisor-composer-stop"
+              onClick={() => stop?.()}
+              aria-label="Stop"
+              title="Stop"
+            >
+              {AdvisorStopGlyph}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="dv-advisor-composer-send"
+              onClick={send}
+              disabled={!input.trim()}
+              aria-label="Send"
+            >
+              {AdvisorSendGlyph}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Claude-artifacts-style version card — one per generated iteration. Clicking
+// it rewrites the file to that version and refreshes the preview on the right.
+const OpenInAppGlyph = (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14 4h6v6" /><path d="M20 4l-9 9" />
+    <path d="M19 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
+  </svg>
+);
+
+// Software a given extension opens in, for the right-click "Open in …" label.
+const SOFTWARE_FOR_EXT = { docx: 'Word', doc: 'Word', pptx: 'PowerPoint', ppt: 'PowerPoint', xlsx: 'Excel', xls: 'Excel', pdf: 'PDF viewer' };
+
+function DocVersionCard({ fileName, version, instructions, active, onSelect, onOpenInApp, disabled }) {
+  const ext = ((/\.([a-z0-9]+)$/i.exec(fileName || '') || [])[1] || '').toLowerCase();
+  const format = ext ? ext.toUpperCase() : 'FILE';
+  const software = SOFTWARE_FOR_EXT[ext] || 'default app';
+  const [iconKind, iconGlyph] = VERSION_ICON[ext] || ['', DocCardGlyph];
+  const [menu, setMenu] = useState(null); // { x, y } | null while right-click menu is open
+
+  useEffect(() => {
+    if (!menu) return undefined;
+    const close = () => setMenu(null);
+    const onKey = (e) => { if (e.key === 'Escape') setMenu(null); };
+    window.addEventListener('mousedown', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menu]);
+
+  return (
+    <>
+      <Tooltip content={instructions || (active ? 'Showing this version' : 'Preview this version')}>
+        <button
+          type="button"
+          className={`dv-doc-version${active ? ' is-active' : ''}`}
+          onClick={onSelect}
+          onContextMenu={(e) => { e.preventDefault(); setMenu({ x: toLayoutPx(e.clientX), y: toLayoutPx(e.clientY) }); }}
+          disabled={disabled}
+        >
+          <span className={`dv-doc-version-icon${iconKind ? ` is-${iconKind}` : ''}`}>{iconGlyph}</span>
+          <span className="dv-doc-version-body">
+            <span className="dv-doc-version-name">Version {version}</span>
+            <span className="dv-doc-version-format">{format}</span>
+            <span className="dv-doc-version-hint">
+              {active ? 'Current final version' : 'Click to set as the final version'}
+            </span>
+          </span>
+          {active && <span className="dv-doc-version-dot" aria-hidden="true" />}
+        </button>
+      </Tooltip>
+      {menu && createPortal(
+        <div
+          className="dv-ver-menu"
+          role="menu"
+          style={{ left: `${menu.x}px`, top: `${menu.y}px` }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           <button
             type="button"
-            className="dv-advisor-composer-send"
-            onClick={send}
-            disabled={busy || !input.trim()}
-            aria-label="Send"
+            className="dv-ver-menu-item"
+            role="menuitem"
+            onClick={() => { setMenu(null); onOpenInApp?.(); }}
+            disabled={disabled}
           >
-            {AdvisorSendGlyph}
+            {OpenInAppGlyph}
+            <span>Open in {software}</span>
+          </button>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+// Clarifying-questions panel — when the advisor needs more detail before writing
+// the document, the questions surface HERE (over the document pane, where the
+// file will render) as an interactive Q&A form, styled like a Claude artifact.
+// Answers feed back into the conversation; the model then drafts the document.
+function DocQuestionsPanel() {
+  const adv = useMultitoolAdvisor();
+  const pending = adv?.questions || [];
+  const busy = adv?.busy || false;
+  const [answers, setAnswers] = useState([]);
+  // Re-seed local answers whenever a fresh set of questions arrives.
+  useEffect(() => { setAnswers((adv?.questions || []).map((p) => p.a || '')); }, [adv?.questions]);
+
+  if (!adv?.genMode || !pending.length) return null;
+
+  const setA = (i, v) => setAnswers((a) => a.map((x, k) => (k === i ? v : x)));
+  const submit = () => {
+    if (busy) return;
+    adv.submitQuestions(pending.map((p, i) => ({ q: p.q, a: answers[i] || '' })));
+  };
+
+  return (
+    <div className="dv-doc-qa-overlay">
+      <div className="dv-doc-qa" role="form" aria-label="Questions about this document">
+        <header className="dv-doc-qa-head">
+          <span className="dv-doc-qa-eyebrow">{AdvSparkGlyph}<span>A few details</span></span>
+          <h2 className="dv-doc-qa-title">Answer these and I’ll draft it</h2>
+          <p className="dv-doc-qa-sub">Leave anything blank to let the AI decide.</p>
+        </header>
+        <div className="dv-doc-qa-list">
+          {pending.map((p, i) => (
+            <label className="dv-doc-qa-item" key={i}>
+              <span className="dv-doc-qa-num">{i + 1}</span>
+              <span className="dv-doc-qa-body">
+                <span className="dv-doc-qa-q">{p.q}</span>
+                <textarea
+                  className="dv-doc-qa-input"
+                  rows={1}
+                  value={answers[i] || ''}
+                  onChange={(e) => { setA(i, e.target.value); e.target.style.height = 'auto'; e.target.style.height = `${e.target.scrollHeight}px`; }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } }}
+                  placeholder="Your answer…"
+                  disabled={busy}
+                />
+              </span>
+            </label>
+          ))}
+        </div>
+        <div className="dv-doc-qa-actions">
+          <button type="button" className="dv-doc-qa-skip" onClick={() => adv.skipQuestions?.()} disabled={busy}>Skip</button>
+          <button type="button" className="dv-doc-qa-submit" onClick={submit} disabled={busy}>
+            {busy ? 'Working…' : 'Continue'}
           </button>
         </div>
       </div>
     </div>
   );
 }
+
+// Scroll position remembered per file path ACROSS AdvisorPanel remounts.
+// Selecting a version writes the doc → bumps regenTick → remounts DocPane (and
+// this panel), which would otherwise reset the scroll and jump to the bottom.
+// Persisting here lets the panel restore exactly where the user was.
+const advisorScrollPos = new Map(); // filePath -> { top, atBottom }
 
 // Per-file AI advisor thread — the AI-advisor tab's content. The composer now
 // lives in the shared Multitool footer (MultitoolComposer); this just renders
@@ -2651,37 +4000,274 @@ function AdvisorPanel({ file }) {
   const adv = useMultitoolAdvisor();
   const messages = adv?.messages || [];
   const busy = adv?.busy || false;
+  const switching = adv?.switching || false;
   const error = adv?.error || null;
+  const genMode = adv?.genMode || false;
+  const branches = adv?.branches || [];
+  const activeBranchId = adv?.activeBranchId;
+  const activeSplits = branches.find((b) => b.id === activeBranchId)?.splits || [];
+  // The model is waiting on an interactive answer — blur the thread behind the
+  // ask_user panel so focus lands on the question.
+  const asking = !!adv?.pendingAsk || (genMode && (adv?.questions?.length > 0));
   const scrollRef = useRef(null);
-
-  // Keep the newest turn in view.
+  // Seed stick-to-bottom from the remembered state for this file so a remount
+  // (e.g. from selecting a version) doesn't reset it to "stuck" and jump down.
+  const stickRef = useRef(advisorScrollPos.get(file?.path)?.atBottom ?? true);
+  // Custom scrollbar — the native one is hidden; this thumb is rendered in the
+  // gutter to the right of the chat section and synced to the scroll metrics.
+  const sbTrackRef = useRef(null);
+  const sbThumbRef = useRef(null);
+  const syncScrollbar = useCallback(() => {
+    const el = scrollRef.current, track = sbTrackRef.current, thumb = sbThumbRef.current;
+    if (!el || !track || !thumb) return;
+    const { scrollHeight, clientHeight, scrollTop } = el;
+    const trackH = track.clientHeight;
+    if (scrollHeight <= clientHeight + 1 || trackH <= 0) { track.style.opacity = '0'; return; }
+    track.style.opacity = '';
+    const thumbH = Math.max(28, (clientHeight / scrollHeight) * trackH);
+    const maxTop = trackH - thumbH;
+    const top = maxTop * (scrollTop / (scrollHeight - clientHeight));
+    thumb.style.height = `${thumbH}px`;
+    thumb.style.transform = `translateY(${top}px)`;
+  }, []);
+  // Keep the thumb in sync as the thread grows (content reflow / typewriter) or
+  // the pane resizes — observe both the viewport and the growing chat content.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, busy]);
+    if (!el) return undefined;
+    syncScrollbar();
+    const ro = new ResizeObserver(syncScrollbar);
+    ro.observe(el);
+    const content = el.querySelector('.dv-advisor-chat');
+    if (content) ro.observe(content);
+    return () => ro.disconnect();
+  }, [syncScrollbar, messages.length, busy]);
+  const onThumbDown = useCallback((e) => {
+    e.preventDefault();
+    const el = scrollRef.current, track = sbTrackRef.current, thumb = sbThumbRef.current;
+    if (!el || !track || !thumb) return;
+    const startY = e.clientY;
+    const startScroll = el.scrollTop;
+    const maxTop = track.clientHeight - thumb.clientHeight;
+    const scrollable = el.scrollHeight - el.clientHeight;
+    document.body.classList.add('dv-advisor-sb-dragging');
+    const onMove = (ev) => {
+      if (maxTop <= 0) return;
+      el.scrollTop = startScroll + (toLayoutPx(ev.clientY - startY) / maxTop) * scrollable;
+    };
+    const onUp = () => {
+      document.body.classList.remove('dv-advisor-sb-dragging');
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+  // The full masthead scrolls with the thread; a compact header fades in once it
+  // scrolls out of view (mirrors the Versions page compact-header-on-scroll).
+  const [scrolled, setScrolled] = useState(false);
+  const prevLenRef = useRef(messages.length);
+  const [typing, setTyping] = useState(null);   // index of the AI msg being revealed
+  const [copiedIdx, setCopiedIdx] = useState(null);
+
+  // The "Split from here" pill is rendered OUTSIDE the scroll (portalled to
+  // <body>) so it can overflow past the sidebar's right edge into the gutter —
+  // a child of the scroll would be clipped by overflow:auto. We track which seam
+  // is hovered + where to place the floating pill (viewport coords; left edge at
+  // the scrollbar's right edge). A short hide-delay bridges the gap between the
+  // in-scroll hover strip and the pill that sits just outside it.
+  const [branchHover, setBranchHover] = useState(null); // { index, top, left }
+  const [pillHover, setPillHover] = useState(false);    // pointer is on the pill
+  const branchClearRef = useRef(null);
+  const cancelBranchHide = () => { if (branchClearRef.current) { clearTimeout(branchClearRef.current); branchClearRef.current = null; } };
+  const hideBranchSoon = () => { cancelBranchHide(); branchClearRef.current = window.setTimeout(() => setBranchHover(null), 150); };
+  const showBranch = (index, anchorEl) => {
+    cancelBranchHide();
+    // Center the pill (and its connector) on the divider LINE's vertical center,
+    // not the anchor's top edge, so the connector lines up exactly with the line.
+    const lineEl = anchorEl.querySelector('.dv-branch-line');
+    const lr = (lineEl || anchorEl).getBoundingClientRect();
+    const centerY = lr.top + lr.height / 2;
+    const sc = scrollRef.current?.getBoundingClientRect();
+    const rightEdge = sc ? sc.right : lr.right;
+    // left edge flush with the scrollbar's right edge (scrollbar inset 3px).
+    setBranchHover({ index, top: toLayoutPx(centerY), left: toLayoutPx(rightEdge - 3) });
+  };
+
+  const scrollToBottom = useCallback((force) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (!force && !stickRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+    // Remember the position so a remount (version select) can restore it.
+    if (file?.path) advisorScrollPos.set(file.path, { top: el.scrollTop, atBottom: stickRef.current });
+    setScrolled((s) => (el.scrollTop > 44 ? (s ? s : true) : (s ? false : s)));
+    setBranchHover(null); // a seam pill's position would be stale after scrolling
+    syncScrollbar();
+  };
+  // On (re)mount, restore the remembered scroll position when the user was NOT
+  // pinned to the bottom — so selecting a version keeps the thread put instead of
+  // jumping to the latest message. (When they were at the bottom, the normal
+  // stick-to-bottom takes over.) useLayoutEffect runs before paint = no flicker.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const saved = file?.path ? advisorScrollPos.get(file.path) : null;
+    if (el && saved && !saved.atBottom) { el.scrollTop = saved.top; stickRef.current = false; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reveal the freshly-arrived assistant message with the typewriter effect
+  // (matches the main app); errors / artifacts appear at once.
+  useEffect(() => {
+    const prev = prevLenRef.current;
+    prevLenRef.current = messages.length;
+    // Only a single freshly-appended message animates — a bulk jump (restoring a
+    // saved thread on open) renders at once, no replayed typewriter.
+    if (messages.length === prev + 1) {
+      const last = messages[messages.length - 1];
+      if (last && last.role === 'assistant') setTyping(messages.length - 1);
+      stickRef.current = true;
+      scrollToBottom(true);
+    } else if (messages.length !== prev) {
+      scrollToBottom(true);
+    }
+  }, [messages, scrollToBottom]);
+  useEffect(() => { scrollToBottom(false); }, [busy, scrollToBottom]);
+
+  const copyMessage = async (text, index) => {
+    try { await navigator.clipboard.writeText(text || ''); } catch { /* clipboard blocked */ }
+    setCopiedIdx(index);
+    window.setTimeout(() => setCopiedIdx((c) => (c === index ? null : c)), 1600);
+  };
+
+  const lastUserText = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
 
   return (
     <div className="dv-advisor">
-      <div className="dv-advisor-scroll" ref={scrollRef}>
-        <header className="dv-ocr-history-head">
-          <div className="dv-ocr-history-eyebrow">
-            <span>AI advisor</span>
-            <span className="dv-ocr-history-eyebrow-muted">· about this file</span>
+      {/* Compact header — fades in once the full masthead scrolls out of view. */}
+      <div className={`dv-advisor-minihead${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
+        <span className="dv-advisor-minihead-title">Generate</span>
+        <span className="dv-advisor-minihead-dot" aria-hidden="true">·</span>
+        <span className="dv-advisor-minihead-eyebrow">Document AI</span>
+      </div>
+      <div className={`dv-advisor-scroll${asking ? ' is-asking' : ''}`} ref={scrollRef} onScroll={onScroll}>
+        {/* iOS-style mini masthead (mirrors the Settings / Newsletter header) —
+            lives at the TOP OF THE SCROLL so it scrolls away with the thread. */}
+        <header className="dv-advisor-head">
+          <div className="dv-advisor-head-eyebrow">
+            <span>Document AI</span>
+            <span className="dv-advisor-head-muted">· this file</span>
           </div>
-          <h2 className="dv-ocr-history-title">Ask about this file</h2>
+          <h2 className="dv-advisor-head-title">Generate.</h2>
+          <p className="dv-advisor-head-sub">Draft and refine this document with AI — each version appears below.</p>
         </header>
-        {messages.length === 0 && !busy ? (
-          <p className="dv-ocr-history-empty">
-            Ask the AI advisor anything about <strong>{file.name}</strong> — a summary, the key points, or what to do next. Use the box below; it stays put while you switch tabs.
-          </p>
-        ) : (
-          <div className="dv-advisor-msgs">
-            {messages.map((m, i) => (
-              <div key={i} className={`dv-advisor-msg is-${m.role}`}>{m.content}</div>
+        {/* Branch nav — one pill per split conversation. The original ("Main")
+            stays so you can navigate back after splitting. Only shown once at
+            least one split exists. */}
+        {branches.length > 1 && (
+          <div className="dv-branch-nav" role="tablist" aria-label="Conversations">
+            {branches.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                role="tab"
+                aria-selected={b.id === activeBranchId}
+                className={`dv-branch-nav-pill${b.id === activeBranchId ? ' is-active' : ''}`}
+                onClick={() => adv?.switchBranch?.(b.id)}
+                disabled={busy}
+              >
+                {b.label}
+              </button>
             ))}
-            {busy && <div className="dv-advisor-msg is-assistant is-typing">Thinking…</div>}
           </div>
         )}
+        {/* .ai-hub / .ai-chat-page scope the main app's bubble + markdown styles
+            so this thread reads identically (width neutralised in DocViewer.css). */}
+        <div className="dv-advisor-chat ai-hub ai-chat-page">
+          {messages.length === 0 && !busy ? (
+            genMode ? null : (
+              <div className="dv-advisor-intro">
+                <span className="dv-advisor-intro-glyph">{AdvSparkGlyph}</span>
+                <p>Ask me anything about <strong>{file.name}</strong> — a summary, the key points, or what to do next.</p>
+              </div>
+            )
+          ) : (
+            <div className="chat">
+              {messages.map((m, i) => {
+                const inner = m.role === 'artifact' ? (
+                  <DocVersionCard
+                    fileName={file.name}
+                    version={m.version}
+                    instructions={m.instructions}
+                    active={adv?.activeVersion === m.version}
+                    onSelect={() => adv?.selectVersion?.(m.version)}
+                    onOpenInApp={() => adv?.openVersion?.(m.version)}
+                    disabled={busy || switching}
+                  />
+                ) : (
+                  <div className={`bubble ${m.role === 'user' ? 'me' : ''}`}>
+                    <div className="bubble-c">
+                      <div className="bubble-msg">
+                        {m.role === 'user'
+                          ? m.content
+                          : typing === i
+                            ? <AdvTypewriter text={m.content || ''} onTick={() => scrollToBottom(false)} onDone={() => setTyping((t) => (t === i ? null : t))} />
+                            : <div className="aichat-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content || ''}</ReactMarkdown></div>}
+                      </div>
+                    </div>
+                  </div>
+                );
+                // A hover control to the right of an AI turn (except the last)
+                // splits a new conversation from that point. It shows after an AI
+                // text reply, or — when that reply produced a file — after the
+                // generated file card, never between the note and its document.
+                const aiText = m.role === 'assistant' && messages[i + 1]?.role !== 'artifact';
+                const fileCard = m.role === 'artifact';
+                const canBranch = (aiText || fileCard) && i < messages.length - 1 && !busy;
+                // Persistent marker(s) for any branches split off at this point.
+                const splitsHere = activeSplits.filter((s) => s.afterIndex === i);
+                return (
+                  <React.Fragment key={i}>
+                    {inner}
+                    {splitsHere.map((s) => (
+                      <button
+                        key={s.branchId}
+                        type="button"
+                        className="dv-split-marker"
+                        onClick={() => adv?.switchBranch?.(s.branchId)}
+                        title={`You split a new conversation (${s.label}) from here — click to open it`}
+                      >
+                        <span className="dv-split-marker-line" />
+                        <span className="dv-split-marker-tag">{AdvBranchGlyph}Split from here → {s.label}</span>
+                      </button>
+                    ))}
+                    {canBranch && (
+                      <div
+                        className={`dv-branch-anchor${branchHover?.index === i ? ' is-active' : ''}${branchHover?.index === i && pillHover ? ' is-pill-hover' : ''}`}
+                        onMouseEnter={(e) => showBranch(i, e.currentTarget)}
+                        onMouseLeave={hideBranchSoon}
+                      >
+                        <span className="dv-branch-line" />
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+              {busy && (
+                <div className="bubble">
+                  <div className="bubble-c">
+                    <div className="bubble-msg"><AdvThinkingStatus query={lastUserText} /></div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         {error && (
           <div className="dv-ocr-error" role="alert">
             <span>{error}</span>
@@ -2689,6 +4275,28 @@ function AdvisorPanel({ file }) {
           </div>
         )}
       </div>
+      {/* Custom scrollbar — sits in the gutter outside the chat section's right
+          edge; native scrollbar is hidden. Synced to the scroll metrics above. */}
+      <div className="dv-advisor-sb" ref={sbTrackRef} aria-hidden="true">
+        <div className="dv-advisor-sb-thumb" ref={sbThumbRef} onMouseDown={onThumbDown} />
+      </div>
+      {/* Floating "Split from here" pill — portalled to <body> so it can overflow
+          past the sidebar edge (a child of the scroll would be clipped). Placed
+          at the hovered seam, left edge flush with the scrollbar's right edge. */}
+      {branchHover && createPortal(
+        <button
+          type="button"
+          className="dv-branch dv-branch--float"
+          style={{ top: `${branchHover.top}px`, left: `${branchHover.left}px` }}
+          onMouseEnter={() => { cancelBranchHide(); setPillHover(true); }}
+          onMouseLeave={() => { hideBranchSoon(); setPillHover(false); }}
+          onClick={() => { adv?.branchFrom?.(branchHover.index); setBranchHover(null); }}
+          title="Split a new conversation from here — keeps everything up to this message"
+        >
+          {AdvBranchGlyph}<span>Split from here</span>
+        </button>,
+        document.body,
+      )}
       {/* The composer is the advisor tab's footer action — rendered into the
           single shared Multitool footer slot. */}
       <MultitoolFooter><MultitoolComposer /></MultitoolFooter>
@@ -3126,6 +4734,9 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     return clamped;
   }), [reanchorPan]);
   const zoomReset = useCallback(() => { setZoom(1); setPanX(0); setPanY(0); }, []);
+  // Re-centre the media in the stage without changing the zoom level (brings a
+  // panned-away video/image back to the middle).
+  const recenter = useCallback(() => { setPanX(0); setPanY(0); }, []);
 
   // Non-passive wheel listener for scroll-to-zoom (passive: false required for preventDefault).
   useEffect(() => {
@@ -3149,11 +4760,16 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   // Stage mousedown: pan when zoomed, or click-to-play for video (replaces dv-player-click).
   const onStageMouseDown = useCallback((e) => {
     if (armed || e.button !== 0) return;
-    if (e.target.closest('.dv-player-controls, .dv-ocr-btn-wrap, .dv-zoom-controls')) return;
+    if (e.target.closest('.dv-player-controls, .dv-stage-tools, .dv-zoom-controls')) return;
     e.preventDefault();
     const startX = e.clientX;
     const startY = e.clientY;
     const { x: startPanX, y: startPanY } = panStateRef.current;
+    // Only pan when actually zoomed IN — at fit (zoom 1) the media already
+    // fills the stage, so a drag must not accumulate a pan offset (a bogus
+    // offset here would get multiplied by reanchorPan on the next zoom and make
+    // the zoom jump). Captured at mousedown; zoom can't change mid-drag.
+    const canPan = zoom > 1;
     let moved = false;
     setIsDragging(true);
     const onMove = (ev) => {
@@ -3161,6 +4777,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       const dy = ev.clientY - startY;
       if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return;
       moved = true;
+      if (!canPan) return;
       document.body.classList.add('dv-media-panning');
       setPanX(startPanX + dx);
       setPanY(startPanY + dy);
@@ -3178,7 +4795,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-  }, [armed, kind, togglePlay]);
+  }, [armed, kind, togglePlay, zoom]);
 
   // Keyboard shortcuts: +/= zoom in, - zoom out, 0 reset.
   useEffect(() => {
@@ -3510,7 +5127,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     <>
     <div
       ref={stageRef}
-      className="dv-media-stage"
+      className={`dv-media-stage${kind === 'video' ? ' is-floating' : ''}`}
       onMouseMove={kind === 'video' ? bumpControls : undefined}
       onMouseLeave={kind === 'video' && playing ? () => setControlsShown(false) : undefined}
       onMouseDown={onStageMouseDown}
@@ -3762,35 +5379,45 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
         </>
       )}
 
-      {/* Extract-text button + tool-picker dropdown, co-located so the pill
-          morphs open from the button. Toolbar is always in the DOM so the
-          grid-accordion can animate height on both open and close. */}
-      <div className={`dv-ocr-btn-wrap${armed ? ' is-armed' : ''}`}>
+      {/* Top-left stage tools — the Extract-text pill, and (under it) a button
+          that re-centres the media in the stage. */}
+      <div className="dv-stage-tools">
+        {/* Extract-text button + tool-picker dropdown, co-located so the pill
+            morphs open from the button. Toolbar is always in the DOM so the
+            grid-accordion can animate height on both open and close. */}
+        <div className={`dv-ocr-btn-wrap${armed ? ' is-armed' : ''}`}>
           <button type="button" className={`dv-ocr-btn${armed ? ' is-active' : ''}`} onClick={toggleTool}>
             {ScanTextGlyph}
             <span>Extract text</span>
             <span className="dv-ocr-btn-chevron">{ChevronGlyph}</span>
           </button>
-        <div className={`dv-ocr-toolbar-wrap${armed ? ' is-open' : ''}`}>
-          <div className="dv-ocr-toolbar">
-            <div className="dv-ocr-toolbar-inner">
-              <div className="dv-ocr-tools">
-                {OCR_TOOLS.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    className={`dv-ocr-tool${tool === t.id ? ' is-active' : ''}`}
-                    onClick={() => setTool(t.id)}
-                  >
-                    {t.icon}
-                    <span>{t.label}</span>
-                  </button>
-                ))}
+          <div className={`dv-ocr-toolbar-wrap${armed ? ' is-open' : ''}`}>
+            <div className="dv-ocr-toolbar">
+              <div className="dv-ocr-toolbar-inner">
+                <div className="dv-ocr-tools">
+                  {OCR_TOOLS.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className={`dv-ocr-tool${tool === t.id ? ' is-active' : ''}`}
+                      onClick={() => setTool(t.id)}
+                    >
+                      {t.icon}
+                      <span>{t.label}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="dv-ocr-tool-hint">{OCR_TOOLS.find((t) => t.id === tool)?.hint}</p>
               </div>
-              <p className="dv-ocr-tool-hint">{OCR_TOOLS.find((t) => t.id === tool)?.hint}</p>
             </div>
           </div>
         </div>
+
+        {/* Re-centre the media (keeps the current zoom). */}
+        <button type="button" className="dv-center-btn" onClick={recenter}>
+          {CenterGlyph}
+          <span>Center video</span>
+        </button>
       </div>
 
       {/* Error pill — replaces the old bottom-of-stage status modal. */}
@@ -3903,169 +5530,6 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       ? createPortal(sidePanel, sidePanelSlot)
       : (<><div className="dv-ocr-resize" onMouseDown={beginHistoryResize} role="separator" aria-orientation="vertical" aria-label="Resize extracted text panel" />{sidePanel}</>);
     })()}
-    </>
-  );
-}
-
-// ── One open file's preview pane ───────────────────────────────────────
-// Thumbnail for an open-files sidebar tile (Files-window style: preview on
-// top, name underneath). Identical pipeline to the Files window: a
-// thumbnailDescriptor resolved by FileThumbnail (image/video/PDF/PPTX
-// posters from the shared resolver cache) with the same colored
-// extension-badge glyph for everything else.
-// `isWhatsApp` comes from the shell's per-tab detection (the text pane
-// reports it after parsing the transcript) — recognised conversations show
-// the WhatsApp mark, exactly like the Files window's export tiles.
-function FileTabThumb({ tab, isWhatsApp }) {
-  const descriptor = useMemo(() => describeLocalFile({
-    localFile: { name: tab.name, mimeType: tab.mime, path: tab.path },
-    localUrl: localUrlFor(tab.path),
-    cloud: null,
-    bytesChanged: false,
-    localContentHash: null,
-  }), [tab.path, tab.name, tab.mime]);
-  return (
-    <span className="fx-tile-thumb">
-      {/* Reuses the Files-tab thumbnail (poster + type glyph + the cassette-tape
-          frame for videos). */}
-      <ItemThumbnail item={{ name: tab.name, ext: extOf(tab.name), descriptor, isWhatsApp: isWhatsApp || undefined }} />
-    </span>
-  );
-}
-
-// Split a filename into an editable base + extension (".pdf"), so a rename
-// edits only the base — the extension is re-attached on commit (mirrors the
-// Files page so the format is never changed by accident). Dotfiles / no-ext
-// names pass through unchanged.
-function splitBaseExt(name) {
-  const n = String(name || '');
-  const i = n.lastIndexOf('.');
-  if (i <= 0 || i === n.length - 1) return { base: n, ext: '' };
-  return { base: n.slice(0, i), ext: n.slice(i) };
-}
-function joinBaseExt(base, originalName) {
-  const { ext } = splitBaseExt(originalName);
-  const b = String(base || '').trim();
-  if (!ext) return b;
-  return b.toLowerCase().endsWith(ext.toLowerCase()) ? b : b + ext;
-}
-
-// Sidebar tab item — wraps the file tile with a morph-pill so hover shows the
-// filename tooltip and right-click expands it into a context menu. The menu
-// mirrors the Files page's file right-click (Open / Rename / Properties / Open
-// file location), minus the in-app-clipboard Copy/Cut and Delete, plus Close.
-function FileTabItem({ tab, isActive, isWhatsApp, onActivate, onClose, onRename }) {
-  // Inline rename — same UX as the Files page tiles: an in-place input that
-  // edits the base name only and commits on Enter / blur (Escape cancels).
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-  const inputRef = useRef(null);
-
-  const beginRename = useCallback(() => {
-    setDraft(splitBaseExt(tab.name).base);
-    setEditing(true);
-  }, [tab.name]);
-
-  useLayoutEffect(() => {
-    if (!editing) return;
-    const el = inputRef.current;
-    if (el) { el.focus(); el.select(); }
-  }, [editing]);
-
-  const commitRename = useCallback(() => {
-    setEditing((wasEditing) => {
-      if (wasEditing) {
-        const next = joinBaseExt(draft, tab.name);
-        if (next && next !== tab.name) onRename?.(tab, next);
-      }
-      return false;
-    });
-  }, [draft, tab, onRename]);
-
-  const morphPill = useMorphPill({
-    hoverContent: isWhatsApp ? (
-      <span className="dv-filetab-wa-hover">
-        <span className="dv-filetab-wa-name">{tab.name}</span>
-        <span className="dv-filetab-wa-note">Recognized as WhatsApp convo</span>
-      </span>
-    ) : tab.name,
-    menuItems: [
-      {
-        label: 'Open',
-        key: 'open',
-        onClick: () => localFolderApi.openPath(tab.path),
-      },
-      {
-        label: 'Rename',
-        key: 'rename',
-        onClick: () => beginRename(),
-      },
-      {
-        label: 'Properties',
-        key: 'properties',
-        onClick: () => localFolderApi.openPath(tab.path),
-        confirm: {
-          title: tab.name,
-          message: tab.path,
-          cancelLabel: 'Close',
-          confirmLabel: 'Open',
-        },
-      },
-      {
-        label: 'Open file location',
-        key: 'location',
-        onClick: () => localFolderApi.showInFolder(tab.path),
-      },
-      {
-        label: 'Close',
-        key: 'close',
-        onClick: () => onClose(),
-      },
-    ],
-  });
-
-  return (
-    <>
-      <div
-        role="tab"
-        aria-selected={isActive}
-        className={`fx-tile dv-filetab-item${isActive ? ' is-selected' : ''}`}
-        onClick={editing ? undefined : onActivate}
-        onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); onClose(); } }}
-        onMouseMove={editing ? undefined : morphPill.handleMouseMove}
-        onMouseLeave={morphPill.handleMouseLeave}
-        onContextMenu={editing ? undefined : morphPill.handleContextMenu}
-      >
-        <FileTabThumb tab={tab} isWhatsApp={isWhatsApp} />
-        {editing ? (
-          <input
-            ref={inputRef}
-            className="fx-tile-name fx-inline-input"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
-              else if (e.key === 'Escape') { e.preventDefault(); setEditing(false); }
-            }}
-            onBlur={commitRename}
-            aria-label={`Rename ${tab.name}`}
-          />
-        ) : (
-          <span><span className="fx-tile-name">{splitBaseExt(tab.name).base}</span></span>
-        )}
-        <button
-          type="button"
-          className="dv-filetab-close"
-          aria-label={`Close ${tab.name}`}
-          onClick={(e) => { e.stopPropagation(); onClose(); }}
-        >
-          ×
-        </button>
-      </div>
-      {morphPill.node}
     </>
   );
 }
@@ -4269,13 +5733,6 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
                   : 'Transcript ready')
               : 'Not generated yet'}
           </span>
-          {captions?.state === 'done' && (
-            <div className="dv-audio-captions-acts">
-              <button type="button" className="dv-ocr-history-clear" onClick={copyTranscript}>{copied ? 'Copied' : 'Copy'}</button>
-              <button type="button" className="dv-ocr-history-clear" onClick={() => setEditing((v) => !v)}>{editing ? 'Done' : 'Edit'}</button>
-              <button type="button" className="dv-ocr-history-clear" onClick={regenerate}>Regenerate</button>
-            </div>
-          )}
         </div>
       </header>
 
@@ -4507,16 +5964,15 @@ function MediaScope({ mediaRef, url, currentTime, duration, playing, onSeek, cla
     ctx2d.globalAlpha = 1;
 
     if (dur2) {
+      // Playhead line — no glow (flat accent line marking the current time).
       ctx2d.strokeStyle = accent;
       ctx2d.lineWidth = 2;
       ctx2d.lineCap = 'round';
-      ctx2d.shadowColor = accent;
-      ctx2d.shadowBlur = playing ? 12 : 0;
+      ctx2d.shadowBlur = 0;
       ctx2d.beginPath();
       ctx2d.moveTo(playheadX, 5);
       ctx2d.lineTo(playheadX, hgt - 5);
       ctx2d.stroke();
-      ctx2d.shadowBlur = 0;
       // Playhead knob — grows on hover / scrub (radius eased in knobRRef), with
       // a soft glow once enlarged.
       const knobR = knobRRef.current;
@@ -4940,12 +6396,19 @@ function AudioPlayerPane({ file, url, sidePanelSlot = null, sideTabsSlot = null 
     return lyrics.segments.findIndex((s) => cur >= s.start && cur < s.end);
   }, [hasLyrics, lyrics, cur]);
 
-  // Keep the active line centred as playback advances (mirrors the YT-Music
-  // lyrics view).
+  // Keep the active line pinned to the pane's vertical centre as playback
+  // advances (mirrors the YT-Music lyrics view) — the other lines scroll around
+  // it. Rect math (vs scrollIntoView) so it lands dead-centre regardless of the
+  // mask / padding.
   useEffect(() => {
     if (activeLyricIndex < 0) return;
-    const el = lyricsRef.current?.children?.[activeLyricIndex];
-    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const container = lyricsRef.current;
+    const el = container?.children?.[activeLyricIndex];
+    if (!container || !el) return;
+    const cRect = container.getBoundingClientRect();
+    const eRect = el.getBoundingClientRect();
+    const delta = (eRect.top + eRect.height / 2) - (cRect.top + cRect.height / 2);
+    container.scrollTo({ top: container.scrollTop + delta, behavior: 'smooth' });
   }, [activeLyricIndex]);
 
   if (failed) {
@@ -4983,7 +6446,7 @@ function AudioPlayerPane({ file, url, sidePanelSlot = null, sideTabsSlot = null 
                 type="button"
                 className={`dv-lyric-line${seg.text ? '' : ' is-empty'}${i === activeLyricIndex ? ' is-active' : ''}${i < activeLyricIndex ? ' is-past' : ''}`}
                 onClick={() => seekTo(seg.start)}
-                title={fmt(seg.start)}
+                title={fmtClock(seg.start)}
               >
                 {seg.text || '♪'}
               </button>
@@ -5067,9 +6530,10 @@ const SHEET_MAX_ROWS = 2000;
 // with sticky A/B/C column headers + 1/2/3 row numbers (and a tab strip when the
 // workbook has multiple sheets). SheetJS is lazy-imported so its weight isn't
 // paid until a spreadsheet is opened (mirrors docx-preview for .docx).
-function SpreadsheetPane({ file, url }) {
+function SpreadsheetPane({ file, url, onExportPdf }) {
   const [state, setState] = useState({ status: 'loading', sheets: [], error: null });
   const [active, setActive] = useState(0);
+  const tableRef = useRef(null);
 
   useEffect(() => {
     setState({ status: 'loading', sheets: [], error: null });
@@ -5125,24 +6589,30 @@ function SpreadsheetPane({ file, url }) {
 
   return (
     <div className="dv-sheet">
-      {state.sheets.length > 1 && (
-        <div className="dv-sheet-tabs" role="tablist">
-          {state.sheets.map((s, i) => (
-            <button
-              key={`${s.name}-${i}`}
-              type="button"
-              role="tab"
-              className={`dv-sheet-tab${i === active ? ' is-active' : ''}`}
-              aria-selected={i === active}
-              onClick={() => setActive(i)}
-            >
-              {s.name || `Sheet ${i + 1}`}
-            </button>
-          ))}
+      {(state.sheets.length > 1 || onExportPdf) && (
+        <div className="dv-sheet-bar">
+          {state.sheets.length > 1 ? (
+            <div className="dv-sheet-tabs" role="tablist">
+              {state.sheets.map((s, i) => (
+                <button
+                  key={`${s.name}-${i}`}
+                  type="button"
+                  role="tab"
+                  className={`dv-sheet-tab${i === active ? ' is-active' : ''}`}
+                  aria-selected={i === active}
+                  onClick={() => setActive(i)}
+                >
+                  {s.name || `Sheet ${i + 1}`}
+                </button>
+              ))}
+            </div>
+          ) : <span className="dv-sheet-bar-spacer" />}
+          <ReconPill />
+          {onExportPdf && <ExportPdfButton getRoot={() => tableRef.current} kind="xlsx" onExport={onExportPdf} />}
         </div>
       )}
       <div className="dv-sheet-scroll">
-        <table className="dv-sheet-table">
+        <table className="dv-sheet-table" ref={tableRef}>
           <thead>
             <tr>
               <th className="dv-sheet-corner" />
@@ -5228,12 +6698,10 @@ function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = 
 
   return (
     <aside className={`dv-ocr-history dv-doc-extract${fill ? ' dv-side-portal' : ''}`} style={fill ? undefined : { width: `${width}px` }}>
-      <SidePanelTabs tabs={sideTabsForKind(kind)} active={rightTab} onChange={setRightTab} slot={sideTabsSlot} />
-      {rightTab === 'advisor' ? (
-        <AdvisorPanel file={file} />
-      ) : rightTab === 'captions' ? (
-        <CaptionsPanel file={file} url={url} currentTime={0} onSeek={() => {}} onCaptionsChange={() => {}} />
-      ) : (
+      {/* Tabs removed — the document side panel shows only the Generate (AI)
+          pane, with its own header (see AdvisorPanel). */}
+      <AdvisorPanel file={file} />
+      {false && (
       <>
       {/* "Extract text" lives in the shared Multitool footer. */}
       <MultitoolFooter>
@@ -5328,12 +6796,682 @@ function DocumentWithPanel({ file, url, kind, mainClass = '', sidePanelSlot = nu
   );
 }
 
+// Word-style pagination. docx-preview renders the document as continuous flow
+// (one `section.docx` per Word section) and does NOT reflow content onto new
+// pages the way Word does — a long document would be one tall sheet. We measure
+// the rendered flow and slice it into fixed-size page sheets, each the section's
+// real page dimensions, breaking before any block that would overflow the page.
+// Returns the natural page width (px) so the caller can fit it to the pane.
+function paginateDocx(host) {
+  const wrapper = host?.querySelector('.docx-wrapper');
+  if (!wrapper) return 0;
+  const sections = Array.from(wrapper.querySelectorAll(':scope > section.docx'));
+  if (!sections.length) return 0;
+  let pageWidth = 0;
+  const allPages = []; // every page sheet across all sections, for numbering
+
+  for (const section of sections) {
+    const cs = getComputedStyle(section);
+    const padTop = parseFloat(cs.paddingTop) || 0;
+    const padBottom = parseFloat(cs.paddingBottom) || 0;
+    const width = section.offsetWidth;
+    if (width > pageWidth) pageWidth = width;
+    // Page height: docx-preview sets the section's min-height to the page height.
+    // Fall back to an A4 ratio of the width if it isn't set.
+    let pageH = parseFloat(cs.minHeight);
+    if (!pageH || pageH < 200) pageH = Math.round(width * 1.4142);
+    const contentH = Math.max(120, pageH - padTop - padBottom);
+
+    // docx-preview nests flow content as `section.docx > article > blocks`
+    // (the article carries any column layout). Gather the blocks across all of
+    // the section's articles in order, then re-distribute them across pages.
+    const articles = Array.from(section.querySelectorAll(':scope > article'));
+    if (!articles.length) continue;
+    const articleTemplate = articles[0];
+    const blocks = [];
+    for (const a of articles) for (const c of Array.from(a.children)) blocks.push(c);
+    if (!blocks.length) continue;
+
+    // Each page is a shallow clone of the section (keeps its exact width /
+    // padding / background / classes so docx-preview's `.docx` rules still
+    // apply), locked to one page tall, holding a clone of the article wrapper.
+    const makePage = () => {
+      const pg = section.cloneNode(false);
+      pg.classList.add('dv-docx-page');
+      pg.style.minHeight = `${pageH}px`;
+      pg.style.height = `${pageH}px`;
+      const art = articleTemplate.cloneNode(false);
+      pg.appendChild(art);
+      return { pg, art };
+    };
+
+    const pages = [];
+    let cur = makePage();
+    let used = 0;
+    for (const block of blocks) {
+      // Measure BEFORE moving it (still laid out at full page width here).
+      const ccs = getComputedStyle(block);
+      const mt = parseFloat(ccs.marginTop) || 0;
+      const mb = parseFloat(ccs.marginBottom) || 0;
+      const h = block.offsetHeight + mt + mb;
+      if (used > 0 && used + h > contentH) {
+        pages.push(cur);
+        cur = makePage();
+        used = 0;
+      }
+      cur.art.appendChild(block); // moves the node out of its original article
+      used += h;
+    }
+    pages.push(cur);
+    for (const { pg } of pages) { wrapper.insertBefore(pg, section); allPages.push(pg); }
+    section.remove();
+  }
+
+  // Stamp each page with its number (toggled visible via the host's
+  // `show-pagenums` class). Sits in the bottom margin like a Word footer.
+  allPages.forEach((pg, i) => {
+    const label = host.ownerDocument.createElement('div');
+    label.className = 'dv-docx-pagenum';
+    label.textContent = `${i + 1} / ${allPages.length}`;
+    pg.appendChild(label);
+  });
+  return pageWidth;
+}
+
+// Renders a .docx with a Render / Plain text toggle (the same two views Claude
+// "Convert to PDF" / "Export PDF" — captures the live rendered preview (`getRoot`)
+// to a PDF and hands the Blob to `onExport` (which saves it next to the original).
+// Shown on every office preview's toolbar. Reports working / done / failed inline.
+function ExportPdfButton({ getRoot, kind, onExport, label = 'Convert to PDF' }) {
+  const [state, setState] = useState('idle'); // idle | working | done | error
+  const run = async () => {
+    if (state === 'working') return;
+    const root = getRoot?.();
+    if (!root) { setState('error'); window.setTimeout(() => setState('idle'), 2200); return; }
+    setState('working');
+    try {
+      const blob = await renderedOfficeToPdfBlob(root, kind);
+      await onExport?.(blob);
+      setState('done');
+      window.setTimeout(() => setState((s) => (s === 'done' ? 'idle' : s)), 2200);
+    } catch {
+      setState('error');
+      window.setTimeout(() => setState((s) => (s === 'error' ? 'idle' : s)), 2600);
+    }
+  };
+  return (
+    <button
+      type="button"
+      className={`dv-pdf-export is-${state}`}
+      onClick={run}
+      disabled={state === 'working'}
+      title="Save this document as a PDF next to the original"
+    >
+      <span className="dv-pdf-export-dot" aria-hidden="true" />
+      {state === 'working' ? 'Converting…' : state === 'done' ? 'Saved PDF ✓' : state === 'error' ? 'Couldn’t convert' : label}
+    </button>
+  );
+}
+
+// Track the current page/slide as the preview scrolls: counts `pageSelector`
+// elements inside the scroller and finds which one straddles the viewport middle.
+// Returns { current, total }. `deps` re-measures after the pages (re)render.
+function usePageScrollCounter(scrollRef, pageSelector, deps = []) {
+  const [info, setInfo] = useState({ current: 1, total: 0 });
+  const recompute = useCallback(() => {
+    const sc = scrollRef.current;
+    if (!sc) return;
+    const pages = sc.querySelectorAll(pageSelector);
+    const total = pages.length;
+    if (!total) { setInfo((p) => (p.total === 0 ? p : { current: 1, total: 0 })); return; }
+    const midY = sc.getBoundingClientRect().top + sc.clientHeight / 2;
+    let current = 1;
+    pages.forEach((pg, i) => { if (pg.getBoundingClientRect().top <= midY) current = i + 1; });
+    setInfo((p) => (p.current === current && p.total === total ? p : { current, total }));
+  }, [scrollRef, pageSelector]);
+  useEffect(() => {
+    const sc = scrollRef.current;
+    if (!sc) return undefined;
+    recompute();
+    sc.addEventListener('scroll', recompute, { passive: true });
+    let ro;
+    if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(recompute); ro.observe(sc); }
+    return () => { sc.removeEventListener('scroll', recompute); ro?.disconnect(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recompute, ...deps]);
+  return info;
+}
+
+// In-app pagination chip — pinned to the bottom-right of the preview, black
+// background + white text ("3 / 12"). Only shows once there's more than one page.
+function PageCounter({ info, show, label = 'pages' }) {
+  if (!show || !info || info.total <= 1) return null;
+  return (
+    <div className="dv-page-counter" role="status" aria-label={`Page ${info.current} of ${info.total}`}>
+      {info.current} <span className="dv-page-counter-sep">/</span> {info.total}
+      <span className="dv-page-counter-unit">{label}</span>
+    </div>
+  );
+}
+
+// A centered pill noting the preview is an in-app reconstruction (docx-preview /
+// our OOXML + SheetJS renderers), so it may differ from the file opened in the
+// real Office app. Sits at the top-centre of each office preview toolbar.
+function ReconPill() {
+  // Render centred in the window title bar (portal into TitleBar's #tb-docview-
+  // center slot) when it exists; fall back to inline (web, where there's no
+  // custom title bar). Tied to the reconstruction pane, so it auto-hides for
+  // non-office files.
+  const [slot, setSlot] = useState(null);
+  useEffect(() => { setSlot(document.getElementById('tb-docview-center')); }, []);
+  const pill = (
+    <span
+      className={`dv-recon-pill${slot ? ' dv-recon-pill--titlebar' : ''}`}
+      title="This is an in-app reconstruction of the file. It may not look exactly the same as when opened in Word / PowerPoint / Excel."
+    >
+      Reconstruction — may differ from the Office app
+    </span>
+  );
+  return slot ? createPortal(pill, slot) : pill;
+}
+
+// Renders a .docx as the formatted final product via docx-preview, re-paginated
+// into Word-like page sheets. Toolbar carries the reconstruction notice, a
+// per-page page-number toggle, and Convert-to-PDF.
+function DocxRenderPane({ url, onExportPdf }) {
+  const hostRef = useRef(null);
+  const pageWidthRef = useRef(0);
+  const [showPageNumbers, setShowPageNumbers] = useState(true);
+
+  // Scale the page stack down to fit the pane width (Word's "fit to width"), so
+  // an 8.5"/A4 sheet is readable without horizontal scrolling on a narrow pane.
+  const fitWidth = useCallback(() => {
+    const host = hostRef.current;
+    const wrapper = host?.querySelector('.docx-wrapper');
+    if (!host || !wrapper || !pageWidthRef.current) return;
+    const avail = host.clientWidth - 44; // wrapper h-padding (36) + breathing room
+    if (avail <= 0) return;
+    const z = Math.max(0.35, Math.min(1, avail / pageWidthRef.current));
+    wrapper.style.zoom = String(z);
+  }, []);
+
+  useEffect(() => {
+    if (!url) return undefined;
+    let cancelled = false;
+    const host = hostRef.current;
+    if (!host) return undefined;
+    pageWidthRef.current = 0;
+    (async () => {
+      try {
+        const blob = await (await fetch(url, { cache: 'no-store' })).blob();
+        const { renderAsync } = await import('docx-preview');
+        if (cancelled) return;
+        host.innerHTML = '';
+        // breakPages:false → continuous flow we paginate ourselves (docx-preview's
+        // own breakPages only splits on explicit breaks, not on content overflow).
+        await renderAsync(blob, host, undefined, {
+          className: 'docx', inWrapper: true, breakPages: false,
+          ignoreLastRenderedPageBreak: true, experimental: true, useBase64URL: true,
+          // We re-paginate the flow ourselves; per-page headers/footers would be
+          // dropped with the original section and skew the page-height math, so
+          // keep the content area clean (page text area = page minus margins).
+          renderHeaders: false, renderFooters: false,
+        });
+        if (cancelled) return;
+        // Wait for fonts so block heights are final before we slice into pages.
+        try { await document.fonts.ready; } catch { /* ignore */ }
+        if (cancelled) return;
+        pageWidthRef.current = paginateDocx(host);
+        fitWidth();
+      } catch {
+        if (!cancelled && host) host.innerHTML = `<p class="dv-docx-error">Couldn't display the document.</p>`;
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [url, fitWidth]);
+
+  // Re-fit on pane resize.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => fitWidth());
+    ro.observe(host);
+    return () => ro.disconnect();
+  }, [fitWidth]);
+
+  return (
+    <div className="dv-docview">
+      <div className="dv-docview-topbar">
+        <ReconPill />
+      </div>
+      <div className="dv-docview-body">
+        <div ref={hostRef} className={`dv-docx${showPageNumbers ? ' show-pagenums' : ''}`} />
+      </div>
+      {/* Page-numbers toggle + Convert-to-PDF docked at the bottom of the pane. */}
+      <div className="dv-docview-toolbar dv-docview-toolbar--foot">
+        <button
+          type="button"
+          className={`dv-docview-pgtoggle${showPageNumbers ? ' is-active' : ''}`}
+          onClick={() => setShowPageNumbers((v) => !v)}
+          aria-pressed={showPageNumbers}
+        >
+          <span className="dv-pgtoggle-hash" aria-hidden="true">#</span>
+          Page numbers
+        </button>
+        {onExportPdf && (
+          <>
+            <div className="dv-docview-spacer" />
+            <ExportPdfButton getRoot={() => hostRef.current} kind="docx" onExport={onExportPdf} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Faithful .pptx renderer ─────────────────────────────────────────────
+// We parse the OOXML zip and reproduce each slide's ACTUAL styling — slide /
+// shape fills, text run colours, sizes, weights and fonts, absolute positions,
+// and images — rather than re-flowing plain text. This makes the in-app preview
+// match the real file (the styled decks the Designer/Instant engines produce).
+const EMU_PER_PT = 12700;
+
+const pptxSlideNo = (name) => Number((/slide(\d+)\.xml$/i.exec(name) || [])[1] || 0);
+const directChild = (el, tag) => (el ? Array.from(el.children).find((c) => c.nodeName === tag) || null : null);
+const emuPct = (v, total) => (total ? (Number(v) / total) * 100 : 0);
+
+// Clamp + hex helpers for colour modifiers (lumMod/lumOff/shade/tint).
+const clamp01 = (n) => Math.max(0, Math.min(1, n));
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+function rgbToHex([r, g, b]) {
+  const c = (n) => Math.round(clamp01(n / 255) * 255).toString(16).padStart(2, '0');
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
+// Apply the common OOXML colour transforms found on accent variants.
+function applyMods(hex, el) {
+  let rgb = hexToRgb(hex);
+  const get = (tag) => { const m = directChild(el, tag); return m ? Number(m.getAttribute('val')) / 1000 : null; };
+  const lumMod = get('a:lumMod'); const lumOff = get('a:lumOff');
+  const shade = get('a:shade'); const tint = get('a:tint');
+  if (lumMod != null) rgb = rgb.map((c) => c * lumMod);
+  if (lumOff != null) rgb = rgb.map((c) => c + lumOff * 255);
+  if (shade != null) rgb = rgb.map((c) => c * shade);
+  if (tint != null) rgb = rgb.map((c) => c * tint + 255 * (1 - tint));
+  return rgbToHex(rgb);
+}
+const SCHEME_ALIAS = { tx1: 'dk1', bg1: 'lt1', tx2: 'dk2', bg2: 'lt2' };
+// Resolve a colour-bearing element (<a:srgbClr>/<a:schemeClr>/<a:sysClr>) → hex.
+function colorOfNode(node, theme) {
+  if (!node) return null;
+  const name = node.nodeName;
+  if (name === 'a:srgbClr') return applyMods(`#${node.getAttribute('val')}`, node);
+  if (name === 'a:sysClr') return `#${node.getAttribute('lastClr') || '000000'}`;
+  if (name === 'a:schemeClr') {
+    const key = SCHEME_ALIAS[node.getAttribute('val')] || node.getAttribute('val');
+    const base = theme[key];
+    return base ? applyMods(base, node) : null;
+  }
+  return null;
+}
+// First fill colour declared directly on a container (solidFill, or the first
+// gradient stop). Returns css colour or null (noFill / inherit).
+function fillOf(container, theme) {
+  if (!container) return null;
+  const solid = directChild(container, 'a:solidFill');
+  if (solid) return colorOfNode(solid.firstElementChild, theme);
+  const grad = directChild(container, 'a:gradFill');
+  if (grad) {
+    const gs = grad.getElementsByTagName('a:gs')[0];
+    if (gs) return colorOfNode(gs.firstElementChild, theme);
+  }
+  return null;
+}
+function bgFillFromXml(xml, theme) {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    const bg = doc.getElementsByTagName('p:bg')[0];
+    if (!bg) return null;
+    const bgPr = directChild(bg, 'p:bgPr');
+    return fillOf(bgPr, theme);
+  } catch { return null; }
+}
+function parseThemeColors(xml) {
+  const map = {};
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    const scheme = doc.getElementsByTagName('a:clrScheme')[0];
+    if (scheme) {
+      for (const child of Array.from(scheme.children)) {
+        const name = child.nodeName.replace(/^a:/, '');
+        map[name] = colorOfNode(child.firstElementChild, {}) || null;
+      }
+    }
+  } catch { /* noop */ }
+  return map;
+}
+// Relative luminance → pick a readable default text colour for unstyled runs.
+function readableOn(bg) {
+  try {
+    const [r, g, b] = hexToRgb(bg);
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.55 ? '#1E293B' : '#F5F2EA';
+  } catch { return '#1E293B'; }
+}
+
+const MEDIA_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp', svg: 'image/svg+xml', webp: 'image/webp', emf: 'image/emf', wmf: 'image/wmf' };
+// Resolve a slide's _rels into { rId: targetPathWithinZip }.
+async function loadRels(zip, slideName) {
+  const rels = {};
+  const relPath = slideName.replace(/slides\/(slide\d+\.xml)$/i, 'slides/_rels/$1.rels');
+  const f = zip.files[relPath];
+  if (!f) return { rels, layout: null };
+  try {
+    const xml = await f.async('string');
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    let layout = null;
+    for (const r of Array.from(doc.getElementsByTagName('Relationship'))) {
+      const id = r.getAttribute('Id');
+      const target = r.getAttribute('Target') || '';
+      const abs = target.startsWith('/') ? target.slice(1) : `ppt/${target.replace(/^\.\.\//, '')}`;
+      rels[id] = abs;
+      if ((r.getAttribute('Type') || '').endsWith('/slideLayout')) layout = abs;
+    }
+    return { rels, layout };
+  } catch { return { rels, layout: null }; }
+}
+// Resolve the background by walking slide → layout → master.
+async function resolveBg(zip, slideXml, slideName, theme, cache) {
+  const own = bgFillFromXml(slideXml, theme);
+  if (own) return own;
+  const { layout } = await loadRels(zip, slideName);
+  if (layout && zip.files[layout]) {
+    const lx = cache[layout] || (cache[layout] = await zip.files[layout].async('string'));
+    const lb = bgFillFromXml(lx, theme);
+    if (lb) return lb;
+    // layout → master
+    const lrelPath = layout.replace(/slideLayouts\/(slideLayout\d+\.xml)$/i, 'slideLayouts/_rels/$1.rels');
+    if (zip.files[lrelPath]) {
+      try {
+        const rx = await zip.files[lrelPath].async('string');
+        const rdoc = new DOMParser().parseFromString(rx, 'application/xml');
+        const masterRel = Array.from(rdoc.getElementsByTagName('Relationship'))
+          .find((r) => (r.getAttribute('Type') || '').endsWith('/slideMaster'));
+        if (masterRel) {
+          const mt = masterRel.getAttribute('Target') || '';
+          const mAbs = mt.startsWith('/') ? mt.slice(1) : `ppt/${mt.replace(/^\.\.\//, '')}`;
+          if (zip.files[mAbs]) {
+            const mx = cache[mAbs] || (cache[mAbs] = await zip.files[mAbs].async('string'));
+            const mb = bgFillFromXml(mx, theme);
+            if (mb) return mb;
+          }
+        }
+      } catch { /* noop */ }
+    }
+  }
+  return null;
+}
+
+// Parse one slide's shapes (text boxes + pictures) with geometry + styling.
+function parseSlideShapes(xml, theme, rels, mediaUrls) {
+  const out = [];
+  let title = '';
+  const bullets = [];
+  let doc;
+  try { doc = new DOMParser().parseFromString(xml, 'application/xml'); } catch { return { shapes: out, title, bullets }; }
+  if (doc.getElementsByTagName('parsererror').length) return { shapes: out, title, bullets };
+  const tree = doc.getElementsByTagName('p:spTree')[0];
+  if (!tree) return { shapes: out, title, bullets };
+
+  const xfrmOf = (spPr) => {
+    const xf = spPr && (directChild(spPr, 'a:xfrm'));
+    if (!xf) return null;
+    const off = directChild(xf, 'a:off'); const ext = directChild(xf, 'a:ext');
+    if (!off || !ext) return null;
+    return { x: +off.getAttribute('x'), y: +off.getAttribute('y'), w: +ext.getAttribute('cx'), h: +ext.getAttribute('cy') };
+  };
+
+  for (const node of Array.from(tree.children)) {
+    if (node.nodeName === 'p:sp') {
+      const spPr = directChild(node, 'p:spPr');
+      const geo = xfrmOf(spPr);
+      const fill = fillOf(spPr, theme);
+      const txBody = directChild(node, 'p:txBody');
+      const ph = node.getElementsByTagName('p:ph')[0];
+      const phType = ph ? (ph.getAttribute('type') || '') : '';
+      const isTitle = phType === 'title' || phType === 'ctrTitle';
+      const bodyPr = txBody ? directChild(txBody, 'a:bodyPr') : null;
+      const anchor = bodyPr ? (bodyPr.getAttribute('anchor') || 't') : 't';
+      const paras = [];
+      if (txBody) {
+        for (const p of Array.from(txBody.children)) {
+          if (p.nodeName !== 'a:p') continue;
+          const pPr = directChild(p, 'a:pPr');
+          const algn = pPr ? (pPr.getAttribute('algn') || '') : '';
+          const level = pPr ? Number(pPr.getAttribute('lvl') || 0) : 0;
+          const buChar = pPr ? directChild(pPr, 'a:buChar') : null;
+          const bullet = buChar ? (buChar.getAttribute('char') || '') : '';
+          const runs = [];
+          let lineText = '';
+          for (const r of Array.from(p.children)) {
+            if (r.nodeName === 'a:br') { runs.push({ br: true }); continue; }
+            if (r.nodeName !== 'a:r') continue;
+            const rPr = directChild(r, 'a:rPr');
+            const t = directChild(r, 'a:t');
+            const text = t ? (t.textContent || '') : '';
+            lineText += text;
+            const sz = rPr && rPr.getAttribute('sz') ? Number(rPr.getAttribute('sz')) / 100 : null;
+            const color = rPr ? fillOf(rPr, theme) : null;
+            const latin = rPr ? directChild(rPr, 'a:latin') : null;
+            runs.push({
+              text,
+              szPt: sz,
+              bold: rPr ? rPr.getAttribute('b') === '1' : false,
+              italic: rPr ? rPr.getAttribute('i') === '1' : false,
+              color,
+              font: latin ? latin.getAttribute('typeface') : null,
+            });
+          }
+          if (runs.length || bullet) paras.push({ algn, level, bullet, runs });
+          if (lineText.trim()) { if (isTitle && !title) title = lineText.trim(); else bullets.push({ text: lineText.trim(), level }); }
+        }
+      }
+      out.push({ type: 'text', geo, fill, anchor, paras, role: isTitle ? 'title' : 'body' });
+    } else if (node.nodeName === 'p:pic') {
+      const spPr = directChild(node, 'p:spPr');
+      const geo = xfrmOf(spPr);
+      const blip = node.getElementsByTagName('a:blip')[0];
+      const embed = blip ? (blip.getAttribute('r:embed') || blip.getAttribute('embed')) : null;
+      const src = embed ? mediaUrls[rels[embed]] : null;
+      if (geo) out.push({ type: 'pic', geo, src });
+    }
+  }
+  return { shapes: out, title, bullets };
+}
+
+// Renders a .pptx as a vertical stack of true-to-file slide cards, with a
+// Slides / Outline toggle. Styling (fills, fonts, colours, layout, images) is
+// reproduced from the OOXML; only exotic features (gradients beyond the first
+// stop, charts, SmartArt) are approximated.
+function PptxRenderPane({ url, onExportPdf }) {
+  const [deck, setDeck] = useState(null); // { w, h, slides } | null while loading
+  const [mode, setMode] = useState('render');
+  const [failed, setFailed] = useState(false);
+  const pptxRef = useRef(null);
+  const bodyRef = useRef(null);
+  const slideInfo = usePageScrollCounter(bodyRef, '.dv-ppx-slide', [deck, mode]);
+
+  useEffect(() => {
+    if (!url) return undefined;
+    let cancelled = false;
+    setDeck(null); setFailed(false);
+    (async () => {
+      try {
+        const buf = await (await fetch(url, { cache: 'no-store' })).arrayBuffer();
+        const JSZip = (await import('jszip')).default;
+        if (cancelled) return;
+        const zip = await JSZip.loadAsync(buf);
+
+        // Slide size (default 16:9 widescreen).
+        let w = 12192000; let h = 6858000;
+        if (zip.files['ppt/presentation.xml']) {
+          const px = await zip.files['ppt/presentation.xml'].async('string');
+          const m = /<p:sldSz[^>]*cx="(\d+)"[^>]*cy="(\d+)"/.exec(px);
+          if (m) { w = +m[1]; h = +m[2]; }
+        }
+        // Theme colours (first theme is enough for our decks).
+        let theme = {};
+        const themeName = Object.keys(zip.files).find((n) => /^ppt\/theme\/theme\d+\.xml$/i.test(n));
+        if (themeName) theme = parseThemeColors(await zip.files[themeName].async('string'));
+
+        const names = Object.keys(zip.files)
+          .filter((n) => /^ppt\/slides\/slide\d+\.xml$/i.test(n))
+          .sort((a, b) => pptxSlideNo(a) - pptxSlideNo(b));
+
+        const bgCache = {};
+        const slides = [];
+        for (const n of names) {
+          /* eslint-disable no-await-in-loop */
+          const xml = await zip.files[n].async('string');
+          const { rels } = await loadRels(zip, n);
+          // Resolve referenced media to data URLs.
+          const mediaUrls = {};
+          for (const [, target] of Object.entries(rels)) {
+            if (!/\.(png|jpe?g|gif|bmp|svg|webp)$/i.test(target) || mediaUrls[target] || !zip.files[target]) continue;
+            const ext = target.split('.').pop().toLowerCase();
+            const b64 = await zip.files[target].async('base64');
+            mediaUrls[target] = `data:${MEDIA_MIME[ext] || 'image/png'};base64,${b64}`;
+          }
+          const bg = await resolveBg(zip, xml, n, theme, bgCache);
+          const { shapes, title, bullets } = parseSlideShapes(xml, theme, rels, mediaUrls);
+          slides.push({ bg: bg || '#ffffff', shapes, title, bullets });
+          /* eslint-enable no-await-in-loop */
+        }
+        if (!cancelled) setDeck({ w, h, slides });
+      } catch {
+        if (!cancelled) { setFailed(true); setDeck({ w: 1, h: 1, slides: [] }); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [url]);
+
+  const plain = useMemo(() => {
+    if (!deck) return '';
+    return deck.slides.map((s, i) => {
+      const head = `Slide ${i + 1}${s.title ? ` — ${s.title}` : ''}`;
+      const body = s.bullets.map((b) => `${'  '.repeat(b.level)}• ${b.text}`).join('\n');
+      return body ? `${head}\n${body}` : head;
+    }).join('\n\n');
+  }, [deck]);
+
+  const slideHpt = deck ? deck.h / EMU_PER_PT : 540;
+  const renderRun = (run, ri, fg) => {
+    if (run.br) return <br key={ri} />;
+    const style = {};
+    if (run.color || fg) style.color = run.color || fg;
+    if (run.szPt) style.fontSize = `${(run.szPt / slideHpt) * 100}cqh`;
+    if (run.bold) style.fontWeight = 700;
+    if (run.italic) style.fontStyle = 'italic';
+    if (run.font) style.fontFamily = `"${run.font}", Georgia, "Segoe UI", sans-serif`;
+    return <span key={ri} style={style}>{run.text}</span>;
+  };
+
+  return (
+    <div className="dv-docview">
+      <div className="dv-docview-toolbar">
+        <div className="dv-docview-seg" role="group" aria-label="Presentation view mode">
+          <button type="button" className={`dv-docview-toggle${mode === 'render' ? ' is-active' : ''}`} onClick={() => setMode('render')} aria-pressed={mode === 'render'}>Slides</button>
+          <button type="button" className={`dv-docview-toggle${mode === 'plain' ? ' is-active' : ''}`} onClick={() => setMode('plain')} aria-pressed={mode === 'plain'}>Outline</button>
+        </div>
+        {mode === 'render' && deck && deck.slides.length > 0 && <ReconPill />}
+        {deck && deck.slides.length > 0 && (
+          <span className="dv-pptx-count">{deck.slides.length} slide{deck.slides.length === 1 ? '' : 's'}</span>
+        )}
+        {mode === 'render' && onExportPdf && deck && deck.slides.length > 0 && (
+          <>
+            <div className="dv-docview-spacer" />
+            <ExportPdfButton getRoot={() => pptxRef.current} kind="pptx" onExport={onExportPdf} />
+          </>
+        )}
+      </div>
+      <div className="dv-docview-body" ref={bodyRef}>
+        {deck === null ? (
+          <div className="dv-loading">Reading presentation…</div>
+        ) : failed ? (
+          <p className="dv-docx-error">Couldn’t read the presentation.</p>
+        ) : mode === 'plain' ? (
+          <pre className="dv-docview-plain">{plain || 'This presentation is empty.'}</pre>
+        ) : deck.slides.length === 0 ? (
+          <p className="dv-docx-error">This presentation has no slides.</p>
+        ) : (
+          <div className="dv-ppx" ref={pptxRef}>
+            {deck.slides.map((s, i) => {
+              const fg = readableOn(s.bg);
+              return (
+                <div className="dv-ppx-slide" key={i} style={{ aspectRatio: `${deck.w} / ${deck.h}`, background: s.bg, color: fg }}>
+                  {s.shapes.map((sh, k) => {
+                    // Explicit geometry when present; otherwise a sensible
+                    // fallback box by role (placeholders that inherit their
+                    // position from the layout carry no xfrm in the slide XML).
+                    let box;
+                    if (sh.geo) {
+                      box = {
+                        left: `${emuPct(sh.geo.x, deck.w)}%`,
+                        top: `${emuPct(sh.geo.y, deck.h)}%`,
+                        width: `${emuPct(sh.geo.w, deck.w)}%`,
+                        height: `${emuPct(sh.geo.h, deck.h)}%`,
+                      };
+                    } else if (sh.type === 'text') {
+                      box = sh.role === 'title'
+                        ? { left: '6%', top: '6%', width: '88%', height: '22%' }
+                        : { left: '7%', top: '31%', width: '86%', height: '63%' };
+                    } else {
+                      return null;
+                    }
+                    if (sh.type === 'pic') {
+                      return (
+                        <div className="dv-ppx-shape" key={k} style={box}>
+                          {sh.src && <img src={sh.src} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />}
+                        </div>
+                      );
+                    }
+                    const justify = sh.anchor === 'ctr' ? 'center' : sh.anchor === 'b' ? 'flex-end' : 'flex-start';
+                    return (
+                      <div className="dv-ppx-shape dv-ppx-text" key={k} style={{ ...box, background: sh.fill || undefined, justifyContent: justify }}>
+                        {sh.paras.map((p, pi) => (
+                          <p
+                            key={pi}
+                            className="dv-ppx-p"
+                            style={{ textAlign: p.algn === 'ctr' ? 'center' : p.algn === 'r' ? 'right' : p.algn === 'just' ? 'justify' : 'left', paddingLeft: p.bullet ? `${1 + p.level}em` : undefined, textIndent: p.bullet ? '-1em' : undefined }}
+                          >
+                            {p.bullet && <span className="dv-ppx-bu" style={{ color: fg }}>{p.bullet} </span>}
+                            {p.runs.map((r, ri) => renderRun(r, ri, fg))}
+                          </p>
+                        ))}
+                      </div>
+                    );
+                  })}
+                  <span className="dv-ppx-num" aria-hidden="true">{i + 1}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <PageCounter info={slideInfo} show={mode === 'render'} label="slides" />
+    </div>
+  );
+}
+
 function DocPane({ file, onWhatsAppDetected, sidePanelSlot = null, sideTabsSlot = null }) {
   const { kind, mime } = useMemo(() => classify(file.mime, file.name), [file.mime, file.name]);
   const url = useMemo(() => localUrlFor(file.path), [file.path]);
+  // While a saved version is being written to disk, show a spinner over the
+  // preview (the chat stays calm — no thinking bubble there).
+  const switchingVersion = !!useMultitoolAdvisor()?.switching;
   // Folder holding this file — a WhatsApp export's media siblings live here.
   const { dir, sep } = useMemo(() => dirAndSep(file.path), [file.path]);
-  const docxRef = useRef(null);
   // Legacy .doc extracted text: null = loading, string = body, '' = empty.
   const [docText, setDocText] = useState(null);
   const [docErr, setDocErr] = useState(null);
@@ -5343,27 +7481,16 @@ function DocPane({ file, onWhatsAppDetected, sidePanelSlot = null, sideTabsSlot 
     [file.name, mime, file.path],
   );
 
-  useEffect(() => {
-    if (kind !== 'docx' || !url) return undefined;
-    let cancelled = false;
-    const host = docxRef.current;
-    if (!host) return undefined;
-    (async () => {
-      try {
-        const blob = await (await fetch(url)).blob();
-        const { renderAsync } = await import('docx-preview');
-        if (cancelled) return;
-        host.innerHTML = '';
-        await renderAsync(blob, host, undefined, {
-          className: 'docx', inWrapper: true, breakPages: true,
-          ignoreLastRenderedPageBreak: true, experimental: true, useBase64URL: true,
-        });
-      } catch {
-        if (!cancelled && host) host.innerHTML = `<p class="dv-docx-error">Couldn't display the document.</p>`;
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [kind, url]);
+  // "Convert to PDF" — write the captured PDF next to the original (report.docx →
+  // report.pdf), overwriting a prior export. Throws on failure so the button can
+  // surface it. The new file shows up via notifyFilesChanged.
+  const exportPdfNextTo = useCallback(async (blob) => {
+    const base = String(file.name || 'document').replace(/\.[^./\\]+$/, '');
+    const target = `${base}.pdf`;
+    const wr = await localFolderApi.writeFiles({ dir, files: [{ filename: target, blob }] });
+    if (wr?.error || !wr?.results?.[0]?.ok) throw new Error(wr?.error || wr?.results?.[0]?.error || 'write_failed');
+    notifyFilesChanged();
+  }, [file.name, dir]);
 
   // Extract text from a legacy .doc (binary parsed in the main process).
   useEffect(() => {
@@ -5394,7 +7521,9 @@ function DocPane({ file, onWhatsAppDetected, sidePanelSlot = null, sideTabsSlot 
 
   let content;
   if (kind === 'docx') {
-    content = <div ref={docxRef} className="dv-docx" />;
+    content = <DocxRenderPane url={url} onExportPdf={exportPdfNextTo} />;
+  } else if (kind === 'pptx') {
+    content = <PptxRenderPane url={url} onExportPdf={exportPdfNextTo} />;
   } else if (kind === 'doc') {
     content = (docErr || docText === '') ? (
       <div className="dv-noview">
@@ -5410,7 +7539,7 @@ function DocPane({ file, onWhatsAppDetected, sidePanelSlot = null, sideTabsSlot 
       </div>
     );
   } else if (kind === 'sheet') {
-    content = <SpreadsheetPane file={previewFile} url={url} />;
+    content = <SpreadsheetPane file={previewFile} url={url} onExportPdf={exportPdfNextTo} />;
   } else if (kind === 'text') {
     content = <DocTextPane file={previewFile} url={url} dir={dir} sep={sep} onWhatsAppDetected={onWhatsAppDetected} />;
   } else if (kind === 'other') {
@@ -5427,6 +7556,11 @@ function DocPane({ file, onWhatsAppDetected, sidePanelSlot = null, sideTabsSlot 
 
   return (
     <div className={bodyClass}>
+      {switchingVersion && (
+        <div className="dv-preview-loading" role="status" aria-label="Loading version">
+          <span className="dv-preview-spinner" aria-hidden="true" />
+        </div>
+      )}
       {isMedia ? (
         <MediaOcrPane file={{ ...previewFile, path: file.path }} url={url} kind={kind} sidePanelSlot={sidePanelSlot} sideTabsSlot={sideTabsSlot} />
       ) : isAudio ? (
@@ -5528,95 +7662,14 @@ const SmallTileGlyph = (
 const LargeTileGlyph = (
   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
 );
-// Refresh glyph mirroring the main app's pane-chrome refresh button (SplitView).
-const DvRefreshGlyph = (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
-);
-
-// Pane chrome IDENTICAL to the main app's SplitView pane chrome: a refresh
-// button + title + "· description" on the left and a destination dropdown (the
-// open-documents picker) on the right. `extra` renders just left of the
-// dropdown (e.g. the Recently-open icon-size slider); `row2Ref` is a portal
-// target where an embedded page's toolbar renders as a merged 2nd row.
-// `tabsRef` is a portal target inside the topbar — a pane portals its side-panel
-// tab strip (Text extraction / AI captions / AI advisor) into it, so the tabs
-// live IN the chrome instead of as a separate row below it. When set, the tabs
-// take the row (the title/description are dropped).
-function DvChrome({ title, desc = null, onRefresh = null, extra = null, row2Ref = null, tabsRef = null }) {
-  return (
-    <div className="dv-chrome">
-      <div className={`dv-chrome-row${tabsRef ? ' dv-chrome-row--tabs' : ''}`}>
-        {onRefresh && (
-          <Tooltip content="Refresh"><button type="button" className="dv-chrome-refresh" onClick={() => onRefresh()} aria-label="Refresh">{DvRefreshGlyph}</button></Tooltip>
-        )}
-        {tabsRef ? (
-          <div className="dv-chrome-tabs" ref={tabsRef} />
-        ) : (
-          <>
-            <div className="dv-chrome-head">
-              <span className="dv-chrome-title">{title}</span>
-              {desc && <span className="dv-chrome-dot" aria-hidden="true">·</span>}
-              {desc && <span className="dv-chrome-desc">{desc}</span>}
-            </div>
-            <div className="dv-chrome-spacer" />
-            {extra}
-          </>
-        )}
-      </div>
-      {row2Ref && <div className="dv-chrome-row2" ref={row2Ref} />}
-    </div>
-  );
-}
-
-// Files card — wraps the embedded Files browser in a PaneChromeProvider so its
-// toolbar (folder nav + breadcrumb + search) portals up into the chrome's 2nd
-// row, exactly like the main app (one merged bar instead of a separate pathbar).
-// The chrome refresh (left of the title) re-lists the embedded browser.
-function DvFilesCard() {
-  const setPortalEl = usePaneChromePortalRef();
-  return (
-    <div className="dv-files-browse">
-      <DvChrome title="Files" onRefresh={() => notifyFilesChanged()} row2Ref={setPortalEl} />
-      <div className="dv-files-browse-body"><ProjectFiles embedded /></div>
-    </div>
-  );
-}
-
-// ── Tabbed viewer ───────────────────────────────────────────────────────
+// ── Document viewer window ───────────────────────────────────────────────
 export default function DocViewer() {
   const [params] = useSearchParams();
-
-  // Files browser footer is resizable: a horizontal handle at its top edge.
-  const [footerHeight, setFooterHeight] = useState(340);
-  const beginFooterResize = (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const startY = e.clientY;
-    const startH = footerHeight;
-    document.body.classList.add('dv-row-resizing');
-    const onMove = (ev) => {
-      const next = startH + toLayoutPx(startY - ev.clientY);
-      const cap = Math.max(200, window.innerHeight - 220);
-      setFooterHeight(Math.min(cap, Math.max(160, next)));
-    };
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      document.body.classList.remove('dv-row-resizing');
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  };
-
-  // Recently-open column (full-height, left of everything): a scrollable column
-  // of file tiles, at a fixed persisted width.
-  const RAIL_MIN = 150;
-  const RAIL_MAX = 460;
-  const railScrollRef = useRef(null);
-  const [railW] = useState(() => {
-    const w = readDvLayout().railW;
-    return typeof w === 'number' ? Math.min(RAIL_MAX, Math.max(RAIL_MIN, w)) : 230;
-  });
+  // Opened from Files' "New file": the document is empty and the advisor should
+  // generate its content. `regenTick` re-keys the pane after each generation so
+  // the (now-filled) file is re-read from disk.
+  const wantsGenerate = params.get('generate') === '1';
+  const [regenTick, setRegenTick] = useState(0);
 
   // The right card is a slot: each file's pane portals its tabbed side panel
   // (Text extraction / AI captions / AI advisor) into it. Width persisted.
@@ -5641,7 +7694,8 @@ export default function DocViewer() {
     let lastW = startW;
     document.body.classList.add('dv-ocr-resizing');
     const onMove = (ev) => {
-      lastW = Math.min(ADVISOR_MAX, Math.max(ADVISOR_MIN, startW + toLayoutPx(startX - ev.clientX)));
+      // Panel sits on the LEFT — dragging the gutter rightward widens it.
+      lastW = Math.min(ADVISOR_MAX, Math.max(ADVISOR_MIN, startW + toLayoutPx(ev.clientX - startX)));
       setAdvisorW(lastW);
     };
     const onUp = () => {
@@ -5654,30 +7708,15 @@ export default function DocViewer() {
     window.addEventListener('mouseup', onUp);
   };
 
-  // Tabs are keyed by the file's on-disk path (re-opening the same file just
-  // re-activates its tab). The first tab comes from the boot query string.
+  // This window shows exactly one file (each opened file gets its own window).
+  // It's still modelled as a one-entry `tabs` list so the rename / file-removed
+  // handlers below can keep operating on it by path.
   const [tabs, setTabs] = useState(() => {
     const path = params.get('path');
     if (!path) return [];
     return [{ id: path, path, name: params.get('name') || 'Document', mime: params.get('mime') || '' }];
   });
   const [activeId, setActiveId] = useState(() => params.get('path') || null);
-
-  // Subsequent double-clicks in the Files page push files here → new tabs. The
-  // just-opened file goes to the FRONT of the list (most-recently-opened first);
-  // an already-open file is moved to the front, keeping its tab object (so any
-  // rename is preserved).
-  useEffect(() => onDocViewerAddFile((file) => {
-    if (!file?.path) return;
-    const id = file.path;
-    setTabs((prev) => {
-      const existing = prev.find((t) => t.id === id);
-      const rest = prev.filter((t) => t.id !== id);
-      const entry = existing || { id, path: file.path, name: file.name || 'Document', mime: file.mime || '' };
-      return [entry, ...rest];
-    });
-    setActiveId(id);
-  }), []);
 
   // A Files tab just trashed/deleted file(s) — close any tab showing one. A
   // folder delete arrives as the folder path, so also close tabs inside it.
@@ -5717,6 +7756,19 @@ export default function DocViewer() {
     notifyFilesChanged();
   }, []);
 
+  // A generate-time rename (wildcard → real extension). Unlike renameTab, the
+  // rename already happened on disk (the advisor did it) AND we keep the tab id
+  // stable — only the path / name / mime change — so the advisor's in-progress
+  // conversation (keyed on the tab id) survives the re-extension.
+  const applyGeneratedRename = useCallback((tabId, newName, newMime) => {
+    setTabs((prev) => prev.map((t) => {
+      if (t.id !== tabId) return t;
+      const { dir, sep } = dirAndSep(t.path);
+      return { ...t, path: `${dir}${sep}${newName}`, name: newName, mime: newMime || t.mime };
+    }));
+    notifyFilesChanged();
+  }, []);
+
   const closeTab = (id) => {
     setTabs((prev) => {
       const idx = prev.findIndex((t) => t.id === id);
@@ -5734,12 +7786,6 @@ export default function DocViewer() {
     });
   };
 
-  // Activate a tab — used when clicking a Recently-open tile. Selection only;
-  // the list order is left untouched (clicking a tile no longer rearranges it).
-  const activateTab = useCallback((id) => {
-    setActiveId(id);
-  }, []);
-
   // Tabs whose content parsed as a WhatsApp conversation (reported by the
   // text pane) — their sidebar tiles show the WhatsApp mark.
   const [waTabs, setWaTabs] = useState(() => new Set());
@@ -5747,17 +7793,11 @@ export default function DocViewer() {
     setWaTabs((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
   }, []);
 
-  // Bumped to remount (reload) the active document pane — drives the chrome
-  // refresh buttons on the Documents / Multitool cards.
-  const [reloadKey, setReloadKey] = useState(0);
-  const reloadActive = useCallback(() => setReloadKey((k) => k + 1), []);
-
-  // All four windows (Documents / Multitool / Recently open / Files) are shown
-  // at once, but exactly ONE is "selected" (focused) — like the main app's
-  // split-view panes. The windows look identical regardless; the only effect of
-  // selection is that ONLY the selected window shows its footer (chat stats /
-  // advisor composer / Files action bar). See the `.is-selected` footer-gating
-  // rules in DocViewer.css.
+  // Both cards (Documents / Multitool) are shown at once, but exactly ONE is
+  // "selected" (focused) — like the main app's split-view panes. The cards look
+  // identical regardless; the only effect of selection is that ONLY the selected
+  // card shows its footer (advisor composer). See the `.is-selected` footer-
+  // gating rules in DocViewer.css.
   const [selectedWindow, setSelectedWindow] = useState('documents');
   // Selection is wired via a NATIVE capture-phase listener on the page (not a
   // React onMouseDown) because each window's interactive content is PORTALLED
@@ -5777,63 +7817,82 @@ export default function DocViewer() {
     return () => el.removeEventListener('mousedown', onDown, true);
   }, []);
 
+  // Advisor-card cursor spotlight. A CALLBACK ref (not a useRef + [] effect): the
+  // aside only mounts once a file is active (there's an early `return` above for
+  // the empty state) and it can remount when the file changes, so an effect that
+  // reads the ref once on mount would attach to a null node and never re-try —
+  // leaving the glow frozen at its 50%/50% default. The callback re-runs on every
+  // mount/unmount, so the listener tracks the live node.
+  // It MUST be a NATIVE listener: the side panel is createPortal'd into
+  // .dv-advisor-slot, so React synthetic events bubble along the *React* tree
+  // (where the portalled content's parent is the panel, NOT this <aside>) and
+  // never reach a synthetic handler here — the cursor would only register on the
+  // card's own border. Native events follow the real DOM tree, where the portal
+  // nodes are genuine descendants of the aside, so this fires everywhere inside.
+  const advisorSpotCleanup = useRef(null);
+  const advisorCardRef = useCallback((node) => {
+    if (advisorSpotCleanup.current) { advisorSpotCleanup.current(); advisorSpotCleanup.current = null; }
+    if (!node) return;
+    const onMove = (e) => {
+      const r = node.getBoundingClientRect();
+      // Layout-space CSS lengths (identity at base zoom 1; toLayoutPx compensates
+      // the web display-scale).
+      node.style.setProperty('--spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
+      node.style.setProperty('--spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
+    };
+    node.addEventListener('mousemove', onMove);
+    advisorSpotCleanup.current = () => node.removeEventListener('mousemove', onMove);
+  }, []);
+
   const active = tabs.find((t) => t.id === activeId) || tabs[0] || null;
 
   if (!active) return <div className="dv-page dv-page-empty">No file to display.</div>;
 
+  // Arm the AI Generate flow either when it was opened with ?generate=1, OR when
+  // the active file is an extensionless "wildcard" (a freshly-created file whose
+  // real type is decided by which version you pick in the chat) — so opening one
+  // later still drives the document generator.
+  const generateArmed = wantsGenerate || extOf(active.name) === '';
+
+  // Audio drops the document card's rounded-corner frame so the player +
+  // lyrics read as an open section rather than a boxed card.
+  const isAudioDoc = classify(active.mime, active.name).kind === 'audio';
+
   return (
-    <MultitoolAdvisorProvider file={active} footSlot={footSlot}>
+    <MultitoolAdvisorProvider
+      file={active}
+      footSlot={footSlot}
+      generateMode={generateArmed}
+      onDocWritten={() => setRegenTick((t) => t + 1)}
+      onRenameFile={(newName, newMime) => applyGeneratedRename(active.id, newName, newMime)}
+    >
     <div className="dv-page" ref={pageRef}>
       <CursorSpotlight contain className="dv-cursor-spotlight" />
 
-      {/* Body: the full-height "Recently open" column on the left, then the
-          right column (Documents + Multitool on top, Files browser below). */}
+      {/* Body: a single column holding the Documents + Multitool cards. Each
+          file opens in its own window, so there's no recently-open rail or
+          embedded Files browser here. */}
       <div className="dv-body-row">
-        {/* Open-file tiles — a bare full-height column (no section chrome); each
-            tile is a Files-page-style item; clicking one makes it active. */}
-        <div
-          className={`dv-files-recent${selectedWindow === 'recent' ? ' is-selected' : ''}`}
-          data-dvwin="recent"
-        >
-          <div className="dv-files-recent-list">
-            <div className="dv-files-recent-scroll" ref={railScrollRef}>
-              {tabs.map((t) => (
-                <FileTabItem
-                  key={t.id}
-                  tab={t}
-                  isActive={t.id === activeId}
-                  isWhatsApp={waTabs.has(t.id)}
-                  onActivate={() => activateTab(t.id)}
-                  onClose={() => closeTab(t.id)}
-                  onRename={renameTab}
-                />
-              ))}
-            </div>
-            <SidebarScrollbar scrollRef={railScrollRef} refreshKey={tabs.length} />
-          </div>
-        </div>
-
-        {/* Right column — Documents + Multitool on top, Files browser below. */}
+        {/* Right column — Documents + Multitool. */}
         <div className="dv-right-col">
-          {/* Main row: the document card + the Multitool card side by side. */}
+          {/* Main row: the Multitool panel (left) + the document card (right). */}
           <div className="dv-main-row">
-            {/* Document card — "Documents" chrome + the active file's body. */}
-            <div
-              className={`dv-doc-card${selectedWindow === 'documents' ? ' is-selected' : ''}`}
-              data-dvwin="documents"
+            {/* Multitool panel — hosts the active file's tabbed side panel,
+                portalled into the slot below by its pane. No chrome header. */}
+            <aside
+              ref={advisorCardRef}
+              className={`dv-advisor-card${selectedWindow === 'multitool' ? ' is-selected' : ''}`}
+              style={{ width: `${advisorW}px` }}
+              data-dvwin="multitool"
             >
-              <DvChrome title="Documents" desc={active?.name} onRefresh={reloadActive} />
-              <div className="dv-section-body">
-                <div className="dv-section-pane dv-doc">
-                  {/* Remount per active tab (keyed, + reloadKey so the chrome
-                      refresh reloads it). Its side panel (Text extraction / AI
-                      captions / AI advisor) portals into the Multitool card. */}
-                  <DocPane key={`${active.id}:${reloadKey}`} file={active} sidePanelSlot={sidePanelSlot} sideTabsSlot={sideTabsSlot} onWhatsAppDetected={() => markActiveWhatsApp(active.id)} />
-                </div>
-              </div>
-            </div>
+              <div className="dv-advisor-slot" ref={setSidePanelSlot} />
+              {/* Single footer shared across all Multitool tabs — each active
+                  tab portals its action (Extract text / Generate captions /
+                  advisor composer) into this slot. */}
+              <div className="dv-advisor-footerslot" ref={setFootSlot} />
+            </aside>
 
-            {/* Draggable gutter between the document and the side panel. */}
+            {/* Draggable gutter between the side panel and the document. */}
             <div
               className="dv-advisor-resize"
               onMouseDown={beginAdvisorResize}
@@ -5842,39 +7901,23 @@ export default function DocViewer() {
               aria-label="Resize side panel"
             />
 
-            {/* Multitool card — hosts the active file's tabbed side panel,
-                portalled into the slot below by its pane. */}
-            <aside
-              className={`dv-advisor-card${selectedWindow === 'multitool' ? ' is-selected' : ''}`}
-              style={{ width: `${advisorW}px` }}
-              data-dvwin="multitool"
-            >
-              <DvChrome title="Multitool" desc={active?.name} onRefresh={reloadActive} />
-              <div className="dv-advisor-slot" ref={setSidePanelSlot} />
-              {/* Single footer shared across all Multitool tabs — each active
-                  tab portals its action (Extract text / Generate captions /
-                  advisor composer) into this slot. */}
-              <div className="dv-advisor-footerslot" ref={setFootSlot} />
-            </aside>
-          </div>
-
-          {/* Files browser — its own rounded card at the bottom of the column. */}
-          <footer
-            className={`dv-files-footer${selectedWindow === 'files' ? ' is-selected' : ''}`}
-            style={{ height: `${footerHeight}px` }}
-            data-dvwin="files"
-          >
+            {/* Document card — the active file's body. No chrome header. */}
             <div
-              className="dv-footer-resize"
-              onMouseDown={beginFooterResize}
-              role="separator"
-              aria-orientation="horizontal"
-              aria-label="Resize files panel height"
-            />
-            <PaneChromeProvider>
-              <DvFilesCard />
-            </PaneChromeProvider>
-          </footer>
+              className={`dv-doc-card${selectedWindow === 'documents' ? ' is-selected' : ''}${isAudioDoc ? ' is-audio-doc' : ''}`}
+              data-dvwin="documents"
+            >
+              <div className="dv-section-body">
+                <div className="dv-section-pane dv-doc">
+                  {/* Keyed by the file path. Its side panel (Text extraction /
+                      AI captions / AI advisor) portals into the Multitool panel. */}
+                  <DocPane key={`${active.id}:${regenTick}`} file={active} sidePanelSlot={sidePanelSlot} sideTabsSlot={sideTabsSlot} onWhatsAppDetected={() => markActiveWhatsApp(active.id)} />
+                </div>
+                {/* Clarifying questions now render in the shared AskUserPanel
+                    directly above the composer (see MultitoolComposer), not as an
+                    overlay over the document area. */}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

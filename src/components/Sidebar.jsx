@@ -1,17 +1,34 @@
-import React, { useEffect, useState } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
-import { useSplitView } from '../context/SplitViewContext';
-import { openExternal } from '../lib/platform';
+import { openExternal, listDocViewerTabs, onDocViewerTabs, focusDocViewerTab, closeDocViewerTab } from '../lib/platform';
 import { supabase } from '../lib/supabaseClient';
+import { toLayoutPx } from '../lib/appZoom';
 import Tooltip from './Tooltip';
 import './Sidebar.css';
 
 // External documentation site, opened in the user's browser (formerly the
 // launch hub's "Documentation" footer link).
 const DOCS_URL = 'https://docvex.ro/';
+
+// The marketing site's account dashboard. The footer account button opens this
+// in the user's browser, handing the current Supabase session across in the URL
+// fragment (dvx_at / dvx_rt) so the site adopts it and lands on the dashboard.
+const ACCOUNT_DASHBOARD_URL = 'https://docvex.ro/account.html';
+
+// Display-name resolution — same precedence used across the app.
+function getDisplayName(user) {
+  const meta = user?.user_metadata;
+  if (meta?.full_name) return meta.full_name;
+  if (meta?.name) return meta.name;
+  if (user?.email) {
+    const at = user.email.indexOf('@');
+    return at > 0 ? user.email.slice(0, at) : user.email;
+  }
+  return 'Account';
+}
 
 // App nav — a horizontal bar pinned directly under the frameless title bar.
 // (Formerly a vertical left rail; moved to the top per product direction.)
@@ -33,16 +50,6 @@ const NewspaperIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M4 22h14a2 2 0 0 0 2-2V4a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v16a2 2 0 0 1-2-2V8"/>
     <path d="M8 7h6M8 11h6M8 15h4"/>
-  </svg>
-);
-
-// Split-layout glyph — the "Project" tab that restores the workspace split
-// after a personal page took over fullscreen.
-const LayoutIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="18" height="18" rx="2"/>
-    <line x1="14" y1="3" x2="14" y2="21"/>
-    <line x1="14" y1="12" x2="21" y2="12"/>
   </svg>
 );
 
@@ -90,6 +97,15 @@ const SignInIcon = (
   </svg>
 );
 
+// Sign-out glyph — door + arrow leaving (the footer account row's sign-out).
+const SignOutIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+    <polyline points="16 17 21 12 16 7"/>
+    <line x1="21" y1="12" x2="9" y2="12"/>
+  </svg>
+);
+
 // Shield glyph — the Developer Console (Admin) destination. Only shown to
 // app admins (the `app_admins` allowlist, probed via the is_app_admin RPC).
 const AdminIcon = (
@@ -106,12 +122,71 @@ const DocsIcon = (
   </svg>
 );
 
+// Document glyph (page with a folded corner + text lines) — each open
+// document-viewer window in the "Open files" section.
+const DocFileIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
+    <polyline points="14 3 14 8 19 8"/>
+    <line x1="9" y1="13" x2="15" y2="13"/>
+    <line x1="9" y1="17" x2="13" y2="17"/>
+  </svg>
+);
+
+// × glyph — the per-row close button on an open-file entry.
+const CloseGlyph = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="6" y1="6" x2="18" y2="18"/>
+    <line x1="18" y1="6" x2="6" y2="18"/>
+  </svg>
+);
+
+// Folder glyph — the project Files surface.
+const FilesIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+  </svg>
+);
+
+// Speech-bubble glyph — the project Chat surface.
+const ChatIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 9 9 0 0 1-4-1L3 21l1.5-4a8.5 8.5 0 0 1 4-11.5 8.38 8.38 0 0 1 12.5 6z"/>
+  </svg>
+);
+
+// Spark glyph — the project AI surface.
+const AiIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/>
+    <path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z"/>
+  </svg>
+);
+
 export default function Sidebar() {
-  const { session } = useAuth();
+  const { session, logout } = useAuth();
   const { unreadCount } = useNotifications();
-  const { pickerOpen, closePicker } = useSelectedProject();
-  const { pathname } = useLocation();
-  const navigate = useNavigate();
+  const { selectedProjectId } = useSelectedProject();
+
+  // Account identity for the footer row (avatar + name + email).
+  const user = session?.user || null;
+  const accountAvatarUrl = user?.user_metadata?.avatar_url || null;
+  const accountName = getDisplayName(user);
+  const accountEmail = user?.email || '';
+  const accountInitial = (user?.email || '?').charAt(0).toUpperCase();
+
+  // Open the marketing-site account dashboard in the browser, handing the
+  // session across in the URL fragment (same flow the title bar used before
+  // the account control moved here).
+  const openAccount = () => {
+    let url = ACCOUNT_DASHBOARD_URL;
+    const at = session?.access_token;
+    const rt = session?.refresh_token;
+    if (at && rt) {
+      url += '#dvx_at=' + encodeURIComponent(at) + '&dvx_rt=' + encodeURIComponent(rt);
+    }
+    openExternal(url);
+  };
 
   // Whether the signed-in user is an app admin (the `app_admins` allowlist) —
   // gates the Developer Console (Admin) tab. Probed once per session via the
@@ -126,147 +201,235 @@ export default function Sidebar() {
     supabase.rpc('is_app_admin').then(({ data }) => { if (alive) setIsAdmin(data === true); });
     return () => { alive = false; };
   }, [userId]);
-  // Split view: these personal destinations open FULLSCREEN — clicking one
-  // collapses any split layout back to a single window. focusedPanePath drives
-  // the active highlight (null in single mode → NavLink's own root match).
-  // `restoreSplit` powers the "Project" tab (back to the workspace layout).
-  const { layout, setLayout, restoreSplit, setFocusedPane, focusedPanePath } = useSplitView();
 
-  // Active state for a tab. With a secondary pane focused, match against that
-  // window's path; otherwise defer to NavLink's own root match.
-  const paneTabActive = (to, end, isActive) => {
-    if (focusedPanePath == null) return isActive;
-    if (end) return focusedPanePath === to;
-    return focusedPanePath === to || focusedPanePath.startsWith(`${to}/`);
-  };
+  // Open document-viewer windows — each file double-clicked in the Files page
+  // opens its own dedicated viewer window (one file = one window). Main keeps a
+  // registry and pushes the current list here so the "Open files" section can
+  // list them and refocus / close one. Empty on web (no extra windows).
+  const [docTabs, setDocTabs] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    listDocViewerTabs().then((list) => { if (alive) setDocTabs(Array.isArray(list) ? list : []); });
+    const off = onDocViewerTabs((list) => setDocTabs(Array.isArray(list) ? list : []));
+    return () => { alive = false; off(); };
+  }, []);
 
-  // Open the destination fullscreen: collapse any split layout to a single
-  // window and focus the primary pane, then let the NavLink navigate the root
-  // router normally (single mode renders the root Outlet full-area). Also
-  // closes the project picker if it was open.
-  const handleTabClick = () => {
-    closePicker();
-    setFocusedPane(0);
-    setLayout('single');
-  };
+  // Project surfaces — shown only when a project is selected (the workspace
+  // navigation that used to live in the in-content rail). These routes read
+  // the active project from SelectedProjectContext.
+  const projectItems = selectedProjectId ? [
+    { to: '/files', label: 'Files', icon: FilesIcon },
+    { to: '/chat', label: 'Chat', icon: ChatIcon },
+    { to: '/ai', label: 'AI', icon: AiIcon },
+  ] : [];
 
-  // "Project" tab — restore the workspace split. If we're leaving a personal
-  // page, point the primary pane at a project surface so it doesn't render the
-  // personal page inside a split pane (the tri layout re-seeds to /chat itself).
-  const PERSONAL_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/admin', '/debug', '/account', '/mail', '/projects']);
-  const handleProjectClick = () => {
-    closePicker();
-    setFocusedPane(0);
-    restoreSplit();
-    if (PERSONAL_ROUTES.has(pathname)) navigate('/files');
-  };
-
-  // Personal destinations. Settings is signed-in only (matches where the gear
-  // used to live); Debug is dev-only (import.meta.env.DEV is false in
-  // packaged + web builds).
-  const items = [
+  // Personal destinations — the user's own feeds, always available.
+  const personalItems = [
     {
       to: '/', label: 'Activity', icon: ActivityIcon, end: true,
       badge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : String(unreadCount)) : null,
     },
     { to: '/newsletter', label: 'Newsletter', icon: NewspaperIcon, end: true },
     { to: '/versions', label: 'Versions', icon: VersionsIcon, end: true },
+  ];
+
+  // System destinations. Settings is signed-in only (matches where the gear
+  // used to live); Admin is app-admin only (is_app_admin probe above); Debug
+  // is dev-only (import.meta.env.DEV is false in packaged + web builds).
+  const systemItems = [
     ...(session ? [{ to: '/settings', label: 'Settings', icon: GearIcon, end: true }] : []),
+    ...(session && isAdmin ? [{ to: '/admin', label: 'Admin', icon: AdminIcon, end: true }] : []),
     ...(import.meta.env.DEV ? [{ to: '/debug', label: 'Debug', icon: BugIcon, end: true }] : []),
   ];
 
+  // Render a single NavLink nav-item from a descriptor (shared by every
+  // category group).
+  const renderNavItem = ({ to, label, icon, end, badge }) => (
+    <NavLink
+      key={to}
+      to={to}
+      end={end}
+      className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+    >
+      <span className="icon">
+        {icon}
+        {badge && <span className="nav-badge" aria-hidden="true" />}
+      </span>
+      <span className="label nav-label-row">
+        {label}
+        {badge && <span className="nav-badge-text">{badge}</span>}
+      </span>
+    </NavLink>
+  );
+
+  // Cursor-following spotlight: write the pointer position (sidebar-relative,
+  // layout px) into CSS vars on this node so the `.sidebar::before` radial glow
+  // tracks the mouse. Scoped to the sidebar element, so the per-move style write
+  // only invalidates this subtree (not the whole document).
+  // The nav button the cursor was last over — so we can clear its per-button
+  // spotlight coords when the pointer leaves it (otherwise a selected/active
+  // button's fill stays frozen at the last cursor position).
+  const lastItemRef = useRef(null);
+  const clearItemSpot = (item) => {
+    if (!item) return;
+    item.style.removeProperty('--item-spot-x');
+    item.style.removeProperty('--item-spot-y');
+  };
+  const onSpotMove = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    e.currentTarget.style.setProperty('--spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
+    e.currentTarget.style.setProperty('--spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
+    // Feed the nav button under the cursor its OWN (button-relative) spotlight
+    // coords so its hover / selection fill brightens where the pointer is, in
+    // step with the rail glow. When the cursor moves off a button, reset that
+    // button so its fill recenters (falls back to the 50% default) instead of
+    // freezing at the last position.
+    const item = e.target.closest('.nav-item');
+    if (item !== lastItemRef.current) {
+      clearItemSpot(lastItemRef.current);
+      lastItemRef.current = item;
+    }
+    if (item) {
+      const ir = item.getBoundingClientRect();
+      item.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - ir.left)}px`);
+      item.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - ir.top)}px`);
+    }
+  };
+  const onSpotLeave = () => {
+    clearItemSpot(lastItemRef.current);
+    lastItemRef.current = null;
+  };
+
   return (
-    <nav className={`sidebar${pickerOpen ? ' picker-open' : ''}`}>
+    <nav className="sidebar" onMouseMove={onSpotMove} onMouseLeave={onSpotLeave}>
       <ul className="sidebar-nav">
-        {/* Hub — the projects launcher (the in-app surface that replaced the
-            old standalone launch hub). Pinned as the leftmost tab. */}
+        {/* ── Workspace — the projects launcher. ── */}
         {session && (
-          <li>
-            <NavLink
-              to="/projects"
-              end
-              className={({ isActive }) =>
-                `nav-item${paneTabActive('/projects', true, isActive) ? ' active' : ''}`
-              }
-              onClick={handleTabClick}
-            >
-              <span className="icon">{HubIcon}</span>
-              <span className="label nav-label-row">Hub</span>
-            </NavLink>
+          <li className="sidebar-cat">
+            <span className="sidebar-cat-label">Workspace</span>
+            <div className="sidebar-cat-items">
+              {/* Hub — the projects launcher (the in-app surface that replaced
+                  the old standalone launch hub). */}
+              <NavLink
+                to="/projects"
+                end
+                className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+              >
+                <span className="icon">{HubIcon}</span>
+                <span className="label nav-label-row">Hub</span>
+              </NavLink>
+            </div>
           </li>
         )}
-        {/* "Project" — restores the workspace split layout that a personal page
-            collapsed when it opened fullscreen. Active while a split is live. */}
-        <li>
-          <Tooltip content="Back to the project workspace">
-            <button
-              type="button"
-              className={`nav-item${layout !== 'single' ? ' active' : ''}`}
-              onClick={handleProjectClick}
-            >
-              <span className="icon">{LayoutIcon}</span>
-              <span className="label">Project</span>
-            </button>
-          </Tooltip>
+
+        {/* ── Personal — the user's own feeds. ── */}
+        <li className="sidebar-cat">
+          <span className="sidebar-cat-label">Personal</span>
+          <div className="sidebar-cat-items">
+            {personalItems.map(renderNavItem)}
+          </div>
         </li>
-        {items.map(({ to, label, icon, end, badge }) => (
-          <li key={to}>
-            <NavLink
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                `nav-item${paneTabActive(to, end, isActive) ? ' active' : ''}`
-              }
-              onClick={handleTabClick}
-            >
-              <span className="icon">
-                {icon}
-                {badge && <span className="nav-badge" aria-hidden="true" />}
-              </span>
-              <span className="label nav-label-row">
-                {label}
-                {badge && <span className="nav-badge-text">{badge}</span>}
-              </span>
-            </NavLink>
-          </li>
-        ))}
-        {/* Admin — the Developer Console. Only rendered for app admins (the
-            is_app_admin allowlist probe above), and sits next to Docs. */}
-        {session && isAdmin && (
-          <li>
-            <NavLink
-              to="/admin"
-              end
-              className={({ isActive }) =>
-                `nav-item${paneTabActive('/admin', true, isActive) ? ' active' : ''}`
-              }
-              onClick={handleTabClick}
-            >
-              <span className="icon">{AdminIcon}</span>
-              <span className="label">Admin</span>
-            </NavLink>
+
+        {/* ── Project — the selected project's surfaces (only when one is
+            picked); replaces the old in-content navigation rail. ── */}
+        {projectItems.length > 0 && (
+          <li className="sidebar-cat">
+            <span className="sidebar-cat-label">Project</span>
+            <div className="sidebar-cat-items">
+              {projectItems.map(renderNavItem)}
+            </div>
           </li>
         )}
-        {/* Documentation — external link to the website (opens in the browser),
-            not an in-app route, so it's a button rather than a NavLink. */}
-        <li>
-          <Tooltip content="Open the documentation site">
-            <button
-              type="button"
-              className="nav-item"
-              onClick={() => openExternal(DOCS_URL)}
-            >
-              <span className="icon">{DocsIcon}</span>
-              <span className="label">Docs</span>
-            </button>
-          </Tooltip>
+
+        {/* ── Open files — every open document-viewer window. Clicking a row
+            refocuses that window; the × closes it. Hidden when none are open
+            (and always on web, where viewers open in the same tab). ── */}
+        {docTabs.length > 0 && (
+          <li className="sidebar-cat">
+            <span className="sidebar-cat-label">Open files</span>
+            <div className="sidebar-cat-items">
+              {docTabs.map((t) => (
+                <div key={t.id} className="doc-tab-row">
+                  <Tooltip content={t.name}>
+                    <button
+                      type="button"
+                      className="nav-item doc-tab-main"
+                      onClick={() => focusDocViewerTab(t.id)}
+                    >
+                      <span className="icon">{DocFileIcon}</span>
+                      <span className="label doc-tab-name">{t.name}</span>
+                    </button>
+                  </Tooltip>
+                  <button
+                    type="button"
+                    className="doc-tab-close"
+                    onClick={() => closeDocViewerTab(t.id)}
+                    aria-label={`Close ${t.name}`}
+                  >
+                    {CloseGlyph}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </li>
+        )}
+
+        {/* ── System — settings, admin, docs. Pinned to the bottom of the rail. ── */}
+        <li className="sidebar-cat sidebar-cat--end">
+          <span className="sidebar-cat-label">System</span>
+          <div className="sidebar-cat-items">
+            {systemItems.map(renderNavItem)}
+            {/* Documentation — external link to the website (opens in the
+                browser), not an in-app route, so it's a button. */}
+            <Tooltip content="Open the documentation site">
+              <button
+                type="button"
+                className="nav-item"
+                onClick={() => openExternal(DOCS_URL)}
+              >
+                <span className="icon">{DocsIcon}</span>
+                <span className="label">Docs</span>
+              </button>
+            </Tooltip>
+          </div>
         </li>
       </ul>
 
       <div className="sidebar-footer">
-        {/* Account (signed in) lives in the title bar. The signed-out "Sign in"
-            CTA stays here for shell routes. */}
-        {!session && (
+        {/* Account — moved here from the title bar. Avatar + name + email,
+            with a sign-out button. The main button opens the account
+            dashboard. The signed-out "Sign in" CTA shows when there's no
+            session. */}
+        {session ? (
+          <div className="sidebar-account">
+            <button
+              type="button"
+              className="sidebar-account-main"
+              onClick={openAccount}
+              title="Open account"
+            >
+              <span className="sidebar-avatar-wrap">
+                {accountAvatarUrl
+                  ? <img className="sidebar-avatar" src={accountAvatarUrl} alt="" referrerPolicy="no-referrer" />
+                  : <span className="sidebar-avatar sidebar-avatar-fallback">{accountInitial}</span>}
+              </span>
+              <span className="sidebar-account-id">
+                <span className="sidebar-account-name">{accountName}</span>
+                {accountEmail && <span className="sidebar-account-email">{accountEmail}</span>}
+              </span>
+            </button>
+            <Tooltip content="Sign out">
+              <button
+                type="button"
+                className="sidebar-account-signout"
+                onClick={logout}
+                aria-label="Sign out"
+              >
+                {SignOutIcon}
+              </button>
+            </Tooltip>
+          </div>
+        ) : (
           <NavLink to="/auth" className="nav-item signin-btn">
             <span className="icon">{SignInIcon}</span>
             <span className="label">Sign in</span>

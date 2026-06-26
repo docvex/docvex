@@ -15,19 +15,42 @@
    bottom edge with no leftover vertical gap. */
 .activity-page {
   width: 100%;
-  height: calc(100 * var(--vh1) - 2rem);
-  margin-bottom: -2rem;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+  /* Whole page flows + scrolls inside the content shell's scroller (.sv-single
+     -scroll) — no inner scroll region — so the iOS-style compact masthead bar
+     (PageMasthead) can appear on scroll like Newsletter / Versions. */
+  padding-bottom: 60px;
 }
-.activity-page > .activity-header,
-.activity-page > .pmh,
-.activity-page > .activity-tabbar { flex: 0 0 auto; }
 
 /* The masthead replaces the old pinned header; trim its bottom margin so the
-   filter tab bar sits at the same rhythm it did under the old header. */
-.activity-page > .pmh .pmh-masthead { margin-bottom: 16px; }
+   filter tab bar sits at the same rhythm it did under the old header. The
+   masthead's divider line above the filters is dropped (per design). */
+.activity-page > .pmh .pmh-masthead { margin-bottom: 16px; border-bottom: none; }
+
+/* Filters mirrored into the on-scroll mini header (PageMasthead compactRight) —
+   single-row, compact, horizontally scrollable if they don't all fit. The strip
+   fills the bar height so each tab's active accent underline (border-bottom)
+   sits on the bar's bottom edge, exactly like the big header's tab strip. */
+.pmh-compact .pmh-compact-right:has(.activity-filters) { align-self: stretch; }
+.pmh-compact .activity-filters {
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  max-width: 100%;
+  align-items: stretch;
+  height: 100%;
+}
+.pmh-compact .activity-filters::-webkit-scrollbar { display: none; }
+.pmh-compact .activity-filter {
+  padding: 0 0.6rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.pmh-compact .activity-filter-count {
+  font-size: 0.65rem;
+  padding: 0.05rem 0.4rem;
+  min-width: auto;
+}
 
 /* On a wide window, split the content area into four and let the page occupy
    three of those sections (75%), left-aligned — leaving the right quarter as
@@ -37,21 +60,10 @@
   .activity-page { width: 75%; }
 }
 
-/* The scrolling region — metrics + feed scroll together; gets the remaining
-   height below the pinned header + filter tabs. */
-.activity-feed-scroll {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: visible;
-  /* Full-bleed like the tab bar — break out of the page's 22px inset so the
-     scroll container reaches the content-area edges and its scrollbar sits
-     flush with the screen edge. The 22px side padding keeps the actual
-     content (metrics + rows) inset where it was. Top 22px matches that inset
-     so the metrics sit the same distance from the tab bar as from the sides. */
-  margin: 0 -22px;
-  padding: 22px 22px 32px;
-}
+/* Spacing between the filter tab bar and the feed now that they share one
+   page scroll (no inner scroll region). */
+.activity-groups,
+.activity-empty { margin-top: 22px; }
 
 /* ── Header — shared page-header spec (kept identical across Activity,
        Newsletter and Projects): a left title-block (eyebrow + 22px display
@@ -133,6 +145,17 @@
   flex: 1;
   flex-wrap: wrap;
   align-items: stretch;
+}
+/* Bulk actions (Mark all read / Clear all) in line with the filter tabs —
+   pushed to the right by the filters' flex:1, vertically centred in the row,
+   inset from the full-bleed tab strip's right edge to align with content. */
+.activity-tabbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  flex-shrink: 0;
+  padding-right: 22px;
 }
 .activity-filter {
   display: inline-flex;

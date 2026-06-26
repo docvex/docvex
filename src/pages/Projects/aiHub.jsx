@@ -83,7 +83,6 @@ export const MATTER = {
   actions: [
     { tone: 'generate', tab: 'generate', icon: 'pen', t: 'Draft a document', d: 'Claims, defences, written submissions, notices and contracts drafted from the matter context.', tag: '14 templates' },
     { tone: 'review', tab: 'review', icon: 'shield', t: 'Review a contract', d: 'Flag risky clauses, obligations and deadlines, with concrete redline suggestions.', tag: '3 major risks' },
-    { tone: 'ask', tab: 'ask', icon: 'chat', t: 'Ask about the matter', d: 'Answers with exact, verifiable citations to the case files and evidence.', tag: '7 sources indexed' },
     { tone: 'research', tab: 'research', icon: 'scale', t: 'Legal research', d: 'Romanian legislation, EU directives and relevant case law for the dispute.', tag: 'legislatie.just.ro' },
     { tone: 'automate', tab: 'automate', icon: 'bolt', t: 'Automations', d: 'Auto-tagging, deadline alerts, document routing and client intake.', tag: '4 active' },
     { tone: 'compliance', tab: 'compliance', icon: 'shield', t: 'Compliance check', d: 'GDPR and conflict-of-interest scanning for the matter and its clients.', tag: 'Score 86' },
@@ -92,7 +91,6 @@ export const MATTER = {
   recent: [
     { icon: 'pen', tone: 'generate', t: 'Generated <b>Written submissions</b> — 4 pages', m: '12 min ago', status: 'done', sl: 'Done' },
     { icon: 'shield', tone: 'review', t: 'Reviewed <b>Framework Agreement</b> — 11 clauses flagged', m: '1 hour ago', status: 'flag', sl: '3 major' },
-    { icon: 'chat', tone: 'ask', t: 'Asked: <b>“What is the delivery deadline in Schedule 2?”</b>', m: '2 hours ago', status: 'done', sl: 'Answered' },
     { icon: 'bolt', tone: 'automate', t: 'Automation <b>Deadline alert</b> notified the team', m: '5 hours ago', status: 'run', sl: 'Active' },
     { icon: 'scale', tone: 'research', t: 'Researched: <b>art. 1530 Civil Code — damages</b>', m: 'yesterday', status: 'done', sl: '8 sources' },
   ],

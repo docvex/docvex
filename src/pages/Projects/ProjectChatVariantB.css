@@ -387,6 +387,13 @@
   border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow-card);
 }
+/* Interactive ask_user panel sits INSIDE the input box, above the textarea,
+   separated by a hairline so it reads as part of the message input field. */
+.dvx-inpanels {
+  position: relative; z-index: 1;
+  margin: 2px 2px 8px; padding-bottom: 9px;
+  border-bottom: 1px solid var(--border);
+}
 .dvx-composer-textarea {
   appearance: none;
   background: transparent;

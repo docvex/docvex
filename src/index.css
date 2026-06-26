@@ -2,27 +2,21 @@
   box-sizing: border-box;
 }
 
-/* ── App-wide 20% downscale ───────────────────────────────────────────────
-   The whole UI renders 20% smaller via CSS zoom on the root — a manual,
-   stylesheet-level scale (zoom on the root reflows like page zoom: the layout
-   viewport grows to 125%, so percentage-height shells and position:fixed
-   keep covering the window). Deliberately NOT webFrame zoom — that stays
-   reserved for the Settings "Display scale" preference, which composes on
-   top of this baseline.
-   Keep in sync with BASE_APP_ZOOM in src/lib/appZoom.js — that module also
-   documents the viewport-px vs layout-px split this introduces for any JS
-   that positions elements from cursor coordinates (use its toLayoutPx).
+/* ── App-wide base zoom = 1 (no baseline downscale) ───────────────────────
+   The former 20% downscale (`zoom: 0.8`) has been removed — the UI now renders
+   at 100%. The Settings "Display scale" preference still composes on top via
+   platform.setAppZoom (webFrame zoom on Electron, inline CSS zoom on web).
+   Keep in sync with BASE_APP_ZOOM in src/lib/appZoom.js.
 
-   Viewport units are NOT rescaled by root zoom (verified in this Electron:
-   a 100vh box renders at only 80% of the window). --vh1/--vw1 below are the
-   zoom-corrected 1% units — write `calc(N * var(--vh1))` wherever you'd
-   write `Nvh`. Percentage chains (height: 100%) and position:fixed inset
-   need no correction. Width media queries also see REAL window px, so
-   breakpoints are pre-multiplied by 0.8 at each @media site. */
+   At base zoom 1, viewport space == layout space, so --vh1/--vw1 are plain
+   1vh/1vw and toLayoutPx is an identity (it still reads the LIVE zoom, so the
+   display-scale preference is compensated automatically). Width media-query
+   breakpoints were tuned against the old 0.8 baseline; they see real window px
+   either way, so they now fire against the un-downscaled layout. */
 :root {
-  zoom: 0.8;
-  --vh1: calc(1vh / 0.8); /* 1% of the real window height, in layout px */
-  --vw1: calc(1vw / 0.8); /* 1% of the real window width,  in layout px */
+  zoom: 1;
+  --vh1: 1vh; /* 1% of the real window height */
+  --vw1: 1vw; /* 1% of the real window width  */
 }
 
 /* Height of the custom frameless title bar (Electron only). The bar itself is

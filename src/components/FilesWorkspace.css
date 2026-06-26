@@ -407,6 +407,68 @@
 .fx-menu button:hover { background: var(--bg-elevated); }
 .fx-menu .fx-icon { width: 15px; height: 15px; color: var(--text-secondary); }
 
+/* ── AI-themed shimmer border ────────────────────────────────────────────
+   A gradient ring that animates around the "Create new file" trigger and its
+   dropdown, marking them as the AI document-builder surface. Painted on a
+   pseudo-element with the mask-exclude technique so only the 1.5px ring shows,
+   leaving the element's own background intact. */
+.fx-ai-border { position: relative; isolation: isolate; }
+.fx-ai-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: linear-gradient(
+    115deg,
+    var(--accent) 0%,
+    var(--color-sand) 22%,
+    var(--accent-hover) 42%,
+    var(--color-sand) 62%,
+    var(--accent) 82%,
+    var(--color-sand) 100%
+  );
+  background-size: 300% 100%;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask-composite: exclude;
+  animation: fx-ai-shimmer 5.5s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+@keyframes fx-ai-shimmer { to { background-position: -300% 50%; } }
+
+/* The Create-new-file trigger reads as accented (it's the marquee AI action). */
+.fx-tb-btn.fx-create-btn {
+  color: var(--accent);
+  font-weight: 600;
+  border-color: transparent;
+}
+.fx-tb-btn.fx-create-btn:hover:not(:disabled) {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.fx-create-spark { color: var(--accent); }
+
+/* The file-type dropdown — a touch wider for the full type labels, with a small
+   "Build with AI" eyebrow. The AI ring rides on .fx-ai-border above. */
+.fx-create-menu { min-width: 232px; }
+.fx-create-menu-head {
+  padding: 6px 10px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.fx-create-menu button { font-weight: 500; }
+.fx-create-ico { width: 16px !important; height: 16px !important; }
+.fx-create-ico-doc { color: #2b6cb0 !important; }
+.fx-create-ico-ppt { color: #c2410c !important; }
+.fx-create-ico-xls { color: #15803d !important; }
+.fx-create-ico-pdf { color: #b91c1c !important; }
+
 /* ── Breadcrumb / path bar ──────────────────────────────────────────── */
 /* Spotlight tint as a registered <color> custom property so it can be
    interpolated: entering Team edit mode morphs the glow accent → red over the
@@ -1886,6 +1948,8 @@
   .fx-editmode-row.is-closing .fx-editmode-pill { animation: none; }
   .fx-editmode-dot { animation: none; }
   .fx-bottombar.fx-anim-in, .fx-bottombar.fx-anim-out { animation: none; }
+  /* AI ring: keep the gradient, drop the shimmer motion. */
+  .fx-ai-border::before { animation: none; }
   /* Snap the edit-mode tint instead of morphing it. */
   .fx-pathbar { transition: none; }
   .fx-canvas { transition: none; }

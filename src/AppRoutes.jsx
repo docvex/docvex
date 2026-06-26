@@ -2,13 +2,9 @@ import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 
-// The app's route tree, extracted so it can be rendered by BOTH the main
-// window shell (App.jsx → RootShell, with the sidebar) AND each split-view
-// pane (SplitView.jsx → BareShell, sidebar-less, own MemoryRouter). The only
-// difference between the two is the `Shell` element for the "/" layout route
-// and the `ProjectShell` wrapper for the /projects/:id subtree — passed in as
-// props so the single source of route definitions can't drift between
-// surfaces.
+// The app's route tree. The "/" layout `Shell` and the /projects/:id
+// `ProjectShell` wrapper are passed in as props by App.jsx (the main window
+// shell, with the sidebar) so the route definitions live in one place.
 
 const AuthPage = lazy(() => import('./components/AuthPage'));
 const Activity = lazy(() => import('./pages/Activity'));
@@ -29,7 +25,6 @@ const ProjectChat = lazy(() => import('./pages/Projects/ProjectChat'));
 const ProjectGenerate = lazy(() => import('./pages/Projects/ProjectGenerate'));
 const ProjectAutomate = lazy(() => import('./pages/Projects/ProjectAutomate'));
 const ProjectAI = lazy(() => import('./pages/Projects/ProjectAI'));
-const ProjectAIChat = lazy(() => import('./pages/Projects/ProjectAIChat'));
 const Mail = lazy(() => import('./pages/Mail'));
 const InviteAccept = lazy(() => import('./pages/Projects/InviteAccept'));
 const DocViewer = lazy(() => import('./pages/DocViewer'));
@@ -87,7 +82,6 @@ export default function AppRoutes({ Shell, ProjectShell }) {
             <Route path="generate" element={<ProjectGenerate />} />
             <Route path="automate" element={<ProjectAutomate />} />
             <Route path="ai" element={<ProjectAI />} />
-            <Route path="ai-chat" element={<ProjectAIChat />} />
             <Route path="mail" element={<Mail />} />
           </Route>
         </Route>

@@ -59,11 +59,14 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",
+    "docx": "^9.7.1",
     "docx-preview": "^0.3.7",
     "electron-squirrel-startup": "^1.0.1",
     "extract-zip": "^2.0.1",
     "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
     "pdfjs-dist": "^5.7.284",
+    "pptxgenjs": "^4.0.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-markdown": "^10.1.0",
@@ -71,6 +74,6 @@
     "remark-gfm": "^4.0.1",
     "update-electron-app": "^3.2.0",
     "word-extractor": "^1.0.4",
-    "xlsx": "https://cdn.sheetjs.co`m/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

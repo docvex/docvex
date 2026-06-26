@@ -304,3 +304,6 @@
 
 /* Settings page respects the global Minimize-motion preference indirectly via
    each demo; the page chrome itself uses the app's normal transitions. */
+
+/* Token-usage setting demo */
+.set-demo-tokens { display: flex; justify-content: center; padding: 10px 0; }

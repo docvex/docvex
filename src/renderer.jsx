@@ -10,7 +10,6 @@ import { UpdatesProvider } from './context/UpdatesContext';
 import { NotificationsProvider } from './context/NotificationsContext';
 import { SelectedProjectProvider } from './context/SelectedProjectContext';
 import { ChatUnreadProvider } from './context/ChatUnreadContext';
-import { SplitViewProvider } from './context/SplitViewContext';
 import NotificationCenter from './components/NotificationCenter';
 import { isElectron, isMac } from './lib/platform';
 import App from './App';
@@ -57,11 +56,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <SelectedProjectProvider>
               <UpdatesProvider>
                 <NotificationsProvider>
-                  <SplitViewProvider>
-                    <ChatUnreadProvider>
-                      <App />
-                    </ChatUnreadProvider>
-                  </SplitViewProvider>
+                  <ChatUnreadProvider>
+                    <App />
+                  </ChatUnreadProvider>
                   <NotificationCenter />
                 </NotificationsProvider>
               </UpdatesProvider>

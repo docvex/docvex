@@ -995,12 +995,7 @@
   padding: 0;
   color: var(--text-primary);
   display: block;
-  text-shadow:
-    0 0 8px var(--bg-page),
-    0 0 8px var(--bg-page),
-    0 0 12px var(--bg-page),
-    0 0 12px var(--bg-page),
-    0 0 16px var(--bg-page);
+  text-shadow: none;
 }
 /* Only OWN messages keep a bubble — matches the own-message bubble on the Chat
    tab (.vb-msg.is-mine .vb-msg-bubble): accent-tinted fill + border, tail

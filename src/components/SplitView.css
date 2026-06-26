@@ -1,73 +1,13 @@
-/* Split-view tiling. The grid fills the main content area; each pane is an
-   independent, separately-scrolling surface. Layout placement is keyed off
-   the `.sv-<layout>` class set by SplitContainer. */
-
-.sv-grid {
-  display: grid;
-  gap: 8px;
-  height: 100%;
-  width: 100%;
-  min-height: 0;
-  position: relative; /* anchor for the absolutely-positioned resize gutters */
-}
-
-/* ── Resize gutters ──────────────────────────────────────────────────────
-   Sit over the 8px grid gaps (out of grid flow). Dragging re-proportions the
-   tracks on that axis; the thin bar lights up on hover / while dragging. */
-.sv-gutter { position: absolute; z-index: 6; }
-.sv-gutter-col { width: 12px; transform: translateX(-50%); cursor: col-resize; }
-.sv-gutter-row { height: 12px; transform: translateY(-50%); cursor: row-resize; }
-.sv-gutter::after {
-  content: ''; position: absolute; border-radius: 999px;
-  background: transparent; transition: background 120ms;
-}
-.sv-gutter-col::after { inset: 6px 4px; }
-.sv-gutter-row::after { inset: 4px 6px; }
-.sv-gutter:hover::after { background: color-mix(in srgb, var(--accent) 55%, transparent); }
-body.sv-resizing { cursor: inherit; user-select: none; }
-body.sv-resizing .sv-gutter::after { background: var(--accent); }
-/* Blank pane content during a drag so iframes / scrollers can't eat the move. */
-body.sv-resizing .sv-pane { pointer-events: none; }
-
-/* 2 side-by-side */
-.sv-vertical {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr;
-}
-/* 2 stacked */
-.sv-horizontal {
-  grid-template-columns: 1fr;
-  grid-template-rows: 1fr 1fr;
-}
-/* "T" — three panes: the PRIMARY pane spans one full edge, the other two
-   share the opposite half. The four variants are 90° rotations of each other
-   (the spanning pane points top / right / bottom / left); the two secondary
-   panes auto-flow into the remaining cells. */
-.sv-tri,
-.sv-tri-right,
-.sv-tri-bottom,
-.sv-tri-left {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-}
-/* top: primary spans the top row, two panes share the bottom */
-.sv-tri .sv-pane-primary { grid-column: 1 / -1; grid-row: 1; }
-/* bottom: primary spans the bottom row, two panes share the top */
-.sv-tri-bottom .sv-pane-primary { grid-column: 1 / -1; grid-row: 2; }
-/* left: primary spans the left column, two panes stack on the right */
-.sv-tri-left .sv-pane-primary { grid-column: 1; grid-row: 1 / -1; }
-/* right: primary spans the right column, two panes stack on the left */
-.sv-tri-right .sv-pane-primary { grid-column: 2; grid-row: 1 / -1; }
-/* 2×2 */
-.sv-quad {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-}
+/* Single-pane content shell. One pane fills the main content area, with the
+   in-pane nav chrome (left rail + header) pinned around an independently-
+   scrolling content surface. (The former multi-pane split-view tiling — grid,
+   resize gutters, vertical/horizontal/T/quad layouts and custom layouts — was
+   removed.) */
 
 /* ── Single-window layout — one pane with the in-pane nav chrome pinned above
-   an independently-scrolling content area. No border/focus ring (there's only
-   one surface); `.sv-single-scroll` reproduces the main window's prior
-   scroll + padding so pages render unchanged below the bar. */
+   an independently-scrolling content area. `.sv-single-scroll` reproduces the
+   main window's prior scroll + padding so pages render unchanged below the
+   bar. */
 .sv-single {
   /* Total chrome height (incl. border) — the Versions compact header reads
      this to sit just below the bar instead of under it. */
@@ -81,10 +21,6 @@ body.sv-resizing .sv-pane { pointer-events: none; }
    height — the page's own compact header anchors to the top of the content. */
 .sv-single.is-chromeless { --sv-chrome-h: 0px; }
 
-/* Single-window mode with the destination side rail: lay the rail (left) beside
-   the content body. The body keeps the old column flow (chrome · scroll ·
-   footer). */
-.sv-single--nav { flex-direction: row; }
 .sv-single-body {
   flex: 1 1 auto;
   display: flex;
@@ -92,47 +28,6 @@ body.sv-resizing .sv-pane { pointer-events: none; }
   min-width: 0;
   min-height: 0;
 }
-
-/* Left rail of switchable destinations (replaces the chrome dropdown). */
-.sv-single-nav {
-  flex: 0 0 auto;
-  width: 212px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 10px 14px 16px;
-  border-right: 1px solid var(--border);
-  background: var(--bg-sidebar);
-  overflow-y: auto;
-}
-.sv-single-nav-item {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  border-radius: 9px;
-  padding: 10px 11px;
-  cursor: pointer;
-  font-family: var(--font-body);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  transition: background 120ms ease, color 120ms ease;
-}
-.sv-single-nav-item:hover {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-}
-.sv-single-nav-item.is-active {
-  background: var(--accent-tint);
-  color: var(--accent);
-  font-weight: 600;
-}
-.sv-single-nav-icon { display: flex; flex-shrink: 0; }
-.sv-single-nav-icon svg { width: 18px; height: 18px; }
 
 /* The chrome sits at the top of the body and SIZES TO ITS CONTENT (row 1 +
    the page toolbar row 2) — the old fixed `height: 38px` clipped two-row
@@ -142,8 +37,7 @@ body.sv-resizing .sv-pane { pointer-events: none; }
   min-height: var(--sv-chrome-h);
   box-sizing: border-box;
   /* Sit above the page's fixed compact-header (z 30) so that header slides
-     DOWN out from under this nav bar instead of over it. Stays below the
-     chrome's own destination dropdown (z 50). */
+     DOWN out from under this nav bar instead of over it. */
   position: relative;
   z-index: 40;
 }
@@ -169,78 +63,10 @@ body.sv-resizing .sv-pane { pointer-events: none; }
   padding: 0;
 }
 
-.sv-pane {
-  position: relative;
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  /* Transparent so the ambient dot grid + cursor spotlight (painted by the
-     fixed .main-content::before/::after behind everything) show THROUGH each
-     window, instead of an opaque page fill covering them. */
-  background: transparent;
-}
-/* Selected (focused) pane reads via its accent-coloured top bar (see the
-   .sv-chrome rule below) — no border / ring on the pane itself. */
-
-/* All panes look identical regardless of focus — no dim/recede on unfocused
-   windows. (The focused pane is still tracked for keyboard/sidebar routing; it
-   just isn't styled differently.) */
-
-.sv-pane-inner {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-}
-
-.sv-pane-main {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 18px 20px;
-}
-/* Project-scoped pages bring their own rounded "sheet" frame — render it
-   flush so it matches the main-window look. */
-.sv-pane-main:has(.project-page-frame) {
-  padding: 0;
-}
-
-/* Pane crash fallback (PaneErrorBoundary). Fill the whole pane (it's a flex
-   item of the row-flex `.sv-pane`, so it needs flex/width to grow) so the
-   centred text + button sit dead-centre instead of hugging the left edge. */
-.sv-pane-error {
-  flex: 1 1 auto;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  height: 100%;
-  padding: 24px;
-  text-align: center;
-  color: var(--text-secondary);
-  font-size: 13.5px;
-}
-.sv-pane-error button {
-  padding: 7px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-}
-.sv-pane-error button:hover { border-color: var(--border-strong); }
-
-/* ── In-pane navigation chrome (every pane) ──
-   A single bar that stacks up to two rows: row 1 = window nav + header +
-   destination dropdown; row 2 = the page's own toolbar (portalled in, e.g. the
-   Files folder nav + breadcrumb + search). Row 2 collapses when empty. */
+/* ── In-pane navigation chrome ──
+   A single bar that stacks up to two rows: row 1 = refresh + header; row 2 =
+   the page's own toolbar (portalled in, e.g. the Files folder nav + breadcrumb
+   + search). Row 2 collapses when empty. */
 .sv-chrome {
   display: flex;
   flex-direction: column;
@@ -257,11 +83,8 @@ body.sv-resizing .sv-pane { pointer-events: none; }
 }
 /* Row 2 stacks the page's toolbar bits vertically (e.g. Files: the nav/search
    row, then the list column header) so they read as one section of the bar.
-   The toolbar rows bring their own horizontal inset.
-     A fixed minimum height (content vertically centred) keeps EVERY pane's
-     header the same height regardless of its toolbar content — so e.g. the AI
-     chat and Files panes line up. Pages that add an extra sub-row (Files' list
-     column header) grow beyond it, as intended. */
+   A fixed minimum height (content vertically centred) keeps the header tidy;
+   pages that add an extra sub-row grow beyond it, as intended. */
 .sv-chrome-row2 {
   display: flex;
   flex-direction: column;
@@ -273,17 +96,10 @@ body.sv-resizing .sv-pane { pointer-events: none; }
 .sv-chrome-row2:not(:empty) { min-height: 40px; }
 .sv-chrome-row2:empty { display: none; }
 
-/* Multi-window focus affordance: the focused window now reads purely via the
-   dimming of the OTHER panes (see the `.sv-grid .sv-pane:not(.is-focused)`
-   rule above), so the topbar keeps the same default colour whether focused or
-   not — no accent tint on the selected pane's chrome. */
-
-/* ── Window footer (every pane) ──
+/* ── Window footer ──
    Symmetric to the topbar chrome but pinned at the BOTTOM: a slot the routed
    page portals content into via usePaneChromeFooterEl (e.g. the chat message
-   composer), so each window's footer shows what's relevant to THAT window.
-   Collapses when the page publishes nothing, and — like the Files action bar —
-   only the selected (focused) window shows its footer. */
+   composer). Collapses when the page publishes nothing. */
 .sv-footer {
   flex: 0 0 auto;
   border-top: 1px solid var(--border);
@@ -294,32 +110,8 @@ body.sv-resizing .sv-pane { pointer-events: none; }
   -webkit-backdrop-filter: blur(8px);
 }
 .sv-footer:empty { display: none; }
-/* Footers (the chat composer footer + the Files action bar) render ONLY in the
-   selected window — the others stay clean. Single-window mode has no `.sv-pane`
-   ancestor, so the footer always shows there. */
-.sv-pane:not(.is-focused) .sv-footer,
-.sv-pane:not(.is-focused) .fx-bottombar {
-  display: none;
-}
-.sv-chrome-btn {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: none;
-  cursor: pointer;
-  color: var(--text-secondary);
-  font-size: 16px;
-  line-height: 1;
-}
-.sv-chrome-btn:hover {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-}
-/* Refresh-this-window button — top-left of every pane's chrome. */
+
+/* Refresh-this-window button — top-left of the chrome. */
 .sv-chrome-refresh {
   flex: 0 0 auto;
   width: 26px;
@@ -341,7 +133,7 @@ body.sv-resizing .sv-pane { pointer-events: none; }
 .sv-chrome-refresh:active {
   transform: rotate(-180deg);
 }
-/* Window header next to the ‹ › controls: bold page title + a muted one-line
+/* Window header next to the refresh control: bold page title + a muted one-line
    description on the same row. */
 .sv-chrome-head {
   display: flex;
@@ -376,13 +168,11 @@ body.sv-resizing .sv-pane { pointer-events: none; }
 }
 
 /* Search box published into the chrome by the page (e.g. the Files folder
-   search). Sits between the header and the right-aligned destination control. */
+   search). */
 .sv-chrome-search {
   display: flex;
   align-items: center;
   gap: 6px;
-  /* Grows to fill the gap between the header and the right-aligned destination,
-     so the destination dropdown stays pinned right whether or not search shows. */
   flex: 1 1 auto;
   min-width: 60px;
   margin: 0 4px;
@@ -407,89 +197,3 @@ body.sv-resizing .sv-pane { pointer-events: none; }
   color: var(--text-primary);
 }
 .sv-chrome-search input::placeholder { color: var(--text-muted); }
-
-/* Destination control is right-aligned in the chrome bar (pushed to the far
-   right; the ‹ › nav stays on the left). When a search box is present it sits
-   to the left of the destination via its own margin-left:auto. */
-.sv-chrome-menu-wrap {
-  position: relative;
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 60%;
-  margin-left: auto;
-}
-.sv-chrome-dest {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: auto;
-  max-width: 100%;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--bg-input);
-  cursor: pointer;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-/* Chevron rotates as the menu opens (part of the morph). */
-.sv-chrome-dest svg { transition: transform 200ms cubic-bezier(.16, 1, .3, 1); }
-.sv-chrome-dest.is-open svg { transform: rotate(180deg); }
-.sv-chrome-dest-label {
-  flex: 1;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-body);
-}
-.sv-chrome-dest:hover,
-.sv-chrome-dest.is-open {
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-.sv-chrome-menu {
-  position: absolute;
-  /* Sits right under the button so it visibly grows out of it. */
-  top: calc(100% + 2px);
-  left: auto;
-  right: 0;
-  min-width: 220px;
-  max-height: 320px;
-  overflow: auto;
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 5px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: var(--shadow-elev);
-  /* Morph OUT OF the button: the menu's top-right corner sits right under the
-     button's, so scaling from that origin makes it grow out of the button. */
-  transform-origin: top right;
-  animation: sv-menu-morph 190ms cubic-bezier(.16, 1, .3, 1);
-}
-@keyframes sv-menu-morph {
-  from { opacity: 0; transform: scale(0.6); }
-  to   { opacity: 1; transform: scale(1); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .sv-chrome-menu { animation: none; }
-  .sv-chrome-dest svg { transition: none; }
-}
-.sv-chrome-menu-item {
-  text-align: left;
-  padding: 7px 10px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-primary);
-  font-family: var(--font-body);
-}
-.sv-chrome-menu-item:hover {
-  background: var(--accent-tint);
-}

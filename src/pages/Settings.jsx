@@ -6,6 +6,7 @@ import { scalePercentFor, MIN_SCALE, MAX_SCALE, SCALE_STEP } from '../lib/appSca
 import { localFolderApi, isElectronBranch } from '../lib/localFolder';
 import { readProjectsDir, writeProjectsDir } from '../lib/projectsDir';
 import PageMasthead from '../components/PageMasthead';
+import TokenUsagePill from '../components/TokenUsagePill';
 import './Settings.css';
 
 // App Settings tab (Claude Design handoff "app settings tab", Direction A —
@@ -430,6 +431,13 @@ function buildSettings(prefs, set) {
       title: 'Minimize motion', desc: 'Reduce animations, transitions, and loading shimmers.',
       Control: () => <Toggle checked={prefs.reduceMotion} onChange={(v) => set('reduceMotion', v)} label="Minimize motion" />,
       Mini: () => <MiniMotion prefs={prefs} />,
+    },
+    {
+      key: 'showTokenUsage', group: 'Behavior',
+      icon: <Ico><circle cx="12" cy="12" r="9" /><path d="M12 7v10M9 10h4.5a1.5 1.5 0 0 1 0 3H9h4.8a1.6 1.6 0 0 1 0 3.2H9" /></Ico>,
+      title: 'Show token usage', desc: 'Display a running total of the AI tokens used in each chat, shown next to the message box.',
+      Control: () => <Toggle checked={prefs.showTokenUsage} onChange={(v) => set('showTokenUsage', v)} label="Show token usage" />,
+      Mini: () => <div className="set-demo-tokens"><TokenUsagePill tokens={1240} /></div>,
     },
     {
       key: 'language', group: 'Language & region', icon: <GlobeIcon />,

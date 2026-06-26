@@ -449,9 +449,9 @@ export default function ProjectOverview() {
     // SelectedProjectContext keeps its own `selectedProject` snapshot for
     // the sidebar trigger + ProjectBanner; without an explicit patch it
     // would render the stale name until the user reloads or re-selects.
-    // ProjectPickerPanel caches the project list across opens and only
-    // invalidates on PROJECTS_CHANGED_EVENT, so we fire that too so the
-    // next picker open shows the new name. Use the server's returned row
+    // The Hub (project list) caches projects and invalidates on
+    // PROJECTS_CHANGED_EVENT, so we fire that too so the Hub shows the new
+    // name next time it's opened. Use the server's returned row
     // when present (`updated`) so the patch reflects authoritative values
     // including any trimming Postgres applied.
     const patch = updated || { id: project.id, name: trimmedName };

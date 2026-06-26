@@ -51,15 +51,20 @@
    content column. */
 .pmh-compact {
   position: fixed;
-  top: calc(var(--titlebar-h, 0px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
-  left: var(--sidebar-width, 0px);
-  right: 0;
+  /* Anchored to the top edge of the content frame (which is inset from the
+     window by --chrome-inset and sits to the right of the sidebar + the gap). */
+  top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 0px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
+  left: calc(var(--sidebar-width, 0px) + 2 * var(--chrome-inset, 0px));
+  right: var(--chrome-inset, 0px);
   z-index: 30;
   height: 52px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 22px;
+  /* Match the content frame's rounded top corners so the bar reads as the
+     frame's top turning into the compact header. */
+  border-radius: 12px 12px 0 0;
   background: color-mix(in srgb, var(--bg-page) 62%, transparent);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);

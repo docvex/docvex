@@ -1,20 +1,34 @@
 ﻿.app-shell {
   display: flex;
   /* Reserve room for the custom frameless title bar (--titlebar-h; 0 on web)
-     so the shell sits below it and the fixed sidebar's top offset lines up. */
+     so the shell sits below it. */
   height: calc(100 * var(--vh1) - var(--titlebar-h));
   margin-top: var(--titlebar-h);
   overflow: hidden;
   background: var(--bg-page);
-  /* The app nav moved from a left rail to a horizontal bar under the title
-     bar, so the left reservation is now zero. --sidebar-width is still read by
+  /* Width of the vertical app-nav rail (Sidebar.jsx). Also read by
      SwitchProjectLoader.css, ProjectBanner, the file detail modal, the tree
-     viewports, etc.; at 0 they simply lay out flush-left, which is correct now
-     that no rail occupies the left edge. */
-  --sidebar-width: 0px;
-  /* Height of the horizontal app-nav bar (Sidebar.jsx), reserved as the
-     content area's top margin so the bar overlays nothing. */
-  --topnav-h: 36px;
+     viewports, etc. */
+  --sidebar-width: 240px;
+  /* No horizontal top bar anymore. */
+  --topnav-h: 0px;
+  /* Gap between the frameless window edge and the app chrome frame, so the
+     ambient dot grid shows around the rounded surface. */
+  --chrome-inset: 8px;
+  padding: var(--chrome-inset);
+  box-sizing: border-box;
+}
+
+/* App chrome — layout row only. The sidebar and the content each get their
+   OWN bordered, rounded frame (see .sidebar and .main-content); this just lays
+   them out side by side with a gap between the two frames. */
+.app-chrome {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  gap: var(--chrome-inset);
+  min-height: 0;
 }
 
 .main-content {
@@ -35,13 +49,12 @@
   /* 22px horizontal inset matches the Files tab header so every tab's
      title + content line up at the same distance from the edge. */
   padding: 2rem 22px;
-  /* Reserve space for the fixed horizontal app-nav bar above (--topnav-h).
-     The left rail is gone, so --sidebar-width is 0. */
-  margin-left: var(--sidebar-width);
-  margin-top: var(--topnav-h);
   min-width: 0;
   background-color: var(--bg-page);
-  transition: margin-left 250ms ease;
+  /* Own chrome frame — separate from the sidebar's. */
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
 }
 
 /* Single-window mode — the inner .sv-single owns the scroll + padding (it
@@ -54,11 +67,29 @@
   overflow: hidden;
 }
 
-/* Split mode — the content area becomes a tiling grid (SplitContainer). Drop
-   the page padding and clip overflow so each pane owns its own scroll. */
-.main-content--split {
-  padding: 8px;
-  overflow: hidden;
+/* Flush content (Activity / Newsletter / Versions) — drop the chrome frame AND
+   the spacing around the content section so the page reads as a full-bleed
+   editorial surface. Negative margins eat the app-shell inset (top/right/bottom)
+   and the sidebar gap (left), pushing the content out to the window edges and
+   flush against the rail. (Internal page padding stays, so content still
+   breathes.) */
+.main-content--flush {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  margin: calc(-1 * var(--chrome-inset)) calc(-1 * var(--chrome-inset)) calc(-1 * var(--chrome-inset)) calc(-1 * var(--chrome-inset));
+}
+/* The compact masthead bar squares off and spans the FULL width — its left
+   edge runs to 0, sliding behind the frosted sidebar (which paints on top: the
+   sidebar is a z-index:1 flex item, while this fixed bar is trapped inside
+   .main-content's isolate stacking context). The title text is inset past the
+   rail so it stays in the visible area to the right of the sidebar. */
+.main-content--flush .pmh-compact {
+  border-radius: 0;
+  top: calc(var(--titlebar-h, 0px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
+  left: 0;
+  right: 0;
+  padding-left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 0px) + 22px);
 }
 
 /* Inner sheet that wraps page content on project-scoped routes. Sits

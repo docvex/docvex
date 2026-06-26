@@ -30,6 +30,7 @@ export const DEFAULT_PREFS = {
   reduceMotion: false,
   fileView: 'grid',
   language: 'en',
+  showTokenUsage: false, // show the per-chat token-usage indicator in AI chats
 };
 
 const PREF_KEY_PREFIX = 'docvex.appPrefs.';

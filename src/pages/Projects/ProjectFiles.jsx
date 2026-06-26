@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { useNotifications } from '../../context/NotificationsContext';
 import { useAuth } from '../../context/AuthContext';
@@ -13,6 +14,8 @@ import {
 } from '../../lib/localFolder';
 import { openDocx, isDocxFile, openFileWindow, canViewInBrowser, openDocViewerWindow, prepareWhatsAppZip, prepareWhatsAppFolder, detectWhatsApp, notifyFilesRemoved, onFilesRemoved, onFilesChanged } from '../../lib/platform';
 import { openDocxInWindow } from '../../lib/openDocxWindow';
+import { emptyDocumentBlob, docKindFromName, mimeForKind } from '../../lib/documentGen';
+import { clearConversation, migrateConversation, migrateConversationsUnder } from '../../lib/conversationHistory';
 import { readProjectsDir } from '../../lib/projectsDir';
 import {
   loadSidecar,
@@ -81,7 +84,8 @@ function localUrlFor(path, cacheBust) {
 // hidden `.docvex-trash` recycle bin ("Recently deleted") that auto-purges
 // after 30 days.
 export default function ProjectFiles({ embedded = false } = {}) {
-  const { selectedProject, loading: projLoading, openPicker } = useSelectedProject();
+  const { selectedProject, loading: projLoading } = useSelectedProject();
+  const navigate = useNavigate();
   const projectId = selectedProject?.id || null;
   const { notify } = useNotifications();
   const { session } = useAuth();
@@ -426,6 +430,8 @@ export default function ProjectFiles({ embedded = false } = {}) {
     if (!fromName || !toName || fromName === toName) return { ok: false };
     const { error } = await localFolderApi.renameFile({ dir, fromName, toName });
     if (error) return { ok: false, error };
+    // Keep the AI chat (and any saved versions) with the file across the rename.
+    try { migrateConversation(`${dir}/${fromName}`, `${dir}/${toName}`); } catch { /* non-fatal */ }
     if (syncSidecar) {
       setSidecar((prev) => {
         const next = renameSidecarEntry(prev, fromName, toName);
@@ -569,10 +575,12 @@ export default function ProjectFiles({ embedded = false } = {}) {
     if (!from || !to || to === from) return;
     const res = await primRename(parent, from, to, { syncSidecar: false });
     if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t rename folder', body: res.error || 'Failed to rename folder', dedupeKey: 'folder-rename-error' }); return; }
+    // Move every conversation saved for files inside the folder to the new path.
+    try { migrateConversationsUnder(`${parent}/${from}`, `${parent}/${to}`); } catch { /* non-fatal */ }
     pushAction({
       label: `Rename “${from}” → “${to}”`,
-      undo: async () => (await primRename(parent, to, from, { syncSidecar: false })).ok,
-      redo: async () => (await primRename(parent, from, to, { syncSidecar: false })).ok,
+      undo: async () => { const ok = (await primRename(parent, to, from, { syncSidecar: false })).ok; if (ok) { try { migrateConversationsUnder(`${parent}/${to}`, `${parent}/${from}`); } catch { /* non-fatal */ } } return ok; },
+      redo: async () => { const ok = (await primRename(parent, from, to, { syncSidecar: false })).ok; if (ok) { try { migrateConversationsUnder(`${parent}/${from}`, `${parent}/${to}`); } catch { /* non-fatal */ } } return ok; },
     });
   }, [currentDir, notify, primRename, pushAction]);
 
@@ -932,7 +940,15 @@ export default function ProjectFiles({ embedded = false } = {}) {
       const fromPath = it?._raw?.path || it?._dir?.path;
       if (!fromPath) { fail += 1; continue; }
       const { ok, error } = await localFolderApi.move({ root: localFolder, fromPath, toDir });
-      if (ok) moved.push({ name: it.name }); else fail += 1;
+      if (ok) {
+        moved.push({ name: it.name });
+        // Keep the AI chat with the file/folder across the move.
+        try {
+          const toPath = join(toDir, it.name);
+          if (it?._dir) migrateConversationsUnder(fromPath, toPath);
+          else migrateConversation(fromPath, toPath);
+        } catch { /* non-fatal */ }
+      } else fail += 1;
     }
     setBrowseTick((t) => t + 1);
     await refetchLocalFiles();
@@ -1042,7 +1058,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
       <div className="project-scoped-empty">
         <h2>No project selected</h2>
         <p>Pick a project to see its files.</p>
-        <button type="button" className="project-scoped-cta" onClick={openPicker}>Browse projects</button>
+        <button type="button" className="project-scoped-cta" onClick={() => navigate('/projects')}>Browse projects</button>
       </div>
     );
   }
@@ -1238,6 +1254,73 @@ export default function ProjectFiles({ embedded = false } = {}) {
     const trimmed = (name || '').trim();
     if (trimmed) handleCreateFolder(trimmed);
   };
+  // New file → create an empty file of the named type on disk, then open it in a
+  // Doc Viewer window with the AI generator armed, so the user can describe what
+  // they want in the advisor and have Claude fill the document.
+  const fxNewFile = async (name) => {
+    if (!localFolder) { notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then you can create files in it.', dedupeKey: 'fx-newfile-nofolder' }); return; }
+    const filename = (name || '').trim();
+    if (!filename) return;
+    // Don't assume a type. If the user typed a recognised extension, honour it;
+    // otherwise create a "wildcard" placeholder with no extension — the AI
+    // advisor infers the real kind from what the user describes and renames the
+    // file to the matching extension when it generates the document.
+    const kind = docKindFromName(filename);
+    try {
+      const blob = kind ? await emptyDocumentBlob(kind) : new Blob([''], { type: 'application/octet-stream' });
+      const { results, error } = await localFolderApi.writeFiles({ dir: currentDir, files: [{ filename, blob }] });
+      setBrowseTick((t) => t + 1);
+      const res = results?.[0];
+      if (error || !res?.ok || !res?.path) {
+        notify({ category: 'file', variant: 'error', title: 'Couldn’t create file', body: error || res?.error || 'Failed to create the file', dedupeKey: 'fx-newfile-error' });
+        return;
+      }
+      await refetchLocalFiles();
+      // A brand-new file must start with a clean AI thread — drop any stale
+      // conversation saved at this exact path by a previous, since-renamed file
+      // (e.g. an earlier "Untitled" that became "Untitled.docx"). Without this,
+      // the new file would load the old file's chat history.
+      clearConversation(res.path);
+      // Leave the new file in place (selected for rename) — don't auto-open a
+      // Doc Viewer window. The user opens it themselves when ready.
+    } catch (err) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t create file', body: err?.message || String(err), dedupeKey: 'fx-newfile-error' });
+    }
+  };
+  // Create new <type> file → write an empty styled Office file of the chosen kind
+  // (docx / pptx / xlsx) to disk, then open it in a Doc Viewer window with the AI
+  // generator armed (generate:true) so the user describes what they want and
+  // Claude builds it. Uses a unique "Untitled" name so repeated creates don't
+  // collide. Backs the "Create new file" dropdown in the Files toolbar.
+  const fxCreateTypedFile = async (kind) => {
+    if (!localFolder) { notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then you can create files in it.', dedupeKey: 'fx-newfile-nofolder' }); return; }
+    const ext = ['pptx', 'xlsx', 'pdf'].includes(kind) ? kind : 'docx';
+    // Pick the first free "Untitled[.n].<ext>" against the current folder listing.
+    const existing = new Set((localFiles || []).map((f) => String(f.name || '').toLowerCase()));
+    let filename = `Untitled.${ext}`;
+    for (let n = 2; existing.has(filename.toLowerCase()); n += 1) filename = `Untitled ${n}.${ext}`;
+    try {
+      const blob = await emptyDocumentBlob(ext);
+      const { results, error } = await localFolderApi.writeFiles({ dir: currentDir, files: [{ filename, blob }] });
+      setBrowseTick((t) => t + 1);
+      const res = results?.[0];
+      if (error || !res?.ok || !res?.path) {
+        notify({ category: 'file', variant: 'error', title: 'Couldn’t create file', body: error || res?.error || 'Failed to create the file', dedupeKey: 'fx-newfile-error' });
+        return;
+      }
+      await refetchLocalFiles();
+      // A brand-new file starts with a clean AI thread (drop any stale chat saved
+      // at this exact path by a since-renamed file).
+      clearConversation(res.path);
+      // Open it with the AI document generator armed.
+      const opened = openDocViewerWindow({ path: res.path, name: filename, mime: mimeForKind(ext), generate: true });
+      if (!opened) {
+        notify({ category: 'file', variant: 'success', title: 'File created', body: `${filename} is ready — open it to build it with AI.`, dedupeKey: 'fx-newfile-created' });
+      }
+    } catch (err) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t create file', body: err?.message || String(err), dedupeKey: 'fx-newfile-error' });
+    }
+  };
   const fxUpload = () => {
     if (!localFolder) { handleBrowseFolder(); return; }
     if (needsReconnect) { handleReconnect(); return; }
@@ -1296,6 +1379,8 @@ export default function ProjectFiles({ embedded = false } = {}) {
     // auto-refreshes on the disk watcher.
     onRefresh: undefined,
     onNewFolder: fxNewFolder,
+    onNewFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxNewFile : undefined,
+    onCreateTypedFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxCreateTypedFile : undefined,
     onUpload: fxUpload,
     onUploadFolder: fxUploadFolder,
     onEmptyBin: handleEmptyBin,

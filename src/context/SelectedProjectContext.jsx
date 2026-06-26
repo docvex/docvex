@@ -47,10 +47,6 @@ export function SelectedProjectProvider({ children }) {
   const [selectedProjectId, _setSelectedProjectId] = useState(null);
   const [selectedProject, setSelectedProject] = useState(null);
   const [loading, setLoading] = useState(false);
-  // Open/closed state of the project-picker drawer. Lives here (not in
-  // Sidebar local state) so callers outside the sidebar — the ProjectBanner's
-  // "Switch" button, e.g. — can also trigger it.
-  const [pickerOpen, setPickerOpen] = useState(false);
   // True while a project-switch is in progress — drives the full-screen
   // SwitchProjectLoader overlay. Set by beginSwitch(), auto-cleared after
   // SWITCH_LOADER_MIN_MS. The sidebar's z-index is higher than the loader's,
@@ -69,7 +65,7 @@ export function SelectedProjectProvider({ children }) {
   const hydratedForUserRef = useRef(null);
 
   // Optionally seeded by selectProject(id, prefetched) — when the caller
-  // already has the full project row (e.g. ProjectPickerPanel handing us the
+  // already has the full project row (e.g. the Hub handing us the
   // exact row the user just clicked), we skip the redundant getProject()
   // round-trip and use the prefetched data directly. Consumed once, then
   // cleared so a later id change can't accidentally reuse stale data.
@@ -181,13 +177,6 @@ export function SelectedProjectProvider({ children }) {
     });
   }, []);
 
-  const openPicker   = useCallback(() => setPickerOpen(true),     []);
-  const closePicker  = useCallback(() => setPickerOpen(false),    []);
-  // Toggle is what the sidebar trigger button and the banner's Switch
-  // button bind to — clicking the SAME button that opened the picker now
-  // closes it instead of being a no-op (which previously felt unresponsive).
-  const togglePicker = useCallback(() => setPickerOpen((v) => !v), []);
-
   // Trigger the switching-project loader. Idempotent: a second call while
   // the loader is already up extends the floor by another SWITCH_LOADER_MIN_MS
   // (the old timer is cancelled), so rapid double-clicks don't yo-yo the
@@ -223,14 +212,10 @@ export function SelectedProjectProvider({ children }) {
     selectProject,
     clearSelection,
     patchSelectedProject,
-    pickerOpen,
-    openPicker,
-    closePicker,
-    togglePicker,
     switching,
     switchingToName,
     beginSwitch,
-  }), [selectedProjectId, selectedProject, loading, selectProject, clearSelection, patchSelectedProject, pickerOpen, openPicker, closePicker, togglePicker, switching, switchingToName, beginSwitch]);
+  }), [selectedProjectId, selectedProject, loading, selectProject, clearSelection, patchSelectedProject, switching, switchingToName, beginSwitch]);
 
   return (
     <SelectedProjectContext.Provider value={value}>

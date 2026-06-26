@@ -111,6 +111,11 @@ function Icon({ name, size = 16, strokeWidth = 1.8, className = '', filled = fal
     case 'paste': return <svg {...p}><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" ry="1" /></svg>;
     case 'cut': return <svg {...p}><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><line x1="20" y1="4" x2="8.12" y2="15.88" /><line x1="14.47" y1="14.48" x2="20" y2="20" /><line x1="8.12" y1="8.12" x2="12" y2="12" /></svg>;
     case 'refresh': return <svg {...p}><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>;
+    case 'sparkles': return <svg {...p}><path d="M12 3l1.7 4.6L18 9l-4.3 1.4L12 15l-1.7-4.6L6 9l4.3-1.4z" /><path d="M5 15l.9 2.3L8 18l-2.1.7L5 21l-.9-2.3L2 18l2.1-.7z" /></svg>;
+    case 'file-doc': return <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="8" y1="9" x2="10" y2="9" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="17" x2="16" y2="17" /></svg>;
+    case 'file-slides': return <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><rect x="8" y="12" width="8" height="5" rx="1" /></svg>;
+    case 'file-sheet': return <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="8" y1="12" x2="16" y2="12" /><line x1="8" y1="16" x2="16" y2="16" /><line x1="12" y1="11" x2="12" y2="17" /></svg>;
+    case 'file-pdf': return <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><path d="M8.5 13.5h1a1 1 0 0 0 0-2h-1z" /><path d="M8.5 11.5v4" /><path d="M12.5 11.5v4h1a1.2 1.2 0 0 0 1.2-1.2v-1.6a1.2 1.2 0 0 0-1.2-1.2z" /></svg>;
     default: return null;
   }
 }
@@ -129,6 +134,21 @@ function FolderGlyph({ filled = false, size = 42, color }) {
       style={color ? { color } : undefined}
     >
       <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    </svg>
+  );
+}
+
+// Generic document glyph — the new-file draft tile/row placeholder.
+function GenericFileGlyph({ size = 42 }) {
+  return (
+    <svg
+      className="fx-file-glyph"
+      width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth={1.4}
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    >
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 3 14 8 19 8" />
     </svg>
   );
 }
@@ -615,13 +635,19 @@ function renamedName(item, typed) {
 }
 
 // ── Inline name input (rename + new-folder draft) ─────────────────────
-function InlineNameInput({ initial = '', placeholder, onCommit, onCancel, className = '' }) {
+function InlineNameInput({ initial = '', placeholder, onCommit, onCancel, className = '', selectBaseName = false }) {
   const [value, setValue] = useState(initial);
   const ref = useRef(null);
   const doneRef = useRef(false);
   useEffect(() => {
     const el = ref.current;
-    if (el) { el.focus(); el.select(); }
+    if (!el) return;
+    el.focus();
+    // For a named file, pre-select just the base name (before the extension) so
+    // typing replaces the name but keeps the ".docx" the user chose.
+    const dot = selectBaseName ? initial.lastIndexOf('.') : -1;
+    if (dot > 0) el.setSelectionRange(0, dot);
+    else el.select();
   }, []);
   const finish = (fn) => { if (doneRef.current) return; doneRef.current = true; fn(); };
   const commit = () => finish(() => {
@@ -726,6 +752,20 @@ function NewFolderTile({ onCommit, onCancel }) {
   );
 }
 
+// New-file draft tile — a generic-file placeholder whose name (with extension,
+// e.g. "Proposal.docx") is an inline input. The input pre-selects the base name
+// so you can type a new name right away.
+function NewFileTile({ onCommit, onCancel }) {
+  return (
+    <div className="fx-tile is-renaming">
+      <span className="fx-tile-thumb"><GenericFileGlyph /></span>
+      <span>
+        <InlineNameInput className="fx-tile-name" initial="Untitled" selectBaseName placeholder="new file" onCommit={onCommit} onCancel={onCancel} />
+      </span>
+    </div>
+  );
+}
+
 // ── List row ──────────────────────────────────────────────────────────
 function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
   const isFolder = item.kind === 'folder';
@@ -803,6 +843,20 @@ function NewFolderRow({ onCommit, onCancel }) {
   );
 }
 
+// New-file draft row — a file placeholder whose name (with extension) is an
+// inline input.
+function NewFileRow({ onCommit, onCancel }) {
+  return (
+    <div className="fx-list-row is-renaming">
+      <span className="fx-list-name">
+        <span className="fx-list-thumb"><GenericFileGlyph size={20} /></span>
+        <InlineNameInput className="fx-name" initial="Untitled" selectBaseName placeholder="new file" onCommit={onCommit} onCancel={onCancel} />
+      </span>
+      <span /><span /><span />
+    </div>
+  );
+}
+
 // ── Main workspace ────────────────────────────────────────────────────
 export default function FilesWorkspace({
   projectId,
@@ -825,7 +879,7 @@ export default function FilesWorkspace({
   items,             // file items
   loading,
   // actions
-  onOpen, onOpenContent, onRename, onDelete, onRestore, onNewFolder, onUpload, onUploadFolder, onOpenLocation,
+  onOpen, onOpenContent, onRename, onDelete, onRestore, onNewFolder, onNewFile, onCreateTypedFile, onUpload, onUploadFolder, onOpenLocation,
   onEmptyBin,
   onRefresh,         // () => void — re-list the folder (toolbar refresh button)
   onDebugSeedTrash,  // DEV-only — seed the bin with staggered-expiry dummy items
@@ -856,7 +910,7 @@ export default function FilesWorkspace({
   const [multiSel, setMultiSel] = useState(() => new Set());
   const [anchorId, setAnchorId] = useState(null);
   const [selectMode, setSelectMode] = useState(false);
-  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [propsItem, setPropsItem] = useState(null);
   const [dragOver, setDragOver] = useState(false);   // OS file drag over the canvas
   const [clipboard, setClipboard] = useState(null);  // { mode: 'copy'|'cut', items: [{ name, path }] }
@@ -873,7 +927,7 @@ export default function FilesWorkspace({
       return next;
     });
   };
-  const newMenuRef = useRef(null);
+  const createMenuRef = useRef(null);
   const canvasRef = useRef(null);
   const pageRef = useRef(null);   // root, used to scope shortcuts to this pane
   const searchRef = useRef(null);
@@ -883,12 +937,16 @@ export default function FilesWorkspace({
   // Inline name editing (Electron has no window.prompt).
   const [renamingId, setRenamingId] = useState(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
-  const requestRename = (item) => { if (item) { setCreatingFolder(false); setRenamingId(item.id); } };
-  const requestNewFolder = () => { setRenamingId(null); setCreatingFolder(true); };
+  const [creatingFile, setCreatingFile] = useState(false);
+  const requestRename = (item) => { if (item) { setCreatingFolder(false); setCreatingFile(false); setRenamingId(item.id); } };
+  const requestNewFolder = () => { setRenamingId(null); setCreatingFile(false); setCreatingFolder(true); };
+  const requestNewFile = () => { setRenamingId(null); setCreatingFolder(false); setCreatingFile(true); };
   const commitRename = (item, name) => { setRenamingId(null); onRename?.(item, name); };
   const cancelRename = () => setRenamingId(null);
   const commitNewFolder = (name) => { setCreatingFolder(false); onNewFolder?.(name); };
   const cancelNewFolder = () => setCreatingFolder(false);
+  const commitNewFile = (name) => { setCreatingFile(false); onNewFile?.(name); };
+  const cancelNewFile = () => setCreatingFile(false);
 
   // Write actions (rename / import / new folder) are only offered in the
   // My-drafts tab — the bin is restore / delete-forever only.
@@ -1031,15 +1089,15 @@ export default function FilesWorkspace({
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
-  // Close the New menu on outside click / Esc.
+  // Close the Create-new-file menu on outside click / Esc.
   useEffect(() => {
-    if (!newMenuOpen) return undefined;
-    const onDoc = (e) => { if (!newMenuRef.current?.contains(e.target)) setNewMenuOpen(false); };
-    const onKey = (e) => { if (e.key === 'Escape') setNewMenuOpen(false); };
+    if (!createMenuOpen) return undefined;
+    const onDoc = (e) => { if (!createMenuRef.current?.contains(e.target)) setCreateMenuOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setCreateMenuOpen(false); };
     window.addEventListener('mousedown', onDoc);
     window.addEventListener('keydown', onKey);
     return () => { window.removeEventListener('mousedown', onDoc); window.removeEventListener('keydown', onKey); };
-  }, [newMenuOpen]);
+  }, [createMenuOpen]);
 
   const q = query.trim().toLowerCase();
   const matches = (name) => !q || (name || '').toLowerCase().includes(q);
@@ -1250,6 +1308,7 @@ export default function FilesWorkspace({
       menuEditable && { key: 'import', label: 'Import files', onClick: () => onUpload?.() },
       menuEditable && { key: 'importfolder', label: 'Import folder', onClick: () => onUploadFolder?.() },
       menuEditable && { key: 'newfolder', label: 'Make new folder', onClick: () => requestNewFolder() },
+      menuEditable && onNewFile && { key: 'newfile', label: 'New file', onClick: () => requestNewFile() },
       onOpenDirectory && { key: 'opendir', label: 'Open directory', onClick: () => onOpenDirectory() },
     ],
   });
@@ -1409,7 +1468,7 @@ export default function FilesWorkspace({
   // List view shows its column header INSIDE the window chrome (same bar/section
   // as the search), aligned with the full-bleed rows below — so it renders only
   // when the list is actually populated.
-  const showListHead = view === 'list' && hasLocalFolder && !loading && (totalShown > 0 || creatingFolder);
+  const showListHead = view === 'list' && hasLocalFolder && !loading && (totalShown > 0 || creatingFolder || creatingFile);
 
   // Folder toolbar — nav + breadcrumb + search (+ the list column header in
   // list view). Rendered INTO the window chrome's row-2 slot when available
@@ -1564,7 +1623,7 @@ export default function FilesWorkspace({
             )
           ) : loading ? (
             <div className="fx-empty"><p>Loading…</p></div>
-          ) : (totalShown === 0 && !creatingFolder) ? (
+          ) : (totalShown === 0 && !creatingFolder && !creatingFile) ? (
             <div className="fx-empty">
               <Icon name={isBin ? 'trash' : 'inbox'} className="fx-icon" strokeWidth={1.2} />
               <h3>{q ? 'No matches' : (isBin ? 'Trash is empty' : 'Nothing here yet')}</h3>
@@ -1579,6 +1638,7 @@ export default function FilesWorkspace({
                 <Tile key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
               ))}
               {creatingFolder && <NewFolderTile onCommit={commitNewFolder} onCancel={cancelNewFolder} />}
+              {creatingFile && <NewFileTile onCommit={commitNewFile} onCancel={cancelNewFile} />}
               {shownFolders.map((f) => (
                 <Tile key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
               ))}
@@ -1592,6 +1652,7 @@ export default function FilesWorkspace({
                 <Row key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
               ))}
               {creatingFolder && <NewFolderRow onCommit={commitNewFolder} onCancel={cancelNewFolder} />}
+              {creatingFile && <NewFileRow onCommit={commitNewFile} onCancel={cancelNewFile} />}
               {shownFolders.map((f) => (
                 <Row key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
               ))}
@@ -1632,17 +1693,41 @@ export default function FilesWorkspace({
             )}
             {!isBin ? (
               <>
-                <div className="fx-menu-wrap" ref={newMenuRef}>
-                  <button className="fx-tb-btn" disabled={!canEdit} onClick={() => setNewMenuOpen((v) => !v)}>
+                {/* Single "Create" button — a dropdown merging New folder with the
+                    Build-with-AI file types. */}
+                <div className="fx-menu-wrap" ref={createMenuRef}>
+                  <button
+                    className="fx-tb-btn"
+                    disabled={!canEdit}
+                    onClick={() => setCreateMenuOpen((v) => !v)}
+                    title="Create a folder or a new document"
+                  >
                     <Icon name="plus" className="fx-icon" />
-                    <span>New</span>
+                    <span>Create</span>
                     <Icon name="chev-up" className="fx-caret" />
                   </button>
-                  {newMenuOpen && (
-                    <div className="fx-menu is-up" role="menu">
-                      <button onClick={() => { setNewMenuOpen(false); requestNewFolder(); }}>
+                  {createMenuOpen && (
+                    <div className="fx-menu is-up fx-create-menu" role="menu">
+                      <button onClick={() => { setCreateMenuOpen(false); requestNewFolder(); }}>
                         <Icon name="folder-plus" className="fx-icon" /> New folder
                       </button>
+                      {onCreateTypedFile && (
+                        <>
+                          <div className="fx-create-menu-head">Build with AI</div>
+                          <button onClick={() => { setCreateMenuOpen(false); onCreateTypedFile('docx'); }}>
+                            <Icon name="file-doc" className="fx-icon fx-create-ico fx-create-ico-doc" /> Word document
+                          </button>
+                          <button onClick={() => { setCreateMenuOpen(false); onCreateTypedFile('pptx'); }}>
+                            <Icon name="file-slides" className="fx-icon fx-create-ico fx-create-ico-ppt" /> PowerPoint presentation
+                          </button>
+                          <button onClick={() => { setCreateMenuOpen(false); onCreateTypedFile('xlsx'); }}>
+                            <Icon name="file-sheet" className="fx-icon fx-create-ico fx-create-ico-xls" /> Excel spreadsheet
+                          </button>
+                          <button onClick={() => { setCreateMenuOpen(false); onCreateTypedFile('pdf'); }}>
+                            <Icon name="file-pdf" className="fx-icon fx-create-ico fx-create-ico-pdf" /> PDF document
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>

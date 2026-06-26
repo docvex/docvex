@@ -32,21 +32,72 @@
      panels) traces the rounded outline; only the inner top bar + any footer
      (which carry their own fills) read as filled bars. */
   background: transparent;
-  border: 1px solid var(--border);
+  /* Frameless: no visible outline around the document section (the toolbar pins
+     to the top and the content edges fade instead of meeting a hard border). */
+  border: 1px solid transparent;
   border-radius: 14px;
   overflow: hidden;
 }
+/* Audio viewer: drop the rounded card frame so the player + lyrics read as an
+   open section rather than a boxed card. */
+.dv-doc-card.is-audio-doc { border: none; border-radius: 0; }
 
 /* AI advisor — its own rounded card beside the document. */
 .dv-advisor-card {
   flex: none; min-height: 0;
   display: flex; flex-direction: column;
   position: relative; z-index: 1;
-  background: transparent;
+  /* Sidebar material — translucent fill + border + shadow + cursor-spotlight
+     glow. NOTE: no `backdrop-filter` here on purpose. A backdrop-filter on the
+     card makes it a backdrop ROOT, which stops the footer's own backdrop-filter
+     from sampling the scroll text inside the card (it would only see the page
+     behind the whole card) — so the footer frost couldn't blur the thread.
+     Keeping the card filter-free lets the footer blur the content behind it.
+     Fill is OPAQUE so the page's dot-grid / cursor-spotlight behind the card
+     don't show through the sidebar (only the card's own radial glow shows). */
+  background: var(--bg-page);
   border: 1px solid var(--border);
   border-radius: 14px;
+  box-shadow: var(--shadow-card);
   overflow: hidden;
+  isolation: isolate;
 }
+/* Cursor-following spotlight glow (copied from .sidebar::before) — fed by the
+   --spot-x / --spot-y vars written on the aside's onMouseMove. */
+.dv-advisor-card::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  pointer-events: none; z-index: 0;
+  background: radial-gradient(
+    220px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 12%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 4%, transparent) 40%,
+    transparent 70%
+  );
+  opacity: 0; transition: opacity 240ms ease;
+}
+.dv-advisor-card:hover::before { opacity: 1; }
+/* Lift the panel content above the glow (the glow sits at z 0, content at z 1 —
+   same layering the main app sidebar uses so the fill shows behind the content). */
+.dv-advisor-card > .dv-advisor-slot,
+.dv-advisor-card > .dv-advisor-footerslot { position: relative; z-index: 1; }
+/* Border shine that tracks the pointer (copied from .sidebar::after) — a thin
+   accent glow on the card's edge that follows the cursor. */
+.dv-advisor-card::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  padding: 1px; pointer-events: none; z-index: 2;
+  background: radial-gradient(
+    200px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 75%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 34%,
+    transparent 62%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0; transition: opacity 240ms ease;
+}
+.dv-advisor-card:hover::after { opacity: 1; }
 /* Header is compact; the slot (portal target) fills the rest. */
 .dv-advisor-slot { flex: 1; min-height: 0; min-width: 0; display: flex; }
 .dv-advisor-slot > * { flex: 1; min-width: 0; min-height: 0; }
@@ -93,9 +144,24 @@ body.dv-ocr-resizing .dv-advisor-resize::after { background: var(--accent); }
 /* The Extract-text / Generate-captions button bar reads as a footer here (top
    border + sidebar fill), matching the advisor composer footer. */
 .dv-advisor-footerslot .dv-doc-extract-bar {
-  padding: 10px 14px 12px;
+  /* No padding — the button IS the whole footer (fills it edge-to-edge). */
+  padding: 0;
   border-top: 1px solid var(--border);
   background: var(--bg-sidebar);
+}
+/* In the footer the action button has no chrome of its own: no background,
+   border or radius — it's a flat full-bleed bar that fills the entire footer.
+   (Applies to both "Extract text" and "Generate captions".) */
+.dv-advisor-footerslot .dv-doc-extract-btn {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+.dv-advisor-footerslot .dv-doc-extract-btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--accent-soft);
 }
 /* Composer footer no longer needs its own top border doubling up. */
 .dv-advisor-footerslot .dv-advisor-compose { border-top: 1px solid var(--border); }
@@ -352,7 +418,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-doc-extract-error { position: static; transform: none; left: auto; bottom: auto; margin: 8px 14px 0; max-width: none; }
 
 /* ── Text pane: plain / markdown / WhatsApp ────────────────────────── */
-.dv-text-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.dv-text-pane { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .dv-text-toolbar {
   flex: none; display: flex; align-items: center; gap: 8px;
   padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-elevated);
@@ -429,7 +495,72 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
    vars — the find pill / date inputs would otherwise keep their hard-coded white
    fills + green focus ring. Match the Project-files footer's app palette. */
 /* Date range pinned LEFT, search pill pinned RIGHT. The search pill reuses the
-   Files tab's .fx-search styling verbatim (markup + CSS), so it's identical. */
+   Files tab's .fx-search markup; its base styling is duplicated here because the
+   standalone Doc Viewer window imports only DocViewer.css (not FilesWorkspace.css). */
+.fx-search {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-input);
+  width: 280px;
+  font-size: 13px;
+  color: var(--text-muted);
+  transition: width 220ms cubic-bezier(.16, 1, .3, 1),
+              border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.fx-search:hover { border-color: var(--border-strong); }
+.fx-search:focus-within {
+  width: 360px;
+  border-color: var(--accent);
+  background: var(--bg-card);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+.fx-search-glyph { color: var(--text-muted); flex: 0 0 auto; transition: color 140ms ease; }
+.fx-search:focus-within .fx-search-glyph,
+.fx-search.is-active .fx-search-glyph { color: var(--accent); }
+.fx-search input {
+  border: 0; background: transparent; outline: none;
+  font: inherit; color: var(--text-primary); width: 100%; min-width: 0;
+}
+.fx-search input::placeholder { color: var(--text-muted); }
+.fx-search-kbd {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: var(--font-body);
+  transition: opacity 120ms ease;
+}
+.fx-search-kbd kbd {
+  display: inline-flex; align-items: center;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-elevated);
+  font-family: inherit;
+  font-size: 10.5px; font-weight: 600; line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+.fx-search-kbd-plus {
+  margin: 0 3px;
+  font-size: 10px; font-weight: 600;
+  color: var(--text-muted);
+}
+.fx-search:focus-within .fx-search-kbd { opacity: 0; }
+.fx-search-clear {
+  flex: 0 0 auto;
+  display: grid; place-items: center;
+  width: 20px; height: 20px;
+  padding: 0; border: 0; cursor: pointer;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-secondary);
+  transition: background 120ms ease, color 120ms ease;
+}
+.fx-search-clear:hover {
+  background: color-mix(in srgb, var(--text-primary) 16%, transparent);
+  color: var(--text-primary);
+}
 .dv-wa-controls .dv-wa-header-controls { flex: 1; min-width: 0; justify-content: space-between; }
 .dv-wa-controls .dv-wa-dates { order: 1; color: var(--text-muted); }
 .dv-wa-controls .fx-search { order: 2; flex: 0 0 auto; }
@@ -447,7 +578,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
    the reconstruction; each scrolls independently). Drag handles sit between
    the two sections (resizes the conversation) and on the rail's right edge
    (resizes the rail). */
-.dv-wa-split { flex: 1; max-width: 100%; display: flex; min-height: 0; min-width: 0; }
+.dv-wa-split { position: relative; flex: 1; max-width: 100%; display: flex; min-height: 0; min-width: 0; }
 /* Chat column no longer scrolls itself — it's a flex column holding the top tab
    strip (full-width) and an inner scroller, so the native scrollbar can't narrow
    the strip or the footer. */
@@ -785,6 +916,165 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 /* Tone the native calendar glyph in with the rest of the chrome. */
 .dv-wa-date::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: pointer; }
 .dv-wa-date::-webkit-calendar-picker-indicator:hover { opacity: 0.9; }
+
+/* ── Date-range trigger button ("from — to") ───────────────────────────── */
+.dv-wa-daterange {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 5px 11px;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg-input); color: var(--text-secondary);
+  font: inherit; font-size: 12.5px; cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+.dv-wa-daterange:hover { border-color: var(--border-strong); color: var(--text-primary); }
+.dv-wa-daterange.is-active {
+  border-color: color-mix(in srgb, var(--color-sand) 60%, var(--border-strong));
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--color-sand) 28%, var(--bg-input));
+}
+/* Selected state — while the picker is open the button reads as toggled-on
+   (filled sand + ink text + ring), like a pressed/selected control. */
+.dv-wa-daterange.is-open {
+  border-color: color-mix(in srgb, var(--color-sand) 80%, var(--color-ink));
+  color: var(--color-ink);
+  background: var(--color-sand);
+}
+.dv-wa-daterange-icon { display: inline-flex; color: var(--text-muted); }
+.dv-wa-daterange.is-active .dv-wa-daterange-icon { color: color-mix(in srgb, var(--color-sand) 70%, var(--color-ink)); }
+.dv-wa-daterange.is-open .dv-wa-daterange-icon { color: var(--color-ink); }
+.dv-wa-daterange-date { font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The connecting line between the two dates. */
+.dv-wa-daterange-line {
+  flex: none; width: 16px; height: 1px;
+  background: var(--border-strong);
+}
+.dv-wa-daterange.is-active .dv-wa-daterange-line { background: color-mix(in srgb, var(--color-sand) 70%, var(--color-ink)); }
+.dv-wa-daterange.is-open .dv-wa-daterange-line { background: var(--color-ink); }
+
+/* ── Date-range picker (replaces the message + file bodies in place) ─────── */
+/* Hide the messages body while the calendars take its place (the Docvex/Plain
+   tab strip above stays). */
+.dv-wa-chatscroll-wrap.is-hidden { display: none; }
+
+/* Calendar — overlays the whole split (messages + media rail) rather than
+   replacing them; the content stays visible, dimmed behind a frosted scrim. */
+.dv-daterange-calwrap {
+  position: absolute; inset: 0; z-index: 5;
+  min-width: 0; min-height: 0;
+  display: flex; flex-direction: column; justify-content: center; gap: 10px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--bg-page) 78%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  animation: dv-daterange-fade-in 180ms ease-out both;
+}
+.dv-daterange-calwrap.is-closing {
+  animation: dv-daterange-fade-out 160ms ease-in both;
+}
+@keyframes dv-daterange-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes dv-daterange-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+/* Just the Reset action, top-right above the calendars (the range text that
+   used to sit here was removed). */
+.dv-daterange-callabel-row {
+  flex: none; display: flex; align-items: center; justify-content: flex-end;
+}
+/* Every month in the file's history, packed into auto-fill columns that fill
+   the body's width and scroll vertically when there are more than fit. */
+.dv-daterange-calscroll {
+  flex: 0 1 auto; min-height: 0; overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, 230px);
+  gap: 18px 16px; align-content: center; justify-content: center;
+  padding-right: 4px;
+}
+
+/* In-range tally in the conversation footer — styled like the old picker modal
+   (a --bg-card surface with big bold counts), laid out as a horizontal bar. */
+.dv-daterange-footer {
+  flex: none;
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 20px;
+  padding: 14px 22px;
+  /* No background — sits transparently under the calendars, inset from the
+     section edges with a divider whose ends fade out. */
+  margin: 0 48px;
+  border: none;
+  border-top: 1px solid transparent;
+  border-image: linear-gradient(90deg, transparent, var(--border) 18%, var(--border) 82%, transparent) 1;
+}
+.dv-daterange-stats-head {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.dv-daterange-stats-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 20px; min-width: 0;
+}
+.dv-daterange-stat { display: inline-flex; align-items: baseline; gap: 6px; }
+.dv-daterange-stat.is-zero { opacity: 0.4; }
+.dv-daterange-stat-n {
+  font-family: var(--font-display); font-weight: 700; font-size: 16px;
+  font-variant-numeric: tabular-nums; color: var(--text-primary);
+}
+.dv-daterange-stat-label { font-size: 13px; color: var(--text-secondary); }
+.dv-daterange-reset {
+  padding: 0; border: none; background: none;
+  color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.dv-daterange-reset:hover { text-decoration: underline; }
+
+/* Action row under the in-range tally — Close / Reset / Select. */
+.dv-daterange-actions {
+  flex: none;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 4px 0 2px;
+}
+.dv-daterange-btn {
+  padding: 8px 18px; border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated); color: var(--text-primary);
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background 110ms, border-color 110ms, color 110ms, opacity 110ms;
+}
+.dv-daterange-btn:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); }
+.dv-daterange-btn:disabled { opacity: 0.4; cursor: default; }
+.dv-daterange-btn.is-primary {
+  background: var(--accent); border-color: var(--accent); color: var(--text-on-accent);
+}
+.dv-daterange-btn.is-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+/* ── One month calendar grid ───────────────────────────────────────────── */
+.dv-cal { width: 100%; user-select: none; }
+.dv-cal-head {
+  display: flex; align-items: center; justify-content: flex-start;
+  margin-bottom: 6px;
+}
+.dv-cal-title { font-family: var(--font-display); font-weight: 600; font-size: 13.5px; color: var(--text-primary); }
+.dv-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.dv-cal-dow {
+  display: flex; align-items: center; justify-content: center;
+  height: 24px; font-size: 11px; font-weight: 600; color: var(--text-muted);
+}
+.dv-cal-cell {
+  display: flex; align-items: center; justify-content: center;
+  height: 30px; padding: 0; border: none; border-radius: 8px;
+  background: transparent; color: var(--text-primary);
+  font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: background 110ms, color 110ms;
+}
+.dv-cal-cell.is-empty { background: none; cursor: default; }
+.dv-cal-cell:hover:not(:disabled):not(.is-empty) { background: var(--accent-soft); }
+.dv-cal-cell:disabled { color: var(--text-muted); opacity: 0.35; cursor: default; }
+/* Days inside the selected window get a soft tint; the two endpoints are solid. */
+.dv-cal-cell.is-range { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 0; }
+.dv-cal-cell.is-from { background: var(--accent); color: var(--text-on-accent); border-radius: 8px 0 0 8px; }
+.dv-cal-cell.is-to { background: var(--accent); color: var(--text-on-accent); border-radius: 0 8px 8px 0; }
+.dv-cal-cell.is-from.is-to { border-radius: 8px; }
 /* Header search — same chrome as the AI chat tab's header search
    (.aichat-chrome-search): bordered pill that widens with an accent ring on
    focus, Ctrl/⌘+F key chips that fade once focused, inline count, round
@@ -1261,10 +1551,264 @@ img.dv-wa-media { cursor: pointer; }
 }
 .dv-text-doc p { margin: 0 0 10px; white-space: pre-wrap; word-break: break-word; }
 
-/* docx-preview output: center the rendered pages on a neutral backing. */
-.dv-docx { display: flex; flex-direction: column; align-items: center; gap: 16px; }
-.dv-docx .docx-wrapper { background: transparent !important; padding: 0 !important; }
-.dv-docx .docx-wrapper > section.docx { background: #fff; color: #111; box-shadow: var(--shadow-card); margin: 0 !important; }
+/* Document view with the Render / Plain text toggle (Claude-style). */
+.dv-docview { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; position: relative; }
+
+/* In-app pagination chip — pinned to the bottom-right of the preview, black
+   pill + white text ("3 / 12 pages"). Sits above the faded content edge. */
+.dv-page-counter {
+  position: absolute; right: 16px; bottom: 14px; z-index: 6;
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 4px 9px; border-radius: 5px;
+  background: transparent; color: var(--text-secondary);
+  font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  pointer-events: none; user-select: none;
+}
+.dv-page-counter-sep { opacity: 0.55; font-weight: 600; }
+.dv-page-counter-unit {
+  margin-left: 3px; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.6;
+}
+.dv-docview-toolbar {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  margin: 0 0 14px;
+}
+.dv-docview-seg {
+  display: inline-flex; gap: 2px; padding: 3px;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--bg-input);
+}
+.dv-docview-pgtoggle {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px; border-radius: 8px;
+  border: 1px solid var(--color-sand); background: var(--color-cream);
+  color: var(--color-ink); font: inherit; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.dv-docview-pgtoggle:hover { background: var(--color-sand); }
+.dv-docview-pgtoggle.is-active {
+  background: var(--color-sand); border-color: var(--color-cognac); color: var(--color-ink);
+}
+.dv-pgtoggle-hash { font-weight: 700; opacity: 0.75; }
+
+/* Push the Convert-to-PDF button to the right of a document/slide toolbar. */
+.dv-docview-spacer { flex: 1 1 auto; }
+
+/* Word toolbar: float the page-numbers toggle (left) and Convert-to-PDF (right)
+   into the toolbar corners so they don't take part in flow — the centered
+   reconstruction pill stays put and the row can't wrap or shift the document. */
+.dv-docview-toolbar--float { position: relative; min-height: 34px; }
+.dv-docview-toolbar--float .dv-docview-pgtoggle {
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%); z-index: 2;
+}
+.dv-docview-toolbar--float .dv-pdf-export {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 2;
+}
+.dv-docview-toolbar--float .dv-docview-spacer { display: none; }
+
+/* Top notice bar — just the centred reconstruction pill. Collapses when empty
+   (Electron: the pill portals into the title bar, leaving this with no child). */
+.dv-docview-topbar { position: relative; min-height: 34px; flex: none; }
+.dv-docview-topbar:empty { display: none; }
+
+/* Bottom toolbar — page-numbers toggle (left) + Convert-to-PDF (right), docked
+   below the scrolling document body. */
+.dv-docview-toolbar--foot {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  padding-top: 10px; border-top: 1px solid var(--border);
+}
+
+/* Convert / Export to PDF button — accent-tinted, with a small status dot that
+   turns green on success / red on failure. Lives in each office preview toolbar. */
+.dv-pdf-export {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px; border-radius: 8px;
+  border: 1px solid var(--color-sand); background: var(--color-cream);
+  color: var(--color-ink); font: inherit; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+.dv-pdf-export:hover:not(:disabled) { background: var(--color-sand); color: var(--color-ink); border-color: var(--color-cognac); }
+.dv-pdf-export:disabled { cursor: progress; opacity: 0.7; }
+.dv-pdf-export-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor; flex: 0 0 7px;
+}
+.dv-pdf-export.is-done { border-color: var(--success); background: var(--success-soft); color: var(--success); }
+.dv-pdf-export.is-done .dv-pdf-export-dot { background: var(--success); }
+.dv-pdf-export.is-error { border-color: var(--danger); background: var(--danger-soft); color: var(--danger-text); }
+.dv-pdf-export.is-error .dv-pdf-export-dot { background: var(--danger); }
+
+/* Spreadsheet top bar — holds the sheet tabs (left) + Convert-to-PDF (right). */
+.dv-sheet-bar { display: flex; align-items: center; gap: 10px; padding: 8px 10px 6px; }
+.dv-sheet-bar .dv-sheet-tabs { margin: 0; flex: 1 1 auto; min-width: 0; }
+.dv-sheet-bar-spacer { flex: 1 1 auto; }
+.dv-docview-toggle {
+  padding: 5px 13px; border: none; border-radius: 6px;
+  background: none; color: var(--text-secondary);
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.dv-docview-toggle:hover { color: var(--text-primary); }
+.dv-docview-toggle.is-active { background: var(--bg-card); color: var(--text-primary); box-shadow: var(--shadow-card); }
+.dv-docview-body { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: auto; }
+
+/* Render panes (docx / pptx): make the INNER body the scroller so the toolbar
+   (Render / Plain text / # Page numbers / Convert to PDF) stays pinned at the top
+   while the document scrolls, and the content edges fade out. Scoped via :has so
+   every OTHER file type keeps the shared .dv-doc-main scroll behaviour. */
+.dv-doc-main:has(.dv-docview) {
+  display: flex; flex-direction: column; overflow: hidden; padding: 0;
+}
+.dv-doc-main:has(.dv-docview) .dv-docview { padding: 14px 18px 0; }
+.dv-doc-main:has(.dv-docview) .dv-docview-topbar { margin: 0 0 10px; }
+.dv-doc-main:has(.dv-docview) .dv-docview-toolbar--foot { margin: 0; }
+.dv-doc-main:has(.dv-docview) .dv-docview-body {
+  padding-bottom: 12px;
+}
+
+/* Reconstruction notice — a centred pill at the top of each office preview's
+   toolbar, flagging that the in-app render may differ from the real Office app. */
+.dv-recon-pill {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  z-index: 1; display: inline-flex; align-items: center; gap: 9px;
+  max-width: min(68%, 540px);
+  padding: 7px 18px; border-radius: 999px;
+  background: var(--accent-tint);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--accent); font-size: 13px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dv-recon-pill::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--color-cognac); flex: 0 0 7px;
+}
+/* Portalled into the window title bar — static (the slot centres it), compact to
+   fit the bar height. */
+.dv-recon-pill--titlebar {
+  position: static; transform: none; max-width: none;
+  padding: 4px 14px; font-size: 12px; gap: 7px;
+}
+.dv-recon-pill--titlebar::before { width: 6px; height: 6px; flex-basis: 6px; }
+/* Spreadsheet bar hosts the pill the same way. */
+.dv-sheet-bar { position: relative; }
+.dv-docview-plain {
+  flex: 1; min-height: 0; margin: 0; overflow: auto;
+  white-space: pre-wrap; word-break: break-word;
+  font-family: var(--font-body); font-size: 13.5px; line-height: 1.65;
+  color: var(--text-primary);
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 22px 24px; box-shadow: var(--shadow-card);
+}
+
+/* docx-preview output, re-paginated into Word-style page sheets (see
+   paginateDocx in DocViewer.jsx). We render the document as continuous flow then
+   slice it into fixed-size `.dv-docx-page` sheets, stacked vertically and
+   centered like Word's print layout. The wrapper's `zoom` (set in JS) fits the
+   page width to the pane. */
+.dv-docx { display: block; width: 100%; }
+.dv-docx .docx-wrapper {
+  background: transparent !important; padding: 26px 18px !important;
+  /* Wrapping row: pages sit side by side when the pane is wide enough and wrap
+     to the next line otherwise (Word's multi-page view). */
+  display: flex; flex-flow: row wrap; align-items: flex-start; justify-content: center;
+  gap: 26px;
+}
+.dv-docx .docx-wrapper > section.docx,
+.dv-docx .docx-wrapper > .dv-docx-page {
+  position: relative; flex: none; overflow: hidden;
+  background: #fff; color: #111; box-shadow: var(--shadow-card);
+  margin: 0 !important;
+  /* Match Word's default font for any text the document doesn't pin a font on,
+     so the preview doesn't fall back to the app's UI font (Inter). Aptos is the
+     current Word default; Calibri (the prior default) and Carlito (a metric-
+     compatible substitute) cover hosts without Aptos. */
+  font-family: 'Aptos', 'Calibri', 'Carlito', 'Segoe UI', Arial, sans-serif;
+}
+
+/* Per-page pagination chip — a black pill with white text pinned to the
+   bottom-right corner of each Word page sheet. Hidden by default; shown when the
+   host carries `show-pagenums` (toolbar toggle). */
+.dv-docx-pagenum {
+  display: none;
+  position: absolute; right: 14px; bottom: 14px;
+  padding: 3px 9px; border-radius: 5px;
+  background: transparent; color: #5f6368;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-body);
+  pointer-events: none; user-select: none;
+}
+.dv-docx.show-pagenums .dv-docx-pagenum { display: block; }
+
+/* ── PowerPoint preview (parsed from the pptx zip) ───────────────────────── */
+/* A centred column of 16:9 slide cards (title + bullets). */
+.dv-pptx { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 22px 8px; }
+.dv-pptx-slide {
+  position: relative; width: 100%; max-width: 860px; aspect-ratio: 16 / 9;
+  background: #fff; color: #1a1a1a; border-radius: 6px; overflow: hidden;
+  box-shadow: var(--shadow-card); border: 1px solid rgba(0, 0, 0, 0.06);
+}
+.dv-pptx-canvas {
+  position: absolute; inset: 0; display: flex; flex-direction: column; gap: 2.4%;
+  padding: 6.2% 7%;
+  font-family: 'Aptos', 'Calibri', 'Carlito', 'Segoe UI', Arial, sans-serif;
+}
+.dv-pptx-title {
+  margin: 0; flex: none;
+  font-size: clamp(18px, 3.6cqw, 30px);
+  font-weight: 700; line-height: 1.15; color: #1a1a1a;
+}
+.dv-pptx-slide { container-type: inline-size; }
+.dv-pptx-bullets {
+  margin: 0; padding: 0; list-style: none; flex: 1; min-height: 0;
+  display: flex; flex-direction: column; gap: 1.6%; overflow: hidden;
+}
+.dv-pptx-bullet {
+  position: relative; padding-left: 1.1em;
+  font-size: clamp(12px, 2.2cqw, 18px); line-height: 1.32; color: #2a2a2a;
+}
+.dv-pptx-bullet::before {
+  content: ''; position: absolute; left: 0.15em; top: 0.55em;
+  width: 0.42em; height: 0.42em; border-radius: 50%; background: var(--accent);
+}
+.dv-pptx-bullet.lvl-1 { margin-left: 1.4em; opacity: 0.92; }
+.dv-pptx-bullet.lvl-2 { margin-left: 2.8em; opacity: 0.85; }
+.dv-pptx-bullet.lvl-3,
+.dv-pptx-bullet.lvl-4 { margin-left: 4.2em; opacity: 0.8; }
+.dv-pptx-bullet.lvl-1::before,
+.dv-pptx-bullet.lvl-2::before { background: #8a8a8a; width: 0.34em; height: 0.34em; }
+.dv-pptx-empty { color: #b0b0b0; font-size: 14px; }
+.dv-pptx-num {
+  position: absolute; right: 10px; bottom: 7px;
+  font-size: 10.5px; font-weight: 600; color: #b8b8b8;
+}
+
+/* Faithful pptx renderer — slides reproduce the file's own fills/positions, so
+   the card is just a sized, clipped stage; shapes are absolutely positioned and
+   font sizes scale with the slide via container-query height units (cqh). */
+.dv-ppx { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 22px 8px; }
+.dv-ppx-slide {
+  position: relative; width: 100%; max-width: 920px;
+  border-radius: 6px; overflow: hidden;
+  box-shadow: var(--shadow-card); border: 1px solid rgba(0, 0, 0, 0.08);
+  container-type: size;
+  font-family: 'Calibri', 'Carlito', 'Segoe UI', Arial, sans-serif;
+}
+.dv-ppx-shape { position: absolute; overflow: hidden; }
+.dv-ppx-text { display: flex; flex-direction: column; }
+.dv-ppx-p {
+  margin: 0; line-height: 1.2;
+  font-size: 3.2cqh; /* fallback when a run declares no explicit size */
+  white-space: pre-wrap; word-break: break-word;
+}
+.dv-ppx-p + .dv-ppx-p { margin-top: 0.35em; }
+.dv-ppx-bu { opacity: 0.85; }
+.dv-ppx-num {
+  position: absolute; right: 1.2%; bottom: 1.5%;
+  font-size: 2cqh; font-weight: 600; opacity: 0.45;
+}
+.dv-pptx-count { font-size: 12px; font-weight: 600; color: var(--text-muted); }
 
 /* Fallback for unpreviewable types. */
 .dv-noview { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; color: var(--text-muted); }
@@ -1286,12 +1830,16 @@ img.dv-wa-media { cursor: pointer; }
   display: flex; align-items: center; justify-content: center;
   background: #16181a; overflow: hidden;
 }
+/* Video viewer: drop the enclosing dark "section" so the video + its overlaid
+   controls float directly over the app surface instead of sitting in a boxed
+   stage. (Photos keep the dark stage above.) */
+.dv-media-stage.is-floating { background: transparent; }
 .dv-media-el { max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: 50% 50%; }
 body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 
 /* ── Zoom controls ───────────────────────────────────────────────── */
 .dv-zoom-controls {
-  position: absolute; top: 12px; right: 12px; z-index: 6;
+  position: absolute; top: 12px; left: 12px; z-index: 6;
   display: flex; align-items: center;
   background: rgba(10, 12, 14, 0.92);
   backdrop-filter: blur(22px) saturate(1.8);
@@ -1547,9 +2095,15 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
    always as wide as the menu content and no width jump occurs on open.
    filter:drop-shadow is used instead of box-shadow because box-shadow is
    clipped by clip-path; drop-shadow is applied after clip. */
+/* Top-left tool stack: the Extract-text pill with the Center button below it. */
+.dv-stage-tools {
+  position: absolute; top: 56px; left: 12px; z-index: 6;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+}
+
 .dv-ocr-btn-wrap {
-  /* Under the zoom pill at top-right; tool dropdown opens downward. */
-  position: absolute; top: 56px; right: 12px; z-index: 6;
+  /* Tool dropdown opens downward from the Extract-text pill. */
+  position: relative;
   display: flex; flex-direction: column; align-items: stretch;
   background: rgba(10, 12, 14, 0.92);
   backdrop-filter: blur(22px) saturate(1.8);
@@ -1559,6 +2113,22 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
   clip-path: inset(0 round 999px);
   transition: clip-path 180ms ease-in;
 }
+/* Center-video pill — matches the zoom / extract-text chrome. */
+.dv-center-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  background: rgba(10, 12, 14, 0.92);
+  backdrop-filter: blur(22px) saturate(1.8);
+  filter: drop-shadow(0 8px 30px rgba(0, 0, 0, 0.65));
+  color: rgba(255, 255, 255, 0.82);
+  font: inherit; font-size: 12.5px; font-weight: 600;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+.dv-center-btn:hover { color: #fff; background: rgba(28, 32, 36, 0.95); }
+.dv-center-btn svg { flex-shrink: 0; }
 .dv-ocr-btn-wrap.is-armed {
   clip-path: inset(0 round 14px);
   transition: clip-path 340ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -1885,31 +2455,67 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 /* With lyrics, the karaoke fills the pane and the play button docks below it. */
 .dv-audio-pane.has-lyrics { justify-content: flex-start; }
 
-/* Now-playing karaoke lyrics — fills the pane above the controls, scrolls to
-   keep the active line centred, with a top/bottom fade like YouTube Music. */
+/* Now-playing transcript — a left-aligned timeline (same rail / node /
+   timestamp treatment as the AI-captions panel), auto-scrolling to keep the
+   active line centred, with a top/bottom fade like YouTube Music. */
 .dv-audio-lyrics {
   flex: 1; min-height: 0; width: 100%; align-self: stretch;
   overflow-y: auto; overflow-x: hidden;
-  display: flex; flex-direction: column; gap: 4px;
-  padding: 40vh 8% 40vh;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 38vh 8% 38vh 18px;
   scrollbar-width: none;
+  /* x of the timeline vertical line, shared by every lyric line's rail. */
+  --lyric-railx: 22px;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 18%, #000 82%, transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0%, #000 18%, #000 82%, transparent 100%);
 }
 .dv-audio-lyrics::-webkit-scrollbar { display: none; }
+/* Big YouTube-Music-style lyric lines: gray when idle, near-black + larger on
+   the active (now-playing) line. Left-aligned, beside a vertical timeline line
+   that runs down the pane with a node marking the now-playing line. */
 .dv-lyric-line {
-  display: block; width: 100%; text-align: center;
+  position: relative;
+  display: block; width: 100%; text-align: left;
   border: none; background: none; cursor: pointer;
   font-family: var(--font-display);
-  font-size: 23px; font-weight: 800; line-height: 1.32; letter-spacing: -0.015em;
-  padding: 10px 14px; border-radius: 12px;
-  color: var(--text-muted); opacity: 0.4;
-  transform: scale(1); transform-origin: center;
-  transition: color 240ms ease, opacity 240ms ease, transform 240ms ease, background 160ms ease;
+  font-size: 28px; font-weight: 800; line-height: 1.3; letter-spacing: -0.015em;
+  padding: 8px 14px 8px 44px; border-radius: 12px;
+  color: #fff; opacity: 0.45;
+  transform: scale(1); transform-origin: left center;
+  transition: color 220ms ease, opacity 220ms ease, transform 220ms ease, background 160ms ease;
 }
-.dv-lyric-line:hover { opacity: 0.85; color: var(--text-secondary); background: var(--bg-elevated); }
-.dv-lyric-line.is-past { opacity: 0.3; }
-.dv-lyric-line.is-active { color: var(--text-primary); opacity: 1; transform: scale(1.06); }
+/* Vertical timeline line — one segment per lyric, extended past the bottom edge
+   by the list gap so adjacent segments join into a continuous line. */
+.dv-lyric-line::before {
+  content: ''; position: absolute; left: var(--lyric-railx); top: 0; bottom: -6px;
+  width: 2px; transform: translateX(-50%); background: var(--text-primary);
+}
+/* Fade the timeline's two ends: the first segment fades in from the top, the
+   last fades out toward the bottom. */
+.dv-lyric-line:first-child::before {
+  background: linear-gradient(to bottom, transparent, var(--text-primary) 70%);
+}
+.dv-lyric-line:last-child::before {
+  bottom: 50%;
+  background: linear-gradient(to bottom, var(--text-primary), transparent);
+}
+/* Node — a dot in the play button's accent colour; only the active
+   (now-playing) line shows it. */
+.dv-lyric-line::after {
+  content: ''; position: absolute; left: var(--lyric-railx); top: 50%;
+  width: 11px; height: 11px; border-radius: 50%; transform: translate(-50%, -50%);
+  background: var(--accent);
+  opacity: 0; transition: opacity 200ms ease;
+}
+/* The current caption has no line through it — just the accent dot. */
+.dv-lyric-line.is-active::before { display: none; }
+/* Hover only brightens the text — no background fill, so the vertical timeline
+   stays unchanged when pointing at a line. */
+.dv-lyric-line:hover { opacity: 0.85; color: #fff; }
+.dv-lyric-line.is-past { opacity: 0.32; }
+/* Active (now-playing) line — full-white text. */
+.dv-lyric-line.is-active { color: #fff; opacity: 1; transform: scale(1.04); }
+.dv-lyric-line.is-active::after { opacity: 1; }
 
 /* Play/pause deck — sits under the lyrics, above the decibel line. */
 .dv-audio-deck { flex: none; display: flex; align-items: center; justify-content: center; width: 100%; padding-top: 8px; }
@@ -2066,31 +2672,540 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 /* ── AI advisor panel ─────────────────────────────────────────────────
    A per-file chat that fills the side panel below the tab bar: a scrolling
    message log + a pinned composer at the bottom. */
-.dv-advisor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.dv-advisor-scroll { flex: 1; min-height: 0; overflow: auto; padding-bottom: 8px; }
-.dv-advisor-msgs { display: flex; flex-direction: column; gap: 10px; padding: 4px 14px 8px; }
-.dv-advisor-msg {
-  max-width: 88%; padding: 9px 12px; border-radius: 12px;
-  font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+.dv-advisor { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.dv-advisor-scroll {
+  flex: 1; min-height: 0; overflow: auto;
+  /* The bottom gap that clears the floating composer lives on the chat content
+     (.dv-advisor-chat padding-bottom) rather than here — padding-bottom on an
+     overflow:auto container isn't reliably part of the scrollable overflow at
+     the very bottom, so it collapses behind the composer when pinned to bottom. */
+  transition: filter 180ms ease, opacity 180ms ease;
+  /* Native scrollbar hidden — replaced by the custom .dv-advisor-sb thumb in
+     the right gutter (rendered outside the chat section). */
+  scrollbar-width: none;
 }
-.dv-advisor-msg.is-user {
-  align-self: flex-end;
-  background: var(--accent); color: var(--text-on-accent);
-  border-bottom-right-radius: 4px;
+.dv-advisor-scroll::-webkit-scrollbar { width: 0; height: 0; }
+/* Blur + dim the thread while an ask_user panel is waiting for an answer. */
+.dv-advisor-scroll.is-asking {
+  filter: blur(3px); opacity: 0.6; pointer-events: none;
 }
-.dv-advisor-msg.is-assistant {
-  align-self: flex-start;
-  background: var(--bg-elevated); color: var(--text-primary);
-  border: 1px solid var(--border); border-bottom-left-radius: 4px;
+
+/* Custom scrollbar — a thin track pinned to the right gutter of the advisor
+   pane (outside the chat content), with a JS-synced draggable thumb. Auto-hides
+   unless the pane is hovered or the thumb is being dragged. */
+.dv-advisor-sb {
+  /* Runs the full height and tucks UNDER the frosted footer (z-index 2 < the
+     footer's 3), so the bar overlays its bottom end. */
+  position: absolute; top: 8px; bottom: 8px; right: 3px; width: 6px;
+  z-index: 2; pointer-events: none;
+  opacity: 0; transition: opacity 200ms ease;
 }
-.dv-advisor-msg.is-typing { color: var(--text-muted); font-style: italic; }
+.dv-advisor:hover .dv-advisor-sb,
+body.dv-advisor-sb-dragging .dv-advisor-sb { opacity: 1; }
+.dv-advisor-sb-thumb {
+  position: absolute; left: 0; right: 0; top: 0; height: 40px;
+  border-radius: 999px; pointer-events: auto; cursor: grab;
+  /* Opaque (blended with the page, not transparent) so content doesn't show
+     through the thumb. */
+  background: color-mix(in srgb, var(--text-muted) 50%, var(--bg-page));
+  transition: background 140ms ease;
+}
+.dv-advisor-sb-thumb:hover { background: color-mix(in srgb, var(--text-muted) 72%, var(--bg-page)); }
+body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
+  background: var(--text-muted); cursor: grabbing;
+}
+/* Compact header that fades in once the full masthead scrolls away — a frosted
+   bar pinned to the top of the pane (content scrolls under it). */
+/* Styled to match the main app's compact-on-scroll header (.pmh-compact in
+   PageMasthead.css): a blur(20px) saturate(180%) translucent bar, display-font
+   title in --text-primary · muted eyebrow. */
+.dv-advisor-minihead {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 4;
+  display: flex; align-items: center; gap: 8px;
+  height: 48px; padding: 0 18px;
+  background: color-mix(in srgb, var(--bg-page) 62%, transparent);
+  backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  opacity: 0; transform: translateY(-10px); pointer-events: none;
+  transition: opacity 240ms ease, transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dv-advisor-minihead.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.dv-advisor-minihead-title {
+  /* "Generate" — the prominent display-font label (matches .pmh-compact-title). */
+  font-family: var(--font-display); font-size: 17px; font-weight: 700;
+  letter-spacing: -0.01em; color: var(--text-primary);
+}
+/* Separator dot (matches .pmh-compact-sep). */
+.dv-advisor-minihead-dot { color: var(--text-muted); font-weight: 600; }
+.dv-advisor-minihead-eyebrow {
+  /* "Document AI" (matches .pmh-compact-eyebrow). */
+  font-size: 13px; font-weight: 600; color: var(--text-muted); white-space: nowrap;
+}
+
+/* Generate-pane full masthead — iOS-style (mirrors the Settings / Newsletter
+   header): eyebrow · muted, big display title, one-line subtitle. No divider.
+   Lives at the top of the scroll so it scrolls away. */
+.dv-advisor-head {
+  flex: none; padding: 18px 18px 16px;
+  display: flex; flex-direction: column; gap: 1px;
+  position: relative;
+}
+/* Divider under the header with both ends faded out (a masked line, since a
+   plain border-bottom can't fade at its edges). */
+.dv-advisor-head::after {
+  content: ''; position: absolute; left: 18px; right: 18px; bottom: 0; height: 1px;
+  background: var(--border);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 12%, #000 88%, transparent 100%);
+          mask-image: linear-gradient(to right, transparent 0, #000 12%, #000 88%, transparent 100%);
+}
+.dv-advisor-head-eyebrow {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--accent);
+}
+.dv-advisor-head-muted { color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em; }
+.dv-advisor-head-title {
+  margin: 3px 0 0; font-family: var(--font-display);
+  font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1;
+  color: var(--text-primary);
+}
+.dv-advisor-head-sub {
+  margin: 5px 0 0; font-size: 13px; line-height: 1.45;
+  color: var(--text-secondary); max-width: 46ch;
+}
+/* Branch nav — pills for each split conversation, under the header. */
+.dv-branch-nav {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 10px 18px 4px;
+}
+.dv-branch-nav-pill {
+  appearance: none; cursor: pointer;
+  padding: 4px 12px; border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-secondary);
+  font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.dv-branch-nav-pill:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text-primary); }
+.dv-branch-nav-pill.is-active {
+  background: var(--color-sand); border-color: var(--color-cognac); color: var(--color-ink);
+}
+.dv-branch-nav-pill:disabled { opacity: 0.55; cursor: default; }
+
+/* Persistent split marker in the thread — shows where a branch was split off
+   (clickable to open that branch). Distinct from the hover divider. */
+.dv-split-marker {
+  appearance: none; cursor: pointer; width: 100%;
+  display: flex; align-items: center; gap: 10px;
+  margin: 10px 0; padding: 0; border: none; background: none;
+  color: var(--color-cognac);
+}
+.dv-split-marker-line {
+  flex: 1; height: 1px; min-width: 12px;
+  background: color-mix(in srgb, var(--color-cognac) 45%, transparent);
+}
+.dv-split-marker-tag {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px;
+  border: 1px dashed color-mix(in srgb, var(--color-cognac) 55%, transparent);
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.01em; white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.dv-split-marker-tag svg { width: 14px; height: 14px; }
+.dv-split-marker:hover .dv-split-marker-tag {
+  background: color-mix(in srgb, var(--color-cognac) 12%, transparent);
+  border-color: var(--color-cognac);
+}
+/* The thread reuses the main app's AI-advisor bubbles/markdown verbatim by
+   carrying its .ai-hub / .ai-chat-page classes. .ai-hub normally constrains the
+   page to 75% width — neutralise that here so the bubbles fill the side panel. */
+.dv-advisor-chat.ai-hub.ai-chat-page {
+  /* height: auto OVERRIDES the .ai-hub.ai-chat-page `height: 100%` (which is for
+     the main app where the chat is the scroller). Here the scroll is the PARENT,
+     so the chat must grow with its content — otherwise its padding-bottom is
+     trapped inside a fixed 100%-tall box and the messages overflow past it,
+     hiding the last one behind the footer. */
+  height: auto;
+  /* Big bottom padding so the last message can scroll fully clear of the
+     floating composer that overlaps the bottom of the scroll. */
+  width: 100%; max-width: none; margin: 0; padding: 10px 16px 200px;
+}
+/* Extra breathing room under the very last bubble so its end clears the footer. */
+.dv-advisor-chat.ai-hub.ai-chat-page > .bubble:last-child { margin-bottom: 24px; }
+.dv-advisor-chat .chat { width: 100%; }
+/* Intro shown before the first message — centered spark + one-line prompt. */
+.dv-advisor-intro {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  text-align: center; color: var(--text-secondary);
+  padding: 32px 18px; max-width: 42ch; margin: 8px auto 0;
+}
+.dv-advisor-intro-glyph {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; border-radius: 13px;
+  background: var(--accent-soft); color: var(--accent);
+}
+.dv-advisor-intro p { margin: 0; font-size: 0.92rem; line-height: 1.6; }
+.dv-advisor-intro strong { color: var(--text-primary); font-weight: 600; }
+
+/* ── Document version cards (Claude-style iterations) ─────────────────────── */
+/* Compact, self-sized chip (icon left · "Version N" + format stacked right).
+   Clamped so it doesn't stretch across the chat column. */
+.dv-doc-version {
+  display: inline-flex; align-items: center; gap: 6px;
+  align-self: flex-start; width: auto; min-width: 280px; max-width: 460px;
+  /* Above the split-detection hit strip (the branch-anchor extends upward over
+     this card); keeps the card fully hoverable/clickable. */
+  position: relative; z-index: 4;
+  margin-top: -10px;
+  padding: 6px 22px 6px 11px; border-radius: 14px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-primary); font: inherit; text-align: left; cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+.dv-doc-version:hover:not(:disabled) { border-color: var(--border-strong); background: var(--bg-elevated); }
+.dv-doc-version:disabled { cursor: default; opacity: 0.7; }
+.dv-doc-version.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-card));
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.dv-doc-version-icon {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 66px; height: 66px; border-radius: 10px;
+  background: transparent; color: var(--accent);
+}
+.dv-doc-version-icon svg { width: 40px; height: 40px; }
+/* Tint the icon by document type (same palette as the Files view). */
+.dv-doc-version-icon.is-doc { color: #2b6cb0; }
+.dv-doc-version-icon.is-ppt { color: #c2410c; }
+.dv-doc-version-icon.is-xls { color: #15803d; }
+.dv-doc-version-icon.is-pdf { color: #b91c1c; }
+.dv-doc-version-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.dv-doc-version-name {
+  font-size: 13px; font-weight: 600; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.dv-doc-version-format {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+/* CTA line: tells the user clicking makes this version the on-disk file. */
+.dv-doc-version-hint {
+  margin-top: 3px; font-size: 11.5px; font-weight: 500;
+  color: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.dv-doc-version.is-active .dv-doc-version-hint { color: var(--accent); }
+.dv-doc-version-dot {
+  flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent);
+}
+
+/* Spinner shown over the preview while a version is being written to disk. */
+.dv-doc-body { position: relative; }
+.dv-preview-loading {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg-page) 55%, transparent);
+  backdrop-filter: blur(1.5px); -webkit-backdrop-filter: blur(1.5px);
+}
+.dv-preview-spinner {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: dv-preview-spin 0.7s linear infinite;
+}
+@keyframes dv-preview-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .dv-preview-spinner { animation-duration: 1.4s; } }
+
+/* "Split from here" control — a hover divider after an AI message with the pill
+   pushed to the far right, outside the message (bubble) column. Revealed on
+   hover of the AI bubble above or the divider row itself. */
+/* Zero-height overlay so the divider + pill never add to message spacing — the
+   line + pill are absolutely positioned on the seam after the AI turn, with the
+   pill pinned to the far right (by the scrollbar). */
+.dv-branch-anchor {
+  /* z-index above the custom scrollbar (2) so the divider's right end paints
+     ON TOP of the scrollbar instead of tucking behind it. */
+  position: relative; display: block; width: 100%; height: 0; z-index: 3;
+  opacity: 0; transition: opacity 70ms ease;
+}
+/* Full-width invisible hit strip sitting ABOVE the seam — it starts at the
+   divider and extends UPWARD (over the message/card just above). Nothing is
+   detected below the divider. */
+.dv-branch-anchor::before {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+  height: 64px; transform: none;
+}
+/* Reveal on hovering a chat bubble above or the strip itself. Version cards are
+   intentionally NOT a trigger — the divider only appears from the seam after. */
+/* The divider is shown ONLY when its seam is the active one (branchHover state),
+   the same condition that renders the floating pill — so the line never appears
+   without the button. (Hovering a bubble above no longer reveals it on its own.) */
+.dv-branch-anchor.is-active { opacity: 1; }
+.dv-branch-line {
+  /* Right end extends past the chat content's 16px right padding so it reaches
+     the section's right edge (under the scrollbar); left end stays inset/faded. */
+  position: absolute; left: 0; right: -16px; top: 0; height: 2px;
+  /* Opacity ramps from reduced on the LEFT to full (1) on the RIGHT, where it
+     meets the button/connector. */
+  background: linear-gradient(to right, color-mix(in srgb, var(--color-sand) 45%, transparent), var(--color-sand));
+  /* Fade only the LEFT edge; the right edge stays solid to the scrollbar. */
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14%, #000 100%);
+          mask-image: linear-gradient(to right, transparent 0, #000 14%, #000 100%);
+  transition: background 130ms ease;
+}
+/* Hovering the floating pill brightens its divider to match (cognac, full). */
+.dv-branch-anchor.is-pill-hover .dv-branch-line {
+  background: linear-gradient(to right, color-mix(in srgb, var(--color-cognac) 55%, transparent), var(--color-cognac));
+}
+.dv-branch--float:hover::before { background: var(--color-cognac); }
+.dv-branch {
+  /* Base pill look. Positioning is set by the .dv-branch--float modifier, which
+     is portalled to <body> and placed at the hovered seam (see DocViewer.jsx). */
+  transform: translateY(-50%);
+  appearance: none; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 18px; border-radius: 999px;
+  border: none;
+  /* Sand (brand palette) — matches the divider line and the active page-numbers
+     button. */
+  background: var(--color-sand);
+  color: var(--color-ink); font: inherit; font-size: 13px; font-weight: 600;
+  white-space: nowrap; box-shadow: var(--shadow-elev);
+  transition: color 130ms ease, background 130ms ease;
+}
+.dv-branch svg { width: 15px; height: 15px; }
+.dv-branch:hover { color: var(--color-cream); background: var(--color-cognac); }
+/* Floating pill — fixed to the viewport (portalled to <body>) so it overflows
+   past the sidebar edge, into the gutter toward the document. Its left edge is
+   placed flush with the scrollbar's right edge. */
+.dv-branch--float {
+  position: fixed; z-index: 1000; margin-left: 12px;
+  animation: dv-branch-float-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* Cream connector bridging the gutter gap between the divider (ends at the
+   section edge) and the floating pill, so the line reads as continuous. */
+.dv-branch--float::before {
+  content: ''; position: absolute; right: 100%; top: 50%;
+  width: 18px; height: 2px; transform: translateY(-50%);
+  background: var(--color-sand);
+}
+@keyframes dv-branch-float-in {
+  from { opacity: 0; transform: translateY(-50%) translateX(-7px); }
+  to   { opacity: 1; transform: translateY(-50%) translateX(0); }
+}
+
+/* Right-click menu on a version pill — "Open in <software>". Portalled to
+   <body> and positioned at the cursor (fixed). */
+.dv-ver-menu {
+  position: fixed; z-index: 9999; min-width: 196px;
+  padding: 5px; border-radius: 12px;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  box-shadow: var(--shadow-elev);
+}
+.dv-ver-menu-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 9px 11px; border-radius: 8px; border: none; background: none;
+  color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 500;
+  text-align: left; cursor: pointer; transition: background 110ms ease, color 110ms ease;
+}
+.dv-ver-menu-item:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
+.dv-ver-menu-item:disabled { opacity: 0.5; cursor: default; }
+.dv-ver-menu-item svg { flex: 0 0 auto; opacity: 0.85; }
+
+/* ── Clarifying-questions panel (over the document pane) ──────────────────── */
+/* Claude-artifact styling: a centred card with numbered questions + answer
+   fields, floating over the document area while the model waits on the user. */
+.dv-doc-qa-overlay {
+  position: absolute; inset: 0; z-index: 7;
+  display: flex; align-items: center; justify-content: center;
+  padding: 28px; overflow: auto;
+  background: color-mix(in srgb, var(--bg-page) 78%, transparent);
+  backdrop-filter: blur(3px);
+}
+.dv-doc-qa {
+  width: 100%; max-width: 560px; margin: auto;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+  box-shadow: var(--shadow-elev);
+  padding: 22px 22px 18px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.dv-doc-qa-head { display: flex; flex-direction: column; gap: 4px; }
+.dv-doc-qa-eyebrow {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--accent);
+}
+.dv-doc-qa-eyebrow svg { width: 15px; height: 15px; }
+.dv-doc-qa-title {
+  margin: 0; font-family: var(--font-display); font-size: 19px; font-weight: 700;
+  letter-spacing: -0.01em; color: var(--text-primary);
+}
+.dv-doc-qa-sub { margin: 0; font-size: 12.5px; color: var(--text-muted); }
+.dv-doc-qa-list { display: flex; flex-direction: column; gap: 14px; }
+.dv-doc-qa-item { display: flex; gap: 11px; align-items: flex-start; }
+.dv-doc-qa-num {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 22px; height: 22px; margin-top: 1px; border-radius: 7px;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 11.5px; font-weight: 700;
+}
+.dv-doc-qa-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.dv-doc-qa-q { font-size: 13.5px; font-weight: 600; line-height: 1.45; color: var(--text-primary); }
+.dv-doc-qa-input {
+  width: 100%; resize: none; overflow: hidden;
+  min-height: 38px; padding: 9px 12px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-input); color: var(--text-primary);
+  font: inherit; font-size: 13px; line-height: 1.5;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.dv-doc-qa-input::placeholder { color: var(--text-muted); }
+.dv-doc-qa-input:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+.dv-doc-qa-input:disabled { opacity: 0.6; cursor: not-allowed; }
+.dv-doc-qa-actions {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding-top: 2px;
+}
+.dv-doc-qa-skip,
+.dv-doc-qa-submit {
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  padding: 8px 16px; border-radius: 9px; border: 1px solid transparent;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+.dv-doc-qa-skip { background: none; border-color: var(--border); color: var(--text-secondary); }
+.dv-doc-qa-skip:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text-primary); }
+.dv-doc-qa-submit { background: var(--accent); color: var(--text-on-accent); }
+.dv-doc-qa-submit:hover:not(:disabled) { background: var(--accent-hover); }
+.dv-doc-qa-skip:disabled,
+.dv-doc-qa-submit:disabled { opacity: 0.6; cursor: not-allowed; }
 /* Footer bar matching the Team-chat composer footer (.vb-team > .vb-composer-wrap):
    a --bg-sidebar bar with a top border, holding the floating rounded composer
    card inset by the padding. */
 .dv-advisor-compose {
-  flex: none; padding: 10px 18px 12px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-sidebar);
+  /* Transparent floating wrapper — EXACTLY the main app's .vb-composer-wrap:
+     no fill, no border, NO backdrop-filter of its own. Only the inner frosted
+     .dv-advisor-composer card blurs the thread behind it. (The bar previously
+     carried its own blur, which nested under the card's blur — two stacked
+     backdrop-filters that cancel each other so neither blurs cleanly.) The
+     transparent padding lets clicks/scroll fall through to the messages behind;
+     the children re-enable pointer events. */
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+  padding: 10px 18px 12px;
+  /* Frosted footer bar (single backdrop-filter — the inner composer card no
+     longer carries its own, so they don't nest and cancel). Overlays the
+     bottom of the pane; the scroll fills the full card height and slides under
+     this bar (the chat content reserves padding-bottom to clear it). */
+  background: color-mix(in srgb, var(--bg-sidebar) 60%, transparent);
+  backdrop-filter: blur(18px) saturate(1.3); -webkit-backdrop-filter: blur(18px) saturate(1.3);
+}
+/* Submit / Skip shown in the composer toolbar (replacing the send button) while
+   an ask_user is active — either composer-owned (free-text) or portalled from
+   the active panel. Reset the panel actions' absolute positioning here. */
+.dv-advisor-ask-actions { display: inline-flex; align-items: center; gap: 8px; }
+.dv-advisor-ask-actions .ask-actions { position: static; margin: 0; }
+/* Dev-only ask_user preview row — a dashed tray of buttons that each pop the
+   shared AskUserPanel with a sample payload of one response_type. */
+/* Dev-only ask_user preview tray — a strip pinned across the top of the window. */
+.dv-ask-debug-section {
+  flex: none; width: 100%; padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.dv-ask-debug {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin: 0; padding: 0;
+  background: transparent;
+}
+.dv-ask-debug-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-muted); margin-right: 2px;
+}
+.dv-ask-debug button {
+  font: inherit; font-size: 12px; font-weight: 500;
+  padding: 4px 9px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary);
+  cursor: pointer;
+}
+.dv-ask-debug button:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.dv-ask-debug .dv-ask-debug-clear { border-color: var(--danger); color: var(--danger-text); }
+
+/* Decision buttons the AI offered, sitting above the input field. Claude-style
+   choice chips: wrap, accent-tinted, brighten on hover. */
+.dv-advisor-options { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 10px; }
+.dv-advisor-option {
+  font: inherit; font-size: 12.5px; font-weight: 600; text-align: left; cursor: pointer;
+  padding: 7px 13px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-card));
+  color: var(--text-primary);
+  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+.dv-advisor-option:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-card));
+  border-color: var(--accent);
+}
+.dv-advisor-option:active:not(:disabled) { transform: translateY(1px); }
+.dv-advisor-option:disabled { opacity: 0.55; cursor: not-allowed; }
+/* Interactive ask_user panel / option chips live INSIDE the composer now, above
+   the textarea and separated by a hairline, so the question reads as part of the
+   message input field rather than floating above it. */
+.dv-advisor-inpanels {
+  display: flex; flex-direction: column; gap: 8px;
+  margin: 2px 2px 8px; padding-bottom: 9px;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  /* Grows the composer footer open (max-height + collapsing spacing) so the
+     panel expands smoothly instead of the footer snapping taller. */
+  animation: dv-ask-in 460ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes dv-ask-in {
+  from {
+    opacity: 0; transform: translateY(6px);
+    max-height: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0;
+    border-bottom-color: transparent;
+  }
+  to {
+    opacity: 1; transform: none;
+    max-height: 600px; padding-bottom: 9px; margin-top: 2px; margin-bottom: 8px;
+    border-bottom-color: var(--border);
+  }
+}
+/* Exit animation — collapses + fades the panel back into the composer footer. */
+.dv-advisor-inpanels.is-exiting {
+  /* Same duration AND the same fast-starting curve as dv-ask-in, so the close
+     reads at the same speed as the open (the previous ease-IN curve started slow
+     and felt draggy). */
+  animation: dv-ask-out 460ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes dv-ask-out {
+  from {
+    opacity: 1; transform: none;
+    max-height: 600px; padding-bottom: 9px; margin-top: 2px; margin-bottom: 8px;
+    border-bottom-color: var(--border);
+  }
+  to {
+    opacity: 0; transform: translateY(6px);
+    max-height: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0;
+    border-bottom-color: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dv-advisor-inpanels, .dv-advisor-inpanels.is-exiting { animation: none; }
+}
+.dv-advisor-inpanels .dv-advisor-options { margin: 0; }
+/* The ask_user modal keeps its padding but drops the card surface — it floats
+   over the chat with no background/border/shadow of its own. */
+.dv-advisor-inpanels .ask-panel,
+.dv-advisor-inpanels .ask-panel.is-locked {
+  margin: 0; padding: 16px 18px;
+  background: transparent; border: none; border-radius: 12px;
+  box-shadow: none;
 }
 /* Composer surface mirroring the main app's AI-tab composer (.dvx-composer):
    a frosted rounded card with an accent focus ring; the textarea sits on top
@@ -2103,13 +3218,13 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
   padding: 8px 10px; box-shadow: var(--shadow-card);
   transition: border-color 120ms, box-shadow 120ms;
 }
-/* Frosted fill on a content-less pseudo so textarea repaints don't re-run the
-   backdrop blur. */
+/* Input surface fill. NO backdrop-filter here — the footer bar (.dv-advisor-compose)
+   owns the single frost layer; a second one nested inside it would cancel out.
+   A near-opaque fill keeps the typed text legible over the frosted bar. */
 .dv-advisor-composer::before {
   content: ''; position: absolute; inset: 0; border-radius: inherit;
   z-index: 0; pointer-events: none;
-  background: color-mix(in srgb, var(--bg-page) 82%, transparent);
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--bg-input) 88%, transparent);
 }
 /* Cursor-following spotlight glow (tracks --spot-x/--spot-y set on mousemove in
    the JSX) — same as the team-chat composer's ::after. */
@@ -2152,19 +3267,134 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
   /* No fill when there's nothing to send — just the muted icon (team-chat parity). */
   background: transparent; color: var(--text-muted); cursor: not-allowed;
 }
+/* Stop button — same footprint as send, shown while the AI is thinking. */
+.dv-advisor-composer-stop {
+  appearance: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0;
+  border: none; border-radius: 50%;
+  background: var(--danger); color: var(--text-on-accent); cursor: pointer;
+  transition: background 120ms, opacity 120ms;
+}
+.dv-advisor-composer-stop:hover { background: var(--danger); opacity: 0.85; }
+
+/* Engine toggle — a small segmented control in the composer toolbar that picks
+   the document builder (Designer = Agent Skills, Instant = local). */
+.dv-engine-toggle {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 2px; border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-page) 60%, transparent);
+  border: 1px solid var(--border);
+}
+.dv-engine-opt {
+  appearance: none; border: none; cursor: pointer;
+  font: inherit; font-size: 0.74rem; font-weight: 600; line-height: 1;
+  padding: 5px 11px; border-radius: 999px;
+  background: transparent; color: var(--text-muted);
+  transition: background 120ms, color 120ms;
+}
+.dv-engine-opt:hover:not(:disabled) { color: var(--text-secondary); }
+.dv-engine-opt.is-active {
+  background: var(--accent); color: var(--text-on-accent);
+  box-shadow: 0 1px 3px var(--accent-tint);
+}
+.dv-engine-opt:disabled { cursor: not-allowed; opacity: 0.55; }
+
+/* Model picker — a compact trigger pill that opens a popover of models, each
+   with a "best for" note so the choice is informed. */
+.dv-model-picker { position: relative; display: inline-flex; }
+.dv-model-trigger {
+  appearance: none; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  font: inherit; font-size: 0.74rem; font-weight: 600; line-height: 1;
+  padding: 5px 9px; border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-page) 60%, transparent);
+  border: 1px solid var(--border); color: var(--text-secondary);
+  transition: border-color 120ms, color 120ms, background 120ms;
+}
+.dv-model-trigger:hover:not(:disabled) { color: var(--text-primary); border-color: var(--border-strong); }
+.dv-model-trigger:disabled { cursor: not-allowed; opacity: 0.55; }
+.dv-model-trigger-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint);
+}
+.dv-model-trigger-chev { opacity: 0.6; }
+
+.dv-model-menu {
+  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 40;
+  width: 290px; max-width: 78vw;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 6px; border-radius: 14px;
+  background: var(--bg-elevated, var(--bg-card)); border: 1px solid var(--border);
+  box-shadow: var(--shadow-elev);
+}
+.dv-model-menu-head {
+  font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted); padding: 6px 8px 4px;
+}
+.dv-model-opt {
+  appearance: none; cursor: pointer; text-align: left;
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 9px 10px; border-radius: 10px;
+  background: transparent; border: 1px solid transparent; color: var(--text-primary);
+  transition: background 110ms, border-color 110ms;
+}
+.dv-model-opt:hover { background: var(--accent-tint); }
+.dv-model-opt.is-active { background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.dv-model-opt-top { display: flex; align-items: center; gap: 8px; }
+.dv-model-opt-name { font-size: 0.86rem; font-weight: 700; }
+.dv-model-opt-tag { font-size: 0.72rem; font-weight: 600; color: var(--accent); }
+.dv-model-opt-check { margin-left: auto; color: var(--accent); }
+.dv-model-opt-best { font-size: 0.74rem; line-height: 1.35; color: var(--text-secondary); }
+
+/* In the Multitool footer the advisor input matches the team-chat composer's
+   footer treatment (.sv-footer .dvx-composer): flat and full-bleed — it fills
+   the footer edge to edge, dropping the rounded floating card, shadow, frosted
+   layers and focus ring. The footer (.dv-advisor-compose) supplies the top
+   border + ground. */
+.dv-advisor-footerslot .dv-advisor-compose { padding: 0; }
+.dv-advisor-footerslot .dv-advisor-composer {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 8px 22px;
+}
+.dv-advisor-footerslot .dv-advisor-composer::before,
+.dv-advisor-footerslot .dv-advisor-composer::after { display: none; }
+.dv-advisor-footerslot .dv-advisor-composer:focus-within {
+  border: none;
+  box-shadow: none;
+}
 
 /* Captions side panel — reuses the OCR "Extracted text" panel chrome
    (.dv-ocr-history*); these are the audio-specific additions. */
 .dv-audio-captions-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 6px 14px 16px; }
 .dv-audio-captions-acts { display: flex; align-items: center; gap: 14px; }
 .dv-audio-captions-aside .dv-audio-captions-status { padding: 14px; }
-/* Each caption line is a button that seeks to that moment; active = now playing. */
+/* AI captions transcript row — a muted timestamp on the left, caption text to
+   its right, the active (now-playing) line highlighted with a soft rounded
+   fill. No vertical rail / node (the timeline line lives in the content pane's
+   lyrics instead). */
 .dv-audio-caption-row {
-  text-align: left; border: none; background: none; font: inherit; cursor: pointer; padding: 0;
+  text-align: left; border: none; background: none; font: inherit; cursor: pointer;
+  grid-template-columns: 50px 1fr; gap: 12px; align-items: baseline;
+  padding: 6px 10px; border-radius: 8px;
+  transition: background 120ms ease;
 }
-.dv-audio-caption-row:hover .dv-ocr-history-text { color: var(--accent); }
-.dv-audio-caption-row.is-active .dv-ocr-history-node { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
-.dv-audio-caption-row.is-active .dv-ocr-history-text { color: var(--accent); font-weight: 600; }
+.dv-audio-caption-row:hover { background: var(--bg-elevated); }
+.dv-audio-caption-row .dv-ocr-history-rail::before,
+.dv-audio-caption-row .dv-ocr-history-node { display: none; }
+.dv-audio-caption-row .dv-ocr-history-date {
+  position: static; width: auto; text-align: left;
+}
+.dv-audio-caption-row .dv-ocr-history-date-d {
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+  color: var(--text-muted); transition: color 120ms ease;
+}
+.dv-audio-caption-row:hover .dv-ocr-history-date-d { color: var(--text-secondary); }
+.dv-audio-caption-row.is-active { background: var(--accent-soft); }
+.dv-audio-caption-row.is-active .dv-ocr-history-date-d { color: var(--accent); }
+.dv-audio-caption-row.is-active .dv-ocr-history-text { color: var(--text-primary); font-weight: 600; }
 /* Edit mode — timestamp becomes a small seek button + the text an editable field. */
 .dv-audio-caption-row.is-editing { cursor: default; }
 .dv-caption-seek {

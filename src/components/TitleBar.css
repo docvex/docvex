@@ -36,6 +36,17 @@
 
 .tb-drag-spacer { flex: 1; min-width: 0; }
 
+/* Centre slot for the doc-viewer window — the office "Reconstruction" pill
+   portals in here so it's centred in the title bar (clear of the drag region). */
+.tb-docview-center {
+  position: absolute; left: 50%; top: 0; bottom: 0;
+  transform: translateX(-50%);
+  display: flex; align-items: center;
+  pointer-events: none; z-index: 1;
+  -webkit-app-region: no-drag; app-region: no-drag;
+}
+.tb-docview-center > * { pointer-events: auto; }
+
 /* Brand (left). Part of the drag region — plain, non-interactive text.
    8px left edge inset + 8px item gap = the bar's primary spacing unit. */
 .tb-brand {
@@ -212,6 +223,15 @@
   color: var(--border-strong);
   margin: 0;
 }
+/* Doc-viewer brand: "DOCVEX - FILE VIEWER" — separator + suffix painted in the
+   same colour/weight as the DOCVEX wordmark so the whole title reads as one. */
+.tb-brand-sep--solid {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.tb-brand-suffix--solid {
+  color: var(--text-primary);
+}
 
 /* Selected-project name — clickable, opens the project dashboard. Opts out
    of the drag region so the click registers. */
@@ -238,6 +258,20 @@
   color: var(--text-primary);
   background: var(--bg-elevated);
   border-color: var(--border);
+}
+
+/* Doc-viewer window: the open file's name shown after "DOCVEX |" in place of
+   the project chrome. Non-interactive (plain label, like the brand name). */
+.tb-docviewer-file {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  color: var(--text-secondary);
 }
 
 /* ── Project meta row: avatars · files · bars (next to the project name) ── */
@@ -454,201 +488,6 @@
 
 .tb-dropdown-check { display: flex; color: var(--accent); }
 .tb-dropdown-check svg { width: 15px; height: 15px; }
-
-/* Icon-only trigger active state (split control while a multi-pane layout is on). */
-.tb-btn-icon-only.is-active { color: var(--accent); }
-
-/* Split-view dropdown rows — layout glyph + label + check. */
-.tb-split-item { gap: 10px; }
-.tb-split-glyph { display: flex; color: var(--text-secondary); }
-.tb-split-item.is-active .tb-split-glyph { color: var(--accent); }
-.tb-split-glyph svg { width: 18px; height: 18px; }
-
-/* Rich rows inside the Split / Theme morph menus (useMorphPill). The pill
-   chrome comes from useMorphPill.css; these just lay out glyph + label +
-   the active-choice check inside each item. */
-.tb-morph-row { display: flex; align-items: center; gap: 10px; width: 100%; }
-.tb-morph-glyph { display: flex; color: var(--text-secondary); }
-.tb-morph-glyph svg { width: 18px; height: 18px; }
-.tb-morph-row-label { white-space: nowrap; }
-.tb-morph-check { margin-left: auto; display: flex; color: var(--accent); }
-.tb-morph-check svg { width: 15px; height: 15px; }
-
-/* ── Split-view menu (grid of layout tiles + custom layouts) ──
-   Rendered as the morph pill's menuHeader. The pill itself carries
-   `.tb-split-pill` so we can widen it past the default morph-menu sizing. */
-.project-files-morph-pill.tb-split-pill.is-menu { padding: 8px; }
-/* menuItems is empty for this menu (everything lives in the header) — hide the
-   empty list so it doesn't add a trailing gap. */
-.tb-split-pill .project-files-morph-list:empty { display: none; }
-.tb-split-menu { display: flex; flex-direction: column; gap: 10px; min-width: 232px; }
-
-/* 2 rows × 3 columns of icon-only layout tiles. */
-.tb-split-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(2, 1fr);
-  gap: 6px;
-}
-.tb-split-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 46px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--bg-input);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.tb-split-cell:hover {
-  background: var(--bg-elevated);
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-.tb-split-cell.is-active {
-  background: var(--accent-tint);
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-  color: var(--accent);
-}
-.tb-split-cell:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.tb-split-cell:disabled:hover {
-  background: var(--bg-input);
-  border-color: var(--border);
-  color: var(--text-secondary);
-}
-.tb-split-cell svg { width: 22px; height: 22px; }
-
-.tb-split-divider { height: 1px; background: var(--border); }
-
-/* Custom (user-named) layouts. */
-.tb-split-custom { display: flex; flex-direction: column; gap: 4px; }
-.tb-split-custom-title {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  padding: 0 2px 2px;
-}
-.tb-split-custom-empty {
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 0 2px 2px;
-}
-/* Each saved layout: the apply row, plus an Edit/Update/Delete action row that
-   appears BELOW it only while it's the selected (active) layout. */
-.tb-split-custom-entry { display: flex; flex-direction: column; border-radius: 8px; }
-.tb-split-custom-entry.is-active { background: var(--accent-tint); }
-.tb-split-custom-apply {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 6px 8px;
-  border: none;
-  border-radius: 7px;
-  background: none;
-  color: var(--text-primary);
-  font-family: var(--font-body);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 120ms ease;
-}
-.tb-split-custom-entry:not(.is-active) .tb-split-custom-apply:hover { background: var(--accent-tint); }
-.tb-split-custom-apply.is-active { color: var(--accent); }
-.tb-split-custom-glyph { display: flex; color: var(--text-secondary); flex-shrink: 0; }
-.tb-split-custom-apply.is-active .tb-split-custom-glyph { color: var(--accent); }
-.tb-split-custom-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* Action row under the selected layout. */
-.tb-split-custom-actions {
-  display: flex;
-  gap: 4px;
-  padding: 2px 6px 6px;
-}
-.tb-split-custom-action {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  font-family: var(--font-body);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-}
-.tb-split-custom-action svg { flex-shrink: 0; }
-.tb-split-custom-action:hover { border-color: var(--accent); color: var(--accent); background: var(--bg-elevated); }
-.tb-split-custom-action.is-danger:hover { border-color: var(--danger); color: #fff; background: var(--danger); }
-
-/* Split button with the active custom layout's name shown beside the glyph. */
-.tb-split-btn.has-name { gap: 7px; padding: 0 10px; max-width: 180px; }
-.tb-split-btn.has-name.is-active { color: var(--accent); }
-.tb-split-btn-name {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 12.5px; font-weight: 550; color: var(--text-secondary);
-}
-.tb-split-btn.has-name:hover .tb-split-btn-name,
-.tb-split-btn.has-name.is-open .tb-split-btn-name { color: var(--text-primary); }
-.tb-split-btn.is-active .tb-split-btn-name { color: var(--accent); }
-
-/* "Save current layout" affordance — button → inline name form. */
-.tb-split-add {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 8px;
-  border: 1px dashed var(--border);
-  border-radius: 7px;
-  background: none;
-  color: var(--text-secondary);
-  font-family: var(--font-body);
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.tb-split-add:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--bg-elevated); }
-.tb-split-add-plus { font-size: 15px; line-height: 1; }
-.tb-split-add-form { display: flex; align-items: center; gap: 6px; }
-.tb-split-add-glyph { display: flex; color: var(--text-secondary); flex-shrink: 0; }
-.tb-split-add-input {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-family: var(--font-body);
-  font-size: 12.5px;
-}
-.tb-split-add-input:focus { outline: none; border-color: var(--accent); }
-.tb-split-add-save {
-  flex-shrink: 0;
-  padding: 6px 12px;
-  border: 1px solid var(--accent);
-  border-radius: 7px;
-  background: var(--accent);
-  color: var(--text-on-accent);
-  font-family: var(--font-body);
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.tb-split-add-save:disabled { opacity: 0.5; cursor: default; }
 
 /* ── Account control (rightmost, before the window buttons) ── */
 .tb-account-cluster { padding-right: 4px; }

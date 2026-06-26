@@ -1,27 +1,88 @@
 ﻿.sidebar {
-  /* Horizontal app-nav bar pinned directly under the frameless title bar.
-     Fixed + full-width; the top reservation is handled by .main-content's
-     `margin-top: var(--topnav-h)` (AppShell.css), so the bar overlays the
-     very top of the content area without participating in flex flow. */
-  position: fixed;
-  top: var(--titlebar-h);
-  left: 0;
-  right: 0;
-  /* Above the project banner (z 30) and the project-picker panel (z 40) so
-     the bar stays the topmost chrome under the title bar. */
-  z-index: 50;
-  height: var(--topnav-h, 48px);
-  background: var(--bg-sidebar);
-  border-bottom: 1px solid var(--border);
+  /* Vertical app-nav rail, always displayed (no hover-collapse). In-flow as
+     the left column of the app chrome (AppShell's .app-chrome flex row), in its
+     OWN bordered/rounded frame separate from the content frame beside it. */
+  position: relative;
+  z-index: 1;
+  flex: 0 0 var(--sidebar-width, 240px);
+  width: var(--sidebar-width, 240px);
+  height: 100%;
+  /* Same frosted-glass fill as the Files / Chat / AI footers (.fx-bottombar /
+     .sv-footer / .dvx-composer) so the rail reads as the same surface. */
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 4px;
-  padding: 0 10px;
-  overflow: hidden;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 12px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  /* Own stacking context so the cursor-spotlight glow (::before, z 0) sits
+     behind the nav content (lifted to z 1 below) instead of over it. */
+  isolation: isolate;
 }
 
-/* Labels always read in the horizontal bar (no hover-collapse anymore). */
+/* Cursor-following spotlight — a soft accent glow that tracks the pointer via
+   the --spot-x / --spot-y vars written in Sidebar.jsx. Kept subtle; fades in
+   only while the pointer is over the rail. */
+.sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    220px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 8%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 3%, transparent) 38%,
+    transparent 68%
+  );
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.sidebar:hover::before { opacity: 1; }
+
+/* Border shine — a bright accent highlight on the rail's border that follows
+   the pointer. A radial gradient masked to just the 1px border ring (the
+   gradient fills the box, then the two masks XOR away everything but the
+   padding-box edge). */
+.sidebar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  z-index: 2;
+  background: radial-gradient(
+    200px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 75%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 34%,
+    transparent 62%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.sidebar:hover::after { opacity: 1; }
+
+/* Lift the nav + footer above the glow layer. */
+.sidebar > * { position: relative; z-index: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar::before,
+  .sidebar::after { display: none; }
+}
+
+/* Labels always read in the always-on rail. */
 .sidebar .label {
   white-space: nowrap;
 }
@@ -236,31 +297,58 @@
   margin: 0;
   padding: 0;
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  /* gap:0 — spacing between items is provided by the divider pseudo below
-     so the 1px rule sits centered between each pair. */
-  gap: 0;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
+  flex-direction: column;
+  /* Space between category groups. */
+  gap: 18px;
+  /* Fill the rail's height so .sidebar-cat--end can push to the bottom. */
+  flex: 1 1 auto;
+  min-height: 0;
 }
-.sidebar-nav::-webkit-scrollbar { height: 0; width: 0; }
 
 .sidebar-nav > li {
-  display: flex;
-  align-items: center;
+  display: block;
 }
 
-/* Thin vertical divider between every pair of nav elements. */
-.sidebar-nav > li + li::before {
+/* Category pinned to the bottom of the rail (System) — margin-top:auto eats
+   the remaining vertical space above it. */
+.sidebar-cat--end {
+  margin-top: auto;
+}
+
+/* ── Category group (Workspace / Personal / System) ──
+   Each group is one <li>: a small uppercase label above its nav items,
+   stacked vertically in the rail. */
+.sidebar-cat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* Category title doubles as a section divider: the uppercase label followed by
+   a hairline rule that fills the rest of the row. */
+.sidebar-cat-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+  padding: 0 8px 6px;
+  /* Read as a quiet section marker, not a clickable tab. */
+  user-select: none;
+}
+.sidebar-cat-label::after {
   content: '';
-  flex: 0 0 auto;
-  width: 1px;
-  height: 13px;
-  margin: 0 4px;
+  flex: 1 1 auto;
+  height: 1px;
   background: var(--border);
+}
+.sidebar-cat-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 /* Chromium / WebKit scrollbar — 8px wide rail with a translucent
@@ -374,36 +462,91 @@
   font-size: 0.8rem;
 }
 
-/* Shared styles for NavLink items */
+/* Shared styles for NavLink items — full-width rows in the vertical rail. */
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 7px;
-  border-radius: 6px;
-  color: var(--text-muted);
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--text-secondary);
   text-decoration: none;
-  font-size: 0.74rem;
+  font-size: 0.85rem;
   font-weight: 500;
-  width: auto;
   white-space: nowrap;
   background: none;
   border: none;
   cursor: pointer;
+  text-align: left;
+  font-family: inherit;
   transition: background 150ms, color 150ms;
 }
 
-/* Smaller icons in the compact top bar (the JSX icons are authored at 20px). */
-.sidebar .icon { width: auto; }
-.sidebar .icon svg { width: 14px; height: 14px; }
+/* Rail icons (the JSX icons are authored at 20px). */
+.sidebar .icon svg { width: 18px; height: 18px; }
 
+/* Hover/active fill is a radial accent gradient that brightens at the pointer
+   (--item-spot-x/y, set per-button in Sidebar.jsx) so the selection + hover
+   styling reacts to the cursor spotlight. Translucent throughout, so the rail
+   glow behind (.sidebar::before) still shows through. */
 .nav-item:hover {
-  background: var(--bg-elevated);
+  background: radial-gradient(
+    140px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 12%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 7%, transparent) 100%
+  );
   color: var(--text-primary);
 }
 
 .nav-item.active {
-  background: var(--bg-elevated);
+  background: radial-gradient(
+    140px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 34%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 12%, transparent) 100%
+  );
+  color: var(--text-primary);
+}
+
+/* ── Open files section ─────────────────────────────────────────────────
+   Each row is the focus button (full .nav-item) with an absolutely-positioned
+   close (×) overlaid on the right that reveals on row hover. */
+.doc-tab-row { position: relative; }
+.doc-tab-main {
+  /* Reserve room on the right so a long filename never slides under the × */
+  padding-right: 30px;
+  min-width: 0;
+}
+.doc-tab-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-tab-close {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+.doc-tab-row:hover .doc-tab-close,
+.doc-tab-close:focus-visible { opacity: 1; }
+.doc-tab-close:hover {
+  background: color-mix(in srgb, var(--text-primary) 14%, transparent);
   color: var(--text-primary);
 }
 
@@ -427,7 +570,7 @@
   height: 8px;
   border-radius: 50%;
   background: var(--warning-soft);
-  border: 2px solid var(--bg-sidebar);
+  border: 2px solid var(--bg-page);
   box-sizing: content-box;
 }
 
@@ -455,14 +598,85 @@
   padding: 0.1rem 0.5rem;
 }
 
-/* Footer — pushed to the far right of the bar (utility cluster). */
+/* Footer — pinned to the bottom of the vertical rail (utility cluster). */
 .sidebar-footer {
-  margin-left: auto;
+  margin-top: auto;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
   flex: 0 0 auto;
+  /* Sit a touch above the rail's bottom padding, separated from the nav by a
+     hairline so the account row reads as its own footer band. */
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }
+
+/* ── Account row (bottom of the rail) ── avatar + (name over email) + a
+   sign-out button. */
+.sidebar-account {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sidebar-account-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 9px;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  color: var(--text-primary);
+  transition: background 150ms ease;
+}
+.sidebar-account-main:hover {
+  background: var(--bg-elevated);
+}
+.sidebar-account-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+.sidebar-account-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-account-email {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-account-signout {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.sidebar-account-signout:hover {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+.sidebar-account-signout svg { width: 17px; height: 17px; }
 
 /* "Report a problem" â€” sits BELOW the Account row in the footer.
    Intentionally low-key: the button is a fallback affordance, not a
@@ -600,20 +814,6 @@
   transition: width 250ms ease;
 }
 
-/* Collapsed sidebar â€” shrink avatar and its slot back to 24px so they
-   align with the other nav-item icons and the row's geometry mirrors
-   exactly what Activity / Projects / Notifications show. Without this
-   override the 32px avatar overhangs the row's 23px content area and
-   the whole footer reads visually heavier on the right. */
-.sidebar:not(:hover):not(.locked):not(.picker-open) .sidebar-avatar {
-  width: 24px;
-  height: 24px;
-}
-
-.sidebar:not(:hover):not(.locked):not(.picker-open) .account-btn .icon {
-  width: 24px;
-}
-
 .sidebar-avatar-fallback {
   background: var(--accent);
   color: var(--text-on-accent);
@@ -621,12 +821,6 @@
   font-weight: 600;
   text-transform: uppercase;
   line-height: 1;
-  transition: font-size 250ms ease;
-}
-
-.sidebar:not(:hover):not(.locked):not(.picker-open) .sidebar-avatar-fallback {
-  /* Smaller letter to fit the shrunk circle without crowding the edge. */
-  font-size: 0.75rem;
 }
 
 /* Primary-style entry point shown when no session exists */
