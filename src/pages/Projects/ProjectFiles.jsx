@@ -1382,6 +1382,8 @@ export default function ProjectFiles({ embedded = false } = {}) {
     onNewFolder: fxNewFolder,
     onNewFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxNewFile : undefined,
     onCreateTypedFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxCreateTypedFile : undefined,
+    renameTargetPath,
+    onRenameTargetConsumed: () => setRenameTargetPath(null),
     onUpload: fxUpload,
     onUploadFolder: fxUploadFolder,
     onEmptyBin: handleEmptyBin,
