@@ -31,6 +31,84 @@
   min-height: 0;
 }
 
+/* ── Hub launcher button ────────────────────────────────────────────
+   Floats OUTSIDE the sidebar at the top-left, styled distinctly from the
+   subtle rail nav items (accent gradient, display font, elevated). Caps the
+   rail when the sidebar is shown; persists over the content on the Hub page.
+   Pressing it navigates to /projects (where the sidebar is hidden). */
+.app-hub-btn {
+  position: fixed;
+  z-index: 60;
+  top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px));
+  left: var(--chrome-inset, 6.4px);
+  /* Same width as the rail; pinned ABOVE it (the rail is pushed down below). */
+  width: var(--sidebar-width, 192px);
+  height: 40px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  padding: 0 12px;
+  /* Ghost / outline launcher — transparent with an accent ring + accent text;
+     fills with accent on hover/active. Minimal, the opposite of the solid tile. */
+  border: 1.5px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: none;
+  -webkit-app-region: no-drag;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.app-hub-btn:hover {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+}
+.app-hub-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.app-hub-btn.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+}
+
+/* Plain accent grid glyph (no chip) — inherits the button's text colour so it
+   flips to on-accent when the button fills. */
+.app-hub-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: currentColor;
+}
+.app-hub-icon svg { width: 17px; height: 17px; }
+.app-hub-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.app-hub-sep { opacity: 0.4; font-weight: 400; }
+/* "HUB" reads as a lighter sub-label next to the bold DOCVEX wordmark. */
+.app-hub-suffix {
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  opacity: 0.72;
+  text-transform: uppercase;
+}
+
+/* Push the rail DOWN so it sits below the floating Hub button (which is pinned
+   above it at the same width), clear of the rail rather than overlapping it. */
+.app-chrome .sidebar {
+  margin-top: calc(40px + var(--chrome-inset, 6.4px));
+  height: calc(100% - 40px - var(--chrome-inset, 6.4px));
+}
+
 .main-content {
   /* position:relative makes this the containing block for absolute-positioned
      children â€” e.g. the ProjectBanner pill that centers itself horizontally

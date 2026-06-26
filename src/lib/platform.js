@@ -197,6 +197,11 @@ export function onDocViewerAddFile(cb) {
 export function listDocViewerTabs() {
   return electronAPI?.listDocViewerTabs ? electronAPI.listDocViewerTabs() : Promise.resolve([]);
 }
+// Report this doc-viewer window's AI advisor busy state to the main app's
+// "Open files" sidebar (no-op on web — viewers aren't separate windows there).
+export function setDocViewerAiStatus(busy) {
+  electronAPI?.setDocViewerAiStatus?.(busy);
+}
 export function onDocViewerTabs(cb) {
   return electronAPI?.onDocViewerTabs ? electronAPI.onDocViewerTabs(cb) : (() => {});
 }

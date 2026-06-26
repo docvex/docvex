@@ -483,7 +483,7 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
                   role="menuitem"
                   aria-haspopup={item.submenu ? 'menu' : undefined}
                   aria-expanded={item.submenu ? Boolean(subOpen) : undefined}
-                  className={`project-files-morph-item${item.danger ? ' project-files-morph-item-danger' : ''}${item.submenu ? ' project-files-morph-item-parent' : ''}${subOpen ? ' is-open' : ''}`}
+                  className={`project-files-morph-item${item.danger ? ' project-files-morph-item-danger' : ''}${item.submenu ? ' project-files-morph-item-parent' : ''}${subOpen ? ' is-open' : ''}${item.className ? ` ${item.className}` : ''}`}
                   onClick={() => handleMenuItemClick(item)}
                   disabled={item.disabled || false}
                 >
@@ -492,25 +492,42 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
                 </button>
                 {subOpen && (
                   <ul ref={subRef} className={`project-files-morph-sublist${subFlipLeft ? ' flip-left' : ''}`}>
-                    {(item.submenu || []).filter(Boolean).map((sub, j) => (
-                      sub.heading ? (
-                        <li key={sub.key || `h${j}`} role="none">
-                          <div className="project-files-morph-subhead">{sub.heading}</div>
-                        </li>
-                      ) : (
-                        <li key={sub.key || sub.label || j} role="none">
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="project-files-morph-item project-files-morph-subitem"
-                            onClick={() => { closeMenu(); sub.onClick?.(); }}
-                            disabled={sub.disabled || false}
-                          >
-                            {sub.label}
-                          </button>
-                        </li>
-                      )
-                    ))}
+                    {(item.submenu || []).filter(Boolean).map((sub, j) => {
+                      // A sub-item button (closes the menu + fires its action).
+                      const subButton = (it, k) => (
+                        <button
+                          key={it.key || it.label || k}
+                          type="button"
+                          role="menuitem"
+                          className="project-files-morph-item project-files-morph-subitem"
+                          onClick={() => { closeMenu(); it.onClick?.(); }}
+                          disabled={it.disabled || false}
+                        >
+                          {it.label}
+                        </button>
+                      );
+                      // A grouped set (optional heading + items) wrapped in one
+                      // box — used to ring the "Build with AI" types with the
+                      // animated AI border.
+                      if (sub.aiGroup) {
+                        return (
+                          <li key={sub.key || `g${j}`} role="none">
+                            <div className="project-files-morph-ai-group">
+                              {sub.heading && <div className="project-files-morph-subhead">{sub.heading}</div>}
+                              {(sub.items || []).filter(Boolean).map((it, k) => subButton(it, k))}
+                            </div>
+                          </li>
+                        );
+                      }
+                      if (sub.heading) {
+                        return (
+                          <li key={sub.key || `h${j}`} role="none">
+                            <div className="project-files-morph-subhead">{sub.heading}</div>
+                          </li>
+                        );
+                      }
+                      return <li key={sub.key || sub.label || j} role="none">{subButton(sub, j)}</li>;
+                    })}
                   </ul>
                 )}
               </li>

@@ -11,33 +11,19 @@
 */
 
 .switch-project-loader {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  /* Start at the sidebar's right edge so the spinner+label sit visually
-     centered in the MAIN content area rather than the entire viewport. The
-     CSS variable is set by .app-shell (60px default, 220px when the
-     sidebar is expanded) and animates between the two so the loader's left
-     edge follows the sidebar's expand/collapse motion in lock-step. */
-  left: var(--sidebar-width, 48px);
-  /* Fully opaque so the previous project's content is completely hidden
-     during the switch â€” reads as a hard cut rather than a translucent
-     intermediate state. backdrop-filter dropped along with the alpha
-     since the backdrop isn't visible anyway. */
-  background: var(--bg-page);
+  /* Scoped to the content section: fills the positioned <main> it's rendered
+     in, so the sidebar stays put and only the tab-content area is masked. The
+     parent's overflow:hidden clips this to the content frame's rounded corners. */
+  position: absolute;
+  inset: 0;
+  /* Transparent panel — the tab content + its chrome aren't rendered while
+     switching, so the ambient dot grid + cursor spotlight show through behind
+     the spinner. */
+  background: transparent;
   z-index: 45;
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Match the sidebar's own width transition so the loader's left edge
-     glides along with it instead of snapping. */
-  transition: left 250ms ease;
-  /* Hint the compositor that `left` is the animated property so the loader
-     gets its own layer for the duration of the transition. Cheap to declare
-     on a fixed-position element with no children whose size depends on its
-     position. */
-  will-change: left;
   /* Fade in just under one frame at 60fps so the overlay appears instantly
      to the user but with enough easing to avoid a hard cut. */
   animation: switch-project-loader-fade 120ms ease-out;

@@ -42,6 +42,19 @@ function formatBytes(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// Masthead-kicker formatters — mirror ProjectOverview's hero so the Files
+// masthead reads identically (KB / MB / GB; thousands-separated counts).
+function fmtBytesFull(bytes) {
+  const b = Number(bytes) || 0;
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`;
+  return `${(b / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+function fmtCount(n) {
+  return (Number(n) || 0).toLocaleString();
+}
+
 function splitNameAndExtension(name) {
   if (!name) return { base: '', ext: '' };
   const lastDot = name.lastIndexOf('.');
@@ -1346,8 +1359,35 @@ export default function ProjectFiles({ embedded = false } = {}) {
     localFolderUploadInputRef.current?.click();
   };
 
+  // Masthead — a Versions-style hero for the Files tab. The eyebrow + kicker
+  // describe the FILES (not the project): where they live, how many, how big,
+  // and when they last changed. Totals come from the recursive listing.
+  // Shown only in the drafts tab (not the recycle bin).
+  const fxTotalBytes = localFiles.reduce((sum, f) => sum + (Number(f.sizeBytes) || 0), 0);
+  const fxLatestMtime = localFiles.reduce((latest, f) => {
+    const t = f.mtimeIso ? new Date(f.mtimeIso).getTime() : 0;
+    return t > latest ? t : latest;
+  }, 0);
+  const fxUpdatedLabel = fxLatestMtime
+    ? new Date(fxLatestMtime).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
+  const fxKicker = localFiles.length === 0
+    ? 'No files yet — add or import files to get started'
+    : [
+        `${fmtCount(localFiles.length)} ${localFiles.length === 1 ? 'file' : 'files'}`,
+        fmtBytesFull(fxTotalBytes),
+        fxUpdatedLabel ? `Updated ${fxUpdatedLabel}` : null,
+      ].filter(Boolean).join(' · ');
+  const filesMasthead = filesTab === 'drafts' ? {
+    eyebrow: 'Project files',
+    access: 'Stored in your local folder',
+    title: 'Files',
+    kicker: fxKicker,
+  } : null;
+
   const filesWorkspaceProps = {
     projectId,
+    masthead: filesMasthead,
     summaryText: `${localFiles.length} ${localFiles.length === 1 ? 'file' : 'files'}`,
     // `tab` ('drafts' | 'trash') is the in-panel mode: 'trash' is the recycle
     // bin, entered by opening the bin folder and exited via the breadcrumb.

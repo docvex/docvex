@@ -99,17 +99,20 @@
    and tracks the sidebar's expand/collapse. */
 .updates-page .versions-compact {
   position: fixed;
-  /* Sit just below the title bar, the horizontal app-nav bar (--topnav-h), AND
-     the single-window nav chrome (--sv-chrome-h; 0 when there's no chrome). */
-  top: calc(var(--titlebar-h, 0px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
-  left: var(--sidebar-width, 0px);
-  right: 0;
+  /* Anchored to match the shared PageMasthead compact bar (.pmh-compact) so the
+     Versions mini header lines up identically with Activity / Newsletter: inset
+     by --chrome-inset for the floating content frame, sitting to the right of
+     the sidebar + the gap, with the frame's rounded top corners. */
+  top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 0px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
+  left: calc(var(--sidebar-width, 0px) + 2 * var(--chrome-inset, 0px));
+  right: var(--chrome-inset, 0px);
   z-index: 30;
   height: 41.6px;
   display: flex;
   align-items: center;
   gap: 6.4px;
   padding: 0 17.6px;
+  border-radius: 9.6px 9.6px 0 0;
   background: color-mix(in srgb, var(--bg-page) 62%, transparent);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
   backdrop-filter: blur(16px) saturate(180%);

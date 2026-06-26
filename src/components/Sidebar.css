@@ -12,7 +12,7 @@
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
   backdrop-filter: blur(6.4px);
   -webkit-backdrop-filter: blur(6.4px);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: 9.6px;
   box-shadow: var(--shadow-card);
   display: flex;
@@ -48,19 +48,20 @@
 .sidebar:hover::before { opacity: 1; }
 
 /* Border shine — a bright accent highlight on the rail's border that follows
-   the pointer. A radial gradient masked to just the 1px border ring (the
+   the pointer. A radial gradient masked to just the 2px border ring (the
    gradient fills the box, then the two masks XOR away everything but the
-   padding-box edge). */
+   padding-box edge). Padding matches the .sidebar border width so the shine
+   sits exactly on the border. */
 .sidebar::after {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  padding: 1px;
+  padding: 1.5px;
   pointer-events: none;
   z-index: 2;
   background: radial-gradient(
-    160px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    176px circle at var(--spot-x, 50%) var(--spot-y, 50%),
     color-mix(in srgb, var(--accent) 75%, transparent) 0%,
     color-mix(in srgb, var(--accent) 22%, transparent) 34%,
     transparent 62%
@@ -348,7 +349,7 @@
 .sidebar-cat-items {
   display: flex;
   flex-direction: column;
-  gap: 1.6px;
+  gap: 4px;
 }
 
 /* Chromium / WebKit scrollbar — 8px wide rail with a translucent
@@ -476,15 +477,18 @@
   font-weight: 500;
   white-space: nowrap;
   background: none;
-  border: none;
+  /* Transparent ring reserved on every item so the selected tab's accent ring
+     (matching the Hub button) doesn't shift the row's size. */
+  border: 1.5px solid transparent;
+  box-sizing: border-box;
   cursor: pointer;
   text-align: left;
   font-family: inherit;
-  transition: background 150ms, color 150ms;
+  transition: background 150ms, color 150ms, border-color 150ms;
 }
 
 /* Rail icons (the JSX icons are authored at 20px). */
-.sidebar .icon svg { width: 14.4px; height: 14.4px; }
+.sidebar .icon svg { width: 18px; height: 18px; }
 
 /* Hover/active fill is a radial accent gradient that brightens at the pointer
    (--item-spot-x/y, set per-button in Sidebar.jsx) so the selection + hover
@@ -494,20 +498,31 @@
   background: radial-gradient(
     112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
     color-mix(in srgb, var(--accent) 26%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 12%, transparent) 55%,
-    color-mix(in srgb, var(--accent) 7%, transparent) 100%
+    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 100%
   );
   color: var(--text-primary);
 }
 
+/* Selected item: a cursor-tracked radial gradient that brightens toward the
+   pointer (--item-spot-x/y, fed continuously in Sidebar.jsx as the cursor moves
+   anywhere over the rail — not just on hover) so the selected tab reacts to the
+   spotlight like the rail glow does. The gradient floors at 18% accent (the
+   selected-tab base opacity), so the whole tab stays a steady surface and only
+   brightens up to 34% near the cursor. With the cursor off the rail the vars
+   fall back to 50% → a symmetric, even fill. */
+/* Selected tab — styled like the Hub button (.app-hub-btn): a ghost/outline
+   accent look (accent tint fill + accent ring + accent text) rather than a
+   solid fill, so the rail's selection reads as a sibling of the Hub launcher
+   above it. */
 .nav-item.active {
-  background: radial-gradient(
-    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
-    color-mix(in srgb, var(--accent) 34%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 18%, transparent) 55%,
-    color-mix(in srgb, var(--accent) 12%, transparent) 100%
-  );
-  color: var(--text-primary);
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+}
+.nav-item.active:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 
 /* ── Open files section ─────────────────────────────────────────────────
@@ -548,6 +563,43 @@
 .doc-tab-close:hover {
   background: color-mix(in srgb, var(--text-primary) 14%, transparent);
   color: var(--text-primary);
+}
+
+/* ── AI-working marker (set when a viewer's advisor is busy) ──────────
+   A pulsing purple/blue dot on the file icon (visible even when the rail
+   is collapsed) plus a small shimmering "AI" pill when expanded. */
+.doc-tab-icon { position: relative; overflow: visible; }
+.doc-tab-ai-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #a855f7);
+  box-shadow: 0 0 0 2px var(--bg-sidebar), 0 0 6px rgba(139, 92, 246, 0.7);
+  animation: doc-tab-ai-pulse 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+.doc-tab-ai-tag {
+  flex: 0 0 auto;
+  padding: 1.6px 5.6px;
+  border-radius: 999px;
+  font-size: 8.8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #fff;
+  background: linear-gradient(115deg, #3b82f6, #8b5cf6, #a855f7);
+  background-size: 200% 100%;
+  animation: doc-tab-ai-shimmer 3s linear infinite;
+}
+@keyframes doc-tab-ai-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.6; }
+}
+@keyframes doc-tab-ai-shimmer { to { background-position: 200% 50%; } }
+@media (prefers-reduced-motion: reduce) {
+  .doc-tab-ai-dot, .doc-tab-ai-tag { animation: none; }
 }
 
 /* Icon wrapper â€” fixed size so it stays centered when sidebar is narrow */

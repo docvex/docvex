@@ -53,15 +53,26 @@ import { useAuth } from './AuthContext';
 
 const ProjectContext = createContext(null);
 
+// Module-level stale-while-revalidate cache of the last-good payload per
+// project, so re-opening a project (e.g. via the sidebar's project button)
+// paints instantly from memory while a background refetch reconciles. Survives
+// unmount/remount of the provider for the session; cleared on full reload. Each
+// entry is { project, role, members, customRoles }. Kept current by the sync
+// effect below (covers both the initial fetch and live Realtime patches).
+const PROJECT_CACHE = new Map();
+
 export function ProjectProvider({ children }) {
   const { projectId } = useParams();
   const { session } = useAuth();
   const selfUserId = session?.user?.id ?? null;
-  const [project, setProject] = useState(null);
-  const [role, setRole] = useState(null);
-  const [members, setMembers] = useState([]);
-  const [customRoles, setCustomRoles] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Seed initial state from the cache so the very first render after a remount
+  // shows real data instead of the "Loading project…" placeholder.
+  const seed = PROJECT_CACHE.get(projectId) || null;
+  const [project, setProject] = useState(seed?.project ?? null);
+  const [role, setRole] = useState(seed?.role ?? null);
+  const [members, setMembers] = useState(seed?.members ?? []);
+  const [customRoles, setCustomRoles] = useState(seed?.customRoles ?? []);
+  const [loading, setLoading] = useState(!seed);
   const [error, setError] = useState(null);
 
   // Use a ref instead of state for the cancel flag so we don't re-render on
@@ -105,6 +116,14 @@ export function ProjectProvider({ children }) {
     if (cancelledRef.current) return;
 
     if (projErr) {
+      // On a background revalidation (we already have a cached payload for this
+      // id) keep showing the stale-but-good data rather than blanking to an
+      // error on a transient network blip. Only surface the error on a cold
+      // cache-miss load.
+      if (PROJECT_CACHE.has(projectId)) {
+        setLoading(false);
+        return;
+      }
       setError(projErr);
       setProject(null);
       setRole(null);
@@ -130,15 +149,36 @@ export function ProjectProvider({ children }) {
     if (projData?.id && selfUserId) markProjectAccessed(selfUserId, projData.id, projData.name);
   }, [projectId, selfUserId]);
 
-  // Initial load when projectId changes. Reset loading so the consumer can
-  // distinguish "no project yet" from "switched projects".
+  // Initial load when projectId changes. When we have a cached payload for the
+  // new id, seed from it and skip the loading state — the load() below still
+  // runs to revalidate in the background (stale-while-revalidate). Only show the
+  // "Loading project…" placeholder on a genuine cache miss.
   useEffect(() => {
     cancelledRef.current = false;
-    setLoading(true);
-    setError(null);
+    const cached = PROJECT_CACHE.get(projectId);
+    if (cached) {
+      setProject(cached.project);
+      setRole(cached.role);
+      setMembers(cached.members);
+      setCustomRoles(cached.customRoles);
+      setError(null);
+      setLoading(false);
+    } else {
+      setLoading(true);
+      setError(null);
+    }
     load();
     return () => { cancelledRef.current = true; };
   }, [projectId, load]);
+
+  // Keep the cache current with the live state — covers the initial fetch AND
+  // Realtime patches (role change, member add/remove, project rename), so the
+  // next remount seeds from fresh data. Only cache a fully-loaded, error-free
+  // project.
+  useEffect(() => {
+    if (loading || error || !project?.id) return;
+    PROJECT_CACHE.set(project.id, { project, role, members, customRoles });
+  }, [project, role, members, customRoles, loading, error]);
 
   // Realtime subscriptions — project row + membership list. Same pattern as
   // notificationsRepo.subscribeForUser, scoped to one channel per project.
@@ -169,6 +209,7 @@ export function ProjectProvider({ children }) {
         { event: '*', schema: 'public', table: 'projects', filter: `id=eq.${projectId}` },
         (payload) => {
           if (payload.eventType === 'DELETE') {
+            PROJECT_CACHE.delete(projectId);
             setProject(null);
             setError(new Error('Project was deleted'));
           } else if (payload.new) {

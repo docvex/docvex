@@ -116,6 +116,8 @@ function Icon({ name, size = 16, strokeWidth = 1.8, className = '', filled = fal
     case 'file-slides': return <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><rect x="8" y="12" width="8" height="5" rx="1" /></svg>;
     case 'file-sheet': return <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="8" y1="12" x2="16" y2="12" /><line x1="8" y1="16" x2="16" y2="16" /><line x1="12" y1="11" x2="12" y2="17" /></svg>;
     case 'file-pdf': return <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><path d="M8.5 13.5h1a1 1 0 0 0 0-2h-1z" /><path d="M8.5 11.5v4" /><path d="M12.5 11.5v4h1a1.2 1.2 0 0 0 1.2-1.2v-1.6a1.2 1.2 0 0 0-1.2-1.2z" /></svg>;
+    case 'categories': return <svg {...p}><rect x="3" y="3" width="18" height="6" rx="1.5" /><rect x="3" y="13" width="18" height="6" rx="1.5" /></svg>;
+    case 'image': return <svg {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>;
     default: return null;
   }
 }
@@ -254,6 +256,17 @@ const STATUS_LABEL = { deleted: 'In bin', synced: '' };
 const FX_MIN_TILE = 68;
 const FX_MAX_TILE = 320;
 const FX_LIST_THRESHOLD = 96;
+
+// Toolbar "Categorize" view — when on, items are grouped into these coarse
+// buckets, each rendered as its own labelled section (in this order). Keep in
+// sync with `itemCat` in FilesWorkspace. Sections with no items are skipped.
+const FX_GROUPS = [
+  { key: 'trash', label: 'Trash', icon: 'trash' },
+  { key: 'folders', label: 'Folders & compressed folders', icon: 'folder' },
+  { key: 'media', label: 'Media', icon: 'image' },
+  { key: 'office', label: 'Office documents', icon: 'file-doc' },
+  { key: 'other', label: 'Other files', icon: 'inbox' },
+];
 
 // File-type → category for the colored ext-label glyph (from the design).
 function extCategory(ext) {
@@ -860,6 +873,10 @@ function NewFileRow({ onCommit, onCancel }) {
 // ── Main workspace ────────────────────────────────────────────────────
 export default function FilesWorkspace({
   projectId,
+  // Versions-style hero for the top of the canvas: { eyebrow, access, title,
+  // kicker }. Scrolls away with the file grid; a compact bar fades in once it's
+  // past. Null hides both (e.g. the recycle-bin tab).
+  masthead,
   summaryText,
   // In-panel mode: 'drafts' (the project folder) or 'trash' (the recycle bin,
   // entered by opening the bin folder). There is no tab strip — one panel.
@@ -913,11 +930,20 @@ export default function FilesWorkspace({
   const [anchorId, setAnchorId] = useState(null);
   const [selectMode, setSelectMode] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  // "Categorize" toolbar toggle — when on, the flat grid/list is split into
+  // labelled category sections (folders incl. compressed archives, pictures &
+  // videos, Office docs, the Recycle bin, then everything else) stacked
+  // vertically. Off → one flat list (the default).
+  const [grouped, setGrouped] = useState(false);
   const [propsItem, setPropsItem] = useState(null);
   const [dragOver, setDragOver] = useState(false);   // OS file drag over the canvas
   const [clipboard, setClipboard] = useState(null);  // { mode: 'copy'|'cut', items: [{ name, path }] }
   const [dropFolderId, setDropFolderId] = useState(null); // folder hovered during a move drag
   const [dropCrumb, setDropCrumb] = useState(null);  // breadcrumb path hovered during a move drag
+  // Masthead scroll-away: true once the canvas has scrolled past the hero, which
+  // collapses the full masthead and reveals the compact mini header. Hysteresis
+  // (collapse past 36px, expand under 10px) avoids flicker at the threshold.
+  const [headerScrolled, setHeaderScrolled] = useState(false);
   // Per-folder icon colour (localStorage-backed, keyed by project + folder id).
   const [folderColors, setFolderColors] = useState(() => loadFolderColors(projectId));
   useEffect(() => { setFolderColors(loadFolderColors(projectId)); }, [projectId]);
@@ -935,6 +961,26 @@ export default function FilesWorkspace({
   const searchRef = useRef(null);
   const actionsRef = useRef({});  // latest copy/paste handlers for the key listener
   const kbdRef = useRef({});      // latest selection/nav handlers for the key listener
+
+  // Watch the PAGE scroll position to drive the masthead scroll-away (the whole
+  // Files page scrolls as one, like the other personal tabs — the sticky nav
+  // strip then carries the title once the hero scrolls off). Falls back to the
+  // canvas scroller if the page scroller isn't found (e.g. embedded contexts).
+  const pageScroller = () => pageRef.current?.closest('.sv-single-scroll') || canvasRef.current;
+  useEffect(() => {
+    const el = pageScroller();
+    if (!el || !masthead) { setHeaderScrolled(false); return undefined; }
+    const onScroll = () => {
+      // Reveal the sticky-strip title only once the hero has mostly scrolled
+      // off (so the big title and the mini title aren't shown at once).
+      const top = el.scrollTop;
+      setHeaderScrolled((s) => (s ? top > 96 : top > 132));
+    };
+    onScroll();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [masthead, hasLocalFolder, loading, view]);
+  const scrollToTop = () => pageScroller()?.scrollTo({ top: 0, behavior: 'smooth' });
 
   // Inline name editing (Electron has no window.prompt).
   const [renamingId, setRenamingId] = useState(null);
@@ -1123,6 +1169,19 @@ export default function FilesWorkspace({
   const matches = (name) => !q || (name || '').toLowerCase().includes(q);
   // Case-insensitive, number-aware name sort ("file2" before "file10").
   const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' });
+  // Coarse category of an item, for the "Categorize" section view: the Recycle
+  // bin entry → trash; folders + compressed archives → folders; images, video
+  // and audio (+ design files) → media; Office docs (Word / Excel / PowerPoint
+  // / PDF) → office; everything else → other. Keep in sync with FX_GROUPS.
+  const itemCat = (f) => {
+    if (f.binEntry) return 'trash';
+    if (f.kind === 'folder') return 'folders';
+    const c = extCategory(f.ext);
+    if (c === 'zip') return 'folders';
+    if (c === 'img' || c === 'vid' || c === 'aud' || c === 'psd' || c === 'ai') return 'media';
+    if (c === 'doc' || c === 'xls' || c === 'ppt' || c === 'pdf') return 'office';
+    return 'other';
+  };
   // One flat ordering (no Folders/Files category split): the Recycle bin
   // entry first, then folders A→Z, then files A→Z.
   const binFolders = useMemo(
@@ -1151,6 +1210,18 @@ export default function FilesWorkspace({
   const displayFolders = useMemo(() => [...binFolders, ...shownFolders], [binFolders, shownFolders]);
   const totalShown = displayFolders.length + shownItems.length;
 
+  // Category sections for the "Categorize" view — every displayed item bucketed
+  // by itemCat, in FX_GROUPS order, empty sections dropped. The folders section
+  // naturally lists real folders before archives (they come first in the union)
+  // and each bucket keeps its A→Z order. Only built when grouping is on.
+  const groups = useMemo(() => {
+    if (!grouped) return [];
+    const all = [...displayFolders, ...shownItems];
+    return FX_GROUPS
+      .map((g) => ({ ...g, items: all.filter((f) => itemCat(f) === g.key) }))
+      .filter((g) => g.items.length > 0);
+  }, [grouped, displayFolders, shownItems]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const itemById = useMemo(() => {
     const m = new Map();
     for (const f of (folders || [])) m.set(f.id, f);
@@ -1166,10 +1237,12 @@ export default function FilesWorkspace({
   // A single selection drives the Open / Rename / Properties affordances.
   const selectedItem = multiSel.size === 1 ? (itemById.get([...multiSel][0]) || null) : null;
 
-  // Visible order (bin, folders, files) — the axis for Shift-range selection.
+  // Visible order — the axis for Shift-range selection. In the categorize view
+  // it follows the section layout so a range drag tracks what the eye sees;
+  // otherwise the flat bin → folders → files order.
   const orderedIds = useMemo(
-    () => [...displayFolders, ...shownItems].map((f) => f.id),
-    [displayFolders, shownItems],
+    () => (grouped ? groups.flatMap((g) => g.items) : [...displayFolders, ...shownItems]).map((f) => f.id),
+    [grouped, groups, displayFolders, shownItems],
   );
 
   // Click selection. Modifiers compose like Windows File Explorer:
@@ -1330,13 +1403,20 @@ export default function FilesWorkspace({
       menuEditable && { key: 'import', label: 'Import', onClick: () => onUpload?.() },
       menuEditable && {
         key: 'create',
-        label: 'Create',
+        label: <span className="project-files-morph-ai-label"><Icon name="sparkles" className="fx-icon" /> Create</span>,
+        className: 'project-files-morph-ai',
         submenu: [
           { key: 'newfolder', label: <><Icon name="folder-plus" className="fx-icon" /> New folder</>, onClick: () => requestNewFolder() },
-          onCreateTypedFile && { key: 'aihead', heading: 'Build with AI' },
-          onCreateTypedFile && { key: 'docx', label: <><Icon name="file-doc" className="fx-icon fx-create-ico fx-create-ico-doc" /> Word</>, onClick: () => onCreateTypedFile('docx') },
-          onCreateTypedFile && { key: 'pptx', label: <><Icon name="file-slides" className="fx-icon fx-create-ico fx-create-ico-ppt" /> PowerPoint</>, onClick: () => onCreateTypedFile('pptx') },
-          onCreateTypedFile && { key: 'xlsx', label: <><Icon name="file-sheet" className="fx-icon fx-create-ico fx-create-ico-xls" /> Excel</>, onClick: () => onCreateTypedFile('xlsx') },
+          onCreateTypedFile && {
+            key: 'aigroup',
+            aiGroup: true,
+            heading: 'Build with AI',
+            items: [
+              { key: 'docx', label: <><Icon name="file-doc" className="fx-icon fx-create-ico fx-create-ico-doc" /> Word</>, onClick: () => onCreateTypedFile('docx') },
+              { key: 'pptx', label: <><Icon name="file-slides" className="fx-icon fx-create-ico fx-create-ico-ppt" /> PowerPoint</>, onClick: () => onCreateTypedFile('pptx') },
+              { key: 'xlsx', label: <><Icon name="file-sheet" className="fx-icon fx-create-ico fx-create-ico-xls" /> Excel</>, onClick: () => onCreateTypedFile('xlsx') },
+            ],
+          },
         ].filter(Boolean),
       },
       onOpenDirectory && { key: 'opendir', label: 'Open directory', onClick: () => onOpenDirectory() },
@@ -1490,6 +1570,15 @@ export default function FilesWorkspace({
     cutPaths: clipboard?.mode === 'cut' ? new Set(clipboard.items.map((i) => i.path)) : null,
   };
 
+  // One item → a Tile / Row, with the shared selection + rename wiring. Used by
+  // both the flat grid/list and the per-section grids/lists in categorize mode.
+  const renderTile = (f) => (
+    <Tile key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
+  );
+  const renderRow = (f) => (
+    <Row key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
+  );
+
   const emptyHint = {
     drafts: 'No files in your folder yet. Add or import files and they’ll show up here.',
     trash: 'Files you delete wait in the trash for 30 days before they’re removed for good.',
@@ -1506,6 +1595,22 @@ export default function FilesWorkspace({
   const toolbar = (
     <>
       <div className="fx-chrome-tools">
+        {/* Mini-header title — revealed once the hero has scrolled away, so the
+            sticky nav strip reads as the page header (matching the other tabs'
+            compact headers). Click jumps back to the top. */}
+        {masthead && (
+          <Tooltip content="Back to top">
+            <button
+              type="button"
+              className={`fx-nav-title${headerScrolled ? ' is-visible' : ''}`}
+              onClick={scrollToTop}
+              tabIndex={headerScrolled ? 0 : -1}
+              aria-hidden={!headerScrolled}
+            >
+              {masthead.title}
+            </button>
+          </Tooltip>
+        )}
         <div className="fx-pathbar-nav">
           {onRefresh && (
             <Tooltip content="Refresh"><button onClick={() => onRefresh()}><Icon name="refresh" size={14} /></button></Tooltip>
@@ -1556,6 +1661,23 @@ export default function FilesWorkspace({
             <span className="fx-size-dot fx-size-dot-lg" aria-hidden="true" />
           </div>
         </Tooltip>
+        {/* Categorize — split the listing into labelled category sections
+            (folders & archives, media, Office docs, the Recycle bin, then
+            other files) stacked vertically. Toggle. */}
+        {!isBin && (
+          <Tooltip content={grouped ? 'Show as one list' : 'Group by category'}>
+            <button
+              type="button"
+              className={`fx-cat-btn${grouped ? ' is-active' : ''}`}
+              aria-label="Group by category"
+              aria-pressed={grouped}
+              onClick={() => setGrouped((v) => !v)}
+            >
+              <Icon name="categories" size={14} />
+              <span className="fx-cat-btn-label">Categorize</span>
+            </button>
+          </Tooltip>
+        )}
         <div className={`fx-search${query ? ' is-active' : ''}`}>
           <Icon name="search" size={15} className="fx-search-glyph" />
           <input
@@ -1596,6 +1718,19 @@ export default function FilesWorkspace({
   return (
     <div className="fx-page" ref={pageRef}>
       {chromeSlotEl && createPortal(toolbar, chromeSlotEl)}
+      {/* Masthead — Versions-style hero (the page is chromeless on /files, so
+          this is the page title). The whole page scrolls, so it simply scrolls
+          away; the sticky nav strip below carries the title once it's gone. */}
+      {masthead && (
+        <header className="fx-masthead">
+          <div className="fx-mh-eyebrow">
+            <span>{masthead.eyebrow}</span>
+            {masthead.access && <span className="fx-mh-muted">· {masthead.access}</span>}
+          </div>
+          <h1 className="fx-mh-title">{masthead.title}</h1>
+          {masthead.kicker && <p className="fx-mh-kicker">{masthead.kicker}</p>}
+        </header>
+      )}
       <div className="fx-window">
         {!chromeSlotEl && <div className="fx-pathbar">{toolbar}</div>}
 
@@ -1659,36 +1794,55 @@ export default function FilesWorkspace({
               <h3>{q ? 'No matches' : (isBin ? 'Trash is empty' : 'Nothing here yet')}</h3>
               <p>{q ? `No files match “${query}”.` : emptyHint}</p>
             </div>
+          ) : grouped ? (
+            // Categorize view — one labelled section per category, stacked
+            // vertically. New-item drafts sit in a leading block; each section
+            // renders its bucket as a grid (tiles) or rows (list).
+            <div className="fx-cat-groups">
+              {(creatingFolder || creatingFile) && (
+                view === 'tiles' ? (
+                  <div className="fx-grid">
+                    {creatingFolder && <NewFolderTile onCommit={commitNewFolder} onCancel={cancelNewFolder} />}
+                    {creatingFile && <NewFileTile onCommit={commitNewFile} onCancel={cancelNewFile} />}
+                  </div>
+                ) : (
+                  <div className="fx-list">
+                    {creatingFolder && <NewFolderRow onCommit={commitNewFolder} onCancel={cancelNewFolder} />}
+                    {creatingFile && <NewFileRow onCommit={commitNewFile} onCancel={cancelNewFile} />}
+                  </div>
+                )
+              )}
+              {groups.map((g) => (
+                <section className="fx-cat-section" key={g.key}>
+                  <div className="fx-cat-head">
+                    <Icon name={g.icon} className="fx-cat-head-ico" size={13} />
+                    <span className="fx-cat-head-label">{g.label}</span>
+                    <span className="fx-cat-head-count">{g.items.length}</span>
+                  </div>
+                  {view === 'tiles'
+                    ? <div className="fx-grid">{g.items.map(renderTile)}</div>
+                    : <div className="fx-list">{g.items.map(renderRow)}</div>}
+                </section>
+              ))}
+            </div>
           ) : view === 'tiles' ? (
             // One flat grid — no Folders/Files category heads. Order: the
             // Recycle bin first, the new-folder draft, then folders A→Z, then
             // files A→Z.
             <div className="fx-grid">
-              {binFolders.map((f) => (
-                <Tile key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
-              ))}
+              {binFolders.map(renderTile)}
               {creatingFolder && <NewFolderTile onCommit={commitNewFolder} onCancel={cancelNewFolder} />}
               {creatingFile && <NewFileTile onCommit={commitNewFile} onCancel={cancelNewFile} />}
-              {shownFolders.map((f) => (
-                <Tile key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
-              ))}
-              {shownItems.map((f) => (
-                <Tile key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
-              ))}
+              {shownFolders.map(renderTile)}
+              {shownItems.map(renderTile)}
             </div>
           ) : (
             <div className="fx-list">
-              {binFolders.map((f) => (
-                <Row key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
-              ))}
+              {binFolders.map(renderRow)}
               {creatingFolder && <NewFolderRow onCommit={commitNewFolder} onCancel={cancelNewFolder} />}
               {creatingFile && <NewFileRow onCommit={commitNewFile} onCancel={cancelNewFile} />}
-              {shownFolders.map((f) => (
-                <Row key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
-              ))}
-              {shownItems.map((f) => (
-                <Row key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
-              ))}
+              {shownFolders.map(renderRow)}
+              {shownItems.map(renderRow)}
             </div>
           )}
         </div>

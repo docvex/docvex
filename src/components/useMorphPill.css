@@ -112,6 +112,55 @@
   gap: 8px;
 }
 
+/* ── AI-powered "Create" item ───────────────────────────────────────
+   Marks Create as the AI document-builder action with the app's shared
+   shimmer look: accented text + an animated linear-gradient ring painted
+   on ::before via the mask-exclude technique (same recipe as
+   .fx-ai-border in FilesWorkspace.css). The masked-out centre is fully
+   transparent, so the label/caret read through it. */
+.project-files-morph-item.project-files-morph-ai {
+  position: relative;
+  isolation: isolate;
+  color: #fff;
+}
+/* Sparkle icon + label group, kept together on the left (caret stays right). */
+.project-files-morph-ai-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.project-files-morph-ai .fx-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.project-files-morph-ai::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2.4px solid transparent;
+  border-radius: inherit;
+  /* AI purple/blue shimmer — literal hex (these brand-AI hues aren't in
+     tokens.css); first/last stop match so the scroll loops seamlessly.
+     Real gradient BORDER (border-box paints the ring; an opaque padding-box
+     fill hides it in the centre) — unlike a mask cut-out, a border rounds the
+     INNER corners too (inner radius = outer − border-width). Sits at z-index
+     -1 (behind the label) so the centre fill doesn't cover the text. */
+  background:
+    linear-gradient(var(--bg-card), var(--bg-card)) padding-box,
+    linear-gradient(115deg, #3b82f6 0%, #8b5cf6 25%, #6366f1 50%, #a855f7 75%, #3b82f6 100%) border-box;
+  background-size: 100% 100%, 300% 100%;
+  background-position: 0 0, 0 0;
+  animation: morph-ai-shimmer 5.5s linear infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+/* Animate only the gradient (2nd) layer; keep the centre fill (1st) static. */
+@keyframes morph-ai-shimmer { to { background-position: 0 0, -300% 50%; } }
+@media (prefers-reduced-motion: reduce) {
+  .project-files-morph-ai::before { animation: none; }
+}
+
 .project-files-morph-caret {
   width: 0;
   height: 0;
@@ -175,6 +224,30 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
+}
+
+/* "Build with AI" group — wraps the heading + Word/PowerPoint/Excel in the
+   animated purple/blue AI border. Real gradient border (border-box paints the
+   ring; an opaque padding-box fill matches the menu surface), so both inner and
+   outer corners are rounded; the heading/buttons sit above the element's own
+   background, so no z-index trick is needed here. */
+.project-files-morph-ai-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6px;
+  margin-top: 1.6px;
+  padding: 3.2px;
+  border: 2px solid transparent;
+  border-radius: 7px;
+  background:
+    linear-gradient(var(--bg-card), var(--bg-card)) padding-box,
+    linear-gradient(115deg, #3b82f6 0%, #8b5cf6 25%, #6366f1 50%, #a855f7 75%, #3b82f6 100%) border-box;
+  background-size: 100% 100%, 300% 100%;
+  background-position: 0 0, 0 0;
+  animation: morph-ai-shimmer 5.5s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-files-morph-ai-group { animation: none; }
 }
 
 /* ── Confirm-step panel ─────────────────────────────────────────────

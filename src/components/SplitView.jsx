@@ -143,9 +143,19 @@ function PaneFooter() {
 // Routes that render WITHOUT the in-content chrome bar — the personal
 // destinations plus the Hub (/projects) and Account (/account). They each carry
 // their own page masthead, so the chrome's title would just duplicate it.
-const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/mail', '/projects', '/account']);
+const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/mail', '/projects', '/account', '/files']);
 
-export default function ContentShell({ primary }) {
+// The project Overview / settings page (/projects/:id, no further segment) is
+// also chromeless — it carries its own Versions-style masthead + compact
+// on-scroll header, so the in-pane chrome bar (title + refresh) would just
+// duplicate it. /projects, /projects/new, and deeper subroutes
+// (/projects/:id/dashboard) are excluded.
+function isProjectOverviewRoute(pathname) {
+  const m = pathname.match(/^\/projects\/([^/]+)\/?$/);
+  return !!m && m[1] !== 'new';
+}
+
+export default function ContentShell({ primary, fadeIn = false, onFadeInEnd }) {
   const { pathname } = useLocation();
   // Bumping the nonce remounts the routed content (chrome refresh button + F5),
   // re-running the page's mount effects — i.e. a refresh.
@@ -168,9 +178,15 @@ export default function ContentShell({ primary }) {
   // Some fullscreen destinations carry their own page header, so the chrome bar
   // (title + refresh) is redundant noise there — suppress it. The app sidebar
   // still drives navigation.
-  const chromeless = CHROMELESS_FULLSCREEN_ROUTES.has(pathname);
+  const chromeless = CHROMELESS_FULLSCREEN_ROUTES.has(pathname) || isProjectOverviewRoute(pathname);
   return (
-    <div className={`sv-single${chromeless ? ' is-chromeless' : ''}`}>
+    <div
+      className={`sv-single${chromeless ? ' is-chromeless' : ''}${fadeIn ? ' is-switch-fade-in' : ''}`}
+      onAnimationEnd={fadeIn ? (e) => {
+        // Only react to OUR fade-in keyframe — child animations bubble here too.
+        if (e.target === e.currentTarget && e.animationName === 'svSwitchFadeIn') onFadeInEnd?.();
+      } : undefined}
+    >
       <div className="sv-single-body">
         <PaneChromeProvider>
           {!chromeless && <PaneChrome onRefresh={refresh} />}

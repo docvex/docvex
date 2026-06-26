@@ -491,7 +491,30 @@ function broadcastDocViewerTabs() {
   }
 }
 
+// Normalise an on-disk path for comparison (Windows separators + drive-letter
+// casing, trailing slash) so the same file maps to one identity.
+function normDocPath(p) {
+  return String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
 function createDocViewerWindow(file) {
+  // Never open the same file in two windows — if a viewer already shows this
+  // path, restore + focus it and reuse it instead of spawning a duplicate.
+  if (file?.path) {
+    const want = normDocPath(file.path);
+    for (const [winId, meta] of docViewerWindows) {
+      if (meta.path && normDocPath(meta.path) === want) {
+        const existing = BrowserWindow.fromId(winId);
+        if (existing && !existing.isDestroyed()) {
+          if (existing.isMinimized()) existing.restore();
+          existing.focus();
+          return existing;
+        }
+        // Stale registry entry (window already gone) — drop it and fall through.
+        docViewerWindows.delete(winId);
+      }
+    }
+  }
   const query = { docViewer: '1' };
   if (file?.path) query.path = file.path;
   if (file?.name) query.name = file.name;
@@ -509,6 +532,7 @@ function createDocViewerWindow(file) {
     name: file?.name || 'Document',
     path: file?.path || null,
     mime: file?.mime || null,
+    aiBusy: false,
   });
   broadcastDocViewerTabs();
   win.on('closed', () => {
@@ -532,6 +556,18 @@ ipcMain.on('doc-viewer:focus', (_e, id) => {
 ipcMain.on('doc-viewer:close', (_e, id) => {
   const w = BrowserWindow.fromId(id);
   if (w && !w.isDestroyed()) w.close();
+});
+// A doc-viewer window reports its AI advisor busy/idle state. Stamp it onto that
+// window's registry entry and re-broadcast so the main app's "Open files" list
+// can mark the row as "AI working".
+ipcMain.on('doc-viewer:ai-status', (e, busy) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const meta = win && docViewerWindows.get(win.id);
+  if (!meta) return;
+  const next = Boolean(busy);
+  if (meta.aiBusy === next) return; // no change → don't spam the broadcast
+  meta.aiBusy = next;
+  broadcastDocViewerTabs();
 });
 
 // A Files-tab instance just trashed/deleted some paths. Fan the event out to

@@ -70,17 +70,6 @@ const GearIcon = (
   </svg>
 );
 
-// 2×2 grid glyph — the "Hub" launcher (the projects list / launcher view that
-// replaced the old standalone launch hub).
-const HubIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="7" height="7" rx="1.5"/>
-    <rect x="14" y="3" width="7" height="7" rx="1.5"/>
-    <rect x="3" y="14" width="7" height="7" rx="1.5"/>
-    <rect x="14" y="14" width="7" height="7" rx="1.5"/>
-  </svg>
-);
-
 // Bug glyph — dev-only Debug row.
 const BugIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -155,6 +144,21 @@ const ChatIcon = (
   </svg>
 );
 
+// Sliders glyph — the project Settings/Overview surface (opens /projects/:id).
+const ProjectSettingsIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="4" y1="21" x2="4" y2="14"/>
+    <line x1="4" y1="10" x2="4" y2="3"/>
+    <line x1="12" y1="21" x2="12" y2="12"/>
+    <line x1="12" y1="8" x2="12" y2="3"/>
+    <line x1="20" y1="21" x2="20" y2="16"/>
+    <line x1="20" y1="12" x2="20" y2="3"/>
+    <line x1="1" y1="14" x2="7" y2="14"/>
+    <line x1="9" y1="8" x2="15" y2="8"/>
+    <line x1="17" y1="16" x2="23" y2="16"/>
+  </svg>
+);
+
 // Spark glyph — the project AI surface.
 const AiIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -166,7 +170,7 @@ const AiIcon = (
 export default function Sidebar() {
   const { session, logout } = useAuth();
   const { unreadCount } = useNotifications();
-  const { selectedProjectId } = useSelectedProject();
+  const { selectedProjectId, selectedProject } = useSelectedProject();
 
   // Account identity for the footer row (avatar + name + email).
   const user = session?.user || null;
@@ -218,6 +222,16 @@ export default function Sidebar() {
   // navigation that used to live in the in-content rail). These routes read
   // the active project from SelectedProjectContext.
   const projectItems = selectedProjectId ? [
+    // Project settings/overview — the project name chip that used to live in
+    // the window title bar now leads the Project section, opening /projects/:id
+    // (Overview + Members/Roles/AI/Settings tabs). `end` so it's only active on
+    // the exact overview route, not the deeper project surfaces below.
+    {
+      to: `/projects/${selectedProjectId}`,
+      label: selectedProject?.name || 'Project settings',
+      icon: ProjectSettingsIcon,
+      end: true,
+    },
     { to: '/files', label: 'Files', icon: FilesIcon },
     { to: '/chat', label: 'Chat', icon: ChatIcon },
     { to: '/ai', label: 'AI', icon: AiIcon },
@@ -275,15 +289,57 @@ export default function Sidebar() {
     item.style.removeProperty('--item-spot-x');
     item.style.removeProperty('--item-spot-y');
   };
+
+  // The <nav> element, plus the eased rail-glow state. The rail glow
+  // (`--spot-x/--spot-y` → `.sidebar::before`) CHASES the cursor target a
+  // fraction of the remaining distance each frame so it trails the pointer with
+  // a soft delay (matching the app-wide CursorSpotlight feel), instead of
+  // snapping. The per-button highlight below stays immediate so hovered items
+  // light up instantly. The loop self-parks once settled and restarts on move.
+  const navRef = useRef(null);
+  const spotTargetRef = useRef({ x: 0, y: 0 });
+  const spotPosRef = useRef({ x: 0, y: 0, started: false });
+  const spotFrameRef = useRef(null);
+  const SPOT_EASE = 0.075;
+  const SPOT_SETTLE = 0.5; // px — snap-and-stop threshold
+
+  const tickSpot = () => {
+    const el = navRef.current;
+    if (!el) { spotFrameRef.current = null; return; }
+    const pos = spotPosRef.current;
+    const t = spotTargetRef.current;
+    const dx = t.x - pos.x;
+    const dy = t.y - pos.y;
+    if (Math.abs(dx) < SPOT_SETTLE && Math.abs(dy) < SPOT_SETTLE) {
+      pos.x = t.x;
+      pos.y = t.y;
+    } else {
+      pos.x += dx * SPOT_EASE;
+      pos.y += dy * SPOT_EASE;
+    }
+    el.style.setProperty('--spot-x', `${pos.x}px`);
+    el.style.setProperty('--spot-y', `${pos.y}px`);
+    if (pos.x === t.x && pos.y === t.y) { spotFrameRef.current = null; return; }
+    spotFrameRef.current = requestAnimationFrame(tickSpot);
+  };
+
   const onSpotMove = (e) => {
     const r = e.currentTarget.getBoundingClientRect();
-    e.currentTarget.style.setProperty('--spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
-    e.currentTarget.style.setProperty('--spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
+    spotTargetRef.current = {
+      x: toLayoutPx(e.clientX - r.left),
+      y: toLayoutPx(e.clientY - r.top),
+    };
+    // First move after (re)entering the rail: snap the glow to the cursor so it
+    // doesn't slide in from a stale/corner position, then ease from there.
+    if (!spotPosRef.current.started) {
+      spotPosRef.current = { ...spotTargetRef.current, started: true };
+    }
+    if (spotFrameRef.current == null) spotFrameRef.current = requestAnimationFrame(tickSpot);
     // Feed the nav button under the cursor its OWN (button-relative) spotlight
-    // coords so its hover / selection fill brightens where the pointer is, in
-    // step with the rail glow. When the cursor moves off a button, reset that
-    // button so its fill recenters (falls back to the 50% default) instead of
-    // freezing at the last position.
+    // coords so its hover / selection fill brightens where the pointer is. This
+    // stays immediate (no easing) so the hovered item reads as responsive. When
+    // the cursor moves off a button, reset that button so its fill recenters
+    // (falls back to the 50% default) instead of freezing at the last position.
     const item = e.target.closest('.nav-item');
     if (item !== lastItemRef.current) {
       clearItemSpot(lastItemRef.current);
@@ -294,33 +350,39 @@ export default function Sidebar() {
       item.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - ir.left)}px`);
       item.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - ir.top)}px`);
     }
+    // The SELECTED tab also reacts to the spotlight even when the cursor is over
+    // a different row: project the cursor onto the active item's box so its
+    // gradient brightens toward the pointer. Runs after the hovered-item block
+    // (which may have just cleared these vars if the active item was the one we
+    // moved off of), so this re-sets them every move.
+    const activeItem = e.currentTarget.querySelector('.nav-item.active');
+    if (activeItem) {
+      const ar = activeItem.getBoundingClientRect();
+      activeItem.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - ar.left)}px`);
+      activeItem.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - ar.top)}px`);
+    }
   };
   const onSpotLeave = () => {
     clearItemSpot(lastItemRef.current);
     lastItemRef.current = null;
+    // NOTE: intentionally DON'T reset the selected tab's spotlight here —
+    // snapping its gradient back to centre on leave reads as the tab styling
+    // "changing" as the cursor exits. Holding the last position keeps it steady;
+    // it re-tracks the cursor on the next move.
+    // Re-arm the snap so the next entry doesn't trail in from where it parked.
+    spotPosRef.current.started = false;
   };
 
+  // Cancel any in-flight easing frame on unmount.
+  useEffect(() => () => {
+    if (spotFrameRef.current != null) cancelAnimationFrame(spotFrameRef.current);
+  }, []);
+
   return (
-    <nav className="sidebar" onMouseMove={onSpotMove} onMouseLeave={onSpotLeave}>
+    <nav className="sidebar" ref={navRef} onMouseMove={onSpotMove} onMouseLeave={onSpotLeave}>
       <ul className="sidebar-nav">
-        {/* ── Workspace — the projects launcher. ── */}
-        {session && (
-          <li className="sidebar-cat">
-            <span className="sidebar-cat-label">Workspace</span>
-            <div className="sidebar-cat-items">
-              {/* Hub — the projects launcher (the in-app surface that replaced
-                  the old standalone launch hub). */}
-              <NavLink
-                to="/projects"
-                end
-                className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-              >
-                <span className="icon">{HubIcon}</span>
-                <span className="label nav-label-row">Hub</span>
-              </NavLink>
-            </div>
-          </li>
-        )}
+        {/* The Hub launcher moved OUT of the rail — it's now a floating button
+            in AppShell that navigates to /projects and hides this sidebar. */}
 
         {/* ── Personal — the user's own feeds. ── */}
         <li className="sidebar-cat">
@@ -350,14 +412,18 @@ export default function Sidebar() {
             <div className="sidebar-cat-items">
               {docTabs.map((t) => (
                 <div key={t.id} className="doc-tab-row">
-                  <Tooltip content={t.name}>
+                  <Tooltip content={t.aiBusy ? `${t.name} — AI working…` : t.name}>
                     <button
                       type="button"
-                      className="nav-item doc-tab-main"
+                      className={`nav-item doc-tab-main${t.aiBusy ? ' is-ai-busy' : ''}`}
                       onClick={() => focusDocViewerTab(t.id)}
                     >
-                      <span className="icon">{DocFileIcon}</span>
+                      <span className="icon doc-tab-icon">
+                        {DocFileIcon}
+                        {t.aiBusy && <span className="doc-tab-ai-dot" aria-label="AI working" />}
+                      </span>
                       <span className="label doc-tab-name">{t.name}</span>
+                      {t.aiBusy && <span className="label doc-tab-ai-tag" aria-hidden="true">AI</span>}
                     </button>
                   </Tooltip>
                   <button

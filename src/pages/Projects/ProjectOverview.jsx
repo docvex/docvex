@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { useNotifications } from '../../context/NotificationsContext';
@@ -32,15 +32,6 @@ import Tooltip from '../../components/Tooltip';
 import StatusBadge from '../../components/StatusBadge';
 import './ProjectDashboard.css';
 import './ProjectDossier.css';
-
-// Chevron-left icon for the "< Back" link — inline SVG so we don't pull in an
-// icon library, consistent with the sidebar icon convention (currentColor
-// stroke so it inherits the link's hover state).
-const ChevronLeftIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <polyline points="15 18 9 12 15 6" />
-  </svg>
-);
 
 // Plus glyph for the "Invite member" CTA. Same stroke recipe as the
 // PlusIcon constant in ProjectList.jsx so the two CTAs read as siblings.
@@ -222,12 +213,6 @@ export default function ProjectOverview() {
   const { notify } = useNotifications();
   const { session } = useAuth();
   const navigate = useNavigate();
-  // When opened from the topbar project button the user is staying inside
-  // their current workspace, so the "All projects" back-link is suppressed
-  // (it only makes sense when drilling in from the projects list).
-  const location = useLocation();
-  const fromTopbar = location.state?.fromTopbar === true;
-
   // The caller's auth id, used to flag their row in the Members list with a
   // "You" pill. Read off the session because useProject() returns members
   // joined with profile data only — no flag for self.
@@ -828,10 +813,6 @@ export default function ProjectOverview() {
           </button>
         </Tooltip>
       </div>
-
-      {!fromTopbar && (
-        <Link to="/projects" className="pjd-back">{ChevronLeftIcon}<span>All projects</span></Link>
-      )}
 
       {/* Hero — masthead styling that mirrors the Versions page: accent eyebrow
           + muted tail, big display title, then a kicker stat line (real member

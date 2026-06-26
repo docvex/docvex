@@ -1,11 +1,23 @@
-import React from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import UpdateProgressBar from './UpdateProgressBar';
 import SwitchProjectLoader from './SwitchProjectLoader';
 import ContentShell from './SplitView';
 import CursorSpotlight from './CursorSpotlight';
+import { useAuth } from '../context/AuthContext';
+import { useSelectedProject } from '../context/SelectedProjectContext';
 import './AppShell.css';
+
+// 2×2 grid glyph — the Hub launcher (the projects list at /projects).
+const HubIcon = (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+    <rect x="14" y="3" width="7" height="7" rx="1.5" />
+    <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    <rect x="14" y="14" width="7" height="7" rx="1.5" />
+  </svg>
+);
 
 // Routes that operate on the currently-selected project. The banner shows on
 // these so the user always sees which project they're working in. /projects
@@ -40,12 +52,45 @@ export function isProjectScopedRoute(pathname) {
 // These all render their content full-bleed — no chrome frame (border / rounded
 // corners / shadow) and no gaps around the content section — so they read as one
 // consistent editorial surface. Keep in sync with Sidebar's personalItems.
-const FLUSH_CONTENT_ROUTES = new Set(['/', '/newsletter', '/versions']);
+const FLUSH_CONTENT_ROUTES = new Set(['/', '/newsletter', '/versions', '/files']);
+
+// The project Overview / settings page (/projects/:id, no further segment)
+// also renders full-bleed — it carries its own Versions-style masthead, so it
+// gets the same borderless, flush content frame. /projects, /projects/new, and
+// deeper subroutes are excluded.
+function isProjectOverviewRoute(pathname) {
+  const m = pathname.match(/^\/projects\/([^/]+)\/?$/);
+  return !!m && m[1] !== 'new';
+}
 
 export default function AppShell() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const { session } = useAuth();
+  // While switching/loading a project we drop the tab content (and its chrome)
+  // and show ONLY the spinner over the ambient dot-grid + cursor spotlight.
+  const { switching } = useSelectedProject();
+  // When a switch ends (switching: true → false) we re-mount the content and
+  // fade it in once the loader has finished dissolving. This flag drives that
+  // entrance animation and clears itself when it completes (or on the next
+  // switch). It's gated on a real switch so first-load / plain navigation
+  // don't animate.
+  const [fadeInAfterSwitch, setFadeInAfterSwitch] = useState(false);
+  const wasSwitching = useRef(false);
+  useEffect(() => {
+    if (switching) {
+      wasSwitching.current = true;
+    } else if (wasSwitching.current) {
+      wasSwitching.current = false;
+      setFadeInAfterSwitch(true);
+    }
+  }, [switching]);
   const showBanner = isProjectScopedRoute(pathname);
-  const flushContent = FLUSH_CONTENT_ROUTES.has(pathname);
+  const flushContent = FLUSH_CONTENT_ROUTES.has(pathname) || isProjectOverviewRoute(pathname);
+  // The Hub (/projects) is a full-screen launcher: pressing the floating Hub
+  // button navigates here and the sidebar is hidden so the launcher fills the
+  // window. Leaving /projects (e.g. picking a project) brings the rail back.
+  const onHub = pathname === '/projects' || pathname === '/projects/';
   // The live, sidebar-driven view. ContentShell wraps it as one pane with the
   // in-pane nav chrome (left rail + header) pinned above a scroll area.
   const primary = showBanner ? (
@@ -61,8 +106,24 @@ export default function AppShell() {
             sidebar AND the content area so they read as one window-in-window
             surface, inset from the frameless window edges (the ambient dot grid
             shows around it). */}
+        {/* Hub launcher — lives OUTSIDE the sidebar as a floating button.
+            Pressing it opens the Hub (/projects); the sidebar hides there. */}
+        {session && !onHub && (
+          <button
+            type="button"
+            className="app-hub-btn"
+            onClick={() => navigate('/projects')}
+            title="Hub — your projects"
+            aria-label="Open the Hub"
+          >
+            <span className="app-hub-icon">{HubIcon}</span>
+            <span className="app-hub-label">
+              DOCVEX<span className="app-hub-sep" aria-hidden="true">|</span><span className="app-hub-suffix">HUB</span>
+            </span>
+          </button>
+        )}
         <div className="app-chrome">
-          <Sidebar />
+          {!onHub && <Sidebar />}
           <main className={`main-content main-content--single${flushContent ? ' main-content--flush' : ''}`}>
             {/* Cursor-following spotlight that brightens the ambient dot grid.
                 A real element moved by a direct transform write (not a CSS-var
@@ -70,17 +131,23 @@ export default function AppShell() {
             <CursorSpotlight />
             {/* On project-scoped routes the page content is wrapped in a rounded
                 "sheet" panel. ContentShell renders it as a single pane with the
-                in-pane nav chrome (left rail + header). */}
-            <ContentShell primary={primary} />
+                in-pane nav chrome (left rail + header). Dropped while switching
+                so only the spinner + ambient background show. */}
+            {!switching && (
+              <ContentShell
+                primary={primary}
+                fadeIn={fadeInAfterSwitch}
+                onFadeInEnd={() => setFadeInAfterSwitch(false)}
+              />
+            )}
+            {/* Project-switch spinner — scoped to the content section (this
+                positioned <main>). Transparent panel, so the cursor spotlight +
+                dot grid stay visible behind the spinner; the sidebar is untouched. */}
+            <SwitchProjectLoader />
           </main>
         </div>
         {/* Project picking now lives in the Hub tab (/projects) — the old
             slide-out picker panel was removed. */}
-        {/* Full-screen project-switch overlay (z-index 45, below sidebar at 50)
-            — appears when SelectedProjectContext.beginSwitch() is called, stays
-            up for at least 500ms so the transition reads as deliberate even
-            when the new project loads almost instantly. */}
-        <SwitchProjectLoader />
         {/* Fixed-bottom indeterminate progress strip; renders only while an
             update is checking/downloading. Lives at the shell level so the
             user keeps the feedback even after navigating away from /updates. */}

@@ -135,6 +135,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listDocViewerTabs: () => ipcRenderer.invoke('doc-viewer:list'),
   focusDocViewerTab: (id) => ipcRenderer.send('doc-viewer:focus', id),
   closeDocViewerTab: (id) => ipcRenderer.send('doc-viewer:close', id),
+  // A doc-viewer window reports whether its AI advisor is currently working, so
+  // the main app's "Open files" list can show an AI-busy marker on that row.
+  setDocViewerAiStatus: (busy) => ipcRenderer.send('doc-viewer:ai-status', busy),
   onDocViewerTabs: (cb) => {
     const listener = (_e, list) => cb(list);
     ipcRenderer.on('doc-viewer:tabs', listener);

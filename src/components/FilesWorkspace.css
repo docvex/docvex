@@ -13,27 +13,34 @@
   min-height: 0;
 }
 
-/* Files page uses the banner frame (.project-page-frame), whose `min-height`
-   lets it grow with content — which breaks .fx-root's height:100% chain, so
-   the whole page scrolls and the header drifts. Give the frame a DEFINITE
-   height (scoped to the files page) so the chain resolves: .fx-root fills it,
-   the canvas becomes the scroller, and the header stays pinned at the top. */
+/* The Files page scrolls as ONE page (the outer .sv-single-scroll is the
+   scroller, like the other personal tabs) — the masthead scrolls away and the
+   nav strip + action bar pin via `position: sticky`. So the frame must GROW
+   with content rather than pin to a fixed height. */
 .project-page-frame:has(.project-files-page.fx-root) {
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  /* Full-bleed: drop ALL frame padding. Sides reach the window edges, the
-     canvas sits flush under the toolbar, and the action bar sits flush on the
-     window's bottom edge (no leftover bottom gap). Inner rows keep their own
-     ~22px inset so content doesn't hug the edge. */
+  /* Full-bleed: drop ALL frame padding so surfaces reach the window edges.
+     Inner rows keep their own ~22px inset so content doesn't hug the edge. */
   padding: 0;
-  /* Square the frame: with the workspace now full-bleed, the frame's rounded
-     top "lip" (18px) clipped the corners of the edge-to-edge list/grid. The
-     window chrome already provides the top edge, so no rounded lip is wanted. */
+  /* Square the frame: the workspace is full-bleed, so no rounded top "lip". */
   border-radius: 0;
-  /* Drop the frame's opaque top "lip" gradient too — with no rounded corner to
-     trace, it just blocked the ambient spotlight at the top of the canvas. */
+  /* Drop the frame's opaque top "lip" gradient — nothing to trace now. */
   background: none;
+}
+
+/* Let the single page scroller reach the window's right edge (its reserved
+   `scrollbar-gutter: stable` would otherwise leave an empty ~8px gutter). */
+.sv-single-scroll:has(.project-files-page.fx-root) { scrollbar-gutter: auto; }
+
+/* "Floating sidebar" treatment — the pinned bars (toolbar, mini header, action
+   bar) run the FULL window width, sliding BEHIND the frosted sidebar, while the
+   file content stays to its right. The Files content frame is stretched left
+   under the rail (the sidebar is a z-index:1 sibling of .main-content, so it
+   keeps painting on top); every left-aligned element is then re-inset by
+   --fx-rail-pad so its content clears the rail while its surface runs full
+   width. Mirrors the .pmh-compact recipe (left:0 + sidebar-width padding). */
+.main-content--flush:has(.project-files-page.fx-root) {
+  margin-left: calc(-1 * (var(--sidebar-width, 192px) + 2 * var(--chrome-inset, 6.4px)));
+  --fx-rail-pad: calc(var(--sidebar-width, 192px) + var(--chrome-inset, 6.4px) + 17.6px);
 }
 
 /* Files page only: drop the global edge vignette (the radial-gradient in
@@ -62,17 +69,14 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
   /* `.project-scoped-page` fills with --bg-card, which covers the page's
      dot-grid / cursor spotlight. Drop it so the spotlight is the only bg. */
   background: transparent;
-  /* Pin the page to the viewport so the header (title · folder bar · tabs ·
-     pathbar) stays put and ONLY the canvas scrolls. `.main-content` has a
-     definite height (it's a flex child of the 100vh app-shell), so height:100%
-     resolves; overflow:hidden keeps the whole page from scrolling. */
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
+  /* Grow with content so the outer .sv-single-scroll scrolls the whole page;
+     `overflow: visible` lets the nav strip / action bar `position: sticky`
+     work against that outer scroller. */
+  min-height: 100%;
+  overflow: visible;
 }
 
 .fx-page-head {
@@ -98,6 +102,116 @@
   margin: 3.2px 0 0;
   font-size: 10.4px;
   color: var(--text-muted);
+}
+
+/* ── Files masthead (Versions-style hero) ───────────────────────────────
+   Pinned at the very top of the Files page, ABOVE the toolbar chrome — accent
+   eyebrow + muted role tail, big display title, then a kicker stat line
+   (created · file count · total size). Mirrors ProjectOverview / Versions.
+   The horizontal inset matches the toolbar (.fx-pathbar) so the title lines up
+   with the breadcrumb below it. */
+.fx-masthead {
+  display: flex;
+  flex-direction: column;
+  /* Match the Versions masthead (.updates-mh-left): 14.4px between eyebrow,
+     title and kicker. */
+  gap: 14.4px;
+  flex: 0 0 auto;
+  /* Top inset = 1.6rem (25.6px) so the "Files" title sits at the SAME height as
+     other tabs' headers — they get that 1.6rem from .sv-single-scroll's padding,
+     which the Files page zeroes out (it uses .project-page-frame). */
+  padding: 25.6px 17.6px 20.8px;
+  /* Clear the rail so the title isn't hidden behind it (the frame extends left
+     under the sidebar). Identity off the Files main window (var unset). */
+  padding-left: var(--fx-rail-pad, 17.6px);
+  /* Collapses (scroll-away) as the canvas scrolls; the mini header takes over. */
+  max-height: 320px;
+  overflow: hidden;
+  transition: max-height 260ms cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 180ms ease,
+              padding 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.fx-masthead.is-collapsed {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Compact mini header — collapsed to zero height until the hero scrolls away,
+   then expands into a thin bar (title · kicker · back-to-top). Mirrors the
+   Versions / ProjectOverview compact header. */
+.fx-mini {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  padding: 0 16px;
+  /* Surface (the bottom hairline) runs full width behind the rail; content is
+     re-inset past it. Identity off the Files main window (var unset). */
+  padding-left: var(--fx-rail-pad, 16px);
+  border-bottom: 1px solid transparent;
+  transition: max-height 260ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease;
+}
+.fx-mini.is-visible {
+  max-height: 46px;
+  opacity: 1;
+  border-bottom-color: var(--border);
+}
+.fx-mini-title {
+  padding: 11px 0;
+  font-family: var(--font-display);
+  font-size: 14.4px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.fx-mini-sep { color: var(--text-muted); font-weight: 600; }
+.fx-mini-kicker {
+  font-size: 10.8px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Typography matched 1:1 to the Versions masthead (.updates-mh-*) so the two
+   headers read identically. */
+.fx-mh-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 9.6px;
+  flex-wrap: wrap;
+  font-size: 8.8px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.fx-mh-muted {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.fx-mh-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 44.8px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--text-primary);
+  text-wrap: pretty;
+}
+.fx-mh-kicker {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
 }
 
 /* Local-folder selector — pick the directory on this computer where the
@@ -152,20 +266,18 @@
   border: 0;
   border-radius: 0;
 
-  overflow: hidden;            /* clips the off-screen (closed) publish drawer */
+  /* `visible` so the nav strip (row 2) and action bar (row 4) can pin against
+     the outer page scroller via `position: sticky`. */
+  overflow: visible;
   display: grid;
-  /* Rows: (toolbar/tabs — now portalled to the chrome) · (pathbar) · canvas ·
-     action bar. The action bar is the 4th row, docked at the bottom of THIS
-     window (per-pane) rather than a viewport-fixed global bar. The canvas track
-     is minmax(0, 1fr) — NOT 1fr — so a tall list can't grow the track past the
-     window and push the action bar off the clipped bottom edge; instead the
-     canvas shrinks and scrolls internally, keeping the bar docked. */
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  flex: 1 1 auto;
-  /* min-height:0 lets this flex child shrink to the page height so the
-     canvas (the 1fr row) becomes the scroll area instead of growing the
-     page. */
-  min-height: 0;
+  /* Rows: (toolbar/tabs — portalled to the chrome) · (pathbar / nav strip) ·
+     canvas · action bar. The canvas track is `1fr` (= minmax(auto, 1fr)) so it
+     FILLS the viewport when content is short (keeping the sticky action bar at
+     the bottom) yet GROWS with a tall listing so the whole page scrolls. */
+  grid-template-rows: auto auto 1fr auto;
+  /* Fill at least the page height (so the sticky footer sits at the bottom even
+     with few files), then grow with content. */
+  flex: 1 0 auto;
   position: relative;
 }
 
@@ -481,19 +593,25 @@
 .fx-pathbar {
   display: flex; align-items: center; gap: 4.8px;
   padding: 6.4px 14.4px;
+  /* Surface runs full width behind the rail; the nav/breadcrumb/search content
+     is re-inset past it. Identity off the Files main window (var unset). */
+  padding-left: var(--fx-rail-pad, 14.4px);
   /* Solid surface for the breadcrumb / search / Publish row so it reads as a
-     toolbar (and stays legible while the canvas scrolls beneath the pinned
-     header). Spans full width to the screen edge with the full-bleed frame. */
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border);
+     toolbar. Frosted/blurred (matching the other tabs' compact header,
+     .pmh-compact) so when it PINS at the top of the page it reads as the same
+     mini-header surface; content scrolls legibly beneath it. */
+  background: color-mix(in srgb, var(--bg-page) 62%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
   font-size: 10px;
-  /* Anchor + isolate so the cursor-spotlight pseudo (z-index: -1) paints
-     above this surface but below the breadcrumb / search / button content. */
-  position: relative;
+  /* Pins to the top of the page as the masthead scrolls away — the nav strip
+     becomes the page's sticky header. isolate keeps the spotlight pseudo
+     (z-index:-1) above the surface but below the content. */
+  position: sticky;
+  top: 0;
   isolation: isolate;
-  /* Above the edit-mode pill row (z-index 2) so the pill can animate out
-     from underneath this opaque toolbar. */
-  z-index: 3;
+  z-index: 20;
   /* Default spotlight hue; .is-editing turns it white over a red-tinted bar.
      Both the surface tint and the spotlight colour animate the morph (in both
      directions — back to bg-card + accent on exit). */
@@ -527,6 +645,34 @@
 .fx-pathbar:hover::before { opacity: 0.6; }
 /* Red reads a touch stronger so the edit-mode warning is unmistakable. */
 .fx-pathbar.is-editing:hover::before { opacity: 0.8; }
+
+/* Mini-header title inside the sticky nav strip — hidden (collapsed to 0 width)
+   while the hero masthead is in view, then it expands in once the hero scrolls
+   away, so the pinned strip reads as the page header (like the other tabs'
+   compact headers). Typography matches .pmh-compact-title. */
+.fx-nav-title {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 13.6px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  opacity: 0;
+  transition: max-width 260ms cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 200ms ease,
+              margin-right 260ms ease;
+}
+.fx-nav-title.is-visible { max-width: 200px; margin-right: 8px; opacity: 1; }
+
 .fx-pathbar-nav { display: flex; gap: 1.6px; margin-right: 3.2px; }
 .fx-pathbar-nav button {
   /* Height matches the search input so the ‹ › ↑ controls line up vertically
@@ -604,6 +750,62 @@
 }
 .fx-size-range::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.15); }
 .fx-size-range:focus-visible { outline: 1.6px solid var(--accent); outline-offset: 2.4px; }
+
+/* ── Categorize toggle (next to the size slider) ──────────────────────────
+   Toggles the grid between one flat list and category sections. Idle it reads
+   as a quiet toolbar control; active it adopts the accent tint. */
+.fx-cat-btn {
+  display: inline-flex; align-items: center; gap: 4.8px;
+  height: 24px;
+  margin-right: 3.2px;
+  padding: 0 7.2px;
+  background: transparent; border: 0; cursor: pointer;
+  border-radius: 4.8px;
+  color: var(--text-secondary);
+  font: inherit; font-size: 10px; font-weight: 600;
+  white-space: nowrap;
+  transition: background 140ms ease, color 140ms ease;
+}
+.fx-cat-btn:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+.fx-cat-btn.is-active { background: var(--accent-tint); color: var(--accent); }
+.fx-cat-btn-label { line-height: 1; }
+
+/* ── Categorize sections ──────────────────────────────────────────────────
+   Vertical stack of labelled category sections; each holds its own grid (tile
+   view) or rows (list view). */
+.fx-cat-groups { display: flex; flex-direction: column; gap: 6.4px; }
+.fx-cat-section { display: flex; flex-direction: column; }
+/* Section header — a quiet uppercase label with the item count and a hairline
+   that fills the rest of the row, so it reads as a divider, not a tab. */
+.fx-cat-head {
+  display: flex; align-items: center; gap: 6.4px;
+  padding: 9.6px 11.2px 6.4px;
+  font-size: 9.6px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-muted);
+  user-select: none;
+}
+.fx-cat-head-ico { flex: none; color: var(--text-muted); }
+.fx-cat-head-label { flex: none; }
+.fx-cat-head-count {
+  flex: none;
+  font-size: 9.6px; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  border-radius: 999px;
+  padding: 1.6px 6.4px;
+}
+/* Hairline filling the rest of the row to the right of the label + count, so
+   the header reads as a section divider. */
+.fx-cat-head::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--border);
+}
+/* Tile sections need the same side gutter the flat grid gets from the canvas
+   (whose `:has(> .fx-grid)` padding doesn't apply once the grid is nested in a
+   section). List rows stay full-bleed, matching the flat list. */
+.fx-cat-section .fx-grid { padding: 0 11.2px; }
 
 .fx-search {
   display: flex; align-items: center; gap: 6.4px;
@@ -687,12 +889,13 @@
   /* List view runs full-bleed (rows + pinned header span edge to edge). The
      action bar is its own docked row now, so only a small bottom gutter. */
   padding: 0 0 12.8px;
-  /* Shared across BOTH views (these used to live only on the tile rule, which
-     left list mode without a scroller / min-height — letting it grow and push
-     the action bar off the bottom). */
+  /* Keep the file content clear of the rail (the frame extends left under the
+     sidebar). Identity off the Files main window (var unset). */
+  padding-left: var(--fx-rail-pad, 0px);
   background-color: transparent;
-  overflow-y: auto;
-  min-height: 0;
+  /* The WHOLE page scrolls now (outer .sv-single-scroll), so the canvas grows
+     with its content rather than scrolling internally. */
+  overflow: visible;
   /* position context for the drag-and-drop overlay. */
   position: relative;
   /* Smooth red wash on enter/exit of Team edit mode (see .is-editing). */
@@ -703,6 +906,8 @@
    so the grid sits symmetrically between the toolbar and the action bar. */
 .fx-canvas:has(> .fx-grid) {
   padding: 8px 11.2px 9.6px;
+  /* Rail offset + the grid's own gutter. Identity off the Files main window. */
+  padding-left: calc(var(--fx-rail-pad, 0px) + 11.2px);
 }
 /* Team edit mode → subtle red wash behind the file items, so the whole
    workspace (not just the toolbar) reads as "editing the main branch". */
@@ -715,6 +920,8 @@
 .fx-drop-overlay {
   position: absolute;
   inset: 6.4px;
+  /* Keep the drop zone clear of the rail (the canvas extends left under it). */
+  left: calc(var(--fx-rail-pad, 0px) + 6.4px);
   z-index: 5;
   display: grid;
   place-items: center;
@@ -869,6 +1076,12 @@
 /* Bigger folder glyph that scales with the tile zoom (overrides the svg's
    intrinsic 42px). Near-fills the thumb box. */
 .fx-tile-thumb .fx-folder-glyph { color: var(--accent); width: 112%; height: 112%; }
+/* Recycle-bin glyph scales with the tile zoom too — its inner SVG carries a
+   fixed px size (size*0.92) that otherwise ignores --fx-tile, leaving the bin
+   icon stuck at one size while folders/files grew. Fill the thumb box and let
+   the SVG (square, centred) fit to it like the folder glyph does. */
+.fx-tile-thumb .fx-bin-glyph { width: 100%; height: 100%; }
+.fx-tile-thumb .fx-bin-glyph svg { width: 100%; height: 100%; }
 
 /* Folder-colour swatch row at the top of a folder's right-click menu. Lives
    inside the portalled morph pill, so these rules are document-global. */
@@ -1387,6 +1600,15 @@
 .fx-chrome-tools:last-child {
   padding-bottom: 4px;
 }
+/* Chromeless Files: the toolbar lives inside .fx-pathbar, which already supplies
+   the symmetric 6.4px vertical inset. Zero the chrome-tools' own vertical
+   padding (tuned for the sv-chrome context) so the search row's BOTTOM inset
+   equals its TOP — both come from .fx-pathbar. */
+.fx-pathbar .fx-chrome-tools,
+.fx-pathbar .fx-chrome-tools:last-child {
+  padding-top: 0;
+  padding-bottom: 0;
+}
 .fx-list-row {
   /* A bit more vertical room so rows breathe (no separators between them). */
   padding-top: 6.4px;
@@ -1549,15 +1771,22 @@
    translucent blurred backdrop keeps the buttons legible over the
    spotlight + scrolling content while still hinting the dots behind. */
 .fx-bottombar {
-  /* Docked as the window's bottom grid row (row 4) — lives INSIDE this file
-     window/pane, not as a viewport-fixed global bar. */
+  /* Bottom grid row (row 4); `position: sticky; bottom: 0` keeps it docked at
+     the bottom of the page viewport while the page scrolls behind it, so the
+     file actions stay reachable. */
   grid-row: 4;
   grid-column: 1;
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 9.6px;
   padding: 8px 17.6px;
+  /* Surface runs full width behind the rail; the actions/status content is
+     re-inset past it. Identity off the Files main window (var unset). */
+  padding-left: var(--fx-rail-pad, 17.6px);
   border-top: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
   backdrop-filter: blur(6.4px);

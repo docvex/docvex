@@ -280,21 +280,15 @@ export default function TitleBar() {
             <span className="tb-docviewer-file" title={docViewerFileName}>{docViewerFileName}</span>
           </>
         )}
+        {/* Project name — plain, non-interactive text. The clickable chip that
+            opened the project Overview moved to the sidebar's Project section
+            (above Files) — see Sidebar.jsx; here it's just a label. */}
         {!onHub && !onDocViewer && signedIn && selectedProject && (
           <>
             <span className="tb-brand-sep" aria-hidden="true">|</span>
-            <Tooltip content={`Open ${selectedProject.name}`}>
-              <button
-                type="button"
-                className="tb-project-name"
-                /* `fromTopbar` tells the Overview to drop its "All projects"
-                   back-link — opening the project from the topbar is staying
-                   inside the current workspace, not drilling in from the list. */
-                onClick={() => navigate(`/projects/${selectedProject.id}`, { state: { fromTopbar: true } })}
-              >
-                {selectedProject.name}
-              </button>
-            </Tooltip>
+            <span className="tb-project-name" title={selectedProject.name}>
+              {selectedProject.name}
+            </span>
           </>
         )}
       </div>

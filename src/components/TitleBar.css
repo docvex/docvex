@@ -235,29 +235,18 @@
 
 /* Selected-project name — clickable, opens the project dashboard. Opts out
    of the drag region so the click registers. */
+/* Project name — plain, non-interactive label (the clickable chip moved to the
+   sidebar). Styled like .tb-docviewer-file: just text, no button affordances. */
 .tb-project-name {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
   max-width: 192px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 6.4px;
-  padding: 3.2px 6.4px;
-  cursor: pointer;
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 10.4px;
   letter-spacing: 0.01em;
   color: var(--text-secondary);
-  transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
-}
-.tb-project-name:hover {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
-  border-color: var(--border);
 }
 
 /* Doc-viewer window: the open file's name shown after "DOCVEX |" in place of

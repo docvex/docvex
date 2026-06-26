@@ -16,23 +16,6 @@
    bottom breathing room. Left-anchored (margin: 0), no auto-centring. */
 .pjd-page { max-width: 992px; margin: 0; padding: 0 0 2.4rem; }
 
-.pjd-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 4.8px;
-  font-size: 9.6px;
-  color: var(--text-muted);
-  text-decoration: none;
-  margin-bottom: 14.4px;
-  background: transparent;
-  border: none;
-  padding: 0;
-  font-family: inherit;
-  cursor: pointer;
-}
-.pjd-back:hover { color: var(--accent); }
-.pjd-back svg { width: 11.2px; height: 11.2px; }
-
 /* ---------- Hero — matches the Versions masthead (.updates-masthead /
    .updates-mh-left) exactly: a flex column with an even 18px gap between the
    eyebrow, title and kicker (no per-element margins), so the vertical rhythm

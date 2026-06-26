@@ -26,7 +26,7 @@ import TokenUsagePill from '../components/TokenUsagePill';
 import { docKindFromName, buildDocumentBlobSmart, mimeForKind, inferDocKind, withKindExtension, labelForKind } from '../lib/documentGen';
 import { renderedOfficeToPdfBlob } from '../lib/exportPdf';
 import { loadConversation, saveConversation, clearConversation } from '../lib/conversationHistory';
-import { extractDocText, openExternal, onFilesRemoved, notifyFilesChanged } from '../lib/platform';
+import { extractDocText, openExternal, onFilesRemoved, notifyFilesChanged, setDocViewerAiStatus } from '../lib/platform';
 import { extractFileText } from '../lib/extractFileText';
 import { parseWhatsAppChat, splitTimestamp } from '../lib/whatsappChat';
 import gavelLoader from '../gavel-loader.svg';
@@ -3105,6 +3105,12 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
   const branchSeqRef = useRef(0);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  // Report AI busy/idle to the main app so its "Open files" sidebar can mark
+  // this window's row as "AI working". Flag back to idle when the window unmounts.
+  useEffect(() => {
+    setDocViewerAiStatus(busy);
+    return () => setDocViewerAiStatus(false);
+  }, [busy]);
   // Re-selecting / opening a saved version writes it to disk — a quick file op
   // that should NOT show the chat's thinking bubble (it jitters the thread).
   // The preview pane shows a spinner off this flag instead.
