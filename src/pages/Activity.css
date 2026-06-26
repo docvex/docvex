@@ -18,13 +18,13 @@
   /* Whole page flows + scrolls inside the content shell's scroller (.sv-single
      -scroll) — no inner scroll region — so the iOS-style compact masthead bar
      (PageMasthead) can appear on scroll like Newsletter / Versions. */
-  padding-bottom: 60px;
+  padding-bottom: 48px;
 }
 
 /* The masthead replaces the old pinned header; trim its bottom margin so the
    filter tab bar sits at the same rhythm it did under the old header. The
    masthead's divider line above the filters is dropped (per design). */
-.activity-page > .pmh .pmh-masthead { margin-bottom: 16px; border-bottom: none; }
+.activity-page > .pmh .pmh-masthead { margin-bottom: 12.8px; border-bottom: none; }
 
 /* Filters mirrored into the on-scroll mini header (PageMasthead compactRight) —
    single-row, compact, horizontally scrollable if they don't all fit. The strip
@@ -42,13 +42,13 @@
 }
 .pmh-compact .activity-filters::-webkit-scrollbar { display: none; }
 .pmh-compact .activity-filter {
-  padding: 0 0.6rem;
-  font-size: 0.8rem;
+  padding: 0 0.48rem;
+  font-size: 0.64rem;
   white-space: nowrap;
 }
 .pmh-compact .activity-filter-count {
-  font-size: 0.65rem;
-  padding: 0.05rem 0.4rem;
+  font-size: 0.52rem;
+  padding: 0.04rem 0.32rem;
   min-width: auto;
 }
 
@@ -63,7 +63,7 @@
 /* Spacing between the filter tab bar and the feed now that they share one
    page scroll (no inner scroll region). */
 .activity-groups,
-.activity-empty { margin-top: 22px; }
+.activity-empty { margin-top: 17.6px; }
 
 /* ── Header — shared page-header spec (kept identical across Activity,
        Newsletter and Projects): a left title-block (eyebrow + 22px display
@@ -74,13 +74,13 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 16px;
+  gap: 16px;
+  margin-bottom: 12.8px;
 }
-.activity-title-block { display: flex; flex-direction: column; gap: 18px; }
+.activity-title-block { display: flex; flex-direction: column; gap: 14.4px; }
 .activity-eyebrow {
   font-family: var(--font-display);
-  font-size: 11px;
+  font-size: 8.8px;
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -89,7 +89,7 @@
 .activity-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(34px, calc(4.5 * var(--vw1)), 56px);
+  font-size: clamp(27.2px, calc(4.5 * var(--vw1)), 44.8px);
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.03em;
@@ -97,7 +97,7 @@
 }
 .activity-subtitle {
   margin: 0;
-  font-size: 14.5px;
+  font-size: 11.6px;
   color: var(--text-muted);
   max-width: 60ch;
   line-height: 1.5;
@@ -105,17 +105,17 @@
 .activity-subtitle strong { color: var(--text-secondary); font-weight: 600; }
 
 .activity-header-actions {
-  display: flex; gap: 8px; align-items: center; flex-shrink: 0;
+  display: flex; gap: 6.4px; align-items: center; flex-shrink: 0;
 }
 .act-btn {
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; align-items: center; gap: 4.8px;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6.4px;
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: 10px;
   font-weight: 500;
-  padding: 7px 12px;
+  padding: 5.6px 9.6px;
   cursor: pointer;
   font-family: inherit;
   white-space: nowrap;
@@ -136,7 +136,7 @@
   /* Full-bleed like the Files tab strip — break out of the page's 22px
      inset so the bar reaches the content-area edges; title stays inset.
      No bottom margin: the scroll region sits flush under the tab bar. */
-  margin: 0 -22px 0;
+  margin: 0 -17.6px 0;
   flex-wrap: wrap;
 }
 .activity-filters {
@@ -152,23 +152,23 @@
 .activity-tabbar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6.4px;
   align-self: center;
   flex-shrink: 0;
-  padding-right: 22px;
+  padding-right: 17.6px;
 }
 .activity-filter {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   background: transparent;
   border: none;
   margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
+  border-bottom: 1.6px solid transparent;
   color: var(--text-muted);
-  font-size: 0.88rem;
+  font-size: 0.704rem;
   font-weight: 500;
-  padding: 0.7rem 1rem;
+  padding: 0.56rem 0.8rem;
   cursor: pointer;
   transition: color 150ms, border-color 150ms;
   font-family: inherit;
@@ -188,7 +188,7 @@
 .activity-filter[data-cat="social"].is-active  { border-bottom-color: var(--cat-social, var(--cat-member)); }
 
 .activity-filter-dot {
-  width: 7px; height: 7px;
+  width: 5.6px; height: 5.6px;
   border-radius: 50%;
   background: var(--cat-system);
   flex-shrink: 0;
@@ -203,13 +203,13 @@
 .activity-filter[data-cat="social"]  .activity-filter-dot { background: var(--cat-social, var(--cat-member)); }
 
 .activity-filter-count {
-  font-size: 0.7rem;
+  font-size: 0.56rem;
   font-weight: 600;
   background: var(--border);
   color: var(--text-secondary);
   border-radius: 999px;
-  padding: 0.1rem 0.45rem;
-  min-width: 1.1rem;
+  padding: 0.08rem 0.36rem;
+  min-width: 0.88rem;
   text-align: center;
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
@@ -227,16 +227,16 @@
 .activity-filter[data-cat="support"].is-active .activity-filter-count { background: color-mix(in srgb, var(--cat-support) 18%, transparent); color: var(--cat-support); }
 
 /* ── Day groups ──────────────────────────────────────────────────────── */
-.activity-groups { display: flex; flex-direction: column; gap: 24px; }
-.activity-group { display: flex; flex-direction: column; gap: 8px; }
+.activity-groups { display: flex; flex-direction: column; gap: 19.2px; }
+.activity-group { display: flex; flex-direction: column; gap: 6.4px; }
 .activity-group-label {
-  font-size: 11px;
+  font-size: 8.8px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
-  margin: 0 0 2px 4px;
-  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 1.6px 3.2px;
+  display: flex; align-items: center; gap: 8px;
 }
 .activity-group-label::after {
   content: '';
@@ -249,7 +249,7 @@
   margin: 0;
   padding: 0;
   display: flex; flex-direction: column;
-  gap: 8px;
+  gap: 6.4px;
 }
 
 /* ── Single row ──────────────────────────────────────────────────────── */
@@ -257,14 +257,14 @@
   position: relative;
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 14px;
+  gap: 11.2px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-left-width: 3px;
+  border-left-width: 2.4px;
   border-left-color: var(--cat-system);
-  border-radius: 12px;
-  padding: 14px 14px 14px 16px;
-  font-size: 13.5px;
+  border-radius: 9.6px;
+  padding: 11.2px 11.2px 11.2px 12.8px;
+  font-size: 10.8px;
   color: var(--text-primary);
   cursor: pointer;
   box-shadow: var(--shadow-card);
@@ -286,10 +286,10 @@
 
 /* ── Glyph square (category-tinted; the design's "log" avatar) ────────── */
 .activity-avatar-wrap {
-  width: 36px; height: 36px;
+  width: 28.8px; height: 28.8px;
   flex-shrink: 0;
   display: grid; place-items: center;
-  border-radius: 9px;
+  border-radius: 7.2px;
   background: color-mix(in srgb, var(--cat-system) 10%, var(--bg-card));
   border: 1px solid color-mix(in srgb, var(--cat-system) 22%, transparent);
   color: var(--cat-system);
@@ -303,12 +303,12 @@
 .activity-row[data-cat="support"] .activity-avatar-wrap { background: color-mix(in srgb, var(--cat-support) 12%, var(--bg-card)); border-color: color-mix(in srgb, var(--cat-support) 26%, transparent); color: var(--cat-support); }
 .activity-row[data-cat="social"]  .activity-avatar-wrap { background: color-mix(in srgb, var(--cat-social, var(--cat-member)) 12%, var(--bg-card)); border-color: color-mix(in srgb, var(--cat-social, var(--cat-member)) 26%, transparent); color: var(--cat-social, var(--cat-member)); }
 .activity-glyph { display: grid; place-items: center; }
-.activity-glyph svg { width: 17px; height: 17px; }
+.activity-glyph svg { width: 13.6px; height: 13.6px; }
 
 /* ── Body ────────────────────────────────────────────────────────────── */
-.activity-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.activity-body { min-width: 0; display: flex; flex-direction: column; gap: 3.2px; }
 .activity-sentence {
-  font-size: 13.5px;
+  font-size: 10.8px;
   line-height: 1.45;
   color: var(--text-secondary);
   word-break: break-word;
@@ -316,24 +316,24 @@
 }
 .activity-sentence strong { color: var(--text-primary); font-weight: 600; }
 .activity-detail {
-  font-size: 12.5px;
+  font-size: 10px;
   color: var(--text-muted);
   line-height: 1.45;
 }
 .activity-actions {
-  display: flex; gap: 6px;
-  margin-top: 4px;
+  display: flex; gap: 4.8px;
+  margin-top: 3.2px;
   flex-wrap: wrap;
 }
 .activity-action {
   display: inline-flex; align-items: center;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 5.6px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 9.6px;
   font-weight: 500;
-  padding: 4px 10px;
+  padding: 3.2px 8px;
   cursor: pointer;
   font-family: inherit;
   transition: background 120ms, border-color 120ms, color 120ms;
@@ -354,17 +354,17 @@
 .activity-meta {
   display: flex; flex-direction: column;
   align-items: flex-end;
-  gap: 8px;
+  gap: 6.4px;
   flex-shrink: 0;
 }
 .activity-time {
-  font-size: 11.5px;
+  font-size: 9.2px;
   color: var(--text-muted);
   white-space: nowrap;
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; align-items: center; gap: 4.8px;
 }
 .activity-unread-dot {
-  width: 7px; height: 7px;
+  width: 5.6px; height: 5.6px;
   border-radius: 50%;
   background: var(--accent);
 }
@@ -376,8 +376,8 @@
   background: transparent;
   border: none;
   color: var(--border-strong);
-  padding: 4px;
-  border-radius: 6px;
+  padding: 3.2px;
+  border-radius: 4.8px;
   cursor: pointer;
   display: grid; place-items: center;
   transition: color 120ms, background 120ms;
@@ -387,12 +387,12 @@
 /* ── Empty state ─────────────────────────────────────────────────────── */
 .activity-empty {
   text-align: center;
-  padding: 48px 24px;
+  padding: 38.4px 19.2px;
   border: 1px dashed var(--border);
-  border-radius: 12px;
+  border-radius: 9.6px;
   color: var(--text-muted);
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  display: flex; flex-direction: column; align-items: center; gap: 4.8px;
 }
-.activity-empty svg { color: var(--border-strong); margin-bottom: 4px; }
-.activity-empty-title { color: var(--text-secondary); font-size: 14px; font-weight: 500; margin: 0; }
-.activity-empty-help { font-size: 12.5px; margin: 0; max-width: 360px; }
+.activity-empty svg { color: var(--border-strong); margin-bottom: 3.2px; }
+.activity-empty-title { color: var(--text-secondary); font-size: 11.2px; font-weight: 500; margin: 0; }
+.activity-empty-help { font-size: 10px; margin: 0; max-width: 288px; }

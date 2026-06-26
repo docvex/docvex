@@ -12,32 +12,32 @@
 
 /* ── Sidebar: All files + the files that have extracted text ── */
 .exr-sidebar {
-  flex: 0 0 176px;
+  flex: 0 0 140.8px;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 16px 12px;
+  gap: 1.6px;
+  padding: 12.8px 9.6px;
   border-right: 1px solid var(--border);
   /* Same frosted glass as the chat footer (.sv-footer). */
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
   overflow-y: auto;
 }
 
 .exr-side-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  padding: 9px 11px;
+  padding: 7.2px 8.8px;
   border: none;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-secondary);
   font: inherit;
-  font-size: 13.5px;
+  font-size: 10.8px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -67,13 +67,13 @@
 
 .exr-side-count {
   flex-shrink: 0;
-  min-width: 20px;
-  padding: 1px 7px;
+  min-width: 16px;
+  padding: 1px 5.6px;
   border-radius: 999px;
   /* Accent — same colour as the selected tab's underline. */
   background: var(--accent);
   color: var(--text-on-accent);
-  font-size: 11px;
+  font-size: 8.8px;
   font-weight: 600;
   text-align: center;
 }
@@ -83,20 +83,20 @@
 
 .exr-side-divider {
   height: 1px;
-  margin: 8px 4px;
+  margin: 6.4px 3.2px;
   background: var(--border);
 }
 
 /* File tiles — Files-window style (preview on top, name underneath), matching
    the Doc Viewer's open-files sidebar (.dv-filetab). */
-.exr-file-tiles { display: flex; flex-direction: column; gap: 4px; }
+.exr-file-tiles { display: flex; flex-direction: column; gap: 3.2px; }
 .exr-file-tile {
   position: relative;
-  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
-  width: 100%; min-width: 0; padding: 6px;
-  border: 1px solid transparent; border-radius: 9px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 3.2px;
+  width: 100%; min-width: 0; padding: 4.8px;
+  border: 1px solid transparent; border-radius: 7.2px;
   background: transparent; color: var(--text-secondary);
-  cursor: pointer; font: inherit; font-size: 11px; text-align: center; user-select: none;
+  cursor: pointer; font: inherit; font-size: 8.8px; text-align: center; user-select: none;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .exr-file-tile:hover { background: var(--accent-tint); color: var(--text-primary); }
@@ -104,7 +104,7 @@
 .exr-file-thumb {
   position: relative; display: grid; place-items: center;
   width: 100%; aspect-ratio: 4 / 3;
-  border: 1px solid var(--border); border-radius: 7px;
+  border: 1px solid var(--border); border-radius: 5.6px;
   background: var(--bg-page); overflow: hidden;
 }
 .exr-file-tile.is-active .exr-file-thumb { background: var(--bg-elevated); }
@@ -112,18 +112,18 @@
 .exr-file-thumb .project-files-icon {
   width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent);
 }
-.exr-file-thumb .fx-glyph { width: 34px; height: 34px; font-size: 9px; }
+.exr-file-thumb .fx-glyph { width: 27.2px; height: 27.2px; font-size: 7.2px; }
 /* Snippet count — circular badge whose CENTRE sits on the thumbnail's top-right
    corner (straddling it). The thumb is inset by the tile's 6px padding; the
    badge lives on the tile (not inside .exr-file-thumb) so its outer half isn't
    clipped by the thumb's overflow:hidden. */
 .exr-file-count {
-  position: absolute; top: 6px; right: 6px;
+  position: absolute; top: 4.8px; right: 4.8px;
   transform: translate(50%, -50%);
-  min-width: 17px; height: 17px; padding: 0 5px;
+  min-width: 13.6px; height: 13.6px; padding: 0 4px;
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: 999px; background: var(--accent); color: var(--text-on-accent);
-  font-size: 10px; font-weight: 700; line-height: 1;
+  font-size: 8px; font-weight: 700; line-height: 1;
   z-index: 2;
 }
 .exr-file-name {
@@ -132,8 +132,8 @@
 }
 
 .exr-side-empty {
-  margin: 8px 11px;
-  font-size: 12.5px;
+  margin: 6.4px 8.8px;
+  font-size: 10px;
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -145,26 +145,26 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px clamp(18px, 3%, 40px) 48px;
+  padding: 16px clamp(14.4px, 3%, 32px) 38.4px;
   /* rail geometry (mirrors the Doc Viewer's --ocr-* vars). Lines are gray by
      default; only the scrolled-to section's line turns accent (see .is-current). */
   --exr-line: var(--border-strong);
-  --exr-railw: 64px;
-  --exr-linex: 46px;
-  --exr-node-top: 18px;
+  --exr-railw: 51.2px;
+  --exr-linex: 36.8px;
+  --exr-node-top: 14.4px;
 }
 
 .exr-history-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  max-width: 860px;
+  gap: 11.2px;
+  max-width: 688px;
 }
 
 .exr-history-item {
   display: grid;
   grid-template-columns: var(--exr-railw) 1fr;
-  gap: 10px;
+  gap: 8px;
   position: relative;
 }
 
@@ -179,7 +179,7 @@
 .exr-history-list, .exr-group-items { position: relative; }
 .exr-history-list:not(.is-all)::before,
 .exr-group-items::before {
-  content: ''; position: absolute; left: var(--exr-linex); top: 0; bottom: 0; width: 2px;
+  content: ''; position: absolute; left: var(--exr-linex); top: 0; bottom: 0; width: 1.6px;
   transform: translateX(-50%); background: var(--exr-line);
   transition: background 150ms ease;
 }
@@ -192,34 +192,34 @@
 /* Node + date sit at the START (top) of the line, not partway down it. */
 .exr-history-node {
   position: absolute; left: var(--exr-linex); top: 0;
-  width: 11px; height: 11px; border-radius: 50%;
+  width: 8.8px; height: 8.8px; border-radius: 50%;
   transform: translate(-50%, 0); z-index: 2;
-  background: var(--bg-page); border: 2.5px solid var(--accent);
+  background: var(--bg-page); border: 2px solid var(--accent);
 }
 
 .exr-history-date {
-  position: absolute; left: 0; width: calc(var(--exr-linex) - 8px);
+  position: absolute; left: 0; width: calc(var(--exr-linex) - 6.4px);
   top: 0; transform: none;
-  text-align: right; display: flex; flex-direction: column; gap: 2px;
+  text-align: right; display: flex; flex-direction: column; gap: 1.6px;
 }
-.exr-history-date-d { font-size: 11px; font-weight: 600; color: var(--text-primary); }
-.exr-history-date-t { font-size: 10px; color: var(--text-muted); }
+.exr-history-date-d { font-size: 8.8px; font-weight: 600; color: var(--text-primary); }
+.exr-history-date-t { font-size: 8px; color: var(--text-muted); }
 
 /* Image on the LEFT, the extracted-text card to its RIGHT. */
 .exr-history-content {
-  display: flex; flex-direction: row; align-items: flex-start; gap: 12px; min-width: 0;
+  display: flex; flex-direction: row; align-items: flex-start; gap: 9.6px; min-width: 0;
 }
-.exr-history-thumb { flex: 0 0 auto; width: 200px; max-width: 40%; overflow: hidden; }
+.exr-history-thumb { flex: 0 0 auto; width: 160px; max-width: 40%; overflow: hidden; }
 .exr-history-thumb img {
-  width: auto; max-width: 100%; height: auto; max-height: 240px;
+  width: auto; max-width: 100%; height: auto; max-height: 192px;
   display: block; object-fit: contain; object-position: left top;
-  border-radius: 8px;
+  border-radius: 6.4px;
 }
 
 /* Flat text section — no card background/border/shadow, just the text + Copy. */
 .exr-history-card {
   flex: 1 1 auto; min-width: 0; align-self: flex-start;
-  display: flex; flex-direction: column; gap: 8px;
+  display: flex; flex-direction: column; gap: 6.4px;
   background: transparent; border: none; border-radius: 0;
   padding: 0; box-shadow: none;
 }
@@ -227,41 +227,41 @@
 /* All-files view: each consecutive same-file run is a section laid out as
    [ sticky origin gutter | timeline items ]. The origin gutter cell stretches
    to the section's full height, giving its sticky tile its scroll range. */
-.exr-history-list.is-all { gap: 0; max-width: 1000px; }
+.exr-history-list.is-all { gap: 0; max-width: 800px; }
 .exr-group {
   display: grid;
-  grid-template-columns: 132px 1fr;
+  grid-template-columns: 105.6px 1fr;
   /* default align-items:stretch → the origin cell spans the section height */
 }
-.exr-group + .exr-group { margin-top: 16px; }
+.exr-group + .exr-group { margin-top: 12.8px; }
 .exr-group-origin { min-width: 0; }
-.exr-group-items { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.exr-group-items { display: flex; flex-direction: column; gap: 11.2px; min-width: 0; }
 
 /* Source-file tile — same Files-window shape as the sidebar (.exr-file-tile).
    Sticky: it locks to the top of the scroll while its section is in view, then
    the next section's tile takes over. Right-aligned in the gutter to sit near
    the timeline line. */
 .exr-railtile {
-  position: sticky; top: 4px;
-  width: 116px; margin-left: auto;
-  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
-  padding: 5px; border: 1px solid transparent; border-radius: 9px;
+  position: sticky; top: 3.2px;
+  width: 92.8px; margin-left: auto;
+  display: flex; flex-direction: column; align-items: stretch; gap: 3.2px;
+  padding: 4px; border: 1px solid transparent; border-radius: 7.2px;
   background: transparent; color: var(--text-secondary);
-  cursor: pointer; font: inherit; font-size: 10.5px; text-align: center;
+  cursor: pointer; font: inherit; font-size: 8.4px; text-align: center;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .exr-railtile:hover { background: var(--accent-tint); color: var(--text-primary); border-color: var(--border); }
 .exr-railtile-thumb {
   position: relative; display: grid; place-items: center;
   width: 100%; aspect-ratio: 4 / 3;
-  border: 1px solid var(--border); border-radius: 7px;
+  border: 1px solid var(--border); border-radius: 5.6px;
   background: var(--bg-page); overflow: hidden;
 }
 .exr-railtile-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .exr-railtile-thumb .project-files-icon {
   width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent);
 }
-.exr-railtile-thumb .fx-glyph { width: 28px; height: 28px; font-size: 8px; }
+.exr-railtile-thumb .fx-glyph { width: 22.4px; height: 22.4px; font-size: 6.4px; }
 .exr-railtile-name {
   min-width: 0; line-height: 1.25; word-break: break-word;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -269,18 +269,18 @@
 
 .exr-history-text {
   margin: 0;
-  font-size: 12.5px; line-height: 1.5; color: var(--text-primary);
+  font-size: 10px; line-height: 1.5; color: var(--text-primary);
   white-space: pre-wrap; word-break: break-word; user-select: text;
   max-width: 72ch;
 }
 .exr-history-text.is-empty { color: var(--text-muted); font-style: italic; }
 
 .exr-history-actions {
-  display: flex; align-items: center; justify-content: flex-start; gap: 6px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 4.8px;
 }
 .exr-history-act {
   border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary);
-  font: inherit; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 8.8px; font-weight: 600; padding: 2.4px 7.2px; border-radius: 999px; cursor: pointer;
 }
 .exr-history-act:hover { border-color: var(--accent); color: var(--accent); }
 
@@ -290,22 +290,22 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   height: 100%;
-  min-height: 320px;
+  min-height: 256px;
   text-align: center;
   color: var(--text-muted);
 }
 .exr-empty-icon { color: var(--text-muted); opacity: 0.7; }
 .exr-empty h3 {
-  margin: 4px 0 0;
-  font-size: 16px;
+  margin: 3.2px 0 0;
+  font-size: 12.8px;
   font-weight: 600;
   color: var(--text-secondary);
 }
 .exr-empty p {
   margin: 0;
-  max-width: 360px;
-  font-size: 13px;
+  max-width: 288px;
+  font-size: 10.4px;
   line-height: 1.6;
 }

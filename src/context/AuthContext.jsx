@@ -30,7 +30,30 @@ function getOAuthRedirectUrl() {
   return `${window.location.origin}/app/`;
 }
 
-const AuthContext = createContext(null);
+// A safe, fully-shaped fallback so consumers never crash on a null context.
+// This is read in two situations: (1) a component rendered outside AuthProvider
+// (a real bug — but it degrades to "still loading" instead of white-screening),
+// and (2) a Vite Fast Refresh remount where a consumer momentarily reads the
+// context's default value before the provider re-binds. `loading: true` keeps
+// auth-gated UI in its loading state until the real provider takes over; the
+// methods are async no-ops so an accidental call mid-HMR doesn't throw.
+const noop = async () => {};
+const AUTH_FALLBACK = {
+  session: null,
+  loading: true,
+  lastAuthEvent: null,
+  signInWithEmail: noop,
+  signUpWithEmail: noop,
+  signInWithGoogle: noop,
+  linkGoogle: noop,
+  setPassword: noop,
+  signOut: noop,
+  logout: noop,
+  eraseData: noop,
+  deleteAccount: noop,
+};
+
+const AuthContext = createContext(AUTH_FALLBACK);
 
 export function AuthProvider({ children }) {
   const navigate = useNavigate();
@@ -408,5 +431,9 @@ export function AuthProvider({ children }) {
 }
 
 export function useAuth() {
-  return useContext(AuthContext);
+  // `?? AUTH_FALLBACK` guards the one case createContext's default can't: if an
+  // older provider higher up still passes an explicit `null` value through a
+  // stale module instance during HMR, useContext returns that null, not the
+  // default. Coalescing here means useAuth() is never null for any consumer.
+  return useContext(AuthContext) ?? AUTH_FALLBACK;
 }

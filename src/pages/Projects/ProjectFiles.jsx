@@ -1292,6 +1292,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // generator armed (generate:true) so the user describes what they want and
   // Claude builds it. Uses a unique "Untitled" name so repeated creates don't
   // collide. Backs the "Create new file" dropdown in the Files toolbar.
+  // Path of a freshly-created file that should be auto-selected + put into
+  // rename mode in the workspace (instead of opening it). Cleared once applied.
+  const [renameTargetPath, setRenameTargetPath] = useState(null);
   const fxCreateTypedFile = async (kind) => {
     if (!localFolder) { notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then you can create files in it.', dedupeKey: 'fx-newfile-nofolder' }); return; }
     const ext = ['pptx', 'xlsx', 'pdf'].includes(kind) ? kind : 'docx';
@@ -1312,11 +1315,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
       // A brand-new file starts with a clean AI thread (drop any stale chat saved
       // at this exact path by a since-renamed file).
       clearConversation(res.path);
-      // Open it with the AI document generator armed.
-      const opened = openDocViewerWindow({ path: res.path, name: filename, mime: mimeForKind(ext), generate: true });
-      if (!opened) {
-        notify({ category: 'file', variant: 'success', title: 'File created', body: `${filename} is ready — open it to build it with AI.`, dedupeKey: 'fx-newfile-created' });
-      }
+      // Don't open it — select the new file and drop into rename mode so the
+      // user can name it first (the workspace applies this once it lists).
+      setRenameTargetPath(res.path);
     } catch (err) {
       notify({ category: 'file', variant: 'error', title: 'Couldn’t create file', body: err?.message || String(err), dedupeKey: 'fx-newfile-error' });
     }

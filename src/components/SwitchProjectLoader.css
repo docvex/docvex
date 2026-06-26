@@ -20,7 +20,7 @@
      CSS variable is set by .app-shell (60px default, 220px when the
      sidebar is expanded) and animates between the two so the loader's left
      edge follows the sidebar's expand/collapse motion in lock-step. */
-  left: var(--sidebar-width, 60px);
+  left: var(--sidebar-width, 48px);
   /* Fully opaque so the previous project's content is completely hidden
      during the switch â€” reads as a hard cut rather than a translucent
      intermediate state. backdrop-filter dropped along with the alpha
@@ -68,13 +68,13 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 11.2px;
 }
 
 .switch-project-loader-spinner {
-  width: 38px;
-  height: 38px;
-  border: 3px solid var(--border);
+  width: 30.4px;
+  height: 30.4px;
+  border: 2.4px solid var(--border);
   /* Gold accent matches the project-selection palette (.brand-icon,
      .project-picker-trigger.has-selection) so the loader visually reads as
      "project context is changing" rather than a generic app-wide spinner. */
@@ -85,13 +85,13 @@
 
 .switch-project-loader-label {
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   font-weight: 500;
   letter-spacing: 0.01em;
   /* Cap width so very long project names wrap to 2-3 lines instead of
      stretching across the whole content area. text-align center because
      the parent flex centers the stack horizontally anyway. */
-  max-width: 320px;
+  max-width: 256px;
   text-align: center;
   /* Soft fade-in slightly delayed from the overlay so the label settles
      after the backdrop is in place â€” reads as "loading â€¦ here's what" */
@@ -100,7 +100,7 @@
 }
 
 @keyframes switch-project-loader-label-fade {
-  from { opacity: 0; transform: translateY(2px); }
+  from { opacity: 0; transform: translateY(1.6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 

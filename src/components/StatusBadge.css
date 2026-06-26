@@ -11,7 +11,7 @@
   /* The 2px ring is what visually separates the dot from the avatar
      image behind it. Color comes from a CSS var so each surface can
      match its own background (sidebar vs. account page vs. modal). */
-  box-shadow: 0 0 0 2px var(--status-ring, var(--bg-page));
+  box-shadow: 0 0 0 1.6px var(--status-ring, var(--bg-page));
   /* Block-level so children-less elements still claim their size. */
   display: block;
   flex-shrink: 0;
@@ -24,16 +24,16 @@
 .status-badge-offline {
   background: var(--status-ring, var(--bg-page));
   box-shadow:
-    0 0 0 2px var(--status-ring, var(--bg-page)),
-    inset 0 0 0 2px var(--status-color);
+    0 0 0 1.6px var(--status-ring, var(--bg-page)),
+    inset 0 0 0 1.6px var(--status-color);
 }
 
 /* Size variants. `sm` for small avatars (32px in lists / tree cards /
    sidebar footer); `md` for the file-detail modal's medium avatar; `lg`
    for the Account page header's big avatar. */
-.status-badge-sm { width: 10px; height: 10px; }
-.status-badge-md { width: 14px; height: 14px; }
-.status-badge-lg { width: 20px; height: 20px; }
+.status-badge-sm { width: 8px; height: 8px; }
+.status-badge-md { width: 11.2px; height: 11.2px; }
+.status-badge-lg { width: 16px; height: 16px; }
 
 /* Interactive variant — used in the sidebar where clicking the badge
    opens the StatusPicker. Cursor + focus ring + slight grow on hover so
@@ -48,6 +48,6 @@
 }
 
 .status-badge-interactive:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
-  outline-offset: 2px;
+  outline: 1.6px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 1.6px;
 }

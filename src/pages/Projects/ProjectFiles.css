@@ -21,7 +21,7 @@
    a ~160px sliver of empty space to the right of the grid when the
    sidebar is collapsed, which beats the layout flicker. */
 .project-files-page {
-  max-width: min(1400px, calc(100 * var(--vw1) - 220px - 4rem));
+  max-width: min(1120px, calc(100 * var(--vw1) - 176px - 3.2rem));
 }
 
 /* Local-folder controls â€” lives under the page subtitle. Single row:
@@ -30,8 +30,8 @@
 .project-files-local-bar {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.6rem;
+  gap: 0.4rem;
+  margin-top: 0.48rem;
   width: 100%;
 }
 
@@ -40,10 +40,10 @@
   min-width: 0;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.45rem 0.7rem;
+  border-radius: 6.4px;
+  padding: 0.36rem 0.56rem;
   color: var(--text-primary);
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   outline: none;
   transition: background 150ms, border-color 150ms;
@@ -55,8 +55,8 @@
 }
 
 .project-files-main-version {
-  margin: 0.35rem 0 0;
-  font-size: 0.78rem;
+  margin: 0.28rem 0 0;
+  font-size: 0.624rem;
   color: var(--text-muted);
   letter-spacing: 0.02em;
 }
@@ -68,7 +68,7 @@
 }
 
 .project-files-main-version-sep {
-  margin: 0 0.45rem;
+  margin: 0 0.36rem;
   color: var(--text-muted);
   opacity: 0.6;
 }
@@ -86,12 +86,12 @@
   flex: 0 0 auto;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6.4px;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 500;
-  padding: 0.45rem 0.9rem;
+  padding: 0.36rem 0.72rem;
   cursor: pointer;
   white-space: nowrap;
   transition: background 150ms, border-color 150ms, color 150ms;
@@ -136,18 +136,18 @@
    Pointer-events off so clicks pass through to the card. */
 .project-files-branch-pill {
   position: absolute;
-  bottom: 8px;
-  left: 8px;
+  bottom: 6.4px;
+  left: 6.4px;
   z-index: 1;
-  font-size: 0.6rem;
+  font-size: 0.48rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: 2px 8px;
+  padding: 1.6px 6.4px;
   border-radius: 999px;
   pointer-events: none;
   color: #fff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 1.6px 4.8px rgba(0, 0, 0, 0.3);
 }
 
 .project-files-branch-pill.is-add     { background: var(--success, #16a34a); }
@@ -198,7 +198,7 @@
 }
 
 .project-files-missing-overlay svg {
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
+  filter: drop-shadow(0 1.6px 4.8px rgba(0, 0, 0, 0.5));
 }
 
 /* Tab strip â€” Cloud | Local, sits between the page header and the
@@ -221,16 +221,16 @@
 .project-files-tab {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   background: transparent;
   border: none;
   /* -1px bottom margin pulls the active underline onto the strip's
      baseline border so the two merge into one indicator. */
   margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
-  padding: 0.7rem 1rem;
+  border-bottom: 1.6px solid transparent;
+  padding: 0.56rem 0.8rem;
   font-family: inherit;
-  font-size: 0.88rem;
+  font-size: 0.704rem;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
@@ -253,11 +253,11 @@
 }
 
 .project-files-tab-count {
-  font-size: 0.75rem;
+  font-size: 0.6rem;
   font-weight: 500;
   color: var(--text-muted);
   background: var(--bg-elevated);
-  padding: 1px 6px;
+  padding: 1px 4.8px;
   border-radius: 999px;
   font-variant-numeric: tabular-nums;
 }
@@ -273,7 +273,7 @@
 .project-files-panel {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1rem;
   min-width: 0;
 }
 
@@ -291,8 +291,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
-  gap: 0.75rem;
-  margin-top: 0.2rem;
+  gap: 0.6rem;
+  margin-top: 0.16rem;
 }
 
 /* Top-of-page banner that hosts the "Changes made" chip on My
@@ -305,7 +305,7 @@
 .project-files-top-banner {
   display: flex;
   align-items: stretch;
-  margin-bottom: 1rem;
+  margin-bottom: 0.8rem;
 }
 
 .project-files-top-banner .project-files-branch-status-item {
@@ -319,12 +319,12 @@
 .project-files-scope-toggle {
   display: inline-flex;
   align-self: flex-start;
-  padding: 3px;
-  margin-bottom: 0.75rem;
+  padding: 2.4px;
+  margin-bottom: 0.6rem;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 999px;
-  gap: 2px;
+  gap: 1.6px;
 }
 
 .project-files-scope-btn {
@@ -332,9 +332,9 @@
   background: transparent;
   border: 0;
   border-radius: 999px;
-  padding: 5px 14px;
+  padding: 4px 11.2px;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
@@ -348,7 +348,7 @@
 .project-files-scope-btn.is-active {
   background: var(--bg-card);
   color: var(--text-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 1px 2.4px rgba(0, 0, 0, 0.18);
 }
 
 /* Toolbar row above the My-branch grid: the scope toggle (left) and the
@@ -358,8 +358,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
 }
 .project-files-toolbar .project-files-scope-toggle {
   margin-bottom: 0;
@@ -373,8 +373,8 @@
    pill rail, separated by a thin divider so it reads as a sibling
    action rather than a third scope. */
 .project-files-scope-show-hidden {
-  margin-left: 4px;
-  padding-left: 12px;
+  margin-left: 3.2px;
+  padding-left: 9.6px;
   border-left: 1px solid var(--border);
   border-radius: 0 999px 999px 0;
   color: var(--text-secondary);
@@ -397,7 +397,7 @@
      dot sits halfway between the two text lines (label / sub)
      instead of riding flush with the bold label's cap-height. */
   align-items: center;
-  gap: 1rem;
+  gap: 0.8rem;
   /* Same chip recipe as .updates-banner-uptodate (in Updates.css)
      and .cr-stage-header-text (in ChangeRequestsView.css):
        • border-radius 10px + padding 1rem 1.25rem
@@ -411,9 +411,9 @@
      re-skin the same gradient. Neutral default uses --text-muted
      for chips that don't have a more specific tint. */
   border: 1px solid color-mix(in srgb, var(--text-muted) 40%, transparent);
-  border-radius: 10px;
-  padding: 1rem 1.25rem;
-  font-size: 0.95rem;
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  font-size: 0.76rem;
   font-weight: 500;
   letter-spacing: 0.01em;
   color: var(--text-primary);
@@ -454,7 +454,7 @@
      centering from ancestor surfaces. */
   align-items: flex-start;
   text-align: left;
-  gap: 0.15rem;
+  gap: 0.12rem;
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -462,7 +462,7 @@
 .project-files-branch-status-label {
   display: block;
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.76rem;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -470,7 +470,7 @@
 
 .project-files-branch-status-sub {
   margin: 0;
-  font-size: 0.825rem;
+  font-size: 0.66rem;
   color: var(--text-muted);
   line-height: 1.4;
   /* Allow the sub line to wrap on small viewports rather than
@@ -498,8 +498,8 @@
 
 .project-files-branch-status-cta {
   margin-left: auto;
-  padding-left: 0.6rem;
-  font-size: 0.85rem;
+  padding-left: 0.48rem;
+  font-size: 0.68rem;
   font-weight: 600;
   opacity: 0.85;
   transition: transform 150ms, opacity 150ms;
@@ -512,12 +512,12 @@
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.48rem;
   flex-shrink: 0;
 }
 
 .project-files-branch-status-action-hint {
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   font-weight: 500;
   /* Theme-aware: ink (near-black) on the cream theme so it reads on
      the chip's amber wash; cream (near-white) on ink. Same precedence
@@ -547,13 +547,13 @@
      sits flush against the "or" hint instead of being shoved
      further right. */
   margin-left: 0;
-  padding: 0.35rem 0.7rem;
-  border-radius: 8px;
+  padding: 0.28rem 0.56rem;
+  border-radius: 6.4px;
   border: 1px solid color-mix(in srgb, var(--text-primary) 22%, transparent);
   background: color-mix(in srgb, var(--text-primary) 6%, transparent);
   color: var(--text-primary);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 140ms, border-color 140ms, transform 100ms;
@@ -588,19 +588,19 @@
 }
 
 .project-files-branch-status-dot {
-  width: 12px;
-  height: 12px;
+  width: 9.6px;
+  height: 9.6px;
   border-radius: 50%;
   flex-shrink: 0;
   /* Halo padding around the dot — a soft ring that visually
      pads the dot from the chip's surface so it reads as
      deliberately placed rather than crammed into the corner.
      Per-state overrides below tint the ring to match the dot. */
-  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 0 4.8px rgba(255, 255, 255, 0.04);
   /* Outer breathing room so the halo doesn't kiss the chip's
      border on tight viewports. The chip's align-items:center
      handles the vertical placement between the two text lines. */
-  margin-left: 0.25rem;
+  margin-left: 0.2rem;
 }
 
 /* ── Synced (calm green) ─────────────────────────────────────────── */
@@ -619,7 +619,7 @@
 
 .project-files-branch-status-item.is-synced .project-files-branch-status-dot {
   background: var(--success-soft);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--success-soft) 15%, transparent);
+  box-shadow: 0 0 0 4.8px color-mix(in srgb, var(--success-soft) 15%, transparent);
 }
 
 /* ── Changes made (warm amber) ───────────────────────────────────── */
@@ -638,7 +638,7 @@
 
 .project-files-branch-status-item.is-changes .project-files-branch-status-dot {
   background: var(--warning-soft);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--warning-soft) 18%, transparent);
+  box-shadow: 0 0 0 4.8px color-mix(in srgb, var(--warning-soft) 18%, transparent);
 }
 
 /* ── Change requests / Awaiting review (indigo, interactive) ────── */
@@ -657,12 +657,12 @@
 
 .project-files-branch-status-item.is-requests .project-files-branch-status-dot {
   background: var(--accent);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 20%, transparent);
+  box-shadow: 0 0 0 4.8px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .project-files-branch-status-item.is-requests.is-interactive:hover:not(:disabled) {
   border-color: var(--accent);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 28%, rgba(0, 0, 0, 0.25));
+  box-shadow: 0 6.4px 19.2px color-mix(in srgb, var(--accent) 28%, rgba(0, 0, 0, 0.25));
 }
 
 /* Quiet variant — used by the "Change requests" pill on the Main
@@ -683,7 +683,7 @@
 
 .project-files-branch-status-item.is-quiet .project-files-branch-status-dot {
   background: var(--text-muted);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--text-muted) 14%, transparent);
+  box-shadow: 0 0 0 4.8px color-mix(in srgb, var(--text-muted) 14%, transparent);
 }
 
 /* Quiet variant suppresses every hover affordance — when there is
@@ -719,13 +719,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.4rem;
-  height: 1.4rem;
-  padding: 0 0.45rem;
+  min-width: 1.12rem;
+  height: 1.12rem;
+  padding: 0 0.36rem;
   background: rgba(0, 0, 0, 0.35);
   color: #fff;
   border-radius: 999px;
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -752,13 +752,13 @@
 
 .project-files-branch-status-item.is-update .project-files-branch-status-dot {
   background: var(--accent);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent);
+  box-shadow: 0 0 0 4.8px color-mix(in srgb, var(--accent) 25%, transparent);
   animation: branch-status-pulse 1.6s ease-in-out infinite;
 }
 
 @keyframes branch-status-pulse {
-  0%, 100% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent); }
-  50%      { box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 10%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 4.8px color-mix(in srgb, var(--accent) 25%, transparent); }
+  50%      { box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 10%, transparent); }
 }
 
 /* ── Danger variant ─────────────────────────────────────────────── */
@@ -786,12 +786,12 @@
 
 .project-files-branch-status-item.is-danger .project-files-branch-status-dot {
   background: var(--danger-soft);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--danger) 22%, transparent);
+  box-shadow: 0 0 0 4.8px color-mix(in srgb, var(--danger) 22%, transparent);
 }
 
 .project-files-branch-status-item.is-danger.is-interactive:hover:not(:disabled) {
   border-color: var(--danger);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--danger) 28%, rgba(0, 0, 0, 0.25));
+  box-shadow: 0 6.4px 19.2px color-mix(in srgb, var(--danger) 28%, rgba(0, 0, 0, 0.25));
 }
 
 /* Interactive variant — button reset + hover/active states. The
@@ -814,12 +814,12 @@
    blue (if it were ever interactive). */
 .project-files-branch-status-item.is-update.is-interactive:hover:not(:disabled) {
   border-color: var(--accent);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 30%, rgba(0, 0, 0, 0.25));
+  box-shadow: 0 6.4px 19.2px color-mix(in srgb, var(--accent) 30%, rgba(0, 0, 0, 0.25));
 }
 
 .project-files-branch-status-item.is-changes.is-interactive:hover:not(:disabled) {
   border-color: #f59e0b;
-  box-shadow: 0 8px 24px rgba(245, 158, 11, 0.32);
+  box-shadow: 0 6.4px 19.2px rgba(245, 158, 11, 0.32);
 }
 
 /* Faster shimmer + pulsing dot on the "Changes made" chip once it's
@@ -834,18 +834,18 @@
 }
 
 @keyframes branch-status-pulse-amber {
-  0%, 100% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.22); }
-  50%      { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0.10); }
+  0%, 100% { box-shadow: 0 0 0 4.8px rgba(245, 158, 11, 0.22); }
+  50%      { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.10); }
 }
 
 .project-files-branch-status-item.is-interactive:hover:not(:disabled) .project-files-branch-status-cta {
-  transform: translateX(2px);
+  transform: translateX(1.6px);
   opacity: 1;
 }
 
 .project-files-branch-status-item.is-interactive:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  outline: 1.6px solid var(--accent);
+  outline-offset: 2.4px;
 }
 
 .project-files-branch-status-item.is-interactive:active:not(:disabled) {
@@ -876,18 +876,18 @@
 .project-files-revert-row {
   display: flex;
   justify-content: center;
-  padding: 1rem 0 0.25rem;
+  padding: 0.8rem 0 0.2rem;
 }
 
 .project-files-revert-btn {
   background: transparent;
   border: 1px solid color-mix(in srgb, var(--danger) 60%, var(--border));
-  border-radius: 8px;
+  border-radius: 6.4px;
   color: var(--danger-soft);
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 500;
-  padding: 0.55rem 1.1rem;
+  padding: 0.44rem 0.88rem;
   cursor: pointer;
   transition: background 150ms, border-color 150ms, color 150ms;
 }
@@ -916,17 +916,17 @@
 .project-files-panel-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.4rem;
+  gap: 0.32rem;
 }
 
 .project-files-side-action {
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4.8px;
   color: var(--text-secondary);
   font-family: inherit;
-  font-size: 0.8rem;
-  padding: 0.3rem 0.7rem;
+  font-size: 0.64rem;
+  padding: 0.24rem 0.56rem;
   cursor: pointer;
   transition: background 150ms, border-color 150ms, color 150ms;
 }
@@ -953,9 +953,9 @@
   background: color-mix(in srgb, var(--danger) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
   color: var(--danger-soft);
-  border-radius: 8px;
-  padding: 0.7rem 1rem;
-  font-size: 0.85rem;
+  border-radius: 6.4px;
+  padding: 0.56rem 0.8rem;
+  font-size: 0.68rem;
 }
 
 /* Empty state â€” first-time use for the project. Uses the same card
@@ -965,22 +965,22 @@
 .project-files-empty {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 2rem 1.5rem;
+  border-radius: 9.6px;
+  padding: 1.6rem 1.2rem;
   text-align: center;
   color: var(--text-secondary);
 }
 
 .project-files-empty h2 {
-  margin: 0 0 0.4rem;
-  font-size: 1rem;
+  margin: 0 0 0.32rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .project-files-empty p {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: 0.7rem;
   line-height: 1.55;
   color: var(--text-muted);
 }
@@ -994,8 +994,8 @@
    on the page uniformly, Windows-Explorer style. */
 .project-files-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--project-files-card-size, 160px), 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(var(--project-files-card-size, 128px), 1fr));
+  gap: 0.8rem;
 }
 
 /* Category section — title above its own grid (Photos / Videos /
@@ -1007,15 +1007,15 @@
 .project-files-section {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.48rem;
 }
 
 .project-files-section-title {
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: 0.4rem;
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.76rem;
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: 0.01em;
@@ -1025,7 +1025,7 @@
    heading reads as the dominant element. tabular-nums keeps wider
    counts (10 / 100 …) visually aligned with the title baseline. */
 .project-files-section-count {
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   font-weight: 500;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
@@ -1053,13 +1053,13 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
+  gap: 4.8px;
   aspect-ratio: 2 / 3;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6.4px;
   overflow: visible;
-  padding: 6px 6px 8px;
+  padding: 4.8px 4.8px 6.4px;
   font-family: inherit;
   color: var(--text-primary);
   cursor: pointer;
@@ -1076,7 +1076,7 @@
 }
 
 .project-files-card:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 1.6px solid var(--accent);
   outline-offset: 1px;
 }
 
@@ -1106,7 +1106,7 @@
      borderless. Subtle border + rounded corners so it reads as
      "the thing", with the filename label sitting plainly below. */
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4.8px;
 }
 
 .project-files-thumb img {
@@ -1147,15 +1147,15 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.6rem;
   flex-wrap: wrap;
-  margin: 0.25rem 0 0.75rem;
+  margin: 0.2rem 0 0.6rem;
 }
 
 .project-files-breadcrumb {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.2rem;
   flex-wrap: wrap;
   min-width: 0;
 }
@@ -1163,14 +1163,14 @@
 .project-files-crumb {
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 7px;
-  padding: 0.2rem 0.5rem;
+  border-radius: 5.6px;
+  padding: 0.16rem 0.4rem;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.656rem;
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
-  max-width: 220px;
+  max-width: 176px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1181,7 +1181,7 @@
 
 .project-files-crumb-sep {
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   user-select: none;
 }
 
@@ -1189,15 +1189,15 @@
 .project-files-bg-menu {
   position: fixed;
   z-index: 2000;
-  min-width: 180px;
+  min-width: 144px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 4px;
+  gap: 1.6px;
+  padding: 3.2px;
   background: var(--bg-card);
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+  box-shadow: 0 9.6px 25.6px rgba(0, 0, 0, 0.5);
   /* Pop in from the cursor corner — quick scale + fade so the menu
      feels anchored to where the user clicked. */
   transform-origin: top left;
@@ -1205,7 +1205,7 @@
 }
 
 @keyframes project-files-bg-menu-in {
-  from { opacity: 0; transform: scale(0.9) translateY(-4px); }
+  from { opacity: 0; transform: scale(0.9) translateY(-3.2px); }
   to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 .project-files-bg-menu-item {
@@ -1214,10 +1214,10 @@
   text-align: left;
   background: transparent;
   border: 0;
-  border-radius: 6px;
-  padding: 0.55rem 0.8rem;
+  border-radius: 4.8px;
+  padding: 0.44rem 0.64rem;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 500;
   color: var(--text-primary);
   cursor: pointer;
@@ -1256,13 +1256,13 @@
   width: 100%;
   box-sizing: border-box;
   border: 1px solid var(--accent);
-  border-radius: 6px;
+  border-radius: 4.8px;
   background: var(--bg-input);
   color: var(--text-primary);
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.656rem;
   text-align: center;
-  padding: 0.2rem 0.35rem;
+  padding: 0.16rem 0.28rem;
 }
 .project-files-folder-rename-input:focus { outline: none; }
 
@@ -1271,17 +1271,17 @@
    so long filenames stay readable without a tooltip dance. The
    `size · date` line sits below in muted text. */
 .project-files-meta {
-  padding: 2px 4px 0;
+  padding: 1.6px 3.2px 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 1.6px;
   min-width: 0;
   text-align: center;
 }
 
 .project-files-name {
-  font-size: 0.82rem;
+  font-size: 0.656rem;
   font-weight: 500;
   color: var(--text-primary);
   line-height: 1.25;
@@ -1296,7 +1296,7 @@
 }
 
 .project-files-sub {
-  font-size: 0.7rem;
+  font-size: 0.56rem;
   color: var(--text-muted);
   letter-spacing: 0.02em;
 }
@@ -1310,22 +1310,22 @@
    purely decorative metadata, not a separate target. */
 .project-files-ext {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 3.2px;
+  right: 3.2px;
   z-index: 1;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
-  font-size: 0.62rem;
+  font-size: 0.496rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 1px 4px;
-  border-radius: 3px;
+  padding: 1px 3.2px;
+  border-radius: 2.4px;
   pointer-events: none;
   /* Backdrop blur so the tag reads cleanly on detailed/bright
      thumbnails. Cheap on a single small element. */
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(4.8px);
+  -webkit-backdrop-filter: blur(4.8px);
 }
 
 /* Local-card wrapper — owns the position-context the "Modified" pill
@@ -1380,7 +1380,7 @@
 .project-files-review-header {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.8rem;
 }
 
 /* Header doubles as the collapse toggle — whole row is clickable. */
@@ -1394,11 +1394,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 20.8px;
+  height: 20.8px;
   padding: 0;
   border: none;
-  border-radius: 8px;
+  border-radius: 6.4px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -1412,8 +1412,8 @@
   transform: rotate(180deg);
 }
 .project-files-review-chevron svg {
-  width: 16px;
-  height: 16px;
+  width: 12.8px;
+  height: 12.8px;
 }
 
 /* Collapsible file list. Uses the grid-template-rows 0fr → 1fr trick so it
@@ -1442,9 +1442,9 @@
    down proportionally), with a tighter gap to suit the smaller size.
    padding-top spaces them from the header and collapses with the wrapper. */
 .project-files-review-files {
-  --project-files-card-size: 78px;
-  gap: 0.5rem;
-  padding-top: 0.85rem;
+  --project-files-card-size: 62.4px;
+  gap: 0.4rem;
+  padding-top: 0.68rem;
 }
 
 /* Send-for-review progress bar — sits at the bottom edge of the chip
@@ -1456,7 +1456,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  height: 3px;
+  height: 2.4px;
   overflow: hidden;
   background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
@@ -1496,10 +1496,10 @@
   top: 1px;
   left: 1px;
   z-index: 2;
-  width: 12px;
-  height: 12px;
+  width: 9.6px;
+  height: 9.6px;
   border-radius: 50%;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 1px 2.4px rgba(0, 0, 0, 0.45);
   cursor: default;
 }
 .project-files-change-dot.is-added { background: var(--success); }
@@ -1512,24 +1512,24 @@
    matched pair of corner affordances. */
 .project-files-shortcut-badge {
   position: absolute;
-  bottom: 4px;
-  left: 4px;
+  bottom: 3.2px;
+  left: 3.2px;
   z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 14.4px;
+  height: 14.4px;
   color: #fff;
   background: rgba(0, 0, 0, 0.6);
-  border-radius: 4px;
+  border-radius: 3.2px;
   pointer-events: none;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(4.8px);
+  -webkit-backdrop-filter: blur(4.8px);
 }
 .project-files-shortcut-badge svg {
-  width: 12px;
-  height: 12px;
+  width: 9.6px;
+  height: 9.6px;
 }
 
 /* Video duration badge — bottom-right of the thumb, same recipe as
@@ -1538,20 +1538,20 @@
    on that container). */
 .project-files-duration {
   position: absolute;
-  bottom: 4px;
-  right: 4px;
+  bottom: 3.2px;
+  right: 3.2px;
   z-index: 1;
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
-  font-size: 0.66rem;
+  font-size: 0.528rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  padding: 1px 4px;
-  border-radius: 3px;
+  padding: 1px 3.2px;
+  border-radius: 2.4px;
   pointer-events: none;
   font-variant-numeric: tabular-nums;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(4.8px);
+  -webkit-backdrop-filter: blur(4.8px);
 }
 
 /* Floating action button — anchored to the bottom-right of the viewport
@@ -1565,10 +1565,10 @@
    floating affordances. */
 .project-files-fab {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
-  width: 56px;
-  height: 56px;
+  bottom: 19.2px;
+  right: 19.2px;
+  width: 44.8px;
+  height: 44.8px;
   border-radius: 50%;
   border: none;
   background: var(--accent);
@@ -1577,7 +1577,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 4.8px 14.4px rgba(0, 0, 0, 0.28);
   z-index: 200;
   transition:
     background 140ms ease,
@@ -1589,14 +1589,14 @@
   background: var(--accent-hover);
   /* Tiny lift on hover so the button reads as actively responding to
      the cursor — same affordance language as the Project card hovers. */
-  transform: translateY(-2px);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34);
+  transform: translateY(-1.6px);
+  box-shadow: 0 6.4px 17.6px rgba(0, 0, 0, 0.34);
 }
 
 .project-files-fab:active {
   /* Drop the lift on press so the click feels tactile. */
   transform: translateY(0);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 3.2px 9.6px rgba(0, 0, 0, 0.28);
 }
 
 .project-files-fab:focus-visible {
@@ -1604,8 +1604,8 @@
      themes without clashing with the brand. */
   outline: none;
   box-shadow:
-    0 6px 18px rgba(0, 0, 0, 0.28),
-    0 0 0 3px var(--accent-tint);
+    0 4.8px 14.4px rgba(0, 0, 0, 0.28),
+    0 0 0 2.4px var(--accent-tint);
 }
 
 /* Hide the FAB whenever the upload modal's backdrop is on screen.

@@ -73,10 +73,10 @@
   position: absolute;
   right: -1px;
   bottom: -1px;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  border: 2px solid;
+  border: 1.6px solid;
   box-sizing: content-box;
 }
 
@@ -85,9 +85,9 @@
   display: inline;
   font-weight: 600;
   color: var(--accent);
-  padding: 1px 4px;
+  padding: 1px 3.2px;
   margin: 0 -1px;
-  border-radius: 4px;
+  border-radius: 3.2px;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   white-space: nowrap;
 }
@@ -103,8 +103,8 @@
 /* ───── Status dot ───────────────────────────────────────────────── */
 .dvx-status-dot {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 6.4px;
+  height: 6.4px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -113,8 +113,8 @@
 .dvx-reactions {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 6px;
+  gap: 3.2px;
+  margin-top: 4.8px;
 }
 .dvx-reactions-right { justify-content: flex-end; }
 
@@ -122,13 +122,13 @@
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
+  gap: 3.2px;
+  padding: 1.6px 6.4px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 999px;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
@@ -146,7 +146,7 @@
   color: var(--accent);
 }
 .dvx-reaction-emoji {
-  font-size: 0.92rem;
+  font-size: 0.736rem;
   line-height: 1;
 }
 .dvx-reaction-count {
@@ -157,7 +157,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px 7px;
+  padding: 1.6px 5.6px;
   background: transparent;
   border: 1px dashed var(--border);
   border-radius: 999px;
@@ -180,8 +180,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  margin: 18px 0 10px;
+  gap: 9.6px;
+  margin: 14.4px 0 8px;
   user-select: none;
 }
 .dvx-day-divider::before,
@@ -190,11 +190,11 @@
   flex: 1;
   height: 1px;
   background: var(--border);
-  max-width: 240px;
+  max-width: 192px;
 }
 .dvx-day-divider-label {
   font-family: var(--font-display);
-  font-size: 0.68rem;
+  font-size: 0.544rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -206,17 +206,17 @@
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px 8px 8px;
+  gap: 8px;
+  padding: 6.4px 9.6px 6.4px 6.4px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   font: inherit;
   text-align: left;
   transition: background 120ms, border-color 120ms, transform 80ms;
   min-width: 0;
-  max-width: 280px;
+  max-width: 224px;
 }
 .dvx-attach-card:hover {
   background: var(--bg-elevated);
@@ -225,30 +225,30 @@
 .dvx-attach-card:active { transform: scale(0.99); }
 .dvx-attach-thumb {
   flex: 0 0 auto;
-  width: 36px;
-  height: 44px;
-  border-radius: 6px;
+  width: 28.8px;
+  height: 35.2px;
+  border-radius: 4.8px;
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding-bottom: 4px;
+  padding-bottom: 3.2px;
   position: relative;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.12), inset 0 0 0 1px rgba(255,255,255,0.18);
+  box-shadow: 0 1.6px 3.2px rgba(0,0,0,0.12), inset 0 0 0 1px rgba(255,255,255,0.18);
 }
 .dvx-attach-thumb::before {
   content: "";
   position: absolute;
   top: 0;
   right: 0;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   background: rgba(0,0,0,0.18);
   clip-path: polygon(0 0, 100% 0, 100% 100%);
-  border-bottom-left-radius: 2px;
+  border-bottom-left-radius: 1.6px;
 }
 .dvx-attach-ext {
   font-family: var(--font-display);
-  font-size: 0.58rem;
+  font-size: 0.464rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   color: #fff;
@@ -260,7 +260,7 @@
   min-width: 0;
 }
 .dvx-attach-name {
-  font-size: 0.84rem;
+  font-size: 0.672rem;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -268,7 +268,7 @@
   text-overflow: ellipsis;
 }
 .dvx-attach-size {
-  font-size: 0.72rem;
+  font-size: 0.576rem;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -277,14 +277,14 @@
 .dvx-attach-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 8px 2px 2px;
+  gap: 4.8px;
+  padding: 1.6px 6.4px 1.6px 1.6px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 999px;
-  font-size: 0.76rem;
+  font-size: 0.608rem;
   color: var(--text-secondary);
-  max-width: 260px;
+  max-width: 208px;
   cursor: pointer;
   transition: background 120ms, border-color 120ms;
 }
@@ -294,11 +294,11 @@
 }
 .dvx-attach-pill-ext {
   font-family: var(--font-display);
-  font-size: 0.6rem;
+  font-size: 0.48rem;
   font-weight: 800;
   letter-spacing: 0.06em;
   color: #fff;
-  padding: 2px 6px;
+  padding: 1.6px 4.8px;
   border-radius: 999px;
 }
 .dvx-attach-pill-name {
@@ -312,7 +312,7 @@
 /* Missing-file placeholder — no ext-badge / remove button, just text, so it
    needs even padding (the base pill insets the left for the badge). */
 .dvx-attach-pill.is-missing {
-  padding: 5px 12px;
+  padding: 4px 9.6px;
   cursor: default;
   font-style: italic;
   color: var(--text-muted);
@@ -341,8 +341,8 @@
      expensive backdrop blur, which was the cause of the typing lag. */
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 8px 10px;
+  border-radius: 11.2px;
+  padding: 6.4px 8px;
   box-shadow: var(--shadow-card);
   transition: border-color 120ms;
 }
@@ -359,8 +359,8 @@
   z-index: 0;
   pointer-events: none;
   background: color-mix(in srgb, var(--bg-page) 82%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
 }
 /* Cursor-following spotlight glow (tracks --spot-x/--spot-y set on mousemove
    in the JSX), painted over the frosted fill but behind the input content. */
@@ -372,7 +372,7 @@
   z-index: 0;
   pointer-events: none;
   background: radial-gradient(
-    180px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    144px circle at var(--spot-x, 50%) var(--spot-y, 50%),
     color-mix(in srgb, var(--accent) 5%, transparent) 0%,
     color-mix(in srgb, var(--accent) 2%, transparent) 40%,
     transparent 72%
@@ -385,13 +385,13 @@
 .dvx-composer > * { position: relative; z-index: 1; }
 .dvx-composer:focus-within {
   border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow-card);
+  box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow-card);
 }
 /* Interactive ask_user panel sits INSIDE the input box, above the textarea,
    separated by a hairline so it reads as part of the message input field. */
 .dvx-inpanels {
   position: relative; z-index: 1;
-  margin: 2px 2px 8px; padding-bottom: 9px;
+  margin: 1.6px 1.6px 6.4px; padding-bottom: 7.2px;
   border-bottom: 1px solid var(--border);
 }
 .dvx-composer-textarea {
@@ -401,19 +401,19 @@
   outline: none;
   resize: none;
   font: inherit;
-  font-size: 0.92rem;
+  font-size: 0.736rem;
   line-height: 1.5;
   color: var(--text-primary);
-  padding: 6px 4px;
-  min-height: 24px;
-  max-height: 120px;
+  padding: 4.8px 3.2px;
+  min-height: 19.2px;
+  max-height: 96px;
   width: 100%;
 }
 .dvx-composer-textarea::placeholder { color: var(--text-muted); }
 .dvx-composer-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3.2px;
 }
 .dvx-composer-toolbar-spacer { flex: 1; }
 .dvx-composer-btn {
@@ -421,10 +421,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  gap: 4.8px;
+  width: 25.6px;
+  height: 25.6px;
+  border-radius: 6.4px;
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -441,9 +441,9 @@
 }
 .dvx-composer-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .dvx-composer-send {
-  width: 34px;
+  width: 27.2px;
   padding: 0;
-  height: 34px;
+  height: 27.2px;
   background: var(--accent);
   color: var(--text-on-accent);
   /* Round icon-only send button. */
@@ -466,24 +466,24 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 9.6px;
   /* 22px horizontal inset matches the Files tab header so the chat title
      lines up with every other tab's title. */
-  padding: 14px 22px;
+  padding: 11.2px 17.6px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 14px 14px 0 0;
+  border-radius: 11.2px 11.2px 0 0;
   border-bottom: none;
 }
 .dvx-header-title-stack {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1.6px;
   min-width: 0;
 }
 .dvx-header-title {
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: 17.6px;
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
@@ -491,10 +491,10 @@
   line-height: 1.2;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6.4px;
 }
 .dvx-header-subtitle {
-  font-size: 13px;
+  font-size: 10.4px;
   color: var(--text-muted);
   margin: 0;
 }
@@ -521,14 +521,14 @@
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   background: transparent;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-bottom: 1.6px solid transparent;
   margin-bottom: -1px;
-  padding: 0.7rem 1rem;
+  padding: 0.56rem 0.8rem;
   font-family: var(--font-body);
-  font-size: 0.88rem;
+  font-size: 0.704rem;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
@@ -539,18 +539,18 @@
   color: var(--text-primary);
   border-bottom-color: var(--accent);
 }
-.dvx-tab svg { width: 16px; height: 16px; }
+.dvx-tab svg { width: 12.8px; height: 12.8px; }
 .dvx-tab-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 6px;
+  min-width: 14.4px;
+  height: 14.4px;
+  padding: 0 4.8px;
   border-radius: 999px;
   background: var(--accent);
   color: var(--text-on-accent);
-  font-size: 0.66rem;
+  font-size: 0.528rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -576,8 +576,8 @@
   flex: 0 0 auto;
   box-sizing: border-box;
   border-left: 1px solid var(--border);
-  padding-left: 12px;
-  gap: 2px;
+  padding-left: 9.6px;
+  gap: 1.6px;
 }
 /* Identical to the Team/Private tabs (.dvx-tab) so every tab-bar item reads the
    same. */
@@ -585,14 +585,14 @@
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   background: transparent;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-bottom: 1.6px solid transparent;
   margin-bottom: -1px;
-  padding: 0.7rem 1rem;
+  padding: 0.56rem 0.8rem;
   font-family: var(--font-body);
-  font-size: 0.88rem;
+  font-size: 0.704rem;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
@@ -600,15 +600,15 @@
 }
 .vb-htab:hover:not(.is-active) { color: var(--text-secondary); }
 .vb-htab.is-active { color: var(--text-primary); border-bottom-color: var(--accent); }
-.vb-htab svg { width: 16px; height: 16px; }
+.vb-htab svg { width: 12.8px; height: 12.8px; }
 .vb-htab-count {
-  font-size: 0.66rem;
+  font-size: 0.528rem;
   font-weight: 600;
   color: var(--text-muted);
   background: var(--bg-elevated);
-  padding: 1px 6px;
+  padding: 1px 4.8px;
   border-radius: 999px;
-  min-width: 16px;
+  min-width: 12.8px;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -623,24 +623,24 @@
   justify-content: center;
   background: transparent;
   border: none;
-  padding: 0 12px;
+  padding: 0 9.6px;
   color: #fff;
   cursor: pointer;
   transition: color 140ms, opacity 140ms;
   opacity: 0.85;
 }
 .vb-htab-collapse:hover { color: #fff; opacity: 1; }
-.vb-htab-collapse svg { width: 14px; height: 14px; }
+.vb-htab-collapse svg { width: 11.2px; height: 11.2px; }
 
 /* ───── Generic search field ─────────────────────────────────────── */
 .dvx-search {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4.8px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 10px;
+  border-radius: 6.4px;
+  padding: 4.8px 8px;
   color: var(--text-muted);
   transition: border-color 120ms, background 120ms;
   min-width: 0;
@@ -655,7 +655,7 @@
   border: none;
   outline: none;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.672rem;
   color: var(--text-primary);
   width: 100%;
   min-width: 0;
@@ -667,15 +667,15 @@
 .dvx-chrome-tools {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6.4px;
   /* Fixed 40px band — same height as the Files / AI-chat row-2 toolbar — so the
      chat topbar's first two sections (chrome row 1 + this tools row) match the
      full height of those two-section topbars. */
-  height: 40px;
+  height: 32px;
   box-sizing: border-box;
-  padding: 0 10px;
+  padding: 0 8px;
 }
-.dvx-chrome-tools .dvx-action-btn { padding: 0 12px; height: 32px; box-sizing: border-box; }
+.dvx-chrome-tools .dvx-action-btn { padding: 0 9.6px; height: 25.6px; box-sizing: border-box; }
 
 /* Search bar — same design as the Files toolbar search: squared pill that
    widens + lifts on focus, accent magnifier, a Ctrl/⌘+F chip that swaps for a
@@ -684,25 +684,25 @@
   margin-left: auto;        /* huddle stays left; search sits to the right */
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 240px;
-  height: 32px;
+  gap: 6.4px;
+  width: 192px;
+  height: 25.6px;
   box-sizing: border-box;
-  padding: 5px 8px 5px 11px;
+  padding: 4px 6.4px 4px 8.8px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 5.6px;
   background: var(--bg-input);
-  font-size: 13px;
+  font-size: 10.4px;
   color: var(--text-muted);
   transition: width 220ms cubic-bezier(.16, 1, .3, 1),
               border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
 .dvx-chrome-search:hover { border-color: var(--border-strong); }
 .dvx-chrome-search:focus-within {
-  width: 320px;
+  width: 256px;
   border-color: var(--accent);
   background: var(--bg-card);
-  box-shadow: 0 0 0 3px var(--accent-tint);
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
 .dvx-chrome-search-glyph { color: var(--text-muted); flex: 0 0 auto; transition: color 140ms ease; }
 .dvx-chrome-search:focus-within .dvx-chrome-search-glyph,
@@ -710,32 +710,32 @@
 .dvx-chrome-search input {
   flex: 1; min-width: 0;
   border: 0; background: transparent; outline: none;
-  font: inherit; font-size: 13px; color: var(--text-primary);
+  font: inherit; font-size: 10.4px; color: var(--text-primary);
 }
 .dvx-chrome-search input::placeholder { color: var(--text-muted); }
 .dvx-chrome-search-kbd {
   flex: 0 0 auto;
-  display: inline-flex; align-items: center; gap: 3px;
+  display: inline-flex; align-items: center; gap: 2.4px;
   transition: opacity 120ms ease;
 }
 .dvx-chrome-search-kbd kbd {
   display: inline-flex; align-items: center;
-  padding: 1px 5px;
+  padding: 1px 4px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--bg-elevated);
   font-family: var(--font-body);
-  font-size: 10.5px; font-weight: 600; line-height: 1.5; letter-spacing: 0.02em;
+  font-size: 8.4px; font-weight: 600; line-height: 1.5; letter-spacing: 0.02em;
   color: var(--text-muted);
 }
-.dvx-chrome-search-plus { margin: 0 3px; font-size: 10px; font-weight: 600; color: var(--text-muted); }
+.dvx-chrome-search-plus { margin: 0 2.4px; font-size: 8px; font-weight: 600; color: var(--text-muted); }
 .dvx-chrome-search:focus-within .dvx-chrome-search-kbd { opacity: 0; }
 .dvx-chrome-search-clear {
   flex: 0 0 auto;
   display: grid; place-items: center;
-  width: 20px; height: 20px;
+  width: 16px; height: 16px;
   padding: 0; border: 0; cursor: pointer;
-  border-radius: 5px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-secondary);
   transition: background 120ms ease, color 120ms ease;
@@ -753,7 +753,7 @@
   border-bottom: none;
   padding: 0;
   /* Third section — same 40px band height as the tools row above it. */
-  height: 40px;
+  height: 32px;
   box-sizing: border-box;
 }
 /* The tabs carry a 2px active underline + a -1px margin (to overlap the strip's
@@ -763,7 +763,7 @@
 .sv-chrome-row2 .dvx-tab,
 .sv-chrome-row2 .vb-htab {
   margin-bottom: 0;
-  border-top: 2px solid transparent;
+  border-top: 1.6px solid transparent;
 }
 
 /* ───── Header action button ─────────────────────────────────────── */
@@ -771,13 +771,13 @@
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
+  gap: 4.8px;
+  padding: 4.8px 8px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6.4px;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.656rem;
   font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
@@ -810,9 +810,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 25.6px;
+  height: 25.6px;
+  border-radius: 6.4px;
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -830,10 +830,10 @@
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
-.dvx-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.dvx-scroll::-webkit-scrollbar { width: 6.4px; height: 6.4px; }
 .dvx-scroll::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 4px;
+  border-radius: 3.2px;
 }
 .dvx-scroll::-webkit-scrollbar-track { background: transparent; }
 
@@ -857,21 +857,21 @@
   border-radius: 0;
   border: none;
   background: transparent;
-  padding: 0 22px;
-  margin-bottom: 14px;
+  padding: 0 17.6px;
+  margin-bottom: 11.2px;
 }
 .vb-header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6.4px;
   margin-left: auto;
 }
 .vb-search {
-  width: 320px;
+  width: 256px;
   max-width: calc(38 * var(--vw1));
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6.4px;
 }
 .vb-search input {
   flex: 1;
@@ -889,7 +889,7 @@
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: 1fr 256px;
   gap: 0;
   transition: grid-template-columns 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -909,14 +909,14 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 4px;
-  padding: 8px 6px;
+  gap: 3.2px;
+  padding: 6.4px 4.8px;
 }
 .vb-rail-collapsed-tabs {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 6px;
+  gap: 3.2px;
+  margin-top: 4.8px;
 }
 .vb-rail-collapsed-tab {
   appearance: none;
@@ -925,13 +925,13 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: 8px 4px;
+  gap: 1.6px;
+  padding: 6.4px 3.2px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6.4px;
   font: inherit;
-  font-size: 0.6rem;
+  font-size: 0.48rem;
   font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
@@ -946,22 +946,22 @@
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 32%, transparent);
 }
-.vb-rail-collapsed-tab svg { width: 16px; height: 16px; }
+.vb-rail-collapsed-tab svg { width: 12.8px; height: 12.8px; }
 .vb-rail-collapsed-tab-label {
-  font-size: 0.58rem;
+  font-size: 0.464rem;
   letter-spacing: 0.02em;
 }
 .vb-rail-collapsed-tab-count {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 4px;
+  top: 3.2px;
+  right: 3.2px;
+  min-width: 11.2px;
+  height: 11.2px;
+  padding: 0 3.2px;
   border-radius: 999px;
   background: var(--accent);
   color: var(--text-on-accent);
-  font-size: 0.56rem;
+  font-size: 0.448rem;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
@@ -974,9 +974,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 25.6px;
+  height: 25.6px;
+  border-radius: 6.4px;
   background: transparent;
   border: 1px solid transparent;
   color: var(--text-muted);
@@ -989,10 +989,10 @@
   color: var(--text-primary);
   border-color: var(--border);
 }
-.vb-rail-collapse-btn svg { width: 14px; height: 14px; }
+.vb-rail-collapse-btn svg { width: 11.2px; height: 11.2px; }
 .vb-rail-collapse-btn-inline {
   flex: 0 0 auto;
-  margin: 0 6px;
+  margin: 0 4.8px;
   align-self: center;
 }
 
@@ -1033,8 +1033,8 @@
   left: 0;
   top: 0;
   bottom: 0;
-  width: 11px;
-  margin-left: -6px;
+  width: 8.8px;
+  margin-left: -4.8px;
   cursor: col-resize;
   z-index: 3;
 }
@@ -1051,7 +1051,7 @@
 }
 .vb-htab-resizer:hover::after,
 .vb-htab-resizer:active::after {
-  width: 2px;
+  width: 1.6px;
   background: var(--accent);
 }
 
@@ -1061,18 +1061,18 @@
   overflow-y: auto;
   /* Extra bottom padding so the last message clears the floating composer,
      with added breathing room below it. */
-  padding: 14px 20px 120px;
+  padding: 11.2px 16px 96px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3.2px;
 }
 
 .vb-msg {
   display: grid;
-  grid-template-columns: 32px 1fr;
-  gap: 10px;
-  padding: 3px 6px;
-  border-radius: 6px;
+  grid-template-columns: 25.6px 1fr;
+  gap: 8px;
+  padding: 2.4px 4.8px;
+  border-radius: 4.8px;
   position: relative;
 }
 .vb-msg.is-mine {
@@ -1080,9 +1080,9 @@
 }
 /* Consecutive messages from the same author (within 5 min) cluster tightly:
    no avatar/header is rendered, so close the gap above the bubble. */
-.vb-msg.is-grouped { padding-top: 0; margin-top: -2px; }
+.vb-msg.is-grouped { padding-top: 0; margin-top: -1.6px; }
 .vb-msg-avatar {
-  padding-top: 2px;
+  padding-top: 1.6px;
 }
 .vb-msg-body {
   min-width: 0;
@@ -1092,7 +1092,7 @@
      messages, which override this to flex-end) instead of stretching to the
      body width. max-width on the bubble still caps long messages. */
   align-items: flex-start;
-  gap: 3px;
+  gap: 2.4px;
 }
 .vb-msg.is-mine .vb-msg-body {
   align-items: flex-end;
@@ -1101,8 +1101,8 @@
 .vb-msg-meta {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  font-size: 0.76rem;
+  gap: 6.4px;
+  font-size: 0.608rem;
 }
 .vb-msg-author {
   font-weight: 700;
@@ -1112,11 +1112,11 @@
 .vb-msg-role {
   display: inline-flex;
   align-items: center;
-  font-size: 0.62rem;
+  font-size: 0.496rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  padding: 1px 6px;
+  padding: 1px 4.8px;
   border-radius: 999px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -1131,18 +1131,18 @@
   align-items: center;
   color: var(--accent);
 }
-.vb-msg-pin svg { width: 12px; height: 12px; }
+.vb-msg-pin svg { width: 9.6px; height: 9.6px; }
 
 .vb-msg-bubble {
   display: inline-flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4.8px;
   max-width: 86%;
-  padding: 9px 13px;
+  padding: 7.2px 10.4px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 12px 12px 12px 4px;
-  font-size: 0.9rem;
+  border-radius: 9.6px 9.6px 9.6px 3.2px;
+  font-size: 0.72rem;
   line-height: 1.5;
   color: var(--text-primary);
   word-break: break-word;
@@ -1153,7 +1153,7 @@
      the spotlight / dot grid never shows through (no blur needed). */
   background: color-mix(in srgb, var(--accent) 16%, var(--bg-page));
   border-color: color-mix(in srgb, var(--accent) 30%, var(--bg-page));
-  border-radius: 12px 12px 4px 12px;
+  border-radius: 9.6px 9.6px 3.2px 9.6px;
 }
 .vb-msg-text {
   white-space: pre-wrap;
@@ -1163,8 +1163,8 @@
    tabular; right-aligned under own messages, left under others'. */
 .vb-msg-time-under {
   display: block;
-  margin-top: 3px;
-  font-size: 0.66rem;
+  margin-top: 2.4px;
+  font-size: 0.528rem;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -1174,7 +1174,7 @@
 .vb-msg-attachments {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4.8px;
 }
 
 .vb-msg.mentions-me .vb-msg-bubble {
@@ -1200,8 +1200,8 @@
 .vb-morph-reactions {
   display: flex;
   gap: 1px;
-  padding: 2px 1px 5px;
-  margin-bottom: 3px;
+  padding: 1.6px 1px 4px;
+  margin-bottom: 2.4px;
   border-bottom: 1px solid var(--border);
 }
 .vb-morph-emoji {
@@ -1209,10 +1209,10 @@
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 1.05rem;
+  font-size: 0.84rem;
   line-height: 1;
-  padding: 5px 6px;
-  border-radius: 6px;
+  padding: 4px 4.8px;
+  border-radius: 4.8px;
   flex: 1;
   transition: background 110ms, transform 110ms;
 }
@@ -1226,18 +1226,18 @@
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
+  gap: 4.8px;
+  padding: 2.4px 8px;
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 999px;
   font: inherit;
-  font-size: 0.75rem;
+  font-size: 0.6rem;
   color: var(--text-secondary);
   cursor: pointer;
   transition: background 120ms, border-color 120ms;
   align-self: flex-start;
-  margin-top: 2px;
+  margin-top: 1.6px;
 }
 .vb-msg.is-mine .vb-thread-pill { align-self: flex-end; }
 .vb-thread-pill:hover {
@@ -1246,8 +1246,8 @@
   color: var(--accent);
 }
 .vb-thread-pill svg {
-  width: 12px;
-  height: 12px;
+  width: 9.6px;
+  height: 9.6px;
 }
 .vb-thread-pill-last {
   color: var(--text-muted);
@@ -1259,7 +1259,7 @@
 .vb-edit {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4.8px;
   max-width: 86%;
   /* Edit only happens on your own messages → align the bubble + actions to
      the right, same side as the own-message bubble. */
@@ -1293,7 +1293,7 @@
 .vb-edit-grow::after {
   grid-area: 1 / 1;
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1318,17 +1318,17 @@
   display: inline-flex;
   align-items: center;
   align-self: flex-end;
-  gap: 6px;
+  gap: 4.8px;
 }
 .vb-edit-btn {
   appearance: none;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  border-radius: 7px;
-  padding: 4px 12px;
+  border-radius: 5.6px;
+  padding: 3.2px 9.6px;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   cursor: pointer;
   transition: background 120ms, color 120ms;
 }
@@ -1346,24 +1346,24 @@
 }
 @keyframes vb-jump {
   0%, 100% { box-shadow: 0 0 0 0 transparent; }
-  25% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); }
+  25% { box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--accent) 45%, transparent); }
 }
 
 /* Typing indicator */
-.vb-typing { padding: 2px 6px; grid-template-columns: 32px 1fr; }
+.vb-typing { padding: 1.6px 4.8px; grid-template-columns: 25.6px 1fr; }
 .vb-typing-bubble {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 12px 14px;
+  gap: 3.2px;
+  padding: 9.6px 11.2px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 12px 12px 12px 4px;
+  border-radius: 9.6px 9.6px 9.6px 3.2px;
   width: max-content;
 }
 .vb-typing-dot {
-  width: 6px;
-  height: 6px;
+  width: 4.8px;
+  height: 4.8px;
   border-radius: 50%;
   background: var(--text-muted);
   animation: vb-typing 1.2s infinite ease-in-out;
@@ -1372,7 +1372,7 @@
 .vb-typing-dot:nth-child(3) { animation-delay: 0.36s; }
 @keyframes vb-typing {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
-  30% { transform: translateY(-4px); opacity: 1; }
+  30% { transform: translateY(-3.2px); opacity: 1; }
 }
 
 /* Empty state */
@@ -1380,27 +1380,27 @@
   margin: auto;
   text-align: center;
   color: var(--text-muted);
-  font-size: 0.88rem;
-  padding: 40px 20px;
+  font-size: 0.704rem;
+  padding: 32px 16px;
 }
 
 /* Scroll-back-to-latest pill */
 .vb-scroll-back {
   position: absolute;
   left: 50%;
-  bottom: 92px;
+  bottom: 73.6px;
   transform: translateX(-50%);
   z-index: 4;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
+  gap: 4.8px;
+  padding: 4.8px 11.2px;
   border-radius: 999px;
   background: var(--accent);
   color: var(--text-on-accent);
   border: none;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   font-weight: 600;
   cursor: pointer;
   box-shadow: var(--shadow-elev);
@@ -1417,7 +1417,7 @@
   z-index: 6;
   /* Full chat width, floating above the bottom, with left/right margins so
      the frosted input sits inset from the edges. */
-  padding: 10px 18px 12px;
+  padding: 8px 14.4px 9.6px;
   background: transparent;
   /* The transparent padding lets clicks fall through to the messages behind;
      the input box, staged chips, and popovers re-enable pointer events. */
@@ -1444,7 +1444,7 @@
   flex: 0 0 auto;
   left: auto; right: auto; bottom: auto;
   pointer-events: auto;
-  padding: 10px 18px 12px;
+  padding: 8px 14.4px 9.6px;
   border-top: 1px solid var(--border);
   background: var(--bg-sidebar);
 }
@@ -1452,9 +1452,9 @@
    anchor the scroll-back pill to the thread column instead of the overlay. */
 /* Clear the floating composer footer so the last message scrolls out from
    behind it. */
-.vb-team .vb-messages { padding-bottom: 84px; }
+.vb-team .vb-messages { padding-bottom: 67.2px; }
 .vb-team .vb-main { position: relative; }
-.vb-team .vb-scroll-back { bottom: 16px; }
+.vb-team .vb-scroll-back { bottom: 12.8px; }
 
 /* Float the composer footer OVER the thread (only for panes that actually hold
    a composer) so messages scroll up behind the frosted, slightly-transparent
@@ -1492,7 +1492,7 @@
   box-shadow: none;
   background: transparent;
   /* 22px horizontal inset matches the Files action bar. */
-  padding: 8px 22px;
+  padding: 6.4px 17.6px;
 }
 .sv-footer .dvx-composer::before,
 .sv-footer .dvx-composer::after { display: none; }
@@ -1505,7 +1505,7 @@
    vertical padding; past that it scrolls. The AI composer also sets this height
    inline as it auto-grows — this keeps the ceiling identical either way. */
 .sv-footer .dvx-composer-textarea {
-  max-height: calc(6em + 12px);
+  max-height: calc(6em + 9.6px);
   overflow-y: auto;
 }
 
@@ -1513,8 +1513,8 @@
 .vb-staged {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
+  gap: 4.8px;
+  margin-bottom: 6.4px;
 }
 .vb-staged-remove {
   appearance: none;
@@ -1524,49 +1524,49 @@
   color: var(--text-muted);
   display: inline-flex;
   align-items: center;
-  padding: 0 2px;
+  padding: 0 1.6px;
 }
 .vb-staged-remove:hover { color: var(--danger); }
-.vb-staged-remove svg { width: 12px; height: 12px; }
+.vb-staged-remove svg { width: 9.6px; height: 9.6px; }
 
 /* Composer popovers (mention / attach) */
 .vb-popover {
   position: absolute;
-  bottom: calc(100% + 6px);
-  left: 20px;
-  right: 20px;
-  max-height: 260px;
+  bottom: calc(100% + 4.8px);
+  left: 16px;
+  right: 16px;
+  max-height: 208px;
   overflow-y: auto;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 9.6px;
   box-shadow: var(--shadow-elev);
   z-index: 8;
-  padding: 6px;
+  padding: 4.8px;
 }
 .vb-popover-search {
   width: 100%;
   appearance: none;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 10px;
+  border-radius: 6.4px;
+  padding: 4.8px 8px;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.672rem;
   color: var(--text-primary);
-  margin-bottom: 6px;
+  margin-bottom: 4.8px;
   outline: none;
 }
 .vb-popover-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6.4px;
   width: 100%;
   appearance: none;
   background: transparent;
   border: none;
-  border-radius: 8px;
-  padding: 7px 8px;
+  border-radius: 6.4px;
+  padding: 5.6px 6.4px;
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -1577,18 +1577,18 @@
 .vb-popover-item.is-picked {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
-.vb-popover-name { font-size: 0.85rem; font-weight: 600; }
+.vb-popover-name { font-size: 0.68rem; font-weight: 600; }
 .vb-popover-email,
 .vb-popover-size {
-  font-size: 0.74rem;
+  font-size: 0.592rem;
   color: var(--text-muted);
   margin-left: auto;
   white-space: nowrap;
 }
 .vb-popover-empty {
-  padding: 12px;
+  padding: 9.6px;
   color: var(--text-muted);
-  font-size: 0.82rem;
+  font-size: 0.656rem;
   text-align: center;
 }
 
@@ -1614,14 +1614,14 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: 10px 4px;
+  gap: 1.6px;
+  padding: 8px 3.2px;
   background: transparent;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-bottom: 1.6px solid transparent;
   margin-bottom: -1px;
   font-family: var(--font-body);
-  font-size: 0.7rem;
+  font-size: 0.56rem;
   font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
@@ -1635,9 +1635,9 @@
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
-.vb-rail-tab svg { width: 14px; height: 14px; }
+.vb-rail-tab svg { width: 11.2px; height: 11.2px; }
 .vb-rail-tab-count {
-  font-size: 0.62rem;
+  font-size: 0.496rem;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -1647,24 +1647,24 @@
   flex: 1 1 auto;
   overflow-y: auto;
   /* Extra bottom padding so panel items clear the full-width floating composer. */
-  padding: 12px 12px 92px;
+  padding: 9.6px 9.6px 73.6px;
   background: transparent;
 }
 
 .vb-rail-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .vb-rail-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px;
+  gap: 4.8px;
+  padding: 8px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
 }
 .vb-rail-card-button {
   appearance: none;
@@ -1680,25 +1680,25 @@
 .vb-rail-card-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4.8px;
 }
 .vb-rail-card-author {
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   color: var(--text-primary);
   font-family: var(--font-display);
 }
 .vb-rail-card-time {
-  font-size: 0.7rem;
+  font-size: 0.56rem;
   color: var(--text-muted);
   margin-left: auto;
 }
 .vb-rail-card-action {
   appearance: none;
-  width: 22px;
-  height: 22px;
+  width: 17.6px;
+  height: 17.6px;
   border: none;
-  border-radius: 4px;
+  border-radius: 3.2px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -1711,9 +1711,9 @@
   background: var(--bg-elevated);
   color: var(--text-primary);
 }
-.vb-rail-card-action svg { width: 12px; height: 12px; }
+.vb-rail-card-action svg { width: 9.6px; height: 9.6px; }
 .vb-rail-card-body {
-  font-size: 0.82rem;
+  font-size: 0.656rem;
   line-height: 1.4;
   color: var(--text-secondary);
   word-break: break-word;
@@ -1721,12 +1721,12 @@
 .vb-rail-card-foot {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 0.72rem;
+  gap: 3.2px;
+  font-size: 0.576rem;
   color: var(--accent);
   font-weight: 600;
 }
-.vb-rail-card-foot svg { width: 11px; height: 11px; }
+.vb-rail-card-foot svg { width: 8.8px; height: 8.8px; }
 button.vb-rail-card-foot {
   appearance: none;
   background: transparent;
@@ -1736,17 +1736,17 @@ button.vb-rail-card-foot {
   align-self: flex-start;
 }
 button.vb-rail-card-foot:hover { text-decoration: underline; }
-.vb-rail-card-attach { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+.vb-rail-card-attach { margin-top: 3.2px; display: flex; flex-wrap: wrap; gap: 3.2px; }
 
 .vb-rail-thread-item {
   appearance: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px;
+  gap: 3.2px;
+  padding: 8px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -1757,7 +1757,7 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
 .vb-rail-thread-item-body {
-  font-size: 0.82rem;
+  font-size: 0.656rem;
   color: var(--text-primary);
   line-height: 1.4;
   display: -webkit-box;
@@ -1768,62 +1768,62 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
 .vb-rail-thread-item-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.7rem;
+  gap: 4.8px;
+  font-size: 0.56rem;
   color: var(--text-muted);
 }
-.vb-rail-thread-item-meta svg { width: 10px; height: 10px; color: var(--accent); }
+.vb-rail-thread-item-meta svg { width: 8px; height: 8px; color: var(--accent); }
 
 /* Open thread within rail */
 .vb-rail-back {
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px 4px 6px;
+  gap: 4.8px;
+  padding: 3.2px 6.4px 3.2px 4.8px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 4.8px;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   color: var(--text-secondary);
   cursor: pointer;
-  margin-bottom: 8px;
+  margin-bottom: 6.4px;
   transition: background 120ms;
 }
 .vb-rail-back:hover { background: var(--bg-elevated); }
-.vb-rail-back svg { width: 12px; height: 12px; }
+.vb-rail-back svg { width: 9.6px; height: 9.6px; }
 
 .vb-rail-thread-root {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px;
-  margin-bottom: 10px;
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 8px;
 }
 .vb-rail-thread-root-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
+  gap: 4.8px;
+  margin-bottom: 3.2px;
 }
 .vb-rail-thread-root-body {
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   color: var(--text-primary);
   line-height: 1.45;
 }
 .vb-rail-thread-count {
-  font-size: 0.68rem;
+  font-size: 0.544rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
-  margin: 8px 4px 6px;
+  margin: 6.4px 3.2px 4.8px;
 }
 .vb-rail-thread-reply {
   display: flex;
-  gap: 8px;
-  padding: 8px 4px;
+  gap: 6.4px;
+  padding: 6.4px 3.2px;
 }
 .vb-rail-thread-reply-body {
   flex: 1;
@@ -1832,8 +1832,8 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
 .vb-rail-thread-reply-meta {
   display: flex;
   align-items: baseline;
-  gap: 6px;
-  font-size: 0.74rem;
+  gap: 4.8px;
+  font-size: 0.592rem;
   margin-bottom: 1px;
 }
 .vb-rail-thread-reply-meta > span:first-child {
@@ -1841,7 +1841,7 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
   color: var(--text-primary);
 }
 .vb-rail-thread-reply-text {
-  font-size: 0.83rem;
+  font-size: 0.664rem;
   color: var(--text-secondary);
   line-height: 1.4;
   word-break: break-word;
@@ -1849,12 +1849,12 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
 .vb-rail-thread-composer {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 4.8px;
+  margin-top: 6.4px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 4px 6px 4px 12px;
+  border-radius: 6.4px;
+  padding: 3.2px 4.8px 3.2px 9.6px;
 }
 .vb-rail-thread-composer textarea {
   appearance: none;
@@ -1863,11 +1863,11 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
   outline: none;
   resize: none;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.672rem;
   color: var(--text-primary);
   flex: 1;
-  padding: 6px 0;
-  max-height: 80px;
+  padding: 4.8px 0;
+  max-height: 64px;
 }
 .vb-rail-thread-composer textarea::placeholder { color: var(--text-muted); }
 .vb-rail-thread-send {
@@ -1875,9 +1875,9 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6.4px;
   background: var(--accent);
   color: var(--text-on-accent);
   border: none;
@@ -1885,25 +1885,25 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
   flex-shrink: 0;
 }
 .vb-rail-thread-send:disabled { background: var(--bg-elevated); color: var(--text-muted); cursor: not-allowed; }
-.vb-rail-thread-send svg { width: 15px; height: 15px; }
+.vb-rail-thread-send svg { width: 12px; height: 12px; }
 
 /* Rail files (list of attachment rows) */
 .vb-rail-file-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3.2px;
 }
 .vb-rail-file-meta {
-  font-size: 0.7rem;
+  font-size: 0.56rem;
   color: var(--text-muted);
-  padding-left: 4px;
+  padding-left: 3.2px;
 }
 
 .vb-rail-empty {
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   color: var(--text-muted);
   font-style: italic;
-  padding: 4px 0;
+  padding: 3.2px 0;
 }
 
 /* ───── Private pane ─────────────────────────────────────────────── */
@@ -1911,7 +1911,7 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 240px 1fr 240px;
+  grid-template-columns: 192px 1fr 192px;
   gap: 0;
 }
 .vb-private-list {
@@ -1920,16 +1920,16 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px;
+  gap: 1.6px;
+  padding: 6.4px;
 }
 .vb-private-list-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 6px 10px;
+  padding: 3.2px 4.8px 8px;
   font-family: var(--font-display);
-  font-size: 0.7rem;
+  font-size: 0.56rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1939,11 +1939,11 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
   appearance: none;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px;
+  gap: 8px;
+  padding: 6.4px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6.4px;
   text-align: left;
   cursor: pointer;
   font: inherit;
@@ -1962,23 +1962,23 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 6px;
+  gap: 4.8px;
 }
 .vb-private-item-name {
   font-weight: 600;
-  font-size: 0.83rem;
+  font-size: 0.664rem;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .vb-private-item-time {
-  font-size: 0.68rem;
+  font-size: 0.544rem;
   color: var(--text-muted);
   flex-shrink: 0;
 }
 .vb-private-item-snippet {
-  font-size: 0.76rem;
+  font-size: 0.608rem;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -1996,77 +1996,77 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
 .vb-private-thread-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
+  gap: 8px;
+  padding: 8px 12.8px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-card);
 }
 .vb-private-thread-header-name {
   font-family: var(--font-display);
-  font-size: 0.92rem;
+  font-size: 0.736rem;
   font-weight: 700;
   color: var(--text-primary);
 }
 .vb-private-thread-header-status {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 0.72rem;
+  gap: 4px;
+  font-size: 0.576rem;
   color: var(--text-muted);
-  margin-top: 2px;
+  margin-top: 1.6px;
 }
 .vb-private-messages {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 14px 18px 8px;
+  padding: 11.2px 14.4px 6.4px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3.2px;
 }
 .vb-private-empty {
   margin: auto;
   text-align: center;
-  padding: 40px 20px;
+  padding: 32px 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 6.4px;
 }
 .vb-private-empty h3 {
   font-family: var(--font-display);
-  margin: 8px 0 0;
+  margin: 6.4px 0 0;
   color: var(--text-primary);
 }
 .vb-private-empty p {
   color: var(--text-muted);
-  font-size: 0.86rem;
+  font-size: 0.688rem;
   margin: 0;
 }
 
 .vb-private-rail {
   background: var(--bg-card);
   overflow-y: auto;
-  padding: 14px;
+  padding: 11.2px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6.4px;
 }
 .vb-rail-section-title {
   font-family: var(--font-display);
-  font-size: 0.66rem;
+  font-size: 0.528rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
-  margin-top: 6px;
+  margin-top: 4.8px;
 }
 .vb-rail-section-title:first-child { margin-top: 0; }
 
 /* ───── Narrow viewports: let the rail collapse gracefully ───────── */
 @media (max-width: 864px) { /* 1080px pre-scale */
-  .vb-search { width: 200px; }
+  .vb-search { width: 160px; }
 }
 @media (max-width: 736px) { /* 920px pre-scale */
-  .vb-private { grid-template-columns: 200px 1fr; }
+  .vb-private { grid-template-columns: 160px 1fr; }
   .vb-private-rail { display: none; }
 }

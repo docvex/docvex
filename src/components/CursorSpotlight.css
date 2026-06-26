@@ -8,8 +8,8 @@
   position: fixed;
   top: 0;
   left: 0;
-  width: 430px;
-  height: 430px;
+  width: 344px;
+  height: 344px;
   pointer-events: none;
   z-index: -1;
   will-change: transform;
@@ -17,19 +17,19 @@
      reads as the cursor moves (kept subtle). */
   background-image: radial-gradient(
     circle at center,
-    color-mix(in srgb, var(--text-primary) 11%, transparent) 1.45px,
-    transparent 1.85px
+    color-mix(in srgb, var(--text-primary) 11%, transparent) 1.16px,
+    transparent 1.48px
   );
-  background-size: 24px 24px;
+  background-size: 19.2px 19.2px;
   /* background-position is set per-frame in JS to counter the transform. */
   mask-image: radial-gradient(
-    circle 215px at center,
+    circle 172px at center,
     #000 0%,
     #000 42%,
     transparent 100%
   );
   -webkit-mask-image: radial-gradient(
-    circle 215px at center,
+    circle 172px at center,
     #000 0%,
     #000 42%,
     transparent 100%

@@ -65,6 +65,14 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
   // onClick to fire when the user confirms. Mutually exclusive with
   // the menu list — when this is set, the menu items aren't rendered.
   const [confirmingItem, setConfirmingItem] = useState(null);
+  // Key of the menu item whose inline submenu is expanded (or null). A menu
+  // item carrying a `submenu` array acts like a nested dropdown: clicking it
+  // expands its sub-items in place (the pill FLIP-morphs to the taller shape)
+  // rather than firing an action. Mutually independent of confirm/prompt.
+  const [openSubKey, setOpenSubKey] = useState(null);
+  // When the side flyout would overflow the right viewport edge, open it to the
+  // LEFT of the menu instead. Measured after it renders (see effect below).
+  const [subFlipLeft, setSubFlipLeft] = useState(false);
   // Prompt mode — a confirm panel that ALSO carries a free-text input
   // (e.g. "reason for rejecting"). Opened directly via handleOpenPrompt
   // (a left-click, not the right-click menu) so the tooltip morphs
@@ -75,6 +83,7 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
   const [promptText, setPromptText] = useState('');
   const [promptBusy, setPromptBusy] = useState(false);
   const pillRef = useRef(null);
+  const subRef = useRef(null);
   const oldPillRectRef = useRef(null);
   // The element that opened the menu (the trigger button / card). Tracked so
   // the global outside-mousedown dismissal can IGNORE a press on the trigger
@@ -122,6 +131,8 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     if (closeTimerRef.current) { clearTimeout(closeTimerRef.current); closeTimerRef.current = null; }
     setMenuMode(false);
     setConfirmingItem(null);
+    setOpenSubKey(null);
+    setSubFlipLeft(false);
     setPromptOpen(false);
     setPromptText('');
     setPromptBusy(false);
@@ -190,6 +201,14 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
   // instead of firing the action. Otherwise the action runs and the
   // menu closes — behaviour matches the pre-confirm-step version.
   const handleMenuItemClick = (item) => {
+    if (item.submenu) {
+      // Toggle the side flyout. It's a SEPARATE floating panel (not part of the
+      // pill's box), so there's no pill-height morph to snapshot here.
+      const k = item.key || item.label;
+      setSubFlipLeft(false);
+      setOpenSubKey((cur) => (cur === k ? null : k));
+      return;
+    }
     if (item.confirm) {
       // Snapshot CURRENT (menu) rect so the menu → confirm FLIP has
       // a "from" size. Same FLIP recipe the right-click step uses.
@@ -272,7 +291,7 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     } else {
       pill.style.transform = `translate(${x}px, ${y}px)`;
     }
-  }, [pillPos, menuMode, confirmingItem, promptOpen, placement]);
+  }, [pillPos, menuMode, confirmingItem, promptOpen, placement, openSubKey]);
 
   // FLIP morph — fires whenever the pill's RENDERED SHAPE changes,
   // not just on menu-mode entry. Three transitions all use the same
@@ -313,7 +332,19 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     pill.style.transition = 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)';
     pill.style.transform = `translate(${tx}px, ${ty}px) scale(1, 1)`;
     oldPillRectRef.current = null;
-  }, [menuMode, confirmingItem, promptOpen, placement]);
+  }, [menuMode, confirmingItem, promptOpen, placement, openSubKey]);
+
+  // Side-flyout edge guard: after the submenu renders (default: opens to the
+  // RIGHT of the menu), measure it; if it runs past the right viewport edge,
+  // flip it to open leftward. Runs once per open — setting the flip state
+  // doesn't re-trigger this (deps unchanged), so it can't oscillate.
+  useLayoutEffect(() => {
+    if (!openSubKey) { return; }
+    const el = subRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (r.right > window.innerWidth - 8) setSubFlipLeft(true);
+  }, [openSubKey, pillPos]);
 
   // Cancel out of the confirm step back to the menu. Snapshots the
   // CURRENT (confirm panel) rect so the reverse FLIP shrinks the
@@ -442,19 +473,49 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
       <>
         {header}
         <ul className="project-files-morph-list">
-          {filteredItems.map((item, i) => (
-            <li key={item.key || item.label || i} role="none">
-              <button
-                type="button"
-                role="menuitem"
-                className={`project-files-morph-item${item.danger ? ' project-files-morph-item-danger' : ''}`}
-                onClick={() => handleMenuItemClick(item)}
-                disabled={item.disabled || false}
-              >
-                {item.label}
-              </button>
-            </li>
-          ))}
+          {filteredItems.map((item, i) => {
+            const itemKey = item.key || item.label || i;
+            const subOpen = item.submenu && openSubKey === (item.key || item.label);
+            return (
+              <li key={itemKey} role="none">
+                <button
+                  type="button"
+                  role="menuitem"
+                  aria-haspopup={item.submenu ? 'menu' : undefined}
+                  aria-expanded={item.submenu ? Boolean(subOpen) : undefined}
+                  className={`project-files-morph-item${item.danger ? ' project-files-morph-item-danger' : ''}${item.submenu ? ' project-files-morph-item-parent' : ''}${subOpen ? ' is-open' : ''}`}
+                  onClick={() => handleMenuItemClick(item)}
+                  disabled={item.disabled || false}
+                >
+                  {item.label}
+                  {item.submenu && <span className="project-files-morph-caret" aria-hidden="true" />}
+                </button>
+                {subOpen && (
+                  <ul ref={subRef} className={`project-files-morph-sublist${subFlipLeft ? ' flip-left' : ''}`}>
+                    {(item.submenu || []).filter(Boolean).map((sub, j) => (
+                      sub.heading ? (
+                        <li key={sub.key || `h${j}`} role="none">
+                          <div className="project-files-morph-subhead">{sub.heading}</div>
+                        </li>
+                      ) : (
+                        <li key={sub.key || sub.label || j} role="none">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="project-files-morph-item project-files-morph-subitem"
+                            onClick={() => { closeMenu(); sub.onClick?.(); }}
+                            disabled={sub.disabled || false}
+                          >
+                            {sub.label}
+                          </button>
+                        </li>
+                      )
+                    ))}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </>
     );

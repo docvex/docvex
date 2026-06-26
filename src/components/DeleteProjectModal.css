@@ -1,14 +1,14 @@
 ﻿/* Widens the shared .modal-card slightly so the project name + input have
    breathing room â€” the default 380px feels cramped once you add an input. */
 .delete-project-modal {
-  max-width: 460px;
+  max-width: 368px;
 }
 
 .delete-project-label {
   display: block;
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   color: var(--text-secondary);
-  margin: 0 0 0.4rem;
+  margin: 0 0 0.32rem;
   line-height: 1.5;
 }
 
@@ -19,8 +19,8 @@
   font-weight: 600;
   color: var(--danger-text);
   background: color-mix(in srgb, var(--danger) 8%, transparent);
-  padding: 0.05rem 0.35rem;
-  border-radius: 4px;
+  padding: 0.04rem 0.28rem;
+  border-radius: 3.2px;
   user-select: text;
 }
 
@@ -29,11 +29,11 @@
   box-sizing: border-box;
   background: var(--bg-page);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4.8px;
   color: var(--text-primary);
-  font-size: 0.9rem;
-  padding: 0.55rem 0.7rem;
-  margin: 0 0 1.25rem;
+  font-size: 0.72rem;
+  padding: 0.44rem 0.56rem;
+  margin: 0 0 1rem;
   font-family: inherit;
   transition: border-color 150ms, background 150ms;
 }

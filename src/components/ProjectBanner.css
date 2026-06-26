@@ -13,7 +13,7 @@
 
 .project-banner-pill {
   position: fixed;
-  top: 0.75rem;
+  top: 0.6rem;
   left: 50%;
   transform: translateX(-50%);
   /* Above page content and the dashboard's sticky tab band, below
@@ -23,10 +23,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4.8px;
   background: var(--accent);
   color: var(--text-on-accent);
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 500;
   letter-spacing: 0.01em;
   /* Pill shape — fully rounded ends, compact padding so the chip
@@ -34,12 +34,12 @@
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--text-on-accent) 15%, transparent);
   line-height: 1.4;
-  padding: 0.4rem 1rem;
+  padding: 0.32rem 0.8rem;
   cursor: pointer;
   white-space: nowrap;
   /* Soft lift so the pill reads as floating over the page rather
      than belonging to any panel below it. */
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 6.4px 19.2px rgba(0, 0, 0, 0.32);
   transition: background 150ms, transform 120ms, box-shadow 150ms;
   animation: project-banner-pill-in 200ms ease-out;
 }
@@ -84,12 +84,12 @@
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  font-size: 0.62rem;
+  font-size: 0.496rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   border-radius: 999px;
-  padding: 1px 8px;
+  padding: 1px 6.4px;
   line-height: 1.3;
   border: 1px solid transparent;
 }
@@ -128,6 +128,6 @@
      keyframe transforms override that, so the X centering has to
      be repeated here or the pill briefly snaps left-aligned as it
      animates in. */
-  from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+  from { opacity: 0; transform: translateX(-50%) translateY(-4.8px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }

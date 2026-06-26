@@ -5,7 +5,7 @@
   position: relative;
   /* Match the corner curvature of the cards this wraps (Project Overview
      uses 12px) so the overlay fill follows the visual edge cleanly. */
-  border-radius: 12px;
+  border-radius: 9.6px;
 }
 
 /* Underlying content stays in the layout so the lock badge inherits the
@@ -17,7 +17,7 @@
   pointer-events: none;
   user-select: none;
   opacity: 0.4;
-  filter: blur(1.5px);
+  filter: blur(1.2px);
   /* Keep the content interactive-looking enough to read but obviously
      non-interactive. Transition for a soft fade if a role change ever
      flips the lock live (e.g. an admin demotes the current user). */
@@ -38,12 +38,12 @@
   /* Light additional blur on top of the content's own blur so the badge
      reads cleanly even when the underlying card is colorful (Danger zone,
      for instance, has a red-tinted background). */
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(1.6px);
+  -webkit-backdrop-filter: blur(1.6px);
   z-index: 1;
   /* Padding so the badge has breathing room from the card edge on tiny
      wrapped elements (e.g. a button-sized lock). */
-  padding: 0.5rem;
+  padding: 0.4rem;
 }
 
 /* The badge itself â€” pill shape, dark surface, subtle border. Matches the
@@ -52,15 +52,15 @@
 .role-locked-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   background: var(--bg-card);
   border: 1px solid var(--border);
   color: var(--text-secondary);
-  font-size: 0.82rem;
+  font-size: 0.656rem;
   font-weight: 500;
-  padding: 0.5rem 0.9rem;
+  padding: 0.4rem 0.72rem;
   border-radius: 999px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 3.2px 11.2px rgba(0, 0, 0, 0.4);
   /* Tighten on truly tiny wrappers (e.g. a small button) so the badge
      doesn't burst the parent's width. White-space:nowrap keeps the
      "[role] only" phrase on one line â€” it's short enough that wrapping
@@ -74,7 +74,7 @@
   /* Uppercase + spacing mirror the role-pill typography for parity. */
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-size: 0.78rem;
+  font-size: 0.624rem;
 }
 
 .role-locked-badge svg {

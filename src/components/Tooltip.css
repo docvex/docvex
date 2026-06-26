@@ -26,12 +26,12 @@
      `.tooltip.is-multiline` override below to halve the radius;
      fully-rounded ends only look right when the pill is one line
      tall. */
-  padding: 6px 12px;
+  padding: 4.8px 9.6px;
   border-radius: 999px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   color: var(--text-primary);
-  font-size: 0.75rem;
+  font-size: 0.6rem;
   font-weight: 500;
   font-family: inherit;
   white-space: nowrap;
@@ -42,7 +42,7 @@
   /* Drop shadow lifts the pill off the page so it reads as a floating
      overlay rather than part of the nearest panel — same shadow recipe
      .locked-features-hint uses. */
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 3.2px 9.6px rgba(0, 0, 0, 0.4);
   /* Brief fade-in keeps the appearance from popping abruptly when the
      cursor first enters a trigger. No exit animation — the pill unmounts
      on mouseleave, which is fine for a transient affordance. */
@@ -72,5 +72,5 @@
    reads cleanly on a 2-line pill while still feeling pill-shaped.
    Single-line pills keep the 999px stadium ends from the base rule. */
 .tooltip.is-multiline {
-  border-radius: 12px;
+  border-radius: 9.6px;
 }

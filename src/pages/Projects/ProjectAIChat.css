@@ -41,47 +41,47 @@
   justify-content: center;
   pointer-events: none;
   background: color-mix(in srgb, var(--overlay-scrim) 62%, transparent);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(2.4px);
+  -webkit-backdrop-filter: blur(2.4px);
   animation: aichat-drop-in 120ms ease-out;
 }
 @keyframes aichat-drop-in { from { opacity: 0; } to { opacity: 1; } }
 .ai-chat-page .aichat-drop-card {
-  min-width: 220px;
+  min-width: 176px;
   max-width: 80%;
-  padding: 22px 26px 24px;
-  border-radius: 16px;
+  padding: 17.6px 20.8px 19.2px;
+  border-radius: 12.8px;
   background: var(--bg-card);
-  border: 2px dashed var(--accent);
+  border: 1.6px dashed var(--accent);
   box-shadow: var(--shadow-elev);
   text-align: center;
 }
 .ai-chat-page .aichat-drop-heading {
-  font-size: 0.95rem;
+  font-size: 0.76rem;
   font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: 16px;
+  margin-bottom: 12.8px;
 }
 .ai-chat-page .aichat-drop-files {
   display: flex;
   flex-wrap: wrap;
-  gap: 18px;
+  gap: 14.4px;
   justify-content: center;
   max-height: calc(60 * var(--vh1));
   overflow: hidden;
 }
 .ai-chat-page .aichat-drop-file {
-  width: 132px;
+  width: 105.6px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 9px;
+  gap: 7.2px;
 }
 .ai-chat-page .aichat-drop-thumb {
   position: relative;
-  width: 132px;
-  height: 100px;
-  border-radius: 10px;
+  width: 105.6px;
+  height: 80px;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -97,10 +97,10 @@
   place-items: center;
   color: var(--accent);
 }
-.ai-chat-page .aichat-drop-thumb .fx-glyph { width: 48px; height: 48px; font-size: 11px; }
+.ai-chat-page .aichat-drop-thumb .fx-glyph { width: 38.4px; height: 38.4px; font-size: 8.8px; }
 .ai-chat-page .aichat-drop-name {
   width: 100%;
-  font-size: 0.82rem;
+  font-size: 0.656rem;
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -118,27 +118,27 @@
 .ai-chat-page .aichat-rail-file {
   position: relative;
   flex: 0 0 auto;
-  margin: 8px;
-  padding: 12px 12px 11px;
-  border-radius: 12px;
+  margin: 6.4px;
+  padding: 9.6px 9.6px 8.8px;
+  border-radius: 9.6px;
   background: var(--bg-card);
   box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 9px;
+  gap: 7.2px;
   animation: aichat-railfile-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 /* When a file is pending the rail shows only this card — centre it vertically. */
 .ai-chat-page .aichat-rail.has-dropfile { justify-content: center; }
 @keyframes aichat-railfile-in {
-  from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+  from { opacity: 0; transform: translateY(-9.6px) scale(0.96); }
   to   { opacity: 1; transform: none; }
 }
 .ai-chat-page .aichat-rail-file-thumb {
   width: 100%;
-  height: 124px;
-  border-radius: 9px;
+  height: 99.2px;
+  border-radius: 7.2px;
   overflow: hidden;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -150,7 +150,7 @@
 .ai-chat-page .aichat-rail-file-thumb .project-files-icon { width: 52%; height: 52%; color: var(--accent); }
 .ai-chat-page .aichat-rail-file-name {
   width: 100%;
-  font-size: 0.82rem;
+  font-size: 0.656rem;
   font-weight: 600;
   color: var(--text-primary);
   text-align: center;
@@ -160,12 +160,12 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.ai-chat-page .aichat-rail-file-more { font-size: 0.72rem; color: var(--text-muted); }
+.ai-chat-page .aichat-rail-file-more { font-size: 0.576rem; color: var(--text-muted); }
 /* While a file is pending, widen the rail a little and hide the chat list so the
    file thumbnail takes the spotlight. */
-.ai-chat-page .aichat-rail.has-dropfile { flex-basis: 300px; }
+.ai-chat-page .aichat-rail.has-dropfile { flex-basis: 240px; }
 .ai-chat-page .aichat-rail.has-dropfile .aichat-list-wrap { display: none; }
-.ai-chat-page .aichat-rail.has-dropfile .aichat-rail-file-thumb { height: 200px; }
+.ai-chat-page .aichat-rail.has-dropfile .aichat-rail-file-thumb { height: 160px; }
 
 /* The suggestion-pill list filling the conversation area (no scrim, no card —
    the file already lives in the sidebar). The list sizes to its content (not
@@ -182,16 +182,16 @@
 }
 .ai-chat-page .aichat-drop-close {
   position: absolute;
-  top: 14px;
-  right: 16px;
+  top: 11.2px;
+  right: 12.8px;
   z-index: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6.4px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -204,42 +204,42 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 28px clamp(24px, 6%, 64px);
+  gap: 8px;
+  padding: 22.4px clamp(19.2px, 6%, 51.2px);
   animation: aichat-actions-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 @keyframes aichat-actions-in {
-  from { opacity: 0; transform: translateY(12px) scale(0.99); }
+  from { opacity: 0; transform: translateY(9.6px) scale(0.99); }
   to   { opacity: 1; transform: none; }
 }
 .ai-chat-page .aichat-action-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   /* Clear the panel's top-right close button. */
-  padding-right: 38px;
-  font-size: 1.25rem;
+  padding-right: 30.4px;
+  font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--text-primary);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 .ai-chat-page .aichat-action-head strong { color: var(--accent); font-weight: 700; word-break: break-word; }
 .ai-chat-page .aichat-action-pill {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   text-align: left;
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--text-primary);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 11px;
-  padding: 12px 14px;
+  border-radius: 8.8px;
+  padding: 9.6px 11.2px;
   cursor: pointer;
   transition: background 120ms, border-color 120ms, color 120ms, transform 120ms;
   /* Staggered entrance — each pill slides in a beat after the previous. */
@@ -247,7 +247,7 @@
   animation-delay: calc(var(--pill-i, 0) * 45ms + 60ms);
 }
 @keyframes aichat-pill-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6.4px); }
   to   { opacity: 1; transform: none; }
 }
 .ai-chat-page .aichat-action-pill:hover {
@@ -263,8 +263,8 @@
 
 /* "Other" lives in the footer message box now — this just points there. */
 .ai-chat-page .aichat-action-other-hint {
-  margin-top: 8px;
-  font-size: 0.82rem;
+  margin-top: 6.4px;
+  font-size: 0.656rem;
   color: var(--text-muted);
 }
 
@@ -303,34 +303,34 @@
      with 10px side padding, so the From field (left) and the arrange toggle
      (right) line up with what's above/below when switching tabs, and the
      vertical spacing matches the Advisor panel. */
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  width: 100%; height: 40px; box-sizing: border-box; padding: 0 10px;
+  display: flex; align-items: center; justify-content: space-between; gap: 9.6px;
+  width: 100%; height: 32px; box-sizing: border-box; padding: 0 8px;
 }
-.aichat-exr-dates { display: flex; align-items: center; gap: 10px; }
+.aichat-exr-dates { display: flex; align-items: center; gap: 8px; }
 .aichat-exr-field {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; font-weight: 600; color: var(--text-muted);
+  display: inline-flex; align-items: center; gap: 4.8px;
+  font-size: 9.6px; font-weight: 600; color: var(--text-muted);
 }
 .aichat-exr-field input[type="date"] {
-  font: inherit; font-size: 12.5px; font-weight: 500;
+  font: inherit; font-size: 10px; font-weight: 500;
   color: var(--text-primary); background: var(--bg-input); color-scheme: light dark;
-  border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px;
+  border: 1px solid var(--border); border-radius: 6.4px; padding: 4px 6.4px;
 }
 .aichat-exr-field input[type="date"]:focus { outline: none; border-color: var(--accent); }
 .aichat-exr-clear {
   border: none; background: none; color: var(--accent); cursor: pointer;
-  font: inherit; font-size: 12px; font-weight: 600; padding: 4px 6px;
+  font: inherit; font-size: 9.6px; font-weight: 600; padding: 3.2px 4.8px;
 }
 .aichat-exr-clear:hover { color: var(--accent-hover); }
 .aichat-exr-arrange {
-  display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px;
+  display: inline-flex; gap: 1.6px; padding: 2.4px; border-radius: 7.2px;
   background: var(--bg-elevated); border: 1px solid var(--border);
 }
 .aichat-exr-seg {
   /* Inactive = neutral (transparent, muted text); active = solid accent fill —
      clearly different colours so the selected option reads at a glance. */
   border: none; background: transparent; color: var(--text-secondary);
-  font: inherit; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 7px; cursor: pointer;
+  font: inherit; font-size: 9.6px; font-weight: 600; padding: 4px 9.6px; border-radius: 5.6px; cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
 }
 .aichat-exr-seg:hover:not(.is-active) { color: var(--text-primary); background: var(--accent-tint); }
@@ -344,12 +344,12 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px clamp(20px, 4%, 48px);
+  padding: 19.2px clamp(16px, 4%, 38.4px);
 }
 
 /* ── Conversation rail ──────────────────────────────────────────────── */
 .ai-chat-page .aichat-rail {
-  flex: 0 0 252px;
+  flex: 0 0 201.6px;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -365,20 +365,20 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6.4px;
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 600;
   color: var(--text-on-accent);
   background: var(--accent);
   border: none;
-  border-radius: 9px;
-  padding: 10px 14px;
+  border-radius: 7.2px;
+  padding: 8px 11.2px;
   cursor: pointer;
   transition: background 150ms;
 }
 .ai-chat-page .aichat-newbtn:hover { background: var(--accent-hover); }
-.ai-chat-page .aichat-newbtn svg { width: 16px; height: 16px; }
+.ai-chat-page .aichat-newbtn svg { width: 12.8px; height: 12.8px; }
 
 /* Wrapper that anchors the custom overlay scrollbar over the list. */
 .ai-chat-page .aichat-list-wrap {
@@ -397,7 +397,7 @@
   /* Symmetric padding — no reserved gutter; the custom scrollbar overlays.
      Minimal top padding so the "Chats" header + first items sit right at the
      top of the rail, in line with the topbar collapse toggle. */
-  padding: 0 8px 14px;
+  padding: 0 6.4px 11.2px;
   /* Hide the native scrollbar (Firefox); the custom one floats over content. */
   scrollbar-width: none;
 }
@@ -412,9 +412,9 @@
 .ai-chat-page .aichat-scrollbar {
   position: absolute;
   top: 0;
-  right: -8px;
+  right: -6.4px;
   bottom: 0;
-  width: 10px;
+  width: 8px;
   pointer-events: none; /* the track lets clicks pass through to the list */
   opacity: 0;
   transition: opacity 160ms ease;
@@ -425,7 +425,7 @@
   position: absolute;
   top: 0;
   right: 0;
-  width: 6px;
+  width: 4.8px;
   border-radius: 999px;
   background: var(--scrollbar-thumb);
   pointer-events: auto; /* but the thumb itself is draggable */
@@ -434,7 +434,7 @@
 }
 .ai-chat-page .aichat-scrollbar-thumb:hover,
 .ai-chat-page .aichat-scrollbar-thumb:active {
-  width: 9px;
+  width: 7.2px;
   background: color-mix(in srgb, var(--scrollbar-thumb) 75%, var(--text-primary));
 }
 /* "Chats" header row — label on the left, New-chat button in line on the right.
@@ -444,10 +444,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 4.8px;
   /* Right inset 0 so the New-chat button's end lines up with the chat rows' end.
      Symmetric top/bottom inset so spacing above the button matches below. */
-  padding: 6px 0 6px 8px;
+  padding: 4.8px 0 4.8px 6.4px;
   /* Pinned to the top of the list so it stays visible while the chats scroll. */
   position: sticky;
   top: 0;
@@ -455,7 +455,7 @@
   background: var(--bg-sidebar);
 }
 .ai-chat-page .aichat-list-label {
-  font-size: 0.68rem;
+  font-size: 0.544rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -465,20 +465,20 @@
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4.8px;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   font-weight: 600;
   color: var(--text-on-accent);
   background: var(--accent);
   border: 1px solid transparent;
   /* 8px radius matches the chat items + the collapsed button, so every rail
      button shares the same shape in both states. */
-  border-radius: 8px;
-  padding: 0 12px;
+  border-radius: 6.4px;
+  padding: 0 9.6px;
   /* 40px to match the collapsed button + the chat items, so the height stays
      identical between expanded and collapsed states. */
-  height: 40px;
+  height: 32px;
   box-sizing: border-box;
   cursor: pointer;
   white-space: nowrap;
@@ -489,24 +489,24 @@
 /* Label hides outright when collapsed (no animation). */
 .ai-chat-page .aichat-list-newchat-label {
   display: inline-block;
-  max-width: 90px;
+  max-width: 72px;
   overflow: hidden;
   opacity: 1;
 }
 /* Collapsed rail → just the + icon, centered. Top/bottom padding (6px) matches
    the expanded head so the gap above the first chat doesn't jump. */
-.ai-chat-page .aichat-rail.is-collapsed .aichat-list-head { justify-content: center; padding: 6px 0; }
+.ai-chat-page .aichat-rail.is-collapsed .aichat-list-head { justify-content: center; padding: 4.8px 0; }
 .ai-chat-page .aichat-rail.is-collapsed .aichat-list-label { display: none; }
 /* Collapsed → the + button takes the same shape/size as a collapsed chat item
    (full width, 40px tall, 8px radius, centered icon) so it sits flush in the
    rail column with the chats below it. */
 .ai-chat-page .aichat-rail.is-collapsed .aichat-list-newchat {
   width: 100%;
-  height: 40px;
+  height: 32px;
   /* Centre the + in the collapsed square (the hidden label has 0 width). */
-  padding: 8px;
+  padding: 6.4px;
   gap: 0;
-  border-radius: 8px;
+  border-radius: 6.4px;
   border-color: transparent;
   justify-content: center;
 }
@@ -515,18 +515,18 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 7.2px;
   /* Fixed height (not min-height) so the row stays exactly 40px whether or not
      the title / 24px action buttons are present — the title's line-height was
      nudging the expanded rows a few px taller than the collapsed ones. */
-  height: 40px;
-  margin-bottom: 4px;
+  height: 32px;
+  margin-bottom: 3.2px;
   box-sizing: border-box;
-  padding: 8px 8px 8px 12px;
+  padding: 6.4px 6.4px 6.4px 9.6px;
   /* Transparent border reserved on every row so the selected row's border
      doesn't shift the layout. */
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6.4px;
   overflow: hidden;
   cursor: pointer;
   color: var(--text-secondary);
@@ -541,7 +541,7 @@
   left: 0;
   top: 0;
   bottom: 0;
-  width: 3px;
+  width: 2.4px;
   background: var(--chat-accent, var(--accent));
 }
 .ai-chat-page .aichat-item:hover { background: var(--bg-elevated); color: var(--text-primary); }
@@ -553,7 +553,7 @@
   color: var(--text-primary);
   font-weight: 600;
 }
-.ai-chat-page .aichat-item.is-active::after { width: 4px; }
+.ai-chat-page .aichat-item.is-active::after { width: 3.2px; }
 .ai-chat-page .aichat-item.is-active .aichat-item-ico { color: var(--accent); }
 .ai-chat-page .aichat-item-ico {
   flex: 0 0 auto;
@@ -563,7 +563,7 @@
 .ai-chat-page .aichat-item-title {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -572,7 +572,7 @@
 .ai-chat-page .aichat-item-actions {
   flex: 0 0 auto;
   display: flex;
-  gap: 2px;
+  gap: 1.6px;
   opacity: 0;
   transition: opacity 120ms;
 }
@@ -581,12 +581,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 19.2px;
+  height: 19.2px;
   border: none;
   background: transparent;
   color: var(--text-muted);
-  border-radius: 6px;
+  border-radius: 4.8px;
   cursor: pointer;
   transition: background 120ms, color 120ms;
 }
@@ -607,11 +607,11 @@
      gap, so the AI topbar's sections line up with the team chat's. */
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6.4px;
   width: 100%;
-  height: 40px;
+  height: 32px;
   box-sizing: border-box;
-  padding: 0 10px;
+  padding: 0 8px;
   margin-top: 0;
 }
 .aichat-chrome-left { display: flex; align-items: center; flex: 0 0 auto; }
@@ -619,25 +619,25 @@
 /* Search the chat list — same look as the Files tab search (.fx-search):
    quiet by default, widens + lifts with an accent ring on focus. */
 .aichat-chrome-search {
-  display: flex; align-items: center; gap: 8px;
-  padding: 5px 8px 5px 11px;
+  display: flex; align-items: center; gap: 6.4px;
+  padding: 4px 6.4px 4px 8.8px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 5.6px;
   background: var(--bg-input);
-  width: 240px;
-  height: 32px;
+  width: 192px;
+  height: 25.6px;
   box-sizing: border-box;
-  font-size: 13px;
+  font-size: 10.4px;
   color: var(--text-muted);
   transition: width 220ms cubic-bezier(.16, 1, .3, 1),
               border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
 .aichat-chrome-search:hover { border-color: var(--border-strong); }
 .aichat-chrome-search:focus-within {
-  width: 320px;
+  width: 256px;
   border-color: var(--accent);
   background: var(--bg-card);
-  box-shadow: 0 0 0 3px var(--accent-tint);
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
 .aichat-chrome-search svg { color: var(--text-muted); flex: 0 0 auto; transition: color 140ms ease; }
 .aichat-chrome-search:focus-within svg { color: var(--accent); }
@@ -649,33 +649,33 @@
 /* Ctrl/⌘+F hint — each key its own chip; fades out on focus to make room. */
 .aichat-chrome-search-kbd {
   flex: 0 0 auto;
-  display: inline-flex; align-items: center; gap: 3px;
+  display: inline-flex; align-items: center; gap: 2.4px;
   font-family: var(--font-body);
   transition: opacity 120ms ease;
 }
 .aichat-chrome-search:focus-within .aichat-chrome-search-kbd { opacity: 0; }
 .aichat-chrome-search-kbd kbd {
   display: inline-flex; align-items: center;
-  padding: 1px 5px;
+  padding: 1px 4px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--bg-elevated);
   font-family: inherit;
-  font-size: 10.5px; font-weight: 600; line-height: 1.5;
+  font-size: 8.4px; font-weight: 600; line-height: 1.5;
   letter-spacing: 0.02em;
   color: var(--text-muted);
 }
 .aichat-chrome-search-kbd-plus {
-  margin: 0 3px;
-  font-size: 10px; font-weight: 600;
+  margin: 0 2.4px;
+  font-size: 8px; font-weight: 600;
   color: var(--text-muted);
 }
 .aichat-chrome-search-clear {
   flex: 0 0 auto;
   display: grid; place-items: center;
-  width: 20px; height: 20px;
+  width: 16px; height: 16px;
   padding: 0; border: 0; cursor: pointer;
-  border-radius: 5px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-secondary);
   transition: background 120ms ease, color 120ms ease;
@@ -692,15 +692,15 @@
 .aichat-chrome-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 5.6px;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   font-weight: 600;
   color: var(--text-secondary);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 7px;
-  padding: 5px 9px;
+  border-radius: 5.6px;
+  padding: 4px 7.2px;
   cursor: pointer;
   white-space: nowrap;
   transition: background 120ms, color 120ms, border-color 120ms;
@@ -721,7 +721,7 @@
   transition: opacity 120ms;
   /* Slight inset toward the header title above (kept a touch left of full
      alignment per preference). */
-  margin-left: 4px;
+  margin-left: 3.2px;
 }
 .aichat-chrome-collapse:hover {
   opacity: 1;
@@ -734,21 +734,21 @@
    Long titles (e.g. "Remediation Costs Sheet Verification And Audit") truncate. */
 .aichat-chrome-chatname {
   /* Breathing room between the collapse toggle and the chat pill. */
-  margin-left: 10px;
+  margin-left: 8px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4.8px;
   min-width: 0;
   max-width: 60%;
   /* Same styling as the chat tab's "Start huddle" action button
      (.dvx-action-btn). */
-  height: 32px;
+  height: 25.6px;
   box-sizing: border-box;
-  padding: 0 12px;
+  padding: 0 9.6px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6.4px;
   background: var(--bg-elevated);
-  font-size: 0.82rem;
+  font-size: 0.656rem;
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -769,7 +769,7 @@
 .ai-chat-page .aichat-rail {
   overflow: visible;
 }
-.ai-chat-page .aichat-rail.is-collapsed { flex-basis: 56px; }
+.ai-chat-page .aichat-rail.is-collapsed { flex-basis: 44.8px; }
 .ai-chat-page .aichat-rail.is-collapsed .aichat-list-label,
 .ai-chat-page .aichat-rail.is-collapsed .aichat-item-title,
 .ai-chat-page .aichat-rail.is-collapsed .aichat-rename-input {
@@ -784,7 +784,7 @@
    centred. The title collapses to zero width so only the icon shows. */
 .ai-chat-page .aichat-rail.is-collapsed .aichat-item {
   gap: 0;
-  padding: 8px 8px 8px 12px;
+  padding: 6.4px 6.4px 6.4px 9.6px;
 }
 .ai-chat-page .aichat-rail.is-collapsed .aichat-item-title { flex: 0 0 0; width: 0; }
 
@@ -812,7 +812,7 @@
   overflow-x: hidden;
   /* Extra bottom padding clears the floating composer footer so the last
      message can scroll out from behind it. */
-  padding: 22px 26px 92px;
+  padding: 17.6px 20.8px 73.6px;
   /* Hide the native scrollbar (Firefox) — the custom one floats over content
      and never reserves layout width, so bubbles don't shift. */
   scrollbar-width: none;
@@ -827,7 +827,7 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: 10px;
+  width: 8px;
   pointer-events: none;
   opacity: 0;
   transition: opacity 160ms ease;
@@ -838,7 +838,7 @@
   position: absolute;
   top: 0;
   right: 0;
-  width: 6px;
+  width: 4.8px;
   border-radius: 999px;
   background: var(--scrollbar-thumb);
   pointer-events: auto;
@@ -847,7 +847,7 @@
 }
 .ai-chat-page .aichat-msg-scrollbar-thumb:hover,
 .ai-chat-page .aichat-msg-scrollbar-thumb:active {
-  width: 9px;
+  width: 7.2px;
   background: color-mix(in srgb, var(--scrollbar-thumb) 75%, var(--text-primary));
 }
 .ai-chat-page .aichat-scroll .chat {
@@ -857,15 +857,15 @@
   width: 100%;
   margin: 0;
 }
-.ai-chat-page .aichat-chips { margin-top: 6px; }
+.ai-chat-page .aichat-chips { margin-top: 4.8px; }
 
 /* Per-response actions under each AI message (Copy / Retry), à la Claude.
    Subtle by default, brighten on hover; the whole row fades up a touch when the
    bubble is hovered so it stays unobtrusive between interactions. */
 .ai-chat-page .aichat-msg-actions {
   display: flex;
-  gap: 2px;
-  margin-top: 6px;
+  gap: 1.6px;
+  margin-top: 4.8px;
   /* Hidden until the message is hovered. */
   opacity: 0;
   pointer-events: none;
@@ -878,15 +878,15 @@
 .ai-chat-page .aichat-msg-action {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   font: inherit;
-  font-size: 0.72rem;
+  font-size: 0.576rem;
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 7px;
-  padding: 4px 8px;
+  border-radius: 5.6px;
+  padding: 3.2px 6.4px;
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
 }
@@ -906,23 +906,23 @@
   animation: aichat-quote-in 120ms ease-out;
 }
 @keyframes aichat-quote-in {
-  from { opacity: 0; transform: translate(-50%, calc(-100% + 4px)); }
+  from { opacity: 0; transform: translate(-50%, calc(-100% + 3.2px)); }
   to { opacity: 1; transform: translate(-50%, -100%); }
 }
 .aichat-quote-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 4.8px;
+  padding: 4.8px 9.6px;
   border-radius: 999px;
   border: 1px solid var(--border-strong);
   background: var(--bg-card);
   color: var(--text-primary);
   font-family: var(--font-body);
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 8px 24px var(--overlay-scrim, rgba(0, 0, 0, 0.32));
+  box-shadow: 0 6.4px 19.2px var(--overlay-scrim, rgba(0, 0, 0, 0.32));
   transition: background 120ms, border-color 120ms;
 }
 .aichat-quote-btn:hover {
@@ -936,8 +936,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  margin: 18px 0 10px;
+  gap: 9.6px;
+  margin: 14.4px 0 8px;
 }
 .ai-chat-page .aichat-day-divider::before,
 .ai-chat-page .aichat-day-divider::after {
@@ -945,11 +945,11 @@
   flex: 1;
   height: 1px;
   background: var(--border);
-  max-width: 240px;
+  max-width: 192px;
 }
 .ai-chat-page .aichat-day-divider-label {
   font-family: var(--font-display);
-  font-size: 0.68rem;
+  font-size: 0.544rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -960,8 +960,8 @@
    (matches the Chat tab's inline timestamp). */
 .ai-chat-page .bubble.me .aichat-time {
   display: block;
-  margin-top: 3px;
-  font-size: 0.66rem;
+  margin-top: 2.4px;
+  font-size: 0.528rem;
   color: var(--text-muted);
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -975,7 +975,7 @@
 }
 .ai-chat-page .aichat-caret {
   display: inline-block;
-  width: 2px;
+  width: 1.6px;
   height: 1em;
   margin-left: 1px;
   vertical-align: text-bottom;
@@ -1002,14 +1002,14 @@
    corner, right-aligned. */
 .ai-chat-page .bubble.me .bubble-msg {
   display: inline-block;
-  padding: 9px 13px;
-  border-radius: 12px 12px 4px 12px;
+  padding: 7.2px 10.4px;
+  border-radius: 9.6px 9.6px 3.2px 9.6px;
   /* Solid (opaque) fill in the same accent tint — blended over the page bg so
      the spotlight / dot grid never shows through (no blur needed). */
   background: color-mix(in srgb, var(--accent) 16%, var(--bg-page));
   border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--bg-page));
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   line-height: 1.5;
   text-align: left;
   word-break: break-word;
@@ -1041,7 +1041,7 @@
 .ai-chat-page .aichat-av-fallback {
   color: #fff;
   font-weight: 700;
-  font-size: 0.82rem;
+  font-size: 0.656rem;
 }
 
 /* ── Composer ───────────────────────────────────────────────────────────
@@ -1054,7 +1054,7 @@
   flex: 0 0 auto;
   inset: auto;
   pointer-events: auto;
-  padding: 10px 18px 12px;
+  padding: 8px 14.4px 9.6px;
   border-top: 1px solid var(--border);
   background: var(--bg-sidebar);
 }
@@ -1062,32 +1062,32 @@
 /* ── Attached-file chips (dropped from the Files tab) ───────────────────── */
 .sv-footer .vb-composer-wrap.aichat-dropping,
 .ai-chat-page > .vb-composer-wrap.aichat-dropping {
-  box-shadow: inset 0 0 0 2px var(--accent);
-  border-radius: 6px;
+  box-shadow: inset 0 0 0 1.6px var(--accent);
+  border-radius: 4.8px;
 }
 .aichat-attachments {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 0 22px 8px;
+  gap: 4.8px;
+  padding: 0 17.6px 6.4px;
 }
 /* In-bubble (sent) attachment list. */
 .ai-chat-page .aichat-msg-attachments {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 4.8px;
+  margin-top: 6.4px;
 }
 .aichat-attach-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 220px;
-  padding: 4px 8px;
+  gap: 4.8px;
+  max-width: 176px;
+  padding: 3.2px 6.4px;
   border-radius: 999px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   color: var(--text-secondary);
 }
 .aichat-attach-chip svg { flex: 0 0 auto; color: var(--text-muted); }
@@ -1106,7 +1106,7 @@
   color: var(--text-muted);
   cursor: pointer;
   padding: 1px;
-  border-radius: 4px;
+  border-radius: 3.2px;
 }
 .aichat-attach-x:hover { color: var(--danger); background: var(--danger-soft); }
 .aichat-attach-chip.is-static { background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
@@ -1117,13 +1117,13 @@
 .ai-chat-page .aichat-wave {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  height: 22px;
+  gap: 2.4px;
+  height: 17.6px;
 }
 .ai-chat-page .aichat-wave span {
-  width: 3px;
+  width: 2.4px;
   height: 100%;
-  border-radius: 2px;
+  border-radius: 1.6px;
   background: var(--accent);
   transform-origin: center;
   transform: scaleY(0.28);
@@ -1150,13 +1150,13 @@
 .ai-chat-page .aichat-thinking {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  font-size: 0.92rem;
+  gap: 1.6px;
+  font-size: 0.736rem;
 }
 /* Gavel "slam" loader (animated SVG) before the rotating thinking word. */
 .ai-chat-page .aichat-thinking-gavel {
-  width: 30px; height: 30px; flex-shrink: 0;
-  margin-right: 8px;
+  width: 24px; height: 24px; flex-shrink: 0;
+  margin-right: 6.4px;
   vertical-align: middle;
 }
 .ai-chat-page .aichat-thinking-text {
@@ -1184,12 +1184,12 @@
   100% { background-position: -200% 0; }
 }
 @keyframes aichat-thinking-swap {
-  from { opacity: 0; transform: translateY(2px); }
+  from { opacity: 0; transform: translateY(1.6px); }
   to   { opacity: 1; transform: none; }
 }
 .ai-chat-page .aichat-thinking-dots { display: inline-flex; align-items: center; }
 .ai-chat-page .aichat-thinking-dots span {
-  width: 3px; height: 3px; margin-left: 2px;
+  width: 2.4px; height: 2.4px; margin-left: 1.6px;
   border-radius: 50%;
   background: var(--text-muted);
   animation: aichat-thinking-dot 1.2s ease-in-out infinite;
@@ -1210,15 +1210,15 @@
 .aichat-context-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4.8px;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   font-weight: 600;
   color: var(--text-secondary);
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 5px 11px 5px 9px;
+  padding: 4px 8.8px 4px 7.2px;
   cursor: pointer;
   white-space: nowrap;
   transition: background 120ms, color 120ms, border-color 120ms;
@@ -1252,12 +1252,12 @@
   line-height: 1.25;
   color: var(--text-primary);
 }
-.ai-chat-page .aichat-md h1 { font-size: 1.35rem; }
-.ai-chat-page .aichat-md h2 { font-size: 1.18rem; }
-.ai-chat-page .aichat-md h3 { font-size: 1.04rem; }
-.ai-chat-page .aichat-md h4 { font-size: 0.96rem; }
+.ai-chat-page .aichat-md h1 { font-size: 1.08rem; }
+.ai-chat-page .aichat-md h2 { font-size: 0.944rem; }
+.ai-chat-page .aichat-md h3 { font-size: 0.832rem; }
+.ai-chat-page .aichat-md h4 { font-size: 0.768rem; }
 .ai-chat-page .aichat-md h5,
-.ai-chat-page .aichat-md h6 { font-size: 0.9rem; color: var(--text-secondary); }
+.ai-chat-page .aichat-md h6 { font-size: 0.72rem; color: var(--text-secondary); }
 .ai-chat-page .aichat-md strong { font-weight: 700; color: var(--text-primary); }
 .ai-chat-page .aichat-md em { font-style: italic; }
 .ai-chat-page .aichat-md del { text-decoration: line-through; opacity: 0.7; }
@@ -1271,29 +1271,29 @@
   font-size: 0.88em;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  padding: 1px 5px;
-  border-radius: 5px;
+  padding: 1px 4px;
+  border-radius: 4px;
 }
 .ai-chat-page .aichat-md pre {
   margin: 0 0 0.7em;
-  padding: 10px 12px;
+  padding: 8px 9.6px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: 7.2px;
   overflow-x: auto;
 }
 .ai-chat-page .aichat-md pre code { background: none; border: none; padding: 0; font-size: 0.85em; }
 .ai-chat-page .aichat-md blockquote {
   margin: 0 0 0.7em;
-  padding: 2px 0 2px 12px;
-  border-left: 3px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  padding: 1.6px 0 1.6px 9.6px;
+  border-left: 2.4px solid color-mix(in srgb, var(--accent) 45%, var(--border));
   color: var(--text-secondary);
 }
-.ai-chat-page .aichat-md a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.ai-chat-page .aichat-md a { color: var(--accent); text-decoration: underline; text-underline-offset: 1.6px; }
 .ai-chat-page .aichat-md hr { border: none; border-top: 1px solid var(--border); margin: 0.9em 0; }
 .ai-chat-page .aichat-md table { border-collapse: collapse; margin: 0 0 0.7em; font-size: 0.92em; display: block; overflow-x: auto; }
 .ai-chat-page .aichat-md th,
-.ai-chat-page .aichat-md td { border: 1px solid var(--border); padding: 5px 9px; text-align: left; }
+.ai-chat-page .aichat-md td { border: 1px solid var(--border); padding: 4px 7.2px; text-align: left; }
 .ai-chat-page .aichat-md th { background: var(--bg-elevated); font-weight: 700; }
 
 /* ── Empty state (no chats) ─────────────────────────────────────────────
@@ -1305,53 +1305,53 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 28px;
+  padding: 22.4px;
 }
 .ai-chat-page .aichat-empty-card {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 9px;
-  max-width: 360px;
-  padding: 30px 28px 28px;
+  gap: 7.2px;
+  max-width: 288px;
+  padding: 24px 22.4px 22.4px;
   animation: aichat-actions-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .ai-chat-page .aichat-empty-glyph {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 58px;
-  height: 58px;
-  border-radius: 15px;
+  width: 46.4px;
+  height: 46.4px;
+  border-radius: 12px;
   background: var(--accent-tint);
   color: var(--accent);
-  margin-bottom: 5px;
+  margin-bottom: 4px;
 }
 .ai-chat-page .aichat-empty-title {
   font-family: var(--font-display);
-  font-size: 1.15rem;
+  font-size: 0.92rem;
   font-weight: 700;
   color: var(--text-primary);
 }
 .ai-chat-page .aichat-empty-sub {
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   line-height: 1.5;
   color: var(--text-secondary);
 }
 .ai-chat-page .aichat-empty-btn {
-  margin-top: 9px;
+  margin-top: 7.2px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6.4px;
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--text-on-accent);
   background: var(--accent);
   border: none;
-  border-radius: 10px;
-  padding: 10px 18px;
+  border-radius: 8px;
+  padding: 8px 14.4px;
   cursor: pointer;
   transition: background 150ms;
 }
@@ -1369,46 +1369,46 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6.4px;
   text-align: center;
-  padding: 24px;
+  padding: 19.2px;
   pointer-events: none;
 }
 .ai-chat-page .aichat-convo-empty-glyph {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
+  width: 44.8px;
+  height: 44.8px;
+  border-radius: 12.8px;
   background: var(--accent-tint);
   color: var(--accent);
-  margin-bottom: 4px;
+  margin-bottom: 3.2px;
 }
 .ai-chat-page .aichat-convo-empty-title {
   font-family: var(--font-display);
-  font-size: 1.1rem;
+  font-size: 0.88rem;
   font-weight: 700;
   color: var(--text-primary);
 }
 .ai-chat-page .aichat-convo-empty-sub {
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   line-height: 1.5;
   color: var(--text-secondary);
-  max-width: 320px;
+  max-width: 256px;
 }
 
 /* ── File-action step 2: explanation-depth slider ───────────────────────── */
-.ai-chat-page .aichat-step2-head { gap: 6px; }
+.ai-chat-page .aichat-step2-head { gap: 4.8px; }
 .ai-chat-page .aichat-step-back {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 22.4px;
+  height: 22.4px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6.4px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -1419,20 +1419,20 @@
 .ai-chat-page .aichat-step-back svg { transform: rotate(90deg); }
 .ai-chat-page .aichat-depth-chosen {
   align-self: flex-start;
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   font-weight: 600;
   color: var(--accent);
   background: var(--accent-tint);
   border-radius: 999px;
-  padding: 4px 11px;
-  margin: -2px 0 6px;
+  padding: 3.2px 8.8px;
+  margin: -1.6px 0 4.8px;
 }
-.ai-chat-page .aichat-depth { padding: 6px 2px 0; }
+.ai-chat-page .aichat-depth { padding: 4.8px 1.6px 0; }
 .ai-chat-page .aichat-depth-slider {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
-  height: 6px;
+  height: 4.8px;
   border-radius: 999px;
   background: linear-gradient(
     to right,
@@ -1447,36 +1447,36 @@
 .ai-chat-page .aichat-depth-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 14.4px;
+  height: 14.4px;
   border-radius: 50%;
   background: var(--accent);
-  border: 2px solid var(--bg-card);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  border: 1.6px solid var(--bg-card);
+  box-shadow: 0 1px 3.2px rgba(0, 0, 0, 0.25);
   cursor: pointer;
 }
 .ai-chat-page .aichat-depth-slider::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  width: 14.4px;
+  height: 14.4px;
   border-radius: 50%;
   background: var(--accent);
-  border: 2px solid var(--bg-card);
+  border: 1.6px solid var(--bg-card);
   cursor: pointer;
 }
 .ai-chat-page .aichat-depth-slider::-moz-range-track { background: transparent; }
 .ai-chat-page .aichat-depth-ticks {
   display: flex;
   justify-content: space-between;
-  margin-top: 9px;
+  margin-top: 7.2px;
 }
 .ai-chat-page .aichat-depth-tick {
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   font-weight: 600;
   color: var(--text-muted);
   background: none;
   border: none;
-  padding: 2px;
+  padding: 1.6px;
   cursor: pointer;
   transition: color 120ms;
 }
@@ -1485,25 +1485,25 @@
 .ai-chat-page .aichat-depth-tick:hover { color: var(--text-primary); }
 .ai-chat-page .aichat-depth-tick.is-active { color: var(--accent); }
 .ai-chat-page .aichat-depth-desc {
-  margin-top: 11px;
-  font-size: 0.9rem;
+  margin-top: 8.8px;
+  font-size: 0.72rem;
   line-height: 1.5;
   color: var(--text-secondary);
 }
 .ai-chat-page .aichat-depth-go {
-  margin-top: 16px;
+  margin-top: 12.8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6.4px;
   font: inherit;
-  font-size: 0.92rem;
+  font-size: 0.736rem;
   font-weight: 600;
   color: var(--text-on-accent);
   background: var(--accent);
   border: none;
-  border-radius: 11px;
-  padding: 12px 16px;
+  border-radius: 8.8px;
+  padding: 9.6px 12.8px;
   cursor: pointer;
   transition: background 150ms;
 }
@@ -1513,7 +1513,7 @@
 /* ── Sidebar file card: clickable + selection border ────────────────────── */
 .ai-chat-page .aichat-rail-file { cursor: pointer; }
 .ai-chat-page .aichat-rail-file.is-selected {
-  box-shadow: 0 0 0 2px var(--accent), var(--shadow-card);
+  box-shadow: 0 0 0 1.6px var(--accent), var(--shadow-card);
 }
 
 /* ── File "Properties" modal (from the file card's right-click menu) ─────── */
@@ -1524,17 +1524,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 19.2px;
   background: color-mix(in srgb, var(--overlay-scrim) 60%, transparent);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(2.4px);
+  -webkit-backdrop-filter: blur(2.4px);
   animation: aichat-drop-in 120ms ease-out;
 }
 .ai-chat-page .aichat-props-card {
   width: 100%;
-  max-width: 340px;
-  padding: 16px 18px 18px;
-  border-radius: 14px;
+  max-width: 272px;
+  padding: 12.8px 14.4px 14.4px;
+  border-radius: 11.2px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-elev);
@@ -1545,19 +1545,19 @@
   align-items: center;
   justify-content: space-between;
   font-family: var(--font-display);
-  font-size: 1.02rem;
+  font-size: 0.816rem;
   font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: 14px;
+  margin-bottom: 11.2px;
 }
 .ai-chat-page .aichat-props-x {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 20.8px;
+  height: 20.8px;
   border: none;
-  border-radius: 7px;
+  border-radius: 5.6px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -1566,23 +1566,23 @@
 .ai-chat-page .aichat-props-x:hover { background: var(--bg-elevated); color: var(--text-primary); }
 .ai-chat-page .aichat-props-thumb {
   width: 100%;
-  height: 120px;
-  border-radius: 10px;
+  height: 96px;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 14px;
+  margin-bottom: 11.2px;
 }
 .ai-chat-page .aichat-props-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .ai-chat-page .aichat-props-thumb .project-files-icon { width: 46%; height: 46%; color: var(--accent); }
-.ai-chat-page .aichat-props-list { display: flex; flex-direction: column; gap: 10px; margin: 0; }
-.ai-chat-page .aichat-props-list > div { display: flex; gap: 12px; }
+.ai-chat-page .aichat-props-list { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.ai-chat-page .aichat-props-list > div { display: flex; gap: 9.6px; }
 .ai-chat-page .aichat-props-list dt {
-  flex: 0 0 70px;
-  font-size: 0.78rem;
+  flex: 0 0 56px;
+  font-size: 0.624rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1593,7 +1593,7 @@
   margin: 0;
   min-width: 0;
   flex: 1 1 auto;
-  font-size: 0.86rem;
+  font-size: 0.688rem;
   color: var(--text-primary);
   word-break: break-word;
 }

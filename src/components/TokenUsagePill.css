@@ -1,11 +1,11 @@
 /* Session-total token-usage pill (shown near a composer when enabled). */
 .token-pill {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 9px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2.4px 7.2px; border-radius: 999px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-page) 60%, transparent);
   color: var(--text-muted);
-  font-size: 0.72rem; font-weight: 600; line-height: 1;
+  font-size: 0.576rem; font-weight: 600; line-height: 1;
   white-space: nowrap;
 }
 .token-pill svg { opacity: 0.7; }

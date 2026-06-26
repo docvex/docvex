@@ -6,7 +6,7 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1rem;
 }
 @media (min-width: 1024px) { /* 1280px pre-scale */
   .account-page { width: 75%; }
@@ -15,8 +15,8 @@
 .account-header {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 0.5rem 0 0;
+  gap: 0.8rem;
+  padding: 0.4rem 0 0;
 }
 
 /* Positioning context for the activity-status dot on the header avatar.
@@ -29,8 +29,8 @@
 }
 
 .account-avatar {
-  width: 64px;
-  height: 64px;
+  width: 51.2px;
+  height: 51.2px;
   border-radius: 50%;
   object-fit: cover;
   background: var(--bg-elevated);
@@ -39,8 +39,8 @@
 /* Use the page background as the badge's ring so it cuts a clean visual
    hole into whatever surface sits behind the header avatar. */
 .account-avatar-wrap .status-badge {
-  bottom: 2px;
-  right: 2px;
+  bottom: 1.6px;
+  right: 1.6px;
   --status-ring: var(--bg-page);
 }
 
@@ -50,7 +50,7 @@
   justify-content: center;
   background: var(--accent);
   color: var(--text-on-accent);
-  font-size: 1.5rem;
+  font-size: 1.2rem;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -58,18 +58,18 @@
 .account-identity {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.2rem;
   min-width: 0;
 }
 
 .account-name-row {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.44rem;
   min-width: 0;
 }
 .account-name {
-  font-size: 1.25rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -80,15 +80,15 @@
 /* Subscription tier pill next to the name — matches the hub sidebar pill. */
 .account-tier-badge {
   flex-shrink: 0;
-  font-size: 9.5px;
+  font-size: 7.6px;
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--accent);
   background: var(--accent-tint);
   border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
-  border-radius: 6px;
-  padding: 1px 6px;
+  border-radius: 4.8px;
+  padding: 1px 4.8px;
 }
 
 /* Row holding the primary-provider badge + the always-visible Google pill.
@@ -98,15 +98,15 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.32rem;
 }
 
 .account-provider-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.28rem;
   align-self: flex-start;
-  font-size: 0.7rem;
+  font-size: 0.56rem;
   font-weight: 500;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -114,7 +114,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 0.2rem 0.6rem;
+  padding: 0.16rem 0.48rem;
 }
 
 /* The Google pill renders as a <button> instead of a <span> so its hover/
@@ -165,27 +165,27 @@
 .account-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1.25rem 1.5rem;
+  border-radius: 9.6px;
+  padding: 1rem 1.2rem;
 }
 
 .account-card-title {
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
-  margin: 0 0 1rem;
+  margin: 0 0 0.8rem;
 }
 
 /* Info grid: label column auto-sizes, value takes the rest */
 .account-info-grid {
   display: grid;
   grid-template-columns: max-content 1fr;
-  column-gap: 1.5rem;
-  row-gap: 0.65rem;
+  column-gap: 1.2rem;
+  row-gap: 0.52rem;
   margin: 0;
-  font-size: 0.875rem;
+  font-size: 0.7rem;
 }
 
 .account-info-grid dt {
@@ -202,17 +202,17 @@
 .account-userid-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
 .account-userid {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   color: var(--text-secondary);
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.15rem 0.4rem;
+  border-radius: 3.2px;
+  padding: 0.12rem 0.32rem;
 }
 
 .account-copy-btn {
@@ -221,10 +221,10 @@
   justify-content: center;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 3.2px;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 0.25rem;
+  padding: 0.2rem;
   transition: color 150ms, border-color 150ms, background 150ms;
 }
 
@@ -239,7 +239,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.6rem;
 }
 
 .account-plan-header .account-card-title {
@@ -247,7 +247,7 @@
 }
 
 .account-plan-badge {
-  font-size: 0.7rem;
+  font-size: 0.56rem;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -255,34 +255,34 @@
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: 999px;
-  padding: 0.2rem 0.65rem;
+  padding: 0.16rem 0.52rem;
 }
 
 .account-plan-features {
   list-style: none;
-  margin: 0 0 1rem;
+  margin: 0 0 0.8rem;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  font-size: 0.875rem;
+  gap: 0.32rem;
+  font-size: 0.7rem;
   color: var(--text-secondary);
 }
 
 .account-plan-features li::before {
   content: 'â€¢';
   color: var(--accent);
-  margin-right: 0.6rem;
+  margin-right: 0.48rem;
 }
 
 .account-upgrade-btn {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4.8px;
   color: var(--text-secondary);
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 500;
-  padding: 0.55rem 1rem;
+  padding: 0.44rem 0.8rem;
   cursor: not-allowed;
 }
 
@@ -320,8 +320,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.85rem 0;
+  gap: 0.8rem;
+  padding: 0.68rem 0;
   border-top: 1px solid var(--border);
 }
 
@@ -339,14 +339,14 @@
 }
 
 .account-danger-label {
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   font-weight: 500;
   color: var(--text-primary);
-  margin: 0 0 0.2rem;
+  margin: 0 0 0.16rem;
 }
 
 .account-danger-desc {
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   color: var(--text-muted);
   margin: 0;
   line-height: 1.4;
@@ -355,11 +355,11 @@
 .account-danger-btn {
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4.8px;
   color: var(--text-secondary);
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 500;
-  padding: 0.45rem 0.95rem;
+  padding: 0.36rem 0.76rem;
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
@@ -389,8 +389,8 @@
    level subtitle in other places, so the card visually reads as a
    sibling of the Account information grid above it. */
 .account-card-subtitle {
-  margin: -0.5rem 0 0.85rem;
-  font-size: 0.85rem;
+  margin: -0.4rem 0 0.68rem;
+  font-size: 0.68rem;
   color: var(--text-muted);
   line-height: 1.4;
 }
@@ -401,18 +401,18 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.24rem;
 }
 
 .account-status-row {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
+  gap: 0.68rem;
   width: 100%;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 0.6rem 0.8rem;
+  border-radius: 6.4px;
+  padding: 0.48rem 0.64rem;
   cursor: pointer;
   color: var(--text-primary);
   font-family: inherit;
@@ -430,14 +430,14 @@
 }
 
 .account-status-row:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  outline-offset: 2px;
+  outline: 1.6px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1.6px;
 }
 
 .account-status-dot {
   display: inline-block;
-  width: 14px;
-  height: 14px;
+  width: 11.2px;
+  height: 11.2px;
   border-radius: 50%;
   background: var(--status-color);
   flex-shrink: 0;
@@ -445,25 +445,25 @@
 
 .account-status-dot-offline {
   background: transparent;
-  box-shadow: inset 0 0 0 2px var(--status-color);
+  box-shadow: inset 0 0 0 1.6px var(--status-color);
 }
 
 .account-status-text {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.12rem;
   flex: 1;
   min-width: 0;
 }
 
 .account-status-label {
-  font-size: 0.95rem;
+  font-size: 0.76rem;
   font-weight: 500;
   line-height: 1.2;
 }
 
 .account-status-desc {
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   color: var(--text-muted);
   line-height: 1.4;
 }
@@ -479,13 +479,13 @@
    as the existing project-dashboard-error styling so the visual feels
    consistent across the app. */
 .account-status-error {
-  margin-top: 0.75rem;
-  padding: 0.55rem 0.8rem;
+  margin-top: 0.6rem;
+  padding: 0.44rem 0.64rem;
   background: color-mix(in srgb, var(--danger) 7%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-  border-radius: 7px;
+  border-radius: 5.6px;
   color: var(--danger-soft);
-  font-size: 0.85rem;
+  font-size: 0.68rem;
 }
 
 /* ─── Set / change password form ──────────────────────────────────── */
@@ -493,17 +493,17 @@
 .account-pw-form {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.68rem;
 }
 
 .account-pw-field {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.24rem;
 }
 
 .account-pw-label {
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -512,10 +512,10 @@
 .account-pw-input {
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.55rem 0.75rem;
+  border-radius: 6.4px;
+  padding: 0.44rem 0.6rem;
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   font-family: inherit;
   outline: none;
   transition: border-color 150ms, background 150ms;
@@ -542,8 +542,8 @@
 .account-pw-show {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  font-size: 0.82rem;
+  gap: 0.36rem;
+  font-size: 0.656rem;
   color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
@@ -556,12 +556,12 @@
 }
 
 .account-pw-error {
-  padding: 0.55rem 0.8rem;
+  padding: 0.44rem 0.64rem;
   background: color-mix(in srgb, var(--danger) 7%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-  border-radius: 7px;
+  border-radius: 5.6px;
   color: var(--danger-soft);
-  font-size: 0.85rem;
+  font-size: 0.68rem;
 }
 
 .account-pw-actions {
@@ -572,11 +572,11 @@
 .account-pw-submit {
   background: var(--accent);
   border: 1px solid var(--accent);
-  border-radius: 8px;
-  padding: 0.55rem 1.1rem;
+  border-radius: 6.4px;
+  padding: 0.44rem 0.88rem;
   color: var(--text-on-accent);
   font-family: inherit;
-  font-size: 0.88rem;
+  font-size: 0.704rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 150ms, border-color 150ms, opacity 150ms;

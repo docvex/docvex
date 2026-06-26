@@ -9,6 +9,6 @@
    bloom + a tighter core halo. */
 .ai-sphere {
   filter:
-    drop-shadow(0 0 2px rgba(120, 150, 255, 0.65))
-    drop-shadow(0 0 6px rgba(95, 120, 230, 0.40));
+    drop-shadow(0 0 1.6px rgba(120, 150, 255, 0.65))
+    drop-shadow(0 0 4.8px rgba(95, 120, 230, 0.40));
 }

@@ -4,21 +4,21 @@
      OWN bordered/rounded frame separate from the content frame beside it. */
   position: relative;
   z-index: 1;
-  flex: 0 0 var(--sidebar-width, 240px);
-  width: var(--sidebar-width, 240px);
+  flex: 0 0 var(--sidebar-width, 192px);
+  width: var(--sidebar-width, 192px);
   height: 100%;
   /* Same frosted-glass fill as the Files / Chat / AI footers (.fx-bottombar /
      .sv-footer / .dvx-composer) so the rail reads as the same surface. */
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 9.6px;
   box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 16px 12px;
+  gap: 6.4px;
+  padding: 12.8px 9.6px;
   box-sizing: border-box;
   overflow-y: auto;
   /* Own stacking context so the cursor-spotlight glow (::before, z 0) sits
@@ -37,7 +37,7 @@
   pointer-events: none;
   z-index: 0;
   background: radial-gradient(
-    220px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    176px circle at var(--spot-x, 50%) var(--spot-y, 50%),
     color-mix(in srgb, var(--accent) 8%, transparent) 0%,
     color-mix(in srgb, var(--accent) 3%, transparent) 38%,
     transparent 68%
@@ -60,7 +60,7 @@
   pointer-events: none;
   z-index: 2;
   background: radial-gradient(
-    200px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    160px circle at var(--spot-x, 50%) var(--spot-y, 50%),
     color-mix(in srgb, var(--accent) 75%, transparent) 0%,
     color-mix(in srgb, var(--accent) 22%, transparent) 34%,
     transparent 62%
@@ -92,7 +92,7 @@
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6.4px;
   /* Matches .project-picker-panel-header so the DOCVEX title and the
      "ALL PROJECTS" title sit on the same horizontal baseline when the
      panel is open â€” both header rows share the same inset from their
@@ -100,8 +100,8 @@
      Right-padding reserves a 38px column for the absolutely-positioned
      lock-btn (24px button + 14px from the right edge) so brand-left
      content can never overflow into where the lock visually sits. */
-  padding: 14px 38px 14px 18px;
-  height: 64px;
+  padding: 11.2px 30.4px 11.2px 14.4px;
+  height: 51.2px;
   /* Containing block for the absolutely-positioned .lock-btn below â€” by
      pulling the lock out of flex flow it becomes immune to any width
      fluctuation in .brand-left (NavLink .active toggles, version pill
@@ -114,7 +114,7 @@
 .brand-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 9.6px;
   min-width: 0;
 }
 
@@ -130,9 +130,9 @@
   /* Tiny padding so the click target extends slightly beyond the visual
      text — feels more forgiving without changing the layout (negative
      margin compensates so .sidebar-brand's overall geometry is unchanged). */
-  padding: 4px 6px;
-  margin: -4px -6px;
-  border-radius: 8px;
+  padding: 3.2px 4.8px;
+  margin: -3.2px -4.8px;
+  border-radius: 6.4px;
   transition: background 150ms;
 }
 
@@ -157,7 +157,7 @@
      mark below isn't clipped to the nav-icon column. The brand-row
      uses its own .brand-left flex container (gap: 12px) so the icon
      column width doesn't need to match the nav rows here. */
-  width: 36px;
+  width: 28.8px;
 }
 
 .brand-icon-img {
@@ -165,7 +165,7 @@
      the logo carries more visual weight as the identity element of the
      sidebar. Locked at one size so it doesn't dance on every hover/lock
      toggle. */
-  width: 36px;
+  width: 28.8px;
   aspect-ratio: 1/1;
   /* `contain` so the image isn't cropped if it has padding or non-square
      subject; the brand mark stays centered in the sidebar's icon slot. */
@@ -177,13 +177,13 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 2px;
+  gap: 1.6px;
   min-width: 0;
   line-height: 1.15;
 }
 
 .brand-name {
-  font-size: 1.05rem;
+  font-size: 0.84rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--text-primary);
@@ -196,8 +196,8 @@
 .brand-version {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.72rem;
+  gap: 4.8px;
+  font-size: 0.576rem;
   font-weight: 500;
   letter-spacing: 0.04em;
   color: var(--text-muted);
@@ -212,7 +212,7 @@
 /* Same orange treatment as the Updates nav row's "Available" pill so the
    two badges read as the same status. */
 .brand-version-badge {
-  font-size: 0.6rem;
+  font-size: 0.48rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -220,7 +220,7 @@
   background: color-mix(in srgb, var(--warning-soft) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--warning-soft) 35%, transparent);
   border-radius: 999px;
-  padding: 0.1rem 0.45rem;
+  padding: 0.08rem 0.36rem;
   white-space: nowrap;
 }
 
@@ -234,7 +234,7 @@
 .lock-btn {
   /* Lives in the sidebar footer now (was absolutely positioned in the brand
      row). Left-aligned so it lines up with the nav icons' column. */
-  margin-left: 6px;
+  margin-left: 4.8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -242,13 +242,13 @@
   border: none;
   color: var(--border-strong);
   cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
+  padding: 3.2px;
+  border-radius: 3.2px;
   /* Pinned box so the icon-path swap between open/closed lock SVGs
      can't cause sub-pixel intrinsic-size flicker (16px icon + 4px
      padding Ã— 2). */
-  width: 24px;
-  height: 24px;
+  width: 19.2px;
+  height: 19.2px;
   box-sizing: border-box;
   transition: color 150ms, background 150ms, opacity 120ms ease;
 }
@@ -299,7 +299,7 @@
   display: flex;
   flex-direction: column;
   /* Space between category groups. */
-  gap: 18px;
+  gap: 14.4px;
   /* Fill the rail's height so .sidebar-cat--end can push to the bottom. */
   flex: 1 1 auto;
   min-height: 0;
@@ -321,21 +321,21 @@
 .sidebar-cat {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3.2px;
 }
 /* Category title doubles as a section divider: the uppercase label followed by
    a hairline rule that fills the rest of the row. */
 .sidebar-cat-label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.62rem;
+  gap: 6.4px;
+  font-size: 0.496rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
   white-space: nowrap;
-  padding: 0 8px 6px;
+  padding: 0 6.4px 4.8px;
   /* Read as a quiet section marker, not a clickable tab. */
   user-select: none;
 }
@@ -348,7 +348,7 @@
 .sidebar-cat-items {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1.6px;
 }
 
 /* Chromium / WebKit scrollbar — 8px wide rail with a translucent
@@ -361,7 +361,7 @@
    `:double-button`, etc.) so platform-default arrows from any
    combination of pseudo-state never sneak back in. */
 .sidebar-nav::-webkit-scrollbar {
-  width: 8px;
+  width: 6.4px;
 }
 
 .sidebar-nav::-webkit-scrollbar-track,
@@ -371,7 +371,7 @@
 
 .sidebar-nav::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--scrollbar-thumb) 45%, transparent);
-  border-radius: 4px;
+  border-radius: 3.2px;
 }
 
 /* Zero out every arrow-button variant. Some platforms paint the top
@@ -403,8 +403,8 @@
 .sidebar-section-header {
   /* 14px top + ~16px text + 4px bottom = ~34px. 40px gives the line a few
      px of breathing room so descenders don't get clipped at the bottom. */
-  max-height: 40px;
-  padding: 14px 20px 4px !important;
+  max-height: 32px;
+  padding: 11.2px 16px 3.2px !important;
   overflow: hidden;
   transition: max-height 250ms ease, padding 250ms ease;
 }
@@ -424,7 +424,7 @@
 }
 
 .sidebar-section-label {
-  font-size: 0.65rem;
+  font-size: 0.52rem;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -438,7 +438,7 @@
   width: 100%;
   text-align: left;
   font-family: inherit;
-  font-size: 0.875rem;
+  font-size: 0.7rem;
   font-weight: 500;
 }
 
@@ -448,10 +448,10 @@
 .sidebar-placeholder {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 9px 10px;
-  margin: 0 8px;
-  font-size: 0.825rem;
+  gap: 9.6px;
+  padding: 7.2px 8px;
+  margin: 0 6.4px;
+  font-size: 0.66rem;
   font-style: italic;
   color: var(--border-strong);
 }
@@ -459,20 +459,20 @@
 .sidebar-placeholder-text {
   /* Inherits .label's fade-out via opacity. font-size override since the
      placeholder reads slightly smaller than nav items. */
-  font-size: 0.8rem;
+  font-size: 0.64rem;
 }
 
 /* Shared styles for NavLink items — full-width rows in the vertical rail. */
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 6.4px 8px;
+  border-radius: 6.4px;
   color: var(--text-secondary);
   text-decoration: none;
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 500;
   white-space: nowrap;
   background: none;
@@ -484,7 +484,7 @@
 }
 
 /* Rail icons (the JSX icons are authored at 20px). */
-.sidebar .icon svg { width: 18px; height: 18px; }
+.sidebar .icon svg { width: 14.4px; height: 14.4px; }
 
 /* Hover/active fill is a radial accent gradient that brightens at the pointer
    (--item-spot-x/y, set per-button in Sidebar.jsx) so the selection + hover
@@ -492,7 +492,7 @@
    glow behind (.sidebar::before) still shows through. */
 .nav-item:hover {
   background: radial-gradient(
-    140px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
     color-mix(in srgb, var(--accent) 26%, transparent) 0%,
     color-mix(in srgb, var(--accent) 12%, transparent) 55%,
     color-mix(in srgb, var(--accent) 7%, transparent) 100%
@@ -502,7 +502,7 @@
 
 .nav-item.active {
   background: radial-gradient(
-    140px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
     color-mix(in srgb, var(--accent) 34%, transparent) 0%,
     color-mix(in srgb, var(--accent) 18%, transparent) 55%,
     color-mix(in srgb, var(--accent) 12%, transparent) 100%
@@ -516,7 +516,7 @@
 .doc-tab-row { position: relative; }
 .doc-tab-main {
   /* Reserve room on the right so a long filename never slides under the × */
-  padding-right: 30px;
+  padding-right: 24px;
   min-width: 0;
 }
 .doc-tab-name {
@@ -527,16 +527,16 @@
 }
 .doc-tab-close {
   position: absolute;
-  right: 7px;
+  right: 5.6px;
   top: 50%;
   transform: translateY(-50%);
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: none;
-  border-radius: 5px;
+  border-radius: 4px;
   background: none;
   color: var(--text-muted);
   cursor: pointer;
@@ -555,7 +555,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
+  width: 19.2px;
   flex-shrink: 0;
   position: relative;
 }
@@ -564,13 +564,13 @@
    a "New" pill on the label row when the sidebar is expanded. */
 .nav-badge {
   position: absolute;
-  top: -2px;
-  right: -2px;
-  width: 8px;
-  height: 8px;
+  top: -1.6px;
+  right: -1.6px;
+  width: 6.4px;
+  height: 6.4px;
   border-radius: 50%;
   background: var(--warning-soft);
-  border: 2px solid var(--bg-page);
+  border: 1.6px solid var(--bg-page);
   box-sizing: content-box;
 }
 
@@ -581,13 +581,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6.4px;
   flex: 1;
   min-width: 0;
 }
 
 .nav-badge-text {
-  font-size: 0.65rem;
+  font-size: 0.52rem;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -595,7 +595,7 @@
   background: color-mix(in srgb, var(--warning-soft) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--warning-soft) 35%, transparent);
   border-radius: 999px;
-  padding: 0.1rem 0.5rem;
+  padding: 0.08rem 0.4rem;
 }
 
 /* Footer — pinned to the bottom of the vertical rail (utility cluster). */
@@ -603,11 +603,11 @@
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4.8px;
   flex: 0 0 auto;
   /* Sit a touch above the rail's bottom padding, separated from the nav by a
      hairline so the account row reads as its own footer band. */
-  padding-top: 10px;
+  padding-top: 8px;
   border-top: 1px solid var(--border);
 }
 
@@ -616,17 +616,17 @@
 .sidebar-account {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3.2px;
 }
 .sidebar-account-main {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
+  gap: 8px;
+  padding: 4.8px 6.4px;
   border: none;
-  border-radius: 9px;
+  border-radius: 7.2px;
   background: none;
   cursor: pointer;
   font-family: inherit;
@@ -644,7 +644,7 @@
   gap: 1px;
 }
 .sidebar-account-name {
-  font-size: 0.82rem;
+  font-size: 0.656rem;
   font-weight: 600;
   color: var(--text-primary);
   overflow: hidden;
@@ -652,7 +652,7 @@
   white-space: nowrap;
 }
 .sidebar-account-email {
-  font-size: 0.7rem;
+  font-size: 0.56rem;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -663,10 +663,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6.4px;
   background: none;
   color: var(--text-muted);
   cursor: pointer;
@@ -676,7 +676,7 @@
   background: var(--danger-soft);
   color: var(--danger-text);
 }
-.sidebar-account-signout svg { width: 17px; height: 17px; }
+.sidebar-account-signout svg { width: 13.6px; height: 13.6px; }
 
 /* "Report a problem" â€” sits BELOW the Account row in the footer.
    Intentionally low-key: the button is a fallback affordance, not a
@@ -687,10 +687,10 @@
    10px`; we override the vertical padding here. While capturing, the
    button is disabled (greyed via the :disabled pseudo on .nav-item). */
 .report-problem-btn {
-  margin-top: 2px;
-  padding-top: 4px;
-  padding-bottom: 4px;
-  font-size: 0.75rem;
+  margin-top: 1.6px;
+  padding-top: 3.2px;
+  padding-bottom: 3.2px;
+  font-size: 0.6rem;
   font-weight: 400;
   color: var(--text-muted);
   text-transform: lowercase;
@@ -741,7 +741,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 3px;
+  gap: 2.4px;
   min-width: 0; /* lets the name actually shrink for ellipsis */
   flex: 1;
 }
@@ -755,7 +755,7 @@
 }
 
 .account-btn-tier {
-  font-size: 0.6rem;
+  font-size: 0.48rem;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -763,7 +763,7 @@
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: 999px;
-  padding: 0.1rem 0.45rem;
+  padding: 0.08rem 0.36rem;
   flex-shrink: 0;
   line-height: 1.2;
 }
@@ -777,8 +777,8 @@
    previously they ran at 200ms, which finished 50ms ahead of the sidebar
    and made the shrink read as out-of-sync / abrupt. */
 .sidebar-avatar {
-  width: 32px;
-  height: 32px;
+  width: 25.6px;
+  height: 25.6px;
   border-radius: 50%;
   object-fit: cover;
   display: flex;
@@ -810,14 +810,14 @@
 }
 
 .account-btn .icon {
-  width: 32px;
+  width: 25.6px;
   transition: width 250ms ease;
 }
 
 .sidebar-avatar-fallback {
   background: var(--accent);
   color: var(--text-on-accent);
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   font-weight: 600;
   text-transform: uppercase;
   line-height: 1;
@@ -841,9 +841,9 @@
 
 /* Loading spinner used in ProtectedRoute */
 .spinner {
-  width: 28px;
-  height: 28px;
-  border: 2px solid var(--border);
+  width: 22.4px;
+  height: 22.4px;
+  border: 1.6px solid var(--border);
   border-top-color: var(--text-secondary);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
@@ -869,14 +869,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 9.6px;
   /* Match the .nav-item geometry: width:100% fills the parent <li>'s
      content box, no horizontal margin. The <li>'s 8px padding-left/right
      provides the inset from the sidebar's outer edges, identical to the
      Activity / Projects / Notifications rows. */
   width: 100%;
-  margin: 2px 0;
-  padding: 9px 12px;
+  margin: 1.6px 0;
+  padding: 7.2px 9.6px;
   /* The visible surface is painted by the ::before pseudo â€” NOT by the
      button itself â€” so a single rect can MORPH between two shapes:
        â€¢ Maximized: ::before fills the button (full var(--border) rect).
@@ -888,10 +888,10 @@
      position:relative makes this the containing block for the ::before. */
   background: transparent;
   border: none;
-  border-radius: 7px;
+  border-radius: 5.6px;
   color: var(--text-secondary);
   position: relative;
-  font-size: 0.875rem;
+  font-size: 0.7rem;
   font-weight: 500;
   font-family: inherit;
   /* Text centered â€” same value used inside justify-content above so the
@@ -917,7 +917,7 @@
   bottom: 0;
   left: 0;
   background: var(--border);
-  border-radius: 7px;
+  border-radius: 5.6px;
   /* Sits behind the label (which is given an explicit z-index below) so
      text/spinner paint on top of the surface. */
   z-index: 0;
@@ -995,8 +995,8 @@
    edge. Right corners square off so the trigger merges into the panel
    (also var(--bg-elevated)) sliding out beside it. */
 .sidebar.picker-open .project-picker-trigger {
-  width: calc(100% + 8px);
-  margin: 2px 0;
+  width: calc(100% + 6.4px);
+  margin: 1.6px 0;
   /* Surface treatment (color + corner shape) lives on the ::before so
      the open beat shares the same painted layer as the morph. Text
      color flips here on the button itself since it's not a surface
@@ -1010,7 +1010,7 @@
   background: var(--accent-hover);
   /* Right corners square off so the trigger merges into the picker
      panel sliding out beside it. */
-  border-radius: 7px 0 0 7px;
+  border-radius: 5.6px 0 0 5.6px;
   /* Cancel the :hover darkening filter â€” picker-open is "pressed/sustained
      hover", and we want the solid accent-hover color, not a darkened
      version of it. Cascade applies because this rule sits later in source
@@ -1066,8 +1066,8 @@
 .sidebar:not(:hover):not(.locked):not(.picker-open) .project-picker-trigger::before {
   top: calc(50% - 1px);
   bottom: calc(50% - 1px);
-  left: 10px;
-  right: 10px;
+  left: 8px;
+  right: 8px;
   border-radius: 1px;
 }
 
@@ -1083,9 +1083,9 @@
    Ink theme would be near-invisible against that). */
 .project-picker-trigger-spinner {
   display: inline-block;
-  width: 16px;
-  height: 16px;
-  border: 2px solid color-mix(in srgb, var(--text-on-accent) 30%, transparent);
+  width: 12.8px;
+  height: 12.8px;
+  border: 1.6px solid color-mix(in srgb, var(--text-on-accent) 30%, transparent);
   border-top-color: var(--text-on-accent);
   border-radius: 50%;
   animation: project-picker-trigger-spin 0.7s linear infinite;
@@ -1152,9 +1152,9 @@
 .project-usage-li {
   /* Override .sidebar-nav > li's 2px 8px so we can paint the row edge
      to edge with the trigger above (which has its own 8px-padding li). */
-  padding: 0 8px;
-  margin-top: 6px;
-  margin-bottom: 4px;
+  padding: 0 6.4px;
+  margin-top: 4.8px;
+  margin-bottom: 3.2px;
 }
 
 .project-usage {
@@ -1163,10 +1163,10 @@
   /* Minimized: tight 2px gap stacks the two bars on top of each other.
      Maximized: bumped to 10px via .is-expanded below so each labeled row
      has its own breathing room. */
-  gap: 2px;
+  gap: 1.6px;
   width: 100%;
-  padding: 6px 10px;
-  border-radius: 7px;
+  padding: 4.8px 8px;
+  border-radius: 5.6px;
   color: var(--text-muted);
   text-decoration: none;
   background: transparent;
@@ -1185,8 +1185,8 @@
 }
 
 .project-usage.is-expanded {
-  gap: 10px;
-  padding: 8px 10px 10px;
+  gap: 8px;
+  padding: 6.4px 8px 8px;
 }
 
 .project-usage:hover {
@@ -1210,7 +1210,7 @@
 }
 
 .project-usage.is-expanded .project-usage-section {
-  gap: 5px;
+  gap: 4px;
 }
 
 /* Label line above each bar — title on the left, percentage on the
@@ -1231,8 +1231,8 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
-  font-size: 0.7rem;
+  gap: 6.4px;
+  font-size: 0.56rem;
   font-weight: 500;
   letter-spacing: 0.01em;
   line-height: 1;
@@ -1265,7 +1265,7 @@
 .project-usage.is-expanded .project-usage-label-row {
   /* 1rem of room for the 0.7rem text with a little headroom for the
      line's gap above the bar (.project-usage-section's column gap). */
-  max-height: 1rem;
+  max-height: 0.8rem;
   opacity: 1;
 }
 
@@ -1295,7 +1295,7 @@
   position: relative;
   display: block;
   width: 100%;
-  height: 6px;
+  height: 4.8px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   overflow: hidden;
@@ -1303,7 +1303,7 @@
 }
 
 .project-usage.is-expanded .project-usage-bar {
-  height: 10px;
+  height: 8px;
 }
 
 /* Fill — width is set inline from the JSX (percent). The memory bar
@@ -1396,7 +1396,7 @@
 .locked-projects-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3.2px;
   cursor: not-allowed;
   /* Match the indentation `.sidebar-nav > li` applies to every other
      nav row. Re-declared here because this <li> sits inside a
@@ -1408,7 +1408,7 @@
      Without this, the locked buttons rendered 8px closer to the
      sidebar's left edge than the normal nav items they're standing in
      for. */
-  padding: 2px 8px;
+  padding: 1.6px 6.4px;
 }
 
 /* Inline "Select a project to use these features" hint — sits in the
@@ -1428,13 +1428,13 @@
   display: none;
   /* Centered on its own row inside the column-flex section. */
   align-self: stretch;
-  margin: 8px 4px;
-  padding: 6px 10px;
+  margin: 6.4px 3.2px;
+  padding: 4.8px 8px;
   border-radius: 999px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   color: var(--text-secondary);
-  font-size: 0.72rem;
+  font-size: 0.576rem;
   font-weight: 500;
   font-family: inherit;
   line-height: 1.3;
@@ -1444,7 +1444,7 @@
   white-space: normal;
   /* Matches .tooltip's float-pill shadow recipe so the hint reads as
      the same kind of affordance, even though it's in-flow. */
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 3.2px 9.6px rgba(0, 0, 0, 0.25);
   /* Don't catch the cursor — the `cursor: not-allowed` from the
      parent .locked-projects-section should continue to show through,
      and a click on the pill shouldn't behave any differently than a
@@ -1458,7 +1458,7 @@
    at which point we drop to a softer 12px radius that reads correctly
    as a rounded card rather than a deformed pill. */
 .locked-projects-hint.is-multiline {
-  border-radius: 12px;
+  border-radius: 9.6px;
 }
 
 /* Reveal the pill only when the sidebar is in an expanded state — same
@@ -1471,7 +1471,7 @@
 }
 
 @keyframes locked-projects-hint-in {
-  from { opacity: 0; transform: translateY(-2px); }
+  from { opacity: 0; transform: translateY(-1.6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 

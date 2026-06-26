@@ -878,6 +878,8 @@ export default function FilesWorkspace({
   folders,           // folder items (drafts only; includes the Recycle bin entry)
   items,             // file items
   loading,
+  renameTargetPath,       // path of a just-created file to auto-select + rename
+  onRenameTargetConsumed, // () => void — clear the request once it's applied
   // actions
   onOpen, onOpenContent, onRename, onDelete, onRestore, onNewFolder, onNewFile, onCreateTypedFile, onUpload, onUploadFolder, onOpenLocation,
   onEmptyBin,
@@ -943,6 +945,24 @@ export default function FilesWorkspace({
   const requestNewFile = () => { setRenamingId(null); setCreatingFolder(false); setCreatingFile(true); };
   const commitRename = (item, name) => { setRenamingId(null); onRename?.(item, name); };
   const cancelRename = () => setRenamingId(null);
+
+  // Parent created a file and wants it renamed (not opened): once the new file
+  // appears in the listing, select it and drop straight into rename mode — the
+  // inline input auto-focuses and selects the name text. Re-runs as `items`
+  // updates so it catches the file after the post-write refetch lands.
+  useEffect(() => {
+    if (!renameTargetPath) return;
+    const norm = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    const target = norm(renameTargetPath);
+    const match = (items || []).find((it) => it?._raw?.path && norm(it._raw.path) === target);
+    if (!match) return; // not listed yet — this effect re-runs when items change
+    setCreatingFolder(false);
+    setCreatingFile(false);
+    setMultiSel(new Set([match.id]));
+    setAnchorId(match.id);
+    setRenamingId(match.id);
+    onRenameTargetConsumed?.();
+  }, [renameTargetPath, items]); // eslint-disable-line react-hooks/exhaustive-deps
   const commitNewFolder = (name) => { setCreatingFolder(false); onNewFolder?.(name); };
   const cancelNewFolder = () => setCreatingFolder(false);
   const commitNewFile = (name) => { setCreatingFile(false); onNewFile?.(name); };
@@ -1299,16 +1319,26 @@ export default function FilesWorkspace({
   const cutItem = (item) => { if (!menuEditable || !onMoveItems) return; const picked = itemsForContext(item); if (picked.length) setClipboard({ mode: 'cut', items: picked }); };
   const canPaste = !!clipboard?.items?.length && (clipboard.mode === 'cut' ? !!onPasteCut : !!onPasteItems);
 
-  // Right-click on empty canvas → a morph menu with Paste / Import / New folder /
-  // Open directory (drafts only).
+  // Right-click on empty canvas → a morph menu with Paste / Import / Create /
+  // Open directory (drafts only). "Import" is a single action (import files);
+  // "Create" expands an inline submenu mirroring the footer Create button
+  // (New folder + the Build-with-AI document types).
   const bgMorph = useMorphPill({
     hoverContent: '',
     menuItems: [
       menuEditable && canPaste && { key: 'paste', label: clipboard?.items?.length > 1 ? `Paste ${clipboard.items.length} items` : 'Paste', onClick: () => pasteHere() },
-      menuEditable && { key: 'import', label: 'Import files', onClick: () => onUpload?.() },
-      menuEditable && { key: 'importfolder', label: 'Import folder', onClick: () => onUploadFolder?.() },
-      menuEditable && { key: 'newfolder', label: 'Make new folder', onClick: () => requestNewFolder() },
-      menuEditable && onNewFile && { key: 'newfile', label: 'New file', onClick: () => requestNewFile() },
+      menuEditable && { key: 'import', label: 'Import', onClick: () => onUpload?.() },
+      menuEditable && {
+        key: 'create',
+        label: 'Create',
+        submenu: [
+          { key: 'newfolder', label: <><Icon name="folder-plus" className="fx-icon" /> New folder</>, onClick: () => requestNewFolder() },
+          onCreateTypedFile && { key: 'aihead', heading: 'Build with AI' },
+          onCreateTypedFile && { key: 'docx', label: <><Icon name="file-doc" className="fx-icon fx-create-ico fx-create-ico-doc" /> Word</>, onClick: () => onCreateTypedFile('docx') },
+          onCreateTypedFile && { key: 'pptx', label: <><Icon name="file-slides" className="fx-icon fx-create-ico fx-create-ico-ppt" /> PowerPoint</>, onClick: () => onCreateTypedFile('pptx') },
+          onCreateTypedFile && { key: 'xlsx', label: <><Icon name="file-sheet" className="fx-icon fx-create-ico fx-create-ico-xls" /> Excel</>, onClick: () => onCreateTypedFile('xlsx') },
+        ].filter(Boolean),
+      },
       onOpenDirectory && { key: 'opendir', label: 'Open directory', onClick: () => onOpenDirectory() },
     ],
   });

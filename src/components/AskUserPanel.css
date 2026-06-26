@@ -2,20 +2,20 @@
    chat. Uses only semantic tokens so it matches each surface + both themes. */
 .ask-panel {
   position: relative;
-  display: flex; flex-direction: column; gap: 12px;
-  margin: 0 0 10px;
-  padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 9.6px;
+  margin: 0 0 8px;
+  padding: 9.6px 11.2px;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 11.2px;
   background: color-mix(in srgb, var(--accent-tint) 60%, var(--bg-card));
   box-shadow: var(--shadow-card);
 }
 .ask-panel.is-locked { opacity: 0.92; background: var(--bg-card); }
 
-.ask-q { display: flex; flex-direction: column; gap: 8px; }
-.ask-q-prompt { margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--text-primary); line-height: 1.35; }
+.ask-q { display: flex; flex-direction: column; gap: 6.4px; }
+.ask-q-prompt { margin: 0; font-size: 0.72rem; font-weight: 600; color: var(--text-primary); line-height: 1.35; }
 
-.ask-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.ask-opts { display: flex; flex-wrap: wrap; gap: 6.4px; }
 /* single_select + multi_select stack their options vertically (full-width rows);
    confirm keeps its Yes/No buttons side by side. */
 .ask-opts--stack { flex-direction: column; flex-wrap: nowrap; align-items: flex-start; }
@@ -23,15 +23,15 @@
 /* Free-text questions reuse the host composer's message box — this is the hint
    shown in place of an in-panel textarea. */
 .ask-free-hint {
-  margin: 0; font-size: 0.82rem; color: var(--text-muted); font-style: italic;
+  margin: 0; font-size: 0.656rem; color: var(--text-muted); font-style: italic;
 }
 
 .ask-opt {
   appearance: none; cursor: pointer; text-align: left;
-  display: inline-flex; flex-direction: column; gap: 3px;
-  padding: 12px 18px; border-radius: 12px;
+  display: inline-flex; flex-direction: column; gap: 2.4px;
+  padding: 9.6px 14.4px; border-radius: 9.6px;
   border: 1px solid var(--border); background: var(--bg-page);
-  color: var(--text-primary); font: inherit; font-size: 0.95rem; font-weight: 600;
+  color: var(--text-primary); font: inherit; font-size: 0.76rem; font-weight: 600;
   transition: border-color 120ms, background 120ms, color 120ms, box-shadow 120ms;
 }
 .ask-opt:hover:not(:disabled) { border-color: var(--border-strong); }
@@ -42,19 +42,19 @@
 }
 .ask-opt:disabled { cursor: default; }
 .ask-opt-label { line-height: 1.2; }
-.ask-opt-desc { font-size: 0.8rem; font-weight: 500; color: var(--text-muted); }
+.ask-opt-desc { font-size: 0.64rem; font-weight: 500; color: var(--text-muted); }
 
 /* multi_select checkbox marker */
-.ask-opt.is-check { flex-direction: row; align-items: center; gap: 8px; }
+.ask-opt.is-check { flex-direction: row; align-items: center; gap: 6.4px; }
 .ask-check-box {
-  width: 15px; height: 15px; border-radius: 4px; flex: none;
-  border: 1.5px solid var(--border-strong); background: var(--bg-page);
+  width: 12px; height: 12px; border-radius: 3.2px; flex: none;
+  border: 1.2px solid var(--border-strong); background: var(--bg-page);
   position: relative; transition: background 120ms, border-color 120ms;
 }
 .ask-opt.is-check.is-on .ask-check-box { background: var(--accent); border-color: var(--accent); }
 .ask-opt.is-check.is-on .ask-check-box::after {
-  content: ''; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px;
-  border: solid var(--text-on-accent); border-width: 0 2px 2px 0; transform: rotate(45deg);
+  content: ''; position: absolute; left: 3.2px; top: 1px; width: 3.2px; height: 6.4px;
+  border: solid var(--text-on-accent); border-width: 0 1.6px 1.6px 0; transform: rotate(45deg);
 }
 
 /* confirm buttons */
@@ -64,28 +64,28 @@
 
 .ask-free {
   appearance: none; resize: vertical; width: 100%;
-  font: inherit; font-size: 0.86rem; line-height: 1.4; color: var(--text-primary);
-  padding: 8px 10px; border-radius: 10px;
+  font: inherit; font-size: 0.688rem; line-height: 1.4; color: var(--text-primary);
+  padding: 6.4px 8px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--bg-input, var(--bg-page));
 }
-.ask-free:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+.ask-free:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2.4px var(--accent-tint); }
 
 /* Actions (Skip / Submit) pin to the panel's bottom-right corner instead of
    taking their own row — the stacked, left-aligned options leave the right side
    free. */
 .ask-actions {
   position: absolute; bottom: 0; right: 0; margin: 0;
-  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  display: flex; align-items: center; justify-content: flex-end; gap: 6.4px;
 }
 .ask-skip {
-  appearance: none; cursor: pointer; font: inherit; font-size: 0.88rem; font-weight: 600;
-  padding: 9px 16px; border-radius: 10px; border: 1px solid transparent;
+  appearance: none; cursor: pointer; font: inherit; font-size: 0.704rem; font-weight: 600;
+  padding: 7.2px 12.8px; border-radius: 8px; border: 1px solid transparent;
   background: transparent; color: var(--text-muted);
 }
 .ask-skip:hover { color: var(--text-secondary); }
 .ask-submit {
-  appearance: none; cursor: pointer; font: inherit; font-size: 0.9rem; font-weight: 700;
-  padding: 9px 20px; border-radius: 10px; border: none;
+  appearance: none; cursor: pointer; font: inherit; font-size: 0.72rem; font-weight: 700;
+  padding: 7.2px 16px; border-radius: 8px; border: none;
   background: var(--accent); color: var(--text-on-accent);
   transition: background 120ms, opacity 120ms;
 }

@@ -8,8 +8,8 @@
   /* Column of rounded "cards" (like the main app's surfaces): the document card
      on top, the Project-files card below, with a gutter showing the dot grid. */
   flex-direction: column;
-  gap: 10px;
-  padding: 10px;
+  gap: 8px;
+  padding: 8px;
   box-sizing: border-box;
   background: var(--bg-page);
   color: var(--text-primary);
@@ -18,8 +18,8 @@
 /* Main row: the document card + the AI-advisor card, side by side. */
 /* Body row: the full-height "Recently open" column on the left + the right
    column (Documents/Multitool on top, Files browser below). */
-.dv-body-row { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; gap: 10px; }
-.dv-right-col { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.dv-body-row { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; gap: 8px; }
+.dv-right-col { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .dv-main-row { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; }
 
 /* Document card — file tabs (header) + the active file's body. */
@@ -35,7 +35,7 @@
   /* Frameless: no visible outline around the document section (the toolbar pins
      to the top and the content edges fade instead of meeting a hard border). */
   border: 1px solid transparent;
-  border-radius: 14px;
+  border-radius: 11.2px;
   overflow: hidden;
 }
 /* Audio viewer: drop the rounded card frame so the player + lyrics read as an
@@ -57,7 +57,7 @@
      don't show through the sidebar (only the card's own radial glow shows). */
   background: var(--bg-page);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 11.2px;
   box-shadow: var(--shadow-card);
   overflow: hidden;
   isolation: isolate;
@@ -68,7 +68,7 @@
   content: ''; position: absolute; inset: 0; border-radius: inherit;
   pointer-events: none; z-index: 0;
   background: radial-gradient(
-    220px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    176px circle at var(--spot-x, 50%) var(--spot-y, 50%),
     color-mix(in srgb, var(--accent) 12%, transparent) 0%,
     color-mix(in srgb, var(--accent) 4%, transparent) 40%,
     transparent 70%
@@ -86,7 +86,7 @@
   content: ''; position: absolute; inset: 0; border-radius: inherit;
   padding: 1px; pointer-events: none; z-index: 2;
   background: radial-gradient(
-    200px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    160px circle at var(--spot-x, 50%) var(--spot-y, 50%),
     color-mix(in srgb, var(--accent) 75%, transparent) 0%,
     color-mix(in srgb, var(--accent) 22%, transparent) 34%,
     transparent 62%
@@ -109,9 +109,9 @@
 .dv-advisor-slot > .dv-side-portal { flex: 1; min-width: 0; width: auto; }
 
 /* Draggable gutter between the two cards (transparent, accent line on hover). */
-.dv-advisor-resize { flex: none; width: 10px; cursor: col-resize; position: relative; z-index: 2; }
+.dv-advisor-resize { flex: none; width: 8px; cursor: col-resize; position: relative; z-index: 2; }
 .dv-advisor-resize::after {
-  content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px;
+  content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1.6px;
   transform: translateX(-50%); border-radius: 999px; background: transparent; transition: background 120ms;
 }
 .dv-advisor-resize:hover::after { background: color-mix(in srgb, var(--accent) 55%, transparent); }
@@ -154,7 +154,7 @@ body.dv-ocr-resizing .dv-advisor-resize::after { background: var(--accent); }
    (Applies to both "Extract text" and "Generate captions".) */
 .dv-advisor-footerslot .dv-doc-extract-btn {
   width: 100%;
-  padding: 14px;
+  padding: 11.2px;
   border: none;
   border-radius: 0;
   background: transparent;
@@ -171,7 +171,7 @@ body.dv-ocr-resizing .dv-advisor-resize::after { background: var(--accent); }
   position: relative; z-index: 1;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 11.2px;
   overflow: hidden;
 }
 /* Body below the "Files" header holds the embedded Files browser. */
@@ -180,9 +180,9 @@ body.dv-ocr-resizing .dv-advisor-resize::after { background: var(--accent); }
 .dv-files-recent {
   /* Hug a single tile column (tile + the scroll's 8px side padding) so there's
      no empty band to the right of the tiles. */
-  --fx-tile: 96px;
+  --fx-tile: 76.8px;
   flex: none; min-width: 0; min-height: 0;
-  width: calc(var(--fx-tile) + 20px);
+  width: calc(var(--fx-tile) + 16px);
   display: flex; flex-direction: column;
   position: relative; z-index: 1;
   background: transparent;
@@ -190,7 +190,7 @@ body.dv-ocr-resizing .dv-advisor-resize::after { background: var(--accent); }
 }
 /* Horizontal handle along the footer's top edge (resize the footer height). */
 .dv-footer-resize {
-  flex: none; height: 4px; margin-top: -1px; cursor: row-resize;
+  flex: none; height: 3.2px; margin-top: -1px; cursor: row-resize;
   position: relative; z-index: 2;
 }
 .dv-footer-resize::after {
@@ -201,24 +201,24 @@ body.dv-ocr-resizing .dv-advisor-resize::after { background: var(--accent); }
 body.dv-row-resizing { cursor: row-resize; user-select: none; }
 body.dv-row-resizing .dv-footer-resize::after { background: var(--accent); }
 /* Gutter between the Open-files card and the Files-browser card. */
-.dv-split-resize { flex: none; width: 10px; cursor: col-resize; position: relative; z-index: 2; }
+.dv-split-resize { flex: none; width: 8px; cursor: col-resize; position: relative; z-index: 2; }
 .dv-split-resize::after {
-  content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px;
+  content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1.6px;
   transform: translateX(-50%); border-radius: 999px; background: transparent; transition: background 120ms;
 }
 .dv-split-resize:hover::after { background: color-mix(in srgb, var(--accent) 55%, transparent); }
 body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 /* Icon-size slider in the "Recently open" header (.dv-captab-bar.has-aside). */
 .dv-files-recent-zoom {
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; align-items: center; gap: 4.8px;
   color: var(--text-muted); text-transform: none; letter-spacing: 0;
 }
 .dv-files-recent-zoom input[type="range"] {
-  width: 72px; height: 14px; cursor: pointer; accent-color: var(--accent);
+  width: 57.6px; height: 11.2px; cursor: pointer; accent-color: var(--accent);
   background: transparent;
 }
 .dv-files-recent-zoom svg { flex: none; opacity: 0.8; }
-.dv-files-recent-empty { padding: 14px 12px; color: var(--text-muted); font-size: 12px; }
+.dv-files-recent-empty { padding: 11.2px 9.6px; color: var(--text-muted); font-size: 9.6px; }
 /* Positioned wrapper so the custom scrollbar overlays the tile list (below the
    header), not the whole rail. */
 .dv-files-recent-list { position: relative; flex: 1; min-height: 0; display: flex; }
@@ -231,22 +231,22 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
   background-image: radial-gradient(
     circle at center,
-    color-mix(in srgb, var(--text-primary) 9%, transparent) 1.2px,
-    transparent 1.6px
+    color-mix(in srgb, var(--text-primary) 9%, transparent) 0.96px,
+    transparent 1.28px
   );
-  background-size: 24px 24px; background-position: 0 0;
+  background-size: 19.2px 19.2px; background-position: 0 0;
 }
 .dv-cursor-spotlight {
-  position: absolute; top: 0; left: 0; width: 430px; height: 430px;
+  position: absolute; top: 0; left: 0; width: 344px; height: 344px;
   pointer-events: none; z-index: 0; will-change: transform;
   background-image: radial-gradient(
     circle at center,
-    color-mix(in srgb, var(--text-primary) 11%, transparent) 1.45px,
-    transparent 1.85px
+    color-mix(in srgb, var(--text-primary) 11%, transparent) 1.16px,
+    transparent 1.48px
   );
-  background-size: 24px 24px;
-  mask-image: radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
-  -webkit-mask-image: radial-gradient(circle 215px at center, #000 0%, #000 42%, transparent 100%);
+  background-size: 19.2px 19.2px;
+  mask-image: radial-gradient(circle 172px at center, #000 0%, #000 42%, transparent 100%);
+  -webkit-mask-image: radial-gradient(circle 172px at center, #000 0%, #000 42%, transparent 100%);
 }
 @media (prefers-reduced-motion: reduce) { .dv-cursor-spotlight { display: none; } }
 
@@ -260,11 +260,11 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
      items read as the same file tiles. auto-fill fixed-width tracks, packed
      from the left. */
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  align-content: start; gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  align-content: start; gap: 4.8px;
   /* Extra right padding reserves the gutter the custom scrollbar overlays, so
      it never sits on top of a tile. Constant, so the layout never shifts. */
-  padding: 8px 12px 8px 8px;
+  padding: 6.4px 9.6px 6.4px 6.4px;
   /* Transparent so the page's dot grid + cursor spotlight show through. */
   background: transparent;
   overflow-y: auto; overflow-x: hidden;
@@ -279,8 +279,8 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
    and the track is click-to-page (wired in DocViewer.jsx). */
 .dv-tabbar-scroll {
   position: absolute; z-index: 3;
-  top: 4px; bottom: 4px; right: 2px;
-  width: 6px; border-radius: 999px;
+  top: 3.2px; bottom: 3.2px; right: 1.6px;
+  width: 4.8px; border-radius: 999px;
   background: transparent;
   transition: background 120ms ease;
 }
@@ -289,7 +289,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   position: absolute; left: 0; right: 0;
   border-radius: 999px;
   background: var(--scrollbar-thumb);
-  min-height: 24px;
+  min-height: 19.2px;
   cursor: grab;
   transition: background 120ms ease;
 }
@@ -303,19 +303,19 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   /* Reuses the Files tab's tile (.fx-tile) at its default size: drives --fx-tile
      (column width + thumb height) and uses the same auto-fill fixed-track grid
      as .fx-grid so the items render exactly like the Files tab. */
-  --fx-tile: 96px;
+  --fx-tile: 76.8px;
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
-  display: grid; grid-template-columns: repeat(auto-fill, var(--fx-tile, 96px));
-  gap: 6px; padding: 8px; align-content: start; justify-content: start;
+  display: grid; grid-template-columns: repeat(auto-fill, var(--fx-tile, 76.8px));
+  gap: 4.8px; padding: 6.4px; align-content: start; justify-content: start;
   scrollbar-width: none;
 }
 .dv-files-recent-scroll::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .dv-filetab {
   position: relative;
-  display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 7px;
-  min-width: 0; padding: 8px 8px 9px;
-  border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--text-primary);
-  cursor: pointer; font: inherit; font-size: 13px; user-select: none; text-align: center;
+  display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 5.6px;
+  min-width: 0; padding: 6.4px 6.4px 7.2px;
+  border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-primary);
+  cursor: pointer; font: inherit; font-size: 10.4px; user-select: none; text-align: center;
   transition: transform 120ms, box-shadow 120ms, border-color 120ms, background 120ms;
 }
 .dv-filetab:hover {
@@ -326,7 +326,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-filetab.is-active { background: var(--bg-card); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .dv-filetab-thumb {
   position: relative; display: grid; place-items: center;
-  width: 100%; height: calc(var(--dv-open-tile, 96px) * 0.58); border-radius: 7px;
+  width: 100%; height: calc(var(--dv-open-tile, 76.8px) * 0.58); border-radius: 5.6px;
   background: var(--bg-elevated); overflow: hidden; transition: box-shadow 120ms;
 }
 /* MIME-glyph tiles drop the gray fill so the badge sits on the tile, like the
@@ -336,24 +336,24 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-filetab-thumb .project-files-thumb,
 .dv-filetab-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .dv-filetab-thumb .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent); }
-.dv-filetab-thumb .fx-glyph { width: 42px; height: 42px; font-size: 10px; }
+.dv-filetab-thumb .fx-glyph { width: 33.6px; height: 33.6px; font-size: 8px; }
 .dv-filetab-name {
-  min-width: 0; text-align: center; font-size: 12px; font-weight: 600;
+  min-width: 0; text-align: center; font-size: 9.6px; font-weight: 600;
   color: var(--text-primary); line-height: 1.25; word-break: break-word;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .dv-filetab-rename {
   width: 100%; min-width: 0; box-sizing: border-box;
-  text-align: center; font: inherit; font-size: 12px; font-weight: 600; line-height: 1.25;
+  text-align: center; font: inherit; font-size: 9.6px; font-weight: 600; line-height: 1.25;
   padding: 0; border: none; border-radius: 0; background: transparent; color: var(--text-primary);
 }
 .dv-filetab-rename:focus { outline: none; box-shadow: none; }
 .dv-filetab-close {
   /* Floats on the thumbnail's top-right corner (revealed on hover). */
-  position: absolute; top: 8px; right: 8px; transform: translate(50%, -50%);
+  position: absolute; top: 6.4px; right: 6.4px; transform: translate(50%, -50%);
   display: inline-flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; border: 1.5px solid var(--bg-card); border-radius: 999px;
-  background: rgba(11, 20, 26, 0.72); color: #fff; cursor: pointer; font-size: 15px; line-height: 1;
+  width: 19.2px; height: 19.2px; border: 1.2px solid var(--bg-card); border-radius: 999px;
+  background: rgba(11, 20, 26, 0.72); color: #fff; cursor: pointer; font-size: 12px; line-height: 1;
   opacity: 0; transition: opacity 100ms ease, background 100ms ease;
 }
 .dv-filetab-item:hover .dv-filetab-close, .dv-filetab-close:focus-visible { opacity: 1; }
@@ -366,12 +366,12 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
    Underline tabs, same chrome as the side-panel tabs (.dv-side-tab). */
 .dv-sectiontabs {
   flex: none; display: flex; align-items: stretch; gap: 0;
-  padding: 0 8px; background: var(--bg-page); border-bottom: 1px solid var(--border);
+  padding: 0 6.4px; background: var(--bg-page); border-bottom: 1px solid var(--border);
 }
 .dv-sectiontab {
-  appearance: none; display: inline-flex; align-items: center; gap: 0.5rem;
-  background: transparent; border: none; border-bottom: 3px solid transparent; margin-bottom: -1px;
-  padding: 0.7rem 1rem; font: inherit; font-size: 0.88rem; font-weight: 500;
+  appearance: none; display: inline-flex; align-items: center; gap: 0.4rem;
+  background: transparent; border: none; border-bottom: 2.4px solid transparent; margin-bottom: -1px;
+  padding: 0.56rem 0.8rem; font: inherit; font-size: 0.704rem; font-weight: 500;
   color: var(--text-muted); cursor: pointer; transition: color 150ms, border-color 150ms;
 }
 .dv-sectiontab:hover:not(.is-active) { color: var(--text-secondary); }
@@ -387,7 +387,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 /* z-index:1 + transparent bg: sits above the page's spotlight layers, but its
    transparent interior lets the right sidebar's frosted backdrop sample them. */
 .dv-doc { position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.dv-doc-body { flex: 1; min-height: 0; overflow: auto; padding: 18px; }
+.dv-doc-body { flex: 1; min-height: 0; overflow: auto; padding: 14.4px; }
 /* The text pane manages its own sticky toolbar + scroll, so it runs flush. */
 .dv-doc-body.is-flush { padding: 0; overflow: hidden; display: flex; }
 .dv-doc-body .file-preview-image,
@@ -398,30 +398,30 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
    the media pane's stage + OCR panel). The body itself runs flush; the inner
    .dv-doc-main carries the preview's padding/scroll. */
 .dv-doc-body.is-split { display: flex; padding: 0; overflow: hidden; }
-.dv-doc-main { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: auto; padding: 18px; }
+.dv-doc-main { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: auto; padding: 14.4px; }
 .dv-doc-main.is-flush { padding: 0; overflow: hidden; display: flex; }
 
 /* Extract-text panel chrome (it reuses .dv-ocr-history for the list). */
-.dv-doc-extract-bar { flex: none; padding: 14px 14px 4px; }
+.dv-doc-extract-bar { flex: none; padding: 11.2px 11.2px 3.2px; }
 .dv-doc-extract-btn {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  width: 100%; padding: 10px 14px;
-  border: 1px solid var(--border); border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; gap: 6.4px;
+  width: 100%; padding: 8px 11.2px;
+  border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg-elevated); color: var(--text-primary);
-  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  font: inherit; font-size: 10.4px; font-weight: 600; cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
 }
 .dv-doc-extract-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
 .dv-doc-extract-btn:disabled { opacity: 0.55; cursor: default; }
-.dv-doc-extract-btn svg { width: 18px; height: 18px; flex: none; }
+.dv-doc-extract-btn svg { width: 14.4px; height: 14.4px; flex: none; }
 /* Static (in-flow) error, not the media pane's floating bottom-centre pill. */
-.dv-doc-extract-error { position: static; transform: none; left: auto; bottom: auto; margin: 8px 14px 0; max-width: none; }
+.dv-doc-extract-error { position: static; transform: none; left: auto; bottom: auto; margin: 6.4px 11.2px 0; max-width: none; }
 
 /* ── Text pane: plain / markdown / WhatsApp ────────────────────────── */
 .dv-text-pane { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .dv-text-toolbar {
-  flex: none; display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-elevated);
+  flex: none; display: flex; align-items: center; gap: 6.4px;
+  padding: 6.4px 9.6px; border-bottom: 1px solid var(--border); background: var(--bg-elevated);
 }
 /* View-mode tabs (Docvex / Plain text) — a tab strip at the top-left of the
    conversation section, styled to MATCH the media rail's tabbar (.dv-wa-rail-tabs
@@ -440,13 +440,13 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-wa-chatcol > .dv-text-toggle { flex: none; }
 .dv-text-toggle-btn {
   flex: none;
-  appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
-  padding: 0.7rem 1rem; background: transparent; border: none;
-  border-bottom: 3px solid transparent; margin-bottom: -1px;
-  font-family: var(--font-body); font-size: 0.88rem; font-weight: 500;
+  appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  padding: 0.56rem 0.8rem; background: transparent; border: none;
+  border-bottom: 2.4px solid transparent; margin-bottom: -1px;
+  font-family: var(--font-body); font-size: 0.704rem; font-weight: 500;
   color: var(--text-muted); cursor: pointer; transition: color 150ms, border-color 150ms;
 }
-.dv-text-toggle-btn svg { flex: none; width: 16px; height: 16px; }
+.dv-text-toggle-btn svg { flex: none; width: 12.8px; height: 12.8px; }
 .dv-text-toggle-btn:hover:not(.is-active) { color: var(--text-secondary); }
 .dv-text-toggle-btn.is-active { color: var(--text-primary); border-bottom-color: var(--accent); }
 .dv-text-scroll { flex: 1; min-height: 0; overflow: auto; }
@@ -455,26 +455,26 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
    (WhatsAppChat portals its header here). Re-themed from the WhatsApp green
    header to the app palette and laid out in one horizontal row. */
 .dv-text-toolbar-find {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px;
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 9.6px;
   /* Map the WhatsApp surface vars the controls read onto app tokens. */
   --wa-text: var(--text-primary); --wa-meta: var(--text-muted);
   --wa-link: var(--accent); --wa-header-border: var(--border);
 }
 .dv-text-toolbar-find:empty { display: none; }
 .dv-wa-header.is-toolbar {
-  position: static; margin: 0; padding: 0; gap: 12px;
+  position: static; margin: 0; padding: 0; gap: 9.6px;
   background: none; border: none; box-shadow: none;
   flex: 1; min-width: 0; align-items: center; justify-content: flex-start;
 }
 .dv-wa-header.is-toolbar .dv-wa-header-controls {
-  flex-direction: row; align-items: center; gap: 12px; flex: 1; min-width: 0;
+  flex-direction: row; align-items: center; gap: 9.6px; flex: 1; min-width: 0;
 }
 /* App-themed find pill + date inputs (the WhatsApp originals hard-code white
    fills and a green focus ring for the wallpaper header). */
 .dv-wa-header.is-toolbar .dv-wa-find { background: var(--bg-input); }
 .dv-wa-header.is-toolbar .dv-wa-find:focus-within {
   border-color: var(--accent); background: var(--bg-card);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .dv-wa-header.is-toolbar .dv-wa-find:focus-within .dv-wa-find-icon { color: var(--accent); }
 .dv-wa-header.is-toolbar .dv-wa-find-kbd kbd { background: var(--bg-elevated); }
@@ -483,7 +483,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-wa-header.is-toolbar .dv-wa-date { background: var(--bg-input); }
 .dv-wa-header.is-toolbar .dv-wa-date:focus {
   border-color: var(--accent); background: var(--bg-card);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 /* Burger picks up app text tokens (was white-on-green) and pins to the right. */
 .dv-wa-header.is-toolbar .dv-wa-burger { color: var(--text-muted); margin-left: auto; }
@@ -498,23 +498,23 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
    Files tab's .fx-search markup; its base styling is duplicated here because the
    standalone Doc Viewer window imports only DocViewer.css (not FilesWorkspace.css). */
 .fx-search {
-  display: flex; align-items: center; gap: 8px;
-  padding: 5px 8px 5px 11px;
+  display: flex; align-items: center; gap: 6.4px;
+  padding: 4px 6.4px 4px 8.8px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 5.6px;
   background: var(--bg-input);
-  width: 280px;
-  font-size: 13px;
+  width: 224px;
+  font-size: 10.4px;
   color: var(--text-muted);
   transition: width 220ms cubic-bezier(.16, 1, .3, 1),
               border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
 .fx-search:hover { border-color: var(--border-strong); }
 .fx-search:focus-within {
-  width: 360px;
+  width: 288px;
   border-color: var(--accent);
   background: var(--bg-card);
-  box-shadow: 0 0 0 3px var(--accent-tint);
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
 .fx-search-glyph { color: var(--text-muted); flex: 0 0 auto; transition: color 140ms ease; }
 .fx-search:focus-within .fx-search-glyph,
@@ -526,33 +526,33 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .fx-search input::placeholder { color: var(--text-muted); }
 .fx-search-kbd {
   flex: 0 0 auto;
-  display: inline-flex; align-items: center; gap: 3px;
+  display: inline-flex; align-items: center; gap: 2.4px;
   font-family: var(--font-body);
   transition: opacity 120ms ease;
 }
 .fx-search-kbd kbd {
   display: inline-flex; align-items: center;
-  padding: 1px 5px;
+  padding: 1px 4px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--bg-elevated);
   font-family: inherit;
-  font-size: 10.5px; font-weight: 600; line-height: 1.5;
+  font-size: 8.4px; font-weight: 600; line-height: 1.5;
   letter-spacing: 0.02em;
   color: var(--text-muted);
 }
 .fx-search-kbd-plus {
-  margin: 0 3px;
-  font-size: 10px; font-weight: 600;
+  margin: 0 2.4px;
+  font-size: 8px; font-weight: 600;
   color: var(--text-muted);
 }
 .fx-search:focus-within .fx-search-kbd { opacity: 0; }
 .fx-search-clear {
   flex: 0 0 auto;
   display: grid; place-items: center;
-  width: 20px; height: 20px;
+  width: 16px; height: 16px;
   padding: 0; border: 0; cursor: pointer;
-  border-radius: 5px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-secondary);
   transition: background 120ms ease, color 120ms ease;
@@ -570,7 +570,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-wa-controls .dv-wa-date { background: var(--bg-input); border-color: var(--border); color: var(--text-primary); }
 .dv-wa-controls .dv-wa-date:focus {
   border-color: var(--accent); background: var(--bg-card);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 /* Chat + rail split. Width comes inline from DocTextPane (conversation
@@ -594,7 +594,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 /* No track background — only the thumb shows. Centered on the chat column's
    right edge so the resize handle (which straddles that edge) cuts through the
    middle of the scroll thumb. */
-.dv-wa-chatscroll-wrap .dv-tabbar-scroll { background: transparent; right: -3px; left: auto; }
+.dv-wa-chatscroll-wrap .dv-tabbar-scroll { background: transparent; right: -2.4px; left: auto; }
 /* Docvex skin: the split fills the pane up to the extraction panel, and the
    conversation + always-on media rail share that width equally (no inline
    width, no resize handle — see DocTextPane). */
@@ -604,7 +604,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 /* Drag handle between the rail and the conversation — straddles the rail's
    right border, widening into an accent strip on hover/drag. */
 .dv-wa-resizer {
-  flex: none; width: 6px; margin: 0 -3px; z-index: 3; cursor: col-resize;
+  flex: none; width: 4.8px; margin: 0 -2.4px; z-index: 3; cursor: col-resize;
   background: transparent; transition: background 0.12s ease;
 }
 .dv-wa-resizer:hover, .dv-wa-resizer:active { background: color-mix(in srgb, var(--accent) 35%, transparent); }
@@ -621,7 +621,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   --wa-text: var(--text-primary); --wa-meta: var(--text-muted);
   --wa-link: var(--accent); --wa-header-border: var(--border);
 }
-.dv-wa-rail-head { flex: none; padding: 14px 16px 10px; font-weight: 700; font-size: 15px; color: var(--text-primary); }
+.dv-wa-rail-head { flex: none; padding: 11.2px 12.8px 8px; font-weight: 700; font-size: 12px; color: var(--text-primary); }
 /* Section tabs styled to match the main chat's nav tabs (.vb-htab): full-bleed
    underline tabs, muted → primary text on active with an accent underline, and
    pill count badges that tint to accent when active. */
@@ -631,45 +631,45 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   flex: none; display: flex; align-items: stretch; flex-wrap: wrap;
   /* Integrated as a chrome tab bar: the chrome's --bg-sidebar fill + 8px
      horizontal inset (matches .dv-chrome-row spacing). */
-  padding: 0 8px;
+  padding: 0 6.4px;
   background: var(--bg-sidebar); border-bottom: 1px solid var(--border);
 }
 .dv-wa-rail-tab {
   /* The min-width is the wrap threshold: each section keeps at least room
      for its icon + label + count, and the row breaks when they don't fit. */
-  flex: 1 1 auto; min-width: 104px;
-  appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
-  padding: 0.7rem 0.25rem; background: transparent; border: none;
-  border-bottom: 3px solid transparent; margin-bottom: -1px;
-  font-family: var(--font-body); font-size: 0.88rem; font-weight: 500; color: var(--text-muted);
+  flex: 1 1 auto; min-width: 83.2px;
+  appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  padding: 0.56rem 0.2rem; background: transparent; border: none;
+  border-bottom: 2.4px solid transparent; margin-bottom: -1px;
+  font-family: var(--font-body); font-size: 0.704rem; font-weight: 500; color: var(--text-muted);
   cursor: pointer; transition: color 150ms, border-color 150ms;
   /* Hairline under every tab so wrapped rows stay separated; the active
      tab's 2px accent border paints over it. */
   box-shadow: inset 0 -1px 0 var(--border);
 }
-.dv-wa-rail-tab svg { flex: none; width: 16px; height: 16px; }
+.dv-wa-rail-tab svg { flex: none; width: 12.8px; height: 12.8px; }
 .dv-wa-rail-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dv-wa-rail-tab:hover:not(.is-active) { color: var(--text-secondary); }
 .dv-wa-rail-tab.is-active { color: var(--text-primary); border-bottom-color: var(--accent); }
 .dv-wa-rail-count {
-  font-size: 0.75rem; font-weight: 500; color: var(--text-muted);
-  background: var(--bg-elevated); padding: 1px 6px; border-radius: 999px;
-  min-width: 16px; text-align: center; font-variant-numeric: tabular-nums;
+  font-size: 0.6rem; font-weight: 500; color: var(--text-muted);
+  background: var(--bg-elevated); padding: 1px 4.8px; border-radius: 999px;
+  min-width: 12.8px; text-align: center; font-variant-numeric: tabular-nums;
 }
 .dv-wa-rail-tab.is-active .dv-wa-rail-count {
   color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
-.dv-wa-rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
-.dv-wa-rail-empty { padding: 44px 12px; text-align: center; color: var(--text-muted); font-size: 13px; }
+.dv-wa-rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 9.6px; }
+.dv-wa-rail-empty { padding: 35.2px 9.6px; text-align: center; color: var(--text-muted); font-size: 10.4px; }
 
 /* Media — small square thumbnails with a HARD 108px floor: tiles may grow
    (1fr stretches them to fill the row edge-to-edge) but never shrink below
    108px — narrowing the rail drops a column instead. The rail's drag
    minimum (RAIL_MIN in DocViewer.jsx) is derived from this floor,
    guaranteeing at least 4 per row. */
-.dv-wa-rail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 4px; }
+.dv-wa-rail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(86.4px, 1fr)); gap: 3.2px; }
 .dv-wa-rail-tile {
-  position: relative; aspect-ratio: 1; padding: 0; border: none; border-radius: 5px;
+  position: relative; aspect-ratio: 1; padding: 0; border: none; border-radius: 4px;
   overflow: hidden; cursor: pointer; background: var(--bg-elevated);
 }
 .dv-wa-rail-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -677,7 +677,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   background: linear-gradient(135deg, #6D28D9, #DB2777); color: #fff;
 }
-.dv-wa-rail-vid svg { width: 32%; height: 32%; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.4)); }
+.dv-wa-rail-vid svg { width: 32%; height: 32%; filter: drop-shadow(0 1px 2.4px rgba(0,0,0,0.4)); }
 /* Video poster frame (OS thumbnailer via ?thumb=) covering the gradient
    fallback, with a floating play badge above both. */
 .dv-wa-rail-vidposter { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -685,58 +685,58 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: #fff; pointer-events: none;
 }
-.dv-wa-rail-vidplay svg { width: 26%; height: 26%; filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.55)); }
+.dv-wa-rail-vidplay svg { width: 26%; height: 26%; filter: drop-shadow(0 1px 3.2px rgba(0, 0, 0, 0.55)); }
 
 /* Stickers — transparent webp tiles on a plain (not filled) cell, contained
    rather than cropped so the whole sticker shows. */
-.dv-wa-rail-stickers { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+.dv-wa-rail-stickers { display: grid; grid-template-columns: repeat(auto-fill, minmax(60.8px, 1fr)); gap: 4.8px; }
 .dv-wa-rail-sticker {
-  aspect-ratio: 1; padding: 6px; border: none; border-radius: 8px; background: none; cursor: pointer;
+  aspect-ratio: 1; padding: 4.8px; border: none; border-radius: 6.4px; background: none; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
 .dv-wa-rail-sticker:hover { background: var(--bg-elevated); }
 .dv-wa-rail-sticker img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
 
 /* Voice notes — each row is an inline player + the source filename. */
-.dv-wa-rail-voice { display: flex; flex-direction: column; gap: 2px; padding: 6px 6px 8px; border-radius: 8px; }
+.dv-wa-rail-voice { display: flex; flex-direction: column; gap: 1.6px; padding: 4.8px 4.8px 6.4px; border-radius: 6.4px; }
 .dv-wa-rail-voice:hover { background: var(--bg-elevated); }
 .dv-wa-rail-voice .dv-wa-voice { width: 100%; }
-.dv-wa-rail-voice-name { padding: 0 4px; font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv-wa-rail-voice-name { padding: 0 3.2px; font-size: 8.8px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Links + docs — flat lists. */
 .dv-wa-rail-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
 .dv-wa-rail-link {
-  display: block; padding: 8px 10px; border-radius: 8px;
-  color: var(--accent); font-size: 13px; word-break: break-all; text-decoration: none;
+  display: block; padding: 6.4px 8px; border-radius: 6.4px;
+  color: var(--accent); font-size: 10.4px; word-break: break-all; text-decoration: none;
 }
 .dv-wa-rail-link:hover { background: var(--bg-elevated); text-decoration: underline; }
 /* IBAN rows in the Links list are buttons (copy on click), not anchors. */
-.dv-wa-rail-iban { border: none; background: none; font: inherit; width: 100%; text-align: left; cursor: pointer; letter-spacing: 0.2px; }
+.dv-wa-rail-iban { border: none; background: none; font: inherit; width: 100%; text-align: left; cursor: pointer; letter-spacing: 0.16px; }
 /* Category groups + dividers inside the Links list. */
-.dv-wa-rail-groups { display: flex; flex-direction: column; gap: 14px; }
+.dv-wa-rail-groups { display: flex; flex-direction: column; gap: 11.2px; }
 .dv-wa-rail-divider {
-  display: flex; align-items: center; gap: 8px; margin: 0 4px 6px;
-  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);
+  display: flex; align-items: center; gap: 6.4px; margin: 0 3.2px 4.8px;
+  font-size: 8.8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-muted);
 }
 .dv-wa-rail-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 /* Docs — file-explorer "icon view": a grid of tiles, each with its file-type
    icon stacked above the (2-line clamped) filename. */
-.dv-wa-rail-docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(94px, 1fr)); gap: 4px; }
+.dv-wa-rail-docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(75.2px, 1fr)); gap: 3.2px; }
 .dv-wa-rail-doc {
-  display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%;
-  padding: 12px 8px; border: none; background: none; border-radius: 10px; cursor: pointer;
-  font: inherit; font-size: 12px; color: var(--text-primary); text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 6.4px; width: 100%;
+  padding: 9.6px 6.4px; border: none; background: none; border-radius: 8px; cursor: pointer;
+  font: inherit; font-size: 9.6px; color: var(--text-primary); text-align: center;
 }
 .dv-wa-rail-doc:hover:not(:disabled) { background: var(--bg-elevated); }
 .dv-wa-rail-doc:disabled { opacity: 0.6; cursor: default; }
 .dv-wa-rail-doc svg { flex: none; color: var(--text-muted); }
 .dv-wa-rail-doc-icon { display: flex; }
-.dv-wa-rail-doc-icon svg { width: 34px; height: 34px; }
+.dv-wa-rail-doc-icon svg { width: 27.2px; height: 27.2px; }
 /* Large-export performance: offscreen rail entries (a Media tab can hold
    thousands of tiles) skip layout + paint until scrolled near. The lazy
    <img>s inside them then also defer their decode/fetch. */
-.dv-wa-rail-tile, .dv-wa-rail-sticker { content-visibility: auto; contain-intrinsic-size: auto 96px; }
-.dv-wa-rail-doc, .dv-wa-rail-voice { content-visibility: auto; contain-intrinsic-size: auto 76px; }
+.dv-wa-rail-tile, .dv-wa-rail-sticker { content-visibility: auto; contain-intrinsic-size: auto 76.8px; }
+.dv-wa-rail-doc, .dv-wa-rail-voice { content-visibility: auto; contain-intrinsic-size: auto 60.8px; }
 .dv-wa-rail-doc-name {
   width: 100%; line-height: 1.3; word-break: break-word;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -752,30 +752,30 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-doc-ic.is-ppt svg { color: var(--warning); }
 .dv-doc-ic.is-zip svg { color: var(--accent); }
 .dv-doc-ic.is-text svg, .dv-doc-ic.is-generic svg { color: var(--text-muted); }
-.dv-wa-rail-contacts { display: flex; flex-direction: column; gap: 12px; }
+.dv-wa-rail-contacts { display: flex; flex-direction: column; gap: 9.6px; }
 /* Calls — one row per call: type icon (red when missed) + label + who/when. */
 .dv-wa-rail-call {
-  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
-  padding: 9px 10px; border: none; background: none; border-radius: 8px; cursor: pointer;
+  display: flex; align-items: center; gap: 8.8px; width: 100%; text-align: left;
+  padding: 7.2px 8px; border: none; background: none; border-radius: 6.4px; cursor: pointer;
   font: inherit; color: var(--text-primary);
 }
 .dv-wa-rail-call:hover { background: var(--bg-elevated); }
 .dv-wa-call-icon { flex: none; display: flex; color: var(--text-muted); }
-.dv-wa-call-icon svg { width: 18px; height: 18px; }
+.dv-wa-call-icon svg { width: 14.4px; height: 14.4px; }
 .dv-wa-call-icon.is-missed { color: var(--danger); }
 .dv-wa-call-icon.is-answered { color: var(--success); }
 .dv-wa-call-meta { display: flex; flex-direction: column; min-width: 0; }
-.dv-wa-call-label { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dv-wa-call-sub { font-size: 11.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dv-text-pre { margin: 0; padding: 18px; white-space: pre-wrap; word-break: break-word; font-size: 13.5px; line-height: 1.6; color: var(--text-primary); font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+.dv-wa-call-label { font-size: 10.4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv-wa-call-sub { font-size: 9.2px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv-text-pre { margin: 0; padding: 14.4px; white-space: pre-wrap; word-break: break-word; font-size: 10.8px; line-height: 1.6; color: var(--text-primary); font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
 /* Search-match highlight in the plain-text view. */
-.dv-text-mark { background: var(--accent-tint); color: var(--text-primary); border-radius: 3px; padding: 0 1px; }
-.dv-text-md { padding: 18px; max-width: 820px; margin: 0 auto; color: var(--text-primary); line-height: 1.6; }
+.dv-text-mark { background: var(--accent-tint); color: var(--text-primary); border-radius: 2.4px; padding: 0 1px; }
+.dv-text-md { padding: 14.4px; max-width: 656px; margin: 0 auto; color: var(--text-primary); line-height: 1.6; }
 /* Banner above the plain/markdown view when the file exceeds the <pre> cap
    (the WhatsApp view still renders the whole conversation). */
 .dv-text-truncated {
-  margin: 12px 18px 0; padding: 8px 12px; border-radius: 8px;
-  background: var(--warning-soft); color: var(--text-secondary); font-size: 12.5px;
+  margin: 9.6px 14.4px 0; padding: 6.4px 9.6px; border-radius: 6.4px;
+  background: var(--warning-soft); color: var(--text-secondary); font-size: 10px;
 }
 
 /* ── WhatsApp conversation ──────────────────────────────────────────
@@ -804,7 +804,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 }
 /* Left-aligned chat column (not centred). Holds the message inset that used
    to live on .dv-wa, so the header above can run full-bleed. */
-.dv-wa-inner { max-width: 820px; margin: 0; padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 3px; }
+.dv-wa-inner { max-width: 656px; margin: 0; padding: 9.6px 12.8px 12.8px; display: flex; flex-direction: column; gap: 2.4px; }
 /* Full-width slot below the chat+media split that the conversation footer
    portals into, so the footer spans the chat AND the media rail. */
 .dv-wa-footerslot { flex: none; }
@@ -818,13 +818,13 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
    Mirrors the Project-files footer palette (frosted --bg-page over blur). */
 .dv-wa-controls {
   flex: none;
-  margin: 0; padding: 8px 16px; min-height: 48px;
-  display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 10px 14px;
+  margin: 0; padding: 6.4px 12.8px; min-height: 38.4px;
+  display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 8px 11.2px;
   background: var(--bg-sidebar);
 }
 /* The controls run in a ROW (the legacy header stacked them vertically). */
 .dv-wa-controls .dv-wa-header-controls {
-  flex-direction: row; align-items: center; flex-wrap: wrap; gap: 10px 14px;
+  flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px 11.2px;
 }
 .dv-wa-controls .dv-wa-burger { margin-left: auto; }
 
@@ -833,13 +833,13 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
    LEFT-aligned; the burger (rail toggle) pins to the right edge. */
 .dv-wa-header {
   position: sticky; top: 0; z-index: 5;
-  margin: 0; padding: 10px 16px 12px;
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+  margin: 0; padding: 8px 12.8px 9.6px;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
   background: var(--wa-header-bg); border: none; border-bottom: 1px solid var(--wa-header-border); border-radius: 0;
-  box-shadow: 0 2px 6px rgba(11, 20, 26, 0.1);
+  box-shadow: 0 1.6px 4.8px rgba(11, 20, 26, 0.1);
 }
 .dv-wa-header-controls {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6.4px;
   min-width: 0;
 }
 
@@ -851,17 +851,17 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   position: sticky; bottom: 0; z-index: 5;
   /* Same height as the Project-files footer (.fx-bottombar): ~32px control row
      + 10px top/bottom padding ≈ 52px. */
-  margin: 0; padding: 10px 22px; min-height: 52px;
-  display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 10px 14px;
+  margin: 0; padding: 8px 17.6px; min-height: 41.6px;
+  display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 8px 11.2px;
   border-top: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  font-size: 11.5px; color: var(--text-muted);
+  -webkit-backdrop-filter: blur(6.4px);
+  backdrop-filter: blur(6.4px);
+  font-size: 9.2px; color: var(--text-muted);
 }
 /* In the footer the controls run in a ROW (the header stacked them vertically). */
 .dv-wa-footer .dv-wa-header-controls {
-  flex-direction: row; align-items: center; flex-wrap: wrap; gap: 10px 14px;
+  flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px 11.2px;
 }
 /* Burger (rail toggle, WhatsApp skin only) sits at the far right of the footer. */
 .dv-wa-footer .dv-wa-burger { margin-left: auto; }
@@ -869,7 +869,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 /* Conversation tallies — "12 messages · 4 media · 2 voice notes · …" with a
    middle dot between each. */
 .dv-wa-stats {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 3.2px 6.4px;
   min-width: 0;
 }
 .dv-wa-stat { white-space: nowrap; color: var(--text-muted); }
@@ -883,7 +883,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-wa-burger {
   flex: 0 0 auto; align-self: center;
   display: grid; place-items: center;
-  width: 30px; height: 30px; padding: 0;
+  width: 24px; height: 24px; padding: 0;
   border: none; background: none; cursor: pointer;
   color: rgba(255, 255, 255, 0.4);
   transition: color 140ms ease;
@@ -894,16 +894,16 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 /* Date-range row — "From [date] to [date] ×". Inputs share the find pill's
    chrome; the row tints active once a bound is set. */
 .dv-wa-dates {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 12px; color: var(--wa-meta);
+  display: flex; align-items: center; gap: 4.8px;
+  font-size: 9.6px; color: var(--wa-meta);
 }
 .dv-wa-dates-label { user-select: none; }
 .dv-wa-dates.is-active .dv-wa-dates-label { color: var(--wa-text); }
 .dv-wa-date {
-  padding: 3px 6px;
-  border: 1px solid var(--wa-header-border); border-radius: 7px;
+  padding: 2.4px 4.8px;
+  border: 1px solid var(--wa-header-border); border-radius: 5.6px;
   background: rgba(255, 255, 255, 0.7);
-  font: inherit; font-size: 12px; color: var(--wa-text);
+  font: inherit; font-size: 9.6px; color: var(--wa-text);
   outline: none;
   transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
@@ -911,7 +911,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-wa-date:focus {
   border-color: #00a884;
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 168, 132, 0.16);
+  box-shadow: 0 0 0 2.4px rgba(0, 168, 132, 0.16);
 }
 /* Tone the native calendar glyph in with the rest of the chrome. */
 .dv-wa-date::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: pointer; }
@@ -919,11 +919,11 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 
 /* ── Date-range trigger button ("from — to") ───────────────────────────── */
 .dv-wa-daterange {
-  display: inline-flex; align-items: center; gap: 9px;
-  padding: 5px 11px;
-  border: 1px solid var(--border); border-radius: 9px;
+  display: inline-flex; align-items: center; gap: 7.2px;
+  padding: 4px 8.8px;
+  border: 1px solid var(--border); border-radius: 7.2px;
   background: var(--bg-input); color: var(--text-secondary);
-  font: inherit; font-size: 12.5px; cursor: pointer;
+  font: inherit; font-size: 10px; cursor: pointer;
   transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
 }
 .dv-wa-daterange:hover { border-color: var(--border-strong); color: var(--text-primary); }
@@ -945,7 +945,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-wa-daterange-date { font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* The connecting line between the two dates. */
 .dv-wa-daterange-line {
-  flex: none; width: 16px; height: 1px;
+  flex: none; width: 12.8px; height: 1px;
   background: var(--border-strong);
 }
 .dv-wa-daterange.is-active .dv-wa-daterange-line { background: color-mix(in srgb, var(--color-sand) 70%, var(--color-ink)); }
@@ -961,11 +961,11 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-daterange-calwrap {
   position: absolute; inset: 0; z-index: 5;
   min-width: 0; min-height: 0;
-  display: flex; flex-direction: column; justify-content: center; gap: 10px;
-  padding: 12px;
+  display: flex; flex-direction: column; justify-content: center; gap: 8px;
+  padding: 9.6px;
   background: color-mix(in srgb, var(--bg-page) 78%, transparent);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   animation: dv-daterange-fade-in 180ms ease-out both;
 }
 .dv-daterange-calwrap.is-closing {
@@ -989,56 +989,56 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-daterange-calscroll {
   flex: 0 1 auto; min-height: 0; overflow-y: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fit, 230px);
-  gap: 18px 16px; align-content: center; justify-content: center;
-  padding-right: 4px;
+  grid-template-columns: repeat(auto-fit, 184px);
+  gap: 14.4px 12.8px; align-content: center; justify-content: center;
+  padding-right: 3.2px;
 }
 
 /* In-range tally in the conversation footer — styled like the old picker modal
    (a --bg-card surface with big bold counts), laid out as a horizontal bar. */
 .dv-daterange-footer {
   flex: none;
-  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 20px;
-  padding: 14px 22px;
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6.4px 16px;
+  padding: 11.2px 17.6px;
   /* No background — sits transparently under the calendars, inset from the
      section edges with a divider whose ends fade out. */
-  margin: 0 48px;
+  margin: 0 38.4px;
   border: none;
   border-top: 1px solid transparent;
   border-image: linear-gradient(90deg, transparent, var(--border) 18%, var(--border) 82%, transparent) 1;
 }
 .dv-daterange-stats-head {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  font-size: 8.8px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--text-muted);
 }
 .dv-daterange-stats-list {
   list-style: none; margin: 0; padding: 0;
-  display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 20px; min-width: 0;
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4.8px 16px; min-width: 0;
 }
-.dv-daterange-stat { display: inline-flex; align-items: baseline; gap: 6px; }
+.dv-daterange-stat { display: inline-flex; align-items: baseline; gap: 4.8px; }
 .dv-daterange-stat.is-zero { opacity: 0.4; }
 .dv-daterange-stat-n {
-  font-family: var(--font-display); font-weight: 700; font-size: 16px;
+  font-family: var(--font-display); font-weight: 700; font-size: 12.8px;
   font-variant-numeric: tabular-nums; color: var(--text-primary);
 }
-.dv-daterange-stat-label { font-size: 13px; color: var(--text-secondary); }
+.dv-daterange-stat-label { font-size: 10.4px; color: var(--text-secondary); }
 .dv-daterange-reset {
   padding: 0; border: none; background: none;
-  color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer;
+  color: var(--accent); font: inherit; font-size: 10px; cursor: pointer;
 }
 .dv-daterange-reset:hover { text-decoration: underline; }
 
 /* Action row under the in-range tally — Close / Reset / Select. */
 .dv-daterange-actions {
   flex: none;
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  padding: 4px 0 2px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 3.2px 0 1.6px;
 }
 .dv-daterange-btn {
-  padding: 8px 18px; border-radius: 999px;
+  padding: 6.4px 14.4px; border-radius: 999px;
   border: 1px solid var(--border-strong);
   background: var(--bg-elevated); color: var(--text-primary);
-  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  font: inherit; font-size: 10.4px; font-weight: 600; cursor: pointer;
   transition: background 110ms, border-color 110ms, color 110ms, opacity 110ms;
 }
 .dv-daterange-btn:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); }
@@ -1052,19 +1052,19 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-cal { width: 100%; user-select: none; }
 .dv-cal-head {
   display: flex; align-items: center; justify-content: flex-start;
-  margin-bottom: 6px;
+  margin-bottom: 4.8px;
 }
-.dv-cal-title { font-family: var(--font-display); font-weight: 600; font-size: 13.5px; color: var(--text-primary); }
-.dv-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.dv-cal-title { font-family: var(--font-display); font-weight: 600; font-size: 10.8px; color: var(--text-primary); }
+.dv-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1.6px; }
 .dv-cal-dow {
   display: flex; align-items: center; justify-content: center;
-  height: 24px; font-size: 11px; font-weight: 600; color: var(--text-muted);
+  height: 19.2px; font-size: 8.8px; font-weight: 600; color: var(--text-muted);
 }
 .dv-cal-cell {
   display: flex; align-items: center; justify-content: center;
-  height: 30px; padding: 0; border: none; border-radius: 8px;
+  height: 24px; padding: 0; border: none; border-radius: 6.4px;
   background: transparent; color: var(--text-primary);
-  font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; cursor: pointer;
+  font: inherit; font-size: 10.4px; font-variant-numeric: tabular-nums; cursor: pointer;
   transition: background 110ms, color 110ms;
 }
 .dv-cal-cell.is-empty { background: none; cursor: default; }
@@ -1072,31 +1072,31 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-cal-cell:disabled { color: var(--text-muted); opacity: 0.35; cursor: default; }
 /* Days inside the selected window get a soft tint; the two endpoints are solid. */
 .dv-cal-cell.is-range { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 0; }
-.dv-cal-cell.is-from { background: var(--accent); color: var(--text-on-accent); border-radius: 8px 0 0 8px; }
-.dv-cal-cell.is-to { background: var(--accent); color: var(--text-on-accent); border-radius: 0 8px 8px 0; }
-.dv-cal-cell.is-from.is-to { border-radius: 8px; }
+.dv-cal-cell.is-from { background: var(--accent); color: var(--text-on-accent); border-radius: 6.4px 0 0 6.4px; }
+.dv-cal-cell.is-to { background: var(--accent); color: var(--text-on-accent); border-radius: 0 6.4px 6.4px 0; }
+.dv-cal-cell.is-from.is-to { border-radius: 6.4px; }
 /* Header search — same chrome as the AI chat tab's header search
    (.aichat-chrome-search): bordered pill that widens with an accent ring on
    focus, Ctrl/⌘+F key chips that fade once focused, inline count, round
    clear button. Colours come from the WhatsApp surface palette. */
 .dv-wa-find {
   flex: 0 1 auto;
-  display: flex; align-items: center; gap: 8px;
-  padding: 4px 8px 4px 10px;
+  display: flex; align-items: center; gap: 6.4px;
+  padding: 3.2px 6.4px 3.2px 8px;
   border: 1px solid var(--wa-header-border);
-  border-radius: 7px;
+  border-radius: 5.6px;
   background: rgba(255, 255, 255, 0.7);
-  width: 190px; min-width: 0;
-  font-size: 13px; color: var(--wa-meta);
+  width: 152px; min-width: 0;
+  font-size: 10.4px; color: var(--wa-meta);
   transition: width 220ms cubic-bezier(.16, 1, .3, 1),
               border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
 .dv-wa-find:hover { border-color: color-mix(in srgb, var(--wa-meta) 55%, transparent); }
 .dv-wa-find:focus-within {
-  width: 260px;
+  width: 208px;
   border-color: #00a884;
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 168, 132, 0.16);
+  box-shadow: 0 0 0 2.4px rgba(0, 168, 132, 0.16);
 }
 .dv-wa-find-icon { flex: 0 0 auto; display: flex; color: var(--wa-meta); transition: color 140ms ease; }
 .dv-wa-find:focus-within .dv-wa-find-icon { color: #00a884; }
@@ -1107,57 +1107,57 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-wa-find input::placeholder { color: var(--wa-meta); }
 .dv-wa-find-count {
   flex: 0 0 auto;
-  font-size: 0.72rem; font-weight: 600; font-variant-numeric: tabular-nums;
+  font-size: 0.576rem; font-weight: 600; font-variant-numeric: tabular-nums;
   color: var(--wa-meta); white-space: nowrap;
-  padding: 0 2px 0 4px; user-select: none;
+  padding: 0 1.6px 0 3.2px; user-select: none;
 }
 .dv-wa-find-count.is-empty { color: var(--danger-text, #c0392b); }
 .dv-wa-find-kbd {
-  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px;
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2.4px;
   transition: opacity 120ms ease;
 }
 .dv-wa-find:focus-within .dv-wa-find-kbd { opacity: 0; }
 .dv-wa-find-kbd kbd {
   display: inline-flex; align-items: center;
-  padding: 1px 5px;
-  border: 1px solid var(--wa-header-border); border-radius: 5px;
+  padding: 1px 4px;
+  border: 1px solid var(--wa-header-border); border-radius: 4px;
   background: rgba(255, 255, 255, 0.85);
-  font-family: inherit; font-size: 10.5px; font-weight: 600; line-height: 1.5;
+  font-family: inherit; font-size: 8.4px; font-weight: 600; line-height: 1.5;
   letter-spacing: 0.02em; color: var(--wa-meta);
 }
-.dv-wa-find-kbd-plus { margin: 0 1px; font-size: 10px; font-weight: 600; color: var(--wa-meta); }
+.dv-wa-find-kbd-plus { margin: 0 1px; font-size: 8px; font-weight: 600; color: var(--wa-meta); }
 .dv-wa-find-clear {
   flex: 0 0 auto; display: grid; place-items: center;
-  width: 20px; height: 20px; padding: 0; border: 0; cursor: pointer;
-  border-radius: 5px;
+  width: 16px; height: 16px; padding: 0; border: 0; cursor: pointer;
+  border-radius: 4px;
   background: rgba(11, 20, 26, 0.08); color: var(--wa-meta);
   transition: background 120ms ease, color 120ms ease;
 }
 .dv-wa-find-clear:hover { background: rgba(11, 20, 26, 0.16); color: var(--wa-text); }
 
 /* Shared-contact (.vcf) card. */
-.dv-wa-contact { display: flex; flex-direction: column; min-width: 224px; max-width: 280px; }
-.dv-wa-contact-head { display: flex; align-items: center; gap: 10px; padding: 5px 8px 9px; }
+.dv-wa-contact { display: flex; flex-direction: column; min-width: 179.2px; max-width: 224px; }
+.dv-wa-contact-head { display: flex; align-items: center; gap: 8px; padding: 4px 6.4px 7.2px; }
 .dv-wa-contact-avatar {
-  flex: none; width: 42px; height: 42px; border-radius: 50%;
+  flex: none; width: 33.6px; height: 33.6px; border-radius: 50%;
   background: #dfe5e7; color: #8696a0;
   display: flex; align-items: center; justify-content: center;
 }
 .dv-wa-contact-meta { display: flex; flex-direction: column; min-width: 0; }
 /* Timestamp tucked into the card head's bottom-right, so the "View contact"
    button below can run flush to the bubble's bottom edge. */
-.dv-wa-contact-time { flex: none; align-self: flex-end; margin-left: auto; padding-left: 8px; font-size: 11px; color: var(--wa-meta); white-space: nowrap; }
+.dv-wa-contact-time { flex: none; align-self: flex-end; margin-left: auto; padding-left: 6.4px; font-size: 8.8px; color: var(--wa-meta); white-space: nowrap; }
 .dv-wa-contact-name {
-  font-size: 14px; font-weight: 600; color: var(--wa-text);
+  font-size: 11.2px; font-weight: 600; color: var(--wa-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dv-wa-contact-sub {
-  font-size: 12.5px; color: var(--wa-meta);
+  font-size: 10px; color: var(--wa-meta);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dv-wa-contact-action {
-  margin: 0 -3px -6px; padding: 9px; border: none; border-top: 1px solid var(--wa-header-border);
-  background: none; color: var(--wa-link); font: inherit; font-size: 13.5px; font-weight: 500;
+  margin: 0 -2.4px -4.8px; padding: 7.2px; border: none; border-top: 1px solid var(--wa-header-border);
+  background: none; color: var(--wa-link); font: inherit; font-size: 10.8px; font-weight: 500;
   text-align: center; cursor: pointer;
 }
 .dv-wa-contact-action:hover:not(:disabled) { background: rgba(11, 20, 26, 0.04); }
@@ -1173,49 +1173,49 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-wa-row {
   display: flex;
   content-visibility: auto;
-  contain-intrinsic-size: auto 52px;
-  padding: 4px 6px;
-  margin: 0 -6px -4px;
+  contain-intrinsic-size: auto 41.6px;
+  padding: 3.2px 4.8px;
+  margin: 0 -4.8px -3.2px;
 }
 /* Media rows are ~5x taller than text rows; a closer estimate keeps the
    scrollbar (and scroll anchoring) steady while never-rendered rows
    stream in during a fast scroll. */
-.dv-wa-row:has(.dv-wa-bubble.has-media) { contain-intrinsic-size: auto 270px; }
+.dv-wa-row:has(.dv-wa-bubble.has-media) { contain-intrinsic-size: auto 216px; }
 .dv-wa-row.is-in { justify-content: flex-start; }
 .dv-wa-row.is-out { justify-content: flex-end; }
 .dv-wa-bubble {
-  position: relative; max-width: 78%; padding: 6px 9px 6px; border-radius: 8px;
-  font-size: 14px; line-height: 1.35; color: var(--wa-text);
-  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+  position: relative; max-width: 78%; padding: 4.8px 7.2px 4.8px; border-radius: 6.4px;
+  font-size: 11.2px; line-height: 1.35; color: var(--wa-text);
+  box-shadow: 0 1px 0.4px rgba(11, 20, 26, 0.13);
 }
 .dv-wa-row.is-in .dv-wa-bubble { background: var(--wa-in); border-top-left-radius: 0; }
 .dv-wa-row.is-out .dv-wa-bubble { background: var(--wa-out); border-top-right-radius: 0; }
 /* Bubble tail at the top outer corner. */
 .dv-wa-row.is-in .dv-wa-bubble::before {
-  content: ''; position: absolute; top: 0; left: -6px;
-  border-top: 7px solid var(--wa-in); border-left: 7px solid transparent;
+  content: ''; position: absolute; top: 0; left: -4.8px;
+  border-top: 5.6px solid var(--wa-in); border-left: 5.6px solid transparent;
 }
 .dv-wa-row.is-out .dv-wa-bubble::before {
-  content: ''; position: absolute; top: 0; right: -6px;
-  border-top: 7px solid var(--wa-out); border-right: 7px solid transparent;
+  content: ''; position: absolute; top: 0; right: -4.8px;
+  border-top: 5.6px solid var(--wa-out); border-right: 5.6px solid transparent;
 }
-.dv-wa-name { display: block; font-size: 12.5px; font-weight: 600; margin-bottom: 1px; }
+.dv-wa-name { display: block; font-size: 10px; font-weight: 600; margin-bottom: 1px; }
 .dv-wa-text { white-space: pre-wrap; word-break: break-word; }
 /* Search-match highlight (fixed marker yellow so it reads on any bubble). */
-.dv-wa-hl { background: #ffd54a; color: #1c1c1c; border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.dv-wa-hl { background: #ffd54a; color: #1c1c1c; border-radius: 1.6px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 /* "No messages match" notice shown when a search filters everything out. */
 .dv-wa-noresults {
-  align-self: center; margin: 28px 0; padding: 8px 14px; border-radius: 8px;
-  background: var(--wa-system-bg); color: var(--wa-system-text); font-size: 13px; text-align: center;
+  align-self: center; margin: 22.4px 0; padding: 6.4px 11.2px; border-radius: 6.4px;
+  background: var(--wa-system-bg); color: var(--wa-system-text); font-size: 10.4px; text-align: center;
 }
 /* "Show earlier messages" loader pill at the top of the windowed list —
    only the newest rows are mounted on open; this pages further back. */
 .dv-wa-earlier {
-  align-self: center; margin: 10px 0 6px; padding: 7px 14px;
+  align-self: center; margin: 8px 0 4.8px; padding: 5.6px 11.2px;
   border: none; border-radius: 999px; cursor: pointer;
   background: var(--wa-system-bg); color: var(--wa-link);
-  font: inherit; font-size: 13px; font-weight: 600;
-  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+  font: inherit; font-size: 10.4px; font-weight: 600;
+  box-shadow: 0 1px 0.4px rgba(11, 20, 26, 0.13);
 }
 .dv-wa-earlier:hover { filter: brightness(0.97); }
 /* WhatsApp underlines its tappable runs — links, e-mails and @mentions. Links
@@ -1228,37 +1228,37 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-wa-iban { color: var(--wa-link); text-decoration: underline; cursor: pointer; word-break: break-all; }
 .dv-wa-iban:hover { opacity: 0.85; }
 /* "Edited" marker WhatsApp appends to an edited message — a small muted tag. */
-.dv-wa-edited { margin-left: 5px; font-size: 11px; font-style: italic; color: var(--wa-meta); }
+.dv-wa-edited { margin-left: 4px; font-size: 8.8px; font-style: italic; color: var(--wa-meta); }
 
 /* A bubble carrying media tightens its padding so the image/video sits
    flush to the rounded corners (matching WhatsApp). */
-.dv-wa-bubble.has-media { padding: 3px 3px 6px; }
-.dv-wa-bubble.has-media .dv-wa-name { padding: 3px 6px 0; }
-.dv-wa-bubble.has-media .dv-wa-time { margin-right: 3px; }
+.dv-wa-bubble.has-media { padding: 2.4px 2.4px 4.8px; }
+.dv-wa-bubble.has-media .dv-wa-name { padding: 2.4px 4.8px 0; }
+.dv-wa-bubble.has-media .dv-wa-time { margin-right: 2.4px; }
 /* A captionless photo sits flush in the bubble with the timestamp overlaid on
    its bottom-right over a gradient scrim — like WhatsApp — instead of on a strip
    of bubble background below it. */
-.dv-wa-bubble.has-media:has(img.dv-wa-media):not(:has(.dv-wa-caption)) { padding: 3px; }
+.dv-wa-bubble.has-media:has(img.dv-wa-media):not(:has(.dv-wa-caption)) { padding: 2.4px; }
 .dv-wa-bubble.has-media:has(img.dv-wa-media):not(:has(.dv-wa-caption))::after {
-  content: ''; position: absolute; left: 3px; right: 3px; bottom: 3px; height: 40px;
-  border-radius: 0 0 6px 6px; pointer-events: none; z-index: 0;
+  content: ''; position: absolute; left: 2.4px; right: 2.4px; bottom: 2.4px; height: 32px;
+  border-radius: 0 0 4.8px 4.8px; pointer-events: none; z-index: 0;
   background: linear-gradient(to top, rgba(0, 0, 0, 0.5), transparent);
 }
 .dv-wa-bubble.has-media:has(img.dv-wa-media):not(:has(.dv-wa-caption)) .dv-wa-time {
-  position: absolute; right: 9px; bottom: 6px; margin: 0; z-index: 1;
-  color: #fff; text-shadow: 0 0 3px rgba(0, 0, 0, 0.55);
+  position: absolute; right: 7.2px; bottom: 4.8px; margin: 0; z-index: 1;
+  color: #fff; text-shadow: 0 0 2.4px rgba(0, 0, 0, 0.55);
 }
 /* Captionless video keeps the timestamp below it (its controls own the bottom
    edge), just with a touch more breathing room. */
-.dv-wa-bubble.has-media:has(video.dv-wa-media):not(:has(.dv-wa-caption)) .dv-wa-time { margin-top: 6px; }
+.dv-wa-bubble.has-media:has(video.dv-wa-media):not(:has(.dv-wa-caption)) .dv-wa-time { margin-top: 4.8px; }
 
 /* Inline image / video — fills the bubble at a consistent photo width (like
    WhatsApp) so a 16:9 photo spans corner to corner instead of sitting at its
    natural size; height follows the aspect ratio, capped so a portrait photo
    doesn't dominate. */
 .dv-wa-media {
-  display: block; width: min(320px, 100%); max-width: 100%; max-height: 380px;
-  height: auto; border-radius: 6px; object-fit: cover; background: rgba(0, 0, 0, 0.04);
+  display: block; width: min(256px, 100%); max-width: 100%; max-height: 304px;
+  height: auto; border-radius: 4.8px; object-fit: cover; background: rgba(0, 0, 0, 0.04);
   /* Reserve a 4:3 box until the (lazy) image's intrinsic ratio is known —
      without this every decode mid-scroll pops the row's height, and the
      resulting scroll-anchor churn is a big part of media-scroll jank. The
@@ -1268,51 +1268,51 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 img.dv-wa-media { cursor: pointer; }
 
 /* Voice-note / audio player (opus / ogg / mp3 / m4a / wav). */
-.dv-wa-voice { display: flex; align-items: center; gap: 8px; width: 250px; max-width: 100%; padding: 3px 2px; }
+.dv-wa-voice { display: flex; align-items: center; gap: 6.4px; width: 200px; max-width: 100%; padding: 2.4px 1.6px; }
 .dv-wa-voice-btn {
-  flex: none; width: 30px; height: 30px; padding: 0; border: none; background: none; cursor: pointer;
+  flex: none; width: 24px; height: 24px; padding: 0; border: none; background: none; cursor: pointer;
   color: var(--wa-meta); display: flex; align-items: center; justify-content: center;
 }
 .dv-wa-voice-btn:hover { color: var(--wa-text); }
-.dv-wa-voice-btn svg { width: 26px; height: 26px; }
+.dv-wa-voice-btn svg { width: 20.8px; height: 20.8px; }
 /* Waveform scrubber — WhatsApp's volume bars. Each tick's height carries the
    note's real amplitude envelope (decoded lazily; `is-estimate` marks the
    filename-seeded placeholder shown until the decode lands). The played
    portion tints WhatsApp green; the knob rides the playhead over the bars. */
 .dv-wa-voice-wave {
-  position: relative; flex: 1; min-width: 0; height: 26px;
-  display: flex; align-items: center; gap: 2px; cursor: pointer;
+  position: relative; flex: 1; min-width: 0; height: 20.8px;
+  display: flex; align-items: center; gap: 1.6px; cursor: pointer;
 }
 .dv-wa-voice-tick {
-  flex: 1 1 0; min-height: 3px; border-radius: 999px;
+  flex: 1 1 0; min-height: 2.4px; border-radius: 999px;
   background: color-mix(in srgb, var(--wa-meta) 45%, transparent);
   pointer-events: none; /* clicks land on the wave container's seek handler */
 }
 .dv-wa-voice-tick.is-played { background: #00a884; }
 .dv-wa-voice-wave.is-estimate .dv-wa-voice-tick { opacity: 0.55; }
 .dv-wa-voice-knob {
-  position: absolute; width: 11px; height: 11px; border-radius: 50%;
-  background: #00a884; box-shadow: 0 1px 2px rgba(11, 20, 26, 0.3);
+  position: absolute; width: 8.8px; height: 8.8px; border-radius: 50%;
+  background: #00a884; box-shadow: 0 1px 1.6px rgba(11, 20, 26, 0.3);
   transform: translateX(-50%); pointer-events: none;
 }
-.dv-wa-voice-time { flex: none; min-width: 30px; text-align: right; font-size: 11px; color: var(--wa-meta); font-variant-numeric: tabular-nums; }
+.dv-wa-voice-time { flex: none; min-width: 24px; text-align: right; font-size: 8.8px; color: var(--wa-meta); font-variant-numeric: tabular-nums; }
 
 /* Caption text under a media item. For an image, ImageAttachment publishes the
    photo's measured display width as `--media-w` on the bubble; clamp the caption
    to it so a long caption can't stretch the bubble wider than the image (the
    bubble then shrink-wraps to the photo's aspect ratio). */
-.dv-wa-caption { display: block; padding: 4px 6px 0; max-width: var(--media-w, 100%); }
+.dv-wa-caption { display: block; padding: 3.2px 4.8px 0; max-width: var(--media-w, 100%); }
 
 /* Document chip + the "missing file" fallback. */
 .dv-wa-file {
-  display: inline-flex; flex-direction: column; align-items: center; gap: 8px; max-width: 190px;
-  margin: 2px; padding: 12px 14px; border: none; border-radius: 8px;
+  display: inline-flex; flex-direction: column; align-items: center; gap: 6.4px; max-width: 152px;
+  margin: 1.6px; padding: 9.6px 11.2px; border: none; border-radius: 6.4px;
   background: rgba(11, 20, 26, 0.06); color: var(--wa-text);
-  font: inherit; font-size: 12.5px; text-align: center; cursor: pointer;
+  font: inherit; font-size: 10px; text-align: center; cursor: pointer;
 }
 .dv-wa-file:hover { background: rgba(11, 20, 26, 0.1); }
 .dv-wa-file svg { flex: none; color: var(--wa-meta); }
-.dv-wa-file .dv-doc-ic svg { width: 36px; height: 36px; }
+.dv-wa-file .dv-doc-ic svg { width: 28.8px; height: 28.8px; }
 .dv-wa-file-name {
   width: 100%; line-height: 1.3; word-break: break-word;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -1323,53 +1323,53 @@ img.dv-wa-media { cursor: pointer; }
 /* Rich document/archive attachment card: page thumbnail (when available) on
    top, a meta row (type icon · filename · TYPE·size · time), and an Open /
    Save-as action footer. */
-.dv-wa-doccard { display: flex; flex-direction: column; width: min(330px, 100%); }
+.dv-wa-doccard { display: flex; flex-direction: column; width: min(264px, 100%); }
 .dv-wa-doccard-preview {
-  display: block; width: 100%; max-height: 230px; overflow: hidden;
+  display: block; width: 100%; max-height: 184px; overflow: hidden;
   border: none; padding: 0; background: #fff; cursor: pointer;
-  border-radius: 7px 7px 0 0;
+  border-radius: 5.6px 5.6px 0 0;
 }
-.dv-wa-doccard-preview img { display: block; width: 100%; max-height: 230px; object-fit: cover; object-position: top center; }
+.dv-wa-doccard-preview img { display: block; width: 100%; max-height: 184px; object-fit: cover; object-position: top center; }
 .dv-wa-doccard-meta {
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 9px 11px; border: none; background: var(--bg-card); color: var(--wa-text);
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7.2px 8.8px; border: none; background: var(--bg-card); color: var(--wa-text);
   font: inherit; text-align: left; cursor: pointer;
 }
-.dv-wa-doccard.has-thumb .dv-wa-doccard-meta { border-radius: 0 0 7px 7px; }
-.dv-wa-doccard:not(.has-thumb) .dv-wa-doccard-meta { border-radius: 7px; }
+.dv-wa-doccard.has-thumb .dv-wa-doccard-meta { border-radius: 0 0 5.6px 5.6px; }
+.dv-wa-doccard:not(.has-thumb) .dv-wa-doccard-meta { border-radius: 5.6px; }
 .dv-wa-doccard-meta:hover { background: color-mix(in srgb, var(--bg-card) 92%, var(--text-primary)); }
-.dv-wa-doccard-meta .dv-doc-ic svg { width: 32px; height: 32px; }
+.dv-wa-doccard-meta .dv-doc-ic svg { width: 25.6px; height: 25.6px; }
 .dv-wa-doccard-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .dv-wa-doccard-name {
-  font-size: 13px; font-weight: 600; line-height: 1.25; word-break: break-word;
+  font-size: 10.4px; font-weight: 600; line-height: 1.25; word-break: break-word;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.dv-wa-doccard-sub { font-size: 11.5px; color: var(--wa-meta); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dv-wa-doccard-sub { font-size: 9.2px; color: var(--wa-meta); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Timestamp in the meta row, pinned to the row's bottom-right. */
-.dv-wa-doccard-time { flex: none; align-self: flex-end; margin-left: 8px; font-size: 11px; color: var(--wa-meta); white-space: nowrap; }
+.dv-wa-doccard-time { flex: none; align-self: flex-end; margin-left: 6.4px; font-size: 8.8px; color: var(--wa-meta); white-space: nowrap; }
 /* Caption sits between the meta row and the Open button (not under it). */
-.dv-wa-doccard > .dv-wa-caption { padding: 2px 11px 4px; }
-.dv-wa-doccard-actions { display: flex; align-items: stretch; margin-top: 2px; }
+.dv-wa-doccard > .dv-wa-caption { padding: 1.6px 8.8px 3.2px; }
+.dv-wa-doccard-actions { display: flex; align-items: stretch; margin-top: 1.6px; }
 /* Open spans the full width of the card / bubble. */
 .dv-wa-doccard-btn {
-  flex: 1; padding: 7px 4px; border: none; background: none; cursor: pointer;
-  color: var(--wa-link); font: inherit; font-size: 13px; font-weight: 600; text-align: center; border-radius: 6px;
+  flex: 1; padding: 5.6px 3.2px; border: none; background: none; cursor: pointer;
+  color: var(--wa-link); font: inherit; font-size: 10.4px; font-weight: 600; text-align: center; border-radius: 4.8px;
 }
 .dv-wa-doccard-btn:hover { background: rgba(0, 0, 0, 0.06); }
 [data-theme="ink"] .dv-wa-doccard-btn:hover { background: rgba(255, 255, 255, 0.08); }
 /* Let the card meet the bubble edges (it brings its own surfaces + radius). */
-.dv-wa-bubble.has-media:has(.dv-wa-doccard) { padding: 3px; }
+.dv-wa-bubble.has-media:has(.dv-wa-doccard) { padding: 2.4px; }
 /* The card is a fixed ~330px wide; cap its bubble to match so the bubble hugs
    the card instead of stretching to the message max-width and leaving dead
    space beside it. (The Docvex selector outweighs `.dv-wa.is-docvex
    .dv-wa-bubble`'s max-width.) */
 .dv-wa-bubble:has(.dv-wa-doccard),
-.dv-wa.is-docvex .dv-wa-bubble:has(.dv-wa-doccard) { max-width: min(330px, 100%); }
+.dv-wa.is-docvex .dv-wa-bubble:has(.dv-wa-doccard) { max-width: min(264px, 100%); }
 
 /* "Media omitted" placeholder (export without media). */
 .dv-wa-omitted {
-  display: inline-flex; align-items: center; gap: 6px;
-  color: var(--wa-meta); font-size: 13px; font-style: italic;
+  display: inline-flex; align-items: center; gap: 4.8px;
+  color: var(--wa-meta); font-size: 10.4px; font-style: italic;
 }
 .dv-wa-omitted svg { flex: none; }
 [data-theme="ink"] .dv-wa-file { background: rgba(255, 255, 255, 0.08); }
@@ -1378,15 +1378,15 @@ img.dv-wa-media { cursor: pointer; }
 /* Timestamp floats to the bottom-right so the last line of text wraps before
    it (WhatsApp-style) without nudging or poking out of the bubble. */
 .dv-wa-time {
-  float: right; margin: 3px 0 0 10px; font-size: 11px; color: var(--wa-meta); white-space: nowrap;
+  float: right; margin: 2.4px 0 0 8px; font-size: 8.8px; color: var(--wa-meta); white-space: nowrap;
 }
 
 /* Album — a burst of photos shared at the same instant, grouped into one
    bubble (like WhatsApp). Uniform 2-column grid; a 3-photo album makes the
    first photo full-width with the other two below it. */
 .dv-wa-album-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 3px;
-  width: 252px; max-width: 100%; border-radius: 6px; overflow: hidden;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 2.4px;
+  width: 201.6px; max-width: 100%; border-radius: 4.8px; overflow: hidden;
 }
 .dv-wa-album-cell {
   position: relative; aspect-ratio: 1; padding: 0; border: none; cursor: pointer;
@@ -1408,48 +1408,48 @@ img.dv-wa-media { cursor: pointer; }
 /* "Find in chat" — briefly ring the located message. */
 .dv-wa-row.is-found .dv-wa-bubble { animation: dv-wa-found 2.2s ease-out; }
 @keyframes dv-wa-found {
-  0%, 28% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 75%, transparent); }
+  0%, 28% { box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--accent) 75%, transparent); }
   100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
 }
 
 /* Centred day divider + system notices (encryption notice, "group created"…). */
-.dv-wa-day { display: flex; justify-content: center; margin: 12px 0 6px; }
+.dv-wa-day { display: flex; justify-content: center; margin: 9.6px 0 4.8px; }
 .dv-wa-day span {
-  background: var(--wa-day-bg); color: var(--wa-day-text); font-size: 12px; font-weight: 500;
-  padding: 5px 12px; border-radius: 7px; box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13); text-transform: uppercase; letter-spacing: 0.3px;
+  background: var(--wa-day-bg); color: var(--wa-day-text); font-size: 9.6px; font-weight: 500;
+  padding: 4px 9.6px; border-radius: 5.6px; box-shadow: 0 1px 0.4px rgba(11, 20, 26, 0.13); text-transform: uppercase; letter-spacing: 0.24px;
 }
-.dv-wa-system { display: flex; justify-content: center; margin: 4px 0; }
+.dv-wa-system { display: flex; justify-content: center; margin: 3.2px 0; }
 .dv-wa-system span {
-  background: var(--wa-system-bg); color: var(--wa-system-text); font-size: 12.5px;
-  padding: 5px 12px; border-radius: 7px; box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+  background: var(--wa-system-bg); color: var(--wa-system-text); font-size: 10px;
+  padding: 4px 9.6px; border-radius: 5.6px; box-shadow: 0 1px 0.4px rgba(11, 20, 26, 0.13);
   max-width: 90%; text-align: center; line-height: 1.4;
 }
 /* End-to-end-encryption notice — WhatsApp's pale-yellow lock banner, centred
    with the lock glyph inline before the text. */
 .dv-wa-encryption {
-  align-self: center; max-width: 88%; margin: 8px auto 12px; padding: 7px 16px;
-  border-radius: 8px; text-align: center; font-size: 12px; line-height: 1.5;
+  align-self: center; max-width: 88%; margin: 6.4px auto 9.6px; padding: 5.6px 12.8px;
+  border-radius: 6.4px; text-align: center; font-size: 9.6px; line-height: 1.5;
   background: color-mix(in srgb, var(--warning) 22%, var(--wa-system-bg));
-  color: var(--wa-system-text); box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+  color: var(--wa-system-text); box-shadow: 0 1px 0.4px rgba(11, 20, 26, 0.13);
 }
-.dv-wa-encryption-icon { display: inline-block; vertical-align: -2px; margin-right: 5px; color: color-mix(in srgb, var(--warning) 65%, var(--wa-system-text)); }
-.dv-wa-encryption-icon svg { width: 12px; height: 12px; }
+.dv-wa-encryption-icon { display: inline-block; vertical-align: -1.6px; margin-right: 4px; color: color-mix(in srgb, var(--warning) 65%, var(--wa-system-text)); }
+.dv-wa-encryption-icon svg { width: 9.6px; height: 9.6px; }
 /* Call entry rendered as a chat bubble (left = incoming, right = outgoing),
    like WhatsApp's in-conversation call log: a circular phone/video glyph (red
    missed, green answered) + label/duration, with the time tucked in the corner. */
-.dv-wa-call-bubble { display: flex; align-items: center; gap: 11px; min-width: 168px; padding: 8px 11px; }
+.dv-wa-call-bubble { display: flex; align-items: center; gap: 8.8px; min-width: 134.4px; padding: 6.4px 8.8px; }
 .dv-wa-call-bubble-icon {
-  flex: none; width: 36px; height: 36px; border-radius: 50%;
+  flex: none; width: 28.8px; height: 28.8px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background: color-mix(in srgb, var(--wa-meta) 22%, transparent); color: var(--wa-text);
 }
-.dv-wa-call-bubble-icon svg { width: 18px; height: 18px; }
+.dv-wa-call-bubble-icon svg { width: 14.4px; height: 14.4px; }
 .dv-wa-call-bubble.is-missed .dv-wa-call-bubble-icon { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
 .dv-wa-call-bubble.is-answered .dv-wa-call-bubble-icon { background: color-mix(in srgb, var(--success) 20%, transparent); color: var(--success); }
 .dv-wa-call-bubble-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
-.dv-wa-call-bubble-label { font-size: 14px; color: var(--wa-text); }
-.dv-wa-call-bubble-sub { font-size: 12px; color: var(--wa-meta); }
-.dv-wa-call-bubble .dv-wa-time { float: none; margin: 0 0 0 auto; align-self: flex-end; padding-left: 10px; }
+.dv-wa-call-bubble-label { font-size: 11.2px; color: var(--wa-text); }
+.dv-wa-call-bubble-sub { font-size: 9.6px; color: var(--wa-meta); }
+.dv-wa-call-bubble .dv-wa-time { float: none; margin: 0 0 0 auto; align-self: flex-end; padding-left: 8px; }
 
 /* Dark (Ink) — WhatsApp's dark palette. */
 [data-theme="ink"] .dv-wa {
@@ -1496,60 +1496,60 @@ img.dv-wa-media { cursor: pointer; }
   --wa-header-border: var(--border);
 }
 /* Avatar + bubble share one row, top-aligned (avatar beside the name). */
-.dv-wa.is-docvex .dv-wa-row { align-items: flex-start; gap: 8px; }
+.dv-wa.is-docvex .dv-wa-row { align-items: flex-start; gap: 6.4px; }
 /* The Docvex skin fills the pane, so drop the 820px column cap — otherwise
    right-aligned (own) messages stop at the end of that column instead of
    reaching the right edge / scrollbar. */
 .dv-wa.is-docvex .dv-wa-inner { max-width: none; }
 .dv-wa-avatar {
-  flex: none; width: 32px; height: 32px; margin-top: 2px; border-radius: 50%;
+  flex: none; width: 25.6px; height: 25.6px; margin-top: 1.6px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   color: #fff; font-family: var(--font-display); font-weight: 700;
-  font-size: 13px; text-transform: uppercase; user-select: none;
+  font-size: 10.4px; text-transform: uppercase; user-select: none;
 }
 /* Team-chat bubble: card fill + hairline border, asymmetric corners, no tail. */
 .dv-wa.is-docvex .dv-wa-bubble {
-  max-width: 55%; padding: 9px 13px;
-  border: 1px solid var(--border); border-radius: 12px 12px 12px 4px;
+  max-width: 55%; padding: 7.2px 10.4px;
+  border: 1px solid var(--border); border-radius: 9.6px 9.6px 9.6px 3.2px;
   box-shadow: none;
 }
-.dv-wa.is-docvex .dv-wa-bubble.has-media { padding: 4px 4px 6px; }
-.dv-wa.is-docvex .dv-wa-row.is-in .dv-wa-bubble { border-radius: 12px 12px 12px 4px; }
+.dv-wa.is-docvex .dv-wa-bubble.has-media { padding: 3.2px 3.2px 4.8px; }
+.dv-wa.is-docvex .dv-wa-row.is-in .dv-wa-bubble { border-radius: 9.6px 9.6px 9.6px 3.2px; }
 .dv-wa.is-docvex .dv-wa-row.is-out .dv-wa-bubble {
   border-color: color-mix(in srgb, var(--accent) 30%, var(--bg-page));
-  border-radius: 12px 12px 4px 12px;
+  border-radius: 9.6px 9.6px 3.2px 9.6px;
   /* Own messages keep their text left-aligned (the bubble itself sits right). */
   text-align: left;
 }
 .dv-wa.is-docvex .dv-wa-bubble::before { display: none; }   /* drop the WhatsApp tail */
 /* Author name in the team's display font (keeps its per-sender colour). */
-.dv-wa.is-docvex .dv-wa-name { font-family: var(--font-display); font-weight: 700; font-size: 12.5px; margin-bottom: 3px; }
+.dv-wa.is-docvex .dv-wa-name { font-family: var(--font-display); font-weight: 700; font-size: 10px; margin-bottom: 2.4px; }
 /* Line-style day divider (centred label flanked by hairlines), like .dvx-day-divider. */
-.dv-wa.is-docvex .dv-wa-day { align-items: center; gap: 12px; margin: 18px 0 10px; }
+.dv-wa.is-docvex .dv-wa-day { align-items: center; gap: 9.6px; margin: 14.4px 0 8px; }
 .dv-wa.is-docvex .dv-wa-day::before,
 .dv-wa.is-docvex .dv-wa-day::after {
-  content: ""; flex: 1; height: 1px; max-width: 240px; background: var(--border);
+  content: ""; flex: 1; height: 1px; max-width: 192px; background: var(--border);
 }
 .dv-wa.is-docvex .dv-wa-day span {
   padding: 0; background: none; box-shadow: none;
-  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  font-family: var(--font-display); font-size: 8.8px; font-weight: 700;
   letter-spacing: 0.08em; color: var(--text-muted);
 }
 /* System + encryption notices as soft pills in the app palette. */
 .dv-wa.is-docvex .dv-wa-system span,
 .dv-wa.is-docvex .dv-wa-encryption { border: 1px solid var(--border); box-shadow: none; }
 
-.dv-docx-error { color: var(--text-muted); padding: 24px; text-align: center; }
-.dv-loading { color: var(--text-muted); padding: 24px; text-align: center; }
+.dv-docx-error { color: var(--text-muted); padding: 19.2px; text-align: center; }
+.dv-loading { color: var(--text-muted); padding: 19.2px; text-align: center; }
 
 /* Extracted .doc text rendered as a document page (formatting isn't recoverable
    from the legacy binary, so this is text-only). */
 .dv-text-doc {
-  max-width: 740px; margin: 0 auto; background: #fff; color: #1a1a1a;
-  font-family: 'Times New Roman', Cambria, Georgia, serif; font-size: 15px; line-height: 1.8;
-  padding: 48px 56px; border-radius: 2px; box-shadow: 0 10px 40px -24px rgba(0, 0, 0, 0.45);
+  max-width: 592px; margin: 0 auto; background: #fff; color: #1a1a1a;
+  font-family: 'Times New Roman', Cambria, Georgia, serif; font-size: 12px; line-height: 1.8;
+  padding: 38.4px 44.8px; border-radius: 1.6px; box-shadow: 0 8px 32px -19.2px rgba(0, 0, 0, 0.45);
 }
-.dv-text-doc p { margin: 0 0 10px; white-space: pre-wrap; word-break: break-word; }
+.dv-text-doc p { margin: 0 0 8px; white-space: pre-wrap; word-break: break-word; }
 
 /* Document view with the Render / Plain text toggle (Claude-style). */
 .dv-docview { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; position: relative; }
@@ -1557,32 +1557,32 @@ img.dv-wa-media { cursor: pointer; }
 /* In-app pagination chip — pinned to the bottom-right of the preview, black
    pill + white text ("3 / 12 pages"). Sits above the faded content edge. */
 .dv-page-counter {
-  position: absolute; right: 16px; bottom: 14px; z-index: 6;
-  display: inline-flex; align-items: baseline; gap: 5px;
-  padding: 4px 9px; border-radius: 5px;
+  position: absolute; right: 12.8px; bottom: 11.2px; z-index: 6;
+  display: inline-flex; align-items: baseline; gap: 4px;
+  padding: 3.2px 7.2px; border-radius: 4px;
   background: transparent; color: var(--text-secondary);
-  font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+  font-size: 9.6px; font-weight: 700; font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
   pointer-events: none; user-select: none;
 }
 .dv-page-counter-sep { opacity: 0.55; font-weight: 600; }
 .dv-page-counter-unit {
-  margin-left: 3px; font-size: 10px; font-weight: 600;
+  margin-left: 2.4px; font-size: 8px; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.6;
 }
 .dv-docview-toolbar {
-  flex: none; display: flex; align-items: center; gap: 10px;
-  margin: 0 0 14px;
+  flex: none; display: flex; align-items: center; gap: 8px;
+  margin: 0 0 11.2px;
 }
 .dv-docview-seg {
-  display: inline-flex; gap: 2px; padding: 3px;
-  border: 1px solid var(--border); border-radius: 9px; background: var(--bg-input);
+  display: inline-flex; gap: 1.6px; padding: 2.4px;
+  border: 1px solid var(--border); border-radius: 7.2px; background: var(--bg-input);
 }
 .dv-docview-pgtoggle {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 6px 12px; border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 5.6px;
+  padding: 4.8px 9.6px; border-radius: 6.4px;
   border: 1px solid var(--color-sand); background: var(--color-cream);
-  color: var(--color-ink); font: inherit; font-size: 12.5px; font-weight: 600;
+  color: var(--color-ink); font: inherit; font-size: 10px; font-weight: 600;
   cursor: pointer; transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 .dv-docview-pgtoggle:hover { background: var(--color-sand); }
@@ -1597,7 +1597,7 @@ img.dv-wa-media { cursor: pointer; }
 /* Word toolbar: float the page-numbers toggle (left) and Convert-to-PDF (right)
    into the toolbar corners so they don't take part in flow — the centered
    reconstruction pill stays put and the row can't wrap or shift the document. */
-.dv-docview-toolbar--float { position: relative; min-height: 34px; }
+.dv-docview-toolbar--float { position: relative; min-height: 27.2px; }
 .dv-docview-toolbar--float .dv-docview-pgtoggle {
   position: absolute; left: 0; top: 50%; transform: translateY(-50%); z-index: 2;
 }
@@ -1608,31 +1608,31 @@ img.dv-wa-media { cursor: pointer; }
 
 /* Top notice bar — just the centred reconstruction pill. Collapses when empty
    (Electron: the pill portals into the title bar, leaving this with no child). */
-.dv-docview-topbar { position: relative; min-height: 34px; flex: none; }
+.dv-docview-topbar { position: relative; min-height: 27.2px; flex: none; }
 .dv-docview-topbar:empty { display: none; }
 
 /* Bottom toolbar — page-numbers toggle (left) + Convert-to-PDF (right), docked
    below the scrolling document body. */
 .dv-docview-toolbar--foot {
-  flex: none; display: flex; align-items: center; gap: 8px;
-  padding-top: 10px; border-top: 1px solid var(--border);
+  flex: none; display: flex; align-items: center; gap: 6.4px;
+  padding-top: 8px; border-top: 1px solid var(--border);
 }
 
 /* Convert / Export to PDF button — accent-tinted, with a small status dot that
    turns green on success / red on failure. Lives in each office preview toolbar. */
 .dv-pdf-export {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 6px 12px; border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 5.6px;
+  padding: 4.8px 9.6px; border-radius: 6.4px;
   border: 1px solid var(--color-sand); background: var(--color-cream);
-  color: var(--color-ink); font: inherit; font-size: 12.5px; font-weight: 600;
+  color: var(--color-ink); font: inherit; font-size: 10px; font-weight: 600;
   cursor: pointer; white-space: nowrap;
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease, opacity 120ms ease;
 }
 .dv-pdf-export:hover:not(:disabled) { background: var(--color-sand); color: var(--color-ink); border-color: var(--color-cognac); }
 .dv-pdf-export:disabled { cursor: progress; opacity: 0.7; }
 .dv-pdf-export-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: currentColor; flex: 0 0 7px;
+  width: 5.6px; height: 5.6px; border-radius: 50%;
+  background: currentColor; flex: 0 0 5.6px;
 }
 .dv-pdf-export.is-done { border-color: var(--success); background: var(--success-soft); color: var(--success); }
 .dv-pdf-export.is-done .dv-pdf-export-dot { background: var(--success); }
@@ -1640,13 +1640,13 @@ img.dv-wa-media { cursor: pointer; }
 .dv-pdf-export.is-error .dv-pdf-export-dot { background: var(--danger); }
 
 /* Spreadsheet top bar — holds the sheet tabs (left) + Convert-to-PDF (right). */
-.dv-sheet-bar { display: flex; align-items: center; gap: 10px; padding: 8px 10px 6px; }
+.dv-sheet-bar { display: flex; align-items: center; gap: 8px; padding: 6.4px 8px 4.8px; }
 .dv-sheet-bar .dv-sheet-tabs { margin: 0; flex: 1 1 auto; min-width: 0; }
 .dv-sheet-bar-spacer { flex: 1 1 auto; }
 .dv-docview-toggle {
-  padding: 5px 13px; border: none; border-radius: 6px;
+  padding: 4px 10.4px; border: none; border-radius: 4.8px;
   background: none; color: var(--text-secondary);
-  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  font: inherit; font-size: 10px; font-weight: 600; cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
 }
 .dv-docview-toggle:hover { color: var(--text-primary); }
@@ -1660,45 +1660,45 @@ img.dv-wa-media { cursor: pointer; }
 .dv-doc-main:has(.dv-docview) {
   display: flex; flex-direction: column; overflow: hidden; padding: 0;
 }
-.dv-doc-main:has(.dv-docview) .dv-docview { padding: 14px 18px 0; }
-.dv-doc-main:has(.dv-docview) .dv-docview-topbar { margin: 0 0 10px; }
+.dv-doc-main:has(.dv-docview) .dv-docview { padding: 11.2px 14.4px 0; }
+.dv-doc-main:has(.dv-docview) .dv-docview-topbar { margin: 0 0 8px; }
 .dv-doc-main:has(.dv-docview) .dv-docview-toolbar--foot { margin: 0; }
 .dv-doc-main:has(.dv-docview) .dv-docview-body {
-  padding-bottom: 12px;
+  padding-bottom: 9.6px;
 }
 
 /* Reconstruction notice — a centred pill at the top of each office preview's
    toolbar, flagging that the in-app render may differ from the real Office app. */
 .dv-recon-pill {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  z-index: 1; display: inline-flex; align-items: center; gap: 9px;
-  max-width: min(68%, 540px);
-  padding: 7px 18px; border-radius: 999px;
+  z-index: 1; display: inline-flex; align-items: center; gap: 7.2px;
+  max-width: min(68%, 432px);
+  padding: 5.6px 14.4px; border-radius: 999px;
   background: var(--accent-tint);
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-  color: var(--accent); font-size: 13px; font-weight: 600;
+  color: var(--accent); font-size: 10.4px; font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .dv-recon-pill::before {
-  content: ''; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--color-cognac); flex: 0 0 7px;
+  content: ''; width: 5.6px; height: 5.6px; border-radius: 50%;
+  background: var(--color-cognac); flex: 0 0 5.6px;
 }
 /* Portalled into the window title bar — static (the slot centres it), compact to
    fit the bar height. */
 .dv-recon-pill--titlebar {
   position: static; transform: none; max-width: none;
-  padding: 4px 14px; font-size: 12px; gap: 7px;
+  padding: 3.2px 11.2px; font-size: 9.6px; gap: 5.6px;
 }
-.dv-recon-pill--titlebar::before { width: 6px; height: 6px; flex-basis: 6px; }
+.dv-recon-pill--titlebar::before { width: 4.8px; height: 4.8px; flex-basis: 4.8px; }
 /* Spreadsheet bar hosts the pill the same way. */
 .dv-sheet-bar { position: relative; }
 .dv-docview-plain {
   flex: 1; min-height: 0; margin: 0; overflow: auto;
   white-space: pre-wrap; word-break: break-word;
-  font-family: var(--font-body); font-size: 13.5px; line-height: 1.65;
+  font-family: var(--font-body); font-size: 10.8px; line-height: 1.65;
   color: var(--text-primary);
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
-  padding: 22px 24px; box-shadow: var(--shadow-card);
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 17.6px 19.2px; box-shadow: var(--shadow-card);
 }
 
 /* docx-preview output, re-paginated into Word-style page sheets (see
@@ -1708,11 +1708,11 @@ img.dv-wa-media { cursor: pointer; }
    page width to the pane. */
 .dv-docx { display: block; width: 100%; }
 .dv-docx .docx-wrapper {
-  background: transparent !important; padding: 26px 18px !important;
+  background: transparent !important; padding: 20.8px 14.4px !important;
   /* Wrapping row: pages sit side by side when the pane is wide enough and wrap
      to the next line otherwise (Word's multi-page view). */
   display: flex; flex-flow: row wrap; align-items: flex-start; justify-content: center;
-  gap: 26px;
+  gap: 20.8px;
 }
 .dv-docx .docx-wrapper > section.docx,
 .dv-docx .docx-wrapper > .dv-docx-page {
@@ -1731,10 +1731,10 @@ img.dv-wa-media { cursor: pointer; }
    host carries `show-pagenums` (toolbar toggle). */
 .dv-docx-pagenum {
   display: none;
-  position: absolute; right: 14px; bottom: 14px;
-  padding: 3px 9px; border-radius: 5px;
+  position: absolute; right: 11.2px; bottom: 11.2px;
+  padding: 2.4px 7.2px; border-radius: 4px;
   background: transparent; color: #5f6368;
-  font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+  font-size: 8.8px; font-weight: 700; letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-body);
   pointer-events: none; user-select: none;
@@ -1743,10 +1743,10 @@ img.dv-wa-media { cursor: pointer; }
 
 /* ── PowerPoint preview (parsed from the pptx zip) ───────────────────────── */
 /* A centred column of 16:9 slide cards (title + bullets). */
-.dv-pptx { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 22px 8px; }
+.dv-pptx { display: flex; flex-direction: column; align-items: center; gap: 17.6px; padding: 17.6px 6.4px; }
 .dv-pptx-slide {
-  position: relative; width: 100%; max-width: 860px; aspect-ratio: 16 / 9;
-  background: #fff; color: #1a1a1a; border-radius: 6px; overflow: hidden;
+  position: relative; width: 100%; max-width: 688px; aspect-ratio: 16 / 9;
+  background: #fff; color: #1a1a1a; border-radius: 4.8px; overflow: hidden;
   box-shadow: var(--shadow-card); border: 1px solid rgba(0, 0, 0, 0.06);
 }
 .dv-pptx-canvas {
@@ -1756,7 +1756,7 @@ img.dv-wa-media { cursor: pointer; }
 }
 .dv-pptx-title {
   margin: 0; flex: none;
-  font-size: clamp(18px, 3.6cqw, 30px);
+  font-size: clamp(14.4px, 3.6cqw, 24px);
   font-weight: 700; line-height: 1.15; color: #1a1a1a;
 }
 .dv-pptx-slide { container-type: inline-size; }
@@ -1766,7 +1766,7 @@ img.dv-wa-media { cursor: pointer; }
 }
 .dv-pptx-bullet {
   position: relative; padding-left: 1.1em;
-  font-size: clamp(12px, 2.2cqw, 18px); line-height: 1.32; color: #2a2a2a;
+  font-size: clamp(9.6px, 2.2cqw, 14.4px); line-height: 1.32; color: #2a2a2a;
 }
 .dv-pptx-bullet::before {
   content: ''; position: absolute; left: 0.15em; top: 0.55em;
@@ -1778,19 +1778,19 @@ img.dv-wa-media { cursor: pointer; }
 .dv-pptx-bullet.lvl-4 { margin-left: 4.2em; opacity: 0.8; }
 .dv-pptx-bullet.lvl-1::before,
 .dv-pptx-bullet.lvl-2::before { background: #8a8a8a; width: 0.34em; height: 0.34em; }
-.dv-pptx-empty { color: #b0b0b0; font-size: 14px; }
+.dv-pptx-empty { color: #b0b0b0; font-size: 11.2px; }
 .dv-pptx-num {
-  position: absolute; right: 10px; bottom: 7px;
-  font-size: 10.5px; font-weight: 600; color: #b8b8b8;
+  position: absolute; right: 8px; bottom: 5.6px;
+  font-size: 8.4px; font-weight: 600; color: #b8b8b8;
 }
 
 /* Faithful pptx renderer — slides reproduce the file's own fills/positions, so
    the card is just a sized, clipped stage; shapes are absolutely positioned and
    font sizes scale with the slide via container-query height units (cqh). */
-.dv-ppx { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 22px 8px; }
+.dv-ppx { display: flex; flex-direction: column; align-items: center; gap: 17.6px; padding: 17.6px 6.4px; }
 .dv-ppx-slide {
-  position: relative; width: 100%; max-width: 920px;
-  border-radius: 6px; overflow: hidden;
+  position: relative; width: 100%; max-width: 736px;
+  border-radius: 4.8px; overflow: hidden;
   box-shadow: var(--shadow-card); border: 1px solid rgba(0, 0, 0, 0.08);
   container-type: size;
   font-family: 'Calibri', 'Carlito', 'Segoe UI', Arial, sans-serif;
@@ -1808,15 +1808,15 @@ img.dv-wa-media { cursor: pointer; }
   position: absolute; right: 1.2%; bottom: 1.5%;
   font-size: 2cqh; font-weight: 600; opacity: 0.45;
 }
-.dv-pptx-count { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.dv-pptx-count { font-size: 9.6px; font-weight: 600; color: var(--text-muted); }
 
 /* Fallback for unpreviewable types. */
-.dv-noview { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; color: var(--text-muted); }
+.dv-noview { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; color: var(--text-muted); }
 .dv-noview-title { font-weight: 600; color: var(--text-secondary); margin: 0; }
-.dv-noview-sub { margin: 0; font-size: 13px; word-break: break-all; max-width: 80%; }
+.dv-noview-sub { margin: 0; font-size: 10.4px; word-break: break-all; max-width: 80%; }
 .dv-chip {
-  display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 7px 12px; border-radius: 999px;
-  cursor: pointer; font: inherit; font-size: 13px; border: 1px solid var(--border);
+  display: inline-flex; align-items: center; gap: 4.8px; margin-top: 4.8px; padding: 5.6px 9.6px; border-radius: 999px;
+  cursor: pointer; font: inherit; font-size: 10.4px; border: 1px solid var(--border);
   background: var(--bg-card); color: var(--text-primary);
 }
 .dv-chip:hover { border-color: var(--accent); color: var(--accent); }
@@ -1839,28 +1839,28 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 
 /* ── Zoom controls ───────────────────────────────────────────────── */
 .dv-zoom-controls {
-  position: absolute; top: 12px; left: 12px; z-index: 6;
+  position: absolute; top: 9.6px; left: 9.6px; z-index: 6;
   display: flex; align-items: center;
   background: rgba(10, 12, 14, 0.92);
-  backdrop-filter: blur(22px) saturate(1.8);
+  backdrop-filter: blur(17.6px) saturate(1.8);
   border: 1px solid rgba(255, 255, 255, 0.09);
-  filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.55));
+  filter: drop-shadow(0 3.2px 12.8px rgba(0, 0, 0, 0.55));
   border-radius: 999px;
 }
 .dv-zoom-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; flex-shrink: 0;
+  width: 25.6px; height: 25.6px; flex-shrink: 0;
   border: none; background: transparent; cursor: pointer;
-  font-size: 18px; font-weight: 400; line-height: 1;
+  font-size: 14.4px; font-weight: 400; line-height: 1;
   color: rgba(255, 255, 255, 0.7); border-radius: 999px;
   transition: color 120ms ease, background 120ms ease;
   user-select: none;
 }
 .dv-zoom-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.1); }
 .dv-zoom-pct {
-  min-width: 44px; padding: 0 2px;
+  min-width: 35.2px; padding: 0 1.6px;
   border: none; background: transparent; cursor: pointer;
-  font: inherit; font-size: 11.5px; font-weight: 600;
+  font: inherit; font-size: 9.2px; font-weight: 600;
   font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
   color: rgba(255, 255, 255, 0.6); text-align: center;
   transition: color 120ms ease;
@@ -1874,13 +1874,13 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
   display: flex; align-items: center; justify-content: center;
 }
 .dv-playback-flash-circle {
-  width: 72px; height: 72px; border-radius: 50%;
+  width: 57.6px; height: 57.6px; border-radius: 50%;
   background: rgba(0, 0, 0, 0.52);
   display: flex; align-items: center; justify-content: center;
   color: #fff;
   animation: dv-playback-pop 0.62s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
 }
-.dv-playback-flash-circle svg { width: 32px; height: 32px; }
+.dv-playback-flash-circle svg { width: 25.6px; height: 25.6px; }
 @keyframes dv-playback-pop {
   0%   { transform: scale(0.72); opacity: 0;   }
   18%  { transform: scale(1.0);  opacity: 0.92; }
@@ -1913,8 +1913,8 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 }
 .dv-player-controls {
   position: relative; z-index: 1;
-  padding: 0 16px 14px;
-  display: flex; flex-direction: column; gap: 10px;
+  padding: 0 12.8px 11.2px;
+  display: flex; flex-direction: column; gap: 8px;
 }
 
 /* Seek "decibel line" — the video's loudness envelope drawn across the controls,
@@ -1923,14 +1923,14 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
    translucent base (the canvas reads `color` for accent, `--text-muted` for the
    base, so overriding the token here recolours only this scope). */
 .dv-player-scope {
-  display: block; width: 100%; height: 52px;
+  display: block; width: 100%; height: 41.6px;
   color: var(--accent); --text-muted: rgba(255, 255, 255, 0.92);
   cursor: pointer; touch-action: none;
   -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 3%, #000 97%, transparent 100%);
   mask-image: linear-gradient(to right, transparent 0%, #000 3%, #000 97%, transparent 100%);
 }
 .dv-player-scope:focus-visible {
-  outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px;
+  outline: 1.6px solid var(--accent); outline-offset: -1.6px; border-radius: 6.4px;
 }
 
 /* Live AI caption — the active transcript line shown as a subtitle. Its own
@@ -1943,58 +1943,58 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
   /* Size to the text (capped at max-width) so the box never collapses to the
      left→edge gap when right-anchored — otherwise the line wraps into a sliver. */
   width: max-content;
-  max-width: min(82%, 780px);
-  padding: 8px 16px; border-radius: 10px;
+  max-width: min(82%, 624px);
+  padding: 6.4px 12.8px; border-radius: 8px;
   background: rgba(0, 0, 0, 0.6);
-  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
-  color: #fff; font-size: 22px; line-height: 1.4; font-weight: 600;
-  text-align: center; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(1.6px); backdrop-filter: blur(1.6px);
+  color: #fff; font-size: 17.6px; line-height: 1.4; font-weight: 600;
+  text-align: center; text-shadow: 0 1px 3.2px rgba(0, 0, 0, 0.6);
   user-select: none; cursor: grab; pointer-events: auto;
   transition: box-shadow 120ms ease;
 }
-.dv-video-caption:hover { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.28); }
-.dv-video-caption.is-dragging { cursor: grabbing; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.45); transition: none; }
+.dv-video-caption:hover { box-shadow: 0 0 0 1.6px rgba(255, 255, 255, 0.28); }
+.dv-video-caption.is-dragging { cursor: grabbing; box-shadow: 0 0 0 1.6px rgba(255, 255, 255, 0.45); transition: none; }
 /* During OCR (armed) let clicks fall through to the lasso. */
 .dv-video-caption.is-locked { pointer-events: none; cursor: default; }
 
 /* Snap targets shown while dragging the caption. */
 .dv-caption-snaps { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
 .dv-caption-snap {
-  position: absolute; width: 11px; height: 11px; border-radius: 50%;
+  position: absolute; width: 8.8px; height: 8.8px; border-radius: 50%;
   transform: translate(-50%, -50%);
   background: rgba(255, 255, 255, 0.26);
-  border: 1.5px solid rgba(255, 255, 255, 0.72);
+  border: 1.2px solid rgba(255, 255, 255, 0.72);
   transition: transform 90ms ease, background 90ms ease, box-shadow 90ms ease;
 }
 .dv-caption-snap.is-active {
   background: var(--accent); border-color: #fff;
   transform: translate(-50%, -50%) scale(1.7);
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 28%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 /* Controls row */
-.dv-player-row { display: flex; align-items: center; gap: 4px; }
+.dv-player-row { display: flex; align-items: center; gap: 3.2px; }
 .dv-player-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; flex-shrink: 0;
-  border: none; background: transparent; cursor: pointer; border-radius: 9px;
+  width: 27.2px; height: 27.2px; flex-shrink: 0;
+  border: none; background: transparent; cursor: pointer; border-radius: 7.2px;
   color: rgba(255, 255, 255, 0.82);
   transition: color 120ms ease, background 120ms ease;
 }
 .dv-player-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
-.dv-player-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
-.dv-player-btn:last-child svg { width: 16px; height: 16px; } /* volume + fullscreen smaller */
+.dv-player-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+.dv-player-btn:last-child svg { width: 12.8px; height: 12.8px; } /* volume + fullscreen smaller */
 /* Captions (CC) toggle — sized like fullscreen; an accent underline marks "on". */
 .dv-player-cc { position: relative; }
-.dv-player-cc svg { width: 18px; height: 18px; }
+.dv-player-cc svg { width: 14.4px; height: 14.4px; }
 .dv-player-cc.is-active { color: #fff; }
 .dv-player-cc.is-active::after {
-  content: ''; position: absolute; left: 7px; right: 7px; bottom: 5px;
-  height: 2px; border-radius: 2px; background: var(--accent);
+  content: ''; position: absolute; left: 5.6px; right: 5.6px; bottom: 4px;
+  height: 1.6px; border-radius: 1.6px; background: var(--accent);
 }
 .dv-player-time {
-  font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, 0.62);
-  white-space: nowrap; user-select: none; padding: 0 4px;
+  font-size: 9.6px; font-weight: 500; color: rgba(255, 255, 255, 0.62);
+  white-space: nowrap; user-select: none; padding: 0 3.2px;
   font-variant-numeric: tabular-nums;
 }
 .dv-player-spacer { flex: 1; }
@@ -2003,8 +2003,8 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 .dv-player-vol-wrap { display: flex; align-items: center; }
 .dv-player-vol {
   -webkit-appearance: none; appearance: none;
-  width: 72px; height: 3px; border-radius: 999px;
-  outline: none; cursor: pointer; margin-left: 2px;
+  width: 57.6px; height: 2.4px; border-radius: 999px;
+  outline: none; cursor: pointer; margin-left: 1.6px;
   background: linear-gradient(to right,
     rgba(255, 255, 255, 0.85) var(--pct, 100%),
     rgba(255, 255, 255, 0.2) var(--pct, 100%)
@@ -2012,11 +2012,11 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 }
 .dv-player-vol::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 11px; height: 11px; border-radius: 50%; background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  width: 8.8px; height: 8.8px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 2.4px rgba(0, 0, 0, 0.35);
 }
 .dv-player-vol::-moz-range-thumb {
-  width: 11px; height: 11px; border: none; border-radius: 50%; background: #fff;
+  width: 8.8px; height: 8.8px; border: none; border-radius: 50%; background: #fff;
 }
 .dv-player-vol::-moz-range-track { background: transparent; border: none; }
 
@@ -2036,7 +2036,7 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
    reuses the lasso scrim/outline look with a heavier dim + accent glow. */
 .dv-ocr-highlight { position: absolute; inset: 0; z-index: 4; pointer-events: none; overflow: hidden; }
 .dv-ocr-highlight-scrim { fill: rgba(0, 0, 0, 0.58); }
-.dv-ocr-highlight-outline { stroke-width: 2.5; filter: drop-shadow(0 0 6px var(--accent)); }
+.dv-ocr-highlight-outline { stroke-width: 2.5; filter: drop-shadow(0 0 4.8px var(--accent)); }
 /* Brush selection: one uniform fill clipped to the union of the brush
    circles (no per-circle strokes), so it reads as a smooth blob. */
 .dv-ocr-highlight-union { fill: color-mix(in srgb, var(--accent) 30%, transparent); stroke: none; }
@@ -2049,10 +2049,10 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
   pointer-events: none;
 }
 .dv-seek-loading-dots {
-  display: flex; gap: 7px;
+  display: flex; gap: 5.6px;
 }
 .dv-seek-loading-dots span {
-  width: 7px; height: 7px; border-radius: 50%;
+  width: 5.6px; height: 5.6px; border-radius: 50%;
   background: rgba(255, 255, 255, 0.75);
   animation: dv-seek-dot 0.9s ease-in-out infinite;
 }
@@ -2097,8 +2097,8 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
    clipped by clip-path; drop-shadow is applied after clip. */
 /* Top-left tool stack: the Extract-text pill with the Center button below it. */
 .dv-stage-tools {
-  position: absolute; top: 56px; left: 12px; z-index: 6;
-  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  position: absolute; top: 44.8px; left: 9.6px; z-index: 6;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6.4px;
 }
 
 .dv-ocr-btn-wrap {
@@ -2106,31 +2106,31 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
   position: relative;
   display: flex; flex-direction: column; align-items: stretch;
   background: rgba(10, 12, 14, 0.92);
-  backdrop-filter: blur(22px) saturate(1.8);
+  backdrop-filter: blur(17.6px) saturate(1.8);
   border: 1px solid rgba(255, 255, 255, 0.09);
-  filter: drop-shadow(0 8px 30px rgba(0, 0, 0, 0.65));
+  filter: drop-shadow(0 6.4px 24px rgba(0, 0, 0, 0.65));
   /* Collapsed = pill (matches zoom controls); armed = 14px rounded rect. */
   clip-path: inset(0 round 999px);
   transition: clip-path 180ms ease-in;
 }
 /* Center-video pill — matches the zoom / extract-text chrome. */
 .dv-center-btn {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 7px 13px;
+  display: inline-flex; align-items: center; gap: 5.6px;
+  padding: 5.6px 10.4px;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 999px;
   background: rgba(10, 12, 14, 0.92);
-  backdrop-filter: blur(22px) saturate(1.8);
-  filter: drop-shadow(0 8px 30px rgba(0, 0, 0, 0.65));
+  backdrop-filter: blur(17.6px) saturate(1.8);
+  filter: drop-shadow(0 6.4px 24px rgba(0, 0, 0, 0.65));
   color: rgba(255, 255, 255, 0.82);
-  font: inherit; font-size: 12.5px; font-weight: 600;
+  font: inherit; font-size: 10px; font-weight: 600;
   cursor: pointer;
   transition: color 120ms ease, background 120ms ease;
 }
 .dv-center-btn:hover { color: #fff; background: rgba(28, 32, 36, 0.95); }
 .dv-center-btn svg { flex-shrink: 0; }
 .dv-ocr-btn-wrap.is-armed {
-  clip-path: inset(0 round 14px);
+  clip-path: inset(0 round 11.2px);
   transition: clip-path 340ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -2160,17 +2160,17 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
   transition: opacity 250ms ease 80ms;
 }
 .dv-ocr-toolbar-inner {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-  padding: 8px 14px 14px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1.6px;
+  padding: 6.4px 11.2px 11.2px;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 /* Tools stacked vertically, left-aligned. */
-.dv-ocr-tools { display: flex; flex-direction: column; gap: 2px; align-items: stretch; }
+.dv-ocr-tools { display: flex; flex-direction: column; gap: 1.6px; align-items: stretch; }
 .dv-ocr-tool {
-  display: inline-flex; align-items: center; flex-direction: row; gap: 8px;
-  padding: 7px 12px; border-radius: 9px; cursor: pointer;
-  font: inherit; font-size: 13px; font-weight: 500;
+  display: inline-flex; align-items: center; flex-direction: row; gap: 6.4px;
+  padding: 5.6px 9.6px; border-radius: 7.2px; cursor: pointer;
+  font: inherit; font-size: 10.4px; font-weight: 500;
   border: none; background: transparent;
   color: rgba(255, 255, 255, 0.48);
   transition: color 120ms ease, background 120ms ease;
@@ -2178,16 +2178,16 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 .dv-ocr-tool:hover { color: rgba(255, 255, 255, 0.9); background: rgba(255, 255, 255, 0.07); }
 .dv-ocr-tool.is-active { background: rgba(255, 255, 255, 0.1); color: #fff; }
 .dv-ocr-tool-hint {
-  margin: 8px 0 0; font-size: 10.5px; line-height: 1.5;
+  margin: 6.4px 0 0; font-size: 8.4px; line-height: 1.5;
   color: rgba(255, 255, 255, 0.28); text-align: left;
-  max-width: 200px;
+  max-width: 160px;
 }
 
 /* "Extract text" button row — icon tinted accent; chevron rotates on open. */
 .dv-ocr-btn {
-  display: flex; align-items: center; gap: 8px;
-  padding: 11px 14px 11px 16px; cursor: pointer; white-space: nowrap;
-  font: inherit; font-size: 14px; font-weight: 600; letter-spacing: 0.008em;
+  display: flex; align-items: center; gap: 6.4px;
+  padding: 8.8px 11.2px 8.8px 12.8px; cursor: pointer; white-space: nowrap;
+  font: inherit; font-size: 11.2px; font-weight: 600; letter-spacing: 0.008em;
   border: none; background: transparent; color: rgba(255, 255, 255, 0.78);
   transition: color 150ms ease, background 150ms ease;
 }
@@ -2195,7 +2195,7 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 .dv-ocr-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
 .dv-ocr-btn.is-active { color: #fff; }
 .dv-ocr-btn-chevron {
-  margin-left: auto; padding-left: 6px;
+  margin-left: auto; padding-left: 4.8px;
   display: flex; align-items: center; flex-shrink: 0;
   color: rgba(255, 255, 255, 0.28);
   transition: transform 360ms cubic-bezier(0.16, 1, 0.3, 1), color 150ms ease;
@@ -2207,22 +2207,22 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 
 /* Error pill — bottom-centre, auto-dismisses after 4 s. */
 .dv-ocr-error {
-  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 7;
-  display: flex; align-items: center; gap: 8px;
-  max-width: min(480px, calc(100% - 32px));
-  padding: 8px 14px; border-radius: 999px;
-  font-size: 12.5px; font-weight: 600;
+  position: absolute; left: 50%; bottom: 12.8px; transform: translateX(-50%); z-index: 7;
+  display: flex; align-items: center; gap: 6.4px;
+  max-width: min(384px, calc(100% - 25.6px));
+  padding: 6.4px 11.2px; border-radius: 999px;
+  font-size: 10px; font-weight: 600;
   background: var(--danger-soft); color: var(--danger-text); border: 1px solid var(--danger);
   pointer-events: auto;
 }
 .dv-ocr-error button {
   border: none; background: none; color: inherit; cursor: pointer;
-  font-size: 15px; line-height: 1; padding: 0; opacity: 0.7;
+  font-size: 12px; line-height: 1; padding: 0; opacity: 0.7;
 }
 .dv-ocr-error button:hover { opacity: 1; }
 
 /* Drag handle between the media stage and the extracted-text panel. */
-.dv-ocr-resize { flex: none; width: 3px; cursor: col-resize; position: relative; }
+.dv-ocr-resize { flex: none; width: 2.4px; cursor: col-resize; position: relative; }
 .dv-ocr-resize::after {
   content: ''; position: absolute; inset: 0;
   background: var(--border); transition: background 120ms;
@@ -2244,9 +2244,9 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
   /* Transparent so the page's dot grid + cursor spotlight show through. */
   background: transparent;
   --ocr-line: var(--border-strong);
-  --ocr-railw: 64px;
-  --ocr-linex: 46px;
-  --ocr-node-top: 18px;
+  --ocr-railw: 51.2px;
+  --ocr-linex: 36.8px;
+  --ocr-node-top: 14.4px;
 }
 /* Scroll area: holds the masthead + the list, so the masthead scrolls away
    and the compact header takes over (mirrors the Versions page). */
@@ -2255,58 +2255,58 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
 /* Masthead — accent eyebrow + display title + meta, matching the Versions page
    header's colouring + spacing (scaled to the panel). */
 .dv-ocr-history-head {
-  flex: none; display: flex; flex-direction: column; gap: 10px;
-  padding: 18px 14px 14px; border-bottom: 1px solid var(--border);
+  flex: none; display: flex; flex-direction: column; gap: 8px;
+  padding: 14.4px 11.2px 11.2px; border-bottom: 1px solid var(--border);
 }
 .dv-ocr-history-eyebrow {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; font-weight: 700;
+  display: flex; align-items: center; gap: 6.4px; flex-wrap: wrap;
+  font-size: 8px; letter-spacing: 0.2em; text-transform: uppercase; font-weight: 700;
   color: var(--accent);
 }
 .dv-ocr-history-eyebrow-muted { color: var(--text-muted); font-weight: 500; }
 .dv-ocr-history-title {
-  margin: 0; font-family: var(--font-display); font-size: 23px; font-weight: 700;
+  margin: 0; font-family: var(--font-display); font-size: 18.4px; font-weight: 700;
   letter-spacing: -0.025em; line-height: 1.04; color: var(--text-primary);
 }
 .dv-ocr-history-meta {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  font-size: 12px; color: var(--text-secondary);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 9.6px; color: var(--text-secondary);
 }
 .dv-ocr-history-count strong { color: var(--text-primary); font-weight: 600; }
 .dv-ocr-history-clear {
   flex: none; border: none; background: none; cursor: pointer; font: inherit;
-  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  font-size: 8.8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
   color: var(--accent); padding: 0;
 }
 .dv-ocr-history-clear:hover { color: var(--accent-hover); }
 .dv-ocr-history-empty {
-  margin: 0; padding: 16px 14px; font-size: 12.5px; line-height: 1.5; color: var(--text-muted);
+  margin: 0; padding: 12.8px 11.2px; font-size: 10px; line-height: 1.5; color: var(--text-muted);
 }
 
 /* Compact header — fixed at the panel's top, fades/slides in on scroll. */
 .dv-ocr-history-compact {
   position: absolute; top: 0; left: 0; right: 0; z-index: 5;
-  height: 42px; display: flex; align-items: center; gap: 7px; padding: 0 14px;
+  height: 33.6px; display: flex; align-items: center; gap: 5.6px; padding: 0 11.2px;
   background: color-mix(in srgb, var(--bg-page) 62%, transparent);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
-  opacity: 0; transform: translateY(-10px); pointer-events: none;
+  opacity: 0; transform: translateY(-8px); pointer-events: none;
   transition: opacity 220ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .dv-ocr-history-compact.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
 .dv-ocr-history-compact-title {
-  font-family: var(--font-display); font-size: 15px; font-weight: 700;
+  font-family: var(--font-display); font-size: 12px; font-weight: 700;
   letter-spacing: -0.01em; color: var(--text-primary);
 }
 .dv-ocr-history-compact-sep { color: var(--text-muted); font-weight: 600; }
-.dv-ocr-history-compact-count { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.dv-ocr-history-compact-count { font-size: 9.6px; font-weight: 600; color: var(--text-muted); }
 
 .dv-ocr-history-list {
-  display: flex; flex-direction: column; gap: 14px; padding: 12px 12px 192px;
+  display: flex; flex-direction: column; gap: 11.2px; padding: 9.6px 9.6px 153.6px;
 }
 .dv-ocr-history-item {
-  display: grid; grid-template-columns: var(--ocr-railw) 1fr; gap: 10px;
+  display: grid; grid-template-columns: var(--ocr-railw) 1fr; gap: 8px;
   position: relative;
 }
 
@@ -2315,7 +2315,7 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
    items except the last, which fades out at the node. */
 .dv-ocr-history-rail { position: relative; }
 .dv-ocr-history-rail::before {
-  content: ''; position: absolute; left: var(--ocr-linex); top: 0; bottom: -14px; width: 2px;
+  content: ''; position: absolute; left: var(--ocr-linex); top: 0; bottom: -11.2px; width: 1.6px;
   transform: translateX(-50%); background: var(--ocr-line);
 }
 .dv-ocr-history-item:last-child .dv-ocr-history-rail::before { bottom: 0; }
@@ -2323,30 +2323,30 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
 /* Node dot at the START (top) of the line; accent like AI → Extractions. */
 .dv-ocr-history-node {
   position: absolute; left: var(--ocr-linex); top: 0;
-  width: 11px; height: 11px; border-radius: 50%;
+  width: 8.8px; height: 8.8px; border-radius: 50%;
   transform: translate(-50%, 0); z-index: 2;
-  background: var(--bg-page); border: 2.5px solid var(--accent);
+  background: var(--bg-page); border: 2px solid var(--accent);
 }
 
 /* Date label, right-aligned beside the line, anchored at the top. */
 .dv-ocr-history-date {
-  position: absolute; left: 0; width: calc(var(--ocr-linex) - 8px);
+  position: absolute; left: 0; width: calc(var(--ocr-linex) - 6.4px);
   top: 0; transform: none;
-  text-align: right; display: flex; flex-direction: column; gap: 2px;
+  text-align: right; display: flex; flex-direction: column; gap: 1.6px;
 }
-.dv-ocr-history-date-d { font-size: 11px; font-weight: 600; color: var(--text-primary); }
-.dv-ocr-history-date-t { font-size: 10px; color: var(--text-muted); }
+.dv-ocr-history-date-d { font-size: 8.8px; font-weight: 600; color: var(--text-primary); }
+.dv-ocr-history-date-t { font-size: 8px; color: var(--text-muted); }
 
 /* Image on the LEFT, flat text + actions to its RIGHT (like AI → Extractions). */
 .dv-ocr-history-content {
-  display: flex; flex-direction: row; align-items: flex-start; gap: 12px; min-width: 0;
+  display: flex; flex-direction: row; align-items: flex-start; gap: 9.6px; min-width: 0;
 }
 .dv-ocr-history-thumb {
-  flex: 0 0 40%; max-width: 200px; overflow: hidden;
+  flex: 0 0 40%; max-width: 160px; overflow: hidden;
 }
 .dv-ocr-history-thumb img {
-  width: auto; max-width: 100%; height: auto; max-height: 240px;
-  display: block; object-fit: contain; object-position: left top; border-radius: 8px;
+  width: auto; max-width: 100%; height: auto; max-height: 192px;
+  display: block; object-fit: contain; object-position: left top; border-radius: 6.4px;
 }
 /* Clickable variant — clicking locates the snippet back on the media. The
    accent ring follows the image's rounded corners, so the wrapper must not
@@ -2355,27 +2355,27 @@ button.dv-ocr-history-thumb {
   padding: 0; border: none; background: none; cursor: pointer; overflow: visible;
 }
 button.dv-ocr-history-thumb img { transition: box-shadow 130ms ease; }
-button.dv-ocr-history-thumb:hover img { box-shadow: 0 0 0 2px var(--accent-soft); }
-button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent); }
+button.dv-ocr-history-thumb:hover img { box-shadow: 0 0 0 1.6px var(--accent-soft); }
+button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 1.6px var(--accent); }
 .dv-ocr-history-card {
   flex: 1 1 auto; min-width: 0; align-self: flex-start;
-  display: flex; flex-direction: column; gap: 8px;
+  display: flex; flex-direction: column; gap: 6.4px;
   background: transparent; border: none; border-radius: 0; padding: 0; box-shadow: none;
 }
 .dv-ocr-history-text {
   margin: 0;
-  font-size: 12.5px; line-height: 1.5; color: var(--text-primary);
+  font-size: 10px; line-height: 1.5; color: var(--text-primary);
   white-space: pre-wrap; word-break: break-word; user-select: text;
   max-width: 72ch;
 }
 .dv-ocr-history-text.is-empty { color: var(--text-muted); font-style: italic; }
-.dv-ocr-history-error { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--danger-text); }
+.dv-ocr-history-error { margin: 0; font-size: 9.2px; line-height: 1.4; color: var(--danger-text); }
 .dv-ocr-history-actions {
-  display: flex; align-items: center; justify-content: flex-start; gap: 6px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 4.8px;
 }
 .dv-ocr-history-act {
   border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary);
-  font: inherit; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 8.8px; font-weight: 600; padding: 2.4px 7.2px; border-radius: 999px; cursor: pointer;
 }
 .dv-ocr-history-act:hover { border-color: var(--accent); color: var(--accent); }
 .dv-ocr-history-act:disabled { opacity: 0.6; cursor: default; }
@@ -2384,7 +2384,7 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 .dv-ocr-history-act.is-accent:disabled { opacity: 0.6; cursor: default; }
 .dv-ocr-history-remove {
   border: none; background: none; color: var(--text-muted); cursor: pointer;
-  font-size: 14px; line-height: 1; padding: 2px 6px; border-radius: 6px;
+  font-size: 11.2px; line-height: 1; padding: 1.6px 4.8px; border-radius: 4.8px;
 }
 .dv-ocr-history-remove:hover { color: var(--danger-text); background: var(--danger-soft); }
 
@@ -2398,14 +2398,14 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 .dv-sheet { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; }
 /* Sheet tab strip (multi-sheet workbooks). */
 .dv-sheet-tabs {
-  flex: none; display: flex; gap: 2px; overflow-x: auto;
-  padding: 8px 12px 0; border-bottom: 1px solid var(--border);
+  flex: none; display: flex; gap: 1.6px; overflow-x: auto;
+  padding: 6.4px 9.6px 0; border-bottom: 1px solid var(--border);
   scrollbar-width: thin;
 }
 .dv-sheet-tab {
-  flex: none; padding: 6px 13px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
+  flex: none; padding: 4.8px 10.4px; cursor: pointer; font: inherit; font-size: 9.6px; font-weight: 600;
   color: var(--text-secondary); background: var(--bg-elevated);
-  border: 1px solid var(--border); border-bottom: none; border-radius: 8px 8px 0 0;
+  border: 1px solid var(--border); border-bottom: none; border-radius: 6.4px 6.4px 0 0;
 }
 .dv-sheet-tab:hover { color: var(--text-primary); }
 .dv-sheet-tab.is-active { background: var(--bg-card); color: var(--accent); }
@@ -2413,13 +2413,13 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 .dv-sheet-scroll { flex: 1; min-height: 0; overflow: auto; }
 .dv-sheet-table {
   border-collapse: separate; border-spacing: 0;
-  font-size: 13px; line-height: 1.4; font-variant-numeric: tabular-nums;
+  font-size: 10.4px; line-height: 1.4; font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
 .dv-sheet-table th,
 .dv-sheet-table td {
   border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
-  padding: 5px 10px; max-width: 440px;
+  padding: 4px 8px; max-width: 352px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   text-align: left; vertical-align: top;
 }
@@ -2429,28 +2429,28 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 .dv-sheet-colhead {
   position: sticky; top: 0; z-index: 2;
   background: var(--bg-elevated); color: var(--text-muted);
-  font-weight: 600; text-align: center; min-width: 60px;
+  font-weight: 600; text-align: center; min-width: 48px;
 }
 /* Row-number column — sticky to the left edge. */
 .dv-sheet-rowhead {
   position: sticky; left: 0; z-index: 1;
   background: var(--bg-elevated); color: var(--text-muted);
-  font-weight: 600; text-align: center; min-width: 46px;
+  font-weight: 600; text-align: center; min-width: 36.8px;
 }
 /* Top-left corner — sticky on both axes, above the other headers. */
 .dv-sheet-corner {
   position: sticky; top: 0; left: 0; z-index: 3;
-  background: var(--bg-elevated); min-width: 46px;
+  background: var(--bg-elevated); min-width: 36.8px;
 }
 .dv-sheet-note {
-  flex: none; padding: 8px 14px; font-size: 12px; color: var(--text-muted);
+  flex: none; padding: 6.4px 11.2px; font-size: 9.6px; color: var(--text-muted);
   border-top: 1px solid var(--border); background: var(--bg-card);
 }
 .dv-audio-layout { flex: 1; min-width: 0; display: flex; height: 100%; }
 .dv-audio-pane {
   position: relative; flex: 1; min-width: 0; height: 100%;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  padding-bottom: 104px;
+  padding-bottom: 83.2px;
 }
 /* With lyrics, the karaoke fills the pane and the play button docks below it. */
 .dv-audio-pane.has-lyrics { justify-content: flex-start; }
@@ -2461,11 +2461,11 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 .dv-audio-lyrics {
   flex: 1; min-height: 0; width: 100%; align-self: stretch;
   overflow-y: auto; overflow-x: hidden;
-  display: flex; flex-direction: column; gap: 6px;
-  padding: 38vh 8% 38vh 18px;
+  display: flex; flex-direction: column; gap: 4.8px;
+  padding: 38vh 8% 38vh 14.4px;
   scrollbar-width: none;
   /* x of the timeline vertical line, shared by every lyric line's rail. */
-  --lyric-railx: 22px;
+  --lyric-railx: 17.6px;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 18%, #000 82%, transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0%, #000 18%, #000 82%, transparent 100%);
 }
@@ -2478,8 +2478,8 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
   display: block; width: 100%; text-align: left;
   border: none; background: none; cursor: pointer;
   font-family: var(--font-display);
-  font-size: 28px; font-weight: 800; line-height: 1.3; letter-spacing: -0.015em;
-  padding: 8px 14px 8px 44px; border-radius: 12px;
+  font-size: 22.4px; font-weight: 800; line-height: 1.3; letter-spacing: -0.015em;
+  padding: 6.4px 11.2px 6.4px 35.2px; border-radius: 9.6px;
   color: #fff; opacity: 0.45;
   transform: scale(1); transform-origin: left center;
   transition: color 220ms ease, opacity 220ms ease, transform 220ms ease, background 160ms ease;
@@ -2487,8 +2487,8 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 /* Vertical timeline line — one segment per lyric, extended past the bottom edge
    by the list gap so adjacent segments join into a continuous line. */
 .dv-lyric-line::before {
-  content: ''; position: absolute; left: var(--lyric-railx); top: 0; bottom: -6px;
-  width: 2px; transform: translateX(-50%); background: var(--text-primary);
+  content: ''; position: absolute; left: var(--lyric-railx); top: 0; bottom: -4.8px;
+  width: 1.6px; transform: translateX(-50%); background: var(--text-primary);
 }
 /* Fade the timeline's two ends: the first segment fades in from the top, the
    last fades out toward the bottom. */
@@ -2503,7 +2503,7 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
    (now-playing) line shows it. */
 .dv-lyric-line::after {
   content: ''; position: absolute; left: var(--lyric-railx); top: 50%;
-  width: 11px; height: 11px; border-radius: 50%; transform: translate(-50%, -50%);
+  width: 8.8px; height: 8.8px; border-radius: 50%; transform: translate(-50%, -50%);
   background: var(--accent);
   opacity: 0; transition: opacity 200ms ease;
 }
@@ -2518,14 +2518,14 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 .dv-lyric-line.is-active::after { opacity: 1; }
 
 /* Play/pause deck — sits under the lyrics, above the decibel line. */
-.dv-audio-deck { flex: none; display: flex; align-items: center; justify-content: center; width: 100%; padding-top: 8px; }
+.dv-audio-deck { flex: none; display: flex; align-items: center; justify-content: center; width: 100%; padding-top: 6.4px; }
 /* "Decibel line": the file's loudness envelope drawn across the bottom edge
    (played portion in accent, plus a playhead). Doubles as a scrubber — click or
    drag anywhere to seek. Accent-coloured; the canvas reads its fill from
    `color`. Narrower than the pane + centred, sitting under the player card. */
 .dv-audio-scope {
   position: absolute; left: 0; right: 0; bottom: 0; margin: 0 auto;
-  width: calc(100% - 160px); height: 88px;
+  width: calc(100% - 128px); height: 70.4px;
   color: var(--accent); display: block;
   cursor: pointer; touch-action: none;
   /* Soft fade at the very edges only, so the timeline reads end-to-end. */
@@ -2533,7 +2533,7 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
   mask-image: linear-gradient(to right, transparent 0%, #000 4%, #000 96%, transparent 100%);
 }
 .dv-audio-scope:focus-visible {
-  outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px;
+  outline: 1.6px solid var(--accent); outline-offset: -1.6px; border-radius: 6.4px;
 }
 
 /* Sidebar tab bar — shared by every file type's side panel. Which tabs show is
@@ -2548,11 +2548,11 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 }
 .dv-side-tab {
   appearance: none;
-  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
   background: transparent; border: none;
-  border-bottom: 3px solid transparent; margin-bottom: -1px;
-  padding: 0.7rem 1rem;
-  font: inherit; font-size: 0.88rem; font-weight: 500;
+  border-bottom: 2.4px solid transparent; margin-bottom: -1px;
+  padding: 0.56rem 0.8rem;
+  font: inherit; font-size: 0.704rem; font-weight: 500;
   color: var(--text-muted); cursor: pointer;
   transition: color 150ms, border-color 150ms;
 }
@@ -2569,18 +2569,18 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
   background: var(--bg-card); border-bottom: 1px solid var(--border);
 }
 /* Variant with a trailing control (e.g. the Recently-open icon-size slider). */
-.dv-captab-bar.has-aside { justify-content: space-between; padding-right: 8px; }
+.dv-captab-bar.has-aside { justify-content: space-between; padding-right: 6.4px; }
 .dv-captab {
   appearance: none;
-  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
   background: transparent; border: none;
-  border-bottom: 3px solid transparent; margin-bottom: -1px;
-  padding: 0.7rem 1rem;
-  font: inherit; font-size: 0.88rem; font-weight: 500;
+  border-bottom: 2.4px solid transparent; margin-bottom: -1px;
+  padding: 0.56rem 0.8rem;
+  font: inherit; font-size: 0.704rem; font-weight: 500;
   color: var(--text-muted); cursor: pointer;
   transition: color 150ms, border-color 150ms;
 }
-.dv-captab svg { width: 16px; height: 16px; flex: none; }
+.dv-captab svg { width: 12.8px; height: 12.8px; flex: none; }
 .dv-captab:hover:not(.is-active) { color: var(--text-secondary); }
 .dv-captab.is-active { color: var(--text-primary); border-bottom-color: var(--accent); }
 
@@ -2601,19 +2601,19 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
    tab bar (.dv-text-toggle): a --bg-sidebar strip with an 8px inset. */
 .dv-advisor-card > .dv-chrome { border-bottom: none; }
 .dv-advisor-slot .dv-side-tabs { padding: 0; background: var(--bg-sidebar); }
-.dv-chrome-row { display: flex; align-items: center; gap: 4px; padding: 5px 8px; min-height: 38px; box-sizing: border-box; }
+.dv-chrome-row { display: flex; align-items: center; gap: 3.2px; padding: 4px 6.4px; min-height: 30.4px; box-sizing: border-box; }
 .dv-chrome-refresh {
-  flex: 0 0 auto; width: 26px; height: 26px;
+  flex: 0 0 auto; width: 20.8px; height: 20.8px;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid transparent; border-radius: 7px; background: none; cursor: pointer;
+  border: 1px solid transparent; border-radius: 5.6px; background: none; cursor: pointer;
   color: var(--text-secondary); transition: background 120ms, color 120ms;
 }
 .dv-chrome-refresh:hover { background: var(--bg-elevated); color: var(--text-primary); }
-.dv-chrome-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-left: 2px; flex: 0 1 auto; }
-.dv-chrome-title { font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-primary); white-space: nowrap; flex-shrink: 0; }
-.dv-chrome-dot { flex: 0 0 auto; color: var(--text-muted); font-size: 11.5px; line-height: 1; }
-.dv-chrome-desc { font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.dv-chrome-spacer { flex: 1 1 auto; min-width: 8px; }
+.dv-chrome-head { display: flex; align-items: baseline; gap: 6.4px; min-width: 0; margin-left: 1.6px; flex: 0 1 auto; }
+.dv-chrome-title { font-family: var(--font-display); font-size: 10.4px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-primary); white-space: nowrap; flex-shrink: 0; }
+.dv-chrome-dot { flex: 0 0 auto; color: var(--text-muted); font-size: 9.2px; line-height: 1; }
+.dv-chrome-desc { font-size: 9.2px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.dv-chrome-spacer { flex: 1 1 auto; min-width: 6.4px; }
 /* 2nd row — the embedded Files toolbar (folder nav + breadcrumb + search)
    portals here, so the chrome + that toolbar read as ONE bar (like the app). */
 .dv-chrome-row2 { display: flex; flex-direction: column; align-items: stretch; justify-content: center; padding: 0; }
@@ -2622,7 +2622,7 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 /* Topbar variant hosting the side-panel tab strip (Multitool): drop the row's
    vertical padding so the tabs' underline sits on the chrome's bottom border;
    keep the refresh button vertically centered. */
-.dv-chrome-row--tabs { padding: 0 8px; align-items: stretch; }
+.dv-chrome-row--tabs { padding: 0 6.4px; align-items: stretch; }
 .dv-chrome-row--tabs .dv-chrome-refresh { align-self: center; }
 .dv-chrome-tabs { flex: 1 1 auto; min-width: 0; display: flex; align-items: stretch; }
 /* The portalled .dv-side-tabs sheds its own bar fill/border and fills the slot. */
@@ -2631,17 +2631,17 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
   overflow-x: auto; scrollbar-width: none;
 }
 .dv-chrome-tabs .dv-side-tabs::-webkit-scrollbar { width: 0; height: 0; display: none; }
-.dv-chrome-tabs .dv-side-tab { padding-left: 0.6rem; padding-right: 0.6rem; white-space: nowrap; }
+.dv-chrome-tabs .dv-side-tab { padding-left: 0.48rem; padding-right: 0.48rem; white-space: nowrap; }
 
 /* Tab-picker dropdown in a header — IDENTICAL to the main app's SplitView
    destination dropdown (.sv-chrome-dest / .sv-chrome-menu). */
-.dv-captab-menu-wrap { position: relative; display: flex; align-items: center; margin-left: auto; padding: 0 8px; min-width: 0; max-width: 60%; }
+.dv-captab-menu-wrap { position: relative; display: flex; align-items: center; margin-left: auto; padding: 0 6.4px; min-width: 0; max-width: 60%; }
 .dv-captab-dest {
-  display: flex; align-items: center; gap: 6px; width: auto; max-width: 100%;
-  padding: 4px 8px; border: 1px solid var(--border); border-radius: 7px;
-  background: var(--bg-input); cursor: pointer; color: var(--text-secondary); font-size: 12px;
+  display: flex; align-items: center; gap: 4.8px; width: auto; max-width: 100%;
+  padding: 3.2px 6.4px; border: 1px solid var(--border); border-radius: 5.6px;
+  background: var(--bg-input); cursor: pointer; color: var(--text-secondary); font-size: 9.6px;
 }
-.dv-captab-dest svg { width: 13px; height: 13px; flex: none; transition: transform 200ms cubic-bezier(.16, 1, .3, 1); }
+.dv-captab-dest svg { width: 10.4px; height: 10.4px; flex: none; transition: transform 200ms cubic-bezier(.16, 1, .3, 1); }
 .dv-captab-dest.is-open svg { transform: rotate(180deg); }
 .dv-captab-dest-label {
   flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -2649,17 +2649,17 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 }
 .dv-captab-dest:hover, .dv-captab-dest.is-open { border-color: var(--border-strong); color: var(--text-primary); }
 .dv-captab-menu {
-  position: absolute; top: calc(100% + 2px); right: 0;
-  min-width: 220px; max-height: 320px; overflow: auto; z-index: 50;
-  display: flex; flex-direction: column; gap: 1px; padding: 5px;
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+  position: absolute; top: calc(100% + 1.6px); right: 0;
+  min-width: 176px; max-height: 256px; overflow: auto; z-index: 50;
+  display: flex; flex-direction: column; gap: 1px; padding: 4px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
   box-shadow: var(--shadow-elev);
   transform-origin: top right; animation: dv-captab-menu-morph 190ms cubic-bezier(.16, 1, .3, 1);
 }
 @keyframes dv-captab-menu-morph { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
 .dv-captab-menu-item {
-  text-align: left; padding: 7px 10px; border: none; border-radius: 6px; background: none;
-  cursor: pointer; font-size: 13px; color: var(--text-primary); font-family: var(--font-body);
+  text-align: left; padding: 5.6px 8px; border: none; border-radius: 4.8px; background: none;
+  cursor: pointer; font-size: 10.4px; color: var(--text-primary); font-family: var(--font-body);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dv-captab-menu-item:hover { background: var(--accent-tint); }
@@ -2687,7 +2687,7 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 .dv-advisor-scroll::-webkit-scrollbar { width: 0; height: 0; }
 /* Blur + dim the thread while an ask_user panel is waiting for an answer. */
 .dv-advisor-scroll.is-asking {
-  filter: blur(3px); opacity: 0.6; pointer-events: none;
+  filter: blur(2.4px); opacity: 0.6; pointer-events: none;
 }
 
 /* Custom scrollbar — a thin track pinned to the right gutter of the advisor
@@ -2696,14 +2696,14 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 2px var(--accent);
 .dv-advisor-sb {
   /* Runs the full height and tucks UNDER the frosted footer (z-index 2 < the
      footer's 3), so the bar overlays its bottom end. */
-  position: absolute; top: 8px; bottom: 8px; right: 3px; width: 6px;
+  position: absolute; top: 6.4px; bottom: 6.4px; right: 2.4px; width: 4.8px;
   z-index: 2; pointer-events: none;
   opacity: 0; transition: opacity 200ms ease;
 }
 .dv-advisor:hover .dv-advisor-sb,
 body.dv-advisor-sb-dragging .dv-advisor-sb { opacity: 1; }
 .dv-advisor-sb-thumb {
-  position: absolute; left: 0; right: 0; top: 0; height: 40px;
+  position: absolute; left: 0; right: 0; top: 0; height: 32px;
   border-radius: 999px; pointer-events: auto; cursor: grab;
   /* Opaque (blended with the page, not transparent) so content doesn't show
      through the thumb. */
@@ -2721,69 +2721,69 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
    title in --text-primary · muted eyebrow. */
 .dv-advisor-minihead {
   position: absolute; top: 0; left: 0; right: 0; z-index: 4;
-  display: flex; align-items: center; gap: 8px;
-  height: 48px; padding: 0 18px;
+  display: flex; align-items: center; gap: 6.4px;
+  height: 38.4px; padding: 0 14.4px;
   background: color-mix(in srgb, var(--bg-page) 62%, transparent);
-  backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
-  opacity: 0; transform: translateY(-10px); pointer-events: none;
+  opacity: 0; transform: translateY(-8px); pointer-events: none;
   transition: opacity 240ms ease, transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .dv-advisor-minihead.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
 .dv-advisor-minihead-title {
   /* "Generate" — the prominent display-font label (matches .pmh-compact-title). */
-  font-family: var(--font-display); font-size: 17px; font-weight: 700;
+  font-family: var(--font-display); font-size: 13.6px; font-weight: 700;
   letter-spacing: -0.01em; color: var(--text-primary);
 }
 /* Separator dot (matches .pmh-compact-sep). */
 .dv-advisor-minihead-dot { color: var(--text-muted); font-weight: 600; }
 .dv-advisor-minihead-eyebrow {
   /* "Document AI" (matches .pmh-compact-eyebrow). */
-  font-size: 13px; font-weight: 600; color: var(--text-muted); white-space: nowrap;
+  font-size: 10.4px; font-weight: 600; color: var(--text-muted); white-space: nowrap;
 }
 
 /* Generate-pane full masthead — iOS-style (mirrors the Settings / Newsletter
    header): eyebrow · muted, big display title, one-line subtitle. No divider.
    Lives at the top of the scroll so it scrolls away. */
 .dv-advisor-head {
-  flex: none; padding: 18px 18px 16px;
+  flex: none; padding: 14.4px 14.4px 12.8px;
   display: flex; flex-direction: column; gap: 1px;
   position: relative;
 }
 /* Divider under the header with both ends faded out (a masked line, since a
    plain border-bottom can't fade at its edges). */
 .dv-advisor-head::after {
-  content: ''; position: absolute; left: 18px; right: 18px; bottom: 0; height: 1px;
+  content: ''; position: absolute; left: 14.4px; right: 14.4px; bottom: 0; height: 1px;
   background: var(--border);
   -webkit-mask-image: linear-gradient(to right, transparent 0, #000 12%, #000 88%, transparent 100%);
           mask-image: linear-gradient(to right, transparent 0, #000 12%, #000 88%, transparent 100%);
 }
 .dv-advisor-head-eyebrow {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+  display: inline-flex; align-items: center; gap: 4.8px;
+  font-size: 8.8px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
   color: var(--accent);
 }
 .dv-advisor-head-muted { color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em; }
 .dv-advisor-head-title {
-  margin: 3px 0 0; font-family: var(--font-display);
-  font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1;
+  margin: 2.4px 0 0; font-family: var(--font-display);
+  font-size: 20.8px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1;
   color: var(--text-primary);
 }
 .dv-advisor-head-sub {
-  margin: 5px 0 0; font-size: 13px; line-height: 1.45;
+  margin: 4px 0 0; font-size: 10.4px; line-height: 1.45;
   color: var(--text-secondary); max-width: 46ch;
 }
 /* Branch nav — pills for each split conversation, under the header. */
 .dv-branch-nav {
-  display: flex; flex-wrap: wrap; gap: 6px;
-  padding: 10px 18px 4px;
+  display: flex; flex-wrap: wrap; gap: 4.8px;
+  padding: 8px 14.4px 3.2px;
 }
 .dv-branch-nav-pill {
   appearance: none; cursor: pointer;
-  padding: 4px 12px; border-radius: 999px;
+  padding: 3.2px 9.6px; border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--bg-card); color: var(--text-secondary);
-  font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap;
+  font: inherit; font-size: 9.6px; font-weight: 600; white-space: nowrap;
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 .dv-branch-nav-pill:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text-primary); }
@@ -2796,22 +2796,22 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
    (clickable to open that branch). Distinct from the hover divider. */
 .dv-split-marker {
   appearance: none; cursor: pointer; width: 100%;
-  display: flex; align-items: center; gap: 10px;
-  margin: 10px 0; padding: 0; border: none; background: none;
+  display: flex; align-items: center; gap: 8px;
+  margin: 8px 0; padding: 0; border: none; background: none;
   color: var(--color-cognac);
 }
 .dv-split-marker-line {
-  flex: 1; height: 1px; min-width: 12px;
+  flex: 1; height: 1px; min-width: 9.6px;
   background: color-mix(in srgb, var(--color-cognac) 45%, transparent);
 }
 .dv-split-marker-tag {
-  flex: none; display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 10px; border-radius: 999px;
+  flex: none; display: inline-flex; align-items: center; gap: 4.8px;
+  padding: 2.4px 8px; border-radius: 999px;
   border: 1px dashed color-mix(in srgb, var(--color-cognac) 55%, transparent);
-  font-size: 11.5px; font-weight: 700; letter-spacing: 0.01em; white-space: nowrap;
+  font-size: 9.2px; font-weight: 700; letter-spacing: 0.01em; white-space: nowrap;
   transition: background 120ms ease, border-color 120ms ease;
 }
-.dv-split-marker-tag svg { width: 14px; height: 14px; }
+.dv-split-marker-tag svg { width: 11.2px; height: 11.2px; }
 .dv-split-marker:hover .dv-split-marker-tag {
   background: color-mix(in srgb, var(--color-cognac) 12%, transparent);
   border-color: var(--color-cognac);
@@ -2828,36 +2828,36 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   height: auto;
   /* Big bottom padding so the last message can scroll fully clear of the
      floating composer that overlaps the bottom of the scroll. */
-  width: 100%; max-width: none; margin: 0; padding: 10px 16px 200px;
+  width: 100%; max-width: none; margin: 0; padding: 8px 12.8px 160px;
 }
 /* Extra breathing room under the very last bubble so its end clears the footer. */
-.dv-advisor-chat.ai-hub.ai-chat-page > .bubble:last-child { margin-bottom: 24px; }
+.dv-advisor-chat.ai-hub.ai-chat-page > .bubble:last-child { margin-bottom: 19.2px; }
 .dv-advisor-chat .chat { width: 100%; }
 /* Intro shown before the first message — centered spark + one-line prompt. */
 .dv-advisor-intro {
-  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  display: flex; flex-direction: column; align-items: center; gap: 9.6px;
   text-align: center; color: var(--text-secondary);
-  padding: 32px 18px; max-width: 42ch; margin: 8px auto 0;
+  padding: 25.6px 14.4px; max-width: 42ch; margin: 6.4px auto 0;
 }
 .dv-advisor-intro-glyph {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 44px; height: 44px; border-radius: 13px;
+  width: 35.2px; height: 35.2px; border-radius: 10.4px;
   background: var(--accent-soft); color: var(--accent);
 }
-.dv-advisor-intro p { margin: 0; font-size: 0.92rem; line-height: 1.6; }
+.dv-advisor-intro p { margin: 0; font-size: 0.736rem; line-height: 1.6; }
 .dv-advisor-intro strong { color: var(--text-primary); font-weight: 600; }
 
 /* ── Document version cards (Claude-style iterations) ─────────────────────── */
 /* Compact, self-sized chip (icon left · "Version N" + format stacked right).
    Clamped so it doesn't stretch across the chat column. */
 .dv-doc-version {
-  display: inline-flex; align-items: center; gap: 6px;
-  align-self: flex-start; width: auto; min-width: 280px; max-width: 460px;
+  display: inline-flex; align-items: center; gap: 4.8px;
+  align-self: flex-start; width: auto; min-width: 224px; max-width: 368px;
   /* Above the split-detection hit strip (the branch-anchor extends upward over
      this card); keeps the card fully hoverable/clickable. */
   position: relative; z-index: 4;
-  margin-top: -10px;
-  padding: 6px 22px 6px 11px; border-radius: 14px;
+  margin-top: -8px;
+  padding: 4.8px 17.6px 4.8px 8.8px; border-radius: 11.2px;
   border: 1px solid var(--border); background: var(--bg-card);
   color: var(--text-primary); font: inherit; text-align: left; cursor: pointer;
   transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
@@ -2871,10 +2871,10 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 }
 .dv-doc-version-icon {
   flex: 0 0 auto; display: grid; place-items: center;
-  width: 66px; height: 66px; border-radius: 10px;
+  width: 52.8px; height: 52.8px; border-radius: 8px;
   background: transparent; color: var(--accent);
 }
-.dv-doc-version-icon svg { width: 40px; height: 40px; }
+.dv-doc-version-icon svg { width: 32px; height: 32px; }
 /* Tint the icon by document type (same palette as the Files view). */
 .dv-doc-version-icon.is-doc { color: #2b6cb0; }
 .dv-doc-version-icon.is-ppt { color: #c2410c; }
@@ -2882,22 +2882,22 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 .dv-doc-version-icon.is-pdf { color: #b91c1c; }
 .dv-doc-version-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .dv-doc-version-name {
-  font-size: 13px; font-weight: 600; color: var(--text-primary);
+  font-size: 10.4px; font-weight: 600; color: var(--text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
 .dv-doc-version-format {
-  font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em;
+  font-size: 8.4px; font-weight: 700; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--text-muted);
 }
 /* CTA line: tells the user clicking makes this version the on-disk file. */
 .dv-doc-version-hint {
-  margin-top: 3px; font-size: 11.5px; font-weight: 500;
+  margin-top: 2.4px; font-size: 9.2px; font-weight: 500;
   color: var(--text-secondary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
 .dv-doc-version.is-active .dv-doc-version-hint { color: var(--accent); }
 .dv-doc-version-dot {
-  flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%;
+  flex: 0 0 auto; width: 6.4px; height: 6.4px; border-radius: 50%;
   background: var(--accent);
 }
 
@@ -2907,11 +2907,11 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   position: absolute; inset: 0; z-index: 20;
   display: flex; align-items: center; justify-content: center;
   background: color-mix(in srgb, var(--bg-page) 55%, transparent);
-  backdrop-filter: blur(1.5px); -webkit-backdrop-filter: blur(1.5px);
+  backdrop-filter: blur(1.2px); -webkit-backdrop-filter: blur(1.2px);
 }
 .dv-preview-spinner {
-  width: 34px; height: 34px; border-radius: 50%;
-  border: 3px solid var(--border);
+  width: 27.2px; height: 27.2px; border-radius: 50%;
+  border: 2.4px solid var(--border);
   border-top-color: var(--accent);
   animation: dv-preview-spin 0.7s linear infinite;
 }
@@ -2935,7 +2935,7 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
    detected below the divider. */
 .dv-branch-anchor::before {
   content: ''; position: absolute; left: 0; right: 0; bottom: 0;
-  height: 64px; transform: none;
+  height: 51.2px; transform: none;
 }
 /* Reveal on hovering a chat bubble above or the strip itself. Version cards are
    intentionally NOT a trigger — the divider only appears from the seam after. */
@@ -2946,7 +2946,7 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 .dv-branch-line {
   /* Right end extends past the chat content's 16px right padding so it reaches
      the section's right edge (under the scrollbar); left end stays inset/faded. */
-  position: absolute; left: 0; right: -16px; top: 0; height: 2px;
+  position: absolute; left: 0; right: -12.8px; top: 0; height: 1.6px;
   /* Opacity ramps from reduced on the LEFT to full (1) on the RIGHT, where it
      meets the button/connector. */
   background: linear-gradient(to right, color-mix(in srgb, var(--color-sand) 45%, transparent), var(--color-sand));
@@ -2965,49 +2965,49 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
      is portalled to <body> and placed at the hovered seam (see DocViewer.jsx). */
   transform: translateY(-50%);
   appearance: none; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 8px 18px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6.4px;
+  padding: 6.4px 14.4px; border-radius: 999px;
   border: none;
   /* Sand (brand palette) — matches the divider line and the active page-numbers
      button. */
   background: var(--color-sand);
-  color: var(--color-ink); font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--color-ink); font: inherit; font-size: 10.4px; font-weight: 600;
   white-space: nowrap; box-shadow: var(--shadow-elev);
   transition: color 130ms ease, background 130ms ease;
 }
-.dv-branch svg { width: 15px; height: 15px; }
+.dv-branch svg { width: 12px; height: 12px; }
 .dv-branch:hover { color: var(--color-cream); background: var(--color-cognac); }
 /* Floating pill — fixed to the viewport (portalled to <body>) so it overflows
    past the sidebar edge, into the gutter toward the document. Its left edge is
    placed flush with the scrollbar's right edge. */
 .dv-branch--float {
-  position: fixed; z-index: 1000; margin-left: 12px;
+  position: fixed; z-index: 1000; margin-left: 9.6px;
   animation: dv-branch-float-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 /* Cream connector bridging the gutter gap between the divider (ends at the
    section edge) and the floating pill, so the line reads as continuous. */
 .dv-branch--float::before {
   content: ''; position: absolute; right: 100%; top: 50%;
-  width: 18px; height: 2px; transform: translateY(-50%);
+  width: 14.4px; height: 1.6px; transform: translateY(-50%);
   background: var(--color-sand);
 }
 @keyframes dv-branch-float-in {
-  from { opacity: 0; transform: translateY(-50%) translateX(-7px); }
+  from { opacity: 0; transform: translateY(-50%) translateX(-5.6px); }
   to   { opacity: 1; transform: translateY(-50%) translateX(0); }
 }
 
 /* Right-click menu on a version pill — "Open in <software>". Portalled to
    <body> and positioned at the cursor (fixed). */
 .dv-ver-menu {
-  position: fixed; z-index: 9999; min-width: 196px;
-  padding: 5px; border-radius: 12px;
+  position: fixed; z-index: 9999; min-width: 156.8px;
+  padding: 4px; border-radius: 9.6px;
   background: var(--bg-elevated); border: 1px solid var(--border);
   box-shadow: var(--shadow-elev);
 }
 .dv-ver-menu-item {
-  display: flex; align-items: center; gap: 9px; width: 100%;
-  padding: 9px 11px; border-radius: 8px; border: none; background: none;
-  color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 500;
+  display: flex; align-items: center; gap: 7.2px; width: 100%;
+  padding: 7.2px 8.8px; border-radius: 6.4px; border: none; background: none;
+  color: var(--text-primary); font: inherit; font-size: 10.4px; font-weight: 500;
   text-align: left; cursor: pointer; transition: background 110ms ease, color 110ms ease;
 }
 .dv-ver-menu-item:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
@@ -3020,61 +3020,61 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 .dv-doc-qa-overlay {
   position: absolute; inset: 0; z-index: 7;
   display: flex; align-items: center; justify-content: center;
-  padding: 28px; overflow: auto;
+  padding: 22.4px; overflow: auto;
   background: color-mix(in srgb, var(--bg-page) 78%, transparent);
-  backdrop-filter: blur(3px);
+  backdrop-filter: blur(2.4px);
 }
 .dv-doc-qa {
-  width: 100%; max-width: 560px; margin: auto;
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+  width: 100%; max-width: 448px; margin: auto;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 12.8px;
   box-shadow: var(--shadow-elev);
-  padding: 22px 22px 18px;
-  display: flex; flex-direction: column; gap: 16px;
+  padding: 17.6px 17.6px 14.4px;
+  display: flex; flex-direction: column; gap: 12.8px;
 }
-.dv-doc-qa-head { display: flex; flex-direction: column; gap: 4px; }
+.dv-doc-qa-head { display: flex; flex-direction: column; gap: 3.2px; }
 .dv-doc-qa-eyebrow {
-  display: inline-flex; align-items: center; gap: 7px;
-  font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  display: inline-flex; align-items: center; gap: 5.6px;
+  font-size: 8.8px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--accent);
 }
-.dv-doc-qa-eyebrow svg { width: 15px; height: 15px; }
+.dv-doc-qa-eyebrow svg { width: 12px; height: 12px; }
 .dv-doc-qa-title {
-  margin: 0; font-family: var(--font-display); font-size: 19px; font-weight: 700;
+  margin: 0; font-family: var(--font-display); font-size: 15.2px; font-weight: 700;
   letter-spacing: -0.01em; color: var(--text-primary);
 }
-.dv-doc-qa-sub { margin: 0; font-size: 12.5px; color: var(--text-muted); }
-.dv-doc-qa-list { display: flex; flex-direction: column; gap: 14px; }
-.dv-doc-qa-item { display: flex; gap: 11px; align-items: flex-start; }
+.dv-doc-qa-sub { margin: 0; font-size: 10px; color: var(--text-muted); }
+.dv-doc-qa-list { display: flex; flex-direction: column; gap: 11.2px; }
+.dv-doc-qa-item { display: flex; gap: 8.8px; align-items: flex-start; }
 .dv-doc-qa-num {
   flex: 0 0 auto; display: grid; place-items: center;
-  width: 22px; height: 22px; margin-top: 1px; border-radius: 7px;
+  width: 17.6px; height: 17.6px; margin-top: 1px; border-radius: 5.6px;
   background: var(--accent-soft); color: var(--accent);
-  font-size: 11.5px; font-weight: 700;
+  font-size: 9.2px; font-weight: 700;
 }
-.dv-doc-qa-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
-.dv-doc-qa-q { font-size: 13.5px; font-weight: 600; line-height: 1.45; color: var(--text-primary); }
+.dv-doc-qa-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5.6px; }
+.dv-doc-qa-q { font-size: 10.8px; font-weight: 600; line-height: 1.45; color: var(--text-primary); }
 .dv-doc-qa-input {
   width: 100%; resize: none; overflow: hidden;
-  min-height: 38px; padding: 9px 12px;
-  border: 1px solid var(--border); border-radius: 10px;
+  min-height: 30.4px; padding: 7.2px 9.6px;
+  border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg-input); color: var(--text-primary);
-  font: inherit; font-size: 13px; line-height: 1.5;
+  font: inherit; font-size: 10.4px; line-height: 1.5;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .dv-doc-qa-input::placeholder { color: var(--text-muted); }
 .dv-doc-qa-input:focus {
   outline: none; border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-tint);
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
 .dv-doc-qa-input:disabled { opacity: 0.6; cursor: not-allowed; }
 .dv-doc-qa-actions {
-  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
-  padding-top: 2px;
+  display: flex; align-items: center; justify-content: flex-end; gap: 6.4px;
+  padding-top: 1.6px;
 }
 .dv-doc-qa-skip,
 .dv-doc-qa-submit {
-  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
-  padding: 8px 16px; border-radius: 9px; border: 1px solid transparent;
+  font: inherit; font-size: 10.4px; font-weight: 600; cursor: pointer;
+  padding: 6.4px 12.8px; border-radius: 7.2px; border: 1px solid transparent;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
 }
 .dv-doc-qa-skip { background: none; border-color: var(--border); color: var(--text-secondary); }
@@ -3095,40 +3095,40 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
      transparent padding lets clicks/scroll fall through to the messages behind;
      the children re-enable pointer events. */
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
-  padding: 10px 18px 12px;
+  padding: 8px 14.4px 9.6px;
   /* Frosted footer bar (single backdrop-filter — the inner composer card no
      longer carries its own, so they don't nest and cancel). Overlays the
      bottom of the pane; the scroll fills the full card height and slides under
      this bar (the chat content reserves padding-bottom to clear it). */
   background: color-mix(in srgb, var(--bg-sidebar) 60%, transparent);
-  backdrop-filter: blur(18px) saturate(1.3); -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  backdrop-filter: blur(14.4px) saturate(1.3); -webkit-backdrop-filter: blur(14.4px) saturate(1.3);
 }
 /* Submit / Skip shown in the composer toolbar (replacing the send button) while
    an ask_user is active — either composer-owned (free-text) or portalled from
    the active panel. Reset the panel actions' absolute positioning here. */
-.dv-advisor-ask-actions { display: inline-flex; align-items: center; gap: 8px; }
+.dv-advisor-ask-actions { display: inline-flex; align-items: center; gap: 6.4px; }
 .dv-advisor-ask-actions .ask-actions { position: static; margin: 0; }
 /* Dev-only ask_user preview row — a dashed tray of buttons that each pop the
    shared AskUserPanel with a sample payload of one response_type. */
 /* Dev-only ask_user preview tray — a strip pinned across the top of the window. */
 .dv-ask-debug-section {
-  flex: none; width: 100%; padding: 6px 12px;
+  flex: none; width: 100%; padding: 4.8px 9.6px;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(6.4px); -webkit-backdrop-filter: blur(6.4px);
 }
 .dv-ask-debug {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4.8px;
   margin: 0; padding: 0;
   background: transparent;
 }
 .dv-ask-debug-label {
-  font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
-  color: var(--text-muted); margin-right: 2px;
+  font-size: 8px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-muted); margin-right: 1.6px;
 }
 .dv-ask-debug button {
-  font: inherit; font-size: 12px; font-weight: 500;
-  padding: 4px 9px; border-radius: 7px;
+  font: inherit; font-size: 9.6px; font-weight: 500;
+  padding: 3.2px 7.2px; border-radius: 5.6px;
   border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary);
   cursor: pointer;
 }
@@ -3137,10 +3137,10 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 
 /* Decision buttons the AI offered, sitting above the input field. Claude-style
    choice chips: wrap, accent-tinted, brighten on hover. */
-.dv-advisor-options { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 10px; }
+.dv-advisor-options { display: flex; flex-wrap: wrap; gap: 5.6px; margin: 0 0 8px; }
 .dv-advisor-option {
-  font: inherit; font-size: 12.5px; font-weight: 600; text-align: left; cursor: pointer;
-  padding: 7px 13px; border-radius: 10px;
+  font: inherit; font-size: 10px; font-weight: 600; text-align: left; cursor: pointer;
+  padding: 5.6px 10.4px; border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
   background: color-mix(in srgb, var(--accent) 8%, var(--bg-card));
   color: var(--text-primary);
@@ -3156,8 +3156,8 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
    the textarea and separated by a hairline, so the question reads as part of the
    message input field rather than floating above it. */
 .dv-advisor-inpanels {
-  display: flex; flex-direction: column; gap: 8px;
-  margin: 2px 2px 8px; padding-bottom: 9px;
+  display: flex; flex-direction: column; gap: 6.4px;
+  margin: 1.6px 1.6px 6.4px; padding-bottom: 7.2px;
   border-bottom: 1px solid var(--border);
   overflow: hidden;
   /* Grows the composer footer open (max-height + collapsing spacing) so the
@@ -3166,13 +3166,13 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 }
 @keyframes dv-ask-in {
   from {
-    opacity: 0; transform: translateY(6px);
+    opacity: 0; transform: translateY(4.8px);
     max-height: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0;
     border-bottom-color: transparent;
   }
   to {
     opacity: 1; transform: none;
-    max-height: 600px; padding-bottom: 9px; margin-top: 2px; margin-bottom: 8px;
+    max-height: 480px; padding-bottom: 7.2px; margin-top: 1.6px; margin-bottom: 6.4px;
     border-bottom-color: var(--border);
   }
 }
@@ -3186,11 +3186,11 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 @keyframes dv-ask-out {
   from {
     opacity: 1; transform: none;
-    max-height: 600px; padding-bottom: 9px; margin-top: 2px; margin-bottom: 8px;
+    max-height: 480px; padding-bottom: 7.2px; margin-top: 1.6px; margin-bottom: 6.4px;
     border-bottom-color: var(--border);
   }
   to {
-    opacity: 0; transform: translateY(6px);
+    opacity: 0; transform: translateY(4.8px);
     max-height: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0;
     border-bottom-color: transparent;
   }
@@ -3203,8 +3203,8 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
    over the chat with no background/border/shadow of its own. */
 .dv-advisor-inpanels .ask-panel,
 .dv-advisor-inpanels .ask-panel.is-locked {
-  margin: 0; padding: 16px 18px;
-  background: transparent; border: none; border-radius: 12px;
+  margin: 0; padding: 12.8px 14.4px;
+  background: transparent; border: none; border-radius: 9.6px;
   box-shadow: none;
 }
 /* Composer surface mirroring the main app's AI-tab composer (.dvx-composer):
@@ -3214,8 +3214,8 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   position: relative; isolation: isolate;
   display: flex; flex-direction: column; gap: 0;
   background: transparent;
-  border: 1px solid var(--border); border-radius: 14px;
-  padding: 8px 10px; box-shadow: var(--shadow-card);
+  border: 1px solid var(--border); border-radius: 11.2px;
+  padding: 6.4px 8px; box-shadow: var(--shadow-card);
   transition: border-color 120ms, box-shadow 120ms;
 }
 /* Input surface fill. NO backdrop-filter here — the footer bar (.dv-advisor-compose)
@@ -3232,7 +3232,7 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   content: ''; position: absolute; inset: 0; border-radius: inherit;
   z-index: 0; pointer-events: none;
   background: radial-gradient(
-    180px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    144px circle at var(--spot-x, 50%) var(--spot-y, 50%),
     color-mix(in srgb, var(--accent) 5%, transparent) 0%,
     color-mix(in srgb, var(--accent) 2%, transparent) 40%,
     transparent 72%
@@ -3244,19 +3244,19 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 .dv-advisor-composer > * { position: relative; z-index: 1; }
 .dv-advisor-composer:focus-within {
   border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow-card);
+  box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow-card);
 }
 .dv-advisor-composer-textarea {
   appearance: none; background: transparent; border: none; outline: none; resize: none;
-  font: inherit; font-size: 0.92rem; line-height: 1.5; color: var(--text-primary);
-  padding: 6px 4px; min-height: 24px; max-height: 120px; width: 100%;
+  font: inherit; font-size: 0.736rem; line-height: 1.5; color: var(--text-primary);
+  padding: 4.8px 3.2px; min-height: 19.2px; max-height: 96px; width: 100%;
 }
 .dv-advisor-composer-textarea::placeholder { color: var(--text-muted); }
-.dv-advisor-composer-toolbar { display: flex; align-items: center; gap: 4px; }
+.dv-advisor-composer-toolbar { display: flex; align-items: center; gap: 3.2px; }
 .dv-advisor-composer-spacer { flex: 1; }
 .dv-advisor-composer-send {
   appearance: none; display: inline-flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; padding: 0;
+  width: 27.2px; height: 27.2px; padding: 0;
   border: none; border-radius: 50%;
   background: var(--accent); color: var(--text-on-accent); cursor: pointer;
   transition: background 120ms, color 120ms, opacity 120ms;
@@ -3270,7 +3270,7 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 /* Stop button — same footprint as send, shown while the AI is thinking. */
 .dv-advisor-composer-stop {
   appearance: none; display: inline-flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; padding: 0;
+  width: 27.2px; height: 27.2px; padding: 0;
   border: none; border-radius: 50%;
   background: var(--danger); color: var(--text-on-accent); cursor: pointer;
   transition: background 120ms, opacity 120ms;
@@ -3280,22 +3280,22 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 /* Engine toggle — a small segmented control in the composer toolbar that picks
    the document builder (Designer = Agent Skills, Instant = local). */
 .dv-engine-toggle {
-  display: inline-flex; align-items: center; gap: 2px;
-  padding: 2px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 1.6px;
+  padding: 1.6px; border-radius: 999px;
   background: color-mix(in srgb, var(--bg-page) 60%, transparent);
   border: 1px solid var(--border);
 }
 .dv-engine-opt {
   appearance: none; border: none; cursor: pointer;
-  font: inherit; font-size: 0.74rem; font-weight: 600; line-height: 1;
-  padding: 5px 11px; border-radius: 999px;
+  font: inherit; font-size: 0.592rem; font-weight: 600; line-height: 1;
+  padding: 4px 8.8px; border-radius: 999px;
   background: transparent; color: var(--text-muted);
   transition: background 120ms, color 120ms;
 }
 .dv-engine-opt:hover:not(:disabled) { color: var(--text-secondary); }
 .dv-engine-opt.is-active {
   background: var(--accent); color: var(--text-on-accent);
-  box-shadow: 0 1px 3px var(--accent-tint);
+  box-shadow: 0 1px 2.4px var(--accent-tint);
 }
 .dv-engine-opt:disabled { cursor: not-allowed; opacity: 0.55; }
 
@@ -3304,9 +3304,9 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 .dv-model-picker { position: relative; display: inline-flex; }
 .dv-model-trigger {
   appearance: none; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 6px;
-  font: inherit; font-size: 0.74rem; font-weight: 600; line-height: 1;
-  padding: 5px 9px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 4.8px;
+  font: inherit; font-size: 0.592rem; font-weight: 600; line-height: 1;
+  padding: 4px 7.2px; border-radius: 999px;
   background: color-mix(in srgb, var(--bg-page) 60%, transparent);
   border: 1px solid var(--border); color: var(--text-secondary);
   transition: border-color 120ms, color 120ms, background 120ms;
@@ -3314,37 +3314,37 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 .dv-model-trigger:hover:not(:disabled) { color: var(--text-primary); border-color: var(--border-strong); }
 .dv-model-trigger:disabled { cursor: not-allowed; opacity: 0.55; }
 .dv-model-trigger-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint);
+  width: 5.6px; height: 5.6px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
 .dv-model-trigger-chev { opacity: 0.6; }
 
 .dv-model-menu {
-  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 40;
-  width: 290px; max-width: 78vw;
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 6px; border-radius: 14px;
+  position: absolute; bottom: calc(100% + 6.4px); left: 0; z-index: 40;
+  width: 232px; max-width: 78vw;
+  display: flex; flex-direction: column; gap: 1.6px;
+  padding: 4.8px; border-radius: 11.2px;
   background: var(--bg-elevated, var(--bg-card)); border: 1px solid var(--border);
   box-shadow: var(--shadow-elev);
 }
 .dv-model-menu-head {
-  font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--text-muted); padding: 6px 8px 4px;
+  font-size: 0.528rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted); padding: 4.8px 6.4px 3.2px;
 }
 .dv-model-opt {
   appearance: none; cursor: pointer; text-align: left;
-  display: flex; flex-direction: column; gap: 3px;
-  padding: 9px 10px; border-radius: 10px;
+  display: flex; flex-direction: column; gap: 2.4px;
+  padding: 7.2px 8px; border-radius: 8px;
   background: transparent; border: 1px solid transparent; color: var(--text-primary);
   transition: background 110ms, border-color 110ms;
 }
 .dv-model-opt:hover { background: var(--accent-tint); }
 .dv-model-opt.is-active { background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
-.dv-model-opt-top { display: flex; align-items: center; gap: 8px; }
-.dv-model-opt-name { font-size: 0.86rem; font-weight: 700; }
-.dv-model-opt-tag { font-size: 0.72rem; font-weight: 600; color: var(--accent); }
+.dv-model-opt-top { display: flex; align-items: center; gap: 6.4px; }
+.dv-model-opt-name { font-size: 0.688rem; font-weight: 700; }
+.dv-model-opt-tag { font-size: 0.576rem; font-weight: 600; color: var(--accent); }
 .dv-model-opt-check { margin-left: auto; color: var(--accent); }
-.dv-model-opt-best { font-size: 0.74rem; line-height: 1.35; color: var(--text-secondary); }
+.dv-model-opt-best { font-size: 0.592rem; line-height: 1.35; color: var(--text-secondary); }
 
 /* In the Multitool footer the advisor input matches the team-chat composer's
    footer treatment (.sv-footer .dvx-composer): flat and full-bleed — it fills
@@ -3357,7 +3357,7 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   border-radius: 0;
   box-shadow: none;
   background: transparent;
-  padding: 8px 22px;
+  padding: 6.4px 17.6px;
 }
 .dv-advisor-footerslot .dv-advisor-composer::before,
 .dv-advisor-footerslot .dv-advisor-composer::after { display: none; }
@@ -3368,17 +3368,17 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 
 /* Captions side panel — reuses the OCR "Extracted text" panel chrome
    (.dv-ocr-history*); these are the audio-specific additions. */
-.dv-audio-captions-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 6px 14px 16px; }
-.dv-audio-captions-acts { display: flex; align-items: center; gap: 14px; }
-.dv-audio-captions-aside .dv-audio-captions-status { padding: 14px; }
+.dv-audio-captions-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 9.6px; padding: 4.8px 11.2px 12.8px; }
+.dv-audio-captions-acts { display: flex; align-items: center; gap: 11.2px; }
+.dv-audio-captions-aside .dv-audio-captions-status { padding: 11.2px; }
 /* AI captions transcript row — a muted timestamp on the left, caption text to
    its right, the active (now-playing) line highlighted with a soft rounded
    fill. No vertical rail / node (the timeline line lives in the content pane's
    lyrics instead). */
 .dv-audio-caption-row {
   text-align: left; border: none; background: none; font: inherit; cursor: pointer;
-  grid-template-columns: 50px 1fr; gap: 12px; align-items: baseline;
-  padding: 6px 10px; border-radius: 8px;
+  grid-template-columns: 40px 1fr; gap: 9.6px; align-items: baseline;
+  padding: 4.8px 8px; border-radius: 6.4px;
   transition: background 120ms ease;
 }
 .dv-audio-caption-row:hover { background: var(--bg-elevated); }
@@ -3388,7 +3388,7 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   position: static; width: auto; text-align: left;
 }
 .dv-audio-caption-row .dv-ocr-history-date-d {
-  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+  font-size: 9.6px; font-weight: 600; font-variant-numeric: tabular-nums;
   color: var(--text-muted); transition: color 120ms ease;
 }
 .dv-audio-caption-row:hover .dv-ocr-history-date-d { color: var(--text-secondary); }
@@ -3400,76 +3400,76 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 .dv-caption-seek {
   border: none; background: none; font: inherit; cursor: pointer; padding: 0;
   color: inherit; text-decoration: underline; text-decoration-style: dotted;
-  text-underline-offset: 2px;
+  text-underline-offset: 1.6px;
 }
 .dv-caption-seek:hover { color: var(--accent); }
 .dv-caption-edit {
   width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
-  font: inherit; font-size: 13px; line-height: 1.45; color: var(--text-primary);
+  font: inherit; font-size: 10.4px; line-height: 1.45; color: var(--text-primary);
   background: var(--bg-input); border: 1px solid var(--border);
-  border-radius: 8px; padding: 7px 9px;
+  border-radius: 6.4px; padding: 5.6px 7.2px;
 }
-.dv-caption-edit:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.dv-caption-edit:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2.4px var(--accent-soft); }
 .dv-caption-edit::placeholder { color: var(--text-muted); }
-.dv-caption-fulledit { padding: 12px 14px; }
+.dv-caption-fulledit { padding: 9.6px 11.2px; }
 .dv-audio-playbtn {
   flex: none; display: flex; align-items: center; justify-content: center;
-  width: 48px; height: 48px; border-radius: 50%; border: none;
+  width: 38.4px; height: 38.4px; border-radius: 50%; border: none;
   background: var(--accent); color: var(--text-on-accent); cursor: pointer;
 }
 .dv-audio-playbtn:hover { background: var(--accent-hover); }
-.dv-audio-playbtn svg { width: 22px; height: 22px; }
+.dv-audio-playbtn svg { width: 17.6px; height: 17.6px; }
 .dv-audio-volume {
-  position: absolute; left: 18px; bottom: 18px; z-index: 2;
-  display: flex; flex-direction: column-reverse; align-items: center; gap: 10px;
+  position: absolute; left: 14.4px; bottom: 14.4px; z-index: 2;
+  display: flex; flex-direction: column-reverse; align-items: center; gap: 8px;
 }
 .dv-audio-volume-btn {
   flex: none; display: flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; padding: 0; border: none; background: none;
+  width: 22.4px; height: 22.4px; padding: 0; border: none; background: none;
   color: var(--text-secondary); cursor: pointer;
 }
 .dv-audio-volume-btn:hover { color: var(--text-primary); }
-.dv-audio-volume-btn svg { width: 18px; height: 18px; }
+.dv-audio-volume-btn svg { width: 14.4px; height: 14.4px; }
 .dv-audio-volume-slider {
   writing-mode: vertical-lr; direction: rtl;
-  width: 6px; height: 120px; flex: none; accent-color: var(--accent);
+  width: 4.8px; height: 96px; flex: none; accent-color: var(--accent);
 }
 
-.dv-audio-captions-btn svg { width: 16px; height: 16px; }
+.dv-audio-captions-btn svg { width: 12.8px; height: 12.8px; }
 .dv-audio-captions-status {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  font-size: 12.5px; color: var(--text-muted);
+  display: flex; align-items: center; gap: 6.4px; width: 100%;
+  font-size: 10px; color: var(--text-muted);
 }
 .dv-audio-captions-status.is-error { color: var(--danger-text); justify-content: space-between; }
 .dv-audio-captions-spinner {
-  flex: none; width: 14px; height: 14px; border-radius: 50%;
-  border: 2px solid var(--accent-soft); border-top-color: var(--accent);
+  flex: none; width: 11.2px; height: 11.2px; border-radius: 50%;
+  border: 1.6px solid var(--accent-soft); border-top-color: var(--accent);
   animation: dv-audio-captions-spin 0.8s linear infinite;
 }
 @keyframes dv-audio-captions-spin { to { transform: rotate(360deg); } }
 
-.dv-audio-captions-panel { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+.dv-audio-captions-panel { width: 100%; display: flex; flex-direction: column; gap: 6.4px; }
 .dv-audio-captions-head {
   display: flex; align-items: center; justify-content: space-between;
-  font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase;
+  font-size: 9.2px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase;
   color: var(--text-muted);
 }
 .dv-audio-captions-copy {
   border: none; background: none; cursor: pointer; font: inherit;
-  font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em;
+  font-size: 9.2px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em;
   color: var(--accent); padding: 0;
 }
 .dv-audio-captions-copy:hover { color: var(--accent-hover); }
 .dv-audio-captions-list {
-  width: 100%; max-height: 240px; overflow: auto;
-  display: flex; flex-direction: column; gap: 2px;
-  border: 1px solid var(--border); border-radius: 10px; padding: 6px;
+  width: 100%; max-height: 192px; overflow: auto;
+  display: flex; flex-direction: column; gap: 1.6px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 4.8px;
   background: var(--bg-page);
 }
 .dv-audio-caption-line {
-  display: flex; align-items: baseline; gap: 10px; width: 100%;
+  display: flex; align-items: baseline; gap: 8px; width: 100%;
   text-align: left; border: none; background: none; cursor: pointer;
-  padding: 6px 8px; border-radius: 6px; font: inherit;
+  padding: 4.8px 6.4px; border-radius: 4.8px; font: inherit;
   color: var(--text-secondary);
 }
 .dv-audio-caption-line:hover { background: var(--accent-soft); }
@@ -3477,12 +3477,12 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   background: var(--accent-soft); color: var(--text-primary);
 }
 .dv-audio-caption-time {
-  flex: none; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-muted);
-  min-width: 38px;
+  flex: none; font-size: 8.8px; font-variant-numeric: tabular-nums; color: var(--text-muted);
+  min-width: 30.4px;
 }
 .dv-audio-caption-line.is-active .dv-audio-caption-time { color: var(--accent); }
-.dv-audio-caption-text { font-size: 13px; line-height: 1.5; }
+.dv-audio-caption-text { font-size: 10.4px; line-height: 1.5; }
 .dv-audio-caption-empty {
-  margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+  margin: 0; padding: 8px 9.6px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg-page); color: var(--text-muted);
 }

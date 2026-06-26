@@ -22,12 +22,12 @@
    `.tooltip` rules (Tooltip.css) — that one is already transform-
    only, cheap. */
 .project-files-morph-pill.is-menu {
-  padding: 4px;
-  border-radius: 10px;
-  min-width: 200px;
+  padding: 3.2px;
+  border-radius: 8px;
+  min-width: 160px;
   background: var(--bg-card);
   border-color: var(--border-strong);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 9.6px 25.6px rgba(0, 0, 0, 0.5);
   pointer-events: auto;
   white-space: normal;
   /* No CSS transition here — the JS FLIP effect wires its own
@@ -51,7 +51,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1.6px;
 }
 
 .project-files-morph-item {
@@ -59,11 +59,11 @@
   width: 100%;
   background: transparent;
   border: 0;
-  border-radius: 6px;
-  padding: 0.55rem 0.8rem;
+  border-radius: 4.8px;
+  padding: 0.44rem 0.64rem;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -94,6 +94,89 @@
   color: var(--danger-soft);
 }
 
+/* ── Side-flyout submenu (a menu item that opens a SEPARATE dropdown) ─
+   A menu item carrying a `submenu` array renders a caret and, when
+   clicked, opens its sub-items in their OWN floating panel beside the
+   menu (not expanded inside it). Used by the Files background
+   right-click "Create" item to mirror the footer dropdown. The panel
+   needs to escape the pill's box, so the pill must not clip it. */
+.project-files-morph-pill.is-menu { overflow: visible; }
+
+/* The list item is the positioning context for its flyout. */
+.project-files-morph-list > li { position: relative; }
+
+.project-files-morph-item-parent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.project-files-morph-caret {
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 3.2px solid transparent;
+  border-bottom: 3.2px solid transparent;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+/* Separate floating panel — sized + styled to match the footer "Create"
+   dropdown (.fx-create-menu in FilesWorkspace.css) so the two read identical. */
+.project-files-morph-sublist {
+  position: absolute;
+  top: -3.2px;
+  left: 100%;
+  margin: 0 0 0 5px;
+  z-index: 2;
+  list-style: none;
+  padding: 3.2px;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 9.6px 25.6px rgba(0, 0, 0, 0.5);
+}
+
+/* Near the right viewport edge, the flyout opens leftward instead. */
+.project-files-morph-sublist.flip-left {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: 5px;
+}
+
+/* Buttons match the main right-click menu items (.project-files-morph-item):
+   only add the icon layout — size/padding/font come from the base item rule. */
+.project-files-morph-subitem {
+  display: flex;
+  align-items: center;
+  gap: 7.2px;
+  white-space: nowrap;
+}
+
+/* Folder icon mirrors .fx-menu .fx-icon; the typed-file icons keep their
+   .fx-create-ico size/colour (those rules use !important, so they win). */
+.project-files-morph-subitem .fx-icon {
+  width: 12px;
+  height: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.project-files-morph-subhead {
+  padding: 4.8px 8px 4px;
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
 /* ── Confirm-step panel ─────────────────────────────────────────────
    Rendered INSIDE the same .project-files-morph-pill element so the
    FLIP morph in useMorphPill measures one root and animates
@@ -103,9 +186,9 @@
    so the morph never visibly SHRINKS horizontally going from menu
    → confirm. */
 .project-files-morph-pill.is-confirm {
-  min-width: 260px;
-  max-width: 320px;
-  padding: 12px 14px 10px;
+  min-width: 208px;
+  max-width: 256px;
+  padding: 9.6px 11.2px 8px;
 }
 
 /* Danger confirm (from a Delete / Hide menu item) — paint the panel with the
@@ -120,11 +203,11 @@
 .project-files-morph-confirm {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6.4px;
 }
 
 .project-files-morph-confirm-title {
-  font-size: 0.88rem;
+  font-size: 0.704rem;
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.3;
@@ -132,7 +215,7 @@
 
 .project-files-morph-confirm-message {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   color: var(--text-secondary);
   line-height: 1.4;
   /* Allow wrapping inside the morph pill, which is otherwise nowrap. */
@@ -142,23 +225,23 @@
 /* Prompt panel — confirm chrome plus a free-text reason field. Slightly
    wider so a sentence of reason has room to breathe. */
 .project-files-morph-pill.is-prompt {
-  min-width: 280px;
-  max-width: 340px;
+  min-width: 224px;
+  max-width: 272px;
 }
 
 .project-files-morph-prompt-input {
   width: 100%;
   box-sizing: border-box;
   resize: vertical;
-  min-height: 60px;
+  min-height: 48px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6.4px;
   background: var(--bg-input);
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   line-height: 1.4;
-  padding: 0.5rem 0.6rem;
+  padding: 0.4rem 0.48rem;
   /* The pill is white-space:nowrap by default; let the textarea wrap. */
   white-space: normal;
 }
@@ -170,23 +253,23 @@
 .project-files-morph-prompt-input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-tint);
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
 
 .project-files-morph-confirm-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
-  margin-top: 2px;
+  gap: 4.8px;
+  margin-top: 1.6px;
 }
 
 .project-files-morph-confirm-btn {
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 4.8px;
   font-family: inherit;
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   font-weight: 500;
-  padding: 0.4rem 0.85rem;
+  padding: 0.32rem 0.68rem;
   cursor: pointer;
   transition: background 120ms, border-color 120ms, color 120ms;
 }

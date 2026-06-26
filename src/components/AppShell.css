@@ -9,12 +9,12 @@
   /* Width of the vertical app-nav rail (Sidebar.jsx). Also read by
      SwitchProjectLoader.css, ProjectBanner, the file detail modal, the tree
      viewports, etc. */
-  --sidebar-width: 240px;
+  --sidebar-width: 192px;
   /* No horizontal top bar anymore. */
   --topnav-h: 0px;
   /* Gap between the frameless window edge and the app chrome frame, so the
      ambient dot grid shows around the rounded surface. */
-  --chrome-inset: 8px;
+  --chrome-inset: 6.4px;
   padding: var(--chrome-inset);
   box-sizing: border-box;
 }
@@ -48,12 +48,12 @@
   overflow-x: hidden;
   /* 22px horizontal inset matches the Files tab header so every tab's
      title + content line up at the same distance from the edge. */
-  padding: 2rem 22px;
+  padding: 1.6rem 17.6px;
   min-width: 0;
   background-color: var(--bg-page);
   /* Own chrome frame — separate from the sidebar's. */
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 9.6px;
   box-shadow: var(--shadow-card);
 }
 
@@ -89,7 +89,7 @@
   top: calc(var(--titlebar-h, 0px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
   left: 0;
   right: 0;
-  padding-left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 0px) + 22px);
+  padding-left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 0px) + 17.6px);
 }
 
 /* Inner sheet that wraps page content on project-scoped routes. Sits
@@ -135,13 +135,13 @@
   background: linear-gradient(
     to bottom,
     var(--bg-page) 0,
-    var(--bg-page) 1.125rem,
-    transparent 1.125rem
+    var(--bg-page) 0.9rem,
+    transparent 0.9rem
   );
-  border-radius: 18px 18px 0 0;
+  border-radius: 14.4px 14.4px 0 0;
   /* 22px horizontal inset to match the Files tab header (and the personal
      pages' .main-content inset) so project tabs align with the rest. */
-  padding: 2rem 22px;
+  padding: 1.6rem 17.6px;
   /* Previously calc(100% - 2.35rem) — accounted for the old
      banner's vertical band + margin-top. With the banner gone
      (now a fixed-position pill), the frame can fill the full
@@ -171,10 +171,10 @@
     ),
     radial-gradient(
       circle at center,
-      color-mix(in srgb, var(--text-primary) 9%, transparent) 1.2px,
-      transparent 1.6px
+      color-mix(in srgb, var(--text-primary) 9%, transparent) 0.96px,
+      transparent 1.28px
     );
-  background-size: 100% 100%, 24px 24px;
+  background-size: 100% 100%, 19.2px 19.2px;
   /* Vignette stays centred; the dot grid is anchored to the viewport top-left
      (0 0) so the spotlight layer below can stay aligned to it with a simple
      counter-shift while it is translated around. */

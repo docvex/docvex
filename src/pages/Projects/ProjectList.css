@@ -19,42 +19,42 @@
 /* Left rail (Projects · Updates · Settings · Documentation) + account footer.
    Stretches to the hub's full height so it reads as a full-height rail. */
 .lh-sidebar {
-  flex: 0 0 212px;
+  flex: 0 0 169.6px;
   display: flex;
   flex-direction: column;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border);
-  border-radius: 16px 0 0 16px;
-  padding: 14px;
+  border-radius: 12.8px 0 0 12.8px;
+  padding: 11.2px;
 }
 
 .lh-sb-nav {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2.4px;
 }
 
 /* Footer pins the Account control to the bottom of the column. */
 .lh-sb-footer {
   position: relative;
   margin-top: auto;
-  padding-top: 10px;
+  padding-top: 8px;
   border-top: 1px solid var(--border);
 }
 
 .lh-sb-item {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 8.8px;
   width: 100%;
   text-align: left;
   background: none;
   border: none;
-  border-radius: 9px;
-  padding: 10px 11px;
+  border-radius: 7.2px;
+  padding: 8px 8.8px;
   cursor: pointer;
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 11.2px;
   font-weight: 500;
   color: var(--text-secondary);
   transition: background 130ms ease, color 130ms ease;
@@ -66,19 +66,19 @@
   font-weight: 600;
 }
 .lh-sb-icon { display: flex; flex-shrink: 0; }
-.lh-sb-icon svg { width: 18px; height: 18px; }
+.lh-sb-icon svg { width: 14.4px; height: 14.4px; }
 
 /* ── Account footer control ── */
 .lh-account-btn {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   text-align: left;
   background: none;
   border: 1px solid transparent;
-  border-radius: 10px;
-  padding: 7px 9px;
+  border-radius: 8px;
+  padding: 5.6px 7.2px;
   cursor: pointer;
   font-family: var(--font-body);
   transition: background 130ms ease, border-color 130ms ease;
@@ -87,14 +87,14 @@
 
 .lh-account-avatar {
   position: relative;
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 9.6px;
   font-weight: 600;
   color: #fff;
   overflow: visible;
@@ -104,52 +104,52 @@
    (opens the status picker). */
 .lh-account-status-dot {
   position: absolute;
-  right: -2px;
-  bottom: -2px;
-  width: 14px;
-  height: 14px;
+  right: -1.6px;
+  bottom: -1.6px;
+  width: 11.2px;
+  height: 11.2px;
   border-radius: 50%;
-  border: 2.5px solid var(--bg-sidebar);
+  border: 2px solid var(--bg-sidebar);
   box-sizing: border-box;
   cursor: pointer;
   transition: transform 120ms ease;
 }
 .lh-account-status-dot:hover { transform: scale(1.18); }
 .lh-account-status-dot:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
-  outline-offset: 2px;
+  outline: 1.6px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 1.6px;
 }
 
 .lh-account-btn-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .lh-account-btn-name {
-  font-size: 13.5px;
+  font-size: 10.8px;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.lh-account-btn-meta { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 3px; }
+.lh-account-btn-meta { display: flex; align-items: center; gap: 4.8px; min-width: 0; margin-top: 2.4px; }
 .lh-account-btn-tier {
   flex-shrink: 0;
-  font-size: 9.5px;
+  font-size: 7.6px;
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--accent);
   background: var(--accent-tint);
   border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
-  border-radius: 6px;
-  padding: 1px 6px;
+  border-radius: 4.8px;
+  padding: 1px 4.8px;
 }
 
 /* ── Main column ── */
 .lh-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .lh-main-inner {
   width: 100%;
-  max-width: 920px;
+  max-width: 736px;
   margin: 0 auto;
-  padding: 34px 28px 30px;
+  padding: 27.2px 22.4px 24px;
   box-sizing: border-box;
 }
 
@@ -158,26 +158,26 @@
 .lh-headline {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding-bottom: 26px;
-  margin-bottom: 26px;
+  gap: 12.8px;
+  padding-bottom: 20.8px;
+  margin-bottom: 20.8px;
   border-bottom: 1px solid var(--border);
 }
 .lh-eyebrow {
-  font-size: 11px;
+  font-size: 8.8px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
   font-weight: 700;
   color: var(--accent);
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 9.6px;
   flex-wrap: wrap;
 }
 .lh-eyebrow-muted { color: var(--text-muted); font-weight: 500; }
 .lh-title {
   font-family: var(--font-display);
-  font-size: 56px;
+  font-size: 44.8px;
   font-weight: 700;
   letter-spacing: -0.04em;
   line-height: 1;
@@ -186,105 +186,105 @@
 }
 .lh-greeting {
   font-family: var(--font-body);
-  font-size: 15px;
+  font-size: 12px;
   line-height: 1.55;
   color: var(--text-secondary);
   margin: 0;
 }
 @media (max-width: 512px) {
-  .lh-title { font-size: 42px; }
+  .lh-title { font-size: 33.6px; }
 }
 
 /* ── Toolbar (search + open + new) ── */
 .lh-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
+  gap: 9.6px;
+  margin-bottom: 14.4px;
 }
 .lh-search { position: relative; flex: 1; }
 .lh-search-icon {
   position: absolute;
-  left: 14px;
+  left: 11.2px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
   color: var(--text-muted);
   pointer-events: none;
 }
-.lh-search-icon svg { width: 17px; height: 17px; }
+.lh-search-icon svg { width: 13.6px; height: 13.6px; }
 .lh-search-input {
   width: 100%;
   box-sizing: border-box;
-  padding: 12px 14px 12px 42px;
+  padding: 9.6px 11.2px 9.6px 33.6px;
   font-family: var(--font-body);
-  font-size: 14.5px;
+  font-size: 11.6px;
   color: var(--text-primary);
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 11px;
+  border-radius: 8.8px;
   outline: none;
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 .lh-search-input::placeholder { color: var(--text-muted); }
 .lh-search-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-tint);
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
 
 .lh-new-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6.4px;
   flex-shrink: 0;
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 11.2px;
   font-weight: 600;
   color: var(--text-on-accent);
   background: var(--accent);
   border: none;
-  border-radius: 11px;
-  padding: 12px 18px;
+  border-radius: 8.8px;
+  padding: 9.6px 14.4px;
   cursor: pointer;
   transition: background 140ms ease;
 }
 .lh-new-btn:hover:not(:disabled) { background: var(--accent-hover); }
 .lh-new-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.lh-new-btn svg { width: 16px; height: 16px; }
+.lh-new-btn svg { width: 12.8px; height: 12.8px; }
 
 /* Secondary "Open project" button — open an existing project from disk. */
 .lh-open-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6.4px;
   flex-shrink: 0;
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 11.2px;
   font-weight: 600;
   color: var(--text-primary);
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 11px;
-  padding: 11px 16px;
+  border-radius: 8.8px;
+  padding: 8.8px 12.8px;
   cursor: pointer;
   transition: background 140ms ease, border-color 140ms ease;
 }
 .lh-open-btn:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
-.lh-open-btn svg { width: 16px; height: 16px; }
+.lh-open-btn svg { width: 12.8px; height: 12.8px; }
 
 /* "No projects folder selected" banner — shown when no directory is set.
    Clickable → Settings. Red 5-stop animated gradient. */
 .lh-nofolder {
   display: flex;
   align-items: center;
-  gap: 13px;
+  gap: 10.4px;
   width: 100%;
   box-sizing: border-box;
   text-align: left;
-  margin-bottom: 18px;
-  padding: 13px 16px;
+  margin-bottom: 14.4px;
+  padding: 10.4px 12.8px;
   border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
-  border-radius: 12px;
+  border-radius: 9.6px;
   cursor: pointer;
   font-family: inherit;
   color: var(--text-primary);
@@ -302,13 +302,13 @@
 }
 .lh-nofolder:hover { border-color: var(--danger); transform: translateY(-1px); filter: brightness(1.04); }
 .lh-nofolder-icon { display: flex; flex-shrink: 0; color: var(--danger); }
-.lh-nofolder-icon svg { width: 20px; height: 20px; }
-.lh-nofolder-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.lh-nofolder-text strong { font-size: 14px; color: var(--text-primary); }
-.lh-nofolder-text span { font-size: 12.5px; color: var(--text-secondary); }
+.lh-nofolder-icon svg { width: 16px; height: 16px; }
+.lh-nofolder-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1.6px; }
+.lh-nofolder-text strong { font-size: 11.2px; color: var(--text-primary); }
+.lh-nofolder-text span { font-size: 10px; color: var(--text-secondary); }
 .lh-nofolder-cta {
   flex-shrink: 0;
-  font-size: 13px;
+  font-size: 10.4px;
   font-weight: 600;
   color: var(--danger);
   white-space: nowrap;
@@ -316,25 +316,25 @@
 
 /* Inline result message for "Open project". */
 .lh-open-msg {
-  margin: -8px 0 16px;
-  padding: 10px 13px;
+  margin: -6.4px 0 12.8px;
+  padding: 8px 10.4px;
   background: var(--danger-soft);
   border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
-  border-radius: 9px;
-  font-size: 13px;
+  border-radius: 7.2px;
+  font-size: 10.4px;
   color: var(--danger-text);
 }
 
 /* ── List ── */
 .lh-list-frame { margin: 0; padding: 0; }
-.lh-list { display: flex; flex-direction: column; gap: 8px; }
+.lh-list { display: flex; flex-direction: column; gap: 6.4px; }
 
 .lh-row {
   display: flex;
   flex-direction: column;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 9.6px;
   font-family: var(--font-body);
   color: var(--text-primary);
   transition: border-color 140ms ease, box-shadow 140ms ease;
@@ -347,8 +347,8 @@
   display: grid;
   grid-template-columns: auto 1fr auto auto;
   align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
+  gap: 11.2px;
+  padding: 9.6px 11.2px;
 }
 
 /* Dropdown toggle — reveals the project-data panel below. */
@@ -356,19 +356,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   background: none;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6.4px;
   cursor: pointer;
   color: var(--text-muted);
   transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
 }
 .lh-row-expand:hover { background: var(--bg-elevated); color: var(--text-primary); }
 .lh-row-expand-caret { display: flex; transition: transform 160ms ease; }
-.lh-row-expand-caret svg { width: 16px; height: 16px; }
+.lh-row-expand-caret svg { width: 12.8px; height: 12.8px; }
 .lh-row.is-expanded .lh-row-expand-caret { transform: rotate(90deg); }
 .lh-row.is-expanded .lh-row-expand {
   color: var(--accent);
@@ -380,22 +380,22 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: 1.6px;
   min-width: 0;
   text-align: left;
   background: none;
   border: none;
-  padding: 4px 0;
+  padding: 3.2px 0;
   cursor: pointer;
   font-family: inherit;
 }
 .lh-row-name-main {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   max-width: 100%;
   font-family: var(--font-display);
-  font-size: 16px;
+  font-size: 12.8px;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -404,7 +404,7 @@
 }
 .lh-row-path {
   max-width: 100%;
-  font-size: 12.5px;
+  font-size: 10px;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -414,13 +414,13 @@
 .lh-recent-tag {
   flex-shrink: 0;
   font-family: var(--font-body);
-  font-size: 10.5px;
+  font-size: 8.4px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--accent);
   background: var(--accent-tint);
-  padding: 2px 7px;
+  padding: 1.6px 5.6px;
   border-radius: 999px;
 }
 
@@ -433,24 +433,24 @@
   white-space: nowrap;
 }
 .lh-row-accessed-label {
-  font-size: 10.5px;
+  font-size: 8.4px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-muted);
 }
-.lh-row-accessed-val { font-size: 13px; color: var(--text-secondary); }
+.lh-row-accessed-val { font-size: 10.4px; color: var(--text-secondary); }
 
 /* Configure icon + cog dropdown (Rename / Delete). */
 .lh-row-config {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 27.2px;
+  height: 27.2px;
   flex-shrink: 0;
   background: none;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: 7.2px;
   cursor: pointer;
   color: var(--text-muted);
   transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
@@ -461,36 +461,36 @@
   color: var(--text-primary);
   border-color: var(--border);
 }
-.lh-row-config svg { width: 18px; height: 18px; }
+.lh-row-config svg { width: 14.4px; height: 14.4px; }
 .lh-row-config-wrap { position: relative; display: flex; align-items: center; }
 .lh-row-menu {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 4.8px);
   right: 0;
   z-index: 20;
-  min-width: 168px;
+  min-width: 134.4px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px;
+  gap: 1.6px;
+  padding: 4.8px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 11px;
+  border-radius: 8.8px;
   box-shadow: var(--shadow-elev);
   animation: lh-menu-in 120ms ease-out;
 }
 .lh-row-menu-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 7.2px;
   width: 100%;
-  padding: 9px 11px;
+  padding: 7.2px 8.8px;
   background: none;
   border: none;
-  border-radius: 8px;
+  border-radius: 6.4px;
   text-align: left;
   font-family: var(--font-body);
-  font-size: 13.5px;
+  font-size: 10.8px;
   font-weight: 500;
   color: var(--text-primary);
   cursor: pointer;
@@ -500,24 +500,24 @@
 .lh-row-menu-item.is-danger { color: var(--danger); }
 .lh-row-menu-item.is-danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .lh-row-menu-icon { display: flex; }
-.lh-row-menu-icon svg { width: 15px; height: 15px; }
+.lh-row-menu-icon svg { width: 12px; height: 12px; }
 
 /* Inline rename — the title becomes an input in place. */
 .lh-row-main-edit { justify-content: center; }
 .lh-row-name-input {
   width: 100%;
   box-sizing: border-box;
-  padding: 3px 8px;
-  margin: -3px -8px 0;
+  padding: 2.4px 6.4px;
+  margin: -2.4px -6.4px 0;
   font-family: var(--font-display);
-  font-size: 16px;
+  font-size: 12.8px;
   font-weight: 600;
   color: var(--text-primary);
   background: var(--bg-input);
   border: 1px solid var(--accent);
-  border-radius: 7px;
+  border-radius: 5.6px;
   outline: none;
-  box-shadow: 0 0 0 3px var(--accent-tint);
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
 .lh-row-name-input:disabled { opacity: 0.6; }
 
@@ -533,33 +533,33 @@
 .lh-row-data-clip { min-height: 0; overflow: hidden; }
 .lh-row-data {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 12px 24px;
-  padding: 18px 16px 16px 58px;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: 9.6px 19.2px;
+  padding: 14.4px 12.8px 12.8px 46.4px;
   border-top: 1px solid var(--border);
   opacity: 0;
   transition: opacity 200ms ease;
 }
 .lh-row.is-expanded .lh-row-data { opacity: 1; }
-.lh-row-data-item { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.lh-row-data-item { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .lh-row-data-item.lh-row-data-desc { grid-column: 1 / -1; }
 .lh-row-data-key {
-  font-size: 10.5px;
+  font-size: 8.4px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
 }
-.lh-row-data-val { font-size: 13.5px; color: var(--text-secondary); line-height: 1.45; }
+.lh-row-data-val { font-size: 10.8px; color: var(--text-secondary); line-height: 1.45; }
 .lh-row-data-item .lh-pill { align-self: flex-start; }
-.lh-row-data-members { display: inline-flex; align-items: center; gap: 8px; }
+.lh-row-data-members { display: inline-flex; align-items: center; gap: 6.4px; }
 
 /* Role pill — colours reuse the role tokens used elsewhere. */
 .lh-pill {
   font-family: var(--font-body);
-  font-size: 11.5px;
+  font-size: 9.2px;
   font-weight: 600;
   text-transform: capitalize;
-  padding: 3px 10px;
+  padding: 2.4px 8px;
   border-radius: 999px;
   background: var(--bg-elevated);
   color: var(--text-secondary);
@@ -574,27 +574,27 @@
 .lh-row-member-count {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 13px;
+  gap: 3.2px;
+  font-size: 10.4px;
   color: var(--text-secondary);
 }
 .lh-users-icon { display: flex; color: var(--text-muted); }
-.lh-users-icon svg { width: 14px; height: 14px; }
+.lh-users-icon svg { width: 11.2px; height: 11.2px; }
 
 /* Overlapping avatar stack. */
 .lh-avatars { display: inline-flex; }
 .lh-avatar {
-  width: 24px;
-  height: 24px;
+  width: 19.2px;
+  height: 19.2px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10.5px;
+  font-size: 8.4px;
   font-weight: 600;
   color: #fff;
-  border: 2px solid var(--bg-card);
-  margin-left: -8px;
+  border: 1.6px solid var(--bg-card);
+  margin-left: -6.4px;
   overflow: hidden;
 }
 .lh-avatar:first-child { margin-left: 0; }
@@ -602,15 +602,15 @@
 
 /* ── States ── */
 .lh-state {
-  padding: 28px;
+  padding: 22.4px;
   text-align: center;
-  font-size: 14px;
+  font-size: 11.2px;
   color: var(--text-muted);
 }
 .lh-state-error { color: var(--danger-text); }
 
 .lh-empty {
-  padding: 56px 28px;
+  padding: 44.8px 22.4px;
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -620,22 +620,22 @@
 }
 .lh-empty h2 {
   font-family: var(--font-display);
-  font-size: 38px;
+  font-size: 30.4px;
   font-weight: 700;
   line-height: 1.05;
   color: var(--text-primary);
-  margin: 0 0 8px;
-  padding-bottom: 10px;
+  margin: 0 0 6.4px;
+  padding-bottom: 8px;
 }
 .lh-empty p {
-  font-size: 14px;
+  font-size: 11.2px;
   color: var(--text-muted);
-  margin: 0 0 20px;
+  margin: 0 0 16px;
 }
 .lh-empty .lh-new-btn { margin: 0; }
 .lh-empty-or {
-  margin: 12px 0;
-  font-size: 13px;
+  margin: 9.6px 0;
+  font-size: 10.4px;
   color: var(--text-muted);
 }
 .lh-empty .lh-empty-open { margin: 0; }
@@ -645,7 +645,7 @@
   100% { background-position: 300% 0; }
 }
 @keyframes lh-menu-in {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(3.2px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
@@ -658,7 +658,7 @@
     flex-wrap: wrap;
     border-right: none;
     border-bottom: 1px solid var(--border);
-    border-radius: 16px 16px 0 0;
+    border-radius: 12.8px 12.8px 0 0;
   }
   .lh-sb-nav { flex-direction: row; flex-wrap: wrap; }
   .lh-sb-footer { margin-top: 0; border-top: none; width: 100%; }

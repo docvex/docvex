@@ -24,12 +24,12 @@
 /* "N of M" count chip shown inside the search box. */
 .chat-find-count {
   flex: 0 0 auto;
-  font-size: 0.72rem;
+  font-size: 0.576rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
   white-space: nowrap;
-  padding: 0 2px 0 4px;
+  padding: 0 1.6px 0 3.2px;
   user-select: none;
 }
 .chat-find-count.is-empty {

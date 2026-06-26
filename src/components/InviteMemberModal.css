@@ -1,17 +1,17 @@
 ﻿/* Slightly wider than the default 380px ConfirmModal card â€” the email field
    + role picker want more horizontal room or the inputs end up cramped. */
 .invite-modal {
-  max-width: 460px;
+  max-width: 368px;
 }
 
 .invite-modal-label {
   display: block;
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-muted);
-  margin: 0.85rem 0 0.35rem;
+  margin: 0.68rem 0 0.28rem;
 }
 
 .invite-modal-label:first-of-type {
@@ -23,10 +23,10 @@
   box-sizing: border-box;
   background: var(--bg-page);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4.8px;
   color: var(--text-primary);
-  font-size: 0.9rem;
-  padding: 0.55rem 0.7rem;
+  font-size: 0.72rem;
+  padding: 0.44rem 0.56rem;
   font-family: inherit;
   transition: border-color 150ms, background 150ms;
 }
@@ -51,30 +51,30 @@
      without pulling in an icon library. */
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
   background-repeat: no-repeat;
-  background-position: right 0.6rem center;
-  padding-right: 2rem;
+  background-position: right 0.48rem center;
+  padding-right: 1.6rem;
 }
 
 .invite-modal-role-hint {
-  margin: 0.35rem 0 0;
+  margin: 0.28rem 0 0;
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   line-height: 1.4;
 }
 
 .invite-modal-error {
-  margin-top: 0.9rem;
-  padding: 0.55rem 0.75rem;
+  margin-top: 0.72rem;
+  padding: 0.44rem 0.6rem;
   background: color-mix(in srgb, var(--danger) 7%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-  border-radius: 6px;
+  border-radius: 4.8px;
   color: var(--danger-soft);
-  font-size: 0.825rem;
+  font-size: 0.66rem;
 }
 
 /* Spacer between the hint paragraph (or error) and the bottom action row. */
 .invite-modal form .modal-actions {
-  margin-top: 1.25rem;
+  margin-top: 1rem;
 }
 
 .invite-modal .modal-btn-confirm:disabled {

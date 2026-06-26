@@ -25,7 +25,7 @@
    shifts on web, where the browser draws its own chrome and the bar isn't
    rendered. */
 :root { --titlebar-h: 0px; }
-html.with-titlebar { --titlebar-h: 44px; }
+html.with-titlebar { --titlebar-h: 35.2px; }
 /* macOS uses the SAME 44px bar as Windows/Linux — the native traffic-light
    buttons (titleBarStyle:'hidden') are centred inside it via
    trafficLightPosition.y in main.js, matching VS Code's compact look. The bar
@@ -69,8 +69,8 @@ body {
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6.4px;
+  height: 6.4px;
   background: transparent;
 }
 
@@ -81,7 +81,7 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 4px;
+  border-radius: 3.2px;
 }
 
 /* Hide the up/down arrow buttons that WebKit renders on some platforms.

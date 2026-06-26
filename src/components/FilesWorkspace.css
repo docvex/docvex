@@ -43,10 +43,10 @@
 .main-content:has(.project-files-page.fx-root)::before {
   background-image: radial-gradient(
     circle at center,
-    color-mix(in srgb, var(--text-primary) 9%, transparent) 1.2px,
-    transparent 1.6px
+    color-mix(in srgb, var(--text-primary) 9%, transparent) 0.96px,
+    transparent 1.28px
   );
-  background-size: 24px 24px;
+  background-size: 19.2px 19.2px;
   /* Anchor to the viewport top-left (NOT center) so this uniform grid stays
      aligned with the cursor spotlight (CursorSpotlight.jsx), which is also
      0 0-anchored. A `center` origin here offsets the two dot fields and reads
@@ -79,24 +79,24 @@
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
-  margin: 0 0 14px;
+  gap: 19.2px;
+  margin: 0 0 11.2px;
   /* Horizontal inset (the frame is now full-bleed) so the title + folder bar
      line up with the canvas content / bottom bar instead of hugging the edges. */
-  padding: 0 22px;
+  padding: 0 17.6px;
   width: 100%;
 }
 .fx-page-head h1 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: 17.6px;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.01em;
 }
 .fx-page-head .fx-sub {
-  margin: 4px 0 0;
-  font-size: 13px;
+  margin: 3.2px 0 0;
+  font-size: 10.4px;
   color: var(--text-muted);
 }
 
@@ -105,16 +105,16 @@
 .fx-folder-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 0 1 460px;
+  gap: 6.4px;
+  flex: 0 1 368px;
   min-width: 0;
-  padding: 5px 5px 5px 12px;
+  padding: 4px 4px 4px 9.6px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   box-shadow: var(--shadow-card);
 }
-.fx-folder-bar-icon { width: 16px; height: 16px; flex: 0 0 16px; color: var(--text-muted); }
+.fx-folder-bar-icon { width: 12.8px; height: 12.8px; flex: 0 0 12.8px; color: var(--text-muted); }
 .fx-folder-input {
   flex: 1 1 auto;
   min-width: 0;
@@ -122,7 +122,7 @@
   background: transparent;
   outline: none;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 10px;
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   color: var(--text-primary);
 }
@@ -130,13 +130,13 @@
 .fx-folder-input[readonly] { cursor: default; color: var(--text-secondary); }
 .fx-folder-browse {
   flex: 0 0 auto;
-  padding: 6px 12px;
+  padding: 4.8px 9.6px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 5.6px;
   background: var(--accent);
   color: var(--text-on-accent);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 10px;
   font-weight: 600;
   cursor: pointer;
   transition: background 120ms;
@@ -184,14 +184,14 @@
 .fx-tab {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   background: transparent;
   border: none;
   margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
-  padding: 0.7rem 1rem;
+  border-bottom: 1.6px solid transparent;
+  padding: 0.56rem 0.8rem;
   font-family: inherit;
-  font-size: 0.88rem;
+  font-size: 0.704rem;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
@@ -204,13 +204,13 @@
   color: var(--text-primary);
   border-bottom-color: var(--accent);
 }
-.fx-tab .fx-icon { width: 16px; height: 16px; flex-shrink: 0; }
+.fx-tab .fx-icon { width: 12.8px; height: 12.8px; flex-shrink: 0; }
 .fx-tab .fx-count {
-  font-size: 0.75rem;
+  font-size: 0.6rem;
   font-weight: 500;
   color: var(--text-muted);
   background: var(--bg-elevated);
-  padding: 1px 6px;
+  padding: 1px 4.8px;
   border-radius: 999px;
   font-variant-numeric: tabular-nums;
 }
@@ -219,36 +219,36 @@
   color: var(--accent);
 }
 .fx-tab .fx-tab-dot {
-  width: 6px; height: 6px; border-radius: 50%;
+  width: 4.8px; height: 4.8px; border-radius: 50%;
   background: var(--warning);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 24%, transparent);
+  box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--warning) 24%, transparent);
 }
 /* Status dot shown on a tab instead of a count: colour signals what kind
    of items are waiting there (amber drafts / indigo review / red removed). */
 .fx-tab-status-dot {
-  width: 7px; height: 7px; border-radius: 50%;
+  width: 5.6px; height: 5.6px; border-radius: 50%;
   flex-shrink: 0;
   background: var(--text-muted);
 }
-.fx-tab-status-dot.is-changes { background: var(--warning);    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 22%, transparent); }
-.fx-tab-status-dot.is-waiting  { background: var(--cat-update); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cat-update) 22%, transparent); }
-.fx-tab-status-dot.is-deleted  { background: var(--danger);     box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent); }
+.fx-tab-status-dot.is-changes { background: var(--warning);    box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--warning) 22%, transparent); }
+.fx-tab-status-dot.is-waiting  { background: var(--cat-update); box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--cat-update) 22%, transparent); }
+.fx-tab-status-dot.is-deleted  { background: var(--danger);     box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--danger) 22%, transparent); }
 .fx-tabs-right {
   margin-left: auto;
   align-self: center;
-  display: flex; align-items: center; gap: 10px;
-  padding-right: 4px;
+  display: flex; align-items: center; gap: 8px;
+  padding-right: 3.2px;
 }
 
 /* Branch-state inline pill (right of the tabs). Shimmering 5-stop gradient. */
 .fx-branch-inline {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: 6.4px;
+  padding: 4.8px 9.6px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
-  font-size: 12px;
+  font-size: 9.6px;
   font-weight: 600;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -264,34 +264,34 @@
 }
 .fx-branch-inline .fx-who { color: var(--text-muted); font-weight: 500; }
 .fx-branch-inline .fx-dot {
-  width: 6px; height: 6px; border-radius: 50%;
+  width: 4.8px; height: 4.8px; border-radius: 50%;
   background: var(--success);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 22%, transparent);
+  box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--success) 22%, transparent);
 }
-.fx-branch-inline.is-changes .fx-dot { background: var(--warning); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 22%, transparent); }
-.fx-branch-inline.is-waiting .fx-dot { background: var(--cat-update); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cat-update) 22%, transparent); animation: fx-pulse 1.8s ease-in-out infinite; }
-.fx-branch-inline.is-behind  .fx-dot { background: var(--cat-update); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cat-update) 22%, transparent); }
+.fx-branch-inline.is-changes .fx-dot { background: var(--warning); box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--warning) 22%, transparent); }
+.fx-branch-inline.is-waiting .fx-dot { background: var(--cat-update); box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--cat-update) 22%, transparent); animation: fx-pulse 1.8s ease-in-out infinite; }
+.fx-branch-inline.is-behind  .fx-dot { background: var(--cat-update); box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--cat-update) 22%, transparent); }
 
 /* ── Toolbar ────────────────────────────────────────────────────────── */
 .fx-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 10px 18px;
+  gap: 3.2px;
+  padding: 8px 14.4px;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
-  min-height: 56px;
+  min-height: 44.8px;
 }
 .fx-tb-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 11px;
+  gap: 5.6px;
+  padding: 5.6px 8.8px;
   border: 1px solid transparent;
   background: transparent;
-  border-radius: 8px;
+  border-radius: 6.4px;
   font: inherit;
-  font-size: 13px;
+  font-size: 10.4px;
   font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
@@ -319,16 +319,16 @@
   background: var(--accent);
   color: var(--text-on-accent);
   font-weight: 600;
-  padding: 8px 14px;
-  box-shadow: 0 2px 0 color-mix(in srgb, var(--accent) 60%, black);
+  padding: 6.4px 11.2px;
+  box-shadow: 0 1.6px 0 color-mix(in srgb, var(--accent) 60%, black);
 }
 .fx-tb-btn.is-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .fx-tb-btn.is-primary .fx-count {
   background: rgba(255,255,255,0.22);
   color: #fff;
-  padding: 1px 7px;
+  padding: 1px 5.6px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 8.8px;
   font-weight: 700;
 }
 .fx-tb-btn.is-waiting {
@@ -342,32 +342,32 @@
   background: var(--cat-update);
   color: #fff;
   font-weight: 600;
-  padding: 8px 14px;
-  box-shadow: 0 2px 0 color-mix(in srgb, var(--cat-update) 60%, black);
+  padding: 6.4px 11.2px;
+  box-shadow: 0 1.6px 0 color-mix(in srgb, var(--cat-update) 60%, black);
 }
 .fx-tb-btn.is-update:hover:not(:disabled) {
   background: color-mix(in srgb, var(--cat-update) 88%, black);
   color: #fff;
 }
-.fx-tb-btn .fx-icon { width: 16px; height: 16px; flex: 0 0 16px; }
+.fx-tb-btn .fx-icon { width: 12.8px; height: 12.8px; flex: 0 0 12.8px; }
 /* Icon-only toolbar button (undo / redo) — square, no text label. */
-.fx-tb-btn.fx-tb-icon { padding: 7px; }
-.fx-tb-btn .fx-caret { width: 10px; height: 10px; opacity: 0.6; margin-left: -2px; }
+.fx-tb-btn.fx-tb-icon { padding: 5.6px; }
+.fx-tb-btn .fx-caret { width: 8px; height: 8px; opacity: 0.6; margin-left: -1.6px; }
 .fx-tb-sep {
-  width: 1px; height: 22px;
+  width: 1px; height: 17.6px;
   background: var(--border);
-  margin: 0 6px;
+  margin: 0 4.8px;
 }
 .fx-tb-spacer { flex: 1; }
 .fx-tb-view-toggle {
   display: inline-flex;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6.4px;
   background: var(--bg-card);
   overflow: hidden;
 }
 .fx-tb-view-toggle button {
-  background: transparent; border: 0; padding: 7px 9px; cursor: pointer;
+  background: transparent; border: 0; padding: 5.6px 7.2px; cursor: pointer;
   color: var(--text-muted);
   display: grid; place-items: center;
 }
@@ -381,31 +381,31 @@
 .fx-menu-wrap { position: relative; }
 .fx-menu {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 3.2px);
   left: 0;
   z-index: 20;
-  min-width: 180px;
+  min-width: 144px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   box-shadow: var(--shadow-elev);
-  padding: 5px;
+  padding: 4px;
 }
 /* Opens upward — used by the New menu in the bottom action bar. */
 .fx-menu.is-up {
   top: auto;
-  bottom: calc(100% + 4px);
+  bottom: calc(100% + 3.2px);
 }
 .fx-menu button {
-  display: flex; align-items: center; gap: 9px;
+  display: flex; align-items: center; gap: 7.2px;
   width: 100%;
-  padding: 8px 10px;
-  border: 0; background: transparent; border-radius: 7px;
-  font: inherit; font-size: 13px; color: var(--text-primary);
+  padding: 6.4px 8px;
+  border: 0; background: transparent; border-radius: 5.6px;
+  font: inherit; font-size: 10.4px; color: var(--text-primary);
   cursor: pointer; text-align: left;
 }
 .fx-menu button:hover { background: var(--bg-elevated); }
-.fx-menu .fx-icon { width: 15px; height: 15px; color: var(--text-secondary); }
+.fx-menu .fx-icon { width: 12px; height: 12px; color: var(--text-secondary); }
 
 /* ── AI-themed shimmer border ────────────────────────────────────────────
    A gradient ring that animates around the "Create new file" trigger and its
@@ -418,7 +418,7 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  padding: 1.5px;
+  padding: 1.2px;
   background: linear-gradient(
     115deg,
     var(--accent) 0%,
@@ -453,17 +453,17 @@
 
 /* The file-type dropdown — a touch wider for the full type labels, with a small
    "Build with AI" eyebrow. The AI ring rides on .fx-ai-border above. */
-.fx-create-menu { min-width: 232px; }
+.fx-create-menu { min-width: 185.6px; }
 .fx-create-menu-head {
-  padding: 6px 10px 5px;
-  font-size: 10px;
+  padding: 4.8px 8px 4px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
 .fx-create-menu button { font-weight: 500; }
-.fx-create-ico { width: 16px !important; height: 16px !important; }
+.fx-create-ico { width: 12.8px !important; height: 12.8px !important; }
 .fx-create-ico-doc { color: #2b6cb0 !important; }
 .fx-create-ico-ppt { color: #c2410c !important; }
 .fx-create-ico-xls { color: #15803d !important; }
@@ -479,14 +479,14 @@
   initial-value: transparent;
 }
 .fx-pathbar {
-  display: flex; align-items: center; gap: 6px;
-  padding: 8px 18px;
+  display: flex; align-items: center; gap: 4.8px;
+  padding: 6.4px 14.4px;
   /* Solid surface for the breadcrumb / search / Publish row so it reads as a
      toolbar (and stays legible while the canvas scrolls beneath the pinned
      header). Spans full width to the screen edge with the full-bleed frame. */
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
-  font-size: 12.5px;
+  font-size: 10px;
   /* Anchor + isolate so the cursor-spotlight pseudo (z-index: -1) paints
      above this surface but below the breadcrumb / search / button content. */
   position: relative;
@@ -516,7 +516,7 @@
   z-index: -1;
   pointer-events: none;
   background: radial-gradient(
-    200px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    160px circle at var(--spot-x, 50%) var(--spot-y, 50%),
     color-mix(in srgb, var(--fx-spot-color) 8%, transparent) 0%,
     color-mix(in srgb, var(--fx-spot-color) 3%, transparent) 40%,
     transparent 72%
@@ -527,14 +527,14 @@
 .fx-pathbar:hover::before { opacity: 0.6; }
 /* Red reads a touch stronger so the edit-mode warning is unmistakable. */
 .fx-pathbar.is-editing:hover::before { opacity: 0.8; }
-.fx-pathbar-nav { display: flex; gap: 2px; margin-right: 4px; }
+.fx-pathbar-nav { display: flex; gap: 1.6px; margin-right: 3.2px; }
 .fx-pathbar-nav button {
   /* Height matches the search input so the ‹ › ↑ controls line up vertically
      with it (both centered in the tools row). */
-  width: 28px; height: 30px;
+  width: 22.4px; height: 24px;
   display: grid; place-items: center;
   background: transparent; border: 0; cursor: pointer;
-  border-radius: 6px;
+  border-radius: 4.8px;
   color: var(--text-secondary);
 }
 .fx-pathbar-nav button:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
@@ -551,13 +551,13 @@
   overflow: hidden;
 }
 .fx-crumb {
-  display: inline-flex; align-items: center; gap: 6px;
-  max-width: 200px;
-  padding: 4px 9px;
+  display: inline-flex; align-items: center; gap: 4.8px;
+  max-width: 160px;
+  padding: 3.2px 7.2px;
   color: var(--text-secondary);
-  border-radius: 7px;
+  border-radius: 5.6px;
   cursor: pointer;
-  background: transparent; border: 0; font: inherit; font-size: 12.5px; font-weight: 500;
+  background: transparent; border: 0; font: inherit; font-size: 10px; font-weight: 500;
   transition: background 120ms ease, color 120ms ease;
 }
 .fx-crumb-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -582,37 +582,37 @@
 .fx-crumb-sep { color: var(--text-muted); opacity: 0.55; flex: 0 0 auto; }
 /* Icon-size slider (left of the search box). Drives the tile/icon size; the
    flanking dots hint at small → large. */
-.fx-size-slider { display: flex; align-items: center; gap: 7px; margin-right: 4px; }
+.fx-size-slider { display: flex; align-items: center; gap: 5.6px; margin-right: 3.2px; }
 .fx-size-dot {
-  flex: none; border-radius: 2px; background: var(--text-muted);
+  flex: none; border-radius: 1.6px; background: var(--text-muted);
 }
-.fx-size-dot-sm { width: 5px; height: 5px; }
-.fx-size-dot-lg { width: 9px; height: 9px; }
+.fx-size-dot-sm { width: 4px; height: 4px; }
+.fx-size-dot-lg { width: 7.2px; height: 7.2px; }
 .fx-size-range {
   appearance: none; -webkit-appearance: none;
-  width: 96px; height: 4px; border-radius: 999px; cursor: pointer;
+  width: 76.8px; height: 3.2px; border-radius: 999px; cursor: pointer;
   background: var(--border-strong);
   transition: background 140ms ease;
 }
 .fx-size-range:hover { background: color-mix(in srgb, var(--accent) 35%, var(--border-strong)); }
 .fx-size-range::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
-  width: 14px; height: 14px; border-radius: 50%;
-  background: var(--accent); border: 2px solid var(--bg-card);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); cursor: grab;
+  width: 11.2px; height: 11.2px; border-radius: 50%;
+  background: var(--accent); border: 1.6px solid var(--bg-card);
+  box-shadow: 0 1px 2.4px rgba(0, 0, 0, 0.3); cursor: grab;
   transition: transform 120ms ease;
 }
 .fx-size-range::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.15); }
-.fx-size-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.fx-size-range:focus-visible { outline: 1.6px solid var(--accent); outline-offset: 2.4px; }
 
 .fx-search {
-  display: flex; align-items: center; gap: 8px;
-  padding: 5px 8px 5px 11px;
+  display: flex; align-items: center; gap: 6.4px;
+  padding: 4px 6.4px 4px 8.8px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 5.6px;
   background: var(--bg-input);
-  width: 280px;
-  font-size: 13px;
+  width: 224px;
+  font-size: 10.4px;
   color: var(--text-muted);
   /* Quiet by default; widens + lifts on focus so search feels deliberate. */
   transition: width 220ms cubic-bezier(.16, 1, .3, 1),
@@ -620,10 +620,10 @@
 }
 .fx-search:hover { border-color: var(--border-strong); }
 .fx-search:focus-within {
-  width: 360px;
+  width: 288px;
   border-color: var(--accent);
   background: var(--bg-card);
-  box-shadow: 0 0 0 3px var(--accent-tint);
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
 /* The magnifier picks up the accent once the field is engaged. */
 .fx-search-glyph { color: var(--text-muted); flex: 0 0 auto; transition: color 140ms ease; }
@@ -638,24 +638,24 @@
    background. Fades out on focus to make room for typing. */
 .fx-search-kbd {
   flex: 0 0 auto;
-  display: inline-flex; align-items: center; gap: 3px;
+  display: inline-flex; align-items: center; gap: 2.4px;
   font-family: var(--font-body);
   transition: opacity 120ms ease;
 }
 .fx-search-kbd kbd {
   display: inline-flex; align-items: center;
-  padding: 1px 5px;
+  padding: 1px 4px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--bg-elevated);
   font-family: inherit;
-  font-size: 10.5px; font-weight: 600; line-height: 1.5;
+  font-size: 8.4px; font-weight: 600; line-height: 1.5;
   letter-spacing: 0.02em;
   color: var(--text-muted);
 }
 .fx-search-kbd-plus {
-  margin: 0 3px;
-  font-size: 10px; font-weight: 600;
+  margin: 0 2.4px;
+  font-size: 8px; font-weight: 600;
   color: var(--text-muted);
 }
 .fx-search:focus-within .fx-search-kbd { opacity: 0; }
@@ -663,9 +663,9 @@
 .fx-search-clear {
   flex: 0 0 auto;
   display: grid; place-items: center;
-  width: 20px; height: 20px;
+  width: 16px; height: 16px;
   padding: 0; border: 0; cursor: pointer;
-  border-radius: 5px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-secondary);
   transition: background 120ms ease, color 120ms ease;
@@ -686,7 +686,7 @@
   grid-column: 1;
   /* List view runs full-bleed (rows + pinned header span edge to edge). The
      action bar is its own docked row now, so only a small bottom gutter. */
-  padding: 0 0 16px;
+  padding: 0 0 12.8px;
   /* Shared across BOTH views (these used to live only on the tile rule, which
      left list mode without a scroller / min-height — letting it grow and push
      the action bar off the bottom). */
@@ -702,7 +702,7 @@
    (the list view stays full-bleed via the base rule above). Top + bottom match
    so the grid sits symmetrically between the toolbar and the action bar. */
 .fx-canvas:has(> .fx-grid) {
-  padding: 10px 14px 12px;
+  padding: 8px 11.2px 9.6px;
 }
 /* Team edit mode → subtle red wash behind the file items, so the whole
    workspace (not just the toolbar) reads as "editing the main branch". */
@@ -714,12 +714,12 @@
 .fx-canvas--drag { background-color: var(--accent-tint); }
 .fx-drop-overlay {
   position: absolute;
-  inset: 8px;
+  inset: 6.4px;
   z-index: 5;
   display: grid;
   place-items: center;
-  border: 2px dashed color-mix(in srgb, var(--accent) 60%, transparent);
-  border-radius: 14px;
+  border: 1.6px dashed color-mix(in srgb, var(--accent) 60%, transparent);
+  border-radius: 11.2px;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   pointer-events: none;
   backdrop-filter: blur(1px);
@@ -728,30 +728,30 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 22px 28px;
-  border-radius: 12px;
+  gap: 4.8px;
+  padding: 17.6px 22.4px;
+  border-radius: 9.6px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-elev);
   color: var(--accent);
 }
-.fx-drop-overlay-card strong { font-size: 15px; color: var(--text-primary); }
-.fx-drop-overlay-card span { font-size: 12.5px; color: var(--text-muted); }
+.fx-drop-overlay-card strong { font-size: 12px; color: var(--text-primary); }
+.fx-drop-overlay-card span { font-size: 10px; color: var(--text-muted); }
 .fx-section-head {
-  display: flex; align-items: baseline; gap: 10px;
-  margin: 6px 4px 14px;
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 4.8px 3.2px 11.2px;
 }
 .fx-section-head h2 {
-  font-size: 13px;
+  font-size: 10.4px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-secondary);
   margin: 0;
 }
-.fx-section-head .fx-count { color: var(--text-muted); font-size: 12px; }
-.fx-section-head + .fx-section-head { margin-top: 24px; }
+.fx-section-head .fx-count { color: var(--text-muted); font-size: 9.6px; }
+.fx-section-head + .fx-section-head { margin-top: 19.2px; }
 
 .fx-grid {
   display: grid;
@@ -761,10 +761,10 @@
      just shows the page spotlight. auto-FILL keeps making same-width
      tracks as the window widens, and zoom stays visible every tick since
      --fx-tile drives both column width and thumb height. */
-  grid-template-columns: repeat(auto-fill, var(--fx-tile, 168px));
+  grid-template-columns: repeat(auto-fill, var(--fx-tile, 134.4px));
   justify-content: start;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 6.4px;
+  margin-bottom: 6.4px;
 }
 
 /* ── File tile ──────────────────────────────────────────────────────── */
@@ -776,17 +776,17 @@
      selection paint the card fill so there's still clear feedback. */
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   /* Tighter padding so the hover / selection fill hugs the tile content
      (thumb + name) instead of leaving a wide halo around it. */
-  padding: 8px 8px 9px;
+  padding: 6.4px 6.4px 7.2px;
   display: flex;
   flex-direction: column;
   /* Center the thumb + name block vertically: grid rows stretch every tile to
      the tallest one's height (e.g. a 2-line name), so centering keeps all the
      thumbnails aligned on a common middle line instead of pinned to the top. */
   justify-content: center;
-  gap: 8px;
+  gap: 6.4px;
   cursor: pointer;
   transition: transform 120ms, box-shadow 120ms, border-color 120ms, background 120ms;
   text-align: center;
@@ -800,13 +800,13 @@
 .fx-tile.is-selected {
   background: var(--bg-card);
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-tint);
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
 /* Folder being hovered as a move-drop target. */
 .fx-tile.is-droptarget {
   background: var(--accent-tint);
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-tint);
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
 .fx-list-row.is-droptarget {
   background: var(--accent-tint);
@@ -825,14 +825,14 @@
 
 /* Trash hover tooltip: a time-remaining chip (bg matches the countdown ring's
    urgency) followed by the file name. Lives in the portalled morph pill. */
-.fx-hover-rich { display: inline-flex; align-items: center; gap: 8px; }
+.fx-hover-rich { display: inline-flex; align-items: center; gap: 6.4px; }
 .fx-hover-name { min-width: 0; }
 .fx-hover-countdown {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   line-height: 1;
-  padding: 3px 9px;
+  padding: 2.4px 7.2px;
   border-radius: 999px;
   font-size: 0.9em;
   font-weight: 800;
@@ -841,18 +841,18 @@
   /* Solid fill (was a soft tint) so the time-remaining reads at a glance. */
   background: var(--warning);
   color: #fff;
-  box-shadow: 0 1px 4px color-mix(in srgb, var(--warning) 45%, transparent);
+  box-shadow: 0 1px 3.2px color-mix(in srgb, var(--warning) 45%, transparent);
 }
 .fx-hover-countdown.is-urgent {
   background: var(--danger);
   color: #fff;
-  box-shadow: 0 1px 4px color-mix(in srgb, var(--danger) 45%, transparent);
+  box-shadow: 0 1px 3.2px color-mix(in srgb, var(--danger) 45%, transparent);
 }
 .fx-tile-thumb {
   /* Height tracks the Ctrl+scroll zoom (--fx-tile) so tiles grow in BOTH
      dimensions, not just width. ~0.58 keeps a pleasant landscape-ish thumb. */
-  height: calc(var(--fx-tile, 168px) * 0.58);
-  border-radius: 7px;
+  height: calc(var(--fx-tile, 134.4px) * 0.58);
+  border-radius: 5.6px;
   background: var(--bg-elevated);
   display: grid; place-items: center;
   overflow: hidden;
@@ -875,34 +875,34 @@
 .fx-color-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 4px 6px 8px;
-  margin-bottom: 4px;
+  gap: 4.8px;
+  padding: 3.2px 4.8px 6.4px;
+  margin-bottom: 3.2px;
   border-bottom: 1px solid var(--border);
 }
 /* "Recognised as WhatsApp convo" header atop a WhatsApp export's right-click
    menu (lives in the portalled morph pill, so this rule is document-global). */
 .fx-wa-menu-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 11px 9px;
-  margin-bottom: 4px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6.4px 8.8px 7.2px;
+  margin-bottom: 3.2px;
   border-bottom: 1px solid var(--border);
 }
 /* Bare WhatsApp glyph (no tinted tile) — its own brand green at left. */
 .fx-wa-menu-head-mark {
-  flex: none; width: 26px; height: 26px; display: grid; place-items: center;
+  flex: none; width: 20.8px; height: 20.8px; display: grid; place-items: center;
   color: #25D366;
 }
 .fx-wa-menu-head-mark .fx-glyph-wa-logo { width: 100%; height: 100%; }
 .fx-wa-menu-head-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.fx-wa-menu-head-title { font-size: 12px; font-weight: 700; color: var(--text-primary); }
-.fx-wa-menu-head-sub { font-size: 11px; font-weight: 500; color: var(--text-muted); }
+.fx-wa-menu-head-title { font-size: 9.6px; font-weight: 700; color: var(--text-primary); }
+.fx-wa-menu-head-sub { font-size: 8.8px; font-weight: 500; color: var(--text-muted); }
 .fx-color-swatch {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border-radius: 999px;
-  border: 2px solid transparent;
+  border: 1.6px solid transparent;
   background: var(--sw, transparent);
   color: var(--text-muted);
   cursor: pointer;
@@ -926,15 +926,15 @@
 /* Count pill on the Trash entry — how many items are inside. */
 .fx-bin-count {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
+  top: 6.4px;
+  right: 6.4px;
+  min-width: 14.4px;
+  height: 14.4px;
+  padding: 0 4px;
   border-radius: 999px;
   background: var(--danger);
   color: #fff;
-  font-size: 11px;
+  font-size: 8.8px;
   font-weight: 700;
   line-height: 1;
   /* Flex-centre so the digit sits dead-centre regardless of font metrics
@@ -947,7 +947,7 @@
 /* Inline variant in the list row — sits next to the name, not a corner. */
 .fx-bin-count.is-inline {
   position: static;
-  margin-left: 8px;
+  margin-left: 6.4px;
   display: inline-flex;
 }
 
@@ -956,7 +956,7 @@
 .fx-glyph {
   display: grid;
   place-items: center;
-  border-radius: 9px;
+  border-radius: 7.2px;
   color: #fff;
   font-family: var(--font-display);
   font-weight: 700;
@@ -968,9 +968,9 @@
    (thumb height = --fx-tile × 0.58), i.e. ~0.65 × --fx-tile. Sized off the zoom
    var directly so it resolves the same with or without the WhatsApp host. */
 .fx-tile-thumb .fx-glyph {
-  width: calc(var(--fx-tile, 168px) * 0.65);
-  height: calc(var(--fx-tile, 168px) * 0.65);
-  font-size: 11px;
+  width: calc(var(--fx-tile, 134.4px) * 0.65);
+  height: calc(var(--fx-tile, 134.4px) * 0.65);
+  font-size: 8.8px;
 }
 
 /* Filled type icons (document / picture / slide) — an accent shape with darker
@@ -996,7 +996,7 @@
 .fx-glyph-whatsapp { background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); }
 .fx-glyph-whatsapp .fx-glyph-wa-logo {
   width: 64%; height: 64%; color: #fff;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+  filter: drop-shadow(0 1px 1.6px rgba(0, 0, 0, 0.35));
 }
 
 /* Recognised WhatsApp export — the file keeps its real document-type glyph and
@@ -1080,10 +1080,10 @@
 }
 
 /* WhatsApp hover-tooltip note (inside the morph pill). */
-.fx-hover-wa { align-items: center; gap: 9px; }
+.fx-hover-wa { align-items: center; gap: 7.2px; }
 .fx-hover-wa-mark {
-  flex: none; width: 22px; height: 22px; display: grid; place-items: center;
-  border-radius: 6px; color: #fff;
+  flex: none; width: 17.6px; height: 17.6px; display: grid; place-items: center;
+  border-radius: 4.8px; color: #fff;
   background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
 }
 .fx-hover-wa-mark .fx-glyph-wa-logo { width: 66%; height: 66%; }
@@ -1102,18 +1102,18 @@
   width: 100%;
   height: 100%;
   color: #fff;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 1px 2.4px rgba(0, 0, 0, 0.45));
 }
 .fx-glyph-vid-tag {
   position: absolute;
-  bottom: 2px;
-  right: 3px;
+  bottom: 1.6px;
+  right: 2.4px;
   font-size: 0.55em;
   font-weight: 800;
   letter-spacing: 0.04em;
   line-height: 1;
   color: rgba(255, 255, 255, 0.92);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 1px 1.6px rgba(0, 0, 0, 0.5);
 }
 /* List view is tiny (24px) — drop the corner tag, the triangle carries it. */
 .fx-list-thumb .fx-glyph-vid-tag { display: none; }
@@ -1133,11 +1133,11 @@
   left: 0;
   right: 0;
   height: 16%;
-  min-height: 9px;
+  min-height: 7.2px;
   background-color: rgba(90, 92, 98, 0.82);
   /* Evenly-spaced perforation holes punched along the band. */
-  background-image: radial-gradient(circle, rgba(244, 240, 230, 0.92) 0 1.6px, transparent 2px);
-  background-size: 11px 100%;
+  background-image: radial-gradient(circle, rgba(244, 240, 230, 0.92) 0 1.28px, transparent 1.6px);
+  background-size: 8.8px 100%;
   background-repeat: repeat-x;
   background-position: center;
 }
@@ -1158,7 +1158,7 @@
   width: 100%;
   height: 100%;
   color: #fff;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 1px 2.4px rgba(0, 0, 0, 0.45));
 }
 /* Plain-text badge reads as a sheet of paper: white fill, black label, with a
    border so it stays visible on the (now background-less) thumb + light page. */
@@ -1186,7 +1186,7 @@
 .fx-glyph-vid-tag { color: var(--accent); }
 
 .fx-tile-name {
-  font-size: 13px;
+  font-size: 10.4px;
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.25;
@@ -1198,21 +1198,21 @@
 /* Status corner ribbon */
 .fx-ribbon {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  font-size: 10px;
+  top: 6.4px;
+  right: 6.4px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 3px 7px;
-  border-radius: 5px;
+  padding: 2.4px 5.6px;
+  border-radius: 4px;
   color: #fff;
   background: var(--text-muted);
-  display: inline-flex; align-items: center; gap: 4px;
+  display: inline-flex; align-items: center; gap: 3.2px;
   z-index: 1;
   /* Long labels ("Marked for deletion") wrap inside the tile rather than
      overflowing its left edge on small tiles. */
-  max-width: calc(100% - 16px);
+  max-width: calc(100% - 12.8px);
   white-space: normal;
   line-height: 1.2;
   text-align: center;
@@ -1228,10 +1228,10 @@
 .fx-countdown-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
+  gap: 3.2px;
+  font-size: 8.8px;
   font-weight: 600;
-  padding: 3px 8px;
+  padding: 2.4px 6.4px;
   border-radius: 999px;
   color: var(--warning);
   background: var(--warning-soft);
@@ -1248,12 +1248,12 @@
 /* Tile-corner placement mirrors .fx-ribbon. */
 .fx-tile-countdown {
   position: absolute;
-  top: 8px;
-  left: 8px;
-  right: 8px;
+  top: 6.4px;
+  left: 6.4px;
+  right: 6.4px;
   z-index: 1;
   justify-content: center;
-  max-width: calc(100% - 16px);
+  max-width: calc(100% - 12.8px);
 }
 
 /* Circular elapsed-time countdown (trash items). The ring fills as the file
@@ -1274,12 +1274,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1;
 }
-.fx-countdown-ring-num small { font-size: 7px; opacity: 0.7; margin-left: 0.5px; }
+.fx-countdown-ring-num small { font-size: 5.6px; opacity: 0.7; margin-left: 0.4px; }
 /* Tile: small disc tucked into the top-right CORNER of the thumbnail. The tile
    has 8px padding so the thumb's top-right corner sits at ~8px; +4px inset
    keeps the ring just inside it. Overrides the full-width pill placement. */
@@ -1290,15 +1290,15 @@
   position: absolute;
   /* Center the 20px ring ON the thumbnail's top-right corner. The corner sits
      ~8px from the tile edge (tile padding); 8 − 10 (half ring) = −2px. */
-  top: -2px;
-  right: -2px;
+  top: -1.6px;
+  right: -1.6px;
   bottom: auto;
   left: auto;
   max-width: none;
   background: color-mix(in srgb, var(--bg-card) 80%, transparent);
   border-radius: 50%;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(3.2px);
+  -webkit-backdrop-filter: blur(3.2px);
 }
 
 .fx-tile.is-deleted .fx-tile-thumb,
@@ -1325,10 +1325,10 @@
 .fx-list-row {
   display: grid;
   /* Name (flex) · Date · Type · Size. */
-  grid-template-columns: minmax(0, 1.6fr) 140px 90px 100px;
+  grid-template-columns: minmax(0, 1.6fr) 112px 72px 80px;
   gap: 0;
   align-items: center;
-  padding: 9px 14px;
+  padding: 7.2px 11.2px;
 }
 .fx-list-row { position: relative; }
 /* Trash list ring: inline, before the name, vertically centred (the name cell
@@ -1344,7 +1344,7 @@
      .fx-list-row` rule so it lines up with the full-bleed rows below. */
   position: relative;
   background: transparent;
-  font-size: 11.5px;
+  font-size: 9.2px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1352,16 +1352,16 @@
 }
 /* Tighter vertical rhythm for the in-chrome header (it's a bar row, not a
    table row). */
-.fx-list-head--chrome { padding: 6px 14px 5px; }
+.fx-list-head--chrome { padding: 4.8px 11.2px 4px; }
 /* Inset divider above the header — same as the chat tab bar's: stops short of
    the edges, centered in the gap between the tools row (12px clearance below)
    and the header labels (6px padding above). */
 .fx-list-head--chrome::before {
   content: '';
   position: absolute;
-  left: 12px;
-  right: 12px;
-  top: -3px;
+  left: 9.6px;
+  right: 9.6px;
+  top: -2.4px;
   height: 1px;
   background: var(--border);
 }
@@ -1373,26 +1373,26 @@
 .fx-chrome-tools {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4.8px;
   /* Fill the toolbar so the inner flex:1 spacer can push the search box to the
      right edge (without this the row is content-width and the spacer collapses,
      leaving search hugging the breadcrumbs). */
   flex: 1;
   min-width: 0;
-  padding: 0 10px 12px 4px;
+  padding: 0 8px 9.6px 3.2px;
 }
 /* Tile mode (no list header after it): trim the bottom padding so the bar's
    bottom inset matches its top inset (the chrome row 1 has 5px top padding),
    instead of carrying the full 12px gap that the divider+header need. */
 .fx-chrome-tools:last-child {
-  padding-bottom: 5px;
+  padding-bottom: 4px;
 }
 .fx-list-row {
   /* A bit more vertical room so rows breathe (no separators between them). */
-  padding-top: 8px;
-  padding-bottom: 8px;
+  padding-top: 6.4px;
+  padding-bottom: 6.4px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 10.4px;
   background: transparent;
   border: 0;
   width: 100%;
@@ -1401,10 +1401,10 @@
 }
 .fx-list-row:hover { background: var(--bg-elevated); }
 .fx-list-row.is-selected { background: var(--accent-tint); }
-.fx-list-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.fx-list-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .fx-list-thumb {
-  width: 30px; height: 30px; border-radius: 6px;
-  overflow: hidden; flex: 0 0 30px;
+  width: 24px; height: 24px; border-radius: 4.8px;
+  overflow: hidden; flex: 0 0 24px;
   /* Hard-lock a square box so no-thumbnail glyphs (and every thumb) keep a
      1:1 aspect ratio regardless of row height. */
   aspect-ratio: 1 / 1;
@@ -1420,13 +1420,13 @@
 .fx-list-thumb .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent); }
 /* Folder glyph fills the box (was a small 20px svg in a 30px box). */
 .fx-list-thumb .fx-folder-glyph { color: var(--accent); width: 100%; height: 100%; }
-.fx-list-thumb .project-files-icon svg { width: 17px; height: 17px; }
+.fx-list-thumb .project-files-icon svg { width: 13.6px; height: 13.6px; }
 /* Type badge — an explicit centered square chip (not a percentage, which
    collapsed to the text height in the center-aligned grid above). Sized to sit
    in the 30px thumb with breathing room so it reads like the other icons
    instead of a full-bleed colored block. */
 /* Match the folder glyph (fills the 30px list thumb). */
-.fx-list-thumb .fx-glyph { width: 30px; height: 30px; aspect-ratio: 1 / 1; font-size: 8px; border-radius: 5px; letter-spacing: 0.02em; }
+.fx-list-thumb .fx-glyph { width: 24px; height: 24px; aspect-ratio: 1 / 1; font-size: 6.4px; border-radius: 4px; letter-spacing: 0.02em; }
 /* Fill the box and show the MIDDLE of the thumbnail (center-crop) so a
    tall poster isn't anchored to its top edge. */
 .fx-list-thumb img {
@@ -1444,9 +1444,9 @@
 }
 .fx-list-row.is-deleted .fx-name { text-decoration: line-through; opacity: 0.6; }
 .fx-list-status {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 11px; font-weight: 600;
-  padding: 3px 9px;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 8.8px; font-weight: 600;
+  padding: 2.4px 7.2px;
   border-radius: 999px;
   color: var(--text-muted);
   justify-self: start;
@@ -1465,7 +1465,7 @@
 .fx-list-status.is-deleted { color: #fff; background: var(--danger); }
 .fx-list-status.is-waiting { color: #fff; background: var(--cat-update); }
 .fx-list-status.is-synced  { color: var(--text-muted); background: transparent; }
-.fx-list-muted { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-list-muted { color: var(--text-muted); font-size: 9.6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── Team edit-mode pill ─────────────────────────────────────────────────
    Sits directly under the pathbar on the Team tab while editing. Amber
@@ -1491,20 +1491,20 @@
 }
 .fx-editmode-pill {
   pointer-events: auto;
-  transform: translateY(8px);
+  transform: translateY(6.4px);
   box-shadow: var(--shadow-card);
   animation: fx-editmode-in 320ms cubic-bezier(0.16, 1, 0.3, 1);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
+  gap: 6.4px;
+  padding: 4px 9.6px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--danger) 48%, transparent);
   background: color-mix(in srgb, var(--danger) 16%, var(--bg-card));
   font-family: var(--font-display);
   font-weight: 800;
   letter-spacing: 0.08em;
-  font-size: 11.5px;
+  font-size: 9.2px;
   text-transform: uppercase;
   color: color-mix(in srgb, var(--danger) 70%, var(--text-primary));
   white-space: nowrap;
@@ -1515,28 +1515,28 @@
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
-  font-size: 12px;
+  font-size: 9.6px;
   color: var(--text-secondary);
 }
 /* Slide out from under the pathbar (which paints above at z-index 3): start
    tucked up behind it, then drop into the resting translateY(8px). */
 @keyframes fx-editmode-in {
-  from { transform: translateY(-22px); opacity: 0; }
-  to   { transform: translateY(8px); opacity: 1; }
+  from { transform: translateY(-17.6px); opacity: 0; }
+  to   { transform: translateY(6.4px); opacity: 1; }
 }
 /* Reverse on exit — tuck back up under the pathbar. `forwards` holds the
    hidden end frame until React unmounts the row. */
 @keyframes fx-editmode-out {
-  from { transform: translateY(8px); opacity: 1; }
-  to   { transform: translateY(-22px); opacity: 0; }
+  from { transform: translateY(6.4px); opacity: 1; }
+  to   { transform: translateY(-17.6px); opacity: 0; }
 }
 .fx-editmode-row.is-closing .fx-editmode-pill {
   animation: fx-editmode-out 260ms ease-in forwards;
 }
 .fx-editmode-dot {
-  width: 8px; height: 8px; border-radius: 50%;
+  width: 6.4px; height: 6.4px; border-radius: 50%;
   background: var(--danger);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 28%, transparent);
+  box-shadow: 0 0 0 3.2px color-mix(in srgb, var(--danger) 28%, transparent);
   flex-shrink: 0;
   animation: fx-pulse 1.6s ease-in-out infinite;
 }
@@ -1556,13 +1556,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 22px;
+  gap: 9.6px;
+  padding: 8px 17.6px;
   border-top: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  font-size: 11.5px;
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  font-size: 9.2px;
   color: var(--text-muted);
   transition: background-color 340ms ease, border-color 340ms ease;
 }
@@ -1588,13 +1588,13 @@
 .fx-bottombar-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3.2px;
   flex-wrap: wrap;
 }
 .fx-bottombar-status {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   white-space: nowrap;
 }
 
@@ -1602,21 +1602,21 @@
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  padding: 7px 16px;
+  padding: 5.6px 12.8px;
   background: transparent;
   border-top: 1px solid var(--border);
-  font-size: 11.5px;
+  font-size: 9.2px;
   color: var(--text-muted);
 }
-.fx-statusbar-left, .fx-statusbar-right { display: flex; align-items: center; gap: 14px; }
+.fx-statusbar-left, .fx-statusbar-right { display: flex; align-items: center; gap: 11.2px; }
 .fx-statusbar-right { justify-content: flex-end; }
 .fx-sb-pill {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 3px 10px;
+  display: inline-flex; align-items: center; gap: 5.6px;
+  padding: 2.4px 8px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
   font-weight: 600;
-  font-size: 11.5px;
+  font-size: 9.2px;
   color: var(--text-secondary);
   background:
     linear-gradient(120deg,
@@ -1633,10 +1633,10 @@
   50%  { background-position: 100% 50%; }
   100% { background-position: 0%   50%; }
 }
-.fx-sb-pill .fx-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 22%, transparent); }
-.fx-sb-pill.is-changes .fx-dot { background: var(--warning); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 22%, transparent); }
-.fx-sb-pill.is-waiting .fx-dot { background: var(--cat-update); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cat-update) 22%, transparent); animation: fx-pulse 1.8s ease-in-out infinite; }
-.fx-sb-pill.is-behind  .fx-dot { background: var(--cat-update); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cat-update) 22%, transparent); }
+.fx-sb-pill .fx-dot { width: 4.8px; height: 4.8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--success) 22%, transparent); }
+.fx-sb-pill.is-changes .fx-dot { background: var(--warning); box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--warning) 22%, transparent); }
+.fx-sb-pill.is-waiting .fx-dot { background: var(--cat-update); box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--cat-update) 22%, transparent); animation: fx-pulse 1.8s ease-in-out infinite; }
+.fx-sb-pill.is-behind  .fx-dot { background: var(--cat-update); box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--cat-update) 22%, transparent); }
 @keyframes fx-pulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.3); }
@@ -1651,7 +1651,7 @@
   position: fixed;
   top: 0;
   bottom: 0;
-  left: var(--sidebar-width, 60px);
+  left: var(--sidebar-width, 48px);
   right: 0;
   background: var(--overlay-scrim);
   z-index: 1000;
@@ -1664,11 +1664,11 @@
   /* Fixed → full screen height, sitting above the header + footer. */
   position: fixed;
   top: 0; bottom: 0; right: 0;
-  width: 420px;
+  width: 336px;
   max-width: 90%;
   background: var(--bg-card);
   border-left: 1px solid var(--border);
-  box-shadow: -20px 0 40px rgba(0,0,0,0.18);
+  box-shadow: -16px 0 32px rgba(0,0,0,0.18);
   z-index: 1001;
   display: grid;
   grid-template-rows: auto 1fr auto;
@@ -1677,81 +1677,81 @@
 }
 .fx-drawer.is-open { transform: translateX(0); }
 .fx-drawer-head {
-  padding: 18px 22px 14px;
+  padding: 14.4px 17.6px 11.2px;
   border-bottom: 1px solid var(--border);
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 9.6px;
 }
-.fx-drawer-head h2 { margin: 0 0 4px; font-size: 17px; font-family: var(--font-display); font-weight: 700; color: var(--text-primary); }
-.fx-drawer-head p { margin: 0; font-size: 12.5px; color: var(--text-muted); line-height: 1.45; }
+.fx-drawer-head h2 { margin: 0 0 3.2px; font-size: 13.6px; font-family: var(--font-display); font-weight: 700; color: var(--text-primary); }
+.fx-drawer-head p { margin: 0; font-size: 10px; color: var(--text-muted); line-height: 1.45; }
 .fx-drawer-close {
-  width: 28px; height: 28px;
-  border-radius: 7px; border: 0; background: transparent;
+  width: 22.4px; height: 22.4px;
+  border-radius: 5.6px; border: 0; background: transparent;
   display: grid; place-items: center; cursor: pointer; color: var(--text-secondary);
-  flex: 0 0 28px;
+  flex: 0 0 22.4px;
 }
 .fx-drawer-close:hover { background: var(--bg-elevated); }
-.fx-drawer-body { padding: 14px 22px; overflow-y: auto; }
-.fx-drawer-section { margin-bottom: 20px; }
+.fx-drawer-body { padding: 11.2px 17.6px; overflow-y: auto; }
+.fx-drawer-section { margin-bottom: 16px; }
 .fx-drawer-label {
-  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+  font-size: 8.8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
   color: var(--text-muted);
-  margin-bottom: 8px;
+  margin-bottom: 6.4px;
 }
 .fx-drawer-input, .fx-drawer-textarea {
   width: 100%;
-  padding: 9px 11px;
+  padding: 7.2px 8.8px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6.4px;
   background: var(--bg-input);
-  font: inherit; font-size: 13px;
+  font: inherit; font-size: 10.4px;
   color: var(--text-primary);
   outline: none;
   transition: border-color 120ms, box-shadow 120ms;
 }
 .fx-drawer-input:focus, .fx-drawer-textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-tint);
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
-.fx-drawer-textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+.fx-drawer-textarea { resize: vertical; min-height: 64px; line-height: 1.5; }
 .fx-change-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 6px;
-  border-radius: 7px;
-  font-size: 12.5px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6.4px 4.8px;
+  border-radius: 5.6px;
+  font-size: 10px;
   border: 1px solid transparent;
   cursor: pointer;
 }
 .fx-change-row:hover { background: var(--bg-elevated); }
 .fx-change-row input[type="checkbox"] {
-  width: 14px; height: 14px;
+  width: 11.2px; height: 11.2px;
   accent-color: var(--accent);
-  flex: 0 0 14px;
+  flex: 0 0 11.2px;
 }
 .fx-change-row .fx-name { flex: 1; min-width: 0; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .fx-change-row .fx-tag {
-  font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
-  padding: 2px 6px; border-radius: 4px; color: #fff; background: var(--text-muted);
+  font-size: 8px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  padding: 1.6px 4.8px; border-radius: 3.2px; color: #fff; background: var(--text-muted);
 }
 .fx-change-row .fx-tag.is-new     { background: var(--success); }
 .fx-change-row .fx-tag.is-edited  { background: var(--warning); }
 .fx-change-row .fx-tag.is-deleted { background: var(--danger); }
 .fx-drawer-foot {
-  padding: 14px 22px;
+  padding: 11.2px 17.6px;
   border-top: 1px solid var(--border);
   background: var(--bg-elevated);
-  display: flex; gap: 10px; align-items: center;
+  display: flex; gap: 8px; align-items: center;
 }
-.fx-drawer-foot .fx-summary { font-size: 11.5px; color: var(--text-muted); flex: 1; line-height: 1.4; }
+.fx-drawer-foot .fx-summary { font-size: 9.2px; color: var(--text-muted); flex: 1; line-height: 1.4; }
 .fx-btn-primary {
   background: var(--accent);
   color: var(--text-on-accent);
   border: 0;
-  padding: 9px 16px;
-  border-radius: 8px;
-  font: inherit; font-size: 13px; font-weight: 600;
+  padding: 7.2px 12.8px;
+  border-radius: 6.4px;
+  font: inherit; font-size: 10.4px; font-weight: 600;
   cursor: pointer;
-  display: inline-flex; align-items: center; gap: 7px;
-  box-shadow: 0 2px 0 color-mix(in srgb, var(--accent) 60%, black);
+  display: inline-flex; align-items: center; gap: 5.6px;
+  box-shadow: 0 1.6px 0 color-mix(in srgb, var(--accent) 60%, black);
 }
 .fx-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .fx-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -1759,7 +1759,7 @@
    skips review, matching the edit-mode theme. */
 .fx-btn-primary.fx-btn-apply {
   background: var(--danger);
-  box-shadow: 0 2px 0 color-mix(in srgb, var(--danger) 60%, black);
+  box-shadow: 0 1.6px 0 color-mix(in srgb, var(--danger) 60%, black);
   color: var(--text-on-accent);
 }
 .fx-btn-primary.fx-btn-apply:hover:not(:disabled) {
@@ -1771,32 +1771,32 @@
 .fx-apply-warning {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  margin: 0 0 14px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  gap: 8px;
+  margin: 0 0 11.2px;
+  padding: 8px 9.6px;
+  border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
   background: color-mix(in srgb, var(--danger) 12%, var(--bg-card));
-  font-size: 12.5px;
+  font-size: 10px;
   line-height: 1.45;
   color: var(--text-secondary);
 }
 /* Bottom-pinned variant: sits between the scrollable body and the footer
    buttons, aligned to the drawer's horizontal padding. */
-.fx-apply-warning.is-foot { margin: 0 22px 12px; }
+.fx-apply-warning.is-foot { margin: 0 17.6px 9.6px; }
 .fx-apply-warning strong { color: color-mix(in srgb, var(--danger) 72%, var(--text-primary)); font-weight: 700; }
 .fx-apply-warning-dot {
   flex-shrink: 0;
-  width: 8px; height: 8px;
-  margin-top: 5px;
+  width: 6.4px; height: 6.4px;
+  margin-top: 4px;
   border-radius: 50%;
   background: var(--danger);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 26%, transparent);
+  box-shadow: 0 0 0 3.2px color-mix(in srgb, var(--danger) 26%, transparent);
 }
 .fx-btn-ghost {
   background: transparent; color: var(--text-secondary); border: 1px solid var(--border);
-  padding: 8px 14px; border-radius: 8px;
-  font: inherit; font-size: 13px; font-weight: 500;
+  padding: 6.4px 11.2px; border-radius: 6.4px;
+  font: inherit; font-size: 10.4px; font-weight: 500;
   cursor: pointer;
 }
 .fx-btn-ghost:hover { background: var(--bg-elevated); color: var(--text-primary); }
@@ -1805,7 +1805,7 @@
 .fx-drawer-progress {
   position: absolute;
   left: 0; right: 0; top: 0;
-  height: 3px;
+  height: 2.4px;
   overflow: hidden;
   background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
@@ -1816,13 +1816,13 @@
 /* ── Empty state ────────────────────────────────────────────────────── */
 .fx-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  padding: 80px 20px;
+  padding: 64px 16px;
   text-align: center;
   color: var(--text-muted);
 }
-.fx-empty .fx-icon { width: 56px; height: 56px; opacity: 0.5; margin-bottom: 14px; }
-.fx-empty h3 { color: var(--text-primary); font-family: var(--font-display); font-size: 17px; margin: 0 0 6px; }
-.fx-empty p { margin: 0 0 16px; font-size: 13px; max-width: 380px; line-height: 1.5; }
+.fx-empty .fx-icon { width: 44.8px; height: 44.8px; opacity: 0.5; margin-bottom: 11.2px; }
+.fx-empty h3 { color: var(--text-primary); font-family: var(--font-display); font-size: 13.6px; margin: 0 0 4.8px; }
+.fx-empty p { margin: 0 0 12.8px; font-size: 10.4px; max-width: 304px; line-height: 1.5; }
 
 /* ── Properties modal ───────────────────────────────────────────────── */
 .fx-props-scrim {
@@ -1832,20 +1832,20 @@
   background: var(--overlay-scrim);
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: 19.2px;
 }
 .fx-props {
-  width: 340px;
+  width: 272px;
   max-width: 100%;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 11.2px;
   box-shadow: var(--shadow-elev);
   overflow: hidden;
   animation: fx-props-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes fx-props-in {
-  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  from { opacity: 0; transform: translateY(4.8px) scale(0.98); }
   to   { opacity: 1; transform: none; }
 }
 /* Inline name editing (rename + new-folder draft). The input replaces the
@@ -1859,7 +1859,7 @@
      (the bordered box made the thumb shift and read as a separate field). */
   border: none;
   border-radius: 0;
-  padding: 3px 6px;
+  padding: 2.4px 4.8px;
   outline: none;
   box-shadow: none;
   box-sizing: border-box;
@@ -1873,8 +1873,8 @@
 /* Match the name span's box exactly (font-size / line-height / no padding /
    no margin) so swapping the label for the input doesn't grow the name block —
    keeps the vertically-centered thumbnail perfectly still while renaming. */
-.fx-tile-name.fx-inline-input { text-align: center; font-size: 13px; font-weight: 600; line-height: 1.25; margin-top: 0; padding: 0; }
-.fx-name.fx-inline-input { font-size: 13px; font-weight: 500; flex: 1; min-width: 0; }
+.fx-tile-name.fx-inline-input { text-align: center; font-size: 10.4px; font-weight: 600; line-height: 1.25; margin-top: 0; padding: 0; }
+.fx-name.fx-inline-input { font-size: 10.4px; font-weight: 500; flex: 1; min-width: 0; }
 /* Renaming / new-folder draft shells are non-interactive (plain divs reusing
    the tile/row classes) — kill the hover lift + pointer cues. */
 .fx-tile.is-renaming { cursor: default; transform: none; }
@@ -1883,19 +1883,19 @@
 .fx-list-row.is-renaming:hover { background: transparent; }
 .fx-props-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 16px;
+  padding: 11.2px 12.8px;
   border-bottom: 1px solid var(--border);
 }
 .fx-props-head h3 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 15px; font-weight: 700;
+  font-size: 12px; font-weight: 700;
   color: var(--text-primary);
 }
 .fx-props-thumb {
-  width: 84px; height: 84px;
-  margin: 18px auto 8px;
-  border-radius: 12px;
+  width: 67.2px; height: 67.2px;
+  margin: 14.4px auto 6.4px;
+  border-radius: 9.6px;
   background: var(--bg-elevated);
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
@@ -1903,25 +1903,25 @@
 .fx-props-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: center center; }
 .fx-props-thumb .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent); }
 .fx-props-thumb .fx-folder-glyph { color: var(--accent); }
-.fx-props-thumb .fx-glyph { width: 56px; height: 56px; font-size: 13px; }
+.fx-props-thumb .fx-glyph { width: 44.8px; height: 44.8px; font-size: 10.4px; }
 .fx-props-list {
   margin: 0;
-  padding: 6px 16px 18px;
+  padding: 4.8px 12.8px 14.4px;
   display: grid;
   gap: 0;
 }
 .fx-props-list > div {
   display: grid;
-  grid-template-columns: 92px 1fr;
-  gap: 10px;
+  grid-template-columns: 73.6px 1fr;
+  gap: 8px;
   align-items: baseline;
-  padding: 7px 0;
+  padding: 5.6px 0;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
 }
 .fx-props-list > div:last-child { border-bottom: 0; }
 .fx-props-list dt {
   margin: 0;
-  font-size: 11px;
+  font-size: 8.8px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1929,13 +1929,13 @@
 }
 .fx-props-list dd {
   margin: 0;
-  font-size: 13px;
+  font-size: 10.4px;
   color: var(--text-primary);
   word-break: break-word;
 }
 .fx-props-list dd.fx-props-path {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-  font-size: 11.5px;
+  font-size: 9.2px;
   color: var(--text-secondary);
 }
 

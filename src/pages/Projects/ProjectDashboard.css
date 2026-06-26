@@ -9,20 +9,20 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 11.2px;
 }
 
 .project-dashboard-loading,
 .project-dashboard-error {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1.5rem;
+  border-radius: 8px;
+  padding: 1.2rem;
   color: var(--text-secondary);
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.6rem;
   align-items: flex-start;
 }
 
@@ -38,9 +38,9 @@
   align-items: center;
   /* Spacing between the chevron icon and the text label ("Back" on the
      Overview, the project name on the Dashboard). */
-  gap: 0.3rem;
+  gap: 0.24rem;
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   text-decoration: none;
   transition: color 150ms;
   /* Pull the icon down a hair so its optical center sits on the text
@@ -60,19 +60,19 @@
 .project-dashboard-header {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.32rem;
 }
 
 .project-dashboard-title-row {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
+  gap: 0.56rem;
   flex-wrap: wrap;
 }
 
 .project-dashboard-title {
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: 17.6px;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.01em;
@@ -81,7 +81,7 @@
 
 .project-dashboard-description {
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 10.4px;
   line-height: 1.5;
   margin: 0;
 }
@@ -91,12 +91,12 @@
    can't rely on the sibling stylesheet's classes being present). */
 .project-dashboard-role {
   flex-shrink: 0;
-  font-size: 0.65rem;
+  font-size: 0.52rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   border-radius: 999px;
-  padding: 0.2rem 0.6rem;
+  padding: 0.16rem 0.48rem;
   border: 1px solid transparent;
 }
 
@@ -127,21 +127,21 @@
 .project-dashboard-coming-soon {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1.5rem;
+  border-radius: 9.6px;
+  padding: 1.2rem;
 }
 
 .project-dashboard-coming-soon h2 {
-  margin: 0 0 0.5rem;
-  font-size: 1rem;
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .project-dashboard-coming-soon p {
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.4rem;
   color: var(--text-secondary);
-  font-size: 0.875rem;
+  font-size: 0.7rem;
   line-height: 1.5;
 }
 
@@ -150,11 +150,11 @@
 }
 
 .project-dashboard-stats {
-  margin-top: 1rem !important;
-  padding-top: 1rem;
+  margin-top: 0.8rem !important;
+  padding-top: 0.8rem;
   border-top: 1px solid var(--border);
   color: var(--text-secondary) !important;
-  font-size: 0.825rem !important;
+  font-size: 0.66rem !important;
 }
 
 /* Generic dashboard "card" â€” reused by Recent files and any future sections
@@ -162,21 +162,21 @@
 .project-dashboard-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1.5rem;
+  border-radius: 9.6px;
+  padding: 1.2rem;
 }
 
 .project-dashboard-card-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 1rem;
-  margin: 0 0 0.4rem;
+  gap: 0.8rem;
+  margin: 0 0 0.32rem;
 }
 
 .project-dashboard-card-title {
   margin: 0;
-  font-size: 1rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -185,7 +185,7 @@
    Members card). Lighter weight + smaller than the title so the title still
    reads as the primary label. */
 .project-dashboard-card-count {
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   color: var(--text-muted);
   flex-shrink: 0;
   /* inline-flex so an optional leading icon (e.g. UsersIcon on the Members
@@ -193,7 +193,7 @@
      by the project-card-meta-item on the cards grid for visual parity. */
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.28rem;
 }
 
 .project-dashboard-card-count svg {
@@ -207,7 +207,7 @@
 .project-dashboard-card-actions {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
+  gap: 0.56rem;
   flex-shrink: 0;
 }
 
@@ -223,14 +223,14 @@
 .project-dashboard-card-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.32rem;
   background: var(--accent);
   border: 1px solid var(--accent);
-  border-radius: 6px;
+  border-radius: 4.8px;
   color: var(--text-on-accent);
-  font-size: 0.82rem;
+  font-size: 0.656rem;
   font-weight: 500;
-  padding: 0.4rem 0.7rem;
+  padding: 0.32rem 0.56rem;
   cursor: pointer;
   font-family: inherit;
   white-space: nowrap;
@@ -249,9 +249,9 @@
 }
 
 .project-dashboard-card-subtitle {
-  margin: 0 0 1rem;
+  margin: 0 0 0.8rem;
   color: var(--text-muted);
-  font-size: 0.825rem;
+  font-size: 0.66rem;
   line-height: 1.5;
 }
 
@@ -259,11 +259,11 @@
    reads clearly as "nothing here yet, but something will be." */
 .project-dashboard-empty {
   border: 1px dashed var(--border);
-  border-radius: 8px;
-  padding: 1.5rem;
+  border-radius: 6.4px;
+  padding: 1.2rem;
   text-align: center;
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: 0.7rem;
   line-height: 1.5;
 }
 
@@ -272,13 +272,13 @@
 .project-dashboard-danger {
   background: var(--bg-card);
   border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
-  border-radius: 12px;
-  padding: 1.25rem 1.5rem;
+  border-radius: 9.6px;
+  padding: 1rem 1.2rem;
 }
 
 .project-dashboard-danger h2 {
-  margin: 0 0 1rem;
-  font-size: 1rem;
+  margin: 0 0 0.8rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--danger-soft);
 }
@@ -287,8 +287,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding-top: 0.85rem;
+  gap: 0.8rem;
+  padding-top: 0.68rem;
   border-top: 1px solid var(--border);
 }
 
@@ -297,14 +297,14 @@
 }
 
 .project-dashboard-danger-title {
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   font-weight: 500;
   color: var(--text-primary);
-  margin: 0 0 0.2rem;
+  margin: 0 0 0.16rem;
 }
 
 .project-dashboard-danger-desc {
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   color: var(--text-muted);
   margin: 0;
   line-height: 1.4;
@@ -313,11 +313,11 @@
 .project-dashboard-danger-btn {
   background: transparent;
   border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-  border-radius: 6px;
+  border-radius: 4.8px;
   color: var(--danger-soft);
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 500;
-  padding: 0.45rem 0.95rem;
+  padding: 0.36rem 0.76rem;
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
@@ -339,13 +339,13 @@
    commonly: RLS rejection because the row's role was demoted between page
    load and the click). Same red-tint card as .project-dashboard-error. */
 .project-dashboard-danger-error {
-  margin-top: 0.75rem;
-  padding: 0.6rem 0.85rem;
+  margin-top: 0.6rem;
+  padding: 0.48rem 0.68rem;
   background: color-mix(in srgb, var(--danger) 7%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-  border-radius: 6px;
+  border-radius: 4.8px;
   color: var(--danger-soft);
-  font-size: 0.825rem;
+  font-size: 0.66rem;
 }
 
 /* â”€â”€ Members list (Project Overview page) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -368,12 +368,12 @@
 .member-row {
   display: flex;
   flex-direction: column;
-  border-radius: 8px;
+  border-radius: 6.4px;
   transition: background 150ms;
 }
 
 .member-row + .member-row {
-  margin-top: 2px;
+  margin-top: 1.6px;
 }
 
 .member-row:not(.is-static):hover,
@@ -382,8 +382,8 @@
 }
 
 .member-avatar {
-  width: 32px;
-  height: 32px;
+  width: 25.6px;
+  height: 25.6px;
   border-radius: 50%;
   flex-shrink: 0;
   object-fit: cover;
@@ -407,7 +407,7 @@
   justify-content: center;
   background: var(--accent);
   color: var(--text-on-accent);
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -417,12 +417,12 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 0.08rem;
 }
 
 .member-name {
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   font-weight: 500;
   line-height: 1.25;
   overflow: hidden;
@@ -442,14 +442,14 @@
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   font-weight: 600;
   letter-spacing: 0.01em;
   color: var(--success-soft);
   background: color-mix(in srgb, var(--success) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--success) 45%, transparent);
   border-radius: 999px;
-  padding: 0.22rem 0.7rem;
+  padding: 0.176rem 0.56rem;
   line-height: 1.2;
   transition: background 150ms, border-color 150ms, color 150ms;
 }
@@ -465,7 +465,7 @@
 
 .member-email {
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -481,8 +481,8 @@
 .member-row-toggle {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
-  padding: 0.7rem 0.65rem;
+  gap: 0.68rem;
+  padding: 0.56rem 0.52rem;
   width: 100%;
   background: transparent;
   border: none;
@@ -490,13 +490,13 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 6.4px;
   transition: background 120ms;
 }
 
 .member-row-toggle:focus-visible:not(:disabled) {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  outline-offset: -2px;
+  outline: 1.6px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -1.6px;
 }
 
 /* Rows with no available actions (e.g. the owner viewing their own row)
@@ -514,7 +514,7 @@
   justify-content: center;
   flex-shrink: 0;
   color: var(--text-muted);
-  margin-left: 0.15rem;
+  margin-left: 0.12rem;
   transition: transform 220ms ease, color 120ms;
 }
 
@@ -557,10 +557,10 @@
    share a right edge with the chevron above them. */
 .member-row-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.4rem;
   flex-wrap: wrap;
   justify-content: flex-end;
-  padding: 0.2rem 0.65rem 0.75rem;
+  padding: 0.16rem 0.52rem 0.6rem;
 }
 
 /* Action button inside the expanded panel. Compact outline style so two
@@ -572,12 +572,12 @@
   align-items: center;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4.8px;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 0.8rem;
+  font-size: 0.64rem;
   font-weight: 500;
-  padding: 0.4rem 0.85rem;
+  padding: 0.32rem 0.68rem;
   cursor: pointer;
   transition: background 150ms, border-color 150ms, color 150ms;
 }
@@ -642,8 +642,8 @@
 .invitation-row {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
-  padding: 0.7rem 0;
+  gap: 0.68rem;
+  padding: 0.56rem 0;
   border-top: 1px solid var(--bg-elevated);
 }
 
@@ -661,12 +661,12 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 0.08rem;
 }
 
 .invitation-email {
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -675,7 +675,7 @@
 
 .invitation-meta {
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font-size: 0.624rem;
 }
 
 /* Neutral ghost button paired with Revoke on each invitation row. Copies
@@ -686,11 +686,11 @@
 .invitation-copy-btn {
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4.8px;
   color: var(--text-secondary);
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   font-weight: 500;
-  padding: 0.3rem 0.65rem;
+  padding: 0.24rem 0.52rem;
   cursor: pointer;
   font-family: inherit;
   white-space: nowrap;
@@ -711,11 +711,11 @@
 .invitation-revoke-btn {
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4.8px;
   color: var(--text-secondary);
-  font-size: 0.78rem;
+  font-size: 0.624rem;
   font-weight: 500;
-  padding: 0.3rem 0.65rem;
+  padding: 0.24rem 0.52rem;
   cursor: pointer;
   font-family: inherit;
   white-space: nowrap;
@@ -748,25 +748,25 @@
   /* Full-bleed like the Files tab strip: break out of the page's 22px
      frame inset so the bar (and its underline) sit flush to the content-
      area edges, while the title + content above/below stay inset 22px. */
-  margin-left: -22px;
-  margin-right: -22px;
+  margin-left: -17.6px;
+  margin-right: -17.6px;
 }
 
 .project-tab {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   background: transparent;
   border: none;
   /* The -1px bottom margin pulls the active tab's bottom border down on top
      of the bar's baseline border so the two visually merge into one indicator
      instead of stacking. */
   margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
+  border-bottom: 1.6px solid transparent;
   color: var(--text-muted);
-  font-size: 0.88rem;
+  font-size: 0.704rem;
   font-weight: 500;
-  padding: 0.7rem 1rem;
+  padding: 0.56rem 0.8rem;
   cursor: pointer;
   transition: color 150ms, border-color 150ms;
   font-family: inherit;
@@ -782,13 +782,13 @@
 }
 
 .project-tab-count {
-  font-size: 0.7rem;
+  font-size: 0.56rem;
   font-weight: 600;
   background: var(--border);
   color: var(--text-secondary);
   border-radius: 999px;
-  padding: 0.1rem 0.45rem;
-  min-width: 1.1rem;
+  padding: 0.08rem 0.36rem;
+  min-width: 0.88rem;
   text-align: center;
 }
 
@@ -808,9 +808,9 @@
    the team tree fades in over the same window, producing a crossfade. */
 .project-dashboard-members-loading {
   position: fixed;
-  left: var(--sidebar-width, 60px);
+  left: var(--sidebar-width, 48px);
   right: 0;
-  top: 200px; /* approximate; tabs sit at ~180px from the page top */
+  top: 160px; /* approximate; tabs sit at ~180px from the page top */
   bottom: 0;
   display: flex;
   align-items: center;
@@ -849,35 +849,35 @@
 .project-edit-form {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  margin-top: 0.5rem;
+  gap: 0.8rem;
+  margin-top: 0.4rem;
 }
 
 .project-edit-field {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.32rem;
 }
 
 .project-edit-label {
   color: var(--text-secondary);
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 500;
 }
 
 .project-edit-required {
   color: var(--danger-soft);
-  margin-left: 0.15rem;
+  margin-left: 0.12rem;
 }
 
 .project-edit-input,
 .project-edit-textarea {
   background: var(--bg-page);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 5.6px;
   color: var(--text-primary);
-  font-size: 0.9rem;
-  padding: 0.55rem 0.75rem;
+  font-size: 0.72rem;
+  padding: 0.44rem 0.6rem;
   font-family: inherit;
   outline: none;
   transition: border-color 150ms;
@@ -901,33 +901,33 @@
 
 .project-edit-textarea {
   resize: vertical;
-  min-height: 90px;
+  min-height: 72px;
   line-height: 1.45;
 }
 
 .project-edit-error {
   background: color-mix(in srgb, var(--danger) 7%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-  border-radius: 7px;
+  border-radius: 5.6px;
   color: var(--danger-soft);
-  font-size: 0.85rem;
-  padding: 0.55rem 0.8rem;
+  font-size: 0.68rem;
+  padding: 0.44rem 0.64rem;
 }
 
 .project-edit-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.6rem;
-  margin-top: 0.3rem;
+  gap: 0.48rem;
+  margin-top: 0.24rem;
 }
 
 .project-edit-cancel,
 .project-edit-submit {
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 500;
-  border-radius: 6px;
-  padding: 0.5rem 1rem;
+  border-radius: 4.8px;
+  padding: 0.4rem 0.8rem;
   border: 1px solid transparent;
   cursor: pointer;
   font-family: inherit;
@@ -981,7 +981,7 @@
      style); `left` tracks the sidebar's hover/lock state through the
      --sidebar-width variable published by .app-shell. */
   position: fixed;
-  left: var(--sidebar-width, 60px);
+  left: var(--sidebar-width, 48px);
   right: 0;
   bottom: 0;
   overflow: hidden;
@@ -1006,8 +1006,8 @@
   left: 0;
   display: flex;
   align-items: stretch;
-  gap: 4rem;
-  padding: 0.5rem 0.25rem;
+  gap: 3.2rem;
+  padding: 0.4rem 0.2rem;
   /* GPU-friendly hint for the transform that updates on every mousemove
      frame during a pan. */
   will-change: transform;
@@ -1036,7 +1036,7 @@
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.4rem;
   /* Centre the cards vertically within the column so the connector
      fan-in/out has a balanced spread regardless of tier card counts. */
   justify-content: center;
@@ -1044,19 +1044,19 @@
 }
 
 .tier-label {
-  font-size: 0.65rem;
+  font-size: 0.52rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
   text-align: center;
-  margin-bottom: 0.2rem;
+  margin-bottom: 0.16rem;
 }
 
 .tier-cards {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.6rem;
 }
 
 /* Card shell mirrors .project-dashboard-card but compact — tighter padding,
@@ -1065,13 +1065,13 @@
 .tree-card {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 0.52rem;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.6rem 0.8rem;
-  min-width: 200px;
-  max-width: 220px;
+  border-radius: 8px;
+  padding: 0.48rem 0.64rem;
+  min-width: 160px;
+  max-width: 176px;
   transition: border-color 150ms, background 150ms;
 }
 
@@ -1081,8 +1081,8 @@
 }
 
 .tree-card-avatar {
-  width: 32px;
-  height: 32px;
+  width: 25.6px;
+  height: 25.6px;
   border-radius: 50%;
   flex-shrink: 0;
   object-fit: cover;
@@ -1104,7 +1104,7 @@
   justify-content: center;
   background: var(--accent);
   color: var(--text-on-accent);
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -1114,12 +1114,12 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.2rem;
 }
 
 .tree-card-name {
   color: var(--text-primary);
-  font-size: 0.875rem;
+  font-size: 0.7rem;
   font-weight: 500;
   line-height: 1.25;
   overflow: hidden;
@@ -1131,7 +1131,7 @@
    Project Overview list so the two surfaces feel like siblings. */
 .tree-card-email {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: 0.6rem;
   line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
