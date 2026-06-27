@@ -99,11 +99,12 @@
    and tracks the sidebar's expand/collapse. */
 .updates-page .versions-compact {
   position: fixed;
-  /* Anchored to match the shared PageMasthead compact bar (.pmh-compact) so the
-     Versions mini header lines up identically with Activity / Newsletter: inset
-     by --chrome-inset for the floating content frame, sitting to the right of
-     the sidebar + the gap, with the frame's rounded top corners. */
-  top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 0px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
+  /* Seat the bar flush under the window chrome (title bar). The chromeless
+     Versions route has no in-pane chrome (--sv-chrome-h = 0), so WITHOUT dropping
+     the --chrome-inset term the bar floated 6.4px below the title bar, leaving an
+     empty strip above it. Horizontal insets stay so it still lines up with the
+     content frame. */
+  top: calc(var(--titlebar-h, 0px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
   left: calc(var(--sidebar-width, 0px) + 2 * var(--chrome-inset, 0px));
   right: var(--chrome-inset, 0px);
   z-index: 30;
@@ -112,6 +113,10 @@
   align-items: center;
   gap: 6.4px;
   padding: 0 17.6px;
+  /* Tight line boxes so the mixed-size title + eyebrow optically center in the
+     bar (inheriting the page's 1.5+ line-height pushed the text low, reading as
+     a gap at the top). */
+  line-height: 1;
   border-radius: 9.6px 9.6px 0 0;
   background: color-mix(in srgb, var(--bg-page) 62%, transparent);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
@@ -129,6 +134,19 @@
   transform: translateY(0);
   pointer-events: auto;
 }
+/* Flush layout (Versions is always in .main-content--flush): square the corners
+   and run the bar the FULL width behind the rail — same treatment the shared
+   .pmh-compact gets on Activity / Newsletter, so Versions renders identically. */
+.main-content--flush .versions-compact {
+  border-radius: 0;
+  left: 0;
+  right: 0;
+  padding-left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 0px) + 17.6px);
+}
+/* Title + separator + eyebrow group on the left; the status pill is pushed to
+   the far right of the bar via .mini-head-status (margin-left: auto). */
+.updates-page .mini-head-text { display: inline-flex; align-items: center; }
+.updates-page .mini-head-status { margin-left: auto; flex-shrink: 0; }
 .updates-page .versions-compact-title {
   font-family: var(--font-display);
   font-size: 13.6px;
@@ -139,6 +157,8 @@
 .updates-page .versions-compact-sep {
   color: var(--text-muted);
   font-weight: 600;
+  /* Breathing room on each side of the "middle circle". */
+  margin: 0 7px;
 }
 .updates-page .versions-compact-eyebrow {
   font-size: 10.4px;
@@ -291,6 +311,10 @@
   border: 1px solid var(--border);
   background: var(--bg-card);
   box-shadow: var(--shadow-card);
+  /* Shrink-wrap to its content instead of stretching across the whole column
+     (the .updates-body flex column stretches children by default). */
+  align-self: flex-start;
+  max-width: 100%;
 }
 
 .updates-banner strong {

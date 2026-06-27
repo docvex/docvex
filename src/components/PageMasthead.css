@@ -93,6 +93,7 @@
   letter-spacing: -0.01em;
   color: var(--text-primary);
 }
-.pmh-compact-sep { color: var(--text-muted); font-weight: 600; }
+/* Breathing room on each side of the "middle circle". */
+.pmh-compact-sep { color: var(--text-muted); font-weight: 600; margin: 0 4px; }
 .pmh-compact-eyebrow { font-size: 10.4px; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
 .pmh-compact-right { margin-left: auto; display: inline-flex; align-items: center; gap: 6.4px; }

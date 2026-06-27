@@ -1706,7 +1706,8 @@ img.dv-wa-media { cursor: pointer; }
    slice it into fixed-size `.dv-docx-page` sheets, stacked vertically and
    centered like Word's print layout. The wrapper's `zoom` (set in JS) fits the
    page width to the pane. */
-.dv-docx { display: block; width: 100%; }
+/* Selectable so the user can highlight a passage and hand it to the AI. */
+.dv-docx { display: block; width: 100%; user-select: text; cursor: text; }
 .dv-docx .docx-wrapper {
   background: transparent !important; padding: 20.8px 14.4px !important;
   /* Wrapping row: pages sit side by side when the pane is wide enough and wrap
@@ -2735,8 +2736,9 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   font-family: var(--font-display); font-size: 13.6px; font-weight: 700;
   letter-spacing: -0.01em; color: var(--text-primary);
 }
-/* Separator dot (matches .pmh-compact-sep). */
-.dv-advisor-minihead-dot { color: var(--text-muted); font-weight: 600; }
+/* Separator dot (matches .pmh-compact-sep) — breathing room on each side of the
+   "middle circle". */
+.dv-advisor-minihead-dot { color: var(--text-muted); font-weight: 600; margin: 0 4px; }
 .dv-advisor-minihead-eyebrow {
   /* "Document AI" (matches .pmh-compact-eyebrow). */
   font-size: 10.4px; font-weight: 600; color: var(--text-muted); white-space: nowrap;
@@ -3252,6 +3254,54 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   padding: 4.8px 3.2px; min-height: 19.2px; max-height: 96px; width: 100%;
 }
 .dv-advisor-composer-textarea::placeholder { color: var(--text-muted); }
+
+/* Targeted-passage chip — the doc section the user highlighted, shown above the
+   textarea. The next message is applied to this excerpt. */
+.dv-advisor-selchip {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 0 6px; padding: 4px 4px 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-left: 2.5px solid var(--accent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-size: 0.66rem; color: var(--text-secondary);
+  max-width: 100%;
+}
+.dv-advisor-selchip-ico { flex: none; display: inline-flex; color: var(--accent); }
+.dv-advisor-selchip-label { flex: none; font-weight: 700; color: var(--accent); }
+.dv-advisor-selchip-text {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-style: italic; opacity: 0.85;
+}
+.dv-advisor-selchip-x {
+  flex: none; appearance: none; border: 0; background: transparent; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border-radius: 5px;
+  color: var(--text-muted); transition: background 120ms, color 120ms;
+}
+.dv-advisor-selchip-x:hover { background: var(--danger-soft); color: var(--danger-text); }
+
+/* Floating "edit this passage with AI" button anchored above a text selection in
+   the rendered document. */
+.dv-docx-seltip {
+  z-index: 9999;
+  transform: translate(-50%, calc(-100% - 8px));
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  border: 0; border-radius: 999px;
+  background: var(--accent); color: var(--text-on-accent);
+  font-family: var(--font-body); font-size: 0.68rem; font-weight: 600;
+  white-space: nowrap; cursor: pointer;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 45%, rgba(0,0,0,0.35));
+  animation: dv-seltip-in 120ms ease-out;
+}
+.dv-docx-seltip:hover { background: var(--accent-hover); }
+.dv-docx-seltip svg { flex: none; }
+@keyframes dv-seltip-in {
+  from { opacity: 0; transform: translate(-50%, calc(-100% - 2px)); }
+  to   { opacity: 1; transform: translate(-50%, calc(-100% - 8px)); }
+}
+
 .dv-advisor-composer-toolbar { display: flex; align-items: center; gap: 3.2px; }
 .dv-advisor-composer-spacer { flex: 1; }
 .dv-advisor-composer-send {

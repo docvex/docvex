@@ -557,7 +557,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
     try {
       const prepped = await prepareWhatsAppFolder(dir.path);
       if (prepped?.ok && prepped.chatPath) {
-        openDocViewerWindow({ path: prepped.chatPath, name: prepped.name || dir.name, mime: 'text/plain' });
+        openDocViewerWindow({ path: prepped.chatPath, name: prepped.name || dir.name, mime: 'text/plain', isWhatsApp: true });
         return;
       }
     } catch { /* fall through to browse */ }
@@ -657,7 +657,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
     if (/\.zip$/i.test(name)) {
       const prepped = await prepareWhatsAppZip(file.path);
       if (prepped?.ok && prepped.chatPath) {
-        openDocViewerWindow({ path: prepped.chatPath, name: prepped.name || name, mime: 'text/plain' });
+        openDocViewerWindow({ path: prepped.chatPath, name: prepped.name || name, mime: 'text/plain', isWhatsApp: true });
         return;
       }
     }

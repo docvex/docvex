@@ -37,15 +37,15 @@
   pointer-events: none;
   z-index: 0;
   background: radial-gradient(
-    176px circle at var(--spot-x, 50%) var(--spot-y, 50%),
-    color-mix(in srgb, var(--accent) 8%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 3%, transparent) 38%,
+    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 4.5%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 1.5%, transparent) 38%,
     transparent 68%
   );
   opacity: 0;
   transition: opacity 240ms ease;
 }
-.sidebar:hover::before { opacity: 1; }
+.sidebar:hover::before { opacity: 0.7; }
 
 /* Border shine — a bright accent highlight on the rail's border that follows
    the pointer. A radial gradient masked to just the 2px border ring (the
@@ -61,9 +61,9 @@
   pointer-events: none;
   z-index: 2;
   background: radial-gradient(
-    176px circle at var(--spot-x, 50%) var(--spot-y, 50%),
-    color-mix(in srgb, var(--accent) 75%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 22%, transparent) 34%,
+    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 12%, transparent) 34%,
     transparent 62%
   );
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -73,7 +73,7 @@
   opacity: 0;
   transition: opacity 240ms ease;
 }
-.sidebar:hover::after { opacity: 1; }
+.sidebar:hover::after { opacity: 0.7; }
 
 /* Lift the nav + footer above the glow layer. */
 .sidebar > * { position: relative; z-index: 1; }
@@ -569,6 +569,12 @@
    A pulsing purple/blue dot on the file icon (visible even when the rail
    is collapsed) plus a small shimmering "AI" pill when expanded. */
 .doc-tab-icon { position: relative; overflow: visible; }
+/* Fixed 18px box for the per-type glyph so the full-colour Office icons (sized
+   width/height:100%) land at the right size, and stroke glyphs match the rail. */
+.doc-tab-glyph { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; }
+.doc-tab-glyph svg { width: 18px; height: 18px; }
+/* WhatsApp conversation — brand green. */
+.doc-tab-glyph.is-wa { color: #25D366; }
 .doc-tab-ai-dot {
   position: absolute;
   top: -2px;

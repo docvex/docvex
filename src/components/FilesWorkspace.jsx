@@ -6,6 +6,7 @@ import Tooltip from './Tooltip';
 import { useMorphPill } from './useMorphPill';
 import { usePaneChromeSlot, usePaneChromePortalEl } from '../context/PaneChromeContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
+import { useAuth } from '../context/AuthContext';
 import { setDraggedFiles, clearDraggedFiles, getDraggedFiles } from '../lib/fileDragBus';
 import { FOLDER_COLOR_PRESETS, loadFolderColors, persistFolderColors } from '../lib/folderColors';
 import './FilesWorkspace.css';
@@ -226,7 +227,8 @@ function FolderColorRow({ current, onPick }) {
 // colour-swatch row when it's an editable folder). Returns undefined when
 // neither applies, so the menu has no header.
 function whatsappMenuHeader(item, isFolder, canEdit, folderColor, onSetColor) {
-  const isWa = isWhatsAppExport(item);
+  // Only the zip/loose-file exports get the WhatsApp header — never folders.
+  const isWa = isWhatsAppExport(item) && !isFolder;
   const showColors = isFolder && !item.binEntry && canEdit;
   if (!isWa && !showColors) return undefined;
   return (closeMenu) => (
@@ -253,9 +255,14 @@ const STATUS_LABEL = { deleted: 'In bin', synced: '' };
 // the tile grid gives way to the list view. The threshold is also the
 // DEFAULT tile size — i.e. tiles start at the smallest size before the list
 // view kicks in, and Ctrl+scroll zooms up from there.
-const FX_MIN_TILE = 68;
+// Slider floor. Raised one step (was 68) to drop the smallest/most-cramped
+// notch from the icon-size slider.
+const FX_MIN_TILE = 70;
 const FX_MAX_TILE = 320;
-const FX_LIST_THRESHOLD = 96;
+// Below this the tile grid gives way to the list view. Raised by 2 slider steps
+// (4px) so the list view spans two extra notches at its large end (see
+// listRowVars — those top steps grow the rows more aggressively).
+const FX_LIST_THRESHOLD = 100;
 
 // Toolbar "Categorize" view — when on, items are grouped into these coarse
 // buckets, each rendered as its own labelled section (in this order). Keep in
@@ -396,24 +403,12 @@ const WhatsAppMark = (
 );
 
 // Recognised WhatsApp conversation (a .zip export, a loose exported .txt, …) —
-// two stacked layers that slide vertically on hover. At rest it shows the file's
-// OWN type icon; on hover that icon is pushed up and out while the WhatsApp logo
-// slides up into view from below. The container clips (overflow:hidden) so each
-// layer enters / exits cleanly. All motion is CSS (see .fx-wa-zip-glyph).
-function WhatsAppMorphGlyph({ ext }) {
+// shows ONLY the WhatsApp logo on its brand green (no zip/type icon, no morph),
+// so the file reads as a WhatsApp conversation at a glance. See .fx-glyph-whatsapp.
+function WhatsAppMorphGlyph() {
   return (
-    <span className="fx-glyph fx-glyph-icon fx-wa-zip-glyph">
-      {/* File-type layer — the file's own icon at rest, pushed up on hover. */}
-      <span className="fx-wa-layer fx-wa-layer-folder">
-        <ExtGlyph ext={ext} />
-      </span>
-      {/* WhatsApp layer — parked below at rest, slides up into view on hover.
-          Scaled down + centred so the logo reads smaller than the type icon. */}
-      <span className="fx-wa-layer fx-wa-layer-wa">
-        <svg className="fx-type-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path className="fx-wa-mark-path" transform="translate(3.6 3.6) scale(0.7)" d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.6-6.1c-.3-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-2-1.2 7.4 7.4 0 0 1-1.4-1.7c-.1-.3 0-.4.1-.5l.4-.5.3-.4v-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 2.9 2.9 0 0 0-.9 2.2 5 5 0 0 0 1.1 2.7 11.5 11.5 0 0 0 4.4 3.9c2.6 1 2.6.7 3.1.6a2.6 2.6 0 0 0 1.7-1.2 2.1 2.1 0 0 0 .1-1.2c-.1-.1-.3-.2-.5-.3z" />
-        </svg>
-      </span>
+    <span className="fx-glyph fx-glyph-icon fx-glyph-whatsapp">
+      {WhatsAppMark}
     </span>
   );
 }
@@ -434,21 +429,27 @@ export function ItemGlyph({ item }) {
   // Anything recognised as a WhatsApp conversation (a .zip export, a loose
   // exported .txt, etc.) uses the same vertical-push glyph: a zipped folder at
   // rest that slides up on hover to reveal the WhatsApp logo from below.
-  if (isWhatsAppExport(item)) return <WhatsAppMorphGlyph ext={item.ext} />;
+  if (isWhatsAppExport(item)) return <WhatsAppMorphGlyph />;
   return <ExtGlyph ext={item.ext} />;
 }
 
 // Real file thumbnail (poster / video slideshow / type glyph). Video files get
-// a cassette-tape frame layered over the poster — dark perforated bands above
-// and below the thumbnail. The frame is CSS-hidden when no real poster resolved
-// (the type-glyph badge is showing) and in the tiny list view, so it only
-// dresses an actual video preview. See .fx-cassette in FilesWorkspace.css.
+// a centred play button layered over the poster so they read as playable at a
+// glance. The badge is CSS-hidden when no real poster resolved (the type-glyph
+// badge — which already shows its own play triangle — is showing) and in the
+// tiny list view. See .fx-video-play in FilesWorkspace.css.
 export function ItemThumbnail({ item }) {
   const isVideo = extCategory(item.ext) === 'vid';
   return (
     <>
       <FileThumbnail descriptor={item.descriptor} glyph={<ItemGlyph item={item} />} />
-      {isVideo ? <span className="fx-cassette" aria-hidden="true" /> : null}
+      {isVideo ? (
+        <span className="fx-video-play" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M8 5.14v13.72a1 1 0 0 0 1.53.85l10.78-6.86a1 1 0 0 0 0-1.7L9.53 4.29A1 1 0 0 0 8 5.14z" fill="currentColor" />
+          </svg>
+        </span>
+      ) : null}
     </>
   );
 }
@@ -610,7 +611,7 @@ function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onPropertie
     { key: 'open',   label: 'Open',               onClick: () => onOpen?.(item) },
     // A compressed file can be unpacked and browsed in place (zip extracts to a
     // sibling folder; other formats open in the OS archiver).
-    isArchive && { key: 'open-content', label: 'Open contents', onClick: () => onOpenContent?.(item) },
+    isArchive && { key: 'open-content', label: 'Extract contents', onClick: () => onOpenContent?.(item) },
     !bulk && canEdit && { key: 'rename', label: 'Rename',  onClick: () => onRename?.(item) },
     canEdit && onCopy && { key: 'copy', label: bulk ? `Copy ${bulkCount} items` : 'Copy', onClick: () => onCopy?.(item) },
     canEdit && onCut && { key: 'cut', label: bulk ? `Cut ${bulkCount} items` : 'Cut', onClick: () => onCut?.(item) },
@@ -700,7 +701,7 @@ function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, 
   const folderColor = isFolder && !item.binEntry ? folderColors?.[item.id] : undefined;
   const morph = useMorphPill({
     hoverContent: tab === 'trash' && !item.binEntry ? trashHoverContent(item)
-      : isWhatsAppExport(item) ? whatsappHoverContent(item)
+      : (isWhatsAppExport(item) && !isFolder) ? whatsappHoverContent(item)
       : item.name,
     menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut }),
     // WhatsApp exports get a "recognised as WhatsApp convo" header; folders get
@@ -790,7 +791,7 @@ function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, o
   const folderColor = isFolder && !item.binEntry ? folderColors?.[item.id] : undefined;
   const morph = useMorphPill({
     hoverContent: isBin && !item.binEntry ? trashHoverContent(item)
-      : isWhatsAppExport(item) ? whatsappHoverContent(item)
+      : (isWhatsAppExport(item) && !isFolder) ? whatsappHoverContent(item)
       : item.name,
     menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut }),
     menuHeader: whatsappMenuHeader(item, isFolder, canEdit, folderColor, onSetColor),
@@ -918,8 +919,42 @@ export default function FilesWorkspace({
   // return. The INITIAL view honors Settings → "Default file view": 'list'
   // seeds the zoomed-out (list) size, 'grid' the default tile size.
   const { prefs: appPrefs } = useAppPrefs();
-  const [tileSize, setTileSize] = useState(() => (appPrefs.fileView === 'list' ? FX_MIN_TILE : FX_LIST_THRESHOLD));
+  // Per-user persistence of the view controls (icon-size slider + categorize
+  // toggle) so they survive leaving and re-entering the Files tab. Falls back to
+  // the Settings "Default file view" for the size, ungrouped for categorize.
+  const { session } = useAuth();
+  const viewPrefsKey = `docvex.filesView.${session?.user?.id || '_anon'}`;
+  const savedViewPrefs = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem(viewPrefsKey) || 'null') || {}; }
+    catch { return {}; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewPrefsKey]);
+  const [tileSize, setTileSize] = useState(() => (
+    typeof savedViewPrefs.tileSize === 'number'
+      ? Math.max(FX_MIN_TILE, Math.min(FX_MAX_TILE, savedViewPrefs.tileSize))
+      : (appPrefs.fileView === 'list' ? FX_MIN_TILE : FX_LIST_THRESHOLD)
+  ));
   const view = tileSize < FX_LIST_THRESHOLD ? 'list' : 'tiles';
+  // List-view row density follows the slider. The standard range grows gently;
+  // the TOP TWO steps (the two notches just below the tile threshold) bump up
+  // much harder so they read as a distinct "large" list size. Published as CSS
+  // vars on the canvas and consumed by .fx-list-row / .fx-list-thumb.
+  const listRowVars = useMemo(() => {
+    if (view !== 'list') return null;
+    const idx = Math.round((tileSize - FX_MIN_TILE) / 2);            // 0 … top
+    const topIdx = Math.round((FX_LIST_THRESHOLD - 2 - FX_MIN_TILE) / 2);
+    const fromTop = topIdx - idx;                                    // 0 = largest step
+    // Only the thumbnail icon + row height scale with the slider — the file-name
+    // text stays a fixed size (see .fx-list-row font-size).
+    let thumb = 19 + idx * 0.7;
+    let pad = 4.5 + idx * 0.25;
+    if (fromTop === 1) { thumb += 5; pad += 1.8; }
+    if (fromTop === 0) { thumb += 12; pad += 4; }
+    return {
+      '--fx-row-thumb': `${thumb}px`,
+      '--fx-row-pad': `${pad}px`,
+    };
+  }, [view, tileSize]);
   const [query, setQuery] = useState('');
   // Selection — `multiSel` (a Set of ids) is the single source of truth.
   // Plain click selects one; Ctrl/Cmd+click toggles; Shift+click extends a
@@ -934,7 +969,13 @@ export default function FilesWorkspace({
   // labelled category sections (folders incl. compressed archives, pictures &
   // videos, Office docs, the Recycle bin, then everything else) stacked
   // vertically. Off → one flat list (the default).
-  const [grouped, setGrouped] = useState(false);
+  const [grouped, setGrouped] = useState(() => savedViewPrefs.grouped === true);
+  // Persist the view controls whenever they change (debounced naturally by React
+  // batching) so the next visit to Files restores the same size + categorize state.
+  useEffect(() => {
+    try { localStorage.setItem(viewPrefsKey, JSON.stringify({ tileSize, grouped })); }
+    catch { /* storage full / blocked — non-critical */ }
+  }, [viewPrefsKey, tileSize, grouped]);
   const [propsItem, setPropsItem] = useState(null);
   const [dragOver, setDragOver] = useState(false);   // OS file drag over the canvas
   const [clipboard, setClipboard] = useState(null);  // { mode: 'copy'|'cut', items: [{ name, path }] }
@@ -1595,29 +1636,12 @@ export default function FilesWorkspace({
   const toolbar = (
     <>
       <div className="fx-chrome-tools">
-        {/* Mini-header title — revealed once the hero has scrolled away, so the
-            sticky nav strip reads as the page header (matching the other tabs'
-            compact headers). Click jumps back to the top. */}
-        {masthead && (
-          <Tooltip content="Back to top">
-            <button
-              type="button"
-              className={`fx-nav-title${headerScrolled ? ' is-visible' : ''}`}
-              onClick={scrollToTop}
-              tabIndex={headerScrolled ? 0 : -1}
-              aria-hidden={!headerScrolled}
-            >
-              {masthead.title}
-            </button>
-          </Tooltip>
-        )}
         <div className="fx-pathbar-nav">
           {onRefresh && (
             <Tooltip content="Refresh"><button onClick={() => onRefresh()}><Icon name="refresh" size={14} /></button></Tooltip>
           )}
           <Tooltip content="Back"><button onClick={() => onBack?.()} disabled={!canBack}><Icon name="chev-left" size={14} /></button></Tooltip>
           <Tooltip content="Forward"><button disabled><Icon name="chev-right" size={14} /></button></Tooltip>
-          <Tooltip content="Up one level"><button onClick={() => onUp?.()} disabled={!canUp}><Icon name="chev-up" size={14} /></button></Tooltip>
         </div>
         <nav className="fx-crumbs" aria-label="Folder path">
           {(crumbs || []).map((cr, i) => {
@@ -1673,8 +1697,8 @@ export default function FilesWorkspace({
               aria-pressed={grouped}
               onClick={() => setGrouped((v) => !v)}
             >
-              <Icon name="categories" size={14} />
-              <span className="fx-cat-btn-label">Categorize</span>
+              {/* Filled + accent (the folder colour) when active. */}
+              <Icon name="categories" size={14} filled={grouped} />
             </button>
           </Tooltip>
         )}
@@ -1732,13 +1756,13 @@ export default function FilesWorkspace({
         </header>
       )}
       <div className="fx-window">
-        {!chromeSlotEl && <div className="fx-pathbar">{toolbar}</div>}
+        {!chromeSlotEl && <div className={`fx-pathbar${headerScrolled ? ' is-pinned' : ''}`}>{toolbar}</div>}
 
         {/* Canvas */}
         <div
           className={`fx-canvas${dragOver ? ' fx-canvas--drag' : ''}`}
           ref={canvasRef}
-          style={{ '--fx-tile': `${tileSize}px` }}
+          style={{ '--fx-tile': `${tileSize}px`, ...(listRowVars || {}) }}
           onClick={(e) => {
             // A click anywhere in the canvas dismisses the background menu — the
             // grid/list fills the canvas, so empty-area clicks land on it, not
@@ -1814,11 +1838,14 @@ export default function FilesWorkspace({
               )}
               {groups.map((g) => (
                 <section className="fx-cat-section" key={g.key}>
-                  <div className="fx-cat-head">
-                    <Icon name={g.icon} className="fx-cat-head-ico" size={13} />
-                    <span className="fx-cat-head-label">{g.label}</span>
-                    <span className="fx-cat-head-count">{g.items.length}</span>
-                  </div>
+                  {/* No divider for the Recycle bin — its tile stands on its own. */}
+                  {g.key !== 'trash' && (
+                    <div className="fx-cat-head">
+                      <Icon name={g.icon} className="fx-cat-head-ico" size={13} />
+                      <span className="fx-cat-head-label">{g.label}</span>
+                      <span className="fx-cat-head-count">{g.items.length}</span>
+                    </div>
+                  )}
                   {view === 'tiles'
                     ? <div className="fx-grid">{g.items.map(renderTile)}</div>
                     : <div className="fx-list">{g.items.map(renderRow)}</div>}

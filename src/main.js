@@ -532,6 +532,8 @@ function createDocViewerWindow(file) {
     name: file?.name || 'Document',
     path: file?.path || null,
     mime: file?.mime || null,
+    // Recognised WhatsApp conversation → the sidebar shows the WhatsApp glyph.
+    isWhatsApp: !!file?.isWhatsApp,
     aiBusy: false,
   });
   broadcastDocViewerTabs();

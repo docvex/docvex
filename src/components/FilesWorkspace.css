@@ -25,22 +25,25 @@
   border-radius: 0;
   /* Drop the frame's opaque top "lip" gradient — nothing to trace now. */
   background: none;
+  /* A DEFINITE height (not just the inherited min-height:100%) so the inner
+     `.fx-root { min-height: 100% }` percentage actually resolves — otherwise the
+     workspace collapses to content height and the sticky bottom action bar floats
+     directly under the file list instead of docking at the window's bottom edge.
+     Content taller than the viewport still overflows (frame overflow is visible)
+     and scrolls via the outer `.sv-single-scroll`. */
+  height: 100%;
 }
 
 /* Let the single page scroller reach the window's right edge (its reserved
    `scrollbar-gutter: stable` would otherwise leave an empty ~8px gutter). */
 .sv-single-scroll:has(.project-files-page.fx-root) { scrollbar-gutter: auto; }
 
-/* "Floating sidebar" treatment — the pinned bars (toolbar, mini header, action
-   bar) run the FULL window width, sliding BEHIND the frosted sidebar, while the
-   file content stays to its right. The Files content frame is stretched left
-   under the rail (the sidebar is a z-index:1 sibling of .main-content, so it
-   keeps painting on top); every left-aligned element is then re-inset by
-   --fx-rail-pad so its content clears the rail while its surface runs full
-   width. Mirrors the .pmh-compact recipe (left:0 + sidebar-width padding). */
+/* Files sits in the normal flush content area (right of the rail), like Activity
+   / Newsletter — NOT pulled full-bleed under the sidebar. So keep the standard
+   flush left margin and a normal content inset (no rail compensation). */
 .main-content--flush:has(.project-files-page.fx-root) {
-  margin-left: calc(-1 * (var(--sidebar-width, 192px) + 2 * var(--chrome-inset, 6.4px)));
-  --fx-rail-pad: calc(var(--sidebar-width, 192px) + var(--chrome-inset, 6.4px) + 17.6px);
+  margin-left: calc(-1 * var(--chrome-inset, 6.4px));
+  --fx-rail-pad: 17.6px;
 }
 
 /* Files page only: drop the global edge vignette (the radial-gradient in
@@ -77,6 +80,13 @@
      work against that outer scroller. */
   min-height: 100%;
   overflow: visible;
+}
+/* Match the other personal/editorial tabs (Activity / Newsletter / Projects):
+   three-quarters of the content width on wide screens, left-aligned — so the
+   Files tab doesn't run the full horizontal width. Full width below the
+   breakpoint. */
+@media (min-width: 1024px) { /* 1280px pre-scale */
+  .project-files-page.fx-root { width: 75%; }
 }
 
 .fx-page-head {
@@ -591,18 +601,19 @@
   initial-value: transparent;
 }
 .fx-pathbar {
-  display: flex; align-items: center; gap: 4.8px;
+  /* Column so the list-view column header (.fx-list-head--chrome) STACKS under
+     the nav/breadcrumb/search row (.fx-chrome-tools) instead of being squeezed
+     to its right — mirrors the chrome path's .sv-chrome-row2 (also a column). */
+  display: flex; flex-direction: column; align-items: stretch; gap: 0;
   padding: 6.4px 14.4px;
   /* Surface runs full width behind the rail; the nav/breadcrumb/search content
      is re-inset past it. Identity off the Files main window (var unset). */
   padding-left: var(--fx-rail-pad, 14.4px);
-  /* Solid surface for the breadcrumb / search / Publish row so it reads as a
-     toolbar. Frosted/blurred (matching the other tabs' compact header,
-     .pmh-compact) so when it PINS at the top of the page it reads as the same
-     mini-header surface; content scrolls legibly beneath it. */
-  background: color-mix(in srgb, var(--bg-page) 62%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  backdrop-filter: blur(16px) saturate(180%);
+  /* Transparent in-flow (only the hairline below shows); the frosted surface is
+     painted ONLY once the strip PINS at the top as the mini header (.is-pinned,
+     toggled from headerScrolled). Before that it floats over the page with just
+     the bottom divider. */
+  background: transparent;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
   font-size: 10px;
   /* Pins to the top of the page as the masthead scrolls away — the nav strip
@@ -617,6 +628,13 @@
      directions — back to bg-card + accent on exit). */
   --fx-spot-color: var(--accent);
   transition: --fx-spot-color 340ms ease, background-color 340ms ease;
+}
+/* Pinned (acting as the mini header): paint the frosted surface so content
+   scrolls legibly beneath it. */
+.fx-pathbar.is-pinned {
+  background: color-mix(in srgb, var(--bg-page) 62%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
 }
 /* Team edit mode → red surface, white spotlight. The whole bar tints (always
    visible), with the cursor glow reading as a light sweep over the red. */
@@ -755,20 +773,20 @@
    Toggles the grid between one flat list and category sections. Idle it reads
    as a quiet toolbar control; active it adopts the accent tint. */
 .fx-cat-btn {
-  display: inline-flex; align-items: center; gap: 4.8px;
-  height: 24px;
+  /* Icon-only square toggle (label removed). */
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px;
   margin-right: 3.2px;
-  padding: 0 7.2px;
+  padding: 0;
   background: transparent; border: 0; cursor: pointer;
   border-radius: 4.8px;
   color: var(--text-secondary);
-  font: inherit; font-size: 10px; font-weight: 600;
-  white-space: nowrap;
   transition: background 140ms ease, color 140ms ease;
 }
 .fx-cat-btn:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+/* Active: accent-tinted chip + the icon fills with the accent (folder colour)
+   via the `filled` prop on the glyph. */
 .fx-cat-btn.is-active { background: var(--accent-tint); color: var(--accent); }
-.fx-cat-btn-label { line-height: 1; }
 
 /* ── Categorize sections ──────────────────────────────────────────────────
    Vertical stack of labelled category sections; each holds its own grid (tile
@@ -1076,12 +1094,22 @@
 /* Bigger folder glyph that scales with the tile zoom (overrides the svg's
    intrinsic 42px). Near-fills the thumb box. */
 .fx-tile-thumb .fx-folder-glyph { color: var(--accent); width: 112%; height: 112%; }
-/* Recycle-bin glyph scales with the tile zoom too — its inner SVG carries a
-   fixed px size (size*0.92) that otherwise ignores --fx-tile, leaving the bin
-   icon stuck at one size while folders/files grew. Fill the thumb box and let
-   the SVG (square, centred) fit to it like the folder glyph does. */
+/* Recycle-bin glyph. The flex span fills the thumb and just centres the SVG; the
+   SVG itself is a SQUARE sized directly off the slider (--fx-tile), so it scales
+   smoothly with the icon size and never clips against the thumb edge. (Sizing it
+   as a %-of-the-landscape-thumb gave a non-square box + fit-to-height that
+   clipped the tall bin shape at some scales.) The full bin's drawn shape is
+   taller in its viewBox, so the empty outline is given a touch less so both read
+   at a comparable visual size to a folder. */
 .fx-tile-thumb .fx-bin-glyph { width: 100%; height: 100%; }
-.fx-tile-thumb .fx-bin-glyph svg { width: 100%; height: 100%; }
+.fx-tile-thumb .fx-bin-glyph svg {
+  width: calc(var(--fx-tile, 134.4px) * 0.5);
+  height: calc(var(--fx-tile, 134.4px) * 0.5);
+}
+.fx-tile-thumb .fx-bin-glyph:not(.is-full) svg {
+  width: calc(var(--fx-tile, 134.4px) * 0.46);
+  height: calc(var(--fx-tile, 134.4px) * 0.46);
+}
 
 /* Folder-colour swatch row at the top of a folder's right-click menu. Lives
    inside the portalled morph pill, so these rules are document-global. */
@@ -1134,7 +1162,10 @@
 
 /* Trash entry glyph — a trash icon where a folder glyph would sit. */
 .fx-bin-glyph { display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); }
-.fx-list-thumb .fx-bin-glyph { color: var(--text-secondary); }
+.fx-list-thumb .fx-bin-glyph { color: var(--text-secondary); width: 90%; height: 90%; }
+/* Match the folder glyph's box (folder fills 100%), pulled to 90% so the
+   taller bin shape reads the same visual size as a folder. */
+.fx-list-thumb .fx-bin-glyph svg { width: 100%; height: 100%; }
 
 /* Count pill on the Trash entry — how many items are inside. */
 .fx-bin-count {
@@ -1210,6 +1241,14 @@
 .fx-glyph-whatsapp .fx-glyph-wa-logo {
   width: 64%; height: 64%; color: #fff;
   filter: drop-shadow(0 1px 1.6px rgba(0, 0, 0, 0.35));
+}
+/* The shared `.fx-tile-thumb .fx-glyph` footprint (0.65 × tile) is TALLER than
+   the thumb box (0.58 × tile), so a solid badge gets clipped top/bottom. Size the
+   WhatsApp badge to the thumb height instead so the green tile sits fully inside
+   the thumbnail (no bottom clip) and reads at a sensible size. */
+.fx-tile-thumb .fx-glyph-whatsapp {
+  width: calc(var(--fx-tile, 134.4px) * 0.5);
+  height: calc(var(--fx-tile, 134.4px) * 0.5);
 }
 
 /* Recognised WhatsApp export — the file keeps its real document-type glyph and
@@ -1293,15 +1332,22 @@
 }
 
 /* WhatsApp hover-tooltip note (inside the morph pill). */
-.fx-hover-wa { align-items: center; gap: 7.2px; }
+/* Base font = the normal custom tooltip size (.tooltip is 0.6rem) so the
+   subtitle below (1em) matches a normal file's tooltip exactly; the title is
+   scaled off that same base (em) so it stays proportional to the subtitle. */
+.fx-hover-wa { align-items: center; gap: 9.6px; font-size: 0.6rem; }
 .fx-hover-wa-mark {
-  flex: none; width: 17.6px; height: 17.6px; display: grid; place-items: center;
-  border-radius: 4.8px; color: #fff;
+  flex: none; width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: 6.4px; color: #fff;
   background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
 }
 .fx-hover-wa-mark .fx-glyph-wa-logo { width: 66%; height: 66%; }
-.fx-hover-wa-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
-.fx-hover-wa-note { font-size: 0.82em; opacity: 0.7; }
+.fx-hover-wa-text { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
+/* Title scaled off the subtitle by the SAME ratio the right-click dropdown
+   header uses (title 9.6px / sub 8.8px), so the tooltip's title↔subtitle
+   relationship matches the menu's. */
+.fx-hover-wa-text .fx-hover-name { font-weight: 600; font-size: calc(1em * 9.6 / 8.8); }
+.fx-hover-wa-note { font-size: 1em; opacity: 0.7; }
 /* Video badge — a play triangle on a vibrant media gradient (was flat near-
    black with "MP4" text, which barely read on the Ink theme). The format tag
    sits in the corner; the triangle scales with the badge so it works at both
@@ -1331,34 +1377,43 @@
 /* List view is tiny (24px) — drop the corner tag, the triangle carries it. */
 .fx-list-thumb .fx-glyph-vid-tag { display: none; }
 
-/* ── Video cassette-tape frame ──────────────────────────────────────────
-   Layered over an actual video poster: dark perforated bands above AND below
-   the thumbnail — the exposed edges of a video tape / film strip. No z-index
-   (auto) so it sits over the static poster image but UNDER the duration pill
-   (z-index 1), which stays readable. Hidden when only the type-glyph badge is
-   showing (no real poster resolved) and in the tiny list view, so it only
-   dresses a real preview. */
-.fx-cassette { position: absolute; inset: 0; pointer-events: none; }
-.fx-cassette::before,
-.fx-cassette::after {
-  content: '';
+/* ── Video play button ──────────────────────────────────────────────────
+   A centred circular play button layered over an actual video poster so the
+   tile reads as playable at a glance. No z-index (auto) so it sits over the
+   static poster image but UNDER the duration pill (z-index 1), which stays
+   readable. Hidden when only the type-glyph badge is showing (no real poster
+   resolved — that badge already carries its own play triangle) and in the
+   tiny list view. */
+.fx-video-play {
   position: absolute;
-  left: 0;
-  right: 0;
-  height: 16%;
-  min-height: 7.2px;
-  background-color: rgba(90, 92, 98, 0.82);
-  /* Evenly-spaced perforation holes punched along the band. */
-  background-image: radial-gradient(circle, rgba(244, 240, 230, 0.92) 0 1.28px, transparent 1.6px);
-  background-size: 8.8px 100%;
-  background-repeat: repeat-x;
-  background-position: center;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 34%;
+  aspect-ratio: 1 / 1;
+  min-width: 22px;
+  max-width: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(20, 20, 24, 0.55);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(1.6px);
+  -webkit-backdrop-filter: blur(1.6px);
+  pointer-events: none;
 }
-.fx-cassette::before { top: 0; border-bottom: 1px solid rgba(0, 0, 0, 0.2); }
-.fx-cassette::after { bottom: 0; border-top: 1px solid rgba(0, 0, 0, 0.2); }
-/* Only frame a real poster — hide over the type-glyph badge and in list view. */
-.fx-tile-thumb:has(.fx-glyph) .fx-cassette { display: none; }
-.fx-list-thumb .fx-cassette { display: none; }
+.fx-video-play svg {
+  width: 52%;
+  height: 52%;
+  /* Optically centre the triangle (its visual mass sits right of geometric
+     centre). */
+  margin-left: 6%;
+  color: #fff;
+  filter: drop-shadow(0 1px 1.6px rgba(0, 0, 0, 0.4));
+}
+/* Only badge a real poster — hide over the type-glyph badge and in list view. */
+.fx-tile-thumb:has(.fx-glyph) .fx-video-play { display: none; }
+.fx-list-thumb .fx-video-play { display: none; }
 /* Audio badge — a decibel line (equalizer bars) on a media gradient, mirroring
    the video badge. Reuses .fx-glyph-vid-tag for the corner format tag (so it
    also hides in the tiny list view). */
@@ -1565,16 +1620,17 @@
 }
 /* Tighter vertical rhythm for the in-chrome header (it's a bar row, not a
    table row). */
-.fx-list-head--chrome { padding: 4.8px 11.2px 4px; }
+/* Extra top margin so the divider clears the tools row by the same gap it keeps
+   below itself (the section's vertical rhythm) instead of hugging the toolbar. */
+.fx-list-head--chrome { padding: 4.8px 11.2px 4px; margin-top: 8px; }
 /* Inset divider above the header — same as the chat tab bar's: stops short of
-   the edges, centered in the gap between the tools row (12px clearance below)
-   and the header labels (6px padding above). */
+   the edges, centered in the gap between the tools row and the header labels. */
 .fx-list-head--chrome::before {
   content: '';
   position: absolute;
   left: 9.6px;
   right: 9.6px;
-  top: -2.4px;
+  top: -6.4px;
   height: 1px;
   background: var(--border);
 }
@@ -1610,10 +1666,15 @@
   padding-bottom: 0;
 }
 .fx-list-row {
-  /* A bit more vertical room so rows breathe (no separators between them). */
-  padding-top: 6.4px;
-  padding-bottom: 6.4px;
+  /* Row density follows the icon-size slider via vars published on .fx-canvas
+     (--fx-row-pad / --fx-row-thumb / --fx-row-font, computed in FilesWorkspace.jsx
+     so the top two list steps can grow harder). Grid columns stay fixed (above)
+     so the chrome header keeps lining up. Static fallbacks keep the row sane if
+     the vars are ever absent. Horizontal padding stays 11.2px (matches the head). */
+  padding: var(--fx-row-pad, 6.4px) 11.2px;
   cursor: pointer;
+  /* Text stays a FIXED size in list view — the slider scales only the thumbnail
+     icon (--fx-row-thumb) + row height (--fx-row-pad), not the file names. */
   font-size: 10.4px;
   background: transparent;
   border: 0;
@@ -1625,8 +1686,10 @@
 .fx-list-row.is-selected { background: var(--accent-tint); }
 .fx-list-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .fx-list-thumb {
-  width: 24px; height: 24px; border-radius: 4.8px;
-  overflow: hidden; flex: 0 0 24px;
+  /* Scales with the slider (set on .fx-list-row) so the thumbnail grows with
+     row density; falls back to 24px when the var is unset (chrome header). */
+  width: var(--fx-row-thumb, 24px); height: var(--fx-row-thumb, 24px); border-radius: 4.8px;
+  overflow: hidden; flex: 0 0 var(--fx-row-thumb, 24px);
   /* Hard-lock a square box so no-thumbnail glyphs (and every thumb) keep a
      1:1 aspect ratio regardless of row height. */
   aspect-ratio: 1 / 1;
@@ -1647,8 +1710,8 @@
    collapsed to the text height in the center-aligned grid above). Sized to sit
    in the 30px thumb with breathing room so it reads like the other icons
    instead of a full-bleed colored block. */
-/* Match the folder glyph (fills the 30px list thumb). */
-.fx-list-thumb .fx-glyph { width: 24px; height: 24px; aspect-ratio: 1 / 1; font-size: 6.4px; border-radius: 4px; letter-spacing: 0.02em; }
+/* Fill the (now slider-scaled) list thumb so type badges grow with the row. */
+.fx-list-thumb .fx-glyph { width: 100%; height: 100%; aspect-ratio: 1 / 1; font-size: 6.4px; border-radius: 4px; letter-spacing: 0.02em; }
 /* Fill the box and show the MIDDLE of the thumbnail (center-crop) so a
    tall poster isn't anchored to its top edge. */
 .fx-list-thumb img {

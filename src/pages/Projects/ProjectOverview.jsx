@@ -801,7 +801,6 @@ export default function ProjectOverview() {
           {project.created_at && <>Created {new Date(project.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · </>}
           {fmtCount(fileStats.count)} {fileStats.count === 1 ? 'file' : 'files'} · {fmtBytes(fileStats.bytes)}
         </span>
-        <span className="pjd-compact-sep" aria-hidden="true">·</span>
         <Tooltip content="Back to top">
           <button
             type="button"

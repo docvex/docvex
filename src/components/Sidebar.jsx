@@ -7,6 +7,7 @@ import { openExternal, listDocViewerTabs, onDocViewerTabs, focusDocViewerTab, cl
 import { supabase } from '../lib/supabaseClient';
 import { toLayoutPx } from '../lib/appZoom';
 import Tooltip from './Tooltip';
+import { glyphForFile } from './fileGlyph';
 import './Sidebar.css';
 
 // External documentation site, opened in the user's browser (formerly the
@@ -119,6 +120,14 @@ const DocFileIcon = (
     <polyline points="14 3 14 8 19 8"/>
     <line x1="9" y1="13" x2="15" y2="13"/>
     <line x1="9" y1="17" x2="13" y2="17"/>
+  </svg>
+);
+
+// WhatsApp mark — shown for an open recognised WhatsApp conversation in place of
+// the generic text glyph (it opens as a .txt, so glyphForFile can't tell).
+const WhatsAppTabGlyph = (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+    <path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.6-6.1c-.3-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-2-1.2 7.4 7.4 0 0 1-1.4-1.7c-.1-.3 0-.4.1-.5l.4-.5.3-.4v-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 2.9 2.9 0 0 0-.9 2.2 5 5 0 0 0 1.1 2.7 11.5 11.5 0 0 0 4.4 3.9c2.6 1 2.6.7 3.1.6a2.6 2.6 0 0 0 1.7-1.2 2.1 2.1 0 0 0 .1-1.2c-.1-.1-.3-.2-.5-.3z" />
   </svg>
 );
 
@@ -300,7 +309,7 @@ export default function Sidebar() {
   const spotTargetRef = useRef({ x: 0, y: 0 });
   const spotPosRef = useRef({ x: 0, y: 0, started: false });
   const spotFrameRef = useRef(null);
-  const SPOT_EASE = 0.075;
+  const SPOT_EASE = 0.04; // lower = more trailing lag behind the cursor
   const SPOT_SETTLE = 0.5; // px — snap-and-stop threshold
 
   const tickSpot = () => {
@@ -419,7 +428,10 @@ export default function Sidebar() {
                       onClick={() => focusDocViewerTab(t.id)}
                     >
                       <span className="icon doc-tab-icon">
-                        {DocFileIcon}
+                        {/* Per-file-type glyph (Word / Excel / PPT / PDF / image /
+                            video / audio / text / generic) so each open file reads
+                            distinctly instead of all sharing one icon. */}
+                        <span className={`doc-tab-glyph${t.isWhatsApp ? ' is-wa' : ''}`}>{t.isWhatsApp ? WhatsAppTabGlyph : glyphForFile(t.mime, t.name)}</span>
                         {t.aiBusy && <span className="doc-tab-ai-dot" aria-label="AI working" />}
                       </span>
                       <span className="label doc-tab-name">{t.name}</span>

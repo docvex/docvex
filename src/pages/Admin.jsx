@@ -1042,7 +1042,6 @@ export default function Admin() {
         <span className="dc-compact-title">Services &amp; billing</span>
         <span className="dc-compact-sep" aria-hidden="true">·</span>
         <span className="dc-compact-eyebrow">Developer console</span>
-        <span className="dc-compact-sep" aria-hidden="true">·</span>
         <Tooltip content="Back to top">
           <button
             type="button"

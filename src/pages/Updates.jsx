@@ -517,14 +517,16 @@ export default function Updates() {
           scrolled away, like the launch hub. Fixed to the content area. Carries
           the same up-to-date / update-available status as the banner below. */}
       <div className={`versions-compact${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
-        <span className="versions-compact-title">Versions</span>
-        <span className="versions-compact-sep" aria-hidden="true">·</span>
-        <span className="versions-compact-eyebrow">Release history</span>
-        <span className="versions-compact-sep" aria-hidden="true">·</span>
+        <span className="mini-head-text">
+          <span className="versions-compact-title">Versions</span>
+          <span className="versions-compact-sep" aria-hidden="true">·</span>
+          <span className="versions-compact-eyebrow">Release history</span>
+        </span>
+        {/* Status pill pinned to the right of the mini header (back-to-top). */}
         <Tooltip content="Back to top">
           <button
             type="button"
-            className={compactStatusClass}
+            className={`${compactStatusClass} mini-head-status`}
             onClick={scrollToTop}
           >
             <span className="versions-compact-dot" aria-hidden="true" />

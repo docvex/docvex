@@ -2986,12 +2986,6 @@ function parseAdvisorReply(text) {
   return { chat, document, kind, questions, options };
 }
 
-// Does the user's latest message ask to create or change the document? Used to
-// decide whether a reply that carried NO document block is a protocol failure
-// we should force a retry on.
-const DOC_INTENT_RE = /\b(create|creat\w*|generat\w*|regenerat\w*|re-?generat\w*|write|writ\w*|draft|redraft\w*|make|remake|remade|build|rebuild|redo|re-?do|redoing|add|adds|adding|insert\w*|append\w*|includ\w*|change\w*|edit\w*|modif\w*|updat\w*|revis\w*|rewrit\w*|replac\w*|remov\w*|delet\w*|renam\w*|reorder\w*|expand\w*|shorten\w*|fix|fill|again|do over|do it again|try again|start over|another version|new version|version \d+|v\d+|another (?:slide|page|section|row)|new (?:slide|page|section|row)|turn (?:it|this) into)\b/i;
-function wantsDocIntent(t) { return DOC_INTENT_RE.test(String(t || '')); }
-
 // The model sometimes writes the WHOLE document as plain chat text, forgetting
 // the <docvex:document> wrapper — so no real file gets produced. Detect that
 // (a long reply that reads like a document: a shouty title, several markdown
@@ -3013,21 +3007,6 @@ function looksLikeUnwrappedDoc(text) {
 // signal a protocol break, so we force a corrective retry.
 const DRIFT_RE = /(can'?t (?:actually )?(?:create|generate|export|produce|make|build|modify|edit)|i'?m (?:unable|not able)|only (?:provide|give you|output)(?: the)? (?:text|content|outline)|paste (?:it |this |the )?(?:above |outline )?into|outline view|copy[- ]?paste|copy each|python(?:-pptx)? script|ready to (?:drop|paste) into|import (?:slides|into) (?:powerpoint|google)|i can only (?:provide|give|produce)|turn the outline)/i;
 function looksLikeDrift(t) { return DRIFT_RE.test(String(t || '')); }
-
-// In generate mode the default is: ANY message produces a new document version
-// (so an edit always becomes a clickable version, never a chat dump). We only
-// hold back the forced document for a clear PURE QUESTION — the user asking ABOUT
-// the document rather than asking to change it. An action request ("can you add
-// …", "please …") or anything with a doc-intent verb is NOT a pure question.
-const INFO_LEAD_RE = /^(what|why|how|when|who|which|where|is|are|was|were|does|do|did|can i|could i|explain|summari[sz]e|describe|define|tell me)\b/i;
-const ACTION_LEAD_RE = /^(can|could|would|will)\s+you\b|^please\b/i;
-function looksLikePureQuestion(t) {
-  const s = String(t || '').trim();
-  if (!s) return false;
-  if (wantsDocIntent(s)) return false;     // "add a clause", "make it shorter" → an edit
-  if (ACTION_LEAD_RE.test(s)) return false; // "can you also mention …" → an action request
-  return INFO_LEAD_RE.test(s) || /\?\s*$/.test(s);
-}
 
 // Collapse consecutive same-role string turns into one (keeps the API history
 // valid when, e.g., an assistant note and a "saved version" marker land back to
@@ -3141,6 +3120,15 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
   // (genMode keeps its own document-clarification protocol). Null when none.
   // { id, input, assistantContent, base } — `base` is the api messages to resume from.
   const [pendingAsk, setPendingAsk] = useState(null);
+  // A passage the user highlighted in the document preview (with the cursor) to
+  // point the AI at — "change THIS part". Shown as a chip in the composer and
+  // appended to the next message's API text. Null when nothing is targeted.
+  const [selection, setSelection] = useState(null); // string | null
+  const addSelection = useCallback((text) => {
+    const t = String(text || '').trim();
+    if (t) setSelection(t);
+  }, []);
+  const clearSelection = useCallback(() => setSelection(null), []);
   // Which document engine builds the file: 'skills' (Anthropic Agent Skills —
   // high-fidelity, = claude.ai) or 'local' (instant themed local builder).
   // Persisted so the choice sticks across files/sessions.
@@ -3303,30 +3291,28 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
     if (genMode) {
       const baseMsgs = buildGenMessages(convo, file, versions, activeVersion);
       const k = docKindFromName(file?.name || '') || '';
-      // Three-way decision:
-      //  - clear doc intent ("add a clause", "make it shorter", "redo") → FORCE a
-      //    new version so an edit always lands as a clickable version.
-      //  - anything else (a pure question, a greeting, small talk, an ambiguous
-      //    ask) → tool_choice stays auto, so the model can answer in text OR call
-      //    ask_user to confirm whether it should generate. We never force a
-      //    document the user didn't clearly ask for.
-      const clearDocIntent = wantsDocIntent(lastUserText);
-      let res = await askProjectAi({ messages: baseMsgs, fileNames: [], model, docTools: true, forceDocument: clearDocIntent, docKind: k || undefined });
+      // No forced documents. The model always has BOTH tools (write_document +
+      // ask_user) and decides for itself: write a new version when I clearly want
+      // to create/change the file, answer in text when I'm only asking about it,
+      // and — crucially — when it can't tell whether I want a new version (or the
+      // info to build one is missing), ask_user FIRST instead of guessing. A steer
+      // note on the latest turn makes that policy explicit.
+      const steer = '[Meta: You have two tools — write_document (save a new version of this file) and ask_user (ask me questions in a modal). Choose based on what I want: if I clearly want to create or change the document, use write_document; if I am only asking about it or chatting, just answer; if I ask you to question me / gather details / fill in placeholders, OR if you are UNSURE whether I want a new version or are missing information to write one, call ask_user first. Never silently write a version when you are unsure.]';
+      const askMsgs = baseMsgs.map((m, i) => (
+        i === baseMsgs.length - 1 && m.role === 'user' && typeof m.content === 'string'
+          ? { ...m, content: `${m.content}\n\n${steer}` }
+          : m
+      ));
+      const res = await askProjectAi({ messages: askMsgs, fileNames: [], model, docTools: true, docKind: k || undefined });
       if (res.error) {
         setError(res.error.message === 'ai_not_configured' ? 'The AI isn’t configured to generate documents.' : 'Couldn’t reach the AI right now.');
         return;
       }
       addUsage(res.usage);
-      // Guaranteed-document fallback: a clear doc-intent request that came back as
-      // plain text (no tool) → retry once with tool_choice PINNED to
-      // write_document, so the edit becomes a real version instead of a chat reply.
-      if (res.tool !== 'write_document' && res.tool !== 'ask_user' && clearDocIntent) {
-        const retry = await askProjectAi({ messages: baseMsgs, fileNames: [], model, docTools: true, forceDocument: true, docKind: k || undefined });
-        addUsage(retry.usage);
-        if (!retry.error && retry.tool === 'write_document') res = retry;
-      }
       if (stopped()) return;
-      await applyGenResult(res, lastUserText, baseMsgs);
+      // Resume from exactly what the model saw (askMsgs carries the steer note) so
+      // an ask_user follow-up replays coherently.
+      await applyGenResult(res, lastUserText, askMsgs);
       return;
     }
     // Non-generate "ask about this file" mode — prepend a Claude-like persona so
@@ -3359,9 +3345,8 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
   }, []);
 
   // Resolve a pending ask_user question. The non-generate advisor just continues
-  // the conversation; in generate mode (pa.gen) the answers feed straight into a
-  // document — we resume with docTools + forceDocument so the next step is a saved
-  // version, not more chat.
+  // the conversation; in generate mode (pa.gen) the answers feed back with the doc
+  // tool available and the model decides whether to write a version or just reply.
   const resolveAsk = useCallback(async (opts = {}) => {
     if (!pendingAsk || busy) return;
     const questions = pendingAsk.input?.questions || [];
@@ -3380,10 +3365,11 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: pa.id, content: JSON.stringify(answers) }] },
     ];
     if (pa.gen) {
-      // Generate mode: continue into a document. Don't force on a dismissal (the
-      // user opted out of giving detail — let the model proceed however it sees fit).
+      // Generate mode: continue with the doc tool available and let the user's
+      // answer drive it — the model writes a new version if the answer calls for
+      // it, or simply replies if it doesn't. (No forcing.)
       const k = docKindFromName(file?.name || '') || '';
-      const res = await askProjectAi({ messages: apiMsgs, fileNames: [], model, docTools: true, forceDocument: !opts.dismissed, docKind: k || undefined });
+      const res = await askProjectAi({ messages: apiMsgs, fileNames: [], model, docTools: true, docKind: k || undefined });
       setBusy(false);
       if (res.error) { setError('Couldn’t reach the AI right now.'); return; }
       addUsage(res.usage);
@@ -3407,15 +3393,22 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
     if (!q || busy) return;
     // While a question is pending, a typed message answers it (free-text).
     if (pendingAsk) { setInput(''); resolveAsk({ typedText: q }); return; }
-    const next = [...messages, { role: 'user', content: q, at: Date.now() }];
+    // If the user pointed at a passage in the document, append it to the API text
+    // (not the visible bubble) so the model knows exactly which part to change.
+    const apiText = selection
+      ? `${q}\n\nThe user selected this exact passage from the document and wants the request applied to it. Change only what's needed here; leave the rest of the document unchanged unless asked otherwise:\n"""\n${selection}\n"""`
+      : undefined;
+    const userMsg = { role: 'user', content: q, ...(apiText ? { apiText } : {}), at: Date.now() };
+    const next = [...messages, userMsg];
     setMessages(next);
     setInput('');
+    setSelection(null);
     setBusy(true);
     setError(null);
     setOptions([]);
     await runTurn(next, q);
     setBusy(false);
-  }, [input, busy, messages, runTurn, pendingAsk, resolveAsk]);
+  }, [input, busy, messages, runTurn, pendingAsk, resolveAsk, selection]);
 
   // Click a decision button: send that choice as the user's reply.
   const chooseOption = useCallback(async (optionText) => {
@@ -3542,8 +3535,8 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
   }, [busy, messages, runTurn]);
 
   const value = useMemo(
-    () => ({ messages, input, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk }),
-    [messages, input, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk],
+    () => ({ messages, input, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, selection, addSelection, clearSelection }),
+    [messages, input, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, selection, addSelection, clearSelection],
   );
   return <MultitoolAdvisorContext.Provider value={value}>{children}</MultitoolAdvisorContext.Provider>;
 }
@@ -3773,6 +3766,27 @@ function MultitoolComposer() {
           e.currentTarget.style.setProperty('--spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
         }}
       >
+        {/* Targeted passage chip — the section the user highlighted in the doc
+            preview. The next message is applied to THIS part. */}
+        {adv.selection && (
+          <div className="dv-advisor-selchip" title={adv.selection}>
+            <span className="dv-advisor-selchip-ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 7h11M4 12h16M4 17h9" />
+              </svg>
+            </span>
+            <span className="dv-advisor-selchip-label">Editing selection</span>
+            <span className="dv-advisor-selchip-text">“{adv.selection}”</span>
+            <button
+              type="button"
+              className="dv-advisor-selchip-x"
+              onClick={() => adv.clearSelection?.()}
+              aria-label="Clear selected section"
+            >
+              {ClearGlyph}
+            </button>
+          </div>
+        )}
         <textarea
           className="dv-advisor-composer-textarea"
           value={input}
@@ -4195,14 +4209,7 @@ function AdvisorPanel({ file }) {
         {/* .ai-hub / .ai-chat-page scope the main app's bubble + markdown styles
             so this thread reads identically (width neutralised in DocViewer.css). */}
         <div className="dv-advisor-chat ai-hub ai-chat-page">
-          {messages.length === 0 && !busy ? (
-            genMode ? null : (
-              <div className="dv-advisor-intro">
-                <span className="dv-advisor-intro-glyph">{AdvSparkGlyph}</span>
-                <p>Ask me anything about <strong>{file.name}</strong> — a summary, the key points, or what to do next.</p>
-              </div>
-            )
-          ) : (
+          {messages.length === 0 && !busy ? null : (
             <div className="chat">
               {messages.map((m, i) => {
                 const inner = m.role === 'artifact' ? (
@@ -6989,6 +6996,48 @@ function DocxRenderPane({ url, onExportPdf }) {
   const pageWidthRef = useRef(0);
   const [showPageNumbers, setShowPageNumbers] = useState(true);
 
+  // Cursor selection → AI target. When the user highlights text in the rendered
+  // document, a small floating button lets them hand that exact passage to the
+  // advisor ("change THIS part"). selTip carries the highlighted text + a viewport
+  // anchor for the button.
+  const adv = useMultitoolAdvisor();
+  const canTarget = !!adv?.addSelection;
+  const [selTip, setSelTip] = useState(null); // { text, x, y } | null
+  useEffect(() => {
+    if (!canTarget) return undefined;
+    const host = hostRef.current;
+    if (!host) return undefined;
+    const readSelection = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount) { setSelTip(null); return; }
+      const range = sel.getRangeAt(0);
+      if (!host.contains(range.commonAncestorContainer)) { setSelTip(null); return; }
+      const text = sel.toString().trim();
+      if (text.length < 2) { setSelTip(null); return; }
+      const rect = range.getBoundingClientRect();
+      if (!rect || (!rect.width && !rect.height)) { setSelTip(null); return; }
+      setSelTip({ text, x: rect.left + rect.width / 2, y: rect.top });
+    };
+    // Defer so the browser has finalized the selection before we read it.
+    const onUp = () => window.setTimeout(readSelection, 0);
+    const onDown = (e) => { if (!e.target.closest?.('.dv-docx-seltip')) setSelTip(null); };
+    const onScroll = () => setSelTip(null);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [canTarget]);
+  const targetSelection = useCallback(() => {
+    if (!selTip) return;
+    adv?.addSelection?.(selTip.text);
+    setSelTip(null);
+    window.getSelection()?.removeAllRanges();
+  }, [adv, selTip]);
+
   // Scale the page stack down to fit the pane width (Word's "fit to width"), so
   // an 8.5"/A4 sheet is readable without horizontal scrolling on a narrow pane.
   const fitWidth = useCallback(() => {
@@ -7053,6 +7102,22 @@ function DocxRenderPane({ url, onExportPdf }) {
       <div className="dv-docview-body">
         <div ref={hostRef} className={`dv-docx${showPageNumbers ? ' show-pagenums' : ''}`} />
       </div>
+      {/* Floating "hand this passage to the AI" button, anchored above the
+          current text selection (viewport-fixed; dismissed on scroll / click). */}
+      {selTip && (
+        <button
+          type="button"
+          className="dv-docx-seltip"
+          style={{ position: 'fixed', left: `${selTip.x}px`, top: `${selTip.y}px` }}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={targetSelection}
+        >
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 3v4M12 3 9 6M12 3l3 3" /><rect x="4" y="9" width="16" height="11" rx="2" /><path d="M8 13h8M8 16.5h5" />
+          </svg>
+          Edit this with AI
+        </button>
+      )}
       {/* Page-numbers toggle + Convert-to-PDF docked at the bottom of the pane. */}
       <div className="dv-docview-toolbar dv-docview-toolbar--foot">
         <button
@@ -7470,7 +7535,7 @@ function PptxRenderPane({ url, onExportPdf }) {
   );
 }
 
-function DocPane({ file, onWhatsAppDetected, sidePanelSlot = null, sideTabsSlot = null }) {
+function DocPane({ file, onWhatsAppDetected, sidePanelSlot = null, sideTabsSlot = null, regenTick = 0 }) {
   const { kind, mime } = useMemo(() => classify(file.mime, file.name), [file.mime, file.name]);
   const url = useMemo(() => localUrlFor(file.path), [file.path]);
   // While a saved version is being written to disk, show a spinner over the
@@ -7559,6 +7624,12 @@ function DocPane({ file, onWhatsAppDetected, sidePanelSlot = null, sideTabsSlot 
   } else {
     content = <FilePreview file={previewFile} signedUrl={url} onOpen={null} />;
   }
+
+  // Re-key ONLY the preview by regenTick so saving a new version re-reads the
+  // file from disk (the localfile:// url is stable, so the preview must remount
+  // to refetch) — without remounting the side panel / chat, which would refresh
+  // and jump it. The advisor (in DocumentWithPanel's side slot) stays put.
+  if (content) content = React.cloneElement(content, { key: `pv-${regenTick}` });
 
   return (
     <div className={bodyClass}>
@@ -7854,11 +7925,15 @@ export default function DocViewer() {
 
   if (!active) return <div className="dv-page dv-page-empty">No file to display.</div>;
 
-  // Arm the AI Generate flow either when it was opened with ?generate=1, OR when
-  // the active file is an extensionless "wildcard" (a freshly-created file whose
-  // real type is decided by which version you pick in the chat) — so opening one
-  // later still drives the document generator.
-  const generateArmed = wantsGenerate || extOf(active.name) === '';
+  // Arm the AI Generate flow when it was opened with ?generate=1, when the active
+  // file is an extensionless "wildcard" (a freshly-created file whose real type is
+  // decided by which version you pick in the chat), OR when the file is a document
+  // the generator can (re)build — Word / PowerPoint / Excel / PDF / text — so the
+  // Generate sidebar (engine toggle + version cards) shows for those too.
+  const GENERATABLE_DOC_KINDS = new Set(['docx', 'doc', 'pptx', 'sheet', 'pdf', 'text']);
+  const generateArmed = wantsGenerate
+    || extOf(active.name) === ''
+    || GENERATABLE_DOC_KINDS.has(classify(active.mime, active.name).kind);
 
   // Audio drops the document card's rounded-corner frame so the player +
   // lyrics read as an open section rather than a boxed card.
@@ -7914,9 +7989,11 @@ export default function DocViewer() {
             >
               <div className="dv-section-body">
                 <div className="dv-section-pane dv-doc">
-                  {/* Keyed by the file path. Its side panel (Text extraction /
-                      AI captions / AI advisor) portals into the Multitool panel. */}
-                  <DocPane key={`${active.id}:${regenTick}`} file={active} sidePanelSlot={sidePanelSlot} sideTabsSlot={sideTabsSlot} onWhatsAppDetected={() => markActiveWhatsApp(active.id)} />
+                  {/* Keyed by the file id only (NOT regenTick) so writing a new
+                      version doesn't remount the whole pane — that would refresh
+                      and jump the chat. regenTick is passed down so only the
+                      PREVIEW re-reads the file from disk. */}
+                  <DocPane key={active.id} regenTick={regenTick} file={active} sidePanelSlot={sidePanelSlot} sideTabsSlot={sideTabsSlot} onWhatsAppDetected={() => markActiveWhatsApp(active.id)} />
                 </div>
                 {/* Clarifying questions now render in the shared AskUserPanel
                     directly above the composer (see MultitoolComposer), not as an

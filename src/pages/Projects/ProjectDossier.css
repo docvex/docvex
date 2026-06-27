@@ -164,7 +164,8 @@
   text-overflow: ellipsis;
   max-width: calc(46 * var(--vw1));
 }
-.pjd-compact-sep { color: var(--text-muted); font-weight: 600; }
+/* Breathing room on each side of the "middle circle". */
+.pjd-compact-sep { color: var(--text-muted); font-weight: 600; margin: 0 4px; }
 .pjd-compact-eyebrow {
   font-size: 10.4px;
   font-weight: 600;
@@ -172,8 +173,11 @@
   white-space: nowrap;
 }
 /* Status pill in the compact header — the clickable back-to-top affordance,
-   styled exactly like the Versions page's up-to-date (gray) chip. */
+   styled exactly like the Versions page's up-to-date (gray) chip. Pinned to the
+   far right of the bar. */
 .pjd-compact-status {
+  margin-left: auto;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 5.6px;
