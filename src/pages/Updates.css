@@ -99,29 +99,28 @@
    and tracks the sidebar's expand/collapse. */
 .updates-page .versions-compact {
   position: fixed;
-  /* Seat the bar flush under the window chrome (title bar). The chromeless
-     Versions route has no in-pane chrome (--sv-chrome-h = 0), so WITHOUT dropping
-     the --chrome-inset term the bar floated 6.4px below the title bar, leaving an
-     empty strip above it. Horizontal insets stay so it still lines up with the
-     content frame. */
-  top: calc(var(--titlebar-h, 0px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
-  left: calc(var(--sidebar-width, 0px) + 2 * var(--chrome-inset, 0px));
-  right: var(--chrome-inset, 0px);
+  /* Rounded FLOATING section (matches the project tabs / .pjd-compact): inset
+     past the sidebar with a matching right gap, seated flush under the title bar
+     (the chromeless Versions route has --sv-chrome-h = 0). */
+  top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px) + var(--sv-chrome-h, 0px));
+  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px));
+  right: var(--chrome-inset, 6.4px);
   z-index: 30;
-  height: 41.6px;
+  height: 40px;
   display: flex;
   align-items: center;
   gap: 6.4px;
   padding: 0 17.6px;
+  overflow: hidden;
   /* Tight line boxes so the mixed-size title + eyebrow optically center in the
      bar (inheriting the page's 1.5+ line-height pushed the text low, reading as
      a gap at the top). */
   line-height: 1;
-  border-radius: 9.6px 9.6px 0 0;
-  background: color-mix(in srgb, var(--bg-page) 62%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  backdrop-filter: blur(16px) saturate(180%);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  /* Rounded floating card painted in the window top-bar colour. */
+  border-radius: 9.6px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
   opacity: 0;
   transform: translateY(-8px);
   pointer-events: none;
@@ -129,19 +128,18 @@
               transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
               left 250ms ease;
 }
+/* At ≥1024px the content narrows to 75% (left-aligned), so the mini header stops
+   at the content's right edge instead of the window edge (matches the project
+   tabs). See AppShell.css for the derivation of this right inset. */
+@media (min-width: 1024px) {
+  .updates-page .versions-compact {
+    right: calc(0.25 * (100vw - var(--sidebar-width, 192px) - var(--chrome-inset, 6.4px)) + 13.2px);
+  }
+}
 .updates-page .versions-compact.is-visible {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
-}
-/* Flush layout (Versions is always in .main-content--flush): square the corners
-   and run the bar the FULL width behind the rail — same treatment the shared
-   .pmh-compact gets on Activity / Newsletter, so Versions renders identically. */
-.main-content--flush .versions-compact {
-  border-radius: 0;
-  left: 0;
-  right: 0;
-  padding-left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 0px) + 17.6px);
 }
 /* Title + separator + eyebrow group on the left; the status pill is pushed to
    the far right of the bar via .mini-head-status (margin-left: auto). */
@@ -314,6 +312,9 @@
   /* Shrink-wrap to its content instead of stretching across the whole column
      (the .updates-body flex column stretches children by default). */
   align-self: flex-start;
+  /* Indent by the timeline rail width so the banner's left edge lines up with
+     the release cards (which sit in the grid's 2nd column, after --railw). */
+  margin-left: 121.6px;
   max-width: 100%;
 }
 
@@ -456,7 +457,9 @@
   position: absolute;
   left: var(--linex);
   top: 0;
-  bottom: 0;
+  /* Extend through the row's 12.8px padding-bottom so each segment meets the next
+     row's line (which starts at top:0) — the lines read as one continuous rail. */
+  bottom: -12.8px;
   width: 1.6px;
   transform: translateX(-50%);
   background: var(--line);
@@ -511,13 +514,15 @@
 /* Version + date, right-aligned beside the line. */
 .updates-page .rail-label {
   position: absolute;
-  left: 0;
-  width: calc(var(--linex) - 14.4px);
+  /* Anchored to the right (14.4px before the node circle) and shrink-wrapped to
+     its text, so there's no empty gap to the LEFT of the version + date. */
+  right: calc(var(--railw) - var(--linex) + 14.4px);
   top: var(--node-top);
   transform: translateY(-50%);
   text-align: right;
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: 1.6px;
 }
 .updates-page .rail-tag {

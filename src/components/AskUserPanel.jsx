@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Tooltip from './Tooltip';
 import './AskUserPanel.css';
 
 // Interactive controls for the `ask_user` tool — rendered ABOVE the composer in
@@ -84,16 +85,17 @@ export default function AskUserPanel({ questions = [], locked = false, resolved 
                 {(q.options || []).map((o) => {
                   const on = Array.isArray(v) ? v.includes(o.id) : v === o.id;
                   return (
-                    <button
-                      key={o.id} type="button" role="radio" aria-checked={on}
-                      className={`ask-opt${on ? ' is-on' : ''}`}
-                      disabled={locked}
-                      onClick={() => (autoSubmit ? submit({ [q.id]: [o.id] }) : setOne(q.id, [o.id]))}
-                      title={o.description || ''}
-                    >
-                      <span className="ask-opt-label">{o.label}</span>
-                      {o.description && <span className="ask-opt-desc">{o.description}</span>}
-                    </button>
+                    <Tooltip key={o.id} content={o.description || ''}>
+                      <button
+                        type="button" role="radio" aria-checked={on}
+                        className={`ask-opt${on ? ' is-on' : ''}`}
+                        disabled={locked}
+                        onClick={() => (autoSubmit ? submit({ [q.id]: [o.id] }) : setOne(q.id, [o.id]))}
+                      >
+                        <span className="ask-opt-label">{o.label}</span>
+                        {o.description && <span className="ask-opt-desc">{o.description}</span>}
+                      </button>
+                    </Tooltip>
                   );
                 })}
               </div>
@@ -105,17 +107,18 @@ export default function AskUserPanel({ questions = [], locked = false, resolved 
                   const arr = Array.isArray(v) ? v : [];
                   const on = arr.includes(o.id);
                   return (
-                    <button
-                      key={o.id} type="button" role="checkbox" aria-checked={on}
-                      className={`ask-opt is-check${on ? ' is-on' : ''}`}
-                      disabled={locked}
-                      onClick={() => setOne(q.id, on ? arr.filter((x) => x !== o.id) : [...arr, o.id])}
-                      title={o.description || ''}
-                    >
-                      <span className="ask-check-box" aria-hidden="true" />
-                      <span className="ask-opt-label">{o.label}</span>
-                      {o.description && <span className="ask-opt-desc">{o.description}</span>}
-                    </button>
+                    <Tooltip key={o.id} content={o.description || ''}>
+                      <button
+                        type="button" role="checkbox" aria-checked={on}
+                        className={`ask-opt is-check${on ? ' is-on' : ''}`}
+                        disabled={locked}
+                        onClick={() => setOne(q.id, on ? arr.filter((x) => x !== o.id) : [...arr, o.id])}
+                      >
+                        <span className="ask-check-box" aria-hidden="true" />
+                        <span className="ask-opt-label">{o.label}</span>
+                        {o.description && <span className="ask-opt-desc">{o.description}</span>}
+                      </button>
+                    </Tooltip>
                   );
                 })}
               </div>

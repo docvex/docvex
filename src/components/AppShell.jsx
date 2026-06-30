@@ -5,6 +5,7 @@ import UpdateProgressBar from './UpdateProgressBar';
 import SwitchProjectLoader from './SwitchProjectLoader';
 import ContentShell from './SplitView';
 import CursorSpotlight from './CursorSpotlight';
+import Tooltip from './Tooltip';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import './AppShell.css';
@@ -52,7 +53,7 @@ export function isProjectScopedRoute(pathname) {
 // These all render their content full-bleed — no chrome frame (border / rounded
 // corners / shadow) and no gaps around the content section — so they read as one
 // consistent editorial surface. Keep in sync with Sidebar's personalItems.
-const FLUSH_CONTENT_ROUTES = new Set(['/', '/newsletter', '/versions', '/files']);
+const FLUSH_CONTENT_ROUTES = new Set(['/', '/newsletter', '/versions', '/mail', '/admin', '/settings', '/debug', '/files', '/chat', '/ai']);
 
 // The project Overview / settings page (/projects/:id, no further segment)
 // also renders full-bleed — it carries its own Versions-style masthead, so it
@@ -109,18 +110,19 @@ export default function AppShell() {
         {/* Hub launcher — lives OUTSIDE the sidebar as a floating button.
             Pressing it opens the Hub (/projects); the sidebar hides there. */}
         {session && !onHub && (
-          <button
-            type="button"
-            className="app-hub-btn"
-            onClick={() => navigate('/projects')}
-            title="Hub — your projects"
-            aria-label="Open the Hub"
-          >
-            <span className="app-hub-icon">{HubIcon}</span>
-            <span className="app-hub-label">
-              DOCVEX<span className="app-hub-sep" aria-hidden="true">|</span><span className="app-hub-suffix">HUB</span>
-            </span>
-          </button>
+          <Tooltip content="Hub — your projects">
+            <button
+              type="button"
+              className="app-hub-btn"
+              onClick={() => navigate('/projects')}
+              aria-label="Open the Hub"
+            >
+              <span className="app-hub-icon">{HubIcon}</span>
+              <span className="app-hub-label">
+                DOCVEX<span className="app-hub-sep" aria-hidden="true">|</span><span className="app-hub-suffix">HUB</span>
+              </span>
+            </button>
+          </Tooltip>
         )}
         <div className="app-chrome">
           {!onHub && <Sidebar />}

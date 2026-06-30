@@ -546,7 +546,7 @@ export default function Updates() {
               <span>Release history</span>
               <span className="updates-mh-muted">· Every build, newest first</span>
             </div>
-            <h1 className="updates-mh-title">Versions.</h1>
+            <h1 className="updates-mh-title">Versions</h1>
             <p className="updates-mh-kicker">
               {releases.length > 0 ? (
                 <>

@@ -547,8 +547,10 @@ function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onPropertie
         danger: true,
         onClick: () => onEmptyBin?.(),
         confirm: {
-          title: 'Empty the trash?',
-          message: `All ${item.binCount} item${item.binCount === 1 ? '' : 's'} in the trash will be permanently deleted from your computer. This can’t be undone.`,
+          count: item.binCount,
+          subtitle: 'Permanent · can’t be undone',
+          title: `Delete ${item.binCount} file${item.binCount === 1 ? '' : 's'}?`,
+          message: `${item.binCount} item${item.binCount === 1 ? '' : 's'} in the trash will be permanently deleted — this can’t be undone.`,
           confirmLabel: 'Empty trash',
           cancelLabel: 'Cancel',
         },
@@ -571,6 +573,8 @@ function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onPropertie
         key: 'delete', label: bulk ? `Delete ${bulkCount} forever` : 'Delete forever', danger: true,
         onClick: () => (bulk ? onBulkDelete?.() : onDelete?.(item)),
         confirm: {
+          count: bulk ? bulkCount : 1,
+          subtitle: 'Permanent · can’t be undone',
           title: bulk ? `Permanently delete ${bulkCount} items?` : 'Permanently delete this file?',
           message: `${subject} will be permanently deleted from your computer. This can’t be undone.`,
           confirmLabel: bulk ? `Delete ${bulkCount}` : 'Delete forever',
@@ -586,6 +590,8 @@ function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onPropertie
     danger: true,
     onClick: () => (bulk ? onBulkDelete?.() : onDelete?.(item)),
     confirm: {
+      count: bulk ? bulkCount : 1,
+      subtitle: isFolder ? 'Removed from your computer' : 'Recoverable for 30 days',
       title: bulk ? `Delete ${bulkCount} items?` : (isFolder ? 'Delete this folder?' : 'Delete this file?'),
       message: isFolder
         ? `${subject} will be deleted from your computer.`
@@ -1012,10 +1018,11 @@ export default function FilesWorkspace({
     const el = pageScroller();
     if (!el || !masthead) { setHeaderScrolled(false); return undefined; }
     const onScroll = () => {
-      // Reveal the sticky-strip title only once the hero has mostly scrolled
-      // off (so the big title and the mini title aren't shown at once).
-      const top = el.scrollTop;
-      setHeaderScrolled((s) => (s ? top > 96 : top > 132));
+      // Pinned only once the pathbar is ACTUALLY stuck at the top (its rect
+      // reaches the scroller's top + the sticky `top` gap), so the section bg
+      // doesn't appear early while the masthead is still scrolling away.
+      const bar = el.querySelector('.fx-pathbar');
+      setHeaderScrolled(!!bar && (bar.getBoundingClientRect().top - el.getBoundingClientRect().top) <= 8);
     };
     onScroll();
     el.addEventListener('scroll', onScroll, { passive: true });
@@ -1838,14 +1845,11 @@ export default function FilesWorkspace({
               )}
               {groups.map((g) => (
                 <section className="fx-cat-section" key={g.key}>
-                  {/* No divider for the Recycle bin — its tile stands on its own. */}
-                  {g.key !== 'trash' && (
-                    <div className="fx-cat-head">
-                      <Icon name={g.icon} className="fx-cat-head-ico" size={13} />
-                      <span className="fx-cat-head-label">{g.label}</span>
-                      <span className="fx-cat-head-count">{g.items.length}</span>
-                    </div>
-                  )}
+                  <div className="fx-cat-head">
+                    <Icon name={g.icon} className="fx-cat-head-ico" size={13} />
+                    <span className="fx-cat-head-label">{g.label}</span>
+                    <span className="fx-cat-head-count">{g.items.length}</span>
+                  </div>
                   {view === 'tiles'
                     ? <div className="fx-grid">{g.items.map(renderTile)}</div>
                     : <div className="fx-list">{g.items.map(renderRow)}</div>}
@@ -1907,16 +1911,17 @@ export default function FilesWorkspace({
                 {/* Single "Create" button — a dropdown merging New folder with the
                     Build-with-AI file types. */}
                 <div className="fx-menu-wrap" ref={createMenuRef}>
-                  <button
-                    className="fx-tb-btn"
-                    disabled={!canEdit}
-                    onClick={() => setCreateMenuOpen((v) => !v)}
-                    title="Create a folder or a new document"
-                  >
-                    <Icon name="plus" className="fx-icon" />
-                    <span>Create</span>
-                    <Icon name="chev-up" className="fx-caret" />
-                  </button>
+                  <Tooltip content="Create a folder or a new document">
+                    <button
+                      className="fx-tb-btn"
+                      disabled={!canEdit}
+                      onClick={() => setCreateMenuOpen((v) => !v)}
+                    >
+                      <Icon name="plus" className="fx-icon" />
+                      <span>Create</span>
+                      <Icon name="chev-up" className="fx-caret" />
+                    </button>
+                  </Tooltip>
                   {createMenuOpen && (
                     <div className="fx-menu is-up fx-create-menu" role="menu">
                       <button onClick={() => { setCreateMenuOpen(false); requestNewFolder(); }}>

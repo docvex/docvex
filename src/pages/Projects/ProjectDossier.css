@@ -130,19 +130,22 @@
    so it spans exactly the page column and tracks the sidebar's expand/collapse. */
 .pjd-compact {
   position: fixed;
-  top: calc(var(--titlebar-h, 0px) + var(--sv-chrome-h, 0px));
-  left: var(--sidebar-width, 0px);
-  right: 0;
+  top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px) + var(--sv-chrome-h, 0px));
+  /* Inset past the sidebar (don't tuck behind it) + a matching right gap. */
+  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px));
+  right: var(--chrome-inset, 6.4px);
   z-index: 30;
-  height: 41.6px;
+  height: 40px;
   display: flex;
   align-items: center;
   gap: 6.4px;
   padding: 0 17.6px;
-  background: color-mix(in srgb, var(--bg-page) 62%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  backdrop-filter: blur(16px) saturate(180%);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  overflow: hidden;
+  /* Rounded floating section, painted in the window top bar colour. */
+  border-radius: 9.6px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
   /* Tucked fully up behind the nav chrome (which sits at a higher z-index),
      so it slides DOWN out from under the navigation bar when revealed. */
   opacity: 0;

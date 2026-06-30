@@ -63,6 +63,14 @@ const VersionsIcon = (
   </svg>
 );
 
+// Envelope glyph — the personal Mail (AI inbox) destination.
+const MailIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="4" width="20" height="16" rx="2"/>
+    <path d="m22 7-10 6L2 7"/>
+  </svg>
+);
+
 // Gear glyph — the app Settings destination.
 const GearIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -253,6 +261,7 @@ export default function Sidebar() {
       badge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : String(unreadCount)) : null,
     },
     { to: '/newsletter', label: 'Newsletter', icon: NewspaperIcon, end: true },
+    ...(session ? [{ to: '/mail', label: 'Mail', icon: MailIcon, end: true }] : []),
     { to: '/versions', label: 'Versions', icon: VersionsIcon, end: true },
   ];
 
@@ -309,26 +318,36 @@ export default function Sidebar() {
   const spotTargetRef = useRef({ x: 0, y: 0 });
   const spotPosRef = useRef({ x: 0, y: 0, started: false });
   const spotFrameRef = useRef(null);
-  const SPOT_EASE = 0.04; // lower = more trailing lag behind the cursor
+  const spotLastTsRef = useRef(null); // rAF timestamp of the previous tick
+  const SPOT_EASE = 0.28; // per-60fps-frame ease — higher = snappier follow
   const SPOT_SETTLE = 0.5; // px — snap-and-stop threshold
+  const FRAME_60 = 1000 / 60; // reference frame duration the ease is tuned for
 
-  const tickSpot = () => {
+  const tickSpot = (ts) => {
     const el = navRef.current;
-    if (!el) { spotFrameRef.current = null; return; }
+    if (!el) { spotFrameRef.current = null; spotLastTsRef.current = null; return; }
     const pos = spotPosRef.current;
     const t = spotTargetRef.current;
+    // FPS-independent easing: convert the per-frame ease into an exponential
+    // decay over elapsed time, so the glow trails the cursor at the same rate
+    // regardless of refresh rate (60Hz vs 144Hz) or dropped frames. dt is
+    // clamped so a long stall (e.g. backgrounded tab) doesn't snap-teleport.
+    const last = spotLastTsRef.current;
+    spotLastTsRef.current = ts;
+    const dt = last == null ? FRAME_60 : Math.min(ts - last, 100);
+    const factor = 1 - Math.pow(1 - SPOT_EASE, dt / FRAME_60);
     const dx = t.x - pos.x;
     const dy = t.y - pos.y;
     if (Math.abs(dx) < SPOT_SETTLE && Math.abs(dy) < SPOT_SETTLE) {
       pos.x = t.x;
       pos.y = t.y;
     } else {
-      pos.x += dx * SPOT_EASE;
-      pos.y += dy * SPOT_EASE;
+      pos.x += dx * factor;
+      pos.y += dy * factor;
     }
     el.style.setProperty('--spot-x', `${pos.x}px`);
     el.style.setProperty('--spot-y', `${pos.y}px`);
-    if (pos.x === t.x && pos.y === t.y) { spotFrameRef.current = null; return; }
+    if (pos.x === t.x && pos.y === t.y) { spotFrameRef.current = null; spotLastTsRef.current = null; return; }
     spotFrameRef.current = requestAnimationFrame(tickSpot);
   };
 
@@ -480,13 +499,13 @@ export default function Sidebar() {
             session. */}
         {session ? (
           <div className="sidebar-account">
-            <button
-              type="button"
-              className="sidebar-account-main"
-              onClick={openAccount}
-              title="Open account"
-            >
-              <span className="sidebar-avatar-wrap">
+            <Tooltip content="Open account">
+              <button
+                type="button"
+                className="sidebar-account-main"
+                onClick={openAccount}
+              >
+                <span className="sidebar-avatar-wrap">
                 {accountAvatarUrl
                   ? <img className="sidebar-avatar" src={accountAvatarUrl} alt="" referrerPolicy="no-referrer" />
                   : <span className="sidebar-avatar sidebar-avatar-fallback">{accountInitial}</span>}
@@ -495,7 +514,8 @@ export default function Sidebar() {
                 <span className="sidebar-account-name">{accountName}</span>
                 {accountEmail && <span className="sidebar-account-email">{accountEmail}</span>}
               </span>
-            </button>
+              </button>
+            </Tooltip>
             <Tooltip content="Sign out">
               <button
                 type="button"

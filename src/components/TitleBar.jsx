@@ -277,7 +277,9 @@ export default function TitleBar() {
         {onDocViewer && docViewerFileName && (
           <>
             <span className="tb-brand-sep" aria-hidden="true">|</span>
-            <span className="tb-docviewer-file" title={docViewerFileName}>{docViewerFileName}</span>
+            <Tooltip content={docViewerFileName}>
+              <span className="tb-docviewer-file">{docViewerFileName}</span>
+            </Tooltip>
           </>
         )}
         {/* Project name — plain, non-interactive text. The clickable chip that
@@ -286,9 +288,11 @@ export default function TitleBar() {
         {!onHub && !onDocViewer && signedIn && selectedProject && (
           <>
             <span className="tb-brand-sep" aria-hidden="true">|</span>
-            <span className="tb-project-name" title={selectedProject.name}>
-              {selectedProject.name}
-            </span>
+            <Tooltip content={selectedProject.name}>
+              <span className="tb-project-name">
+                {selectedProject.name}
+              </span>
+            </Tooltip>
           </>
         )}
       </div>

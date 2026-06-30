@@ -516,13 +516,39 @@
    solid fill, so the rail's selection reads as a sibling of the Hub launcher
    above it. */
 .nav-item.active {
+  /* Isolate so the spotlight layer below (z-index:-1) stacks within this row —
+     above the accent-tint base, below the icon/label — without escaping. */
+  position: relative;
+  isolation: isolate;
   background: var(--accent-tint);
   border-color: color-mix(in srgb, var(--accent) 65%, transparent);
   color: var(--accent);
 }
+/* Cursor-tracked accent spotlight on the selected tab, as its OWN layer so it can
+   FADE in/out on hover — a flat color → radial-gradient `background` swap can't be
+   transitioned, but an opacity layer can. Sits above the accent-tint base and
+   below the icon/label (z-index:-1 inside the isolated stacking context). Brighter
+   than the unselected hover since this is the active tab, matching the rail glow. */
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 32%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 24%, transparent) 100%
+  );
+  opacity: 0;
+  transition: opacity 220ms ease;
+  pointer-events: none;
+  z-index: -1;
+}
+.nav-item.active:hover::before { opacity: 1; }
 .nav-item.active:hover {
-  background: var(--accent-soft);
   border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* ── Open files section ─────────────────────────────────────────────────

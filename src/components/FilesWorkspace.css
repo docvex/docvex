@@ -42,14 +42,16 @@
    / Newsletter — NOT pulled full-bleed under the sidebar. So keep the standard
    flush left margin and a normal content inset (no rail compensation). */
 .main-content--flush:has(.project-files-page.fx-root) {
-  margin-left: calc(-1 * var(--chrome-inset, 6.4px));
-  --fx-rail-pad: 17.6px;
+  /* Flush against the sidebar (the app-chrome gap is already 0) with no rail
+     inset — Files content sits right next to the rail. */
+  margin-left: 0;
+  --fx-rail-pad: 0px;
 }
 
-/* Files page only: drop the global edge vignette (the radial-gradient in
-   .main-content::before that fades the dot grid to solid --bg-page near the
-   edges). Keeps a UNIFORM dot grid across the whole surface so there's no
-   fade/gradient band by the toolbar. Other pages keep their vignette. */
+/* Uniform dot grid across the whole surface — no edge fade/gradient band by
+   the toolbar. The base .main-content::before is now already vignette-free
+   (all tabs render this way), so this block just restates that for the Files
+   page; kept as an explicit guard in case the base vignette is reintroduced. */
 .main-content:has(.project-files-page.fx-root)::before {
   background-image: radial-gradient(
     circle at center,
@@ -82,8 +84,10 @@
   overflow: visible;
 }
 /* Match the other personal/editorial tabs (Activity / Newsletter / Projects):
-   three-quarters of the content width on wide screens, left-aligned — so the
-   Files tab doesn't run the full horizontal width. Full width below the
+   the CONTENT (big masthead, file canvas, bottom action bar) sits at
+   three-quarters width on wide screens, left-aligned. The pinned mini-header
+   toolbar (.fx-pathbar) stays FULL width so it matches every other mini header
+   in the app (pmh-compact / pjd-compact / chat). Full width below the
    breakpoint. */
 @media (min-width: 1024px) { /* 1280px pre-scale */
   .project-files-page.fx-root { width: 75%; }
@@ -605,22 +609,23 @@
      the nav/breadcrumb/search row (.fx-chrome-tools) instead of being squeezed
      to its right — mirrors the chrome path's .sv-chrome-row2 (also a column). */
   display: flex; flex-direction: column; align-items: stretch; gap: 0;
-  padding: 6.4px 14.4px;
-  /* Surface runs full width behind the rail; the nav/breadcrumb/search content
-     is re-inset past it. Identity off the Files main window (var unset). */
-  padding-left: var(--fx-rail-pad, 14.4px);
-  /* Transparent in-flow (only the hairline below shows); the frosted surface is
-     painted ONLY once the strip PINS at the top as the mini header (.is-pinned,
-     toggled from headerScrolled). Before that it floats over the page with just
-     the bottom divider. */
+  /* Equal padding all round so the rounded section reads as a balanced pill. */
+  padding: 6.4px;
+  overflow: hidden;
+  /* Transparent in-flow under the masthead; once pinned it becomes a rounded
+     section painted in the window top bar colour (.is-pinned). */
   background: transparent;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 9.6px;
   font-size: 10px;
   /* Pins to the top of the page as the masthead scrolls away — the nav strip
      becomes the page's sticky header. isolate keeps the spotlight pseudo
      (z-index:-1) above the surface but below the content. */
   position: sticky;
-  top: 0;
+  /* Same top gap + height as the Hub button / other mini headers. */
+  top: var(--chrome-inset, 6.4px);
+  min-height: 40px;
+  box-sizing: border-box;
+  justify-content: center;
   isolation: isolate;
   z-index: 20;
   /* Default spotlight hue; .is-editing turns it white over a red-tinted bar.
@@ -629,12 +634,11 @@
   --fx-spot-color: var(--accent);
   transition: --fx-spot-color 340ms ease, background-color 340ms ease;
 }
-/* Pinned (acting as the mini header): paint the frosted surface so content
-   scrolls legibly beneath it. */
+/* Pinned (acting as the mini header): a rounded section in the top bar colour. */
 .fx-pathbar.is-pinned {
-  background: color-mix(in srgb, var(--bg-page) 62%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  backdrop-filter: blur(16px) saturate(180%);
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
 }
 /* Team edit mode → red surface, white spotlight. The whole bar tints (always
    visible), with the cursor glow reading as a light sweep over the red. */
@@ -649,6 +653,7 @@
   content: '';
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   z-index: -1;
   pointer-events: none;
   background: radial-gradient(
@@ -797,7 +802,7 @@
    that fills the rest of the row, so it reads as a divider, not a tab. */
 .fx-cat-head {
   display: flex; align-items: center; gap: 6.4px;
-  padding: 9.6px 11.2px 6.4px;
+  padding: 9.6px 11.2px 6.4px 0;
   font-size: 9.6px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
   color: var(--text-muted);
   user-select: none;
@@ -823,7 +828,7 @@
 /* Tile sections need the same side gutter the flat grid gets from the canvas
    (whose `:has(> .fx-grid)` padding doesn't apply once the grid is nested in a
    section). List rows stay full-bleed, matching the flat list. */
-.fx-cat-section .fx-grid { padding: 0 11.2px; }
+.fx-cat-section .fx-grid { padding: 0 11.2px 0 0; }
 
 .fx-search {
   display: flex; align-items: center; gap: 6.4px;
@@ -924,8 +929,8 @@
    so the grid sits symmetrically between the toolbar and the action bar. */
 .fx-canvas:has(> .fx-grid) {
   padding: 8px 11.2px 9.6px;
-  /* Rail offset + the grid's own gutter. Identity off the Files main window. */
-  padding-left: calc(var(--fx-rail-pad, 0px) + 11.2px);
+  /* Flush-left: rail offset only, no extra gutter (matches the flush divider). */
+  padding-left: var(--fx-rail-pad, 0px);
 }
 /* Team edit mode → subtle red wash behind the file items, so the whole
    workspace (not just the toolbar) reads as "editing the main branch". */
@@ -1237,7 +1242,7 @@
 }
 .fx-glyph-img { background: linear-gradient(135deg, #14B8A6, #0EA5E9); }
 /* Recognised WhatsApp export zip — the WhatsApp logo on its brand green. */
-.fx-glyph-whatsapp { background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); }
+.fx-glyph-whatsapp { background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); border-radius: 26%; }
 .fx-glyph-whatsapp .fx-glyph-wa-logo {
   width: 64%; height: 64%; color: #fff;
   filter: drop-shadow(0 1px 1.6px rgba(0, 0, 0, 0.35));
@@ -1670,8 +1675,8 @@
      (--fx-row-pad / --fx-row-thumb / --fx-row-font, computed in FilesWorkspace.jsx
      so the top two list steps can grow harder). Grid columns stay fixed (above)
      so the chrome header keeps lining up. Static fallbacks keep the row sane if
-     the vars are ever absent. Horizontal padding stays 11.2px (matches the head). */
-  padding: var(--fx-row-pad, 6.4px) 11.2px;
+     the vars are ever absent. Left padding removed so rows sit flush-left. */
+  padding: var(--fx-row-pad, 6.4px) 11.2px var(--fx-row-pad, 6.4px) 0;
   cursor: pointer;
   /* Text stays a FIXED size in list view — the slider scales only the thumbnail
      icon (--fx-row-thumb) + row height (--fx-row-pad), not the file names. */

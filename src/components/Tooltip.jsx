@@ -56,6 +56,27 @@ export function useTooltip(content, className = '') {
   const [pos, setPos] = useState(null);
   const pillRef = useRef(null);
   const hoveringRef = useRef(false);
+  const triggerRef = useRef(null); // the wrapper/host node the cursor is over
+
+  // Safety net for a missed mouseleave: if the trigger is removed, disabled, or
+  // re-rendered out from under the cursor, React's onMouseLeave never fires and
+  // the pill freezes at its last cursor position ("stuck in a random location").
+  // While shown, watch the pointer globally and hide once it's no longer over
+  // the trigger node (DOM containment, so display:contents wrappers still work).
+  const shown = pos != null;
+  useLayoutEffect(() => {
+    if (!shown) return undefined;
+    const onWinMove = (e) => {
+      const node = triggerRef.current;
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      if (!node || !under || !node.contains(under)) {
+        hoveringRef.current = false;
+        setPos(null);
+      }
+    };
+    window.addEventListener('pointermove', onWinMove, { passive: true });
+    return () => window.removeEventListener('pointermove', onWinMove);
+  }, [shown]);
 
   useLayoutEffect(() => {
     if (!pos) return;
@@ -79,11 +100,17 @@ export function useTooltip(content, className = '') {
   }, [pos]);
 
   const triggerProps = {
-    onMouseMove: (e) => { hoveringRef.current = true; setPos({ x: toLayoutPx(e.clientX), y: toLayoutPx(e.clientY) }); },
+    onMouseMove: (e) => { hoveringRef.current = true; triggerRef.current = e.currentTarget; setPos({ x: toLayoutPx(e.clientX), y: toLayoutPx(e.clientY) }); },
     onMouseLeave: () => { hoveringRef.current = false; setPos(null); },
     onFocus: (e) => {
       if (hoveringRef.current) return;
+      // Only anchor to the element on KEYBOARD focus. Focus moved by a mouse
+      // click or restored programmatically (e.g. when a modal closes) would
+      // otherwise pop the pill up at the element's corner with no cursor near
+      // it — the "tooltip in a random location while not hovering" bug.
       const target = e.target?.getBoundingClientRect?.bind(e.target) ? e.target : e.currentTarget?.firstElementChild;
+      if (!target?.matches || !target.matches(':focus-visible')) return;
+      triggerRef.current = e.currentTarget;
       const rect = target?.getBoundingClientRect?.();
       if (rect) setPos({ x: toLayoutPx(rect.right), y: toLayoutPx(rect.bottom) });
     },

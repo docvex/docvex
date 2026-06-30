@@ -72,7 +72,8 @@
   /* Reserve the scrollbar gutter so content doesn't shift between scrolling
      and non-scrolling pages. */
   scrollbar-gutter: stable;
-  padding: 1.6rem 17.6px;
+  /* No left padding — content sits flush against the sidebar. */
+  padding: 1.6rem 17.6px 1.6rem 0;
 }
 /* Project-scoped pages bring their own rounded "sheet" frame — render flush. */
 .sv-single-scroll:has(.project-page-frame) {

@@ -351,10 +351,9 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
   // confirm shape DOWN into the menu shape just like the forward
   // morph grew it up.
   const handleConfirmCancel = () => {
-    if (pillRef.current) {
-      oldPillRectRef.current = pillRef.current.getBoundingClientRect();
-    }
-    setConfirmingItem(null);
+    // Cancel dismisses everything (the confirm panel AND the menu it morphed out
+    // of) rather than stepping back to the menu.
+    closeMenu();
   };
 
   const filteredItems = (menuItems || []).filter(Boolean);
@@ -437,7 +436,28 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     pillClassMod = ` is-menu is-confirm${isDanger ? ' is-danger' : ''}`;
     content = (
       <div className="project-files-morph-confirm">
-        {c.title && (
+        {isDanger && (
+          <div className="project-files-morph-confirm-header">
+            <span className="project-files-morph-confirm-header-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+            </span>
+            <span className="project-files-morph-confirm-header-text">
+              <span className="project-files-morph-confirm-header-title">
+                {c.count != null ? (
+                  <>Delete <span className="project-files-morph-confirm-header-count">{c.count}</span> file{c.count === 1 ? '' : 's'}?</>
+                ) : c.title}
+              </span>
+              {c.subtitle && (
+                <span className="project-files-morph-confirm-header-subtitle">{c.subtitle}</span>
+              )}
+            </span>
+          </div>
+        )}
+        {c.title && !isDanger && (
           <div className="project-files-morph-confirm-title">{c.title}</div>
         )}
         {c.message && (
@@ -572,7 +592,25 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
       // cursor exit shouldn't tear the menu down mid-interaction. Such menus
       // close only on outside-click / Escape / a second trigger press.
       onMouseEnter={menuMode && !confirmingItem && !stickyMenu ? cancelScheduledClose : undefined}
-      onMouseMove={menuMode && !confirmingItem && !stickyMenu ? cancelScheduledClose : undefined}
+      onMouseMove={(e) => {
+        // Cursor-tracked spotlight + border shine (same language as the sidebar
+        // rail): write the pointer position (pill-relative, layout px) into vars
+        // the ::before / ::after gradients read, plus a per-button spot so each
+        // button brightens toward the cursor like a nav item.
+        const el = pillRef.current;
+        if (el) {
+          const r = el.getBoundingClientRect();
+          el.style.setProperty('--spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
+          el.style.setProperty('--spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
+          const btn = e.target.closest('.project-files-morph-confirm-btn');
+          if (btn) {
+            const br = btn.getBoundingClientRect();
+            btn.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - br.left)}px`);
+            btn.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - br.top)}px`);
+          }
+        }
+        if (menuMode && !confirmingItem && !stickyMenu) cancelScheduledClose();
+      }}
       onMouseLeave={menuMode && !confirmingItem && !stickyMenu ? scheduleClose : undefined}
     >
       {content}

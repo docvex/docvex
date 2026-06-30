@@ -862,17 +862,17 @@ function linkifyChat(text, query) {
     const token = trail ? raw.slice(0, raw.length - trail[0].length) : raw;
     if (IBAN_FULL_RE.test(token)) {
       nodes.push(
-        <span
-          key={start}
-          className="dv-wa-iban"
-          role="button"
-          tabIndex={0}
-          title="Copy IBAN"
-          onClick={() => copyText(token)}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copyText(token); } }}
-        >
-          {token}
-        </span>,
+        <Tooltip key={start} content="Copy IBAN">
+          <span
+            className="dv-wa-iban"
+            role="button"
+            tabIndex={0}
+            onClick={() => copyText(token)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copyText(token); } }}
+          >
+            {token}
+          </span>
+        </Tooltip>,
       );
       if (trail) pushPlain(trail[0], `t${start}`);
       last = start + raw.length;
@@ -2467,7 +2467,7 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
           </div>
           {/* Docvex: draggable divider between the conversation and the media rail. */}
           {docvex && railShown && (
-            <div className="dv-wa-resizer" onMouseDown={startChatColResize} role="separator" aria-orientation="vertical" title="Drag to resize the conversation" />
+            <Tooltip content="Drag to resize the conversation"><div className="dv-wa-resizer" onMouseDown={startChatColResize} role="separator" aria-orientation="vertical" /></Tooltip>
           )}
           {railShown && (
             <>
@@ -2480,7 +2480,7 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
                 rangeActive={rangeActive}
                 timeInRange={timeInRange}
               />
-              {!docvex && <div className="dv-wa-resizer" onMouseDown={startRailResize} role="separator" aria-orientation="vertical" title="Drag to resize the panel" />}
+              {!docvex && <Tooltip content="Drag to resize the panel"><div className="dv-wa-resizer" onMouseDown={startRailResize} role="separator" aria-orientation="vertical" /></Tooltip>}
             </>
           )}
           {/* Date picker — overlays the whole split (messages + media rail)
@@ -3569,19 +3569,20 @@ function ModelPicker() {
   const current = AI_MODELS.find((m) => m.id === adv.model) || AI_MODELS[0];
   return (
     <div className="dv-model-picker" ref={ref}>
-      <button
-        type="button"
-        className="dv-model-trigger"
-        onClick={() => setOpen((o) => !o)}
-        disabled={adv.busy}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        title="Choose the AI model"
-      >
-        <span className="dv-model-trigger-dot" aria-hidden="true" />
-        <span className="dv-model-trigger-label">{current.label}</span>
-        <svg className="dv-model-trigger-chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
-      </button>
+      <Tooltip content="Choose the AI model">
+        <button
+          type="button"
+          className="dv-model-trigger"
+          onClick={() => setOpen((o) => !o)}
+          disabled={adv.busy}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+        >
+          <span className="dv-model-trigger-dot" aria-hidden="true" />
+          <span className="dv-model-trigger-label">{current.label}</span>
+          <svg className="dv-model-trigger-chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+        </button>
+      </Tooltip>
       {open && (
         <div className="dv-model-menu" role="listbox" aria-label="AI model">
           <div className="dv-model-menu-head">Model</div>
@@ -3769,7 +3770,8 @@ function MultitoolComposer() {
         {/* Targeted passage chip — the section the user highlighted in the doc
             preview. The next message is applied to THIS part. */}
         {adv.selection && (
-          <div className="dv-advisor-selchip" title={adv.selection}>
+          <Tooltip content={adv.selection}>
+          <div className="dv-advisor-selchip">
             <span className="dv-advisor-selchip-ico" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 7h11M4 12h16M4 17h9" />
@@ -3786,6 +3788,7 @@ function MultitoolComposer() {
               {ClearGlyph}
             </button>
           </div>
+          </Tooltip>
         )}
         <textarea
           className="dv-advisor-composer-textarea"
@@ -3807,11 +3810,11 @@ function MultitoolComposer() {
                   file. "Designer" = Anthropic Agent Skills (high-fidelity, = claude.ai,
                   slower); "Instant" = themed local builder (offline, immediate). */}
               {genMode && setEngine && (
+                <Tooltip content="Designer: high-fidelity styling via Claude (slower). Instant: themed local builder (immediate).">
                 <div
                   className="dv-engine-toggle"
                   role="radiogroup"
                   aria-label="Document engine"
-                  title="Designer: high-fidelity styling via Claude (slower). Instant: themed local builder (immediate)."
                 >
                   <button
                     type="button"
@@ -3834,6 +3837,7 @@ function MultitoolComposer() {
                     Instant
                   </button>
                 </div>
+                </Tooltip>
               )}
             </>
           )}
@@ -3843,15 +3847,16 @@ function MultitoolComposer() {
             <div className="dv-advisor-ask-actions" ref={setAskSlot} />
           ) : busy ? (
             // While the AI is thinking, the send button becomes a Stop button.
-            <button
-              type="button"
-              className="dv-advisor-composer-stop"
-              onClick={() => stop?.()}
-              aria-label="Stop"
-              title="Stop"
-            >
-              {AdvisorStopGlyph}
-            </button>
+            <Tooltip content="Stop">
+              <button
+                type="button"
+                className="dv-advisor-composer-stop"
+                onClick={() => stop?.()}
+                aria-label="Stop"
+              >
+                {AdvisorStopGlyph}
+              </button>
+            </Tooltip>
           ) : (
             <button
               type="button"
@@ -4248,16 +4253,16 @@ function AdvisorPanel({ file }) {
                   <React.Fragment key={i}>
                     {inner}
                     {splitsHere.map((s) => (
-                      <button
-                        key={s.branchId}
-                        type="button"
-                        className="dv-split-marker"
-                        onClick={() => adv?.switchBranch?.(s.branchId)}
-                        title={`You split a new conversation (${s.label}) from here — click to open it`}
-                      >
-                        <span className="dv-split-marker-line" />
-                        <span className="dv-split-marker-tag">{AdvBranchGlyph}Split from here → {s.label}</span>
-                      </button>
+                      <Tooltip key={s.branchId} content={`You split a new conversation (${s.label}) from here — click to open it`}>
+                        <button
+                          type="button"
+                          className="dv-split-marker"
+                          onClick={() => adv?.switchBranch?.(s.branchId)}
+                        >
+                          <span className="dv-split-marker-line" />
+                          <span className="dv-split-marker-tag">{AdvBranchGlyph}Split from here → {s.label}</span>
+                        </button>
+                      </Tooltip>
                     ))}
                     {canBranch && (
                       <div
@@ -4297,17 +4302,18 @@ function AdvisorPanel({ file }) {
           past the sidebar edge (a child of the scroll would be clipped). Placed
           at the hovered seam, left edge flush with the scrollbar's right edge. */}
       {branchHover && createPortal(
-        <button
-          type="button"
-          className="dv-branch dv-branch--float"
-          style={{ top: `${branchHover.top}px`, left: `${branchHover.left}px` }}
-          onMouseEnter={() => { cancelBranchHide(); setPillHover(true); }}
-          onMouseLeave={() => { hideBranchSoon(); setPillHover(false); }}
-          onClick={() => { adv?.branchFrom?.(branchHover.index); setBranchHover(null); }}
-          title="Split a new conversation from here — keeps everything up to this message"
-        >
-          {AdvBranchGlyph}<span>Split from here</span>
-        </button>,
+        <Tooltip content="Split a new conversation from here — keeps everything up to this message">
+          <button
+            type="button"
+            className="dv-branch dv-branch--float"
+            style={{ top: `${branchHover.top}px`, left: `${branchHover.left}px` }}
+            onMouseEnter={() => { cancelBranchHide(); setPillHover(true); }}
+            onMouseLeave={() => { hideBranchSoon(); setPillHover(false); }}
+            onClick={() => { adv?.branchFrom?.(branchHover.index); setBranchHover(null); }}
+          >
+            {AdvBranchGlyph}<span>Split from here</span>
+          </button>
+        </Tooltip>,
         document.body,
       )}
       {/* The composer is the advisor tab's footer action — rendered into the
@@ -5284,7 +5290,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       {/* Zoom controls — floating pill top-right, always visible. */}
       <div className="dv-zoom-controls">
         <button type="button" className="dv-zoom-btn" onClick={zoomOut} aria-label="Zoom out">−</button>
-        <button type="button" className="dv-zoom-pct" onClick={zoomReset} title="Reset zoom">{Math.round(zoom * 100)}%</button>
+        <Tooltip content="Reset zoom"><button type="button" className="dv-zoom-pct" onClick={zoomReset}>{Math.round(zoom * 100)}%</button></Tooltip>
         <button type="button" className="dv-zoom-btn" onClick={zoomIn} aria-label="Zoom in">+</button>
       </div>
 
@@ -5322,6 +5328,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
               edges/corners and aligns its text to match. The spot is remembered
               globally and stays clear of the timeline. */}
           {captionSettings.enabled && activeCaption && (
+            <Tooltip content="Drag to reposition">
             <div
               ref={captionRef}
               className={`dv-video-caption${draggingCaption ? ' is-dragging' : ''}${armed ? ' is-locked' : ''}`}
@@ -5334,10 +5341,10 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
                 textAlign: captionSettings.align,
               }}
               onMouseDown={onCaptionMouseDown}
-              title="Drag to reposition"
             >
               {activeCaption}
             </div>
+            </Tooltip>
           )}
           <div className={`dv-player${!playing || controlsShown ? ' is-visible' : ''}`}>
             <div className="dv-player-scrim" />
@@ -5776,14 +5783,15 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
                 <div className="dv-ocr-history-rail">
                   <span className="dv-ocr-history-node" />
                   <div className="dv-ocr-history-date">
-                    <button
-                      type="button"
-                      className="dv-ocr-history-date-d dv-caption-seek"
-                      onClick={() => onSeek(seg.start)}
-                      title="Jump to this moment"
-                    >
-                      {fmtClock(seg.start)}
-                    </button>
+                    <Tooltip content="Jump to this moment">
+                      <button
+                        type="button"
+                        className="dv-ocr-history-date-d dv-caption-seek"
+                        onClick={() => onSeek(seg.start)}
+                      >
+                        {fmtClock(seg.start)}
+                      </button>
+                    </Tooltip>
                   </div>
                 </div>
                 <div className="dv-ocr-history-content">
@@ -6098,6 +6106,7 @@ function MediaScope({ mediaRef, url, currentTime, duration, playing, onSeek, cla
   useEffect(() => () => { cancelAnimationFrame(rafRef.current); cancelAnimationFrame(knobAnimRef.current); }, []);
 
   return (
+    <Tooltip content="Click or drag to seek">
     <canvas
       ref={canvasRef}
       className={`dv-scope ${className}`.trim()}
@@ -6108,7 +6117,6 @@ function MediaScope({ mediaRef, url, currentTime, duration, playing, onSeek, cla
       aria-valuemax={Number.isFinite(duration) ? Math.round(duration) : 0}
       aria-valuenow={Math.round(currentTime)}
       aria-valuetext={`${fmt(currentTime)} of ${fmt(duration)}`}
-      title="Click or drag to seek"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
@@ -6117,6 +6125,7 @@ function MediaScope({ mediaRef, url, currentTime, duration, playing, onSeek, cla
       onPointerLeave={onPointerLeave}
       onKeyDown={onKeyDown}
     />
+    </Tooltip>
   );
 }
 
@@ -6454,15 +6463,15 @@ function AudioPlayerPane({ file, url, sidePanelSlot = null, sideTabsSlot = null 
         {hasLyrics && (
           <div className="dv-audio-lyrics" ref={lyricsRef}>
             {lyrics.segments.map((seg, i) => (
-              <button
-                key={i}
-                type="button"
-                className={`dv-lyric-line${seg.text ? '' : ' is-empty'}${i === activeLyricIndex ? ' is-active' : ''}${i < activeLyricIndex ? ' is-past' : ''}`}
-                onClick={() => seekTo(seg.start)}
-                title={fmtClock(seg.start)}
-              >
-                {seg.text || '♪'}
-              </button>
+              <Tooltip key={i} content={fmtClock(seg.start)}>
+                <button
+                  type="button"
+                  className={`dv-lyric-line${seg.text ? '' : ' is-empty'}${i === activeLyricIndex ? ' is-active' : ''}${i < activeLyricIndex ? ' is-past' : ''}`}
+                  onClick={() => seekTo(seg.start)}
+                >
+                  {seg.text || '♪'}
+                </button>
+              </Tooltip>
             ))}
           </div>
         )}
@@ -6486,23 +6495,24 @@ function AudioPlayerPane({ file, url, sidePanelSlot = null, sideTabsSlot = null 
             aria-label="Volume"
           />
         </div>
-        <canvas
-          ref={scopeCanvasRef}
-          className="dv-audio-scope"
-          role="slider"
-          tabIndex={0}
-          aria-label="Seek through audio"
-          aria-valuemin={0}
-          aria-valuemax={Number.isFinite(dur) ? Math.round(dur) : 0}
-          aria-valuenow={Math.round(cur)}
-          aria-valuetext={`${fmt(cur)} of ${fmt(dur)}`}
-          title="Click or drag to seek"
-          onPointerDown={onScopePointerDown}
-          onPointerMove={onScopePointerMove}
-          onPointerUp={endScopeDrag}
-          onPointerCancel={endScopeDrag}
-          onKeyDown={onScopeKeyDown}
-        />
+        <Tooltip content="Click or drag to seek">
+          <canvas
+            ref={scopeCanvasRef}
+            className="dv-audio-scope"
+            role="slider"
+            tabIndex={0}
+            aria-label="Seek through audio"
+            aria-valuemin={0}
+            aria-valuemax={Number.isFinite(dur) ? Math.round(dur) : 0}
+            aria-valuenow={Math.round(cur)}
+            aria-valuetext={`${fmt(cur)} of ${fmt(dur)}`}
+            onPointerDown={onScopePointerDown}
+            onPointerMove={onScopePointerMove}
+            onPointerUp={endScopeDrag}
+            onPointerCancel={endScopeDrag}
+            onKeyDown={onScopeKeyDown}
+          />
+        </Tooltip>
       </div>
 
       {(() => {
@@ -6913,16 +6923,17 @@ function ExportPdfButton({ getRoot, kind, onExport, label = 'Convert to PDF' }) 
     }
   };
   return (
-    <button
-      type="button"
-      className={`dv-pdf-export is-${state}`}
-      onClick={run}
-      disabled={state === 'working'}
-      title="Save this document as a PDF next to the original"
-    >
-      <span className="dv-pdf-export-dot" aria-hidden="true" />
-      {state === 'working' ? 'Converting…' : state === 'done' ? 'Saved PDF ✓' : state === 'error' ? 'Couldn’t convert' : label}
-    </button>
+    <Tooltip content="Save this document as a PDF next to the original">
+      <button
+        type="button"
+        className={`dv-pdf-export is-${state}`}
+        onClick={run}
+        disabled={state === 'working'}
+      >
+        <span className="dv-pdf-export-dot" aria-hidden="true" />
+        {state === 'working' ? 'Converting…' : state === 'done' ? 'Saved PDF ✓' : state === 'error' ? 'Couldn’t convert' : label}
+      </button>
+    </Tooltip>
   );
 }
 
@@ -6978,12 +6989,11 @@ function ReconPill() {
   const [slot, setSlot] = useState(null);
   useEffect(() => { setSlot(document.getElementById('tb-docview-center')); }, []);
   const pill = (
-    <span
-      className={`dv-recon-pill${slot ? ' dv-recon-pill--titlebar' : ''}`}
-      title="This is an in-app reconstruction of the file. It may not look exactly the same as when opened in Word / PowerPoint / Excel."
-    >
-      Reconstruction — may differ from the Office app
-    </span>
+    <Tooltip content="This is an in-app reconstruction of the file. It may not look exactly the same as when opened in Word / PowerPoint / Excel.">
+      <span className={`dv-recon-pill${slot ? ' dv-recon-pill--titlebar' : ''}`}>
+        Reconstruction — may differ from the Office app
+      </span>
+    </Tooltip>
   );
   return slot ? createPortal(pill, slot) : pill;
 }

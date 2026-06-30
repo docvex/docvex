@@ -264,19 +264,154 @@
   padding: 9.6px 11.2px 8px;
 }
 
-/* Danger confirm (from a Delete / Hide menu item) — paint the panel with the
-   same red tint as the destructive button it morphed out of, so the panel reads
-   as the destructive surface rather than a neutral card. The 14% danger mix
-   matches `.project-files-morph-item-danger:hover`. */
+/* Danger confirm — an EXACT copy of the Admin tab's Danger Zone card
+   (`.dc-danger-card`): flat 4% danger fill over the card bg, 38% danger border,
+   12.8px radius, clipped so the header band's tint follows the rounded corners.
+   The pill drops its own padding; the header + body supply it (like the admin
+   card's header band + rows). */
 .project-files-morph-pill.is-confirm.is-danger {
-  background: color-mix(in srgb, var(--danger) 14%, var(--bg-card));
-  border-color: color-mix(in srgb, var(--danger) 40%, var(--border-strong));
+  padding: 0;
+  border-radius: 12.8px;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  /* Prominent animated danger shimmer — stronger tints + brisk sweep so the
+     destructive surface clearly reads as "live". Mixed over --bg-card so the
+     popover stays opaque above scrolling content. */
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--danger) 7%, var(--bg-card)) 0%,
+    color-mix(in srgb, var(--danger) 18%, var(--bg-card)) 25%,
+    color-mix(in srgb, var(--danger) 26%, var(--bg-card)) 50%,
+    color-mix(in srgb, var(--danger) 18%, var(--bg-card)) 75%,
+    color-mix(in srgb, var(--danger) 7%, var(--bg-card)) 100%
+  );
+  background-size: 300% 100%;
+  animation: fx-morph-danger-shimmer 6s linear infinite;
+}
+@keyframes fx-morph-danger-shimmer {
+  0%   { background-position: 0% 0; }
+  100% { background-position: 300% 0; }
+}
+/* Cursor-tracked spotlight glow (same effect as the sidebar rail's ::before),
+   reading --spot-x / --spot-y written on pointer move in useMorphPill.jsx. */
+.project-files-morph-pill.is-confirm.is-danger::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    200px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--danger) 16%, transparent) 0%,
+    color-mix(in srgb, var(--danger) 5%, transparent) 38%,
+    transparent 70%
+  );
+}
+/* Border shine — a bright danger highlight on the border ring that follows the
+   pointer (the sidebar's ::after recipe: a radial gradient masked to the 1.2px
+   edge via mask-exclude). */
+.project-files-morph-pill.is-confirm.is-danger::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.2px;
+  pointer-events: none;
+  z-index: 4;
+  background: radial-gradient(
+    200px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--danger) 85%, transparent) 0%,
+    color-mix(in srgb, var(--danger) 28%, transparent) 34%,
+    transparent 62%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+/* Content sits above the spotlight glow; the masked border shine paints only on
+   the ring so it can ride above. */
+.project-files-morph-pill.is-confirm.is-danger .project-files-morph-confirm {
+  position: relative;
+  z-index: 1;
+}
+.project-files-morph-pill.is-confirm.is-danger .project-files-morph-confirm { gap: 0; }
+/* Body (message + buttons) sits below the header band; the panel has no padding
+   of its own, so the body rows supply it (h matches the header's 12.8px). */
+.project-files-morph-pill.is-confirm.is-danger .project-files-morph-confirm-message {
+  margin: 0;
+  padding: 9.6px 12.8px 0;
+  /* Same calm overlay as the button row, so the whole body (description + actions)
+     reads steady while the header keeps the lively shimmer. */
+  background: color-mix(in srgb, var(--bg-card) 80%, transparent);
+}
+.project-files-morph-pill.is-confirm.is-danger .project-files-morph-confirm-actions {
+  margin: 0;
+  padding: 3.2px 12.8px 9.6px;
+  /* Calmer footer — a translucent card overlay damps the shimmer behind the
+     buttons so the action row reads steady while the header stays lively. */
+  background: color-mix(in srgb, var(--bg-card) 80%, transparent);
 }
 
 .project-files-morph-confirm {
   display: flex;
   flex-direction: column;
   gap: 6.4px;
+}
+
+/* Header band — an EXACT copy of the Admin tab's `.dc-danger-hd`: danger-tinted
+   band with a bottom border, a rounded danger icon tile, and a display-font
+   danger heading. */
+.project-files-morph-confirm-header {
+  display: flex;
+  align-items: center;
+  gap: 8.8px;
+  /* Compact relative to the admin card's 12.8px 17.6px. */
+  padding: 8px 12.8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--danger) 22%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+/* Title + subtitle stacked beside the icon. */
+.project-files-morph-confirm-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.project-files-morph-confirm-header-icon {
+  width: 27.2px;
+  height: 27.2px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+.project-files-morph-confirm-header-icon svg { width: 15.2px; height: 15.2px; }
+.project-files-morph-confirm-header-title {
+  font-family: var(--font-display);
+  font-size: 0.896rem;
+  font-weight: 700;
+  color: var(--danger);
+  line-height: 1.15;
+}
+/* The file count reads at the same size as the surrounding title text. */
+.project-files-morph-confirm-header-count {
+  font-size: 1em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* Separate subtitle under the title — body font, muted, distinct from the danger
+   heading above it. */
+.project-files-morph-confirm-header-subtitle {
+  font-family: var(--font-body);
+  font-size: 0.624rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  line-height: 1.3;
 }
 
 .project-files-morph-confirm-title {
@@ -354,7 +489,13 @@
 }
 
 .project-files-morph-confirm-btn-cancel:hover {
-  background: var(--bg-elevated);
+  /* Cursor-tracked brighten — like a sidebar nav item, the fill lifts toward the
+     pointer (--item-spot-x/y set per button in useMorphPill.jsx). */
+  background: radial-gradient(
+    64px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    var(--border-strong) 0%,
+    var(--bg-elevated) 72%
+  );
   border-color: var(--border-strong);
   color: var(--text-primary);
 }
@@ -368,13 +509,21 @@
   opacity: 0.88;
 }
 
+/* Outline destructive button — an EXACT copy of the Admin tab's `.dc-btn-danger`
+   (danger text + 45% border over transparent, filling solid danger on hover). */
 .project-files-morph-confirm-btn-danger {
-  background: var(--danger-soft);
-  color: var(--text-on-accent);
-  border-color: var(--danger-soft);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  color: var(--danger);
 }
 
 .project-files-morph-confirm-btn-danger:hover {
-  background: var(--danger);
+  /* Cursor-tracked brighten over the solid danger fill (sidebar nav-item glow). */
+  background: radial-gradient(
+    64px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, #fff 34%, var(--danger)) 0%,
+    var(--danger) 66%
+  );
   border-color: var(--danger);
+  color: #fff;
 }

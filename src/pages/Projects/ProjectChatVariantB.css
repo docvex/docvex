@@ -8,20 +8,20 @@
    tokens.css — no hex literals beyond the design's avatar/file accents. */
 
 /* ───── Page-frame integration ───────────────────────────────────────
-   The chat fills the area to the right of the sidebar, edge-to-edge and
-   full-height, with only the inner panes scrolling. Mirrors the
-   FilesWorkspace approach: make the frame definite-height + flush, and
-   suppress the outer .main-content scrollbar. Top padding is kept so the
-   floating "Working in …" banner pill doesn't sit on the header. */
-.main-content:has(.dvx-chat.vb-chat) {
-  overflow: hidden;
-}
+   The chat scrolls as ONE page exactly like the Files tab: the big masthead
+   scrolls away, the window-chrome topbar (tools + tabs) stays as the sticky
+   "mini header", and the composer sits at the end of the page flow. So the
+   frame is full-bleed + grows with content (no internal-only scrollers, no
+   height lock) and the outer .sv-single-scroll is the scroller. */
 .project-page-frame:has(.dvx-chat.vb-chat) {
+  /* Definite height (not min-height) so the chat below can BE the scroll
+     container — that makes the sticky mini-header pin against its direct scroll
+     parent, which is the only reliably-working sticky case. */
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  /* No top inset — the header now lives in the window topbar, so the tabs sit
-     flush beneath it (matching the Files tab). */
+  /* Full-bleed: drop frame padding / rounded "lip" / bg so the page-bg dot grid
+     + cursor spotlight show through, matching the Files workspace. */
   padding: 0;
   background: none;
   border-radius: 0;
@@ -31,6 +31,109 @@
   min-height: 0;
   width: 100%;
   max-width: none;
+  /* Not the scroller itself — the team tab nests .dvx-scroll-area; private keeps
+     its internally-scrolling columns. */
+  overflow: hidden;
+}
+/* The chat's own scroll-area carries the scrollbar, so drop the outer scroller's
+   reserved gutter — otherwise an empty strip sits to the right of the scrollbar. */
+.sv-single-scroll:has(.dvx-chat.vb-chat) { scrollbar-gutter: auto; }
+/* The team tab's scroll container — a BLOCK element (not flex) so the sticky
+   .dvx-toolbar pins reliably against its direct scroll parent. The masthead
+   scrolls away inside it; the toolbar locks to the top as the mini header. */
+.dvx-scroll-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+/* Match the Files tab: the CONTENT sits at 75% width (left-aligned, leaving the
+   right gap) while the SCROLLER stays full width, so the scrollbar rides the far
+   right edge of the content area rather than the 75% boundary. */
+@media (min-width: 1024px) {
+  /* Content AND the mini-header bar sit at 75% (left-aligned), so the mini header
+     has the same right gap as the content below it. */
+  .dvx-scroll-area > *,
+  .dvx-chat.vb-chat.is-private > * { width: 75%; }
+  .sv-footer .vb-composer-wrap { width: 75%; }
+}
+
+/* ───── Big masthead (Versions / Files-style hero) ────────────────────
+   1:1 with the Files tab masthead (.fx-masthead / .fx-mh-*): accent eyebrow +
+   muted tail, big display title, kicker stat line. Scrolls away inside the chat
+   scroller; the in-page tools/tabs bar below pins as the mini header. Values
+   copied verbatim from FilesWorkspace.css so the two headers read identically. */
+.dvx-mh {
+  display: flex;
+  flex-direction: column;
+  gap: 14.4px;
+  flex: 0 0 auto;
+  padding: 25.6px 17.6px 20.8px 0;
+}
+.dvx-mh-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 9.6px;
+  flex-wrap: wrap;
+  font-size: 8.8px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.dvx-mh-muted {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.dvx-mh-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 44.8px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--text-primary);
+  text-wrap: pretty;
+}
+.dvx-mh-kicker {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+/* In-page tools + tabs bar — the buttons that used to live in the window chrome
+   now sit under the masthead and PIN to the top as the "mini header" once the
+   masthead scrolls away (position: sticky against the .sv-single-scroll page
+   scroller). It carries a solid frosted surface at all times so it stays legible
+   the moment it pins over the scrolling messages; .is-pinned just adds a lift
+   shadow once the masthead has scrolled away. */
+.dvx-toolbar {
+  position: sticky;
+  /* Pin with the same top gap as the Hub button (one --chrome-inset). */
+  top: var(--chrome-inset, 6.4px);
+  z-index: 30;
+  flex: 0 0 auto;
+  /* Single row, same height as the Hub button (40px): tabs left, tools right. */
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  height: 40px;
+  border-radius: 9.6px;
+  overflow: hidden;
+  /* Transparent while still in flow under the masthead. */
+  background: transparent;
+  transition: background-color 200ms ease, box-shadow 240ms ease;
+}
+.dvx-toolbar > .dvx-tabs { flex: 1 1 auto; border-bottom: none; align-items: stretch; }
+.dvx-toolbar > .dvx-chrome-tools { flex: 0 0 auto; height: auto; align-self: center; }
+/* Stuck at the top as the mini header (masthead scrolled away) → paint the
+   frosted surface so the buttons stay legible over the scrolling messages. Same
+   bg as every other mini header in the app (pmh-compact / pjd-compact / Files). */
+.dvx-toolbar.is-pinned {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -45,7 +148,11 @@
      unobstructed — same treatment as the other pages' transparent surfaces. */
   background: transparent;
   position: relative;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* The .vb-chat layer makes this the scroll container (overflow-y:auto); base
+     stays visible for any non-vb usage. */
+  overflow: visible;
 }
 
 .dvx-chat > * { position: relative; z-index: 1; }
@@ -539,6 +646,22 @@
   color: var(--text-primary);
   border-bottom-color: var(--accent);
 }
+/* In the chat toolbar the active underline must stay visible even though the bar
+   clips overflow — sit it flush to the bar's bottom edge (no negative margin). The
+   underline is a NARROW inset bar that hugs the tab's content (inset by the tab's
+   horizontal padding) rather than the full padded width. */
+.dvx-toolbar .dvx-tab { margin-bottom: 0; box-sizing: border-box; position: relative; }
+.dvx-toolbar .dvx-tab.is-active { border-bottom-color: transparent; }
+.dvx-toolbar .dvx-tab.is-active::after {
+  content: '';
+  position: absolute;
+  left: 0.8rem;
+  right: 0.8rem;
+  bottom: 0;
+  height: 3.2px;
+  background: var(--accent);
+  border-radius: 2px;
+}
 .dvx-tab svg { width: 12.8px; height: 12.8px; }
 .dvx-tab-badge {
   display: inline-flex;
@@ -845,7 +968,7 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: 100%;
+  min-height: 100%;
   /* No master fill — let the app's cursor-spotlight background show through. */
   background: transparent;
 }
@@ -1057,11 +1180,14 @@
 
 /* Messages */
 .vb-messages {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  /* Extra bottom padding so the last message clears the floating composer,
-     with added breathing room below it. */
-  padding: 11.2px 16px 96px;
+  /* Grows with content — the whole page scrolls (.sv-single-scroll), so this is
+     no longer an internal scroller. */
+  flex: 0 0 auto;
+  overflow: visible;
+  /* Right inset trimmed to 3.2px so own (right-aligned) bubbles end 8px from the
+     column edge — flush with the toolbar search bar's right edge (its chrome-tools
+     carry an 8px right pad). Left stays 16px for the incoming-message gutter. */
+  padding: 11.2px 3.2px 16px 16px;
   display: flex;
   flex-direction: column;
   gap: 3.2px;
@@ -1431,12 +1557,11 @@
    full-width topbar. The Private tab keeps the floating-absolute composer via
    the base .vb-composer-wrap rule above. */
 .vb-team {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
 }
-.vb-team .vb-split { flex: 1 1 auto; min-height: 0; }
+.vb-team .vb-split { flex: 1 0 auto; }
 /* Composer docked as a flat, full-width footer bar (overrides the floating
    absolute base). The rounded input box sits inside, inset by the padding. */
 .vb-team > .vb-composer-wrap {
@@ -1450,11 +1575,13 @@
 }
 /* No longer floating over the thread → drop the big bottom clearance, and
    anchor the scroll-back pill to the thread column instead of the overlay. */
-/* Clear the floating composer footer so the last message scrolls out from
-   behind it. */
-.vb-team .vb-messages { padding-bottom: 67.2px; }
+/* Clear the docked composer footer (it floats over the body bottom) so the last
+   message scrolls out from behind it. */
+.vb-team .vb-messages { padding-bottom: 72px; }
 .vb-team .vb-main { position: relative; }
-.vb-team .vb-scroll-back { bottom: 12.8px; }
+/* Page scrolls as one now, so anchor the "N new" pill to the viewport bottom
+   (above the in-flow composer) instead of the thread column. */
+.vb-team .vb-scroll-back { position: fixed; bottom: 88px; }
 
 /* Float the composer footer OVER the thread (only for panes that actually hold
    a composer) so messages scroll up behind the frosted, slightly-transparent

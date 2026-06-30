@@ -937,11 +937,22 @@ export default function ProjectChat() {
   // scrolled up reading history, an "N new" pill appears above the
   // composer instead; clicking it scrolls down and clears the count.
   const listRef = useRef(null);
+  // Root of the chat page. The TEAM tab nests a dedicated BLOCK scroll container
+  // (.dvx-scroll-area, ref below) so the sticky mini-header pins against its
+  // direct block scroll parent (the only reliable sticky case) while the masthead
+  // scrolls away inside it. Auto-scroll + the header-pin watcher target it.
+  const pageRef = useRef(null);
+  const scrollRef = useRef(null);
+  const getScroller = () => scrollRef.current || listRef.current;
   // VS-Code-style find: highlight every match of the header search across the
   // team thread, count them, and scroll to each on Enter / Shift+Enter.
   const find = useChatFind({ containerRef: listRef, query: chatSearch, name: 'teamchat', scope: '.vb-msg-text' });
   const stickToBottomRef = useRef(true);
   const [unreadCount, setUnreadCount] = useState(0);
+  // True once the page has scrolled past the big masthead — pins the in-page
+  // tools/tabs bar as the frosted "mini header" (mirrors the Files fx-pathbar).
+  // Hysteresis (pin past 132px, unpin under 96px) avoids flicker at the edge.
+  const [headerScrolled, setHeaderScrolled] = useState(false);
   // Mirror of stickToBottomRef as React state so CSS can react to
   // it. We need both: the ref is read synchronously inside layout
   // effects (where state would be stale), and the state drives the
@@ -951,7 +962,7 @@ export default function ProjectChat() {
   const prevMessagesLenRef = useRef(0);
 
   const scrollToBottom = useCallback(() => {
-    const el = listRef.current;
+    const el = getScroller();
     if (!el) return;
     el.scrollTop = el.scrollHeight;
     stickToBottomRef.current = true;
@@ -960,8 +971,13 @@ export default function ProjectChat() {
   }, []);
 
   const handleListScroll = () => {
-    const el = listRef.current;
+    const el = getScroller();
     if (!el) return;
+    // Pinned only once the bar is ACTUALLY stuck at the top (its rect reaches the
+    // scroller's top + the sticky `top` gap), so the bg doesn't appear early while
+    // the masthead is still scrolling away.
+    const bar = el.querySelector('.dvx-toolbar');
+    setHeaderScrolled(!!bar && (bar.getBoundingClientRect().top - el.getBoundingClientRect().top) <= 8);
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     const atBottom = distFromBottom < 80;
     stickToBottomRef.current = atBottom;
@@ -975,6 +991,18 @@ export default function ProjectChat() {
     if (atBottom) setUnreadCount(0);
   };
 
+  // The page (.sv-single-scroll) is the scroller, which lives ABOVE this
+  // component, so attach the scroll listener imperatively instead of via an
+  // onScroll prop on the message list.
+  useEffect(() => {
+    if (tab !== 'team') return undefined;
+    const el = getScroller();
+    if (!el) return undefined;
+    el.addEventListener('scroll', handleListScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleListScroll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, loading]);
+
   // Auto-scroll layout effect — runs after every messages state
   // commit. Stick-to-bottom is the only fast path; otherwise we
   // count NEW messages (current length > previous length) and
@@ -985,7 +1013,7 @@ export default function ProjectChat() {
     prevMessagesLenRef.current = next;
     const grew = next > prev;
     if (stickToBottomRef.current) {
-      const el = listRef.current;
+      const el = getScroller();
       if (el) el.scrollTop = el.scrollHeight;
     } else if (grew) {
       setUnreadCount((c) => c + (next - prev));
@@ -1143,7 +1171,7 @@ export default function ProjectChat() {
     if (scrollToLatestNonce === 0) return undefined;
     const doScroll = () => {
       if (tab === 'team') {
-        const el = listRef.current;
+        const el = getScroller();
         if (el) el.scrollTop = el.scrollHeight;
       } else if (tab === 'private') {
         const el = privateListRef.current;
@@ -1230,7 +1258,7 @@ export default function ProjectChat() {
   // Declared after the typingUsers state so the dep doesn't hit TDZ.
   useLayoutEffect(() => {
     if (!stickToBottomRef.current) return;
-    const el = listRef.current;
+    const el = getScroller();
     if (el) el.scrollTop = el.scrollHeight;
   }, [typingUsers.size]);
 
@@ -1580,34 +1608,53 @@ export default function ProjectChat() {
     />
   );
 
+  // Big masthead — a Files-style hero (.dvx-mh mirrors .fx-masthead) that scrolls
+  // away with the page; the in-page tools+tabs bar below it pins as the sticky
+  // mini header. The eyebrow/kicker describe the active conversation.
+  const memberCount = `${members.length} ${members.length === 1 ? 'member' : 'members'}`;
+  const chatMasthead = (
+    <header className="dvx-mh">
+      <div className="dvx-mh-eyebrow">
+        <span>{tab === 'team' ? 'Team chat' : 'Private messages'}</span>
+        <span className="dvx-mh-muted">· {memberCount}</span>
+      </div>
+      <h1 className="dvx-mh-title">Chat</h1>
+      <p className="dvx-mh-kicker">
+        {tab === 'team'
+          ? `${selectedProject.name} · ${messages.length} ${messages.length === 1 ? 'message' : 'messages'}`
+          : `${selectedProject.name} · Direct messages`}
+      </p>
+    </header>
+  );
+
+  // Big masthead + the in-page tools/tabs bar (the mini header), rendered at the
+  // top of each tab's content. In the team tab these live inside the scroll-area
+  // so the masthead scrolls away and the toolbar pins.
+  const chatHeader = (
+    <>
+      {chatMasthead}
+      {/* Single 40px row (same height as the Hub button): tabs on the left, the
+          huddle + search tools fill the right. */}
+      <div className={`dvx-toolbar${headerScrolled ? ' is-pinned' : ''}`}>
+        {chatTabs}
+        {chatChromeTools}
+      </div>
+    </>
+  );
+
   // ───── Render ──────────────────────────────────────────────────────
   return (
-    <div className="dvx-chat vb-chat">
-      {/* Header + tabs live in the window topbar: the subtitle is published next
-          to the "Chat" title, and the search + huddle row plus the tab strip are
-          portalled into the chrome (stacked). Falls back to an in-page header +
-          tabs only if there's no chrome (no PaneChromeProvider). */}
-      {chromeSlotEl && createPortal(<>{chatChromeTools}{chatTabs}</>, chromeSlotEl)}
-      {!chromeSlotEl && (
-        <>
-          <div className="dvx-header vb-header">
-            <div className="dvx-header-title-stack">
-              <h1 className="dvx-header-title">Chat</h1>
-              <p className="dvx-header-subtitle">
-                {selectedProject.name} · {members.length} {members.length === 1 ? 'member' : 'members'}
-              </p>
-            </div>
-            <div className="vb-header-actions">{chatChromeTools.props.children}</div>
-          </div>
-          {chatTabs}
-        </>
-      )}
-
+    <div className={`dvx-chat vb-chat${tab === 'private' ? ' is-private' : ''}`} ref={pageRef}>
+      {/* Chromeless (the /chat route carries no window chrome). The team tab uses
+          a dedicated block scroll-area so the big masthead scrolls away and the
+          tools/tabs bar pins to the top as the mini header — like the Files tab. */}
       {tab === 'team' && (() => {
         // Section data + tabs now live in the header nav bar (railSections);
         // the rail panel below just renders the selected section's content.
         const { pinned, mentioned, threadParents } = railSections;
         return (
+          <div className="dvx-scroll-area" ref={scrollRef}>
+          {chatHeader}
           <div className="vb-team">
           <div
             className={`vb-split${railCollapsed ? ' rail-collapsed' : ''}${railResizing ? ' is-resizing' : ''}`}
@@ -1617,7 +1664,7 @@ export default function ProjectChat() {
           >
             {/* ── Main thread ── */}
             <div className="vb-main">
-              <div className="vb-messages dvx-scroll" ref={listRef} onScroll={handleListScroll}>
+              <div className="vb-messages" ref={listRef}>
                 {loading && messages.length === 0 && <div className="vb-empty">Loading…</div>}
                 {!loading && messages.length === 0 && <div className="vb-empty">No messages yet. Be the first to say hi.</div>}
                 {messages.map((msg, i) => {
@@ -1809,9 +1856,11 @@ export default function ProjectChat() {
             )}
           </div>
 
-          {/* Message input — docked in the window's app footer (portalled), or
-              inline as a full-width footer when there's no chrome. */}
+          {/* Message input — docked flat in the window's app footer (.sv-footer),
+              which is styled exactly like the Files bottom action bar (frosted
+              border-top surface, 17.6px inset, no rounded floating box). */}
           {chatFooterEl ? createPortal(teamComposerNode, chatFooterEl) : teamComposerNode}
+          </div>
           </div>
         );
       })()}
@@ -1825,6 +1874,8 @@ export default function ProjectChat() {
         const partnerName = partner ? displayName(partner.profile) : '';
         const partnerStatus = partner?.profile?.status;
         return (
+          <>
+          {chatHeader}
           <div className="vb-private">
             <div className="vb-private-list dvx-scroll">
               <div className="vb-private-list-header"><span>Direct messages</span></div>
@@ -1928,6 +1979,7 @@ export default function ProjectChat() {
               <button type="button" className="dvx-action-btn" disabled><Icon.Bell /> Mute conversation</button>
             </aside>
           </div>
+          </>
         );
       })()}
     </div>

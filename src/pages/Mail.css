@@ -3,21 +3,88 @@
    `mx-`-prefixed and read the app's design tokens (tokens.css) — no hex literals,
    no token redefinitions; the global theme drives Cream / Ink. */
 
-.mx-page { width: 100%; max-width: 864px; margin: 0 auto; }
-@media (min-width: 1024px) { /* 1280px pre-scale */ .mx-page { width: 82%; } }
+/* Left-aligned content column — mirrors the Versions tab (no auto-centring),
+   three-quarters of the width on wide screens. */
+.mx-page { width: 100%; max-width: none; margin: 0; }
+@media (min-width: 1024px) { /* 1280px pre-scale */ .mx-page { width: 75%; } }
 
-/* ── Masthead ──────────────────────────────────────────────────────────── */
+/* ── Masthead (mirrors the Versions tab "Editorial Dossier" header) ──────── */
 .mx-mast {
-  display: flex; align-items: flex-end; justify-content: space-between; gap: 19.2px;
-  padding-bottom: 17.6px; border-bottom: 1px solid var(--border); margin-bottom: 0;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 22.4px;
+  padding-bottom: 20.8px; border-bottom: 1px solid var(--border); margin: 0 0 20.8px;
 }
-.mx-mast-left { display: flex; flex-direction: column; gap: 11.2px; min-width: 0; }
+.mx-mast-left { display: flex; flex-direction: column; gap: 14.4px; min-width: 0; flex: 1 1 auto; }
 .mx-mast-eyebrow {
-  font-family: var(--font-display); font-size: 8.8px; font-weight: 700; letter-spacing: 0.20em;
-  text-transform: uppercase; color: var(--accent); display: flex; gap: 8px; min-width: 0;
+  font-size: 8.8px; font-weight: 700; letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--accent); display: flex; align-items: center;
+  gap: 9.6px; min-width: 0; flex-wrap: wrap;
 }
 .mx-mast-muted { color: var(--text-muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.08em; }
-.mx-mast-title { margin: 0; font-size: clamp(28.8px, calc(5 * var(--vw1)), 44.8px); font-weight: 800; letter-spacing: -0.04em; line-height: 1; color: var(--text-primary); }
+.mx-mast-title {
+  margin: 0; font-family: var(--font-display); font-size: 44.8px; font-weight: 700;
+  letter-spacing: -0.04em; line-height: 1; color: var(--text-primary); text-wrap: pretty; max-width: 576px;
+}
+.mx-mast-kicker { margin: 0; font-size: 12px; line-height: 1.55; color: var(--text-secondary); max-width: 464px; }
+.mx-mast-kicker strong { color: var(--text-primary); font-weight: 600; }
+@media (max-width: 512px) { /* 640px pre-scale */ .mx-mast-title { font-size: 33.6px; } }
+
+/* ── Compact header on scroll (mirrors the Versions tab) ─────────────────────
+   A blurred, translucent bar fixed to the content area that fades + slides in
+   once the large "Mail" title scrolls away. Anchored to the content column via
+   the sidebar width + titlebar height so it tracks the sidebar expand/collapse. */
+.mx-compact {
+  position: fixed;
+  /* Rounded FLOATING section (matches the project tabs / .pjd-compact): inset
+     past the sidebar with a matching right gap, seated under the title bar. */
+  top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px) + var(--sv-chrome-h, 0px));
+  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px));
+  right: var(--chrome-inset, 6.4px);
+  z-index: 30;
+  height: 40px;
+  display: flex; align-items: center; gap: 6.4px;
+  padding: 0 17.6px;
+  overflow: hidden;
+  line-height: 1;
+  border-radius: 9.6px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+  transition: opacity 240ms ease,
+              transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+              left 250ms ease;
+}
+.mx-compact.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.mx-compact .mini-head-text { display: inline-flex; align-items: center; }
+.mx-compact .mini-head-status { margin-left: auto; flex-shrink: 0; }
+.mx-compact-title {
+  font-family: var(--font-display); font-size: 13.6px; font-weight: 700;
+  letter-spacing: -0.01em; color: var(--text-primary);
+}
+.mx-compact-sep { color: var(--text-muted); font-weight: 600; margin: 0 7px; }
+.mx-compact-eyebrow { font-size: 10.4px; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+
+/* Status chip in the compact header — gray when caught up, accent when there
+   are messages awaiting review (mirrors the Versions status pill). */
+.mx-compact-status {
+  display: inline-flex; align-items: center; gap: 5.6px;
+  font-family: inherit; font-size: 10px; font-weight: 600;
+  padding: 3.2px 8.8px; border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-secondary);
+  white-space: nowrap; cursor: pointer;
+  transition: filter 130ms ease, background 130ms ease, border-color 130ms ease;
+}
+.mx-compact-status:hover { filter: brightness(1.06); border-color: color-mix(in srgb, currentColor 55%, transparent); }
+.mx-compact-status.is-pending {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+.mx-compact-dot { width: 5.6px; height: 5.6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 .mx-mast-meta { display: flex; align-items: center; gap: 12.8px; font-size: 9.6px; color: var(--text-muted); text-align: right; }
 .mx-mast-num { font-family: var(--font-display); font-size: 17.6px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
 .mx-mast-sep { width: 1px; height: 20.8px; background: var(--border); }
@@ -64,12 +131,14 @@
 
 /* ── Rows ──────────────────────────────────────────────────────────────── */
 .mx-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
-.mx-row { padding: 0 0 32px; margin: 0 0 32px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 76.8px 1fr; gap: 22.4px; }
+/* Single flush-left column — the former 76.8px priority/time rail is folded into
+   the sender row so the message content sits flush against the left edge. */
+.mx-row { padding: 0 0 32px; margin: 0 0 32px; border-bottom: 1px solid var(--border); }
 .mx-row:last-child { border-bottom: none; margin-bottom: 0; }
 .mx-row.is-done .mx-subject, .mx-row.is-done .mx-incoming { opacity: 0.5; }
-.mx-rail { display: flex; flex-direction: column; gap: 8px; padding-top: 3.2px; }
+/* Priority badge + timestamp, inlined into the sender row (time pushed right). */
 .mx-rail-prio { font-size: 8px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--danger); display: inline-flex; width: fit-content; padding: 1.6px 5.6px; border-radius: 4px; background: color-mix(in srgb, var(--danger) 12%, transparent); }
-.mx-rail-time { font-size: 9.2px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.mx-rail-time { font-size: 9.2px; color: var(--text-muted); font-variant-numeric: tabular-nums; margin-left: auto; }
 
 .mx-body { min-width: 0; }
 .mx-sender { display: flex; align-items: center; gap: 7.2px; margin-bottom: 8px; flex-wrap: wrap; }
@@ -140,11 +209,15 @@
 .mx-sent-text { font-size: 10.4px; color: var(--text-secondary); flex: 1; }
 
 /* ── Connect screen ────────────────────────────────────────────────────── */
-.mx-connect { max-width: 512px; margin: 19.2px auto 0; display: flex; flex-direction: column; }
-.mx-connect-eyebrow { font-family: var(--font-display); font-size: 8.8px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin-bottom: 14.4px; }
-.mx-connect-title { font-size: clamp(24px, calc(4.4 * var(--vw1)), 36.8px); font-weight: 800; letter-spacing: -0.03em; line-height: 1.06; color: var(--text-primary); margin: 0 0 14.4px; }
-.mx-connect-lead { font-size: 12.4px; line-height: 1.6; color: var(--text-secondary); margin: 0 0 25.6px; max-width: 54ch; }
+.mx-connect { max-width: 512px; margin: 19.2px 0 0; display: flex; flex-direction: column; }
+/* Header styled like the Versions masthead: accent eyebrow + muted part, a big
+   display title, then a kicker paragraph. */
+.mx-connect-eyebrow { font-size: 8.8px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); display: flex; align-items: center; gap: 9.6px; flex-wrap: wrap; margin-bottom: 14.4px; }
+.mx-connect-eyebrow-muted { color: var(--text-muted); font-weight: 500; }
+.mx-connect-title { margin: 0 0 14.4px; font-family: var(--font-display); font-size: 44.8px; font-weight: 700; letter-spacing: -0.04em; line-height: 1; color: var(--text-primary); text-wrap: pretty; max-width: 576px; }
+.mx-connect-lead { font-size: 12px; line-height: 1.55; color: var(--text-secondary); margin: 0 0 25.6px; max-width: 464px; }
 .mx-connect-lead strong { color: var(--text-primary); font-weight: 600; }
+@media (max-width: 512px) { /* 640px pre-scale */ .mx-connect-title { font-size: 33.6px; } }
 .mx-connect-error { margin: 0 0 14.4px; padding: 9.6px 11.2px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--danger-text, var(--danger)); font-size: 10.4px; }
 .mx-providers { display: flex; flex-direction: column; gap: 8px; margin-bottom: 19.2px; }
 .mx-provider { display: flex; align-items: center; gap: 11.2px; width: 100%; text-align: left; padding: 12px 12.8px; border: 1px solid var(--border); border-radius: 10.4px; background: var(--bg-card); cursor: pointer; box-shadow: var(--shadow-card); transition: border-color .14s, transform .14s, box-shadow .14s; }

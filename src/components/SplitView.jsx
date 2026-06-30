@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { PaneChromeProvider, usePaneChromeSlotValue, usePaneChromePortalRef, usePaneChromeFooterRef } from '../context/PaneChromeContext';
+import Tooltip from './Tooltip';
 import './SplitView.css';
 
 // Single-pane content shell for the main window. (The former multi-pane
@@ -109,15 +110,16 @@ function PaneChrome({ onRefresh }) {
       {/* Row 1 — refresh + header. */}
       <div className="sv-chrome-row">
         {/* Refresh this window (top-left); also bound to F5. */}
-        <button
-          type="button"
-          className="sv-chrome-refresh"
-          onClick={onRefresh}
-          aria-label="Refresh this window"
-          title="Refresh this window (F5)"
-        >
-          <RefreshIcon />
-        </button>
+        <Tooltip content="Refresh this window (F5)">
+          <button
+            type="button"
+            className="sv-chrome-refresh"
+            onClick={onRefresh}
+            aria-label="Refresh this window"
+          >
+            <RefreshIcon />
+          </button>
+        </Tooltip>
         <div className="sv-chrome-head">
           <span className="sv-chrome-title">{destLabel}</span>
           {description && <span className="sv-chrome-dot" aria-hidden="true">·</span>}
@@ -143,7 +145,7 @@ function PaneFooter() {
 // Routes that render WITHOUT the in-content chrome bar — the personal
 // destinations plus the Hub (/projects) and Account (/account). They each carry
 // their own page masthead, so the chrome's title would just duplicate it.
-const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/mail', '/projects', '/account', '/files']);
+const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/mail', '/admin', '/projects', '/account', '/files', '/chat', '/ai']);
 
 // The project Overview / settings page (/projects/:id, no further segment) is
 // also chromeless — it carries its own Versions-style masthead + compact

@@ -258,15 +258,13 @@ function MailRow({ email, status, onSetStatus, signature, onSend }) {
   const lines = (email.body || email.snippet || '').split('\n').map((l) => l.trim()).filter(Boolean);
   return (
     <li className={`mx-row${isDone ? ' is-done' : ''}`}>
-      <div className="mx-rail">
-        {email.unread && status === 'pending' && <div className="mx-rail-prio">Needs reply</div>}
-        <div className="mx-rail-time">{timeAgo(email.receivedAt)}</div>
-      </div>
       <div className="mx-body">
         <div className="mx-sender">
           <span className="mx-avatar" style={{ background: hue }}>{initialsFor(email.from.name, email.from.email)}</span>
           <span className="mx-sender-name">{email.from.name || email.from.email}</span>
           <span className="mx-sender-email">{email.from.email}</span>
+          {email.unread && status === 'pending' && <span className="mx-rail-prio">Needs reply</span>}
+          <span className="mx-rail-time">{timeAgo(email.receivedAt)}</span>
         </div>
         <h2 className="mx-subject">{email.subject}</h2>
         <div className="mx-incoming">
@@ -290,7 +288,10 @@ function MailRow({ email, status, onSetStatus, signature, onSend }) {
 function ConnectScreen({ connecting, error, onConnect }) {
   return (
     <div className="mx-connect">
-      <div className="mx-connect-eyebrow">DocVex Mail · Beta</div>
+      <div className="mx-connect-eyebrow">
+        <span>DocVex Mail</span>
+        <span className="mx-connect-eyebrow-muted">· Beta</span>
+      </div>
       <h1 className="mx-connect-title">Let AI clear your inbox<br />— you just approve.</h1>
       <p className="mx-connect-lead">
         Connect a mailbox and DocVex reads incoming mail, drafts a reply for each one in your
@@ -477,6 +478,27 @@ export default function Mail() {
     return true;
   }), [messages, statuses, filter, query]);
 
+  // Compact sticky header — fades/slides in once the big "Mail" title scrolls
+  // away (mirrors the Versions tab). Listen on the single-pane scroller; rebind
+  // when the connected view (re)mounts so pageRef points at the live root.
+  const pageRef = useRef(null);
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const scroller = pageRef.current?.closest('.sv-single-scroll, .main-content');
+    if (!scroller) return undefined;
+    const onScroll = () => {
+      const top = scroller.scrollTop;
+      setScrolled((s) => (s ? top > 8 : top > 32));
+    };
+    onScroll();
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, [conn.connected, statusLoading]);
+  const scrollToTop = () => {
+    const scroller = pageRef.current?.closest('.sv-single-scroll, .main-content');
+    scroller?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   if (!session) {
     return (
       <div className="mx-page"><div className="mx-empty">
@@ -516,7 +538,26 @@ export default function Mail() {
   }
 
   return (
-    <div className="mx-page">
+    <div className="mx-page" ref={pageRef}>
+      {/* Compact header — fades/slides in once the big "Mail" title scrolls
+          away, mirroring the Versions tab. Fixed to the content area. */}
+      <div className={`mx-compact${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
+        <span className="mini-head-text">
+          <span className="mx-compact-title">Mail</span>
+          <span className="mx-compact-sep" aria-hidden="true">·</span>
+          <span className="mx-compact-eyebrow">AI inbox</span>
+        </span>
+        <Tooltip content="Back to top">
+          <button
+            type="button"
+            className={`mx-compact-status mini-head-status${pendingCount > 0 ? ' is-pending' : ''}`}
+            onClick={scrollToTop}
+          >
+            <span className="mx-compact-dot" aria-hidden="true" />
+            {pendingCount > 0 ? `${pendingCount} awaiting` : 'All caught up'}
+          </button>
+        </Tooltip>
+      </div>
       <header className="mx-mast">
         <div className="mx-mast-left">
           <div className="mx-mast-eyebrow">
@@ -524,6 +565,12 @@ export default function Mail() {
             <span className="mx-mast-muted">· {PROVIDER_LABELS[conn.provider] || 'Mailbox'} · {conn.email}</span>
           </div>
           <h1 className="mx-mast-title">Mail</h1>
+          <p className="mx-mast-kicker">
+            AI-drafted replies for your connected mailbox — <strong>{PROVIDER_LABELS[conn.provider] || 'Mailbox'}</strong>
+            {pendingCount > 0
+              ? <>. <strong>{pendingCount} {pendingCount === 1 ? 'message' : 'messages'}</strong> awaiting your review.</>
+              : <>. You're all caught up.</>}
+          </p>
         </div>
         <div className="mx-mast-meta">
           <div><div className="mx-mast-num">{pendingCount}</div><div>Awaiting</div></div>
