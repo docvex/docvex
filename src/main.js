@@ -559,6 +559,15 @@ ipcMain.on('doc-viewer:close', (_e, id) => {
   const w = BrowserWindow.fromId(id);
   if (w && !w.isDestroyed()) w.close();
 });
+// "Back to app" from a doc-viewer window — surface the main app window (restore
+// if minimized, raise it to the front). The viewer window stays open behind it.
+ipcMain.on('window:focus-main', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
 // A doc-viewer window reports its AI advisor busy/idle state. Stamp it onto that
 // window's registry entry and re-broadcast so the main app's "Open files" list
 // can mark the row as "AI working".

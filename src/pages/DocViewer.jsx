@@ -4,6 +4,8 @@ import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import FilePreview from '../components/FilePreview';
+import FileThumbnail from '../components/FileThumbnail';
+import { glyphForFile } from '../components/fileGlyph';
 import CursorSpotlight from '../components/CursorSpotlight';
 import Tooltip from '../components/Tooltip';
 import { useMorphPill } from '../components/useMorphPill';
@@ -26,7 +28,7 @@ import TokenUsagePill from '../components/TokenUsagePill';
 import { docKindFromName, buildDocumentBlobSmart, mimeForKind, inferDocKind, withKindExtension, labelForKind } from '../lib/documentGen';
 import { renderedOfficeToPdfBlob } from '../lib/exportPdf';
 import { loadConversation, saveConversation, clearConversation } from '../lib/conversationHistory';
-import { extractDocText, openExternal, onFilesRemoved, notifyFilesChanged, setDocViewerAiStatus } from '../lib/platform';
+import { extractDocText, openExternal, onFilesRemoved, notifyFilesChanged, setDocViewerAiStatus, listDocViewerTabs, onDocViewerTabs, focusDocViewerTab, closeDocViewerTab, focusMainWindow } from '../lib/platform';
 import { extractFileText } from '../lib/extractFileText';
 import { parseWhatsAppChat, splitTimestamp } from '../lib/whatsappChat';
 import gavelLoader from '../gavel-loader.svg';
@@ -7750,6 +7752,96 @@ const LargeTileGlyph = (
   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
 );
 // ── Document viewer window ───────────────────────────────────────────────
+// ── Left sidebar (Electron doc-viewer) ──────────────────────────────────────
+// Mirrors the main app's rail: a "Back to app" button that raises the main
+// window, and an "Opened files" section listing every open document-viewer
+// window (the same registry the main app's "Open files" section reads).
+// Clicking a row focuses that window; the × closes it; the row for THIS
+// window's file is marked active.
+
+// Arrow-left — the "Back to app" affordance.
+const DvBackIcon = (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="19" y1="12" x2="5" y2="12" />
+    <polyline points="12 19 5 12 12 5" />
+  </svg>
+);
+
+// × glyph — the per-row close button.
+const DvCloseGlyph = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="6" y1="6" x2="18" y2="18" />
+    <line x1="18" y1="6" x2="6" y2="18" />
+  </svg>
+);
+
+function DocViewerSidebar({ activePath }) {
+  // The live list of open document-viewer windows. Seeded once, then kept in
+  // sync via the main-process broadcast (fires whenever a viewer opens/closes
+  // or flips its AI-busy flag).
+  const [docTabs, setDocTabs] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    listDocViewerTabs().then((list) => { if (alive) setDocTabs(Array.isArray(list) ? list : []); });
+    const off = onDocViewerTabs((list) => setDocTabs(Array.isArray(list) ? list : []));
+    return () => { alive = false; off(); };
+  }, []);
+
+  const norm = (p) => String(p || '').replace(/\\/g, '/').toLowerCase();
+  const activeNorm = norm(activePath);
+
+  return (
+    <nav className="dv-sidebar">
+      <Tooltip content="Back to the main app">
+        <button type="button" className="dv-sidebar-back" onClick={() => focusMainWindow()}>
+          <span className="dv-sidebar-back-icon">{DvBackIcon}</span>
+          <span className="dv-sidebar-back-label">Back to app</span>
+        </button>
+      </Tooltip>
+
+      <div className="dv-sidebar-cat">
+        <span className="dv-sidebar-cat-label"><span>Opened files</span></span>
+        <div className="dv-sidebar-items">
+          {docTabs.length === 0 ? (
+            <div className="dv-sidebar-empty">No open files</div>
+          ) : docTabs.map((t) => (
+            <div key={t.id} className={`dv-tab-row${norm(t.path) === activeNorm ? ' is-active' : ''}`}>
+              <Tooltip content={t.aiBusy ? `${t.name} — AI working…` : t.name}>
+                <button
+                  type="button"
+                  className={`dv-tab-main${t.aiBusy ? ' is-ai-busy' : ''}`}
+                  onClick={() => focusDocViewerTab(t.id)}
+                >
+                  <span className="dv-tab-iconwrap">
+                    <span className="dv-tab-thumb">
+                      <FileThumbnail
+                        mimeType={t.mime}
+                        name={t.name}
+                        sourceUrl={localUrlFor(t.path)}
+                        glyph={glyphForFile(t.mime, t.name)}
+                      />
+                    </span>
+                    {t.aiBusy && <span className="dv-tab-ai-dot" aria-label="AI working" />}
+                  </span>
+                  <span className="dv-tab-name">{t.name}</span>
+                </button>
+              </Tooltip>
+              <button
+                type="button"
+                className="dv-tab-close"
+                onClick={() => closeDocViewerTab(t.id)}
+                aria-label={`Close ${t.name}`}
+              >
+                {DvCloseGlyph}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </nav>
+  );
+}
+
 export default function DocViewer() {
   const [params] = useSearchParams();
   // Opened from Files' "New file": the document is empty and the advisor should
@@ -7960,10 +8052,10 @@ export default function DocViewer() {
     <div className="dv-page" ref={pageRef}>
       <CursorSpotlight contain className="dv-cursor-spotlight" />
 
-      {/* Body: a single column holding the Documents + Multitool cards. Each
-          file opens in its own window, so there's no recently-open rail or
-          embedded Files browser here. */}
+      {/* Body: the left rail (Back to app + Opened files) beside a column
+          holding the Documents + Multitool cards. */}
       <div className="dv-body-row">
+        <DocViewerSidebar activePath={active.path} />
         {/* Right column — Documents + Multitool. */}
         <div className="dv-right-col">
           {/* Main row: the Multitool panel (left) + the document card (right). */}

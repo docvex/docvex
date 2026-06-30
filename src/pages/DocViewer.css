@@ -3536,3 +3536,169 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   margin: 0; padding: 8px 9.6px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg-page); color: var(--text-muted);
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Left rail — "Back to app" + "Opened files" (mirrors the main app sidebar)
+   ════════════════════════════════════════════════════════════════════════ */
+.dv-sidebar {
+  flex: 0 0 200px;
+  width: 200px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 8px;
+  box-sizing: border-box;
+  /* Same frosted-glass surface as the main rail. */
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  border: 1px solid var(--border);
+  border-radius: 11.2px;
+  overflow-y: auto;
+}
+
+/* Back-to-app button — styled like the main app's Hub launcher / selected tab:
+   accent-tint fill, accent ring, accent text. */
+.dv-sidebar-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 12px;
+  box-sizing: border-box;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  border-radius: 9px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.dv-sidebar-back:hover { background: var(--accent-soft); border-color: var(--accent); }
+.dv-sidebar-back-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.dv-sidebar-back-icon svg { width: 17px; height: 17px; }
+
+/* Category header — uppercase label + a hairline rule filling the row, same as
+   the main rail's section dividers. */
+.dv-sidebar-cat { display: flex; flex-direction: column; gap: 4px; min-height: 0; }
+.dv-sidebar-cat-label {
+  display: flex;
+  align-items: center;
+  gap: 6.4px;
+  padding: 2px 6.4px 4.8px;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+  user-select: none;
+}
+.dv-sidebar-cat-label > span { flex: 0 0 auto; }
+.dv-sidebar-cat-label::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--border);
+}
+.dv-sidebar-items { display: flex; flex-direction: column; gap: 4px; }
+.dv-sidebar-empty {
+  padding: 8px;
+  font-size: 0.64rem;
+  font-style: italic;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Open-file row — a focus button with a hover × overlaid on the right, and a
+   thumbnail tile like the main rail's Open-files rows. */
+.dv-tab-row { position: relative; }
+.dv-tab-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 24px 6px 8px;
+  border: 1.5px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  box-sizing: border-box;
+  transition: background 150ms, color 150ms, border-color 150ms;
+}
+.dv-tab-main:hover { background: var(--accent-tint); color: var(--text-primary); }
+/* The row showing THIS window's file reads as selected (accent-tint + ring). */
+.dv-tab-row.is-active .dv-tab-main {
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+}
+.dv-tab-iconwrap { position: relative; display: inline-flex; flex-shrink: 0; }
+.dv-tab-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-sizing: border-box;
+}
+.dv-tab-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dv-tab-thumb .project-files-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+.dv-tab-thumb .project-files-icon svg,
+.dv-tab-thumb > svg { width: 18px; height: 18px; }
+.dv-tab-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv-tab-ai-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #a855f7);
+  box-shadow: 0 0 0 2px var(--bg-page), 0 0 6px rgba(139, 92, 246, 0.7);
+  pointer-events: none;
+}
+.dv-tab-close {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+.dv-tab-row:hover .dv-tab-close,
+.dv-tab-close:focus-visible { opacity: 1; }
+.dv-tab-close:hover {
+  background: color-mix(in srgb, var(--text-primary) 14%, transparent);
+  color: var(--text-primary);
+}

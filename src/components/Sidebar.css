@@ -83,9 +83,14 @@
   .sidebar::after { display: none; }
 }
 
-/* Labels always read in the always-on rail. */
+/* Labels read in the expanded rail; they fade + collapse to zero width when the
+   rail is minimized (see .sidebar.is-collapsed below). max-width (rather than
+   display:none) so the hide/reveal can animate alongside the rail's width. */
 .sidebar .label {
   white-space: nowrap;
+  overflow: hidden;
+  max-width: 200px;
+  transition: opacity 160ms ease, max-width 250ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Brand row at the top â€” original small inline icon on the left, stacked
@@ -595,12 +600,41 @@
    A pulsing purple/blue dot on the file icon (visible even when the rail
    is collapsed) plus a small shimmering "AI" pill when expanded. */
 .doc-tab-icon { position: relative; overflow: visible; }
-/* Fixed 18px box for the per-type glyph so the full-colour Office icons (sized
-   width/height:100%) land at the right size, and stroke glyphs match the rail. */
-.doc-tab-glyph { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; }
-.doc-tab-glyph svg { width: 18px; height: 18px; }
+/* The open-file rows show a real thumbnail tile (like the Files page), so the
+   icon slot is a touch larger than the 19.2px nav-icon column. More specific
+   than the base `.icon` rule (which sets 19.2px) so this width wins. */
+.doc-tab-main .doc-tab-icon { width: 24px; height: 24px; }
+
+/* Thumbnail tile — a small rounded preview that mirrors the Files page tiles at
+   sidebar scale. FileThumbnail paints an <img> (image/video/PDF/DOCX/PPTX
+   preview) into it, or falls back to the centered MIME glyph (a
+   <span class="project-files-icon">) when no preview resolves / thumbnails are
+   off. The WhatsApp brand glyph (a bare <svg>) is centered the same way. */
+.doc-tab-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.doc-tab-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.doc-tab-thumb .project-files-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+}
+.doc-tab-thumb .project-files-icon svg,
+.doc-tab-thumb > svg { width: 17px; height: 17px; }
 /* WhatsApp conversation — brand green. */
-.doc-tab-glyph.is-wa { color: #25D366; }
+.doc-tab-thumb.is-wa { color: #25D366; }
 .doc-tab-ai-dot {
   position: absolute;
   top: -2px;
@@ -1564,3 +1598,128 @@
    Tooltip.jsx / Tooltip.css. The locked-projects-section now wraps its
    <li> in <Tooltip> directly and the rest of the app inherits the same
    pill behaviour for free. */
+
+/* ════════════════════════════════════════════════════════════════════════
+   Sidebar minimize/expand
+   ────────────────────────────────────────────────────────────────────────
+   The rail toggles between its full width and a narrow icon-only strip. The
+   width itself is animated by AppShell (the @property-registered
+   --sidebar-width transition); the rules here animate the *contents* — labels
+   fade + collapse, icons recenter — so the two halves of the motion land in
+   sync. State is the `.is-collapsed` class on `.sidebar` (mirrored by
+   `.sidebar-collapsed` on `.app-shell`, set from the same AppShell state).
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Minimize/expand toggle — lives in the Personal section header, pushed to the
+   far right by the divider hairline so it sits in line with the "Personal"
+   label. A quiet icon button; the chevron flips to point right when collapsed
+   so it reads as an "expand" affordance. */
+.sidebar-collapse-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  /* Symmetric vertical margins so the row's align-items:center keeps the
+     button's middle on the divider hairline's centerline; the negatives pull
+     it back into the short label row so it doesn't grow the header height.
+     Flush to the row's right edge. (Breathing room below the toggle is added
+     as bottom padding on the Personal header itself — see :has() rule below.) */
+  margin: -4px -3.2px -4px 0;
+  padding: 0;
+  /* Styled like a selected tab (.nav-item.active): accent-tint fill, accent
+     ring, accent glyph — so the toggle reads as a sibling of the active rail
+     item rather than a quiet utility button. */
+  border: 1.5px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  border-radius: 5.6px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease,
+    transform 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sidebar-collapse-btn:hover {
+  /* Matches .nav-item.active:hover — the ring goes full-accent. */
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.sidebar-collapse-btn svg { width: 15px; height: 15px; }
+.sidebar.is-collapsed .sidebar-collapse-btn { transform: rotate(180deg); }
+/* Breathing room below the toggle — applied to the (only) header that holds it,
+   so the button stays vertically centered on the divider while the gap to the
+   nav items below still grows. */
+.sidebar-cat-label:has(.sidebar-collapse-btn) { padding-bottom: 11.2px; }
+/* Sit AFTER the divider hairline (which is the ::after, normally the last flex
+   item): order:1 pushes the button past it so the row reads
+   "Personal ———— ⟨" rather than "Personal ⟨ ————". */
+.sidebar-collapse-btn { order: 1; }
+
+/* Category header text — wrapped in its own span so it can fade + collapse to
+   zero width independently of the toggle button beside it. */
+.sidebar-cat-text {
+  overflow: hidden;
+  max-width: 200px;
+  transition: opacity 160ms ease, max-width 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Collapsed state ──────────────────────────────────────────────────── */
+
+/* Labels (nav rows + category text) fade out and pull to zero width. */
+.sidebar.is-collapsed .label,
+.sidebar.is-collapsed .sidebar-cat-text {
+  opacity: 0;
+  max-width: 0;
+}
+
+/* Icons stay LOCKED in place across the collapse — the nav-item keeps its
+   layout (left padding + icon→label gap) unchanged in both states, so the icon
+   never shifts; only the label to its right folds away. Swapping
+   justify-content / padding mid-animation is what made the icons jitter, so we
+   deliberately leave them untouched. The collapsed rail width is tuned so the
+   fixed-inset icon already reads as centered. */
+
+/* Category headers KEEP their divider hairline in both states — collapsed, the
+   line reads as a section separator between the icon groups. Tighter padding +
+   gap give the line room (the toggle button is pinned to the right via order). */
+.sidebar.is-collapsed .sidebar-cat-label {
+  gap: 3.2px;
+  padding-left: 3.2px;
+  padding-right: 3.2px;
+}
+
+/* Open-file rows: hide the hover × (no room for it in the strip; the row still
+   refocuses its window on click). */
+.sidebar.is-collapsed .doc-tab-close { display: none; }
+.sidebar.is-collapsed .doc-tab-main { padding-right: 0; }
+
+/* Footer account row: the avatar stays locked at its inset (same principle as
+   the nav icons); the name/email block and sign-out button fold away to its
+   right. gap:0 closes the slack the collapsed sign-out would otherwise leave. */
+.sidebar.is-collapsed .sidebar-account { gap: 0; }
+.sidebar.is-collapsed .sidebar-account-id,
+.sidebar.is-collapsed .sidebar-account-signout {
+  opacity: 0;
+  max-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: none;
+  transition: opacity 160ms ease, max-width 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sidebar-account-id,
+.sidebar-account-signout {
+  transition: opacity 160ms ease, max-width 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-collapse-btn,
+  .sidebar .label,
+  .sidebar-cat-text,
+  .sidebar-account-id,
+  .sidebar-account-signout { transition: none; }
+}

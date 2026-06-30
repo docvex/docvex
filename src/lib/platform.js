@@ -211,6 +211,11 @@ export function focusDocViewerTab(id) {
 export function closeDocViewerTab(id) {
   electronAPI?.closeDocViewerTab?.(id);
 }
+// "Back to app" from a doc-viewer window — raise the main app window (no-op on
+// web, where there's only one surface).
+export function focusMainWindow() {
+  electronAPI?.focusMainWindow?.();
+}
 
 // File mutations (trash, rename) need to reach two audiences:
 //   • SAME renderer — the doc-viewer's tab sidebar and its embedded Files tab

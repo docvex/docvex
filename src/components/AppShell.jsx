@@ -64,10 +64,30 @@ function isProjectOverviewRoute(pathname) {
   return !!m && m[1] !== 'new';
 }
 
+// Collapsed-rail width — just wide enough for the centered nav icons. Matches
+// the value the collapse CSS is tuned against (icon column + sidebar padding +
+// border). Keep in sync with the .app-shell.sidebar-collapsed rule.
+const COLLAPSED_SIDEBAR_WIDTH = '60px';
+const SIDEBAR_COLLAPSED_KEY = 'docvex.sidebarCollapsed';
+
 export default function AppShell() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { session } = useAuth();
+  // Sidebar minimize state — persisted per device (not per user; it's a layout
+  // preference). Drives both the rail's own width and the --sidebar-width var
+  // the rest of the chrome offsets against, so the whole layout animates in
+  // lock-step (see the @property-registered --sidebar-width transition).
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'; } catch { return false; }
+  });
+  const toggleSidebar = () => {
+    setSidebarCollapsed((c) => {
+      const next = !c;
+      try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  };
   // While switching/loading a project we drop the tab content (and its chrome)
   // and show ONLY the spinner over the ambient dot-grid + cursor spotlight.
   const { switching } = useSelectedProject();
@@ -102,7 +122,10 @@ export default function AppShell() {
     <Outlet />
   );
   return (
-      <div className="app-shell">
+      <div
+        className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}
+        style={sidebarCollapsed ? { '--sidebar-width': COLLAPSED_SIDEBAR_WIDTH } : undefined}
+      >
         {/* App chrome — a single bordered, rounded frame that wraps the vertical
             sidebar AND the content area so they read as one window-in-window
             surface, inset from the frameless window edges (the ambient dot grid
@@ -113,7 +136,7 @@ export default function AppShell() {
           <Tooltip content="Hub — your projects">
             <button
               type="button"
-              className="app-hub-btn"
+              className={`app-hub-btn${sidebarCollapsed ? ' app-hub-btn--collapsed' : ''}`}
               onClick={() => navigate('/projects')}
               aria-label="Open the Hub"
             >
@@ -125,7 +148,7 @@ export default function AppShell() {
           </Tooltip>
         )}
         <div className="app-chrome">
-          {!onHub && <Sidebar />}
+          {!onHub && <Sidebar collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />}
           <main className={`main-content main-content--single${flushContent ? ' main-content--flush' : ''}`}>
             {/* Cursor-following spotlight that brightens the ambient dot grid.
                 A real element moved by a direct transform write (not a CSS-var

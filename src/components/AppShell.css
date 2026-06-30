@@ -1,5 +1,20 @@
-﻿.app-shell {
+﻿/* Register --sidebar-width as a typed <length> so it can be TRANSITIONED.
+   AppShell flips it between the full rail width and the collapsed width when
+   the sidebar is minimized; because everything that offsets against the rail
+   (the rail's own width, the floating Hub button, the fixed page mastheads)
+   reads this one var, animating it here makes the whole layout slide in
+   lock-step instead of each piece snapping independently. */
+@property --sidebar-width {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 192px;
+}
+
+.app-shell {
   display: flex;
+  /* Animate the rail collapse/expand. The width var change cascades to every
+     dependant (rail, hub button, masthead offsets) and they tween together. */
+  transition: --sidebar-width 250ms cubic-bezier(0.16, 1, 0.3, 1);
   /* Reserve room for the custom frameless title bar (--titlebar-h; 0 on web)
      so the shell sits below it. */
   height: calc(100 * var(--vh1) - var(--titlebar-h));
@@ -66,7 +81,12 @@
   cursor: pointer;
   box-shadow: none;
   -webkit-app-region: no-drag;
-  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease,
+    padding 250ms cubic-bezier(0.16, 1, 0.3, 1),
+    gap 250ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .app-hub-btn:hover {
   background: var(--accent-soft);
@@ -94,6 +114,25 @@
   align-items: center;
   gap: 6px;
   white-space: nowrap;
+  overflow: hidden;
+  max-width: 160px;
+  transition: opacity 160ms ease, max-width 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Collapsed rail — the Hub button shrinks to the narrow rail width (it tracks
+   --sidebar-width), so drop its wordmark and center the grid glyph. Centering is
+   done with a left inset (not justify-content) so the glyph slides smoothly to
+   centre as the button narrows — a justify-content swap snaps the glyph to the
+   middle of the still-wide button on the first frame, which reads as a jump.
+   With border 1.5 + padding-left 20 the 17px glyph lands dead-centre at 60px. */
+.app-hub-btn--collapsed {
+  gap: 0;
+  padding-left: 20px;
+  padding-right: 0;
+}
+.app-hub-btn--collapsed .app-hub-label {
+  opacity: 0;
+  max-width: 0;
 }
 .app-hub-sep { opacity: 0.4; font-weight: 400; }
 /* "HUB" reads as a lighter sub-label next to the bold DOCVEX wordmark. */
@@ -283,3 +322,10 @@
    document-wide style recalc (every element inherits root custom props), which
    was the FPS sink on mouse move. The component moves a single small box via a
    direct `transform` write instead. */
+
+/* Honour reduced-motion — snap the rail collapse instead of tweening it. */
+@media (prefers-reduced-motion: reduce) {
+  .app-shell { transition: none; }
+  .app-hub-btn,
+  .app-hub-label { transition: none; }
+}

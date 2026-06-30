@@ -7,8 +7,18 @@ import { openExternal, listDocViewerTabs, onDocViewerTabs, focusDocViewerTab, cl
 import { supabase } from '../lib/supabaseClient';
 import { toLayoutPx } from '../lib/appZoom';
 import Tooltip from './Tooltip';
+import FileThumbnail from './FileThumbnail';
 import { glyphForFile } from './fileGlyph';
 import './Sidebar.css';
+
+// localfile:// URL for an on-disk path so the Open-files rows can show real
+// thumbnails (same scheme the Files page uses). Web paths (web://…) and the
+// no-path case have no streamable URL, so the thumbnail resolver falls back to
+// the MIME glyph. Mirrors localUrlFor in ProjectFiles.jsx.
+function docTabLocalUrl(path) {
+  if (!path || (typeof path === 'string' && path.startsWith('web://'))) return null;
+  return `localfile://local/${encodeURIComponent(path)}`;
+}
 
 // External documentation site, opened in the user's browser (formerly the
 // launch hub's "Documentation" footer link).
@@ -176,6 +186,16 @@ const ProjectSettingsIcon = (
   </svg>
 );
 
+// Double-chevron glyph — the sidebar minimize/expand toggle. Points left to
+// collapse the rail; rotated 180° via CSS when collapsed so it points right
+// (expand).
+const CollapseIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="11 17 6 12 11 7"/>
+    <polyline points="18 17 13 12 18 7"/>
+  </svg>
+);
+
 // Spark glyph — the project AI surface.
 const AiIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -184,7 +204,7 @@ const AiIcon = (
   </svg>
 );
 
-export default function Sidebar() {
+export default function Sidebar({ collapsed = false, onToggleCollapse }) {
   const { session, logout } = useAuth();
   const { unreadCount } = useNotifications();
   const { selectedProjectId, selectedProject } = useSelectedProject();
@@ -407,14 +427,31 @@ export default function Sidebar() {
   }, []);
 
   return (
-    <nav className="sidebar" ref={navRef} onMouseMove={onSpotMove} onMouseLeave={onSpotLeave}>
+    <nav className={`sidebar${collapsed ? ' is-collapsed' : ''}`} ref={navRef} onMouseMove={onSpotMove} onMouseLeave={onSpotLeave}>
       <ul className="sidebar-nav">
         {/* The Hub launcher moved OUT of the rail — it's now a floating button
             in AppShell that navigates to /projects and hides this sidebar. */}
 
         {/* ── Personal — the user's own feeds. ── */}
         <li className="sidebar-cat">
-          <span className="sidebar-cat-label">Personal</span>
+          <span className="sidebar-cat-label">
+            <span className="sidebar-cat-text">Personal</span>
+            {/* Minimize/expand toggle — sits in line with the Personal divider,
+                pushed to the far right by the hairline rule. When the rail is
+                collapsed it's the only thing left in this row (centered) and
+                its chevron flips to point right. */}
+            <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+              <button
+                type="button"
+                className="sidebar-collapse-btn"
+                onClick={onToggleCollapse}
+                aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                aria-pressed={collapsed}
+              >
+                {CollapseIcon}
+              </button>
+            </Tooltip>
+          </span>
           <div className="sidebar-cat-items">
             {personalItems.map(renderNavItem)}
           </div>
@@ -424,7 +461,7 @@ export default function Sidebar() {
             picked); replaces the old in-content navigation rail. ── */}
         {projectItems.length > 0 && (
           <li className="sidebar-cat">
-            <span className="sidebar-cat-label">Project</span>
+            <span className="sidebar-cat-label"><span className="sidebar-cat-text">Project</span></span>
             <div className="sidebar-cat-items">
               {projectItems.map(renderNavItem)}
             </div>
@@ -436,7 +473,7 @@ export default function Sidebar() {
             (and always on web, where viewers open in the same tab). ── */}
         {docTabs.length > 0 && (
           <li className="sidebar-cat">
-            <span className="sidebar-cat-label">Open files</span>
+            <span className="sidebar-cat-label"><span className="sidebar-cat-text">Open files</span></span>
             <div className="sidebar-cat-items">
               {docTabs.map((t) => (
                 <div key={t.id} className="doc-tab-row">
@@ -447,10 +484,23 @@ export default function Sidebar() {
                       onClick={() => focusDocViewerTab(t.id)}
                     >
                       <span className="icon doc-tab-icon">
-                        {/* Per-file-type glyph (Word / Excel / PPT / PDF / image /
-                            video / audio / text / generic) so each open file reads
-                            distinctly instead of all sharing one icon. */}
-                        <span className={`doc-tab-glyph${t.isWhatsApp ? ' is-wa' : ''}`}>{t.isWhatsApp ? WhatsAppTabGlyph : glyphForFile(t.mime, t.name)}</span>
+                        {/* Real file thumbnail (image/video/PDF/DOCX/PPTX preview),
+                            same renderer the Files page uses — falls back to the
+                            per-file-type MIME glyph when no preview resolves or the
+                            "Display thumbnails" pref is off. WhatsApp chats are a
+                            .txt, so keep their brand glyph. */}
+                        <span className={`doc-tab-thumb${t.isWhatsApp ? ' is-wa' : ''}`}>
+                          {t.isWhatsApp
+                            ? WhatsAppTabGlyph
+                            : (
+                              <FileThumbnail
+                                mimeType={t.mime}
+                                name={t.name}
+                                sourceUrl={docTabLocalUrl(t.path)}
+                                glyph={glyphForFile(t.mime, t.name)}
+                              />
+                            )}
+                        </span>
                         {t.aiBusy && <span className="doc-tab-ai-dot" aria-label="AI working" />}
                       </span>
                       <span className="label doc-tab-name">{t.name}</span>
@@ -473,7 +523,7 @@ export default function Sidebar() {
 
         {/* ── System — settings, admin, docs. Pinned to the bottom of the rail. ── */}
         <li className="sidebar-cat sidebar-cat--end">
-          <span className="sidebar-cat-label">System</span>
+          <span className="sidebar-cat-label"><span className="sidebar-cat-text">System</span></span>
           <div className="sidebar-cat-items">
             {systemItems.map(renderNavItem)}
             {/* Documentation — external link to the website (opens in the
