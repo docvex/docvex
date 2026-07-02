@@ -314,7 +314,7 @@
   align-self: flex-start;
   /* Indent by the timeline rail width so the banner's left edge lines up with
      the release cards (which sit in the grid's 2nd column, after --railw). */
-  margin-left: 121.6px;
+  margin-left: 96px;
   max-width: 100%;
 }
 
@@ -448,7 +448,7 @@
   --node-top: 24px;
 }
 
-.updates-page .rail-rail .rel-row { --railw: 121.6px; --linex: 100.8px; }
+.updates-page .rail-rail .rel-row { --railw: 96px; --linex: 75.2px; }
 
 /* The vertical line — fills the full row height so adjacent rows connect. */
 .updates-page .rail-col { position: relative; }

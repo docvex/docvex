@@ -362,10 +362,15 @@ function wireDevtoolsShortcuts(win) {
 // appended to the loaded URL (e.g. `?docViewer=1`) so the renderer can boot
 // straight into a specific surface. `openDevtools` only for the primary window
 // so the doc-viewer window doesn't pop its own devtools.
-// Default app-window size — used as the launch fallback AND as the fixed size
-// the signed-out (auth) screen pins the window to. Kept in one place so the two
-// can't drift.
+// Default app-window size — used as the launch fallback for the signed-in app.
 const DEFAULT_WINDOW_SIZE = { width: 1200, height: 750 };
+// Fixed size the signed-out (auth) screen pins the window to — narrower than the
+// app default so the login screen reads as a focused, compact window. Kept >720px
+// wide so the split brand panel stays visible (its hide breakpoint in
+// authCabinet.css is tuned to match).
+// White (form) side is double the fixed 368px blue panel → 736px, so the window
+// is 368 + 736 = 1104px wide.
+const AUTH_WINDOW_SIZE = { width: 1104, height: 750 };
 
 function createAppWindow({ query, openDevtools = false, bounds = null } = {}) {
   const win = new BrowserWindow({
@@ -877,11 +882,15 @@ ipcMain.on('window:auth-state', (e, state) => {
     w.setResizable(false);
     w.setMaximizable(false);
     w.setFullScreenable(false);
-    w.setSize(DEFAULT_WINDOW_SIZE.width, DEFAULT_WINDOW_SIZE.height);
+    // The app-wide minWidth (900) would clamp setSize up — drop the floor to the
+    // auth size first so the window can actually shrink to it.
+    w.setMinimumSize(AUTH_WINDOW_SIZE.width, AUTH_WINDOW_SIZE.height);
+    w.setSize(AUTH_WINDOW_SIZE.width, AUTH_WINDOW_SIZE.height);
     w.center();
     return;
   }
-  // 'app' or 'unlock' — both restore interactive sizing.
+  // 'app' or 'unlock' — both restore interactive sizing + the app minimum.
+  w.setMinimumSize(900, 600);
   w.setResizable(true);
   w.setMaximizable(true);
   w.setFullScreenable(true);

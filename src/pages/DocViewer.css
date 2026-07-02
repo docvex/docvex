@@ -3540,9 +3540,21 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 /* ════════════════════════════════════════════════════════════════════════
    Left rail — "Back to app" + "Opened files" (mirrors the main app sidebar)
    ════════════════════════════════════════════════════════════════════════ */
-.dv-sidebar {
+/* The left rail column: the floating Back-to-app button stacked ABOVE the
+   rounded "Opened files" rail (mirrors the main app, where the Hub launcher
+   floats outside the sidebar). */
+.dv-sidebar-col {
   flex: 0 0 200px;
-  width: 200px;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dv-sidebar {
+  flex: 1 1 auto;
+  width: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -3558,9 +3570,11 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   overflow-y: auto;
 }
 
-/* Back-to-app button — styled like the main app's Hub launcher / selected tab:
-   accent-tint fill, accent ring, accent text. */
+/* Back-to-app button — a floating tab above the rail, styled like the main
+   app's Hub launcher / selected tab: accent-tint fill, accent ring, accent
+   text. Sits OUTSIDE the rounded rail. */
 .dv-sidebar-back {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 9px;

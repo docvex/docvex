@@ -400,11 +400,15 @@ export default function TitleBar() {
               {MinimizeGlyph}
             </button>
           </Tooltip>
-          <Tooltip content={maximized ? 'Restore' : 'Maximize'}>
-            <button type="button" className="tb-win-btn" onClick={windowToggleMaximize} aria-label={maximized ? 'Restore' : 'Maximize'}>
-              {maximized ? RestoreGlyph : MaximizeGlyph}
-            </button>
-          </Tooltip>
+          {/* No maximize on the signed-out screen — the auth window is pinned to
+              a fixed size and non-maximizable, so the control is dropped there. */}
+          {!onAuth && (
+            <Tooltip content={maximized ? 'Restore' : 'Maximize'}>
+              <button type="button" className="tb-win-btn" onClick={windowToggleMaximize} aria-label={maximized ? 'Restore' : 'Maximize'}>
+                {maximized ? RestoreGlyph : MaximizeGlyph}
+              </button>
+            </Tooltip>
+          )}
           <Tooltip content="Close">
             <button type="button" className="tb-win-btn tb-win-close" onClick={windowClose} aria-label="Close">
               {CloseGlyph}

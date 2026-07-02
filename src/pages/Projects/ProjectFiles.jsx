@@ -444,7 +444,15 @@ export default function ProjectFiles({ embedded = false } = {}) {
     const { error } = await localFolderApi.renameFile({ dir, fromName, toName });
     if (error) return { ok: false, error };
     // Keep the AI chat (and any saved versions) with the file across the rename.
-    try { migrateConversation(`${dir}/${fromName}`, `${dir}/${toName}`); } catch { /* non-fatal */ }
+    // Clear any ORPHANED chat sitting at the destination name first — a since-
+    // deleted file of the same name may have left a stale thread there, and
+    // because a rename to an occupied name fails on disk, the destination is
+    // always free, so any saved thread under it is dead. Without this the
+    // renamed file would inherit that other file's history.
+    try {
+      clearConversation(`${dir}/${toName}`);
+      migrateConversation(`${dir}/${fromName}`, `${dir}/${toName}`);
+    } catch { /* non-fatal */ }
     if (syncSidecar) {
       setSidecar((prev) => {
         const next = renameSidecarEntry(prev, fromName, toName);
@@ -959,7 +967,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
         try {
           const toPath = join(toDir, it.name);
           if (it?._dir) migrateConversationsUnder(fromPath, toPath);
-          else migrateConversation(fromPath, toPath);
+          // Drop any orphaned chat left at the destination path by a since-gone
+          // file of the same name before moving this file's thread in.
+          else { clearConversation(toPath); migrateConversation(fromPath, toPath); }
         } catch { /* non-fatal */ }
       } else fail += 1;
     }
@@ -1383,7 +1393,14 @@ export default function ProjectFiles({ embedded = false } = {}) {
     access: 'Stored in your local folder',
     title: 'Files',
     kicker: fxKicker,
-  } : null;
+  } : {
+    eyebrow: 'Project files',
+    access: 'Recycle bin',
+    title: 'Trash',
+    kicker: trashDisplayCount === 0
+      ? 'Trash is empty'
+      : `${fmtCount(trashDisplayCount)} ${trashDisplayCount === 1 ? 'item' : 'items'} · Removed for good after ${TRASH_RETENTION_DAYS} days`,
+  };
 
   const filesWorkspaceProps = {
     projectId,

@@ -138,9 +138,13 @@
 /* Transparent so the ambient dot grid + cursor spotlight (painted by
    .auth-page::before and <CursorSpotlight/> at z-index:-1) show through on the
    cream form side; the ink brand panel below stays opaque and covers them. */
+/* Full-bleed split filling the window — the narrower auth scale comes from the
+   locked window size (AUTH_WINDOW_SIZE in main.js), not a capped card. */
 .auv-cabinet { display: flex; background: transparent; }
 .auv-cab-brand {
-  position: relative; width: clamp(288px, 38%, 368px); flex-shrink: 0;
+  /* Fixed width so narrowing the window only shrinks the form side — the blue
+     brand panel stays a constant size (was a % clamp that scaled with width). */
+  position: relative; width: 368px; flex-shrink: 0;
   background: var(--auv-ink); overflow: hidden; isolation: isolate;
   display: flex; flex-direction: column;
   justify-content: space-between; padding: 36.8px 33.6px; color: var(--auv-cream);
@@ -209,7 +213,7 @@
 }
 
 /* ── Responsive ── */
-@media (max-width: 820px) {
+@media (max-width: 600px) {
   .auv-cab-brand { display: none; }
   .auv-cab-form { padding: 25.6px 19.2px; }
 }

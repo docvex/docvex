@@ -7759,11 +7759,12 @@ const LargeTileGlyph = (
 // Clicking a row focuses that window; the × closes it; the row for THIS
 // window's file is marked active.
 
-// Arrow-left — the "Back to app" affordance.
+// App-window glyph — the "Back to app" affordance (raises the main app window).
 const DvBackIcon = (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="19" y1="12" x2="5" y2="12" />
-    <polyline points="12 19 5 12 12 5" />
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <line x1="3" y1="9" x2="21" y2="9" />
+    <line x1="7" y1="6.5" x2="7.01" y2="6.5" />
   </svg>
 );
 
@@ -7791,7 +7792,10 @@ function DocViewerSidebar({ activePath }) {
   const activeNorm = norm(activePath);
 
   return (
-    <nav className="dv-sidebar">
+    <div className="dv-sidebar-col">
+      {/* Back-to-app button — lives OUTSIDE the rounded rail (a floating tab
+          above it), mirroring the main app's Hub launcher which sits apart from
+          the sidebar. */}
       <Tooltip content="Back to the main app">
         <button type="button" className="dv-sidebar-back" onClick={() => focusMainWindow()}>
           <span className="dv-sidebar-back-icon">{DvBackIcon}</span>
@@ -7799,6 +7803,7 @@ function DocViewerSidebar({ activePath }) {
         </button>
       </Tooltip>
 
+      <nav className="dv-sidebar">
       <div className="dv-sidebar-cat">
         <span className="dv-sidebar-cat-label"><span>Opened files</span></span>
         <div className="dv-sidebar-items">
@@ -7838,7 +7843,8 @@ function DocViewerSidebar({ activePath }) {
           ))}
         </div>
       </div>
-    </nav>
+      </nav>
+    </div>
   );
 }
 

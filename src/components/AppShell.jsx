@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate, Navigate } from 'react-router-dom';
+import { RouteFallback } from '../AppRoutes';
 import Sidebar from './Sidebar';
 import UpdateProgressBar from './UpdateProgressBar';
 import SwitchProjectLoader from './SwitchProjectLoader';
@@ -73,7 +74,7 @@ const SIDEBAR_COLLAPSED_KEY = 'docvex.sidebarCollapsed';
 export default function AppShell() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const { session } = useAuth();
+  const { session, loading: authLoading } = useAuth();
   // Sidebar minimize state — persisted per device (not per user; it's a layout
   // preference). Drives both the rail's own width and the --sidebar-width var
   // the rest of the chrome offsets against, so the whole layout animates in
@@ -121,6 +122,18 @@ export default function AppShell() {
   ) : (
     <Outlet />
   );
+
+  // Force signed-out users to the auth screen — the app shell (sidebar + the
+  // public Activity/Newsletter/Versions pages) is only for authenticated
+  // sessions. AuthPage pins the window to its default size + disables resizing
+  // ('locked'), so this is also what gives the sign-in screen its fixed scale.
+  // The invite-accept route stays reachable while signed out: it stashes its
+  // token and routes through /auth itself (see InviteAccept.jsx). While auth is
+  // still hydrating we hold on a spinner instead of flashing the shell.
+  const isInviteRoute = pathname.startsWith('/invite/');
+  if (authLoading) return <RouteFallback />;
+  if (!session && !isInviteRoute) return <Navigate to="/auth" replace />;
+
   return (
       <div
         className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}
