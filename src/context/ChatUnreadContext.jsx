@@ -85,7 +85,11 @@ export function ChatUnreadProvider({ children }) {
           if (row.author_id === viewerId) return;
           if (row.deleted_at) return;
           const lastRead = lastReadRef.current || new Date(0).toISOString();
-          if (row.created_at && row.created_at > lastRead) {
+          // Compare parsed epoch millis, not raw strings: row.created_at is a
+          // Postgres timestamptz (offset form, e.g. `+00:00`) while lastRead is
+          // a JS toISOString() (`Z`), so a lexicographic `>` mis-orders them and
+          // can drop genuinely-newer messages from the count.
+          if (row.created_at && Date.parse(row.created_at) > Date.parse(lastRead)) {
             setUnreadCount((c) => c + 1);
           }
         },

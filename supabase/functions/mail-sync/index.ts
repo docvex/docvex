@@ -222,7 +222,14 @@ async function loadConn(userId: string): Promise<Conn | null> {
     .from("user_mail_connections").select("*").eq("user_id", userId).maybeSingle();
   if (!data) return null;
   const c = data as Conn;
-  return { ...c, access_token: await decToken(c.access_token), refresh_token: await decToken(c.refresh_token) };
+  // Decrypt tolerantly: if MAIL_TOKEN_KEY is unset or rotated after a token was
+  // encrypted, decToken throws. Swallow that to a null token instead of letting
+  // it bubble up and 500 the whole request — disconnect must still be able to
+  // delete the dead row, and list/send fall through to a clean reauth.
+  const safeDec = async (v: string | null): Promise<string | null> => {
+    try { return await decToken(v); } catch { return null; }
+  };
+  return { ...c, access_token: await safeDec(c.access_token), refresh_token: await safeDec(c.refresh_token) };
 }
 
 // ── authorize (issue CSRF nonce + build consent URL) ────────────────────
@@ -307,12 +314,19 @@ async function handleConnect(userId: string, provider: Provider, code: string, r
   } catch { /* email best-effort */ }
 
   const existing = await loadConn(userId); // decrypted; keep its refresh token if none returned
+  // Only carry over the stored refresh token when it belongs to the SAME
+  // provider — otherwise a gmail→outlook switch would graft the Google refresh
+  // token onto the outlook row (there's one row per user), and the next refresh
+  // posts it to the wrong token endpoint and silently drops the connection.
+  const carriedRefresh = refreshToken
+    ?? (existing?.provider === provider ? existing?.refresh_token : null)
+    ?? null;
   const row: Record<string, unknown> = {
     user_id: userId,
     provider,
     email,
     access_token: await encToken(accessToken),
-    refresh_token: await encToken(refreshToken ?? existing?.refresh_token ?? null),
+    refresh_token: await encToken(carriedRefresh),
     token_expiry: expiry,
     scope: isG ? GOOGLE_SCOPES : MS_SCOPES,
   };
@@ -418,13 +432,18 @@ async function handleList(userId: string): Promise<Response> {
 
 // ── send ──────────────────────────────────────────────────────────────────
 async function sendGmail(token: string, to: string, subject: string, body: string, threadId?: string, inReplyTo?: string, references?: string): Promise<void> {
+  // Strip CR/LF from every value placed into a MIME header line. Without this a
+  // value like "Hi\r\nBcc: attacker@evil.com" would inject a real header (hidden
+  // Bcc, forged threading) — CWE-93 email header injection. The body is placed
+  // only after the \r\n\r\n separator, so header values must stay single-line.
+  const hdr = (v: string) => String(v).replace(/[\r\n]+/g, " ").trim();
   const headers = [
-    `To: ${to}`,
-    `Subject: ${subject}`,
+    `To: ${hdr(to)}`,
+    `Subject: ${hdr(subject)}`,
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',
-    ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`] : []),
-    ...(references ? [`References: ${references}`] : []),
+    ...(inReplyTo ? [`In-Reply-To: ${hdr(inReplyTo)}`] : []),
+    ...(references ? [`References: ${hdr(references)}`] : []),
   ];
   const raw = `${headers.join("\r\n")}\r\n\r\n${body}`;
   const encoded = b64urlEncode(new TextEncoder().encode(raw));

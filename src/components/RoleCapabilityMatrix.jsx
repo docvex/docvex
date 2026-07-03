@@ -184,13 +184,19 @@ export default function RoleCapabilityMatrix({
       });
 
       if (error) {
-        // Roll back the optimistic overlay for this role so the UI snaps
-        // back to the persisted state, and surface the failure.
-        setOverlay((curr) => {
-          const next = { ...curr };
-          delete next[role.id];
-          return next;
-        });
+        // Roll back the optimistic overlay so the UI snaps back to the
+        // persisted state — but ONLY if no newer click landed during the
+        // in-flight RPC. If the overlay still holds the exact payload we tried
+        // to persist (same array reference — each click makes a fresh one), it's
+        // safe to clear. Otherwise a newer edit is pending under its own timer;
+        // deleting here would silently discard that click, so leave it be.
+        if (overlayRef.current[role.id] === pendingCaps) {
+          setOverlay((curr) => {
+            const next = { ...curr };
+            delete next[role.id];
+            return next;
+          });
+        }
         notify({
           category: 'role',
           variant: 'error',

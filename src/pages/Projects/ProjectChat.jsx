@@ -825,7 +825,11 @@ export default function ProjectChat() {
   // "Copy text" item).
   const copyMessageText = useCallback((text) => {
     if (!text) return;
-    try { navigator.clipboard?.writeText(text); } catch { /* clipboard unavailable */ }
+    // writeText rejects ASYNChronously (denied permission / unfocused document,
+    // common in Electron), so a synchronous try/catch can't swallow it — attach
+    // a .catch or it surfaces as an unhandled promise rejection.
+    try { navigator.clipboard?.writeText(text)?.catch(() => { /* clipboard unavailable */ }); }
+    catch { /* clipboard API missing */ }
   }, []);
 
   // Fetch reactions + replies for the project (refetch on tick).

@@ -19,6 +19,25 @@
 // client secret (held by mail-sync).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
+// The web hop target is carried in the OAuth `state`, which an attacker can
+// craft and providers echo back verbatim. Without validation this endpoint is
+// an open redirect that bounces the authorization code to any host. Only ever
+// redirect to an app-owned origin (exact scheme+host+port match). Override the
+// defaults with MAIL_WEB_ORIGINS (comma-separated) if the app moves domains.
+const ALLOWED_WEB_ORIGINS = (
+  Deno.env.get("MAIL_WEB_ORIGINS")
+  ?? "https://docvex.ro,https://www.docvex.ro,https://petreluca1105-dotcom.github.io"
+).split(",").map((s) => s.trim()).filter(Boolean);
+
+function isAllowedWebTarget(raw: string): boolean {
+  let u: URL;
+  try { u = new URL(raw); } catch { return false; }
+  // Localhost over http is the web dev server — safe (points at the victim's
+  // own machine, not an attacker host).
+  if (u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1")) return true;
+  return u.protocol === "https:" && ALLOWED_WEB_ORIGINS.includes(u.origin);
+}
+
 function htmlPage(redirectTo: string, message: string): Response {
   const safe = redirectTo.replace(/"/g, "&quot;").replace(/</g, "&lt;");
   return new Response(
@@ -59,21 +78,27 @@ Deno.serve((req: Request) => {
   const q = (extra: string) =>
     `provider=${encodeURIComponent(provider)}&nonce=${encodeURIComponent(nonce)}&${extra}`;
 
+  const isElectron = target === "electron" || !target;
+  // Resolve the redirect base up front, validating any web target against the
+  // origin allowlist. An unrecognised target is refused (never bounced onward)
+  // so a crafted `state` can't turn this into an open redirect / code leak.
+  const webTarget = isElectron ? null : decodeURIComponent(target);
+  if (!isElectron && !isAllowedWebTarget(webTarget!)) {
+    return htmlPage(
+      `docvex://mail/callback?${q("error=bad_target")}`,
+      "Couldn't connect your mailbox",
+    );
+  }
+  const base = isElectron ? "docvex://mail/callback" : webTarget!;
+  const join = base.includes("?") ? "&" : "?";
+
   if (oauthError || !code) {
-    const base = target === "electron" || !target ? "docvex://mail/callback" : decodeURIComponent(target);
-    const join = base.includes("?") ? "&" : "?";
     return htmlPage(`${base}${join}${q(`error=${encodeURIComponent(oauthError || "no_code")}`)}`,
       "Couldn't connect your mailbox");
   }
-
-  if (target === "electron" || !target) {
-    return htmlPage(
-      `docvex://mail/callback?${q(`code=${encodeURIComponent(code)}`)}`,
-      "Mailbox connected",
-    );
-  }
-  // Web target — an absolute app URL to /mail.
-  const web = decodeURIComponent(target);
-  const join = web.includes("?") ? "&" : "?";
-  return htmlPage(`${web}${join}${q(`mailcode=${encodeURIComponent(code)}`)}`, "Mailbox connected");
+  // Electron gets `code`, web gets `mailcode` (its historical param name).
+  const codeParam = isElectron
+    ? `code=${encodeURIComponent(code)}`
+    : `mailcode=${encodeURIComponent(code)}`;
+  return htmlPage(`${base}${join}${q(codeParam)}`, "Mailbox connected");
 });

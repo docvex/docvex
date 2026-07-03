@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage, screen } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage, screen, session } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -115,13 +115,13 @@ protocol.registerSchemesAsPrivileged([
 // auth screen comes up clean with the email (and optionally password)
 // already typed.
 //
-// Hardcoded because these are the developer's personal test accounts — the
-// menu is gated on !app.isPackaged below so distributed builds don't show
-// these emails (let alone the password) to other users. An account without
-// a `password` field just prefills the email and lets the user type the
-// rest manually.
+// Developer's personal test accounts for the dev-only account switcher (gated on
+// !app.isPackaged below). Passwords are NEVER hard-coded — a committed password
+// leaks into source + git history and ships in the bundled main process. Set
+// DOCVEX_DEV_PASSWORD in your local (untracked) env to auto-fill; otherwise an
+// account just prefills the email and you type the password by hand.
 const ACCOUNTS = [
-  { email: 'petreluca25@stud.ase.ro', password: 'Hailamasa12345' },
+  { email: 'petreluca25@stud.ase.ro', password: process.env.DOCVEX_DEV_PASSWORD || undefined },
   { email: 'petreluca1105@gmail.com' },
 ];
 
@@ -430,6 +430,13 @@ function createAppWindow({ query, openDevtools = false, bounds = null } = {}) {
   win.on('enter-full-screen', sendFullscreenState);
   win.on('leave-full-screen', sendFullscreenState);
 
+  // Tag this as a preload-bearing app window so the navigation guard pins it to
+  // app content (the no-preload viewer windows aren't tagged and stay free to
+  // load remote office/PDF viewer URLs).
+  const wcId = win.webContents.id;
+  appWindowContentIds.add(wcId);
+  win.on('closed', () => appWindowContentIds.delete(wcId));
+
   // No native menu bar (per-window on Windows, so removeMenu each window).
   win.removeMenu();
   // Removing the menu also drops the default DevTools accelerators — re-add them.
@@ -503,6 +510,9 @@ function normDocPath(p) {
 }
 
 function createDocViewerWindow(file) {
+  // The viewer loads this file (and its WhatsApp media siblings) via
+  // localfile:// — allow reads in its folder.
+  if (file?.path) registerLocalfileFile(file.path);
   // Never open the same file in two windows — if a viewer already shows this
   // path, restore + focus it and reuse it instead of spawning a duplicate.
   if (file?.path) {
@@ -687,9 +697,14 @@ ipcMain.handle('whatsapp:prepare-zip', async (_e, zipPath) => {
       await fsp.mkdir(destDir, { recursive: true });
       const { default: extract } = await import('extract-zip');
       await extract(zipPath, { dir: destDir });
+      // Drop any hostile symlink entries the archive planted before we serve it.
+      await stripSymlinks(destDir);
       chatPath = await findChatTranscript(destDir);
     }
     if (!chatPath || !(await looksLikeWhatsApp(chatPath))) return { ok: false };
+    // The reconstructed conversation (transcript + media) is served via
+    // localfile:// — allow reads inside this extraction folder only.
+    registerLocalfileRoot(destDir);
 
     // Friendly tab name: the Android transcript names itself; iOS `_chat.txt`
     // is anonymous, so fall back to the zip's own filename.
@@ -711,6 +726,7 @@ ipcMain.handle('whatsapp:prepare-folder', async (_e, dirPath) => {
   try {
     const chatPath = await findChatTranscript(dirPath);
     if (!chatPath || !(await looksLikeWhatsApp(chatPath))) return { ok: false };
+    registerLocalfileRoot(dirPath); // media served from this folder via localfile://
     const base = path.basename(chatPath);
     const name = /^_chat\.txt$/i.test(base) ? path.basename(dirPath) : base.replace(/\.txt$/i, '');
     return { ok: true, chatPath, name };
@@ -823,18 +839,49 @@ app.on('open-url', (event, url) => {
   }
 });
 
-// Let the renderer open URLs in the system browser (needed for OAuth + release links)
-ipcMain.on('oauth:open-external', (_, url) => {
-  shell.openExternal(url);
+// ── Navigation hardening (Electron security checklist) ─────────────────────
+// The preload-bearing app windows expose the full electronAPI bridge, and
+// Chromium re-injects the preload on every top-level navigation. If an injection
+// ever drove such a window to a remote origin, that origin would inherit the
+// bridge (file read/write/delete, openExternal, …). Pin those windows to app
+// content and route any external link to the system browser. window.open is
+// denied everywhere (the app never uses it — file windows are spawned via IPC).
+const appWindowContentIds = new Set();
+function isAppContentUrl(url) {
+  if (typeof url !== 'string') return false;
+  if (/^localfile:\/\//i.test(url) || /^file:\/\//i.test(url) || /^devtools:\/\//i.test(url)) return true;
+  return !!MAIN_WINDOW_VITE_DEV_SERVER_URL && url.startsWith(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+}
+app.on('web-contents-created', (_e, contents) => {
+  contents.on('will-navigate', (event, url) => {
+    if (!appWindowContentIds.has(contents.id)) return; // viewer windows load remote docs — allowed
+    if (!isAppContentUrl(url)) {
+      event.preventDefault();
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    }
+  });
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
 });
 
-// Generic external-URL opener (release links, GitHub, etc.). Only allow
-// http(s) so a compromised renderer can't trigger arbitrary protocol handlers.
-ipcMain.on('app:open-external', (_, url) => {
-  if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+// Single validated opener for BOTH external-URL channels. Only http(s) (and the
+// app's own docvex:// scheme) is allowed — so a compromised/XSS renderer can't
+// pass file://, ms-msdt:, or a UNC path (\\host\share) to shell.openExternal and
+// launch a local program or force an SMB auth (NetNTLM leak). Keeping both
+// channels on one guard stops them drifting apart again.
+function openExternalSafe(url) {
+  if (typeof url !== 'string') return;
+  if (/^https?:\/\//i.test(url) || /^docvex:\/\//i.test(url)) {
     shell.openExternal(url);
   }
-});
+}
+
+// OAuth + release links open in the system browser via the same guard.
+ipcMain.on('oauth:open-external', (_, url) => openExternalSafe(url));
+// Generic external-URL opener (release links, GitHub, etc.).
+ipcMain.on('app:open-external', (_, url) => openExternalSafe(url));
 
 // Custom window controls — the window is frameless (frame:false), so the
 // renderer's title bar owns minimize / maximize / close. Multi-window now, so
@@ -1063,6 +1110,11 @@ ipcMain.on('app:open-file-window', (_, payload) => {
   const fileName = typeof payload?.fileName === 'string' ? payload.fileName : 'file';
   if (typeof url !== 'string') return;
   if (!/^https?:\/\//i.test(url) && !/^localfile:\/\//i.test(url)) return;
+  // Allow the localfile:// handler to serve the file being opened here.
+  if (/^localfile:\/\//i.test(url)) {
+    try { registerLocalfileFile(decodeURIComponent(new URL(url).pathname.replace(/^\//, ''))); }
+    catch { /* malformed URL — openInAppWindow will fail harmlessly */ }
+  }
   openInAppWindow(url, fileName);
 });
 
@@ -1177,6 +1229,7 @@ ipcMain.on('app:open-docx', (_, payload) => {
   const cloudUrl = rawCloudUrl && /^https?:\/\//i.test(rawCloudUrl) ? rawCloudUrl : null;
   const fileName = typeof payload?.fileName === 'string' ? payload.fileName : 'file';
   if (!localPath && !cloudUrl) return;
+  if (localPath) registerLocalfileFile(localPath);
 
   // Cloud DOCX → Office Online viewer in a fresh window. The
   // openInAppWindow helper handles the title (DocVex - <name>
@@ -1480,7 +1533,9 @@ ipcMain.handle('local-folder:pick', async () => {
     title: 'Choose download folder',
   });
   if (result.canceled) return null;
-  return result.filePaths?.[0] || null;
+  const picked = result.filePaths?.[0] || null;
+  if (picked) registerLocalfileRoot(picked);
+  return picked;
 });
 
 // Per-project working directory. Each project auto-binds to a fixed folder
@@ -1530,6 +1585,10 @@ ipcMain.handle('local-folder:project-dir', async (_, arg) => {
   try {
     const docvexRoot = path.join(app.getPath('documents'), 'Docvex');
     await fsp.mkdir(docvexRoot, { recursive: true });
+    // Every per-project folder lives under this root (or the hub's baseDir), so
+    // registering these covers all project files for localfile:// serving.
+    registerLocalfileRoot(docvexRoot);
+    if (baseDir) registerLocalfileRoot(baseDir);
     const registryPath = path.join(docvexRoot, '.docvex-projects.json');
 
     let registry = {};
@@ -1648,6 +1707,7 @@ function isIgnoredLocalFilename(name) {
 // can show the same "size · date" pair the cloud cards use.
 ipcMain.handle('local-folder:list', async (_, dir) => {
   if (!dir) return { files: [], dirs: [], error: 'No directory specified' };
+  registerLocalfileRoot(dir); // the user is viewing this folder → its files are serveable
   try {
     const entries = await fsp.readdir(dir, { withFileTypes: true });
     const files = [];
@@ -1739,6 +1799,7 @@ async function walkLocalDir(root, rel, out) {
 
 ipcMain.handle('local-folder:list-recursive', async (_, dir) => {
   if (!dir) return { files: [], error: 'No directory specified' };
+  registerLocalfileRoot(dir); // recursive listing → the whole subtree is serveable
   try {
     const files = [];
     await walkLocalDir(dir, '', files);
@@ -1760,6 +1821,83 @@ function sanitizeSegment(name) {
   return String(name).replace(/[\\/:*?"<>|]/g, '_').replace(/\.+$/, '').trim().slice(0, 120);
 }
 
+// Path-containment guard. A raw `resolved.startsWith(normalizedDir)` is unsafe:
+// path.resolve() strips the trailing separator, so a SIBLING folder that shares
+// the parent's name prefix (…\Proj vs …\Proj-x or "…\Proj Backup") passes the
+// check and file ops escape the intended folder. Compare via path.relative
+// instead and reject anything that walks up (`..`) or resolves absolute.
+// `allowRoot` decides whether `target === root` counts as inside (default no —
+// callers that operate ON children want the root itself rejected).
+function isInsideDir(root, target, { allowRoot = false } = {}) {
+  const rel = path.relative(root, target);
+  if (rel === '') return allowRoot;
+  return !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+// A user-supplied name that must stay a single child segment of a directory
+// (folder / rename handlers do `path.resolve(dir, name)`; a `..` or a separator
+// would escape or retarget). True only for a plain in-place child name.
+function isSingleSegment(name) {
+  const s = String(name);
+  return s.length > 0 && s !== '.' && s !== '..'
+    && !s.includes('/') && !s.includes('\\') && !path.isAbsolute(s);
+}
+
+// ── localfile:// read allow-list ──────────────────────────────────────────
+// The `localfile://` protocol streams file BYTES to the renderer. Without a
+// containment check it would read ANY absolute path the renderer names, turning
+// any content-injection / XSS foothold (or a crafted filename in an opened doc)
+// into arbitrary local-file disclosure. We instead only serve files inside
+// directories the user has actually surfaced through the app — folders they
+// picked/listed/watched, the per-project Documents\Docvex tree, the WhatsApp
+// extraction temp, and the parent of any file opened in a viewer window.
+const localfileRoots = new Set();
+function registerLocalfileRoot(dir) {
+  if (!dir || typeof dir !== 'string') return;
+  try { localfileRoots.add(path.resolve(dir)); } catch { /* ignore bad path */ }
+}
+// Permit a file by registering its containing directory (used when the renderer
+// is handed a single file path, e.g. a Doc Viewer / file window).
+function registerLocalfileFile(filePath) {
+  if (!filePath || typeof filePath !== 'string') return;
+  try { localfileRoots.add(path.dirname(path.resolve(filePath))); } catch { /* ignore */ }
+}
+// Is `filePath` inside an allowed root? Resolves symlinks first (fs.realpath) so
+// a symlink planted inside an allowed folder can't point out of it and leak an
+// external file (defends the zip-symlink vector too).
+async function isLocalfileAllowed(filePath) {
+  if (!localfileRoots.size) return false;
+  let real;
+  try { real = await fsp.realpath(filePath); }
+  catch { real = path.resolve(filePath); } // not-yet-existing → check resolved
+  for (const root of localfileRoots) {
+    let realRoot;
+    try { realRoot = await fsp.realpath(root); } catch { realRoot = root; }
+    if (real === realRoot || isInsideDir(realRoot, real, { allowRoot: true })) return true;
+  }
+  return false;
+}
+
+// Recursively delete any SYMLINK entries from a just-extracted archive tree. A
+// malicious zip can carry a symlink entry whose target points OUTSIDE the
+// extraction folder (extract-zip blocks `..` in names but writes symlinks
+// verbatim, CWE-59); left in place a later read/write could follow it out of
+// containment. Dirent.isSymbolicLink()/isDirectory() come from lstat, so we
+// never traverse INTO a symlinked directory.
+async function stripSymlinks(dir) {
+  let entries;
+  try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
+  catch { return; }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) {
+      await fsp.rm(full, { force: true }).catch(() => { /* best-effort */ });
+    } else if (entry.isDirectory()) {
+      await stripSymlinks(full);
+    }
+  }
+}
+
 ipcMain.handle('local-folder:create-folder', async (_, payload) => {
   const dir = payload?.dir;
   const name = sanitizeSegment(payload?.name || '');
@@ -1767,7 +1905,7 @@ ipcMain.handle('local-folder:create-folder', async (_, payload) => {
   try {
     const normalizedDir = path.resolve(dir);
     const target = path.resolve(dir, name);
-    if (!target.startsWith(normalizedDir)) return { error: 'Path outside branch folder' };
+    if (!isInsideDir(normalizedDir, target)) return { error: 'Path outside branch folder' };
     await fsp.mkdir(target); // non-recursive: throws EEXIST if it exists
     return { ok: true, name, path: target, error: null };
   } catch (err) {
@@ -1780,11 +1918,14 @@ ipcMain.handle('local-folder:delete-folder', async (_, payload) => {
   const dir = payload?.dir;
   const name = payload?.name;
   if (!dir || !name) return { error: 'Missing args' };
+  // `name` must be a single child segment — reject `..`/separators so a crafted
+  // payload can't resolve to a sibling or parent directory.
+  if (!isSingleSegment(name)) return { error: 'Invalid folder name' };
   try {
     const normalizedDir = path.resolve(dir);
     const target = path.resolve(dir, name);
     // Must be strictly inside the parent (never the parent itself).
-    if (!target.startsWith(normalizedDir) || target === normalizedDir) {
+    if (!isInsideDir(normalizedDir, target)) {
       return { error: 'Path outside branch folder' };
     }
     await fsp.rm(target, { recursive: true, force: true });
@@ -1805,7 +1946,7 @@ ipcMain.handle('local-folder:move', async (_, payload) => {
     const normalizedRoot = path.resolve(root);
     const from = path.resolve(fromPath);
     const to = path.resolve(toDir, path.basename(from));
-    if (!from.startsWith(normalizedRoot) || !to.startsWith(normalizedRoot)) {
+    if (!isInsideDir(normalizedRoot, from) || !isInsideDir(normalizedRoot, to)) {
       return { error: 'Path outside branch folder' };
     }
     if (from === to) return { ok: true, error: null };
@@ -1828,6 +1969,19 @@ ipcMain.handle('local-folder:move', async (_, payload) => {
 // Existing files at the target path are overwritten — the user
 // explicitly asked to sync from cloud, so cloud is the source of
 // truth.
+// Only Supabase-hosted pre-signed storage URLs are ever legitimate download
+// sources. Restricting to https + a *.supabase.co host turns the main-process
+// fetch from an SSRF primitive (cloud-metadata 169.254.169.254, loopback/intranet
+// services the renderer sandbox can't reach) into a narrow, expected call.
+function isAllowedDownloadUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { return false; }
+  if (u.protocol !== 'https:') return false;
+  const host = u.hostname.toLowerCase();
+  if (host.includes(':') || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false; // no IP literals
+  return host === 'supabase.co' || host.endsWith('.supabase.co');
+}
+
 ipcMain.handle('local-folder:download', async (_, payload) => {
   const dir = payload?.dir;
   const files = Array.isArray(payload?.files) ? payload.files : [];
@@ -1843,8 +1997,12 @@ ipcMain.handle('local-folder:download', async (_, payload) => {
       results.push({ filename: f?.filename || '?', ok: false, error: 'Missing url or filename' });
       continue;
     }
+    if (!isAllowedDownloadUrl(f.url)) {
+      results.push({ filename: f.filename, ok: false, error: 'Blocked: URL is not a Supabase storage URL' });
+      continue;
+    }
     try {
-      const res = await fetch(f.url);
+      const res = await fetch(f.url, { redirect: 'error' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
       // f.subdir is the file's folder_path (relative, '' = root). Recreate
@@ -1853,7 +2011,7 @@ ipcMain.handle('local-folder:download', async (_, payload) => {
       // to stay inside the branch folder.
       const relDir = (f.subdir || '').split('/').map(sanitizeSegment).filter(Boolean).join(path.sep);
       const targetDir = relDir ? path.join(dir, relDir) : dir;
-      if (!path.resolve(targetDir).startsWith(path.resolve(dir))) {
+      if (!isInsideDir(path.resolve(dir), path.resolve(targetDir), { allowRoot: true })) {
         throw new Error('Path outside branch folder');
       }
       if (relDir) await fsp.mkdir(targetDir, { recursive: true });
@@ -1913,11 +2071,16 @@ ipcMain.handle('local-folder:rename-file', async (_, payload) => {
   const toName = payload?.toName;
   if (!dir || !fromName || !toName) return { error: 'Missing args' };
   if (fromName === toName) return { ok: true, error: null };
+  // A rename stays in-place: both names must be plain child segments so a
+  // crafted `..\sibling` payload can't rename across folder boundaries.
+  if (!isSingleSegment(fromName) || !isSingleSegment(toName)) {
+    return { error: 'Invalid file name' };
+  }
   try {
     const normalizedDir = path.resolve(dir);
     const fromPath = path.resolve(dir, fromName);
     const toPath = path.resolve(dir, toName);
-    if (!fromPath.startsWith(normalizedDir) || !toPath.startsWith(normalizedDir)) {
+    if (!isInsideDir(normalizedDir, fromPath) || !isInsideDir(normalizedDir, toPath)) {
       return { error: 'Path outside branch folder' };
     }
     await fsp.rename(fromPath, toPath);
@@ -1985,6 +2148,8 @@ ipcMain.handle('local-folder:extract-archive', async (_, srcPath) => {
     await fsp.mkdir(dest, { recursive: true });
     const { default: extract } = await import('extract-zip');
     await extract(srcPath, { dir: dest });
+    // Strip any hostile symlink entries the archive planted (CWE-59 link-follow).
+    await stripSymlinks(dest);
     return { ok: true, extracted: true, path: dest };
   } catch (err) {
     return { ok: false, error: err?.message || String(err) };
@@ -2036,7 +2201,7 @@ ipcMain.handle('local-folder:delete-files', async (_, payload) => {
       results.push({ path: p, ok: false, error: err?.message || String(err) });
       continue;
     }
-    if (!resolved.startsWith(normalizedDir)) {
+    if (!isInsideDir(normalizedDir, resolved)) {
       results.push({ path: p, ok: false, error: 'Path is outside branch folder' });
       continue;
     }
@@ -2086,6 +2251,7 @@ const stopWatcher = () => {
 ipcMain.handle('local-folder:watch', (_, dir) => {
   stopWatcher();
   if (!dir) return { ok: true };
+  registerLocalfileRoot(dir); // active folder → serveable
   try {
     // recursive so changes inside synced subfolders are noticed too
     // (Windows + macOS support recursive fs.watch; on platforms that
@@ -2264,7 +2430,7 @@ ipcMain.handle('local-folder:trash-file', async (_, payload) => {
   try {
     const normalizedDir = path.resolve(dir);
     const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(normalizedDir)) {
+    if (!isInsideDir(normalizedDir, resolved)) {
       return { ok: false, error: 'Path is outside project folder' };
     }
     const originalName = path.basename(resolved);
@@ -2306,7 +2472,7 @@ ipcMain.handle('local-folder:trash-folder', async (_, payload) => {
     const normalizedDir = path.resolve(dir);
     const resolved = path.resolve(folderPath);
     // Must be strictly inside the root (never the root itself or outside it).
-    if (!resolved.startsWith(normalizedDir) || resolved === normalizedDir) {
+    if (!isInsideDir(normalizedDir, resolved)) {
       return { ok: false, error: 'Path is outside project folder' };
     }
     const tdir = trashDir(dir);
@@ -2503,6 +2669,31 @@ app.on('before-quit', () => { stopWatcher(); stopPurgeTimer(); });
 // --------------------------------------------------------------------------
 
 app.whenReady().then(() => {
+  // Content-Security-Policy backstop for packaged builds. If any rendering
+  // dependency (docx-preview, react-markdown, pdf.js, …) ever leaked injected
+  // HTML into the privileged renderer, this caps the blast radius: scripts must
+  // be app-origin, connections are limited to Supabase/GitHub/localfile, and
+  // objects/base-uri/frame-ancestors are locked down so exfil + navigation
+  // tricks are blocked. NOT applied in dev — Vite HMR needs eval + ws:.
+  if (app.isPackaged) {
+    const csp = [
+      "default-src 'self'",
+      "script-src 'self' 'wasm-unsafe-eval' blob:",
+      "worker-src 'self' blob:",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com data:",
+      "img-src 'self' localfile: data: blob: https:",
+      "media-src 'self' localfile: blob: data:",
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.github.com https://*.githubusercontent.com localfile: data: blob:",
+      "object-src 'none'",
+      "base-uri 'none'",
+      "frame-ancestors 'none'",
+    ].join('; ');
+    session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
+      cb({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [csp] } });
+    });
+  }
+
   // macOS dock icon. BrowserWindow({ icon }) is ignored on macOS (the dock
   // uses the bundle icon), and under `electron-forge start` the bundle is
   // Electron's, so the dock shows the generic Electron icon. Set it at
@@ -2529,11 +2720,11 @@ app.whenReady().then(() => {
   //     proper byte-range support for `<video>` / `<img>` requests
   //     without buffering large files into memory.
   //
-  // Security note: this exposes arbitrary local files to the
-  // renderer. Same trust boundary as the rest of the renderer
-  // (preload's localFolder IPCs already read/write the filesystem),
-  // so no additional gate is needed beyond not shipping this scheme
-  // to any non-Electron context.
+  // Security: reads are CONTAINED to directories the user has actually opened
+  // through the app (isLocalfileAllowed / localfileRoots), resolved via
+  // fs.realpath so a symlink can't point out of an allowed folder. Without this
+  // the scheme would read any absolute path the renderer names, turning any
+  // content-injection/XSS foothold into arbitrary local-file disclosure.
   // Downscaled-image cache for the `?thumb=` branch below. Keyed by
   // path+mtime+width; capped so a huge folder can't grow it unbounded
   // (entries are ~20-60KB JPEGs — the cap is a few MB of RAM).
@@ -2573,6 +2764,12 @@ app.whenReady().then(() => {
       // decode in one go.
       const raw = url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
       filePath = decodeURIComponent(raw);
+      // Containment: only serve files inside a directory the user has actually
+      // opened through the app. Blocks arbitrary-path reads from a compromised
+      // renderer or a crafted filename, and (via realpath) symlink escapes.
+      if (!(await isLocalfileAllowed(filePath))) {
+        return new Response('Forbidden', { status: 403 });
+      }
       const stat = await fsp.stat(filePath);
       if (!stat.isFile()) {
         return new Response('Not a file', { status: 404 });
@@ -2664,10 +2861,10 @@ app.whenReady().then(() => {
         },
       });
     } catch (err) {
-      return new Response(
-        `localfile error reading ${filePath}: ${err?.message || err}`,
-        { status: err?.code === 'ENOENT' ? 404 : 500 },
-      );
+      // Don't reflect the decoded path back — it would echo attacker-probed
+      // paths. Log locally for debugging instead.
+      console.error('localfile read error:', err?.message || err);
+      return new Response('Could not read file', { status: err?.code === 'ENOENT' ? 404 : 500 });
     }
   });
 

@@ -167,12 +167,14 @@ function isIgnoredLocalFilenameWeb(name) {
 async function listWeb() {
   const dir = webState.dirHandle;
   if (!dir) return { files: [], error: 'No folder picked' };
-  webState.handlesByName.clear();
-  // Refresh the size/mtime fingerprint map alongside the handle map.
-  // snapshotHandles() reads from it so the poller detects in-place
-  // byte edits (e.g. Word "Save" overwriting the same file), not
-  // just adds/removes/renames.
-  webState.metaByName.clear();
+  // Build fresh maps in locals and swap them in atomically at the end. The
+  // 3s poller runs this repeatedly; clearing webState's maps up-front then
+  // repopulating behind `await entry.getFile()` opened a window where a
+  // concurrent readLocalBlob() saw an empty/half-built map and threw
+  // "No handle". snapshotHandles() reads metaByName so the poller still
+  // detects in-place byte edits (Word "Save"), not just adds/removes/renames.
+  const nextHandles = new Map();
+  const nextMeta = new Map();
   const files = [];
   try {
     for await (const entry of dir.values()) {
@@ -182,8 +184,8 @@ async function listWeb() {
       let f;
       try { f = await entry.getFile(); }
       catch { continue; }  // permission revoked mid-iteration, skip
-      webState.handlesByName.set(entry.name, entry);
-      webState.metaByName.set(entry.name, { size: f.size, mtime: f.lastModified });
+      nextHandles.set(entry.name, entry);
+      nextMeta.set(entry.name, { size: f.size, mtime: f.lastModified });
       files.push({
         name: entry.name,
         // Synthetic path scheme so the renderer can detect web vs
@@ -197,6 +199,9 @@ async function listWeb() {
       });
     }
     files.sort((a, b) => (a.mtimeIso < b.mtimeIso ? 1 : -1));
+    // Swap the fully-built maps in at once — no reader ever sees a partial map.
+    webState.handlesByName = nextHandles;
+    webState.metaByName = nextMeta;
     return { files, error: null };
   } catch (err) {
     return { files: [], error: err?.message || String(err) };

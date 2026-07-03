@@ -75,10 +75,13 @@ export function ProjectProvider({ children }) {
   const [loading, setLoading] = useState(!seed);
   const [error, setError] = useState(null);
 
-  // Use a ref instead of state for the cancel flag so we don't re-render on
-  // it. The effect captures the ref and can check `cancelledRef.current` to
-  // bail out cleanly when projectId changes mid-flight.
-  const cancelledRef = useRef(false);
+  // Monotonic generation token for async loads. A single shared boolean cancel
+  // flag was unsafe: each projectId change reset it to false before the previous
+  // project's in-flight fetch resolved, so a slow load for project A could write
+  // A's data while the UI had already moved to B. Every load captures the token
+  // at start and bails if it no longer matches — so only the newest run can
+  // commit. Realtime refetch effects use their own per-run local flag instead.
+  const loadSeqRef = useRef(0);
   // Unique-per-mount suffix for Realtime channel topics. Split view can mount
   // TWO ProjectProviders for the same project at once (the sidebar-driven
   // primary pane AND a secondary pane viewing the same project), so a fixed
@@ -102,7 +105,7 @@ export function ProjectProvider({ children }) {
 
   const load = useCallback(async () => {
     if (!projectId) return;
-    cancelledRef.current = false;
+    const myRun = ++loadSeqRef.current;
 
     const [
       { data: projData, error: projErr },
@@ -113,7 +116,8 @@ export function ProjectProvider({ children }) {
       listMembers(projectId),
       listCustomRoles(projectId),
     ]);
-    if (cancelledRef.current) return;
+    // A newer load (or a projectId change, which triggers one) has superseded us.
+    if (loadSeqRef.current !== myRun) return;
 
     if (projErr) {
       // On a background revalidation (we already have a cached payload for this
@@ -154,7 +158,6 @@ export function ProjectProvider({ children }) {
   // runs to revalidate in the background (stale-while-revalidate). Only show the
   // "Loading project…" placeholder on a genuine cache miss.
   useEffect(() => {
-    cancelledRef.current = false;
     const cached = PROJECT_CACHE.get(projectId);
     if (cached) {
       setProject(cached.project);
@@ -167,8 +170,9 @@ export function ProjectProvider({ children }) {
       setLoading(true);
       setError(null);
     }
+    // load() bumps loadSeqRef, invalidating any still-in-flight fetch for the
+    // previous project — so no separate cleanup flag is needed here.
     load();
-    return () => { cancelledRef.current = true; };
   }, [projectId, load]);
 
   // Keep the cache current with the live state — covers the initial fetch AND
@@ -192,12 +196,16 @@ export function ProjectProvider({ children }) {
   // batch of events into a single network call.
   useEffect(() => {
     if (!projectId) return;
+    // Per-run flag: a debounced refetch that already fired and is awaiting when
+    // this effect tears down (projectId change) must not write into the next
+    // project's state.
+    let cancelled = false;
     const refreshMembersDebounced = () => {
       if (memberRefetchTimerRef.current) clearTimeout(memberRefetchTimerRef.current);
       memberRefetchTimerRef.current = setTimeout(async () => {
         memberRefetchTimerRef.current = null;
         const { data, error: memErr } = await listMembers(projectId);
-        if (cancelledRef.current) return;
+        if (cancelled) return;
         if (!memErr) setMembers(data || []);
       }, 200);
     };
@@ -249,6 +257,7 @@ export function ProjectProvider({ children }) {
       .subscribe();
 
     return () => {
+      cancelled = true;
       if (memberRefetchTimerRef.current) {
         clearTimeout(memberRefetchTimerRef.current);
         memberRefetchTimerRef.current = null;
@@ -266,12 +275,13 @@ export function ProjectProvider({ children }) {
   useEffect(() => {
     if (!projectId) return undefined;
 
+    let cancelled = false;
     const refreshRolesDebounced = () => {
       if (rolesRefetchTimerRef.current) clearTimeout(rolesRefetchTimerRef.current);
       rolesRefetchTimerRef.current = setTimeout(async () => {
         rolesRefetchTimerRef.current = null;
         const { data, error: rolesErr } = await listCustomRoles(projectId);
-        if (cancelledRef.current) return;
+        if (cancelled) return;
         if (!rolesErr) setCustomRoles(data || []);
       }, 200);
     };
@@ -283,6 +293,7 @@ export function ProjectProvider({ children }) {
     });
 
     return () => {
+      cancelled = true;
       if (rolesRefetchTimerRef.current) {
         clearTimeout(rolesRefetchTimerRef.current);
         rolesRefetchTimerRef.current = null;
@@ -300,8 +311,10 @@ export function ProjectProvider({ children }) {
   // catalog after a successful save without re-fetching the project + members.
   const refreshCustomRoles = useCallback(async () => {
     if (!projectId) return;
+    const myRun = loadSeqRef.current;
     const { data, error: err } = await listCustomRoles(projectId);
-    if (cancelledRef.current) return;
+    // A projectId change triggers a load() that bumps the token — bail if so.
+    if (loadSeqRef.current !== myRun) return;
     if (!err) setCustomRoles(data || []);
   }, [projectId]);
 

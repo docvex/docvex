@@ -34,6 +34,11 @@ export function useChatFind({ containerRef, query, name, scope }) {
 
   const [total, setTotal] = useState(0);
   const [index, setIndex] = useState(0);
+  // Bumped on every rebuild so the paint effect repaints even when the match
+  // COUNT is unchanged — otherwise a mutation that rebuilds the Range objects
+  // but keeps `total` the same leaves CSS.highlights pointing at the old
+  // (now-corrupted) ranges.
+  const [rebuildTick, setRebuildTick] = useState(0);
   const rangesRef = useRef([]);
   // Whether the user has navigated yet for the current query — so the first
   // Enter jumps to the first match (index 0) instead of skipping to the second.
@@ -80,6 +85,7 @@ export function useChatFind({ containerRef, query, name, scope }) {
     rangesRef.current = ranges;
     setTotal(ranges.length);
     setIndex((prev) => (ranges.length ? Math.min(prev, ranges.length - 1) : 0));
+    setRebuildTick((t) => t + 1);
   }, [containerRef, query, scope, clearHighlights]);
 
   // A fresh query resets the active match to the first hit.
@@ -113,7 +119,7 @@ export function useChatFind({ containerRef, query, name, scope }) {
     const rest = ranges.filter((r) => r !== active);
     if (rest.length) CSS.highlights.set(HL, new Highlight(...rest)); else CSS.highlights.delete(HL);
     if (active) CSS.highlights.set(HL_ACTIVE, new Highlight(active)); else CSS.highlights.delete(HL_ACTIVE);
-  }, [total, index, HL, HL_ACTIVE, clearHighlights]);
+  }, [total, index, rebuildTick, HL, HL_ACTIVE, clearHighlights]);
 
   // Drop the global highlights when this thread unmounts.
   useEffect(() => clearHighlights, [clearHighlights]);

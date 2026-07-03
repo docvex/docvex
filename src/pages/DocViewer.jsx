@@ -752,10 +752,17 @@ function ImageAttachment({ url, name, fullPath, onError }) {
 // and anything that fails to load (e.g. the file wasn't included in the export).
 function ChatAttachment({ name, dir, sep, time, caption, pages }) {
   const [failed, setFailed] = useState(false);
-  const fullPath = dir ? `${dir}${sep}${name}` : name;
+  // The attachment name comes from attacker-authorable transcript text. Only a
+  // plain in-folder filename may be resolved to a path — a name containing a
+  // path separator or `..` would escape the export folder (arbitrary file read
+  // via localfile://), so we treat it as unresolvable and show the absent-media
+  // placeholder instead. (main.js also enforces realpath containment as backstop.)
+  const safeName = typeof name === 'string' && name.length > 0
+    && !name.includes('/') && !name.includes('\\') && name !== '.' && name !== '..';
+  const fullPath = (dir && safeName) ? `${dir}${sep}${name}` : null;
   const kind = mediaKindOf(name);
   // Bubble images render at ~320 CSS px — a 640px thumb covers 2x densities.
-  const url = dir ? localUrlFor(fullPath, kind === 'image' ? 640 : undefined) : null;
+  const url = fullPath ? localUrlFor(fullPath, kind === 'image' ? 640 : undefined) : null;
 
   // Shared contact (.vcf) → a WhatsApp-style contact card (renders from the
   // filename even when the file itself wasn't included in the export).

@@ -476,6 +476,20 @@ export default function Updates() {
     return next;
   });
 
+  // The lazy initializer above runs on first render, but UpdatesContext loads
+  // `releases` asynchronously (empty at mount) and React never re-runs a
+  // useState initializer — so seed the newest-release expansion reactively,
+  // exactly once when releases first arrive, without clobbering later user
+  // collapses.
+  const didSeedExpandRef = useRef(false);
+  useEffect(() => {
+    if (didSeedExpandRef.current) return;
+    const first = releases[0];
+    if (!first) return;
+    didSeedExpandRef.current = true;
+    setExpandedIds((prev) => (prev.size === 0 ? new Set([first.id]) : prev));
+  }, [releases]);
+
   const requestRevert = (release) => setPendingRevert(release);
   const cancelRevert = () => setPendingRevert(null);
   const confirmRevert = () => {

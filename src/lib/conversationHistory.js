@@ -41,6 +41,10 @@ function parseRecord(raw) {
     return {
       messages: Array.isArray(parsed.messages) ? parsed.messages : [],
       versions: Array.isArray(parsed.versions) ? parsed.versions : [],
+      // Branch set for the advisor's split conversations; undefined for older
+      // records (pre-branching) so the caller falls back to a single "Main".
+      branches: Array.isArray(parsed.branches) ? parsed.branches : undefined,
+      activeBranchId: parsed.activeBranchId || undefined,
       updatedAt: parsed.updatedAt || 0,
     };
   } catch {
@@ -56,21 +60,27 @@ export function loadConversation(filePath) {
   return parseRecord(safeRead(keyFor(filePath))) || parseRecord(safeRead(KEY_PREFIX + filePath));
 }
 
-export function saveConversation(filePath, { messages, versions }) {
+export function saveConversation(filePath, { messages, versions, branches, activeBranchId }) {
   if (!filePath) return false;
   const msgs = Array.isArray(messages) ? messages : [];
   const vers = Array.isArray(versions) ? versions : [];
+  const brs = Array.isArray(branches) ? branches : null;
+  // A thread may live only in a non-active branch, so count branch content too.
+  const hasBranchContent = !!brs && brs.some((b) => Array.isArray(b.messages) && b.messages.length);
   // Empty → no-op. We must NOT delete here: the provider's save effect fires on
   // mount with the initial empty thread (before the load effect has populated
   // it), and in React StrictMode that empty save runs BEFORE the load re-reads
   // storage — deleting on empty would wipe the saved chat on every reopen. Use
   // clearConversation() to remove a thread on purpose.
-  if (!msgs.length && !vers.length) return false;
-  return safeWrite(keyFor(filePath), JSON.stringify({
-    messages: msgs,
-    versions: vers,
-    updatedAt: Date.now(),
-  }));
+  if (!msgs.length && !vers.length && !hasBranchContent) return false;
+  const record = { messages: msgs, versions: vers, updatedAt: Date.now() };
+  // Persist the branch set (split conversations) + which one is active so
+  // reopening the file restores every branch, not just the active thread.
+  if (brs) {
+    record.branches = brs;
+    record.activeBranchId = activeBranchId || undefined;
+  }
+  return safeWrite(keyFor(filePath), JSON.stringify(record));
 }
 
 export function clearConversation(filePath) {
