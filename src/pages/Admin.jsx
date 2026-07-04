@@ -5,6 +5,8 @@ import {
   listAppServices, upsertAppService, deleteAppService,
 } from '../lib/admin';
 import { openExternal } from '../lib/platform';
+import { miniHeaderSpot } from '../lib/miniHeaderSpot';
+import MiniHeaderFade from '../components/MiniHeaderFade';
 import Tooltip from '../components/Tooltip';
 import './Admin.css';
 
@@ -1038,7 +1040,8 @@ export default function Admin() {
       {/* Compact header — fades/slides in once the masthead has scrolled away,
           mirroring the Versions page exactly: title · eyebrow · a clickable
           status pill (with a dot) that jumps back to the top. */}
-      <div className={`dc-compact${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
+      <MiniHeaderFade visible={scrolled} />
+      <div className={`dc-compact mini-glow${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled} onMouseMove={miniHeaderSpot}>
         <span className="dc-compact-title">Services &amp; billing</span>
         <span className="dc-compact-sep" aria-hidden="true">·</span>
         <span className="dc-compact-eyebrow">Developer console</span>

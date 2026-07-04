@@ -313,6 +313,55 @@ export default function ProjectFiles({ embedded = false } = {}) {
     return () => { cancelled = true; };
   }, [localFolder, needsReconnect]);
 
+  // ── Activity tagging ──────────────────────────────────────────────────
+  // Attaches project + file context to a notify() payload so the event also
+  // lands in the personal activity log (lib/activityLog.js) — that log powers
+  // the Activity page's metrics strip and its per-file / per-action grouping.
+  const actMeta = useCallback((action, fileName, extra = {}) => ({
+    activity: {
+      action,
+      fileName: fileName || null,
+      projectId,
+      projectName: selectedProject?.name || null,
+      ...extra,
+    },
+  }), [projectId, selectedProject?.name]);
+
+  // Watcher-detected content edits — a changed mtime on a path that already
+  // existed means the file was saved (in Word, an external editor, or by the
+  // doc-viewer). Recorded silently (no toast); one event per file per
+  // 5 minutes so a save-happy editor doesn't flood the feed. prevFilesRef
+  // tracks the last committed listing to diff against.
+  const prevFilesRef = useRef(null);
+  useEffect(() => { prevFilesRef.current = localFiles; }, [localFiles]);
+  const editLogGuardRef = useRef(new Map()); // path → last logged ts
+  const recordExternalEdits = useCallback((prevList, nextList) => {
+    if (!Array.isArray(prevList) || prevList.length === 0) return;
+    const EDIT_LOG_THROTTLE_MS = 5 * 60 * 1000;
+    const prevByPath = new Map(prevList.map((f) => [f.path, f]));
+    const now = Date.now();
+    for (const f of nextList) {
+      if (!f?.path || !f.mtimeIso) continue;
+      const name = String(f.name || '');
+      if (name.startsWith('.docvex')) continue; // sidecar / trash bookkeeping
+      const prev = prevByPath.get(f.path);
+      if (!prev || !prev.mtimeIso || prev.mtimeIso === f.mtimeIso) continue;
+      const last = editLogGuardRef.current.get(f.path) || 0;
+      if (now - last < EDIT_LOG_THROTTLE_MS) continue;
+      editLogGuardRef.current.set(f.path, now);
+      notify({
+        category: 'file',
+        variant: 'info',
+        icon: 'edit',
+        title: 'File edited',
+        body: `“${name}” changed on disk.`,
+        silent: true,
+        dedupeKey: `fx-edit:${f.path}:${f.mtimeIso}`,
+        payload: actMeta('edit', name, { filePath: f.path }),
+      });
+    }
+  }, [notify, actMeta]);
+
   // ── Live-reload on disk change (Electron fs.watch / web poll) ──────────
   useEffect(() => {
     if (!hasLocalFolderApi || !localFolder) return undefined;
@@ -320,13 +369,16 @@ export default function ProjectFiles({ embedded = false } = {}) {
     const unsub = localFolderApi.onChange((changedDir) => {
       if (changedDir && changedDir !== localFolder) return;
       localFolderApi.listAll(localFolder).then(({ files: list, error }) => {
-        if (!error) setLocalFiles(list || []);
+        if (!error) {
+          recordExternalEdits(prevFilesRef.current, list || []);
+          setLocalFiles(list || []);
+        }
       });
       setBrowseTick((t) => t + 1);
       refetchTrash();
     });
     return () => { unsub?.(); localFolderApi.unwatch(); };
-  }, [localFolder, refetchTrash]);
+  }, [localFolder, refetchTrash, recordExternalEdits]);
 
   // ── Cross-window change sync ──────────────────────────────────────────
   // The disk watcher only ever pings the main window, so a delete or rename in
@@ -582,12 +634,13 @@ export default function ProjectFiles({ embedded = false } = {}) {
     const dir = currentDir;
     const res = await primCreateFolder(dir, trimmed);
     if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t create folder', body: res.error || 'Failed to create folder', dedupeKey: 'folder-create-error' }); return; }
+    notify({ category: 'file', variant: 'success', icon: 'folder-plus', title: 'Folder created', body: `“${trimmed}” added to this folder.`, silent: true, payload: actMeta('create-folder', trimmed, { folder: true }) });
     pushAction({
       label: `New folder “${trimmed}”`,
       undo: async () => (await primDeleteFolder(dir, trimmed)).ok,
       redo: async () => (await primCreateFolder(dir, trimmed)).ok,
     });
-  }, [currentDir, notify, primCreateFolder, primDeleteFolder, pushAction]);
+  }, [currentDir, notify, actMeta, primCreateFolder, primDeleteFolder, pushAction]);
 
   const handleRenameFolder = useCallback(async (folder, newName) => {
     const parent = currentDir;
@@ -596,6 +649,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
     if (!from || !to || to === from) return;
     const res = await primRename(parent, from, to, { syncSidecar: false });
     if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t rename folder', body: res.error || 'Failed to rename folder', dedupeKey: 'folder-rename-error' }); return; }
+    notify({ category: 'file', variant: 'success', icon: 'edit', title: 'Folder renamed', body: `“${from}” is now “${to}”.`, silent: true, payload: actMeta('rename', to, { detail: `from “${from}”`, folder: true }) });
     // Move every conversation saved for files inside the folder to the new path.
     try { migrateConversationsUnder(`${parent}/${from}`, `${parent}/${to}`); } catch { /* non-fatal */ }
     pushAction({
@@ -603,7 +657,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
       undo: async () => { const ok = (await primRename(parent, to, from, { syncSidecar: false })).ok; if (ok) { try { migrateConversationsUnder(`${parent}/${to}`, `${parent}/${from}`); } catch { /* non-fatal */ } } return ok; },
       redo: async () => { const ok = (await primRename(parent, from, to, { syncSidecar: false })).ok; if (ok) { try { migrateConversationsUnder(`${parent}/${from}`, `${parent}/${to}`); } catch { /* non-fatal */ } } return ok; },
     });
-  }, [currentDir, notify, primRename, pushAction]);
+  }, [currentDir, notify, actMeta, primRename, pushAction]);
 
   const handleDeleteFolder = useCallback(async (dir) => {
     const folderPath = dir?.path;
@@ -611,7 +665,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
     if (!folderPath) return;
     const res = await primTrashFolder(folderPath);
     if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t delete folder', body: res.error || 'Failed to delete folder', dedupeKey: 'folder-delete-error' }); return; }
-    notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Moved to Trash', body: `“${dir.name}” will be removed for good in ${TRASH_RETENTION_DAYS} days.`, dedupeKey: `fx-trash-folder:${folderPath}` });
+    // variant 'error' paints the toast/row red (destructive action); explicit
+    // normal priority keeps it from being escalated like a real failure.
+    notify({ category: 'file', variant: 'error', priority: 'normal', icon: 'trash', title: 'Moved to Trash', body: `“${dir.name}” will be removed for good in ${TRASH_RETENTION_DAYS} days.`, dedupeKey: `fx-trash-folder:${folderPath}`, payload: actMeta('delete', dir.name, { folder: true }) });
     // Track the stored names so redo (re-trash) can update them; an empty
     // folder leaves nothing in the bin, so undo just recreates it.
     const state = { stored: res.stored, path: folderPath };
@@ -627,7 +683,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
         return r.ok;
       },
     });
-  }, [currentDir, notify, primTrashFolder, primRestoreMany, primCreateFolder, pushAction]);
+  }, [currentDir, notify, actMeta, primTrashFolder, primRestoreMany, primCreateFolder, pushAction]);
 
   const handleBrowseFolder = useCallback(async () => {
     if (!hasLocalFolderApi) return;
@@ -716,12 +772,16 @@ export default function ProjectFiles({ embedded = false } = {}) {
     if (error) { notify({ category: 'file', variant: 'error', title: 'Could not add files', body: error, dedupeKey: 'fab-write-error' }); return; }
     const okCount = (results || []).filter((r) => r.ok).length;
     const failCount = (results || []).length - okCount;
+    const importedNames = (results || []).filter((r) => r.ok && r.filename).map((r) => r.filename);
     notify({
       category: 'file',
       variant: failCount > 0 ? 'error' : 'success',
       title: failCount > 0 ? 'Added with errors' : 'Files added',
       body: failCount > 0 ? `${okCount} of ${results.length} added · ${failCount} failed` : `${okCount} file${okCount === 1 ? '' : 's'} added.`,
       dedupeKey: 'fab-write-result',
+      payload: okCount > 0
+        ? actMeta('import', importedNames.length === 1 ? importedNames[0] : null, { count: okCount, files: importedNames })
+        : undefined,
     });
     if (okCount > 0) {
       setSidecar((prev) => {
@@ -767,7 +827,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
         },
       });
     }
-  }, [localFolder, currentDir, notify, refetchLocalFiles, pushAction, primTrash, primRestore]);
+  }, [localFolder, currentDir, notify, actMeta, refetchLocalFiles, pushAction, primTrash, primRestore]);
 
   // "Import" button → hidden <input type=file>.
   const handleLocalFilesPicked = useCallback(async (e) => {
@@ -818,10 +878,11 @@ export default function ProjectFiles({ embedded = false } = {}) {
         ? `${ok} of ${ok + fail} files imported · ${fail} failed`
         : `${ok} file${ok === 1 ? '' : 's'} imported across ${groups.size} folder${groups.size === 1 ? '' : 's'}.`,
       dedupeKey: 'fx-folder-import',
+      payload: ok > 0 ? actMeta('import', null, { count: ok, detail: 'folder import' }) : undefined,
     });
     setBrowseTick((t) => t + 1);
     await refetchLocalFiles();
-  }, [localFolder, currentDir, notify, refetchLocalFiles]);
+  }, [localFolder, currentDir, notify, actMeta, refetchLocalFiles]);
 
   // Drag-and-drop from the OS file manager → copy the dropped files into the
   // current folder. Each entry is { file, relPath }; loose files (no folder in
@@ -865,12 +926,13 @@ export default function ProjectFiles({ embedded = false } = {}) {
     const from = file.name;
     const res = await primRename(parent, from, trimmed);
     if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t rename', body: res.error || 'Failed to rename', dedupeKey: 'fx-rename-err' }); return; }
+    notify({ category: 'file', variant: 'success', icon: 'edit', title: 'File renamed', body: `“${from}” is now “${trimmed}”.`, silent: true, payload: actMeta('rename', trimmed, { detail: `from “${from}”` }) });
     pushAction({
       label: `Rename “${from}” → “${trimmed}”`,
       undo: async () => (await primRename(parent, trimmed, from)).ok,
       redo: async () => (await primRename(parent, from, trimmed)).ok,
     });
-  }, [currentDir, notify, primRename, pushAction]);
+  }, [currentDir, notify, actMeta, primRename, pushAction]);
 
   // ── Copy / paste ──────────────────────────────────────────────────────
   // Paste copies the clipboard's source files (read by their on-disk path)
@@ -908,13 +970,13 @@ export default function ProjectFiles({ embedded = false } = {}) {
     const written = (results || []).filter((r) => r.ok && r.path);
     setBrowseTick((t) => t + 1);
     await refetchLocalFiles();
-    notify({ category: 'file', variant: 'success', icon: 'copy', title: written.length > 1 ? 'Files pasted' : 'File pasted', body: `${written.length} file${written.length === 1 ? '' : 's'} added to this folder.`, dedupeKey: 'fx-paste' });
+    notify({ category: 'file', variant: 'success', icon: 'copy', title: written.length > 1 ? 'Files pasted' : 'File pasted', body: `${written.length} file${written.length === 1 ? '' : 's'} added to this folder.`, dedupeKey: 'fx-paste', payload: actMeta('import', written.length === 1 ? written[0].filename : null, { count: written.length, files: written.map((r) => r.filename), detail: 'pasted' }) });
     pushAction({
       label: `Paste ${written.length} file${written.length === 1 ? '' : 's'}`,
       undo: async () => { for (const r of written) await primTrash(r.path, r.filename); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
       redo: async () => { await localFolderApi.writeFiles({ dir: currentDir, files: toWrite }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
     });
-  }, [localFolder, currentDir, browseFiles, notify, refetchLocalFiles, primTrash, pushAction]);
+  }, [localFolder, currentDir, browseFiles, notify, actMeta, refetchLocalFiles, primTrash, pushAction]);
 
   // Paste of CUT files — move each from its source folder into the current
   // folder. Inverse moves files back to where they came from.
@@ -936,13 +998,13 @@ export default function ProjectFiles({ embedded = false } = {}) {
       notify({ category: 'file', variant: 'error', title: 'Couldn’t move', body: 'The file(s) could not be moved here (a file with that name may already exist).', dedupeKey: 'fx-move-err' });
       return;
     }
-    notify({ category: 'file', variant: 'success', icon: 'folder', title: moved.length > 1 ? 'Files moved' : 'File moved', body: `${moved.length} file${moved.length === 1 ? '' : 's'} moved here.`, dedupeKey: 'fx-move' });
+    notify({ category: 'file', variant: 'success', icon: 'folder', title: moved.length > 1 ? 'Files moved' : 'File moved', body: `${moved.length} file${moved.length === 1 ? '' : 's'} moved here.`, dedupeKey: 'fx-move', payload: actMeta('move', moved.length === 1 ? moved[0].name : null, { count: moved.length, files: moved.map((m) => m.name) }) });
     pushAction({
       label: `Move ${moved.length} file${moved.length === 1 ? '' : 's'}`,
       undo: async () => { for (const m of moved) await localFolderApi.move({ root: localFolder, fromPath: join(target, m.name), toDir: m.origDir }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
       redo: async () => { for (const m of moved) await localFolderApi.move({ root: localFolder, fromPath: join(m.origDir, m.name), toDir: target }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
     });
-  }, [localFolder, currentDir, notify, refetchLocalFiles, pushAction]);
+  }, [localFolder, currentDir, notify, actMeta, refetchLocalFiles, pushAction]);
 
   // ── Move (drag a file onto a folder) ──────────────────────────────────
   // Dragged items always come from the CURRENT folder, so the inverse of a
@@ -979,20 +1041,22 @@ export default function ProjectFiles({ embedded = false } = {}) {
       notify({ category: 'file', variant: 'error', title: 'Couldn’t move', body: fail ? 'The item(s) could not be moved (a file with that name may already exist there).' : 'Nothing to move.', dedupeKey: 'fx-move-err' });
       return;
     }
-    notify({ category: 'file', variant: 'success', icon: 'folder', title: moved.length > 1 ? 'Files moved' : 'File moved', body: `${moved.length} item${moved.length === 1 ? '' : 's'} moved to “${targetFolder.name}”.`, dedupeKey: 'fx-move' });
+    notify({ category: 'file', variant: 'success', icon: 'folder', title: moved.length > 1 ? 'Files moved' : 'File moved', body: `${moved.length} item${moved.length === 1 ? '' : 's'} moved to “${targetFolder.name}”.`, dedupeKey: 'fx-move', payload: actMeta('move', moved.length === 1 ? moved[0].name : null, { count: moved.length, files: moved.map((m) => m.name), detail: `to “${targetFolder.name}”` }) });
     pushAction({
       label: `Move ${moved.length} item${moved.length === 1 ? '' : 's'} to “${targetFolder.name}”`,
       undo: async () => { for (const m of moved) await localFolderApi.move({ root: localFolder, fromPath: join(toDir, m.name), toDir: origDir }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
       redo: async () => { for (const m of moved) await localFolderApi.move({ root: localFolder, fromPath: join(origDir, m.name), toDir }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
     });
-  }, [localFolder, currentDir, notify, refetchLocalFiles, pushAction]);
+  }, [localFolder, currentDir, notify, actMeta, refetchLocalFiles, pushAction]);
 
   // ── Recently deleted actions ──────────────────────────────────────────
   const handleDeleteLocalCard = useCallback(async (file) => {
     if (!file?.path) return;
     const res = await primTrash(file.path, file.name);
     if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t delete', body: res.error || 'Failed to delete', dedupeKey: 'fx-trash-err' }); return; }
-    notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Moved to Trash', body: `"${file.name}" will be removed for good in ${TRASH_RETENTION_DAYS} days.`, dedupeKey: `fx-trash:${file.path}` });
+    // variant 'error' paints the toast/row red (destructive action); explicit
+    // normal priority keeps it from being escalated like a real failure.
+    notify({ category: 'file', variant: 'error', priority: 'normal', icon: 'trash', title: 'Moved to Trash', body: `"${file.name}" will be removed for good in ${TRASH_RETENTION_DAYS} days.`, dedupeKey: `fx-trash:${file.path}`, payload: actMeta('delete', file.name, { filePath: file.path }) });
     const state = { stored: res.stored, path: file.path, name: file.name };
     pushAction({
       label: `Delete “${file.name}”`,
@@ -1007,13 +1071,13 @@ export default function ProjectFiles({ embedded = false } = {}) {
         return r.ok;
       },
     });
-  }, [notify, primTrash, primRestore, pushAction]);
+  }, [notify, actMeta, primTrash, primRestore, pushAction]);
 
   const handleRestoreFromTrash = useCallback(async (trash) => {
     if (!trash?.stored) return;
     const res = await primRestore(trash.stored);
     if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t restore', body: res.error || 'Failed to restore', dedupeKey: 'fx-restore-err' }); return; }
-    notify({ category: 'file', variant: 'success', icon: 'check', title: 'Restored', body: `"${trash.originalName}" is back in your folder.`, dedupeKey: `fx-restore:${trash.stored}` });
+    notify({ category: 'file', variant: 'success', icon: 'check', title: 'Restored', body: `"${trash.originalName}" is back in your folder.`, dedupeKey: `fx-restore:${trash.stored}`, payload: actMeta('restore', trash.originalName) });
     const state = { stored: trash.stored, path: res.restoredPath, name: trash.originalName };
     pushAction({
       label: `Restore “${trash.originalName}”`,
@@ -1028,7 +1092,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
         return r.ok;
       },
     });
-  }, [notify, primTrash, primRestore, pushAction]);
+  }, [notify, actMeta, primTrash, primRestore, pushAction]);
 
   // Empty the whole bin — permanently delete every trashed file. Not
   // undoable (mirrors single permanent delete).
@@ -1041,17 +1105,17 @@ export default function ProjectFiles({ embedded = false } = {}) {
     const failed = results.filter((r) => r && r.error).length;
     notify(failed > 0
       ? { category: 'file', variant: 'error', title: 'Couldn’t empty the bin', body: `${failed} of ${count} could not be deleted.`, dedupeKey: 'fx-empty-bin' }
-      : { category: 'file', variant: 'success', icon: 'trash', title: 'Trash emptied', body: `${count} file${count === 1 ? '' : 's'} permanently deleted.`, dedupeKey: 'fx-empty-bin' });
+      : { category: 'file', variant: 'success', icon: 'trash', title: 'Trash emptied', body: `${count} file${count === 1 ? '' : 's'} permanently deleted.`, dedupeKey: 'fx-empty-bin', payload: actMeta('purge', null, { count }) });
     await refetchTrash();
-  }, [localFolder, trashItems, notify, refetchTrash]);
+  }, [localFolder, trashItems, notify, actMeta, refetchTrash]);
 
   const handlePermanentDelete = useCallback(async (trash) => {
     if (!trash?.stored) return;
     const { error } = await localFolderApi.deleteFromTrash({ dir: localFolder, stored: trash.stored });
     if (error) { notify({ category: 'file', variant: 'error', title: 'Couldn’t delete', body: error, dedupeKey: 'fx-perm-del-err' }); return; }
-    notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Permanently deleted', body: `"${trash.originalName}" is gone for good.`, dedupeKey: `fx-perm-del:${trash.stored}` });
+    notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Permanently deleted', body: `"${trash.originalName}" is gone for good.`, dedupeKey: `fx-perm-del:${trash.stored}`, payload: actMeta('purge', trash.originalName) });
     await refetchTrash();
-  }, [localFolder, notify, refetchTrash]);
+  }, [localFolder, notify, actMeta, refetchTrash]);
 
   // Restore every file of a deleted folder back to where it lived.
   const handleRestoreGroup = useCallback(async (item) => {
@@ -1059,9 +1123,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
     if (!recs.length) return;
     const okAll = await primRestoreMany(recs.map((r) => r.stored));
     notify(okAll
-      ? { category: 'file', variant: 'success', icon: 'check', title: 'Restored', body: `“${item.name}” is back in your folder.`, dedupeKey: `fx-restore-grp:${item.id}` }
+      ? { category: 'file', variant: 'success', icon: 'check', title: 'Restored', body: `“${item.name}” is back in your folder.`, dedupeKey: `fx-restore-grp:${item.id}`, payload: actMeta('restore', item.name) }
       : { category: 'file', variant: 'error', title: 'Some files couldn’t be restored', body: `Part of “${item.name}” could not be put back.`, dedupeKey: `fx-restore-grp-err:${item.id}` });
-  }, [primRestoreMany, notify]);
+  }, [primRestoreMany, notify, actMeta]);
 
   // Permanently delete every file of a deleted folder.
   const handlePermanentDeleteGroup = useCallback(async (item) => {
@@ -1070,9 +1134,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
     for (const r of recs) {
       await localFolderApi.deleteFromTrash({ dir: localFolder, stored: r.stored });
     }
-    notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Permanently deleted', body: `“${item.name}” is gone for good.`, dedupeKey: `fx-perm-del-grp:${item.id}` });
+    notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Permanently deleted', body: `“${item.name}” is gone for good.`, dedupeKey: `fx-perm-del-grp:${item.id}`, payload: actMeta('purge', item.name) });
     await refetchTrash();
-  }, [localFolder, notify, refetchTrash]);
+  }, [localFolder, notify, actMeta, refetchTrash]);
 
   // ── Guards (after all hooks) ──────────────────────────────────────────
   if (projLoading && !selectedProject) return null;
@@ -1299,6 +1363,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
         return;
       }
       await refetchLocalFiles();
+      notify({ category: 'file', variant: 'success', icon: 'plus', title: 'File created', body: `“${filename}” added to this folder.`, silent: true, payload: actMeta('create', filename, { filePath: res.path }) });
       // A brand-new file must start with a clean AI thread — drop any stale
       // conversation saved at this exact path by a previous, since-renamed file
       // (e.g. an earlier "Untitled" that became "Untitled.docx"). Without this,
@@ -1335,6 +1400,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
         return;
       }
       await refetchLocalFiles();
+      notify({ category: 'file', variant: 'success', icon: 'plus', title: 'File created', body: `“${filename}” added to this folder.`, silent: true, payload: actMeta('create', filename, { filePath: res.path }) });
       // A brand-new file starts with a clean AI thread (drop any stale chat saved
       // at this exact path by a since-renamed file).
       clearConversation(res.path);

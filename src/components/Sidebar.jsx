@@ -3,9 +3,11 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
+import { useUpdates } from '../context/UpdatesContext';
 import { openExternal, listDocViewerTabs, onDocViewerTabs, focusDocViewerTab, closeDocViewerTab } from '../lib/platform';
 import { supabase } from '../lib/supabaseClient';
 import { toLayoutPx } from '../lib/appZoom';
+import { hasNewBrief, onNewsletterChanged } from '../lib/legalFeed';
 import Tooltip from './Tooltip';
 import FileThumbnail from './FileThumbnail';
 import { glyphForFile } from './fileGlyph';
@@ -208,6 +210,33 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }) {
   const { session, logout } = useAuth();
   const { unreadCount } = useNotifications();
   const { selectedProjectId, selectedProject } = useSelectedProject();
+  const { hasUpdate, currentVersion, latestVersion } = useUpdates();
+
+  // Which semver field the pending update bumps — drives the Versions pill
+  // colour (major = red, minor = amber, patch = green).
+  const parseVer = (v) => String(v || '').replace(/^v/, '').split('-')[0].split('.').map((n) => parseInt(n, 10) || 0);
+  let updateKind = null;
+  if (hasUpdate && currentVersion && latestVersion) {
+    const [cMaj, cMin] = parseVer(currentVersion);
+    const [lMaj, lMin] = parseVer(latestVersion);
+    updateKind = lMaj > cMaj ? 'major' : lMin > cMin ? 'minor' : 'patch';
+  }
+
+  // Newsletter "new brief" pill — a brief was published after the user's last
+  // visit to the tab. Checked on mount and whenever the newsletter signals a
+  // change (a visit clears it, a Debug-page insert raises it).
+  const [newBrief, setNewBrief] = useState(false);
+  useEffect(() => {
+    const userId = session?.user?.id || null;
+    if (!userId) { setNewBrief(false); return undefined; }
+    let cancelled = false;
+    const check = () => {
+      hasNewBrief(userId).then((v) => { if (!cancelled) setNewBrief(v); }).catch(() => {});
+    };
+    check();
+    const off = onNewsletterChanged(check);
+    return () => { cancelled = true; off(); };
+  }, [session?.user?.id]);
 
   // Account identity for the footer row (avatar + name + email).
   const user = session?.user || null;
@@ -280,9 +309,17 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }) {
       to: '/', label: 'Activity', icon: ActivityIcon, end: true,
       badge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : String(unreadCount)) : null,
     },
-    { to: '/newsletter', label: 'Newsletter', icon: NewspaperIcon, end: true },
+    {
+      to: '/newsletter', label: 'Newsletter', icon: NewspaperIcon, end: true,
+      // "New brief" pill — cleared when the user opens the tab.
+      pill: newBrief ? { kind: 'brief', text: 'new' } : null,
+    },
     ...(session ? [{ to: '/mail', label: 'Mail', icon: MailIcon, end: true }] : []),
-    { to: '/versions', label: 'Versions', icon: VersionsIcon, end: true },
+    {
+      to: '/versions', label: 'Versions', icon: VersionsIcon, end: true,
+      // Update-available pill, colored by the pending release's bump type.
+      pill: updateKind ? { kind: updateKind, text: updateKind } : null,
+    },
   ];
 
   // System destinations. Settings is signed-in only (matches where the gear
@@ -296,7 +333,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }) {
 
   // Render a single NavLink nav-item from a descriptor (shared by every
   // category group).
-  const renderNavItem = ({ to, label, icon, end, badge }) => (
+  const renderNavItem = ({ to, label, icon, end, badge, pill }) => (
     <NavLink
       key={to}
       to={to}
@@ -305,11 +342,14 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }) {
     >
       <span className="icon">
         {icon}
-        {badge && <span className="nav-badge" aria-hidden="true" />}
+        {/* Collapsed rail: both the unread badge and the update pill fall back
+            to the corner dot (tinted by bump type for the pill). */}
+        {(badge || pill) && <span className={`nav-badge${pill ? ` is-${pill.kind}` : ''}`} aria-hidden="true" />}
       </span>
       <span className="label nav-label-row">
         {label}
         {badge && <span className="nav-badge-text">{badge}</span>}
+        {pill && <span className={`nav-update-pill is-${pill.kind}`}>{pill.text}</span>}
       </span>
     </NavLink>
   );

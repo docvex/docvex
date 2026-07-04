@@ -28,6 +28,7 @@ const ProjectAI = lazy(() => import('./pages/Projects/ProjectAI'));
 const Mail = lazy(() => import('./pages/Mail'));
 const InviteAccept = lazy(() => import('./pages/Projects/InviteAccept'));
 const DocViewer = lazy(() => import('./pages/DocViewer'));
+const SnipOverlay = lazy(() => import('./pages/SnipOverlay'));
 
 // Shared full-screen spinner — reuses the `.spinner` class from Sidebar.css.
 export function RouteFallback() {
@@ -56,6 +57,9 @@ export default function AppRoutes({ Shell, ProjectShell }) {
         {/* Full-screen document viewer window (file preview + Legal AI panel),
             opened from the Files page. Sits outside the sidebar shell. */}
         <Route path="/doc-viewer" element={<DocViewer />} />
+        {/* Full-screen "extract text from screen" overlay — opened from the
+            system tray over a frozen screenshot of the desktop. */}
+        <Route path="/snip" element={<SnipOverlay />} />
         <Route path="/" element={<Shell />}>
           <Route index element={<Activity />} />
           <Route path="versions" element={<Updates />} />

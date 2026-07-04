@@ -635,39 +635,26 @@
   transition: --fx-spot-color 340ms ease, background-color 340ms ease;
 }
 /* Pinned (acting as the mini header): a rounded section in the top bar colour. */
+/* While the bar is in-flow and transparent (not pinned, not edit-tinted)
+   there's no border for the shared shine to ride — keep just the interior
+   spotlight. */
+.fx-pathbar:not(.is-pinned):not(.is-editing)::after { display: none; }
 .fx-pathbar.is-pinned {
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-card);
+  /* Pinned → the SIDEBAR's frosted surface (see styles/miniHeader.css);
+     spotlight + border shine come from the shared .mini-glow class. */
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  border: 1.5px solid var(--border);
+  box-shadow: none;
 }
-/* Team edit mode → red surface, white spotlight. The whole bar tints (always
-   visible), with the cursor glow reading as a light sweep over the red. */
+/* Team edit mode → red surface, white spotlight (the shared glow's colour is
+   parameterised via --mini-spot-color). The whole bar tints (always visible),
+   with the cursor glow reading as a light sweep over the red. */
 .fx-pathbar.is-editing {
   background-color: color-mix(in srgb, var(--danger) 7%, var(--bg-card));
-  --fx-spot-color: #ffffff;
+  --mini-spot-color: #ffffff;
 }
-/* Cursor-following spotlight on the toolbar background — a soft glow tracking
-   --spot-x/--spot-y (written on mousemove in FilesWorkspace.jsx), tinted by
-   --fx-spot-color. Fades in only while the bar is hovered. */
-.fx-pathbar::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  z-index: -1;
-  pointer-events: none;
-  background: radial-gradient(
-    160px circle at var(--spot-x, 50%) var(--spot-y, 50%),
-    color-mix(in srgb, var(--fx-spot-color) 8%, transparent) 0%,
-    color-mix(in srgb, var(--fx-spot-color) 3%, transparent) 40%,
-    transparent 72%
-  );
-  opacity: 0;
-  transition: opacity 260ms ease;
-}
-.fx-pathbar:hover::before { opacity: 0.6; }
-/* Red reads a touch stronger so the edit-mode warning is unmistakable. */
-.fx-pathbar.is-editing:hover::before { opacity: 0.8; }
 
 /* Mini-header title inside the sticky nav strip — hidden (collapsed to 0 width)
    while the hero masthead is in view, then it expands in once the hero scrolls
@@ -734,6 +721,8 @@
    folder is bottom-heavy and, being taller than the 12.5px text, otherwise reads
    as sitting slightly low. A 1px lift lines its visual centre up with the text. */
 .fx-crumb-icon { color: var(--accent); flex: 0 0 auto; display: block; transform: translateY(-1px); }
+/* Trash crumb — gray, not accent, so the bin reads as a utility surface. */
+.fx-crumb-icon.is-trash { color: var(--text-muted); }
 .fx-crumb:hover:not(.is-current) {
   background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   color: var(--text-primary);

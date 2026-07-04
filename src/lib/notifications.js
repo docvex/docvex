@@ -67,6 +67,24 @@ export function derivePriority(payload) {
   return NOTIFICATION_PRIORITIES.NORMAL;
 }
 
+// Every notification carries a SUBTITLE: call sites that don't pass `body`
+// get a category-derived line so rows and toasts never render a bare title.
+const DEFAULT_BODY_BY_CATEGORY = Object.freeze({
+  auth:    'Account activity on this device.',
+  project: 'An update to one of your projects.',
+  member:  'A change to your project’s team.',
+  file:    'File activity in your project.',
+  role:    'A change to your project’s roles.',
+  update:  'DocVex application update.',
+  support: 'Support request activity.',
+  system:  'System notice from DocVex.',
+  info:    'Notice from DocVex.',
+  social:  'Social activity in your projects.',
+});
+export function defaultBodyFor(category) {
+  return DEFAULT_BODY_BY_CATEGORY[category] || DEFAULT_BODY_BY_CATEGORY.system;
+}
+
 // How many toasts may be visible at once. Excess events still land in history
 // with toastShown: false — they're never auto-promoted from a queue (matches
 // macOS Notification Center). User reads them in the inbox.
@@ -228,7 +246,11 @@ export function buildNotification(payload, { userId = null, now = Date.now() } =
     // else normal). See NOTIFICATION_PRIORITIES.
     priority: derivePriority(payload),
     title: payload.title || '',
-    body: payload.body ?? null,
+    // Subtitle is mandatory: fall back to a category-derived line when the
+    // call site didn't provide one (see DEFAULT_BODY_BY_CATEGORY).
+    body: (payload.body && String(payload.body).trim())
+      ? payload.body
+      : defaultBodyFor(payload.category || NOTIFICATION_CATEGORIES.INFO),
     // Optional contextual-action icon key. Maps to a specific SVG in
     // src/notifications/icons.jsx (e.g. 'trash' for delete, 'envelope'
     // for send, 'plus' for create). When absent, the icon resolver falls

@@ -120,7 +120,11 @@
   align-items: stretch;
   height: 40px;
   border-radius: 9.6px;
-  overflow: hidden;
+  /* Visible overflow so the active tab's underline can straddle the bar's
+     bottom edge (its center sits ON the mini-header border) without the
+     bottom half being clipped. Children stay inside the rounded shape
+     visually — nothing else pokes past the bounds. */
+  overflow: visible;
   /* Transparent while still in flow under the masthead. */
   background: transparent;
   transition: background-color 200ms ease, box-shadow 240ms ease;
@@ -128,13 +132,18 @@
 .dvx-toolbar > .dvx-tabs { flex: 1 1 auto; border-bottom: none; align-items: stretch; }
 .dvx-toolbar > .dvx-chrome-tools { flex: 0 0 auto; height: auto; align-self: center; }
 /* Stuck at the top as the mini header (masthead scrolled away) → paint the
-   frosted surface so the buttons stay legible over the scrolling messages. Same
-   bg as every other mini header in the app (pmh-compact / pjd-compact / Files). */
+   SIDEBAR's frosted surface so the buttons stay legible over the scrolling
+   messages. Same recipe as every other mini header (see styles/miniHeader.css);
+   spotlight + border shine via the shared .mini-glow class. */
 .dvx-toolbar.is-pinned {
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-card);
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  border: 1.5px solid var(--border);
+  box-shadow: none;
 }
+/* Transparent in-flow (not pinned) → no border for the shared shine to ride. */
+.dvx-toolbar:not(.is-pinned)::after { display: none; }
 
 /* ═══════════════════════════════════════════════════════════════════
    Shared primitives (from chat-shared.css)
@@ -656,11 +665,17 @@
   content: '';
   position: absolute;
   left: 0.8rem;
-  right: 0.8rem;
-  bottom: 0;
+  /* Asymmetric: extend further right so the bar underlines the whole label
+     (the left inset clears the tab's leading icon). */
+  right: 0.3rem;
+  /* Half the bar's height below the edge → its horizontal center sits ON the
+     mini-header's bottom border (needs the toolbar's overflow: visible). */
+  bottom: -1.6px;
   height: 3.2px;
   background: var(--accent);
   border-radius: 2px;
+  /* Nudged a bit further down past the straddle point (matches Activity). */
+  transform: translateY(40%);
 }
 .dvx-tab svg { width: 12.8px; height: 12.8px; }
 .dvx-tab-badge {

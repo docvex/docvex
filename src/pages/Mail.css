@@ -45,10 +45,14 @@
   padding: 0 17.6px;
   overflow: hidden;
   line-height: 1;
+  /* The SIDEBAR's frosted surface (see styles/miniHeader.css); spotlight +
+     border shine via .mini-glow. */
   border-radius: 9.6px;
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-card);
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  border: 1.5px solid var(--border);
+  box-shadow: none;
   opacity: 0;
   transform: translateY(-8px);
   pointer-events: none;
@@ -209,7 +213,9 @@
 .mx-sent-text { font-size: 10.4px; color: var(--text-secondary); flex: 1; }
 
 /* ── Connect screen ────────────────────────────────────────────────────── */
-.mx-connect { max-width: 512px; margin: 19.2px 0 0; display: flex; flex-direction: column; }
+/* No extra top margin — the header starts at the page inset, matching the
+   Versions tab's masthead. */
+.mx-connect { max-width: 512px; margin: 0; display: flex; flex-direction: column; }
 /* Header styled like the Versions masthead: accent eyebrow + muted part, a big
    display title, then a kicker paragraph. */
 .mx-connect-eyebrow { font-size: 8.8px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); display: flex; align-items: center; gap: 9.6px; flex-wrap: wrap; margin-bottom: 14.4px; }

@@ -62,12 +62,18 @@
   align-items: center;
   gap: 6.4px;
   padding: 0 17.6px;
-  overflow: hidden;
-  /* Rounded floating section, painted in the window top bar colour. */
+  /* Visible overflow so an active tab underline hosted in compactRight can
+     straddle the bar's bottom edge (chat mini-header recipe) without its
+     lower half being clipped. Nothing else pokes past the bounds. */
+  overflow: visible;
+  /* Rounded floating section — SAME surface recipe as the sidebar rail:
+     translucent bg-page frost + blur + hairline border + card shadow. */
   border-radius: 9.6px;
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-card);
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  border: 1.5px solid var(--border);
+  box-shadow: none;
   opacity: 0;
   transform: translateY(-8px);
   pointer-events: none;
@@ -76,6 +82,11 @@
               left 250ms ease;
 }
 .pmh-compact.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+/* Spotlight + border shine come from the shared .mini-glow class
+   (src/styles/miniHeader.css) — the bar wires miniHeaderSpot as onMouseMove. */
+
+/* The gap-strip fade moved to the shared .mini-fade class
+   (src/styles/miniHeader.css) — rendered by every mini-header surface. */
 .pmh-compact-titlebtn {
   background: none;
   border: none;

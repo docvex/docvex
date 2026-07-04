@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage, screen, session } from 'electron';
+import { app, BrowserWindow, Menu, Tray, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage, screen, session, desktopCapturer } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -200,6 +200,10 @@ if (!allowMulti) {
 }
 
 let mainWindow = null;
+
+// System-tray handle — must stay referenced for the app's lifetime (a GC'd
+// Tray silently vanishes from the notification area). Set up in app.whenReady.
+let appTray = null;
 
 // ── Multi-monitor / window-state persistence ───────────────────────────────
 // Remember where the main window last lived (which monitor + size) so the next
@@ -559,6 +563,69 @@ function createDocViewerWindow(file) {
   return win;
 }
 ipcMain.on('window:open-doc-viewer', (_, file) => createDocViewerWindow(file));
+
+// ── Tray "Extract text" — freeze the desktop + OCR a selection ────────────
+// Screenshots the display under the cursor at full physical resolution,
+// stages it to a temp PNG (served via localfile://), and opens a frameless,
+// always-on-top overlay window covering that display — the frozen shot IS the
+// "freeze all windows" effect. The overlay boots the renderer at /snip
+// (?snip=1&shot=<path>), which draws the drag-selection UI and runs the crop
+// through the shared OCR pipeline (lib/ocr.js → doc-ai Edge Function).
+let snipWindow = null;
+async function openScreenSnip() {
+  if (snipWindow && !snipWindow.isDestroyed()) { snipWindow.focus(); return; }
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: {
+      width: Math.round(display.size.width * display.scaleFactor),
+      height: Math.round(display.size.height * display.scaleFactor),
+    },
+  });
+  const source = sources.find((s) => s.display_id === String(display.id)) || sources[0];
+  if (!source || source.thumbnail.isEmpty()) return;
+  const shotPath = path.join(app.getPath('temp'), `docvex-snip-${Date.now()}.png`);
+  await fsp.writeFile(shotPath, source.thumbnail.toPNG());
+  registerLocalfileFile(shotPath);
+
+  const win = new BrowserWindow({
+    x: display.bounds.x,
+    y: display.bounds.y,
+    width: display.bounds.width,
+    height: display.bounds.height,
+    frame: false,
+    resizable: false,
+    movable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    fullscreenable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  // Above fullscreen apps / the taskbar, like a screenshot tool.
+  win.setAlwaysOnTop(true, 'screen-saver');
+  // Pin to app content (navigation hardening) like every preload window.
+  const wcId = win.webContents.id;
+  appWindowContentIds.add(wcId);
+  win.removeMenu();
+  const query = { snip: '1', shot: shotPath };
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}?${new URLSearchParams(query).toString()}`);
+  } else {
+    win.loadFile(
+      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
+      { query },
+    );
+  }
+  snipWindow = win;
+  win.on('closed', () => {
+    appWindowContentIds.delete(wcId);
+    if (snipWindow === win) snipWindow = null;
+    fsp.unlink(shotPath).catch(() => { /* temp dir self-cleans */ });
+  });
+}
 
 // Sidebar "Open files" section IPC: snapshot the open viewers, and refocus /
 // close a specific one by its BrowserWindow id.
@@ -2901,6 +2968,26 @@ app.whenReady().then(() => {
   }
 
   createWindow();
+
+  // ── System tray / menu-bar icon ─────────────────────────────────────────
+  // Puts the app icon in the Windows notification area / macOS menu bar. The
+  // context menu's "Extract text" freezes the desktop (screenshots the
+  // cursor's display) and opens a selection overlay that OCRs the chosen
+  // region — see openScreenSnip below.
+  try {
+    let trayIcon = nativeImage.createFromPath(path.join(__dirname, 'appicon_desktop.png'));
+    // Tray icons render at ~16px; macOS in particular shows a giant blurry
+    // icon without an explicit resize.
+    if (!trayIcon.isEmpty()) trayIcon = trayIcon.resize({ width: 16, height: 16 });
+    appTray = new Tray(trayIcon);
+    appTray.setToolTip('DocVex');
+    appTray.setContextMenu(Menu.buildFromTemplate([
+      {
+        label: 'Extract text',
+        click: () => { openScreenSnip().catch(() => { /* capture unavailable — non-fatal */ }); },
+      },
+    ]));
+  } catch { /* tray unavailable (some Linux DEs) — non-fatal */ }
 
   // Best-effort sweep of stale WhatsApp-zip extractions (temp/docvex-wa) on
   // startup — drop folders not touched in 7 days so extracted media doesn't

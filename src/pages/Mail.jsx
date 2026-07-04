@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { askProjectAi } from '../lib/projectAi';
 import { isElectron } from '../lib/platform';
+import { miniHeaderSpot } from '../lib/miniHeaderSpot';
+import MiniHeaderFade from '../components/MiniHeaderFade';
 import {
   getMailStatus, beginMailOAuth, completeMailOAuth, listMail, sendMail, disconnectMail,
 } from '../lib/mail';
@@ -292,7 +294,7 @@ function ConnectScreen({ connecting, error, onConnect }) {
         <span>DocVex Mail</span>
         <span className="mx-connect-eyebrow-muted">· Beta</span>
       </div>
-      <h1 className="mx-connect-title">Let AI clear your inbox<br />— you just approve.</h1>
+      <h1 className="mx-connect-title">Mail</h1>
       <p className="mx-connect-lead">
         Connect a mailbox and DocVex reads incoming mail, drafts a reply for each one in your
         voice, and waits. Every draft has two buttons: <strong>Send</strong> or <strong>Regenerate</strong>.
@@ -541,7 +543,8 @@ export default function Mail() {
     <div className="mx-page" ref={pageRef}>
       {/* Compact header — fades/slides in once the big "Mail" title scrolls
           away, mirroring the Versions tab. Fixed to the content area. */}
-      <div className={`mx-compact${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
+      <MiniHeaderFade visible={scrolled} />
+      <div className={`mx-compact mini-glow${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled} onMouseMove={miniHeaderSpot}>
         <span className="mini-head-text">
           <span className="mx-compact-title">Mail</span>
           <span className="mx-compact-sep" aria-hidden="true">·</span>

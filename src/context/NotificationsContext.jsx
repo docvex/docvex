@@ -27,6 +27,7 @@ import {
   markRead as repoMarkRead,
   subscribeForUser,
 } from '../lib/notificationsRepo';
+import { appendActivityEvent } from '../lib/activityLog';
 import { useAuthNotificationSource } from '../notifications/sources/useAuthNotificationSource';
 import { useUpdateNotificationSource } from '../notifications/sources/useUpdateNotificationSource';
 import { useSocialNotificationSource } from '../notifications/sources/useSocialNotificationSource';
@@ -227,9 +228,26 @@ export function NotificationsProvider({ children }) {
 
     const fresh = buildNotification(payload, { userId });
 
-    // Compute whether this notification gets to show a toast. Replace can
-    // displace an active toast that had the same key; otherwise we respect
-    // the MAX_ACTIVE_TOASTS cap and silently drop overflow into history.
+    // Progress events tagged with `payload.activity` also land in the
+    // long-retention personal activity log (lib/activityLog.js) — it powers
+    // the Activity page's metrics strip and per-file / per-action grouping.
+    // Coalesced duplicates returned early above, so they never double-log.
+    if (fresh.payload && fresh.payload.activity) {
+      try {
+        appendActivityEvent(userId, {
+          id: fresh.id,
+          at: fresh.created_at,
+          title: fresh.title,
+          ...fresh.payload.activity,
+        });
+      } catch { /* quota / private mode — non-fatal */ }
+    }
+
+    // Compute whether this notification gets to show a toast. `silent: true`
+    // records the row in history (and the activity log) without ever toasting
+    // — used by high-frequency progress events (file created/renamed/edited).
+    // Replace can displace an active toast that had the same key; otherwise we
+    // respect the MAX_ACTIVE_TOASTS cap and silently drop overflow into history.
     const displacedActiveIds = (dedupeKey && strategy === 'replace')
       ? currentActive.filter((id) => {
           const n = currentList.find((x) => x.id === id);
@@ -237,7 +255,7 @@ export function NotificationsProvider({ children }) {
         })
       : [];
     const remainingActiveCount = currentActive.length - displacedActiveIds.length;
-    const willShowToast = remainingActiveCount < MAX_ACTIVE_TOASTS;
+    const willShowToast = !payload.silent && remainingActiveCount < MAX_ACTIVE_TOASTS;
     fresh.toastShown = willShowToast;
 
     // Apply state updates.

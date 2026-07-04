@@ -1,12 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotifications } from '../context/NotificationsContext';
+import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useUpdates } from '../context/UpdatesContext';
 import { useAuth } from '../context/AuthContext';
 import { buildActions } from '../notifications/actionRegistry';
 import { resolveNotificationIcon } from '../notifications/icons';
-import { formatRelativeTime, groupByDay } from '../lib/notifications';
+import { formatRelativeTime } from '../lib/notifications';
+import { isElectron } from '../lib/platform';
+import { guessMimeFromName } from '../lib/localFolder';
 import PageMasthead from '../components/PageMasthead';
+import FileThumbnail from '../components/FileThumbnail';
+import { glyphForFile } from '../components/fileGlyph';
 import './Activity.css';
 
 // Activity = the merged home of what used to be the (empty) "/" Activity
@@ -43,10 +48,38 @@ const BellOffIcon = (
     <path d="M13.73 21a2 2 0 0 1-3.46 0" /><path d="M18.63 13A17.89 17.89 0 0 1 18 8" /><path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14" /><path d="M18 8a6 6 0 0 0-9.33-5" /><line x1="1" y1="1" x2="23" y2="23" />
   </svg>
 );
+// Filled folder — the same shape as the Files tab's crumb/tile glyph, used on
+// folder-event group dividers instead of a file thumbnail.
+const FolderGlyph = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+  </svg>
+);
+
+// Display-name resolution + deterministic avatar colour — mirrors
+// getDisplayName() in Sidebar.jsx and the 12-colour djb2 fallback used across
+// the app (Account.jsx, ProjectList.jsx). Keep them in sync.
+function getDisplayName(user) {
+  const meta = user?.user_metadata;
+  if (meta?.full_name) return meta.full_name;
+  if (meta?.name) return meta.name;
+  if (user?.email) {
+    const at = user.email.indexOf('@');
+    return at > 0 ? user.email.slice(0, at) : user.email;
+  }
+  return 'Account';
+}
+const AVATAR_COLORS = ['#0891B2', '#BE185D', '#4F46E5', '#047857', '#B45309', '#6D28D9', '#DC2626', '#0369A1', '#DB2777', '#059669', '#7C3AED', '#EA580C'];
+function colorForId(id) {
+  if (!id) return AVATAR_COLORS[0];
+  let h = 0;
+  for (let i = 0; i < id.length; i++) { h = ((h << 5) - h) + id.charCodeAt(i); h |= 0; }
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+}
 
 // ── Single activity row ───────────────────────────────────────────────
 function ActivityRow({ notification, ctx, onMarkRead, onRemove }) {
-  const { id, title, body, created_at, read_at, category, priority } = notification;
+  const { id, title, body, created_at, read_at, category, priority, variant } = notification;
   const actions = buildActions(notification, ctx);
   const glyph = resolveNotificationIcon(notification);
   const cat = category || 'system';
@@ -55,11 +88,12 @@ function ActivityRow({ notification, ctx, onMarkRead, onRemove }) {
 
   return (
     <li
-      className={`activity-row${unread ? ' is-unread' : ''} is-pri-${pri}`}
+      className={`activity-row${unread ? ' is-unread' : ''} is-pri-${pri} is-var-${variant || 'info'}`}
       data-cat={cat}
       onClick={() => { if (unread) onMarkRead(id); }}
     >
-      {/* Category-tinted glyph square (no actor data on notifications yet) */}
+      {/* Category-tinted glyph square. File THUMBNAILS render only in the
+          group dividers above — rows keep the compact category glyph. */}
       <div className="activity-avatar-wrap">
         <span className="activity-glyph">{glyph}</span>
       </div>
@@ -88,19 +122,18 @@ function ActivityRow({ notification, ctx, onMarkRead, onRemove }) {
       </div>
 
       <div className="activity-meta">
-        <span className="activity-time">
-          <span className="activity-unread-dot" />
-          {formatRelativeTime(created_at)}
-        </span>
-        <button
-          type="button"
-          className="activity-dismiss"
-          aria-label="Dismiss"
-          onClick={(e) => { e.stopPropagation(); onRemove(id); }}
-        >
-          {CloseIcon}
-        </button>
+        <span className="activity-time">{formatRelativeTime(created_at)}</span>
       </div>
+      {/* Dismiss — pinned to the card's top-right corner, out of the flex
+          flow so it never disturbs the row layout. */}
+      <button
+        type="button"
+        className="activity-dismiss"
+        aria-label="Dismiss"
+        onClick={(e) => { e.stopPropagation(); onRemove(id); }}
+      >
+        {CloseIcon}
+      </button>
     </li>
   );
 }
@@ -110,6 +143,7 @@ export default function ActivityPage() {
   const navigate = useNavigate();
   const { installUpdate } = useUpdates();
   const { session } = useAuth();
+  const { selectedProject } = useSelectedProject();
   const userId = session?.user?.id || null;
 
   // Category filter (All = union). In-memory page state, not persisted —
@@ -139,11 +173,74 @@ export default function ActivityPage() {
     [notifications, filter],
   );
 
-  // Day-grouped feed.
-  const groups = useMemo(
-    () => groupByDay(filtered).map((g) => ({ key: g.key, label: g.label, items: g.items })),
-    [filtered],
-  );
+  // Feed grouped by what each event touched:
+  //   • file events           → one group per file (thumbnail + name divider)
+  //   • batch file events     → "Multiple files"
+  //   • account events (auth) → one divider with the user's avatar + name
+  //   • project architecture  → project lifecycle / members / roles group
+  //                             under a divider named after the PROJECT
+  //   • everything else       → "System", at the end
+  // Groups are ordered by their newest event.
+  const accountUser = session?.user || null;
+  const PROJECT_CATEGORIES = new Set(['project', 'member', 'role']);
+  const groups = useMemo(() => {
+    const map = new Map();
+    const push = (key, label, n, extra) => {
+      if (!map.has(key)) map.set(key, { key, label, items: [], file: null, account: null, multi: null, ...extra });
+      const g = map.get(key);
+      g.items.push(n);
+      // Merge file facts across the group's events (newest-first): keep the
+      // first on-disk path / project name seen, and let ANY folder event mark
+      // the whole group as a folder.
+      if (extra?.file) {
+        g.file = g.file || { name: extra.file.name };
+        if (!g.file.path && extra.file.path) g.file.path = extra.file.path;
+        if (!g.file.project && extra.file.project) g.file.project = extra.file.project;
+        if (extra.file.folder) g.file.folder = true;
+      }
+      // Same first-seen rule for the batch ("Multiple files") group's project.
+      if (extra?.multi) {
+        g.multi = g.multi || {};
+        if (!g.multi.project && extra.multi.project) g.multi.project = extra.multi.project;
+      }
+    };
+    for (const n of filtered) {
+      const a = n.payload?.activity;
+      if (a?.fileName) {
+        push(`file-${a.fileName.toLowerCase()}`, a.fileName, n, {
+          file: {
+            name: a.fileName,
+            path: a.filePath || null,
+            folder: !!a.folder,
+            project: a.projectName || null,
+          },
+        });
+      } else if (a) {
+        push('__multi', 'Multiple files', n, { multi: { project: a.projectName || null } });
+      } else if ((n.category || '') === 'auth') {
+        push('__account', getDisplayName(accountUser), n, {
+          account: {
+            name: getDisplayName(accountUser),
+            avatarUrl: accountUser?.user_metadata?.avatar_url || null,
+            color: colorForId(accountUser?.id || ''),
+          },
+        });
+      } else if (PROJECT_CATEGORIES.has(n.category || '')) {
+        // Project-architecture events (renames, invites, role changes…).
+        // Best-effort project name: the notification's own payload when it
+        // carries one, otherwise the currently selected project.
+        const projName = n.payload?.projectName || selectedProject?.name || 'Project';
+        push(`proj-${projName.toLowerCase()}`, projName, n);
+      } else {
+        push('__system', 'System', n);
+      }
+    }
+    const rank = (g) => (g.key === '__system' ? 1 : 0);
+    return [...map.values()].sort((a, b) =>
+      rank(a) - rank(b)
+      || (Date.parse(b.items[0]?.created_at) || 0) - (Date.parse(a.items[0]?.created_at) || 0));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, accountUser, selectedProject?.name]);
 
   // Filter tab strip — rendered both inline (under the masthead) and inside the
   // on-scroll compact "mini header" (passed as PageMasthead's compactRight) so
@@ -174,7 +271,8 @@ export default function ActivityPage() {
   return (
     <div className="activity-page">
       <PageMasthead
-        eyebrow="Live feed"
+        eyebrow="DocVex Journal"
+        eyebrowMuted="All projects"
         title="Activity"
         compactRight={notifications.length > 0 ? renderFilters() : null}
       >
@@ -217,7 +315,67 @@ export default function ActivityPage() {
         <div className="activity-groups">
           {groups.map((g) => (
             <section key={g.key} className="activity-group">
-              <h2 className="activity-group-label">{g.label}</h2>
+              {/* File groups get a Files-tab-style divider: thumbnail + name.
+                  The thumb resolves from the on-disk bytes when the event
+                  recorded a path (Electron localfile://), otherwise it falls
+                  back to the extension glyph — same chain as the Files grid. */}
+              <h2 className="activity-group-label">
+                {g.file ? (
+                  <span className="activity-group-file">
+                    <span className={`activity-group-thumb${g.file.folder ? ' is-folder' : ''}`}>
+                      {g.file.folder ? FolderGlyph : (
+                        <FileThumbnail
+                          mimeType={guessMimeFromName(g.file.name)}
+                          sourceUrl={isElectron && g.file.path ? `localfile://local/${encodeURIComponent(g.file.path)}` : null}
+                          glyph={glyphForFile(guessMimeFromName(g.file.name), g.file.name)}
+                        />
+                      )}
+                    </span>
+                    <span className="activity-group-filename">{g.file.name}</span>
+                    {/* Short rule segment · the project the file lives in;
+                        the label's trailing hairline continues after it. The
+                        SELECTED project reads in the accent project-divider
+                        style; files from other projects stay muted. */}
+                    {g.file.project && (
+                      <>
+                        <span className="activity-group-rule" aria-hidden="true" />
+                        <span className={g.file.project === selectedProject?.name ? 'activity-group-project' : 'activity-group-projname'}>
+                          {g.file.project}
+                        </span>
+                      </>
+                    )}
+                  </span>
+                ) : g.account ? (
+                  /* Account divider — the signed-in user's avatar + name,
+                     mirroring the file dividers' thumbnail + name shape. */
+                  <span className="activity-group-file">
+                    <span className="activity-group-avatar" style={{ background: g.account.avatarUrl ? 'var(--bg-elevated)' : g.account.color }}>
+                      {g.account.avatarUrl
+                        ? <img src={g.account.avatarUrl} alt="" referrerPolicy="no-referrer" draggable={false} />
+                        : (g.account.name || '?').charAt(0).toUpperCase()}
+                    </span>
+                    <span className="activity-group-filename">{g.account.name}</span>
+                  </span>
+                ) : g.key === '__multi' ? (
+                  /* Batch divider — "Multiple files" with the same project
+                     tail as the single-file dividers. */
+                  <span className="activity-group-file">
+                    <span className="activity-group-filename">{g.label}</span>
+                    {g.multi?.project && (
+                      <>
+                        <span className="activity-group-rule" aria-hidden="true" />
+                        <span className={g.multi.project === selectedProject?.name ? 'activity-group-project' : 'activity-group-projname'}>
+                          {g.multi.project}
+                        </span>
+                      </>
+                    )}
+                  </span>
+                ) : g.key.startsWith('proj-') ? (
+                  /* Project divider — the project's name, sized up and painted
+                     in the masthead eyebrow's accent colour. */
+                  <span className="activity-group-project">{g.label}</span>
+                ) : g.label}
+              </h2>
               <ul className="activity-list">
                 {g.items.map((n) => (
                   <ActivityRow

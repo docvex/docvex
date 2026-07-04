@@ -616,13 +616,18 @@
   justify-content: center;
   width: 24px;
   height: 24px;
-  border-radius: 5px;
+  /* No boxed tile behind the icon — the rounded bg/border chip was removed so
+     the file glyph / thumbnail sits bare in the row like the other nav icons.
+     Images keep a small radius of their own so photo previews aren't sharp
+     rectangles against the rail. */
+  border-radius: 0;
   overflow: hidden;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  background: transparent;
+  border: none;
   box-sizing: border-box;
   flex-shrink: 0;
 }
+.doc-tab-thumb img { border-radius: 4px; }
 .doc-tab-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .doc-tab-thumb .project-files-icon {
   display: inline-flex;
@@ -715,6 +720,47 @@
   border-radius: 999px;
   padding: 0.08rem 0.4rem;
 }
+
+/* Update-available pill on the Versions item — colored by the pending
+   release's semver bump, matching the Versions page's .kind-* pills exactly:
+   major = danger red, minor = info blue, patch = teal. The collapsed rail
+   falls back to the corner dot, tinted the same way. */
+.nav-update-pill {
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 0.08rem 0.4rem;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+}
+.nav-update-pill.is-major {
+  color: var(--danger-soft);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 32%, transparent);
+}
+.nav-update-pill.is-minor {
+  color: var(--info-soft);
+  background: color-mix(in srgb, var(--info-soft) 12%, transparent);
+  border-color: color-mix(in srgb, var(--info-soft) 32%, transparent);
+}
+.nav-update-pill.is-patch {
+  color: var(--teal-soft);
+  background: color-mix(in srgb, var(--teal-soft) 12%, transparent);
+  border-color: color-mix(in srgb, var(--teal-soft) 32%, transparent);
+}
+.nav-badge.is-major { background: var(--danger-soft); }
+.nav-badge.is-minor { background: var(--info-soft); }
+.nav-badge.is-patch { background: var(--teal-soft); }
+
+/* Newsletter "new brief" pill — accent-tinted, cleared on visiting the tab. */
+.nav-update-pill.is-brief {
+  color: var(--accent);
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.nav-badge.is-brief { background: var(--accent); }
 
 /* Footer — pinned to the bottom of the vertical rail (utility cluster). */
 .sidebar-footer {

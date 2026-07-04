@@ -1,43 +1,22 @@
 // Personal activity metrics for the Activity page (/).
 //
-// Ported from the Claude Design handoff (docvex-activity-notification-redesign,
-// `activity-metrics.jsx`). Scope = the SIGNED-IN USER across ALL their projects
-// ("my activity"), which is exactly what the mockup was built for — the Activity
-// page is itself a cross-project personal feed.
+// Originally ported from the Claude Design handoff
+// (docvex-activity-notification-redesign) and wired to the cloud file /
+// branching tables — all dropped in migration 031. The metrics now derive
+// from the LOCAL ACTIVITY LOG (lib/activityLog.js): every file action
+// (create / import / edit / rename / move / delete / restore) and AI assist
+// (text extract, captions, generated document, PDF export) recorded via
+// notify()'s `payload.activity` tagging. Scope = the signed-in user on this
+// machine, across all their projects — which is exactly what the strip is
+// about: "my progress".
 //
-// Every number is derived from real docvex data (RLS scopes each table to the
-// projects the caller belongs to; the personal rows are scoped to auth.uid()):
-//   • branch_changes (mine)        → file-activity breakdown (added/edited/removed)
-//   • change_requests (mine)       → merged + reviewed verbs, this-week totals
-//   • project_files (mine)         → files I synced, file-activity spark
-//   • change_request_items (mine)  → files I touched most
-//   • project_invitations (mine)   → invites I sent
-//   • everyone's files/requests in my projects → people I worked with
-// Event timestamps (uploads + requests + queued edits) feed the heatmap,
-// streak, and 24h "when I work" histogram. Every query is best-effort: a
-// failure degrades that one section to empty rather than blanking the strip.
+// Everything is computed synchronously from localStorage; the function stays
+// async so the component's loading state and any future remote source keep
+// working unchanged.
 
-import { supabase } from './supabaseClient';
-import { listMyProjects } from './projects';
+import { listActivity, activityActionLabel } from './activityLog';
 
 const DAY = 86400000;
-
-// Deterministic avatar palette (mirrors the app's 12-colour djb2 scheme).
-const AVATAR_COLORS = ['#0891B2', '#BE185D', '#4F46E5', '#047857', '#B45309', '#6D28D9', '#DC2626', '#0369A1', '#DB2777', '#059669', '#7C3AED', '#EA580C'];
-function colorForId(id) {
-  if (!id) return AVATAR_COLORS[0];
-  let h = 0;
-  for (let i = 0; i < id.length; i++) { h = ((h << 5) - h) + id.charCodeAt(i); h |= 0; }
-  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
-}
-function displayName(profile) {
-  if (!profile) return 'Teammate';
-  return profile.full_name || profile.name || profile.email || 'Teammate';
-}
-function initialsOf(name) {
-  const parts = String(name || '?').trim().split(/\s+/).slice(0, 2);
-  return parts.map((p) => p[0]?.toUpperCase() || '').join('') || '?';
-}
 
 const pad2 = (n) => String(n).padStart(2, '0');
 function ts(v) { const t = new Date(v).getTime(); return Number.isNaN(t) ? null : t; }
@@ -108,6 +87,19 @@ function buildWhenIWork(eventTimes, now) {
   };
 }
 
+// Action families used by the verb tiles and the file-KPI sub-line.
+const CREATE_ACTIONS = new Set(['create', 'create-folder']);
+const IMPORT_ACTIONS = new Set(['import']);
+const EDIT_ACTIONS = new Set(['edit', 'rename', 'move']);
+const REMOVE_ACTIONS = new Set(['delete', 'purge']);
+const AI_ACTIONS = new Set(['extract-text', 'captions', 'generate-doc', 'export-pdf']);
+
+// Names of every file an event touched (single fileName, or a batch's list).
+function namesOf(e) {
+  if (Array.isArray(e.files) && e.files.length) return e.files;
+  return e.fileName ? [e.fileName] : [];
+}
+
 export async function fetchPersonalActivityMetrics({ userId }) {
   if (!userId) return null;
 
@@ -116,95 +108,68 @@ export async function fetchPersonalActivityMetrics({ userId }) {
   const week2 = now - 14 * DAY;
   const within = (t, lo, hi) => t >= lo && t < hi;
 
-  // ── Fetch across all my projects (RLS scopes rows to my memberships). ──
-  // File / change-request / branch sources were removed with the cloud file
-  // store + branching system — those metrics resolve to empty.
-  const ok = (r) => r;
-  const fail = () => ({ data: [] });
-  const empty = Promise.resolve({ data: [] });
-  const [projRes, filesRes, reqRes, bcRes, invRes] = await Promise.all([
-    listMyProjects().catch(fail),
-    empty, // project_files (dropped)
-    empty, // change_requests (dropped)
-    empty, // branch_changes (dropped)
-    supabase.from('project_invitations').select('id, accepted_at, created_at')
-      .eq('invited_by', userId).then(ok, fail),
-  ]);
+  // ── Source: the local activity log (newest-first, ~90 days) ───────────
+  const events = listActivity(userId)
+    .map((e) => ({ ...e, t: ts(e.at) }))
+    .filter((e) => e.t != null);
+  const eventTimes = events.map((e) => e.t);
 
-  const projectNameById = new Map((projRes?.data || []).map((p) => [p.id, p.name]));
-  const allFiles = filesRes?.data || [];
-  const fileById = new Map(allFiles.map((f) => [f.id, f]));
-  const myFiles = allFiles.filter((f) => f.uploaded_by === userId);
-
-  const allReqs = reqRes?.data || [];
-  const myReqs = allReqs.filter((r) => r.author_id === userId);
-  const myOpenReqs = myReqs.filter((r) => r.status === 'open');
-  const myApproved = myReqs.filter((r) => r.status === 'approved');
-
-  const branchChanges = (bcRes && !bcRes.error && bcRes.data) ? bcRes.data : [];
-  const invites = (invRes && !invRes.error && invRes.data) ? invRes.data : [];
-  const pendingInvites = invites.filter((i) => !i.accepted_at);
-
-  // Items of my open requests → "files I touched". (Change requests were
-  // removed, so this is always empty now.)
-  const myOpenItemTargets = [];
-
-  // ── Event timeline (my activity, with project for "projects active in") ─
-  const myEvents = [
-    ...myFiles.map((f) => ({ t: ts(f.uploaded_at), pid: f.project_id })),
-    ...myReqs.map((r) => ({ t: ts(r.submitted_at), pid: r.project_id })),
-    ...branchChanges.map((c) => ({ t: ts(c.created_at), pid: c.project_id })),
-  ].filter((e) => e.t != null);
-  const eventTimes = myEvents.map((e) => e.t);
-
-  // ── KPI tiles ────────────────────────────────────────────────────────
-  const myUploadTimes = myFiles.map((f) => ts(f.uploaded_at)).filter((t) => t != null);
-  const filesLast7 = myUploadTimes.filter((t) => t >= week1).length;
-  const filesPrev7 = myUploadTimes.filter((t) => within(t, week2, week1)).length;
+  // ── KPI tiles ──────────────────────────────────────────────────────────
+  // Files I touched — UNIQUE file names across all events in the window.
+  const touchedIn = (lo, hi) => {
+    const names = new Set();
+    for (const e of events) if (within(e.t, lo, hi)) for (const n of namesOf(e)) names.add(n.toLowerCase());
+    return names.size;
+  };
   const spark = [];
   for (let i = 6; i >= 0; i--) {
     const lo = startOfDay(now - i * DAY);
-    spark.push(myUploadTimes.filter((t) => within(t, lo, lo + DAY)).length);
+    spark.push(events.filter((e) => within(e.t, lo, lo + DAY)).length);
   }
+  const inWindow = (set, lo, hi) => events
+    .filter((e) => set.has(e.action) && within(e.t, lo, hi))
+    .reduce((s, e) => s + (e.count || 1), 0);
 
-  const projThis = new Set(myEvents.filter((e) => e.t >= week1 && e.pid).map((e) => e.pid)).size;
-  const projPrev = new Set(myEvents.filter((e) => within(e.t, week2, week1) && e.pid).map((e) => e.pid)).size;
+  const aiThis = events.filter((e) => AI_ACTIONS.has(e.action) && e.t >= week1).length;
+  const aiPrev = events.filter((e) => AI_ACTIONS.has(e.action) && within(e.t, week2, week1)).length;
+
+  const projThis = new Set(events.filter((e) => e.t >= week1 && e.projectId).map((e) => e.projectId)).size;
+  const projPrev = new Set(events.filter((e) => within(e.t, week2, week1) && e.projectId).map((e) => e.projectId)).size;
 
   const kpis = {
-    filesSynced: {
-      value: filesLast7,
-      prev: filesPrev7,
+    filesTouched: {
+      value: touchedIn(week1, now + 1),
+      prev: touchedIn(week2, week1),
       spark,
       sub: {
-        added: branchChanges.filter((c) => c.kind === 'add').length,
-        edited: branchChanges.filter((c) => c.kind === 'edit' || c.kind === 'replace').length,
-        removed: branchChanges.filter((c) => c.kind === 'delete').length,
+        added: inWindow(CREATE_ACTIONS, week1, now + 1) + inWindow(IMPORT_ACTIONS, week1, now + 1),
+        edited: inWindow(EDIT_ACTIONS, week1, now + 1),
+        removed: inWindow(REMOVE_ACTIONS, week1, now + 1),
       },
     },
     projectsActive: {
       value: projThis,
       prev: projPrev,
-      detail: projThis ? 'where you contributed' : 'no projects this week',
+      detail: projThis ? 'where you made progress' : 'no projects this week',
     },
-    invitesSent: {
-      value: pendingInvites.length,
-      prev: 0,
-      detail: pendingInvites.length ? 'pending acceptance' : 'none pending',
+    aiAssists: {
+      value: aiThis,
+      prev: aiPrev,
+      detail: aiThis ? 'extracts · captions · documents' : 'none this week',
     },
   };
 
   // ── This week at a glance (hero) ─────────────────────────────────────
   // All Monday-based so the headline, verb tiles and best/quiet day agree.
-  // verbs use docvex's real action vocabulary:
-  //   Synced   = files I uploaded this week
-  //   Merged   = my change requests approved this week
-  //   Reviewed = change requests I decided (approved/rejected) this week
-  //   Invited  = invites I sent this week
+  // Verbs use the activity log's real action vocabulary:
+  //   Created  = files & folders I created this week
+  //   Imported = files I brought in (import / paste / folder import)
+  //   Edited   = saves the folder watcher caught (+ renames / moves)
+  //   AI       = extracts, captions and generated documents
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const monThis = mondayStart(now);
   const monNext = monThis + 7 * DAY;
   const monPrev = monThis - 7 * DAY;
-  const decidedTime = (r) => ts(r.decided_at) ?? ts(r.submitted_at);
 
   const eventsThisWeek = eventTimes.filter((t) => within(t, monThis, monNext)).length;
   const eventsPrevWeek = eventTimes.filter((t) => within(t, monPrev, monThis)).length;
@@ -226,21 +191,16 @@ export async function fetchPersonalActivityMetrics({ userId }) {
     trendDays.push(WEEKDAYS[weekdayMon(lo)]);
   }
 
-  const syncedThisWeek = myUploadTimes.filter((t) => within(t, monThis, monNext)).length;
-  const mergedThisWeek = myApproved.filter((r) => within(decidedTime(r) ?? 0, monThis, monNext)).length;
-  const reviewedThisWeek = allReqs.filter((r) => r.decided_by === userId && within(decidedTime(r) ?? 0, monThis, monNext)).length;
-  const invitedThisWeek = invites.filter((i) => within(ts(i.created_at) ?? 0, monThis, monNext)).length;
-
   const thisWeek = {
     total: eventsThisWeek,
     prev: eventsPrevWeek,
     bestDay: { label: WEEKDAYS[bestI], value: dayCounts[bestI] },
     quietDay: { label: WEEKDAYS[quietI], value: dayCounts[quietI] },
     verbs: [
-      { label: 'Synced', value: syncedThisWeek, cat: 'file', sub: 'files' },
-      { label: 'Merged', value: mergedThisWeek, cat: 'project', sub: 'into main' },
-      { label: 'Reviewed', value: reviewedThisWeek, cat: 'project', sub: 'CRs' },
-      { label: 'Invited', value: invitedThisWeek, cat: 'member', sub: 'member' },
+      { label: 'Created', value: inWindow(CREATE_ACTIONS, monThis, monNext), cat: 'file', sub: 'files & folders' },
+      { label: 'Imported', value: inWindow(IMPORT_ACTIONS, monThis, monNext), cat: 'project', sub: 'files' },
+      { label: 'Edited', value: inWindow(EDIT_ACTIONS, monThis, monNext), cat: 'member', sub: 'saves & moves' },
+      { label: 'AI assists', value: events.filter((e) => AI_ACTIONS.has(e.action) && within(e.t, monThis, monNext)).length, cat: 'update', sub: 'extracts · docs' },
     ],
     trend,
     days: trendDays,
@@ -251,59 +211,32 @@ export async function fetchPersonalActivityMetrics({ userId }) {
   const streak = buildStreak(eventTimes, now);
   const whenIWork = buildWhenIWork(eventTimes, now);
 
-  // ── People I worked with (everyone else active in my projects) ───────
-  const otherIds = new Set();
-  for (const f of allFiles) if (f.uploaded_by && f.uploaded_by !== userId) otherIds.add(f.uploaded_by);
-  for (const r of allReqs) if (r.author_id && r.author_id !== userId) otherIds.add(r.author_id);
-  let profilesById = new Map();
-  if (otherIds.size) {
-    const profRes = await supabase.rpc('get_member_profiles', { p_user_ids: [...otherIds] }).then(ok, fail);
-    profilesById = new Map((profRes?.data || []).map((p) => [p.id, p]));
+  // ── What I do most (per-action breakdown, 28 days) ────────────────────
+  const since28 = now - 28 * DAY;
+  const actionCounts = new Map();
+  for (const e of events) {
+    if (e.t < since28) continue;
+    const weight = IMPORT_ACTIONS.has(e.action) ? (e.count || 1) : 1;
+    actionCounts.set(e.action, (actionCounts.get(e.action) || 0) + weight);
   }
-  const collaborators = [...otherIds].map((uid) => {
-    const theirFiles = allFiles.filter((f) => f.uploaded_by === uid);
-    const theirReqs = allReqs.filter((r) => r.author_id === uid);
-    const name = displayName(profilesById.get(uid));
-    const lastFile = theirFiles[0]; // files come newest-first
-    const lastReq = theirReqs[0];
-    const lastFileT = lastFile ? (ts(lastFile.uploaded_at) ?? 0) : 0;
-    const lastReqT = lastReq ? (ts(lastReq.submitted_at) ?? 0) : 0;
-    let lastTouch = 'No recent activity'; let lastAgo = ''; let pid = null;
-    if (lastFileT >= lastReqT && lastFile) {
-      lastTouch = `Added ${lastFile.name}`; lastAgo = relTime(lastFileT); pid = lastFile.project_id;
-    } else if (lastReq) {
-      lastTouch = `Opened "${lastReq.title}"`; lastAgo = relTime(lastReqT); pid = lastReq.project_id;
-    }
-    return {
-      userId: uid,
-      name,
-      initials: initialsOf(name),
-      avatarUrl: profilesById.get(uid)?.avatar_url || null,
-      color: colorForId(uid),
-      project: pid ? (projectNameById.get(pid) || '') : '',
-      sharedFiles: theirFiles.length,
-      reviewsTraded: theirReqs.length,
-      lastTouch,
-      lastAgo,
-      online: false,
-    };
-  })
-    .sort((a, b) => (b.sharedFiles + b.reviewsTraded) - (a.sharedFiles + a.reviewsTraded))
-    .slice(0, 6);
+  const actionBreakdown = [...actionCounts.entries()]
+    .map(([action, count]) => ({ action, label: activityActionLabel(action), count }))
+    .sort((a, b) => b.count - a.count);
 
-  // ── Files I touched most (my edits/replaces/deletes, queued or in review) ─
-  const editCounts = new Map();
-  const bump = (fid) => { if (fid) editCounts.set(fid, (editCounts.get(fid) || 0) + 1); };
-  for (const c of branchChanges) bump(c.target_file_id);
-  for (const fid of myOpenItemTargets) bump(fid);
-  let topFiles = [...editCounts.entries()]
-    .map(([fid, edits]) => { const f = fileById.get(fid); return f ? { name: f.name, project: projectNameById.get(f.project_id) || '', edits } : null; })
-    .filter(Boolean)
+  // ── Files I touched most (whole log, ~90 days) ────────────────────────
+  const fileCounts = new Map(); // lower-name → { name, project, edits }
+  for (const e of events) {
+    for (const n of namesOf(e)) {
+      const key = n.toLowerCase();
+      const rec = fileCounts.get(key) || { name: n, project: e.projectName || '', edits: 0 };
+      rec.edits += 1;
+      if (!rec.project && e.projectName) rec.project = e.projectName;
+      fileCounts.set(key, rec);
+    }
+  }
+  const topFiles = [...fileCounts.values()]
     .sort((a, b) => b.edits - a.edits)
     .slice(0, 5);
-  if (topFiles.length === 0) {
-    topFiles = myFiles.slice(0, 5).map((f) => ({ name: f.name, project: projectNameById.get(f.project_id) || '', edits: 1 }));
-  }
 
-  return { thisWeek, kpis, heatmap, collaborators, streak, whenIWork, topFiles };
+  return { thisWeek, kpis, heatmap, streak, whenIWork, actionBreakdown, topFiles };
 }

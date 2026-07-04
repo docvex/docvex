@@ -1,0 +1,96 @@
+/* Shared mini-header glow — the SIDEBAR's cursor-following spotlight + border
+   shine, extracted so every compact bar in the app (pmh-compact, pjd-compact,
+   dc-compact, versions-compact, mx-compact, fx-pathbar, dvx-toolbar) reads as
+   the same surface.
+
+   Usage: add `mini-glow` to the bar and wire `miniHeaderSpot` from
+   lib/miniHeaderSpot.js as its onMouseMove — it writes the bar-relative
+   --spot-x/--spot-y vars the gradients track. The glow colour defaults to the
+   accent; a surface can override it via --mini-spot-color (the Files bar's
+   red edit mode flips it to white).
+
+   The frosted BACKGROUND itself stays in each bar's own rules (sticky bars
+   only paint it while pinned): background color-mix(in srgb, var(--bg-page)
+   66%, transparent) + backdrop blur 6.4px + 1.5px var(--border) border +
+   var(--shadow-card) — same as .sidebar. */
+
+.mini-glow { position: relative; }
+
+/* Soft interior spotlight (mirrors .sidebar::before). */
+.mini-glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--mini-spot-color, var(--accent)) 4.5%, transparent) 0%,
+    color-mix(in srgb, var(--mini-spot-color, var(--accent)) 1.5%, transparent) 38%,
+    transparent 68%
+  );
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.mini-glow:hover::before { opacity: 0.7; }
+
+/* Border shine — bright highlight masked to the 1.5px border ring (same
+   XOR-mask trick as .sidebar::after). Tuned SHARPER than the sidebar's:
+   a tighter, near-solid core with a fast falloff and full hover opacity,
+   so the shine reads as a crisp light on the border rather than a haze. */
+.mini-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  pointer-events: none;
+  z-index: 2;
+  background: radial-gradient(
+    180px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--mini-spot-color, var(--accent)) 95%, transparent) 0%,
+    color-mix(in srgb, var(--mini-spot-color, var(--accent)) 45%, transparent) 32%,
+    transparent 58%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.mini-glow:hover::after { opacity: 1; }
+
+/* Lift the bar's content above the glow layer. */
+.mini-glow > * { position: relative; z-index: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mini-glow::before,
+  .mini-glow::after { display: none; }
+}
+
+/* Gap-strip fade — dissolves content passing through the seam between the
+   window title bar's bottom edge and a mini header's vertical middle, so
+   scrolling rows don't peek through it. Render a `.mini-fade` sibling next
+   to the bar and flip `.is-visible` alongside the bar's own pinned/visible
+   state. Spans the full window width; sits BELOW the bar (z 29 vs 30) so
+   the frosted surface + glow stay on top. */
+.mini-fade {
+  position: fixed;
+  top: calc(var(--titlebar-h, 0px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
+  left: 0;
+  right: 0;
+  height: calc(var(--chrome-inset, 6.4px) + 20px);
+  z-index: 29;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    var(--bg-page) 0%,
+    var(--bg-page) 35%,
+    transparent 100%
+  );
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.mini-fade.is-visible { opacity: 1; }

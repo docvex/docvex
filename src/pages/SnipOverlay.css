@@ -1,0 +1,127 @@
+/* Extract-text screen overlay (tray → "Extract text"). The window covers one
+   display and shows the frozen screenshot; everything here paints ON TOP of
+   that shot, so colours are inlined dark-glass (not theme tokens — the
+   backdrop is the user's own desktop, not an app surface). */
+
+.snip-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  user-select: none;
+  background: #000;
+}
+.snip-root.is-selecting { cursor: crosshair; }
+
+.snip-shot {
+  position: absolute;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  pointer-events: none;
+}
+
+/* Light dim before a selection starts, so the frozen state reads as a mode. */
+.snip-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+/* The selection rectangle — the huge box-shadow dims everything outside it. */
+.snip-rect {
+  position: absolute;
+  border: 1.5px solid #fff;
+  border-radius: 2px;
+  box-shadow: 0 0 0 100000px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+.snip-rect.is-working { border-color: #8ab4ff; }
+
+/* Top-centre hint pill. */
+.snip-hint {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(20, 20, 24, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #f3f3f0;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.snip-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: snip-spin 0.8s linear infinite;
+}
+@keyframes snip-spin { to { transform: rotate(360deg); } }
+
+/* Result panel — centred dark glass card with the copyable text. */
+.snip-panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 14px;
+  background: rgba(18, 18, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  color: #f3f3f0;
+  cursor: default;
+}
+.snip-panel-head {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.snip-text {
+  width: 100%;
+  min-height: 140px;
+  max-height: 40vh;
+  resize: vertical;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.35);
+  color: #f3f3f0;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+.snip-error { font-size: 12.5px; color: #ffb4a8; }
+.snip-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.snip-btn {
+  appearance: none;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f3f3f0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.snip-btn:hover { background: rgba(255, 255, 255, 0.14); }
+.snip-btn.is-primary { background: #fff; color: #111; border-color: #fff; }
+.snip-btn.is-primary:hover { background: #e8e8e4; }

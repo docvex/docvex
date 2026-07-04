@@ -5,6 +5,8 @@ import { Link, useLocation } from 'react-router-dom';
 // width) are layout px — under the app's CSS-zoom downscale the two differ
 // (see lib/appZoom).
 import { toLayoutPx } from '../../lib/appZoom';
+import { miniHeaderSpot } from '../../lib/miniHeaderSpot';
+import MiniHeaderFade from '../../components/MiniHeaderFade';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { usePaneChromeSlot, usePaneChromePortalEl, usePaneChromeFooterEl } from '../../context/PaneChromeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -269,8 +271,8 @@ function MessageEditBox({ initialBody, onSave, onCancel }) {
 const TeamMessageRow = React.memo(function TeamMessageRow({
   msg, showDay, grouped, viewerId, memberById, fileById, rmap, replies,
   isEditing, renderBody, msgRefs,
-  onToggleReaction, onOpenThread, onAttachmentClick, onSaveEdit, onCancelEdit,
-  onTogglePin, onStartEdit, onDelete, onCopy,
+  onToggleReaction, onAttachmentClick, onSaveEdit, onCancelEdit,
+  onStartEdit, onDelete, onCopy,
 }) {
   const author = memberById.get(msg.author_id);
   const isMine = msg.author_id === viewerId;
@@ -300,8 +302,6 @@ const TeamMessageRow = React.memo(function TeamMessageRow({
       </div>
     ),
     menuItems: [
-      { key: 'reply', label: 'Reply in thread', onClick: () => onOpenThread(msg.id) },
-      { key: 'pin', label: isPinned ? 'Unpin message' : 'Pin message', onClick: () => onTogglePin(msg) },
       hasBody && { key: 'copy', label: 'Copy text', onClick: () => onCopy(msg.body) },
       isMine && { key: 'edit', label: 'Edit message', onClick: () => onStartEdit(msg) },
       isMine && {
@@ -403,13 +403,7 @@ const TeamMessageRow = React.memo(function TeamMessageRow({
             </div>
           )}
 
-          {replies.length > 0 && (
-            <button type="button" className="vb-thread-pill" onClick={() => onOpenThread(msg.id)}>
-              <Icon.Thread />
-              <span>{replies.length} {replies.length === 1 ? 'reply' : 'replies'}</span>
-              <span className="vb-thread-pill-last">Last {relativeShort(replies[replies.length - 1].created_at)}</span>
-            </button>
-          )}
+          {/* The reply-thread pill was removed with the rail feature. */}
         </div>
       </div>
       {/* Portalled morph pill — sibling of the row so menu clicks don't
@@ -769,9 +763,10 @@ export default function ProjectChat() {
   const [extrasTick, setExtrasTick] = useState(0);
   const bumpExtras = useCallback(() => setExtrasTick((t) => t + 1), []);
   const [railTab, setRailTab] = useState('threads');
-  // Pinned / Threads / Mentions / Files panel starts minimized — open it with
-  // the burger toggle (or by opening a thread).
-  const [railCollapsed, setRailCollapsed] = useState(true);
+  // The Pinned / Threads / Mentions rail (and its burger toggle) was removed —
+  // the panel never opens, so the chat always renders full-width. The rail's
+  // render paths below stay gated on this constant.
+  const railCollapsed = true;
   // Width of the Pinned/Threads/Mentions/Files panel — drag the splitter to
   // resize it (clamped). Default tracks the header section-tabs width (so the
   // panel's left edge lines up with the "Pinned" tab) until the user drags.
@@ -899,18 +894,6 @@ export default function ProjectChat() {
     bumpExtras();
   }, [projectId, viewerId, reactionsByMessage, bumpExtras]);
 
-  const handleTogglePin = useCallback(async (msg) => {
-    if (!msg) return;
-    await setChatMessagePin(msg.id, !msg.pinned_at);
-    // The pin flip echoes via the chat_messages UPDATE subscription.
-  }, []);
-
-  const openThread = useCallback((id) => {
-    setOpenThreadId(id);
-    setRailTab('threads');
-    setRailCollapsed(false);
-  }, []);
-
   const handleSendThreadReply = useCallback(async () => {
     if (!projectId || !viewerId || !openThreadId) return;
     const body = threadDraft.trim();
@@ -1004,6 +987,37 @@ export default function ProjectChat() {
     if (!el) return undefined;
     el.addEventListener('scroll', handleListScroll, { passive: true });
     return () => el.removeEventListener('scroll', handleListScroll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, loading]);
+
+  // Open the tab ALREADY at the bottom. Entering the team tab pins the
+  // scroller immediately (even while messages are still loading), so the user
+  // never lands on the masthead and then gets yanked down.
+  useLayoutEffect(() => {
+    if (tab !== 'team') return;
+    stickToBottomRef.current = true;
+    setIsAtBottom(true);
+    const el = getScroller();
+    if (el) el.scrollTop = el.scrollHeight;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  // …and STAY at the bottom while pinned content grows: the initial messages
+  // commit, then attachments/images/link cards that finish loading after the
+  // first paint all change the list's height without a `messages` state
+  // change. A ResizeObserver fires between layout and paint, so re-pinning
+  // here is invisible — no teleport. Scrolling up flips stickToBottomRef via
+  // the scroll listener above, which turns these re-pins off.
+  useEffect(() => {
+    if (tab !== 'team') return undefined;
+    const el = getScroller();
+    const list = listRef.current;
+    if (!el || !list || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => {
+      if (stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(list);
+    return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, loading]);
 
@@ -1547,53 +1561,8 @@ export default function ProjectChat() {
       >
         <Icon.Lock />Private
       </button>
-      {/* Right group: a burger toggle (shows/hides the panel) to the LEFT of the
-          drag divider, then the rail section tabs (Team only). The section tabs
-          are hidden while the panel is collapsed — only the burger remains. */}
-      {tab === 'team' && (
-        <div className="vb-header-right">
-          <Tooltip content={railCollapsed ? 'Show panel' : 'Hide panel'}>
-            <button
-              type="button"
-              className="vb-htab-collapse"
-              aria-label={railCollapsed ? 'Show panel' : 'Hide panel'}
-              onClick={() => setRailCollapsed((v) => !v)}
-            >
-              <Icon.Menu />
-            </button>
-          </Tooltip>
-          {!railCollapsed && (
-            <div
-              className="vb-header-sections has-rail"
-              ref={headerSectionsRef}
-              /* Width matches the rail column below so the section tabs sit over
-                 the rail and the left border continues the split divider up
-                 through the tab bar. */
-              style={{ width: `${railWidth}px` }}
-            >
-              {/* Drag handle on the tab-bar divider — resizes the split. */}
-              <Tooltip content="Drag to resize">
-                <div
-                  className="vb-htab-resizer"
-                  role="separator"
-                  aria-orientation="vertical"
-                  onMouseDown={startRailResize}
-                />
-              </Tooltip>
-              {railSections.sections.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  className={`vb-htab${railTab === s.id ? ' is-active' : ''}`}
-                  onClick={() => { setRailTab(s.id); if (s.id !== 'threads') setOpenThreadId(null); }}
-                >
-                  {s.icon}<span>{s.label}</span><span className="vb-htab-count">{s.count}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* The right-side rail section tabs (Pinned / Threads / Mentions) and
+          their burger toggle were removed with the rail feature. */}
     </div>
   );
 
@@ -1639,7 +1608,8 @@ export default function ProjectChat() {
       {chatMasthead}
       {/* Single 40px row (same height as the Hub button): tabs on the left, the
           huddle + search tools fill the right. */}
-      <div className={`dvx-toolbar${headerScrolled ? ' is-pinned' : ''}`}>
+      <MiniHeaderFade visible={headerScrolled} />
+      <div className={`dvx-toolbar mini-glow${headerScrolled ? ' is-pinned' : ''}`} onMouseMove={miniHeaderSpot}>
         {chatTabs}
         {chatChromeTools}
       </div>
@@ -1694,11 +1664,9 @@ export default function ProjectChat() {
                       renderBody={renderBody}
                       msgRefs={msgRefs}
                       onToggleReaction={handleToggleReaction}
-                      onOpenThread={openThread}
                       onAttachmentClick={handleAttachmentClick}
                       onSaveEdit={saveEdit}
                       onCancelEdit={cancelEdit}
-                      onTogglePin={handleTogglePin}
                       onStartEdit={startEdit}
                       onDelete={handleDelete}
                       onCopy={copyMessageText}
@@ -1729,135 +1697,8 @@ export default function ProjectChat() {
 
             </div>
 
-            {/* Visual divider only — the resize DRAG lives on the tab-bar
-                divider now (see .vb-htab-resizer / startRailResize). */}
-            {!railCollapsed && (
-              <div className="vb-rail-resizer" aria-hidden="true" />
-            )}
-
-            {/* ── Right rail — the section tabs (Pinned / Threads / Mentions /
-                Files) now live in the header nav bar above. This panel just
-                renders the selected section's content, and is hidden entirely
-                when collapsed via the header's toggle. ── */}
-            {!railCollapsed && (
-              <aside className="vb-rail">
-                <div className="vb-rail-content dvx-scroll">
-                  {railTab === 'pinned' && (
-                    pinned.length === 0
-                      ? <div className="vb-rail-empty">No pinned messages yet.</div>
-                      : (
-                        <div className="vb-rail-list">
-                          {pinned.map((m) => (
-                            <div key={m.id} className="vb-rail-card">
-                              <div className="vb-rail-card-head">
-                                <VbAvatar profile={memberById.get(m.author_id)?.profile} authorId={m.author_id} size={24} />
-                                <span className="vb-rail-card-author">{displayName(memberById.get(m.author_id)?.profile)}</span>
-                                <span className="vb-rail-card-time">{relativeShort(m.created_at)}</span>
-                                <Tooltip content="Unpin"><button type="button" className="vb-rail-card-action" aria-label="Unpin" onClick={() => handleTogglePin(m)}><Icon.Close /></button></Tooltip>
-                              </div>
-                              <div className="vb-rail-card-body">{m.body}</div>
-                              <button type="button" className="vb-rail-card-foot" onClick={() => jumpToMessage(m.id)}><Icon.Arrow /><span>Jump to message</span></button>
-                            </div>
-                          ))}
-                        </div>
-                      )
-                  )}
-
-                  {railTab === 'mentions' && (
-                    mentioned.length === 0
-                      ? <div className="vb-rail-empty">No mentions yet.</div>
-                      : (
-                        <div className="vb-rail-list">
-                          {mentioned.map((m) => (
-                            <button key={m.id} type="button" className="vb-rail-card vb-rail-card-button" onClick={() => jumpToMessage(m.id)}>
-                              <div className="vb-rail-card-head">
-                                <VbAvatar profile={memberById.get(m.author_id)?.profile} authorId={m.author_id} size={22} />
-                                <span className="vb-rail-card-author">{displayName(memberById.get(m.author_id)?.profile)}</span>
-                                <span className="vb-rail-card-time">{relativeShort(m.created_at)}</span>
-                              </div>
-                              <div className="vb-rail-card-body">{renderBody(m)}</div>
-                              <div className="vb-rail-card-foot"><Icon.Arrow /><span>Jump to message</span></div>
-                            </button>
-                          ))}
-                        </div>
-                      )
-                  )}
-
-                  {railTab === 'threads' && (
-                    openThreadId ? (() => {
-                      const root = messages.find((m) => m.id === openThreadId);
-                      const replies = repliesByParent.get(openThreadId) || [];
-                      return (
-                        <div>
-                          <button type="button" className="vb-rail-back" onClick={() => setOpenThreadId(null)}>
-                            <Icon.Arrow style={{ transform: 'rotate(180deg)' }} /><span>Back to threads</span>
-                          </button>
-                          {root && (
-                            <div className="vb-rail-thread-root">
-                              <div className="vb-rail-thread-root-meta">
-                                <VbAvatar profile={memberById.get(root.author_id)?.profile} authorId={root.author_id} size={24} />
-                                <span className="vb-rail-card-author">{displayName(memberById.get(root.author_id)?.profile)}</span>
-                                <span className="vb-rail-card-time">{formatHM(root.created_at)}</span>
-                              </div>
-                              <div className="vb-rail-thread-root-body">{renderBody(root)}</div>
-                            </div>
-                          )}
-                          <div className="vb-rail-thread-count">{replies.length} {replies.length === 1 ? 'reply' : 'replies'}</div>
-                          {replies.map((r) => (
-                            <div key={r.id} className="vb-rail-thread-reply">
-                              <VbAvatar profile={memberById.get(r.author_id)?.profile} authorId={r.author_id} size={22} />
-                              <div className="vb-rail-thread-reply-body">
-                                <div className="vb-rail-thread-reply-meta">
-                                  <span>{displayName(memberById.get(r.author_id)?.profile)}</span>
-                                  <span className="vb-rail-card-time">{formatHM(r.created_at)}</span>
-                                </div>
-                                <div className="vb-rail-thread-reply-text">{renderBody(r)}</div>
-                              </div>
-                            </div>
-                          ))}
-                          <div className="vb-rail-thread-composer">
-                            <textarea
-                              value={threadDraft}
-                              onChange={(e) => setThreadDraft(e.target.value)}
-                              placeholder="Reply in thread…"
-                              rows={1}
-                              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendThreadReply(); } }}
-                            />
-                            <button type="button" className="vb-rail-thread-send" onClick={handleSendThreadReply} disabled={!threadDraft.trim()} aria-label="Send reply"><Icon.Send /></button>
-                          </div>
-                        </div>
-                      );
-                    })() : (
-                      threadParents.length === 0
-                        ? <div className="vb-rail-empty">No threads yet. Reply to a message to start one.</div>
-                        : (
-                          <div className="vb-rail-list">
-                            {threadParents.map((m) => {
-                              const replies = repliesByParent.get(m.id) || [];
-                              const last = replies[replies.length - 1];
-                              return (
-                                <button key={m.id} type="button" className="vb-rail-thread-item" onClick={() => setOpenThreadId(m.id)}>
-                                  <div className="vb-rail-card-head">
-                                    <VbAvatar profile={memberById.get(m.author_id)?.profile} authorId={m.author_id} size={20} />
-                                    <span className="vb-rail-card-author">{displayName(memberById.get(m.author_id)?.profile)}</span>
-                                    <span className="vb-rail-card-time">{relativeShort(m.created_at)}</span>
-                                  </div>
-                                  <div className="vb-rail-thread-item-body">{m.body}</div>
-                                  <div className="vb-rail-thread-item-meta">
-                                    <Icon.Thread />
-                                    <span>{replies.length} {replies.length === 1 ? 'reply' : 'replies'}</span>
-                                    {last && <><span>·</span><span>Last {relativeShort(last.created_at)}</span></>}
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )
-                    )
-                  )}
-                </div>
-              </aside>
-            )}
+            {/* The right rail (Pinned / Threads / Mentions) was removed along
+                with its tab-bar toggle — the thread pane always fills the row. */}
           </div>
 
           {/* Message input — docked flat in the window's app footer (.sv-footer),

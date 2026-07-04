@@ -5,6 +5,8 @@ import { useUpdates, versionTagFor } from '../context/UpdatesContext';
 import ConfirmModal from '../components/ConfirmModal';
 import Tooltip from '../components/Tooltip';
 import { isElectron, openExternal as platformOpenExternal } from '../lib/platform';
+import { miniHeaderSpot } from '../lib/miniHeaderSpot';
+import MiniHeaderFade from '../components/MiniHeaderFade';
 import './Updates.css';
 
 // URL shown to web users in the "Get the desktop app" CTA. Linking to the
@@ -530,7 +532,8 @@ export default function Updates() {
       {/* Compact header — fades/slides in once the big "Versions" title has
           scrolled away, like the launch hub. Fixed to the content area. Carries
           the same up-to-date / update-available status as the banner below. */}
-      <div className={`versions-compact${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
+      <MiniHeaderFade visible={scrolled} />
+      <div className={`versions-compact mini-glow${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled} onMouseMove={miniHeaderSpot}>
         <span className="mini-head-text">
           <span className="versions-compact-title">Versions</span>
           <span className="versions-compact-sep" aria-hidden="true">·</span>

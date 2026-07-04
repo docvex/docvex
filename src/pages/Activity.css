@@ -133,10 +133,13 @@
   align-items: stretch;
   gap: 0;
   border-bottom: 1px solid var(--border);
-  /* Full-bleed like the Files tab strip — break out of the page's 22px
-     inset so the bar reaches the content-area edges; title stays inset.
+  /* Full-bleed on the RIGHT only. The Activity page sits flush against the
+     sidebar (FLUSH_CONTENT_ROUTES), so a negative LEFT margin would slide the
+     bar under the rail and clip the first tab — instead the bar starts at the
+     content edge and the first tab is inset via padding-left below.
      No bottom margin: the scroll region sits flush under the tab bar. */
-  margin: 0 -17.6px 0;
+  margin: 0 -17.6px 0 0;
+  padding-left: 3.2px;
   flex-wrap: wrap;
 }
 .activity-filters {
@@ -163,29 +166,48 @@
   gap: 0.4rem;
   background: transparent;
   border: none;
-  margin-bottom: -1px;
-  border-bottom: 1.6px solid transparent;
+  position: relative;
   color: var(--text-muted);
   font-size: 0.704rem;
   font-weight: 500;
   padding: 0.56rem 0.8rem;
   cursor: pointer;
-  transition: color 150ms, border-color 150ms;
+  transition: color 150ms;
   font-family: inherit;
 }
 .activity-filter:hover:not(.is-active) { color: var(--text-secondary); }
-.activity-filter.is-active {
-  color: var(--text-primary);
-  border-bottom-color: var(--accent);
+.activity-filter.is-active { color: var(--text-primary); }
+/* Active underline — same recipe as the chat mini-header's tab bar: a 3.2px
+   rounded bar (inset past the leading dot, tighter on the right) straddling
+   the strip's baseline, tinted by the tab's category. */
+.activity-filter.is-active::after {
+  content: '';
+  position: absolute;
+  left: 0.4rem;
+  right: 0.3rem;
+  bottom: -1.6px;
+  height: 3.2px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: translateY(40%);
+  z-index: 2;
 }
-.activity-filter[data-cat="file"].is-active    { border-bottom-color: var(--cat-file); }
-.activity-filter[data-cat="member"].is-active  { border-bottom-color: var(--cat-member); }
-.activity-filter[data-cat="project"].is-active { border-bottom-color: var(--cat-project); }
-.activity-filter[data-cat="role"].is-active    { border-bottom-color: var(--cat-role); }
-.activity-filter[data-cat="update"].is-active  { border-bottom-color: var(--cat-update); }
-.activity-filter[data-cat="auth"].is-active    { border-bottom-color: var(--cat-auth); }
-.activity-filter[data-cat="support"].is-active { border-bottom-color: var(--cat-support); }
-.activity-filter[data-cat="social"].is-active  { border-bottom-color: var(--cat-social, var(--cat-member)); }
+.activity-filter[data-cat="file"].is-active::after    { background: var(--cat-file); }
+.activity-filter[data-cat="member"].is-active::after  { background: var(--cat-member); }
+.activity-filter[data-cat="project"].is-active::after { background: var(--cat-project); }
+.activity-filter[data-cat="role"].is-active::after    { background: var(--cat-role); }
+.activity-filter[data-cat="update"].is-active::after  { background: var(--cat-update); }
+.activity-filter[data-cat="auth"].is-active::after    { background: var(--cat-auth); }
+.activity-filter[data-cat="support"].is-active::after { background: var(--cat-support); }
+.activity-filter[data-cat="social"].is-active::after  { background: var(--cat-social, var(--cat-member)); }
+
+/* Filters hosted inside the compact mini-header (PageMasthead's compactRight
+   slot): stretch the whole chain to the 40px bar's height so the shared
+   underline (above) straddles the bar's bottom edge; overflow stays visible
+   so its lower half isn't clipped. */
+.pmh-compact .pmh-compact-right { align-self: stretch; align-items: stretch; overflow: visible; }
+.pmh-compact .activity-filters { align-items: stretch; flex-wrap: nowrap; overflow: visible; }
+.pmh-compact .activity-filter { height: 100%; overflow: visible; }
 
 .activity-filter-dot {
   width: 5.6px; height: 5.6px;
@@ -202,29 +224,31 @@
 .activity-filter[data-cat="support"] .activity-filter-dot { background: var(--cat-support); }
 .activity-filter[data-cat="social"]  .activity-filter-dot { background: var(--cat-social, var(--cat-member)); }
 
+/* Count pill — no fill, just the tinted number, tucked close to the label
+   (negative margin eats most of the tab's flex gap) and faded down so it
+   reads as secondary to the category text. */
 .activity-filter-count {
   font-size: 0.56rem;
   font-weight: 600;
-  background: var(--border);
-  color: var(--text-secondary);
+  background: transparent;
+  color: var(--text-muted);
+  opacity: 0.6;
   border-radius: 999px;
-  padding: 0.08rem 0.36rem;
+  padding: 0.08rem 0.2rem;
+  margin-left: -0.25rem;
   min-width: 0.88rem;
   text-align: center;
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
-.activity-filter.is-active .activity-filter-count {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  color: var(--accent);
-}
-.activity-filter[data-cat="file"].is-active .activity-filter-count    { background: color-mix(in srgb, var(--cat-file) 18%, transparent);    color: var(--cat-file); }
-.activity-filter[data-cat="member"].is-active .activity-filter-count  { background: color-mix(in srgb, var(--cat-member) 18%, transparent);  color: var(--cat-member); }
-.activity-filter[data-cat="project"].is-active .activity-filter-count { background: color-mix(in srgb, var(--cat-project) 18%, transparent); color: var(--cat-project); }
-.activity-filter[data-cat="role"].is-active .activity-filter-count    { background: color-mix(in srgb, var(--cat-role) 18%, transparent);    color: var(--cat-role); }
-.activity-filter[data-cat="update"].is-active .activity-filter-count  { background: color-mix(in srgb, var(--cat-update) 18%, transparent);  color: var(--cat-update); }
-.activity-filter[data-cat="auth"].is-active .activity-filter-count    { background: color-mix(in srgb, var(--cat-auth) 18%, transparent);    color: var(--cat-auth); }
-.activity-filter[data-cat="support"].is-active .activity-filter-count { background: color-mix(in srgb, var(--cat-support) 18%, transparent); color: var(--cat-support); }
+.activity-filter.is-active .activity-filter-count { color: var(--accent); }
+.activity-filter[data-cat="file"].is-active .activity-filter-count    { color: var(--cat-file); }
+.activity-filter[data-cat="member"].is-active .activity-filter-count  { color: var(--cat-member); }
+.activity-filter[data-cat="project"].is-active .activity-filter-count { color: var(--cat-project); }
+.activity-filter[data-cat="role"].is-active .activity-filter-count    { color: var(--cat-role); }
+.activity-filter[data-cat="update"].is-active .activity-filter-count  { color: var(--cat-update); }
+.activity-filter[data-cat="auth"].is-active .activity-filter-count    { color: var(--cat-auth); }
+.activity-filter[data-cat="support"].is-active .activity-filter-count { color: var(--cat-support); }
 
 /* ── Day groups ──────────────────────────────────────────────────────── */
 .activity-groups { display: flex; flex-direction: column; gap: 19.2px; }
@@ -244,12 +268,113 @@
   height: 1px;
   background: linear-gradient(90deg, var(--border), transparent);
 }
+
+/* File-group divider — thumbnail tile + filename, like a Files-tab row.
+   The filename overrides the label's uppercase small-caps treatment. */
+.activity-group-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.activity-group-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.activity-group-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Folder-event dividers show the filled folder glyph in the accent colour. */
+.activity-group-thumb.is-folder { color: var(--accent); }
+
+/* File divider tail: filename — short rule — project name — (the h2's
+   trailing hairline then continues to the card edge). */
+.activity-group-rule {
+  width: 16px;
+  height: 1px;
+  flex: 0 0 auto;
+  background: var(--border);
+}
+.activity-group-projname {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.activity-group-thumb .project-files-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+.activity-group-thumb .project-files-icon svg,
+.activity-group-thumb > svg { width: 16px; height: 16px; }
+.activity-group-filename {
+  font-size: 11.6px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Project divider — the project's name, sized up and in the same accent as
+   the masthead eyebrow ("DocVex Journal"). Overrides the label's uppercase
+   small-caps treatment. */
+.activity-group-project {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Account divider — the signed-in user's avatar circle (Google photo, or the
+   deterministic first-letter fallback) in the same slot as a file thumb. */
+.activity-group-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  border: 1px solid var(--border);
+  box-sizing: border-box;
+  user-select: none;
+}
+.activity-group-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .activity-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex; flex-direction: column;
-  gap: 6.4px;
+  /* Responsive card grid — rows flow into as many ~340px columns as fit. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 8px;
+  align-items: start;
 }
 
 /* ── Single row ──────────────────────────────────────────────────────── */
@@ -258,7 +383,10 @@
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 11.2px;
-  background: var(--bg-card);
+  /* Positioning context for the corner-pinned dismiss ×. */
+  position: relative;
+  /* Same surface as the app top bar / mini headers. */
+  background: var(--bg-sidebar);
   border: 1px solid var(--border);
   border-left-width: 2.4px;
   border-left-color: var(--cat-system);
@@ -302,6 +430,16 @@
 .activity-row[data-cat="auth"]    .activity-avatar-wrap { background: color-mix(in srgb, var(--cat-auth) 12%, var(--bg-card));    border-color: color-mix(in srgb, var(--cat-auth) 26%, transparent);    color: var(--cat-auth); }
 .activity-row[data-cat="support"] .activity-avatar-wrap { background: color-mix(in srgb, var(--cat-support) 12%, var(--bg-card)); border-color: color-mix(in srgb, var(--cat-support) 26%, transparent); color: var(--cat-support); }
 .activity-row[data-cat="social"]  .activity-avatar-wrap { background: color-mix(in srgb, var(--cat-social, var(--cat-member)) 12%, var(--bg-card)); border-color: color-mix(in srgb, var(--cat-social, var(--cat-member)) 26%, transparent); color: var(--cat-social, var(--cat-member)); }
+
+/* Error-variant rows (deletes, failures) read RED regardless of category —
+   placed after the data-cat rules so the variant wins the cascade. */
+.activity-row.is-var-error { border-left-color: var(--danger); }
+.activity-row.is-var-error .activity-avatar-wrap {
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg-card));
+  border-color: color-mix(in srgb, var(--danger) 26%, transparent);
+  color: var(--danger);
+}
+
 .activity-glyph { display: grid; place-items: center; }
 .activity-glyph svg { width: 13.6px; height: 13.6px; }
 
@@ -363,26 +501,39 @@
   white-space: nowrap;
   display: inline-flex; align-items: center; gap: 4.8px;
 }
-.activity-unread-dot {
-  width: 5.6px; height: 5.6px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-.activity-row:not(.is-unread) .activity-unread-dot { display: none; }
-.activity-row.is-pri-high .activity-unread-dot { background: var(--warning); }
-.activity-row.is-pri-critical .activity-unread-dot { background: var(--danger); }
-
+/* Dismiss × — a small chip whose CENTER sits exactly ON the card's rounded
+   top-right corner (translate(50%, -50%) off the corner point). Out of flow,
+   and only revealed while the row is hovered so the grid stays clean. */
 .activity-dismiss {
-  background: transparent;
-  border: none;
-  color: var(--border-strong);
-  padding: 3.2px;
-  border-radius: 4.8px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  /* Slightly inside the corner point (was 50%/-50% dead-centre on it). */
+  transform: translate(30%, -30%);
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text-secondary);
   cursor: pointer;
   display: grid; place-items: center;
-  transition: color 120ms, background 120ms;
+  box-shadow: var(--shadow-card);
+  opacity: 0;
+  pointer-events: none;
+  transition: color 120ms, background 120ms, opacity 120ms;
 }
-.activity-dismiss:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.activity-row:hover .activity-dismiss,
+.activity-dismiss:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.activity-dismiss:hover {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
 
 /* ── Empty state ─────────────────────────────────────────────────────── */
 .activity-empty {

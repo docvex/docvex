@@ -116,11 +116,14 @@
      bar (inheriting the page's 1.5+ line-height pushed the text low, reading as
      a gap at the top). */
   line-height: 1;
-  /* Rounded floating card painted in the window top-bar colour. */
+  /* Rounded floating card — the SIDEBAR's frosted surface (see
+     styles/miniHeader.css); spotlight + border shine via .mini-glow. */
   border-radius: 9.6px;
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-card);
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  border: 1.5px solid var(--border);
+  box-shadow: none;
   opacity: 0;
   transform: translateY(-8px);
   pointer-events: none;

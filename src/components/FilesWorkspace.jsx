@@ -9,6 +9,8 @@ import { useAppPrefs } from '../context/AppPrefsContext';
 import { useAuth } from '../context/AuthContext';
 import { setDraggedFiles, clearDraggedFiles, getDraggedFiles } from '../lib/fileDragBus';
 import { FOLDER_COLOR_PRESETS, loadFolderColors, persistFolderColors } from '../lib/folderColors';
+import { miniHeaderSpot } from '../lib/miniHeaderSpot';
+import MiniHeaderFade from './MiniHeaderFade';
 import './FilesWorkspace.css';
 
 // Platform hint for the search shortcut chip (⌘F on macOS, Ctrl F elsewhere).
@@ -1653,6 +1655,10 @@ export default function FilesWorkspace({
         <nav className="fx-crumbs" aria-label="Folder path">
           {(crumbs || []).map((cr, i) => {
             const isLast = i === crumbs.length - 1;
+            // Every crumb carries a glyph for the surface it points at: the
+            // Recycle bin gets its trash can; the root and every directory a
+            // folder (the root's is filled, matching the Files-tab tiles).
+            const crumbIcon = cr.path === '__bin' ? 'trash' : 'folder';
             return (
               <React.Fragment key={cr.path ?? i}>
                 {i > 0 && <Icon name="chev-right" size={12} className="fx-crumb-sep" />}
@@ -1665,7 +1671,10 @@ export default function FilesWorkspace({
                     onDragLeave={() => onCrumbDragLeave(cr)}
                     onDrop={(e) => onCrumbDrop(cr, isLast, e)}
                   >
-                    {i === 0 && <Icon name="folder" size={16} className="fx-crumb-icon" filled />}
+                    {/* Every crumb glyph uses the FILLED variant — folders
+                        included (no hollow icons); Trash matches the Files
+                        tab's bin glyph, tinted gray. */}
+                    <Icon name={crumbIcon} size={i === 0 ? 16 : 14} className={`fx-crumb-icon${crumbIcon === 'trash' ? ' is-trash' : ''}`} filled />
                     <span className="fx-crumb-label">{cr.label}</span>
                   </button>
                 </Tooltip>
@@ -1694,21 +1703,20 @@ export default function FilesWorkspace({
         </Tooltip>
         {/* Categorize — split the listing into labelled category sections
             (folders & archives, media, Office docs, the Recycle bin, then
-            other files) stacked vertically. Toggle. */}
-        {!isBin && (
-          <Tooltip content={grouped ? 'Show as one list' : 'Group by category'}>
-            <button
-              type="button"
-              className={`fx-cat-btn${grouped ? ' is-active' : ''}`}
-              aria-label="Group by category"
-              aria-pressed={grouped}
-              onClick={() => setGrouped((v) => !v)}
-            >
-              {/* Filled + accent (the folder colour) when active. */}
-              <Icon name="categories" size={14} filled={grouped} />
-            </button>
-          </Tooltip>
-        )}
+            other files) stacked vertically. Toggle. Available in the Recycle
+            bin too — trashed items bucket by the same type categories. */}
+        <Tooltip content={grouped ? 'Show as one list' : 'Group by category'}>
+          <button
+            type="button"
+            className={`fx-cat-btn${grouped ? ' is-active' : ''}`}
+            aria-label="Group by category"
+            aria-pressed={grouped}
+            onClick={() => setGrouped((v) => !v)}
+          >
+            {/* Filled + accent (the folder colour) when active. */}
+            <Icon name="categories" size={14} filled={grouped} />
+          </button>
+        </Tooltip>
         <div className={`fx-search${query ? ' is-active' : ''}`}>
           <Icon name="search" size={15} className="fx-search-glyph" />
           <input
@@ -1763,7 +1771,12 @@ export default function FilesWorkspace({
         </header>
       )}
       <div className="fx-window">
-        {!chromeSlotEl && <div className={`fx-pathbar${headerScrolled ? ' is-pinned' : ''}`}>{toolbar}</div>}
+        {!chromeSlotEl && (
+          <>
+            <MiniHeaderFade visible={headerScrolled} />
+            <div className={`fx-pathbar mini-glow${headerScrolled ? ' is-pinned' : ''}`} onMouseMove={miniHeaderSpot}>{toolbar}</div>
+          </>
+        )}
 
         {/* Canvas */}
         <div

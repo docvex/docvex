@@ -1,5 +1,6 @@
 import './index.css';
 import './styles/tokens.css';
+import './styles/miniHeader.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
@@ -14,25 +15,31 @@ import NotificationCenter from './components/NotificationCenter';
 import { isElectron, isMac } from './lib/platform';
 import App from './App';
 
+// Document-viewer windows (opened from the Files page) boot straight into the
+// full-screen /doc-viewer route, carrying the file's path/name/mime through.
+// Tray "Extract text" overlay windows boot into /snip with the frozen
+// screenshot's path. Every other window is the main app.
+const launchParams = new URLSearchParams(window.location.search);
+const isDocViewer = launchParams.get('docViewer') === '1';
+const isSnip = launchParams.get('snip') === '1';
+
 // Frameless Electron build draws a custom title bar — flag the document
 // BEFORE first paint so the layout reserves --titlebar-h (no startup shift).
-// Web keeps the browser chrome and skips this.
-if (isElectron) {
+// Web keeps the browser chrome and skips this. The tray "Extract text"
+// overlay is chromeless edge-to-edge (the frozen screenshot must fill the
+// display exactly), so it skips the reservation too.
+if (isElectron && !isSnip) {
   document.documentElement.classList.add('with-titlebar');
   // macOS keeps the native traffic-light buttons (titleBarStyle:'hidden' in
   // main.js) floating over our bar, so the title bar insets its brand to clear
   // them and hides its own window controls. Flag it before first paint too.
   if (isMac) document.documentElement.classList.add('is-mac');
 }
-
-// Document-viewer windows (opened from the Files page) boot straight into the
-// full-screen /doc-viewer route, carrying the file's path/name/mime through.
-// Every other window is the main app, which boots on the Hub (/projects).
-const launchParams = new URLSearchParams(window.location.search);
-const isDocViewer = launchParams.get('docViewer') === '1';
 const initialEntries = isDocViewer
   ? [`/doc-viewer?${launchParams.toString()}`]
-  : ['/'];
+  : isSnip
+    ? [`/snip?${launchParams.toString()}`]
+    : ['/'];
 
 // Provider order:
 //   AuthProvider                — session

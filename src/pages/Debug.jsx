@@ -6,7 +6,12 @@ import { clearPdfCache } from '../lib/pdfCache';
 import { sendInviteDebug } from '../lib/projects';
 import { sendSupportReport } from '../lib/support';
 import { sendWelcomeEmail } from '../lib/sendWelcome';
-import { TEST_NOTIFICATIONS, TEST_NOTIFICATION_STAGGER_MS } from '../notifications/testNotifications';
+import { insertDebugBriefs, removeDebugBriefs } from '../lib/legalFeed';
+import { TEST_NOTIFICATIONS, TEST_NOTIFICATION_STAGGER_MS, buildFileTestNotifications } from '../notifications/testNotifications';
+import { useSelectedProject } from '../context/SelectedProjectContext';
+import { useAuth } from '../context/AuthContext';
+import { localFolderApi } from '../lib/localFolder';
+import { readProjectsDir } from '../lib/projectsDir';
 import PageMasthead from '../components/PageMasthead';
 import './Debug.css';
 
@@ -34,10 +39,34 @@ function clearAllCaches(notify) {
 }
 
 // Fires one of every entry in TEST_NOTIFICATIONS, staggered 200ms apart so the
-// toast stack animates in cleanly. Lets devs eyeball every category × priority
-// × icon combo without triggering the live actions.
-function sendAllTestNotifications(notify) {
-  TEST_NOTIFICATIONS.forEach((payload, idx) => {
+// toast stack animates in cleanly. When a project is selected and its local
+// folder lists real files, the FILE-category samples are replaced by a full
+// per-action set (create / import / edit / … / captions / export) built from
+// the user's own files — so the Activity tab's per-file grouping previews
+// with real names. Falls back to the static set when no files resolve.
+async function sendAllTestNotifications(notify, { selectedProject, userId } = {}) {
+  let fileNotifs = [];
+  if (selectedProject?.id) {
+    try {
+      const { path } = await localFolderApi.projectDir(
+        selectedProject.id,
+        selectedProject.name,
+        readProjectsDir(userId) || undefined,
+      );
+      if (path) {
+        const { files } = await localFolderApi.listAll(path);
+        const usable = (files || []).filter((f) => f?.name && !f.name.startsWith('.docvex'));
+        fileNotifs = buildFileTestNotifications(usable, {
+          projectId: selectedProject.id,
+          projectName: selectedProject.name || null,
+        });
+      }
+    } catch { /* folder unavailable (web / no folder) — static set below */ }
+  }
+  const staticSet = fileNotifs.length > 0
+    ? TEST_NOTIFICATIONS.filter((p) => p.category !== 'file')
+    : TEST_NOTIFICATIONS;
+  [...fileNotifs, ...staticSet].forEach((payload, idx) => {
     window.setTimeout(() => {
       notify?.(payload);
     }, idx * TEST_NOTIFICATION_STAGGER_MS);
@@ -123,7 +152,59 @@ async function sendAllEmailPreviews(notify) {
   }));
 }
 
+// Inserts sample briefs into `legal_updates` so the Newsletter feed and its
+// sidebar "new" pill can be exercised without the real legal-ai ingest
+// pipeline. RLS gates the write on is_app_admin() — non-admins get an error
+// toast. The companion sweep removes everything with a `debug-` slug.
+async function generateTestBriefs(notify) {
+  const { data, error } = await insertDebugBriefs({ count: 3 });
+  notify?.(error
+    ? {
+        category: 'system', variant: 'error', priority: 'high', icon: 'alert',
+        title: 'Couldn’t generate briefs',
+        body: `${error.message || error} (app admins only — the insert is RLS-gated).`,
+        dedupeKey: 'debug-briefs-error',
+      }
+    : {
+        category: 'system', variant: 'success', priority: 'low', icon: 'sparkles',
+        title: 'Test briefs published',
+        body: `${data?.length || 0} sample briefs added — check the Newsletter tab and its sidebar pill.`,
+        dedupeKey: 'debug-briefs-ok',
+      });
+}
+
+async function sweepTestBriefs(notify) {
+  const { count, error } = await removeDebugBriefs();
+  notify?.(error
+    ? {
+        category: 'system', variant: 'error', priority: 'high', icon: 'alert',
+        title: 'Couldn’t remove test briefs',
+        body: error.message || String(error),
+        dedupeKey: 'debug-briefs-sweep-error',
+      }
+    : {
+        category: 'system', variant: 'info', priority: 'low', icon: 'trash',
+        title: 'Test briefs removed',
+        body: `${count} debug brief${count === 1 ? '' : 's'} deleted from the feed.`,
+        dedupeKey: 'debug-briefs-sweep-ok',
+      });
+}
+
 const ACTIONS = [
+  {
+    id: 'generate-briefs',
+    title: 'Generate test briefs',
+    body: 'Publishes 3 sample legal briefs into the Newsletter feed (slugs prefixed debug-) so the feed and the sidebar "new brief" pill can be previewed. App admins only.',
+    cta: 'Generate briefs',
+    run: (notify) => generateTestBriefs(notify),
+  },
+  {
+    id: 'sweep-briefs',
+    title: 'Remove test briefs',
+    body: 'Deletes every debug-generated brief (slug starting with debug-) from the Newsletter feed. App admins only.',
+    cta: 'Remove briefs',
+    run: (notify) => sweepTestBriefs(notify),
+  },
   {
     id: 'clear-cache',
     title: 'Clear all cached data',
@@ -134,9 +215,9 @@ const ACTIONS = [
   {
     id: 'test-notifications',
     title: 'Send all test notifications',
-    body: 'Fires one of every entry in TEST_NOTIFICATIONS so you can preview the toast stack + history rows for every category × priority × icon combo.',
+    body: 'Fires one of every notification kind. File notifications use the real files from the selected project’s folder (one per action — created, imported, edited, trashed, extracted, captioned…), so the Activity tab previews with your own documents.',
     cta: 'Fire notifications',
-    run: (notify) => sendAllTestNotifications(notify),
+    run: (notify, ctx) => sendAllTestNotifications(notify, ctx),
   },
   {
     id: 'email-previews',
@@ -149,13 +230,15 @@ const ACTIONS = [
 
 export default function Debug() {
   const { notify } = useNotifications();
+  const { session } = useAuth();
+  const { selectedProject } = useSelectedProject();
   const { simulateUpdate, setSimulateUpdate, simulateKind, setSimulateKind, currentVersion, latestVersion } = useUpdates();
   const [busy, setBusy] = useState(null);
 
   const handleRun = async (action) => {
     setBusy(action.id);
     try {
-      await action.run(notify);
+      await action.run(notify, { selectedProject, userId: session?.user?.id || null });
     } finally {
       setBusy(null);
     }

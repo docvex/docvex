@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { isNotificationsStorageKey } from '../lib/notifications';
+import { isActivityStorageKey } from '../lib/activityLog';
 import { deleteAllForUser as deleteAllNotificationsForUser } from '../lib/notificationsRepo';
 import { sendWelcomeEmail } from '../lib/sendWelcome';
 import { PENDING_INVITE_TOKEN_KEY } from '../pages/Projects/InviteAccept';
@@ -404,6 +405,7 @@ export function AuthProvider({ children }) {
           k.startsWith('sb-')
           || k.startsWith('supabase.')
           || isNotificationsStorageKey(k)
+          || isActivityStorageKey(k)
           // Phase 2 client-side state — pendingChanges queue,
           // lastSeenMainVersion cursor, and the migration marker
           // that gates the one-time DB → localStorage sweep. These

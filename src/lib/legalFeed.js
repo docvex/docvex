@@ -83,6 +83,95 @@ async function setStateColumn(updateId, column, on) {
   return { error };
 }
 
+// ── "New brief" pill (sidebar) ──────────────────────────────────────
+// The sidebar shows a pill on the Newsletter item when a brief was published
+// AFTER the user's last visit to the tab. The visit timestamp is per-device
+// (localStorage) and the check is a single one-row select, so it's cheap
+// enough to run on every sidebar mount. `docvex:newsletter-changed` fires on
+// both a visit (clears the pill) and a debug insert (raises it) so the
+// sidebar can re-check without polling.
+const LAST_VISIT_PREFIX = 'docvex.newsletter.lastVisit.';
+const NEWSLETTER_CHANGED_EVENT = 'docvex:newsletter-changed';
+
+function lastVisitKey(userId) {
+  return LAST_VISIT_PREFIX + (userId || '_anonymous');
+}
+
+export function notifyNewsletterChanged() {
+  try { window.dispatchEvent(new CustomEvent(NEWSLETTER_CHANGED_EVENT)); } catch { /* SSR-safe */ }
+}
+
+export function markNewsletterVisited(userId) {
+  try { localStorage.setItem(lastVisitKey(userId), new Date().toISOString()); } catch { /* non-fatal */ }
+  notifyNewsletterChanged();
+}
+
+export function onNewsletterChanged(callback) {
+  window.addEventListener(NEWSLETTER_CHANGED_EVENT, callback);
+  return () => window.removeEventListener(NEWSLETTER_CHANGED_EVENT, callback);
+}
+
+// True when the newest published brief postdates the user's last visit.
+export async function hasNewBrief(userId) {
+  const { data, error } = await supabase
+    .from(UPDATES)
+    .select('published_at')
+    .order('published_at', { ascending: false })
+    .limit(1);
+  if (error || !data?.length) return false;
+  const newest = Date.parse(data[0].published_at);
+  if (Number.isNaN(newest)) return false;
+  let lastVisit = 0;
+  try { lastVisit = Date.parse(localStorage.getItem(lastVisitKey(userId)) || '') || 0; } catch { /* 0 */ }
+  return newest > lastVisit;
+}
+
+// ── Debug brief generator (Debug page, app admins only) ─────────────
+// Inserts a few sample briefs so the Newsletter feed + its sidebar pill can
+// be exercised without the real legal-ai ingest pipeline. Backed by the
+// `legal_updates_admin_debug_write` migration — INSERT/DELETE are gated on
+// is_app_admin(), so non-admins get an RLS error here. Slugs are prefixed
+// `debug-` so removeDebugBriefs can sweep them.
+const DEBUG_SAMPLES = [
+  { category: 'tax', impact: 'high', title: 'Test brief — VAT registration threshold adjusted', summary: 'Sample brief generated from the Debug page. The VAT registration threshold changes for small enterprises starting next quarter.', areas: ['SMEs', 'Accounting teams'] },
+  { category: 'employment', impact: 'medium', title: 'Test brief — remote-work addendum rules clarified', summary: 'Sample brief generated from the Debug page. Employers must attach an updated remote-work addendum to existing contracts.', areas: ['HR departments', 'Employers'] },
+  { category: 'gdpr', impact: 'low', title: 'Test brief — cookie-consent guidance refreshed', summary: 'Sample brief generated from the Debug page. The supervisory authority republished its cookie-consent banner guidance.', areas: ['Website operators'] },
+  { category: 'corporate', impact: 'medium', title: 'Test brief — beneficial-owner filing window extended', summary: 'Sample brief generated from the Debug page. The annual beneficial-owner declaration window is extended by 60 days.', areas: ['Companies', 'Law firms'] },
+  { category: 'compliance', impact: 'high', title: 'Test brief — AML reporting format updated', summary: 'Sample brief generated from the Debug page. Reporting entities must switch to the new AML transaction-report format.', areas: ['Compliance officers', 'Banks'] },
+];
+
+export async function insertDebugBriefs({ count = 3 } = {}) {
+  const now = Date.now();
+  const rows = Array.from({ length: Math.min(count, DEBUG_SAMPLES.length) }, (_, i) => {
+    const s = DEBUG_SAMPLES[(now + i) % DEBUG_SAMPLES.length];
+    return {
+      slug: `debug-${now}-${i}`,
+      category: s.category,
+      impact: s.impact,
+      title: s.title,
+      summary: s.summary,
+      areas: s.areas,
+      source: 'Debug page',
+      ai_status: 'done',
+      published_at: new Date(now + i).toISOString(),
+    };
+  });
+  const { data, error } = await supabase.from(UPDATES).insert(rows).select('id');
+  if (!error) notifyNewsletterChanged();
+  return { data, error };
+}
+
+// Sweep every debug-generated brief (slug prefix `debug-`).
+export async function removeDebugBriefs() {
+  const { data, error } = await supabase
+    .from(UPDATES)
+    .delete()
+    .like('slug', 'debug-%')
+    .select('id');
+  if (!error) notifyNewsletterChanged();
+  return { count: data?.length || 0, error };
+}
+
 export function setUpdateRead(updateId, read) {
   return setStateColumn(updateId, 'read_at', read);
 }

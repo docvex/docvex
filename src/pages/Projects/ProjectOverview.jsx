@@ -18,6 +18,8 @@ import {
 import { deleteCustomRole } from '../../lib/customRoles';
 import { localFolderApi, isElectronBranch } from '../../lib/localFolder';
 import { readProjectsDir } from '../../lib/projectsDir';
+import { miniHeaderSpot } from '../../lib/miniHeaderSpot';
+import MiniHeaderFade from '../../components/MiniHeaderFade';
 import { useHasCapability } from '../../hooks/useHasCapability';
 import DeleteProjectModal from '../../components/DeleteProjectModal';
 import InviteMemberModal from '../../components/InviteMemberModal';
@@ -794,7 +796,8 @@ export default function ProjectOverview() {
       {/* Compact header — fades/slides in once the hero has scrolled away,
           mirroring the Versions page exactly: title · eyebrow · a clickable
           status pill (with a dot) that jumps back to the top. */}
-      <div className={`pjd-compact${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
+      <MiniHeaderFade visible={scrolled} />
+      <div className={`pjd-compact mini-glow${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled} onMouseMove={miniHeaderSpot}>
         <span className="pjd-compact-title">{project.name}</span>
         <span className="pjd-compact-sep" aria-hidden="true">·</span>
         <span className="pjd-compact-eyebrow">

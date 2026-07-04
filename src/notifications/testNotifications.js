@@ -21,6 +21,53 @@ import { NOTIFICATION_CATEGORIES } from '../lib/notifications';
 
 const C = NOTIFICATION_CATEGORIES;
 
+// ── Real-file test set ────────────────────────────────────────────────
+// Builds one notification per FILE action (create / import / edit / rename /
+// move / delete / restore / purge / extract / captions / generate / export),
+// each referencing a real file from the selected project's folder — so the
+// Activity tab's per-file grouping and the toast copy can be previewed with
+// the user's own documents instead of fake names. Every payload carries the
+// same `payload.activity` tag the real call sites emit, so these also land
+// in the activity log. Returns [] when no files are available (the caller
+// falls back to the static file samples below).
+export function buildFileTestNotifications(files, { projectId = null, projectName = null } = {}) {
+  const usable = (files || []).filter((f) => f?.name);
+  if (usable.length === 0) return [];
+  const suffix = `tf-${Date.now()}`;
+  const pick = (i) => usable[i % usable.length];
+  const act = (action, file, extra = {}) => ({
+    activity: {
+      action,
+      fileName: file?.name || null,
+      filePath: file?.path || null,
+      projectId,
+      projectName,
+      ...extra,
+    },
+  });
+  const importNames = usable.slice(0, 3).map((f) => f.name);
+  const defs = [
+    (f) => ({ variant: 'success', icon: 'plus', title: 'File created', body: `“${f.name}” added to this folder.`, payload: act('create', f) }),
+    () => ({ variant: 'success', icon: 'folder-plus', title: 'Folder created', body: '“Test folder” added to this folder.', payload: { activity: { action: 'create-folder', fileName: 'Test folder', projectId, projectName } } }),
+    (f) => ({ variant: 'success', icon: 'upload', title: importNames.length > 1 ? 'Files added' : 'File added', body: `${importNames.length} file${importNames.length === 1 ? '' : 's'} added.`, payload: { activity: { action: 'import', fileName: importNames.length === 1 ? f.name : null, files: importNames, count: importNames.length, projectId, projectName } } }),
+    (f) => ({ variant: 'info', icon: 'edit', title: 'File edited', body: `“${f.name}” changed on disk.`, payload: act('edit', f) }),
+    (f) => ({ variant: 'success', icon: 'edit', title: 'File renamed', body: `“${f.name}” was renamed.`, payload: act('rename', f) }),
+    (f) => ({ variant: 'success', icon: 'folder', title: 'File moved', body: `“${f.name}” moved to another folder.`, payload: act('move', f) }),
+    (f) => ({ variant: 'error', priority: 'normal', icon: 'trash', title: 'Moved to Trash', body: `“${f.name}” will be removed for good in 30 days.`, payload: act('delete', f) }),
+    (f) => ({ variant: 'success', icon: 'check', title: 'Restored', body: `“${f.name}” is back in your folder.`, payload: act('restore', f) }),
+    (f) => ({ variant: 'success', icon: 'trash', title: 'Permanently deleted', body: `“${f.name}” is gone for good.`, payload: act('purge', f) }),
+    (f) => ({ variant: 'success', icon: 'sparkles', title: 'Text extracted', body: `New extract from “${f.name}”.`, payload: act('extract-text', f) }),
+    (f) => ({ variant: 'success', icon: 'sparkles', title: 'Captions generated', body: `AI transcript created for “${f.name}”.`, payload: act('captions', f) }),
+    (f) => ({ variant: 'success', icon: 'sparkles', title: 'Document generated', body: `“${f.name}” was written by the AI advisor.`, payload: act('generate-doc', f) }),
+    (f) => ({ variant: 'success', icon: 'file', title: 'PDF exported', body: `“${f.name}” exported next to the original.`, payload: act('export-pdf', f) }),
+  ];
+  return defs.map((make, i) => ({
+    category: C.FILE,
+    ...make(pick(i)),
+    dedupeKey: `test-file-${i}-${suffix}`,
+  }));
+}
+
 // 200ms between each notify() call. With ~18 entries the full set
 // finishes landing in ~3.6 seconds. MAX_ACTIVE_TOASTS (3) caps how many
 // appear at once; the rest queue and slide in as the visible ones dismiss.

@@ -7,7 +7,9 @@ import {
   setUpdatePinned,
   setUpdateSaved,
   getWeeklyDigest,
+  markNewsletterVisited,
 } from '../lib/legalFeed';
+import { useAuth } from '../context/AuthContext';
 
 // Newsletter — Legal Newsfeed v2 "Editorial" (ported from the Claude
 // Design handoff `docvex-newsfeed`). A typographically-led briefing of
@@ -152,9 +154,15 @@ const sortFeed = (arr) => arr.slice().sort((a, b) => {
 });
 
 export default function Newsletter() {
+  const { session } = useAuth();
+  const userId = session?.user?.id || null;
   const [filter, setFilter] = useState('all');
   const [impactFilter, setImpactFilter] = useState('all');
   const [query, setQuery] = useState('');
+
+  // Visiting the tab stamps the per-device "last visit" time, which clears
+  // the sidebar's new-brief pill (see hasNewBrief in lib/legalFeed.js).
+  useEffect(() => { markNewsletterVisited(userId); }, [userId]);
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -291,7 +299,11 @@ export default function Newsletter() {
           </div>
         )}
         compactRight={<span className="ed-mast-meta-num" style={{ fontSize: '13px' }}>{unreadCount} unread</span>}
-      />
+      >
+        A running briefing of Romanian legislation and compliance — each update
+        AI-summarised with its impact level and the areas it affects, so you can
+        scan what changed and mark what matters.
+      </PageMasthead>
 
       <p className="ed-weekly">
         <span className="ed-weekly-mark">AI weekly</span>

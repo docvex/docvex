@@ -1,9 +1,16 @@
-﻿/* Register --sidebar-width as a typed <length> so it can be TRANSITIONED.
-   AppShell flips it between the full rail width and the collapsed width when
-   the sidebar is minimized; because everything that offsets against the rail
-   (the rail's own width, the floating Hub button, the fixed page mastheads)
-   reads this one var, animating it here makes the whole layout slide in
-   lock-step instead of each piece snapping independently. */
+﻿/* Register --sidebar-width as a typed <length>. AppShell flips it between the
+   full rail width and the collapsed width when the sidebar is minimized;
+   everything that offsets against the rail (the rail's own width, the floating
+   Hub button, the fixed page mastheads) reads this one var, so all dependants
+   move in lock-step.
+
+   The width flip is intentionally NOT transitioned: tweening a registered
+   custom property re-resolves var() across the whole subtree and re-lays-out
+   the entire app row (rail + page content + fixed mastheads) on EVERY frame
+   for 250ms — on heavy pages (chat, file grids) that reads as the app lagging.
+   Snapping costs a single reflow; the rail's internal transitions (label fade,
+   avatar resize, section max-height) still animate so the toggle keeps its
+   sense of motion. */
 @property --sidebar-width {
   syntax: '<length>';
   inherits: true;
@@ -12,9 +19,6 @@
 
 .app-shell {
   display: flex;
-  /* Animate the rail collapse/expand. The width var change cascades to every
-     dependant (rail, hub button, masthead offsets) and they tween together. */
-  transition: --sidebar-width 250ms cubic-bezier(0.16, 1, 0.3, 1);
   /* Reserve room for the custom frameless title bar (--titlebar-h; 0 on web)
      so the shell sits below it. */
   height: calc(100 * var(--vh1) - var(--titlebar-h));
@@ -67,19 +71,22 @@
   justify-content: flex-start;
   gap: 9px;
   padding: 0 12px;
-  /* Styled like a selected sidebar tab (.nav-item.active): an accent-tint fill
-     + accent ring + accent text, so the Hub launcher reads as the active
-     surface sitting above the rail's selected tab. */
-  border: 1.5px solid color-mix(in srgb, var(--accent) 65%, transparent);
-  border-radius: 10px;
-  background: var(--accent-tint);
-  color: var(--accent);
+  /* Same frosted-glass surface as the rail below it (.sidebar): translucent
+     bg-page fill + blur + hairline border + card shadow, so the Hub launcher
+     reads as a detached piece of the sidebar rather than a separate accent
+     chip. Text stays accent so it still reads as the launcher. */
+  border: 1.5px solid var(--border);
+  border-radius: 9.6px;
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  color: #fff;
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 13px;
   letter-spacing: 0.02em;
   cursor: pointer;
-  box-shadow: none;
+  box-shadow: var(--shadow-card);
   -webkit-app-region: no-drag;
   transition:
     background 140ms ease,
@@ -89,8 +96,8 @@
     gap 250ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .app-hub-btn:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent);
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
 }
 .app-hub-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .app-hub-btn.is-active {

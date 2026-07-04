@@ -4,8 +4,6 @@ import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import FilePreview from '../components/FilePreview';
-import FileThumbnail from '../components/FileThumbnail';
-import { glyphForFile } from '../components/fileGlyph';
 import CursorSpotlight from '../components/CursorSpotlight';
 import Tooltip from '../components/Tooltip';
 import { useMorphPill } from '../components/useMorphPill';
@@ -18,6 +16,7 @@ import { toLayoutPx } from '../lib/appZoom';
 import { recognizeCanvas, OCR_MAX_EDGE } from '../lib/ocr';
 import { loadOcrHistory, saveOcrHistory } from '../lib/extractionHistory';
 import { loadCaptions, saveCaptions, clearCaptions } from '../lib/captionsHistory';
+import { useNotifications } from '../context/NotificationsContext';
 import { loadEnvelope, saveEnvelope } from '../lib/audioEnvelopeCache';
 import { loadCaptionSettings, saveCaptionSettings } from '../lib/captionPosition';
 import { transcribeAudio } from '../lib/transcribe';
@@ -28,7 +27,7 @@ import TokenUsagePill from '../components/TokenUsagePill';
 import { docKindFromName, buildDocumentBlobSmart, mimeForKind, inferDocKind, withKindExtension, labelForKind } from '../lib/documentGen';
 import { renderedOfficeToPdfBlob } from '../lib/exportPdf';
 import { loadConversation, saveConversation, clearConversation } from '../lib/conversationHistory';
-import { extractDocText, openExternal, onFilesRemoved, notifyFilesChanged, setDocViewerAiStatus, listDocViewerTabs, onDocViewerTabs, focusDocViewerTab, closeDocViewerTab, focusMainWindow } from '../lib/platform';
+import { extractDocText, openExternal, onFilesRemoved, notifyFilesChanged, setDocViewerAiStatus } from '../lib/platform';
 import { extractFileText } from '../lib/extractFileText';
 import { parseWhatsAppChat, splitTimestamp } from '../lib/whatsappChat';
 import gavelLoader from '../gavel-loader.svg';
@@ -3082,6 +3081,7 @@ const MultitoolAdvisorContext = React.createContext(null);
 function useMultitoolAdvisor() { return useContext(MultitoolAdvisorContext); }
 
 function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false, onDocWritten, onRenameFile, children }) {
+  const { notify } = useNotifications();
   const [messages, setMessages] = useState([]); // [{ role, content } | { role:'artifact', version, instructions }]
   // Split-conversation branches. Splitting from a message keeps the ORIGINAL
   // thread intact and starts a new branch; nav pills under the header switch
@@ -3242,6 +3242,17 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
     const wr = await localFolderApi.writeFiles({ dir, files: [{ filename: targetName, blob }] });
     if (wr?.error || !wr?.results?.[0]?.ok) throw new Error(wr?.error || wr?.results?.[0]?.error || 'write_failed');
     notifyFilesChanged();
+    // Record the AI write in the activity feed/log (silent — the version card
+    // in the thread is the in-window feedback).
+    notify({
+      category: 'file',
+      variant: 'success',
+      icon: 'sparkles',
+      title: 'Document generated',
+      body: `“${targetName}” was written by the AI advisor.`,
+      silent: true,
+      payload: { activity: { action: 'generate-doc', fileName: targetName, filePath: dir ? `${dir}/${targetName}` : targetName } },
+    });
     if (targetName !== curName) {
       // The thread now lives under the NEW path (the save effect re-keys on
       // file.path); drop the stale old-path entry so a future same-named new
@@ -3250,7 +3261,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
       onRenameFile?.(targetName, mimeForKind(kind));
     }
     onDocWritten?.();
-  }, [file?.path, onDocWritten, onRenameFile, engine, model]);
+  }, [file?.path, onDocWritten, onRenameFile, engine, model, notify]);
 
   // Apply one generate-mode model result: build a new document version
   // (write_document), pause for a clarifying question (ask_user), or just show a
@@ -4349,6 +4360,7 @@ const CAP_DOT_HALFW = 80;
 const CAP_DOT_HALFH = 18;
 
 function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = null }) {
+  const { notify } = useNotifications();
   const stageRef = useRef(null);
   const mediaRef = useRef(null);
   const clipIdRef = useRef(`dvocr-${Math.random().toString(36).slice(2)}`);
@@ -4984,6 +4996,15 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       if (jobIdRef.current === id) {
         const entry = { id: `${Date.now()}-${id}`, thumb: canvasToThumbDataUrl(canvas), text, createdAt: Date.now(), region, natW, natH, videoTime, frameSnap };
         setHistory((prev) => [entry, ...prev]);
+        notify({
+          category: 'file',
+          variant: 'success',
+          icon: 'sparkles',
+          title: 'Text extracted',
+          body: `New extract from “${file.name}”.`,
+          silent: true,
+          payload: { activity: { action: 'extract-text', fileName: file.name, filePath: file.path } },
+        });
         setSelection(null);
         setWorking(false);
         requestAnimationFrame(() => {
@@ -4998,7 +5019,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
         setErrorMsg(String(e?.message || 'Text recognition failed.'));
       }
     }
-  }, [kind]);
+  }, [kind, notify, file.name, file.path]);
 
   // Builds the finalized shape for a finished drag, applying tool-specific
   // minimum sizes — a plain click without dragging falls back to the brush
@@ -5664,6 +5685,7 @@ function CaptionEditor({ value, onChange, ariaLabel }) {
 // panel). `onCaptionsChange` (optional) lets a parent mirror the transcript —
 // the audio pane uses it to drive its now-playing karaoke lyrics.
 function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
+  const { notify } = useNotifications();
   const [captions, setCaptions] = useState(() => captionsFromCache(file.storage_path));
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false); // edit transcript text to fix AI mistakes
@@ -5688,10 +5710,19 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
         text: result.text, segments: result.segments, language: result.language, createdAt,
       });
       setCaptions({ state: 'done', text: result.text, segments: result.segments, language: result.language, createdAt });
+      notify({
+        category: 'file',
+        variant: 'success',
+        icon: 'sparkles',
+        title: 'Captions generated',
+        body: `AI transcript created for “${file.name}”.`,
+        silent: true,
+        payload: { activity: { action: 'captions', fileName: file.name, filePath: file.storage_path } },
+      });
     } catch (e) {
       setCaptions({ state: 'error', message: String(e?.message || e) });
     }
-  }, [url, file.mime_type, file.name, file.storage_path]);
+  }, [url, file.mime_type, file.name, file.storage_path, notify]);
 
   const regenerate = useCallback(() => {
     clearCaptions(file.storage_path);
@@ -6679,6 +6710,7 @@ function SpreadsheetPane({ file, url, onExportPdf }) {
 // (lib/extractFileText, or the main-process parser for legacy .doc) saved into
 // the SAME per-file history store — so every file type has a consistent panel.
 function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = null }) {
+  const { notify } = useNotifications();
   const [history, setHistory] = useState(() => loadOcrHistory(file.storage_path));
   const [working, setWorking] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -6713,12 +6745,21 @@ function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = 
       if (!text.trim()) { setErrorMsg('No readable text found in this file.'); return; }
       const entry = { id: `doc-${Date.now()}-${Math.round(Math.random() * 1e6)}`, text: text.trim(), createdAt: Date.now() };
       setHistory((h) => [entry, ...h]);
+      notify({
+        category: 'file',
+        variant: 'success',
+        icon: 'sparkles',
+        title: 'Text extracted',
+        body: `New extract from “${file.name}”.`,
+        silent: true,
+        payload: { activity: { action: 'extract-text', fileName: file.name, filePath: file.storage_path } },
+      });
     } catch (e) {
       setErrorMsg(String(e?.message || e));
     } finally {
       setWorking(false);
     }
-  }, [kind, url, file.name, file.storage_path]);
+  }, [kind, url, file.name, file.storage_path, notify]);
 
   const copyEntry = async (entry) => {
     try {
@@ -7555,6 +7596,7 @@ function PptxRenderPane({ url, onExportPdf }) {
 }
 
 function DocPane({ file, onWhatsAppDetected, sidePanelSlot = null, sideTabsSlot = null, regenTick = 0 }) {
+  const { notify } = useNotifications();
   const { kind, mime } = useMemo(() => classify(file.mime, file.name), [file.mime, file.name]);
   const url = useMemo(() => localUrlFor(file.path), [file.path]);
   // While a saved version is being written to disk, show a spinner over the
@@ -7580,7 +7622,16 @@ function DocPane({ file, onWhatsAppDetected, sidePanelSlot = null, sideTabsSlot 
     const wr = await localFolderApi.writeFiles({ dir, files: [{ filename: target, blob }] });
     if (wr?.error || !wr?.results?.[0]?.ok) throw new Error(wr?.error || wr?.results?.[0]?.error || 'write_failed');
     notifyFilesChanged();
-  }, [file.name, dir]);
+    notify({
+      category: 'file',
+      variant: 'success',
+      icon: 'file',
+      title: 'PDF exported',
+      body: `“${target}” written next to the original.`,
+      silent: true,
+      payload: { activity: { action: 'export-pdf', fileName: target, filePath: `${dir}${sep}${target}` } },
+    });
+  }, [file.name, dir, sep, notify]);
 
   // Extract text from a legacy .doc (binary parsed in the main process).
   useEffect(() => {
@@ -7759,101 +7810,8 @@ const LargeTileGlyph = (
   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
 );
 // ── Document viewer window ───────────────────────────────────────────────
-// ── Left sidebar (Electron doc-viewer) ──────────────────────────────────────
-// Mirrors the main app's rail: a "Back to app" button that raises the main
-// window, and an "Opened files" section listing every open document-viewer
-// window (the same registry the main app's "Open files" section reads).
-// Clicking a row focuses that window; the × closes it; the row for THIS
-// window's file is marked active.
-
-// App-window glyph — the "Back to app" affordance (raises the main app window).
-const DvBackIcon = (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="4" width="18" height="16" rx="2" />
-    <line x1="3" y1="9" x2="21" y2="9" />
-    <line x1="7" y1="6.5" x2="7.01" y2="6.5" />
-  </svg>
-);
-
-// × glyph — the per-row close button.
-const DvCloseGlyph = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="6" y1="6" x2="18" y2="18" />
-    <line x1="18" y1="6" x2="6" y2="18" />
-  </svg>
-);
-
-function DocViewerSidebar({ activePath }) {
-  // The live list of open document-viewer windows. Seeded once, then kept in
-  // sync via the main-process broadcast (fires whenever a viewer opens/closes
-  // or flips its AI-busy flag).
-  const [docTabs, setDocTabs] = useState([]);
-  useEffect(() => {
-    let alive = true;
-    listDocViewerTabs().then((list) => { if (alive) setDocTabs(Array.isArray(list) ? list : []); });
-    const off = onDocViewerTabs((list) => setDocTabs(Array.isArray(list) ? list : []));
-    return () => { alive = false; off(); };
-  }, []);
-
-  const norm = (p) => String(p || '').replace(/\\/g, '/').toLowerCase();
-  const activeNorm = norm(activePath);
-
-  return (
-    <div className="dv-sidebar-col">
-      {/* Back-to-app button — lives OUTSIDE the rounded rail (a floating tab
-          above it), mirroring the main app's Hub launcher which sits apart from
-          the sidebar. */}
-      <Tooltip content="Back to the main app">
-        <button type="button" className="dv-sidebar-back" onClick={() => focusMainWindow()}>
-          <span className="dv-sidebar-back-icon">{DvBackIcon}</span>
-          <span className="dv-sidebar-back-label">Back to app</span>
-        </button>
-      </Tooltip>
-
-      <nav className="dv-sidebar">
-      <div className="dv-sidebar-cat">
-        <span className="dv-sidebar-cat-label"><span>Opened files</span></span>
-        <div className="dv-sidebar-items">
-          {docTabs.length === 0 ? (
-            <div className="dv-sidebar-empty">No open files</div>
-          ) : docTabs.map((t) => (
-            <div key={t.id} className={`dv-tab-row${norm(t.path) === activeNorm ? ' is-active' : ''}`}>
-              <Tooltip content={t.aiBusy ? `${t.name} — AI working…` : t.name}>
-                <button
-                  type="button"
-                  className={`dv-tab-main${t.aiBusy ? ' is-ai-busy' : ''}`}
-                  onClick={() => focusDocViewerTab(t.id)}
-                >
-                  <span className="dv-tab-iconwrap">
-                    <span className="dv-tab-thumb">
-                      <FileThumbnail
-                        mimeType={t.mime}
-                        name={t.name}
-                        sourceUrl={localUrlFor(t.path)}
-                        glyph={glyphForFile(t.mime, t.name)}
-                      />
-                    </span>
-                    {t.aiBusy && <span className="dv-tab-ai-dot" aria-label="AI working" />}
-                  </span>
-                  <span className="dv-tab-name">{t.name}</span>
-                </button>
-              </Tooltip>
-              <button
-                type="button"
-                className="dv-tab-close"
-                onClick={() => closeDocViewerTab(t.id)}
-                aria-label={`Close ${t.name}`}
-              >
-                {DvCloseGlyph}
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-      </nav>
-    </div>
-  );
-}
+// (The left rail — "Back to app" + "Opened files" — was removed; the window
+// now dedicates its full width to the Multitool panel + document card.)
 
 export default function DocViewer() {
   const [params] = useSearchParams();
@@ -8065,10 +8023,8 @@ export default function DocViewer() {
     <div className="dv-page" ref={pageRef}>
       <CursorSpotlight contain className="dv-cursor-spotlight" />
 
-      {/* Body: the left rail (Back to app + Opened files) beside a column
-          holding the Documents + Multitool cards. */}
+      {/* Body: a column holding the Documents + Multitool cards. */}
       <div className="dv-body-row">
-        <DocViewerSidebar activePath={active.path} />
         {/* Right column — Documents + Multitool. */}
         <div className="dv-right-col">
           {/* Main row: the Multitool panel (left) + the document card (right). */}

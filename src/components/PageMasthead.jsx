@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Tooltip from './Tooltip';
+import { miniHeaderSpot } from '../lib/miniHeaderSpot';
+import MiniHeaderFade from './MiniHeaderFade';
 import './PageMasthead.css';
 
 // Editorial page header, ported from the Versions ("Updates") page so every
@@ -45,8 +47,15 @@ export default function PageMasthead({
 
   return (
     <div className="pmh" ref={ref}>
+      {/* Gap-strip fade — shared .mini-fade, portalled to <body> so it always
+          spans the full window width (see MiniHeaderFade). */}
+      {compact && <MiniHeaderFade visible={scrolled} />}
       {compact && (
-        <div className={`pmh-compact${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
+        <div
+          className={`pmh-compact mini-glow${scrolled ? ' is-visible' : ''}`}
+          aria-hidden={!scrolled}
+          onMouseMove={miniHeaderSpot}
+        >
           <Tooltip content="Back to top">
             <button type="button" className="pmh-compact-titlebtn" onClick={scrollToTop}>
               <span className="pmh-compact-title">{title}</span>

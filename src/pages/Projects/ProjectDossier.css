@@ -141,11 +141,14 @@
   gap: 6.4px;
   padding: 0 17.6px;
   overflow: hidden;
-  /* Rounded floating section, painted in the window top bar colour. */
+  /* Rounded floating section — the SIDEBAR's frosted surface (see
+     styles/miniHeader.css); spotlight + border shine via .mini-glow. */
   border-radius: 9.6px;
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-card);
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  border: 1.5px solid var(--border);
+  box-shadow: none;
   /* Tucked fully up behind the nav chrome (which sits at a higher z-index),
      so it slides DOWN out from under the navigation bar when revealed. */
   opacity: 0;
