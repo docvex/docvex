@@ -65,6 +65,11 @@
   --bg-input:       #FFFFFF;
   --border:         rgba(15, 23, 42, 0.10);
   --border-strong:  rgba(15, 23, 42, 0.18);
+  /* --border pre-flattened over --bg-page into an OPAQUE colour — for
+     hairlines on translucent frosted surfaces (the mini headers), where a
+     10%-alpha border would composite differently over the page gap vs the
+     blurred content scrolling beneath, reading as uneven opacity. */
+  --border-flat:    color-mix(in srgb, var(--color-ink) 10%, var(--color-cream));
   --text-primary:   var(--color-ink);
   --text-secondary: var(--color-slate);
   --text-muted:     #6B7280;
@@ -117,6 +122,7 @@
   --bg-input:       #15213A;
   --border:         rgba(245, 242, 234, 0.10);
   --border-strong:  rgba(245, 242, 234, 0.20);
+  --border-flat:    color-mix(in srgb, var(--color-cream) 10%, var(--color-ink));
   --text-primary:   var(--color-cream);
   --text-secondary: #C9CEDC;
   --text-muted:     #8A93A8;

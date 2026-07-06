@@ -148,6 +148,9 @@
   flex: 1;
   flex-wrap: wrap;
   align-items: stretch;
+  /* Anchor for the shared sliding underline (offsetLeft/offsetTop of the
+     tab buttons are measured relative to this box). */
+  position: relative;
 }
 /* Bulk actions (Mark all read / Clear all) in line with the filter tabs —
    pushed to the right by the filters' flex:1, vertically centred in the row,
@@ -177,29 +180,48 @@
 }
 .activity-filter:hover:not(.is-active) { color: var(--text-secondary); }
 .activity-filter.is-active { color: var(--text-primary); }
-/* Active underline — same recipe as the chat mini-header's tab bar: a 3.2px
-   rounded bar (inset past the leading dot, tighter on the right) straddling
-   the strip's baseline, tinted by the tab's category. */
-.activity-filter.is-active::after {
-  content: '';
+/* Active underline — same 3.2px rounded bar as before (inset past the leading
+   dot, tighter on the right, straddling the strip's baseline), but now ONE
+   shared element per strip that SLIDES to the active tab: FilterTabs measures
+   the active button and writes translate(x, y) + width inline; the transition
+   here does the movement. Tinted by the active tab's category via data-cat. */
+.activity-filter-underline {
   position: absolute;
-  left: 0.4rem;
-  right: 0.3rem;
-  bottom: -1.6px;
+  top: 0;
+  left: 0;
+  width: 0;
   height: 3.2px;
   border-radius: 2px;
   background: var(--accent);
-  transform: translateY(40%);
   z-index: 2;
+  pointer-events: none;
+  transition:
+    transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
+    width 280ms cubic-bezier(0.16, 1, 0.3, 1),
+    background 150ms;
 }
-.activity-filter[data-cat="file"].is-active::after    { background: var(--cat-file); }
-.activity-filter[data-cat="member"].is-active::after  { background: var(--cat-member); }
-.activity-filter[data-cat="project"].is-active::after { background: var(--cat-project); }
-.activity-filter[data-cat="role"].is-active::after    { background: var(--cat-role); }
-.activity-filter[data-cat="update"].is-active::after  { background: var(--cat-update); }
-.activity-filter[data-cat="auth"].is-active::after    { background: var(--cat-auth); }
-.activity-filter[data-cat="support"].is-active::after { background: var(--cat-support); }
-.activity-filter[data-cat="social"].is-active::after  { background: var(--cat-social, var(--cat-member)); }
+.activity-filter-underline[data-cat="file"]    { background: var(--cat-file); }
+.activity-filter-underline[data-cat="member"]  { background: var(--cat-member); }
+.activity-filter-underline[data-cat="project"] { background: var(--cat-project); }
+.activity-filter-underline[data-cat="role"]    { background: var(--cat-role); }
+.activity-filter-underline[data-cat="update"]  { background: var(--cat-update); }
+.activity-filter-underline[data-cat="auth"]    { background: var(--cat-auth); }
+.activity-filter-underline[data-cat="support"] { background: var(--cat-support); }
+.activity-filter-underline[data-cat="social"]  { background: var(--cat-social, var(--cat-member)); }
+
+/* Feed slide — the content under the tab bar enters from the side the
+   underline just travelled toward (keyed remount replays the animation).
+   Killed globally by the data-reduce-motion switch in index.css. */
+.activity-feed.is-enter-right { animation: activity-feed-in-right 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+.activity-feed.is-enter-left  { animation: activity-feed-in-left 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes activity-feed-in-right {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes activity-feed-in-left {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: none; }
+}
 
 /* Filters hosted inside the compact mini-header (PageMasthead's compactRight
    slot): stretch the whole chain to the 40px bar's height so the shared

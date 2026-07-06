@@ -627,7 +627,9 @@
   box-sizing: border-box;
   justify-content: center;
   isolation: isolate;
-  z-index: 20;
+  /* Above the shared .mini-fade gap strip (z 29) like every other mini
+     header (all at 30) — at 20 the fade painted over the pinned bar. */
+  z-index: 30;
   /* Default spotlight hue; .is-editing turns it white over a red-tinted bar.
      Both the surface tint and the spotlight colour animate the morph (in both
      directions — back to bg-card + accent on exit). */
@@ -645,8 +647,8 @@
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
   backdrop-filter: blur(6.4px);
   -webkit-backdrop-filter: blur(6.4px);
-  border: 1.5px solid var(--border);
-  box-shadow: none;
+  border: 1.5px solid var(--border-flat);
+  box-shadow: var(--mini-seam-shadow);
 }
 /* Team edit mode → red surface, white spotlight (the shared glow's colour is
    parameterised via --mini-spot-color). The whole bar tints (always visible),

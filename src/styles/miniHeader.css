@@ -16,6 +16,17 @@
 
 .mini-glow { position: relative; }
 
+/* Seam shadow — a solid bg-page outer shadow shifted UP by the seam height
+   (the gap between the title bar and the bar). Outer shadows inherit the
+   element's border-radius and are clipped at the border edge, so this paints
+   ONLY above the bar and around its rounded top corners — never behind the
+   frosted surface. It plugs the corner crescents the square-edged .mini-fade
+   strip can't reach, i.e. the fade follows the mini header's own radius.
+   Every pinned bar sets `box-shadow: var(--mini-seam-shadow)`. */
+:root {
+  --mini-seam-shadow: 0 calc(-1 * var(--chrome-inset, 6.4px)) 0 0 var(--bg-page);
+}
+
 /* Soft interior spotlight (mirrors .sidebar::before). */
 .mini-glow::before {
   content: '';
@@ -36,9 +47,9 @@
 .mini-glow:hover::before { opacity: 0.7; }
 
 /* Border shine — bright highlight masked to the 1.5px border ring (same
-   XOR-mask trick as .sidebar::after). Tuned SHARPER than the sidebar's:
-   a tighter, near-solid core with a fast falloff and full hover opacity,
-   so the shine reads as a crisp light on the border rather than a haze. */
+   XOR-mask trick as .sidebar::after). SAME values as the sidebar's shine
+   (264px radius, 42% → 12% accent falloff, 0.7 hover opacity) so the rail
+   and every mini header read as one surface under the cursor. */
 .mini-glow::after {
   content: '';
   position: absolute;
@@ -48,10 +59,10 @@
   pointer-events: none;
   z-index: 2;
   background: radial-gradient(
-    180px circle at var(--spot-x, 50%) var(--spot-y, 50%),
-    color-mix(in srgb, var(--mini-spot-color, var(--accent)) 95%, transparent) 0%,
-    color-mix(in srgb, var(--mini-spot-color, var(--accent)) 45%, transparent) 32%,
-    transparent 58%
+    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--mini-spot-color, var(--accent)) 42%, transparent) 0%,
+    color-mix(in srgb, var(--mini-spot-color, var(--accent)) 12%, transparent) 34%,
+    transparent 62%
   );
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
@@ -60,7 +71,7 @@
   opacity: 0;
   transition: opacity 240ms ease;
 }
-.mini-glow:hover::after { opacity: 1; }
+.mini-glow:hover::after { opacity: 0.7; }
 
 /* Lift the bar's content above the glow layer. */
 .mini-glow > * { position: relative; z-index: 1; }
@@ -71,25 +82,33 @@
 }
 
 /* Gap-strip fade — dissolves content passing through the seam between the
-   window title bar's bottom edge and a mini header's vertical middle, so
-   scrolling rows don't peek through it. Render a `.mini-fade` sibling next
-   to the bar and flip `.is-visible` alongside the bar's own pinned/visible
-   state. Spans the full window width; sits BELOW the bar (z 29 vs 30) so
-   the frosted surface + glow stay on top. */
+   window title bar's bottom edge and a mini header's TOP edge, so scrolling
+   rows don't peek through it. Render a `.mini-fade` sibling next to the bar
+   and flip `.is-visible` alongside the bar's own pinned/visible state. Spans
+   the full window width; sits BELOW the bar (z 29 vs 30).
+
+   The strip must END at the HIGHEST bar top — it must NOT reach under any
+   bar. The bars are translucent frosted surfaces, so any of this strip
+   behind one shows through the frost and bleaches the bar's top into the
+   page background ("mini header fades out at the top"). On flush routes
+   (Activity / Newsletter / Versions / Files / Chat / project overview) the
+   content frame breaks out to the window edge and every bar sits at
+   titlebar + ONE --chrome-inset (see .main-content--flush .pmh-compact in
+   AppShell.css; mx-/dc-/pjd-compact match) — so that's the strip's limit.
+   Content behind the bar itself is the bar's own frost + blur's job. */
 .mini-fade {
   position: fixed;
   top: calc(var(--titlebar-h, 0px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
   left: 0;
   right: 0;
-  height: calc(var(--chrome-inset, 6.4px) + 20px);
+  height: var(--chrome-inset, 6.4px);
   z-index: 29;
   pointer-events: none;
-  background: linear-gradient(
-    to bottom,
-    var(--bg-page) 0%,
-    var(--bg-page) 35%,
-    transparent 100%
-  );
+  /* SOLID page colour — the strip is only the seam tall and ends exactly at
+     the bar's top border, so a gradient tail here just lets scrolling rows
+     poke through the gap. Content still reads as dissolving: it passes
+     blurred behind the frosted bar, then disappears under this strip. */
+  background: var(--bg-page);
   opacity: 0;
   transition: opacity 240ms ease;
 }

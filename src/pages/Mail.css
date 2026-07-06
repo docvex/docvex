@@ -51,8 +51,8 @@
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
   backdrop-filter: blur(6.4px);
   -webkit-backdrop-filter: blur(6.4px);
-  border: 1.5px solid var(--border);
-  box-shadow: none;
+  border: 1.5px solid var(--border-flat);
+  box-shadow: var(--mini-seam-shadow);
   opacity: 0;
   transform: translateY(-8px);
   pointer-events: none;

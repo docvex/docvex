@@ -141,14 +141,17 @@
   gap: 6.4px;
   padding: 0 17.6px;
   overflow: hidden;
+  /* Tight line boxes — matches .versions-compact / .mx-compact so the
+     title + eyebrow center identically across every mini header. */
+  line-height: 1;
   /* Rounded floating section — the SIDEBAR's frosted surface (see
      styles/miniHeader.css); spotlight + border shine via .mini-glow. */
   border-radius: 9.6px;
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
   backdrop-filter: blur(6.4px);
   -webkit-backdrop-filter: blur(6.4px);
-  border: 1.5px solid var(--border);
-  box-shadow: none;
+  border: 1.5px solid var(--border-flat);
+  box-shadow: var(--mini-seam-shadow);
   /* Tucked fully up behind the nav chrome (which sits at a higher z-index),
      so it slides DOWN out from under the navigation bar when revealed. */
   opacity: 0;

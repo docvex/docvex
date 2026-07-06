@@ -218,16 +218,9 @@
   border-bottom-left-radius: 0;
   border-left: none;
 }
-/* The on-scroll compact bar keeps its ROUNDED FLOATING SECTION look (the same
-   mini-header language the project tabs / .pjd-compact use: a rounded card in the
-   window top-bar colour, inset past the sidebar with a matching right gap) rather
-   than stretching full-width on flush pages. Only the geometry is realigned to
-   the project-tab values; the rounded/bordered/shadowed base carries over. */
-.main-content--flush .pmh-compact {
-  top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px) + var(--sv-chrome-h, 0px));
-  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px));
-  right: var(--chrome-inset, 6.4px);
-}
+/* The compact bar's geometry (top / left / right) is now defined ONCE in
+   PageMasthead.css with the shared one-inset values every mini header uses —
+   flush and non-flush pages get the same bar position, so no override here. */
 /* At ≥1024px the page content narrows to 75% (left-aligned), so the mini header
    must stop at the content's right edge instead of running to the window edge
    (matching the project tabs). The right inset = the 25% content gap + the

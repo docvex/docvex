@@ -54,8 +54,8 @@ export default function SwitchProjectLoader() {
 
   if (!visible) return null;
 
-  // Label varies by switch kind. "Switching to <name>" reads naturally;
-  // the no-name clear-selection case falls back to a generic line.
+  // Visually just a spinner — the switch description survives as the
+  // overlay's aria-label so screen readers still announce what's loading.
   const label = switchingToName
     ? `Switching to ${switchingToName}`
     : 'Switching project…';
@@ -66,10 +66,7 @@ export default function SwitchProjectLoader() {
       aria-live="polite"
       aria-label={label}
     >
-      <div className="switch-project-loader-stack">
-        <div className="switch-project-loader-spinner" />
-        <div className="switch-project-loader-label">{label}</div>
-      </div>
+      <div className="switch-project-loader-spinner" />
     </div>
   );
 }

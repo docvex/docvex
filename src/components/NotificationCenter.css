@@ -24,15 +24,19 @@
   max-width: calc(100 * var(--vw1) - 2.4rem);
 }
 
-/* Single toast card */
+/* Single toast — the app's standard card language (same surface recipe as
+   the Activity feed's .activity-row cards: bg-card fill, hairline border
+   with a 2.4px category-tinted left edge, 9.6px radius, token shadow), so
+   notification items read as DocVex cards rather than foreign popups. The
+   elevated shadow token (vs shadow-card) keeps them lifted over content. */
 .toast {
   width: 256px;
   max-width: 100%;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-left-width: 2.4px;
-  border-radius: 8px;
-  box-shadow: 0 4.8px 14.4px rgba(0, 0, 0, 0.45);
+  border-radius: 9.6px;
+  box-shadow: var(--shadow-elev);
   display: flex;
   align-items: flex-start;
   gap: 0.52rem;

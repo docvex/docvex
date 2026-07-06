@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotifications } from '../context/NotificationsContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
@@ -77,6 +77,64 @@ function colorForId(id) {
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 }
 
+// ── Filter tab strip ──────────────────────────────────────────────────
+// Rendered twice (inline tab bar + the on-scroll compact mini-header), so it's
+// a component: each instance owns ONE shared underline element that slides to
+// the active tab (transform + width transition in CSS) instead of a per-tab
+// ::after that pops in and out.
+function FilterTabs({ tabs, counts, active, onSelect }) {
+  const stripRef = useRef(null);
+  const underlineRef = useRef(null);
+
+  // Place the underline under the active tab. Re-runs when the active tab or
+  // the tab set changes; a ResizeObserver re-places on width shifts (count
+  // digits changing, wrap, the compact bar appearing).
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    const bar = underlineRef.current;
+    if (!strip || !bar) return undefined;
+    const place = () => {
+      const btn = strip.querySelector(`[data-tab-id="${active}"]`);
+      if (!btn) { bar.style.width = '0px'; return; }
+      // Same insets as the old per-tab ::after (left 0.4rem / right 0.3rem),
+      // straddling the strip's baseline exactly like the original underline.
+      const x = btn.offsetLeft + 6.4;
+      const y = btn.offsetTop + btn.offsetHeight - 0.32;
+      bar.style.width = `${Math.max(btn.offsetWidth - 11.2, 0)}px`;
+      bar.style.transform = `translate(${x}px, ${y}px)`;
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    ro.observe(strip);
+    return () => ro.disconnect();
+  }, [active, tabs, counts]);
+
+  return (
+    <div className="activity-filters" role="tablist" aria-label="Filter activity" ref={stripRef}>
+      {tabs.map((tab) => {
+        const isActive = active === tab.id;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            data-cat={tab.id}
+            data-tab-id={tab.id}
+            className={`activity-filter${isActive ? ' is-active' : ''}`}
+            onClick={() => onSelect(tab.id)}
+          >
+            {tab.id !== 'all' && <span className="activity-filter-dot" />}
+            <span>{tab.label}</span>
+            <span className="activity-filter-count">{counts[tab.id] || 0}</span>
+          </button>
+        );
+      })}
+      <span className="activity-filter-underline" data-cat={active} ref={underlineRef} aria-hidden="true" />
+    </div>
+  );
+}
+
 // ── Single activity row ───────────────────────────────────────────────
 function ActivityRow({ notification, ctx, onMarkRead, onRemove }) {
   const { id, title, body, created_at, read_at, category, priority, variant } = notification;
@@ -147,8 +205,11 @@ export default function ActivityPage() {
   const userId = session?.user?.id || null;
 
   // Category filter (All = union). In-memory page state, not persisted —
-  // matches the rest of the app.
+  // matches the rest of the app. slideDir remembers which way the underline
+  // travelled on the last filter change (+1 right / -1 left / 0 initial) so
+  // the feed below can slide in from the same direction.
   const [filter, setFilter] = useState('all');
+  const [slideDir, setSlideDir] = useState(0);
 
   const ctx = useMemo(() => ({ navigate, installUpdate }), [navigate, installUpdate]);
 
@@ -242,30 +303,21 @@ export default function ActivityPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered, accountUser, selectedProject?.name]);
 
+  // Filter change with direction: compare old/new tab indices so both the
+  // underline (CSS transition) and the feed slide-in move the same way.
+  const selectFilter = (id) => {
+    if (id === filter) return;
+    const from = filterTabs.findIndex((t) => t.id === filter);
+    const to = filterTabs.findIndex((t) => t.id === id);
+    setSlideDir(to >= from ? 1 : -1);
+    setFilter(id);
+  };
+
   // Filter tab strip — rendered both inline (under the masthead) and inside the
   // on-scroll compact "mini header" (passed as PageMasthead's compactRight) so
   // filtering stays available once the big title scrolls away.
   const renderFilters = () => (
-    <div className="activity-filters" role="tablist" aria-label="Filter activity">
-      {filterTabs.map((tab) => {
-        const active = filter === tab.id;
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            data-cat={tab.id}
-            className={`activity-filter${active ? ' is-active' : ''}`}
-            onClick={() => setFilter(tab.id)}
-          >
-            {tab.id !== 'all' && <span className="activity-filter-dot" />}
-            <span>{tab.label}</span>
-            <span className="activity-filter-count">{catCounts[tab.id] || 0}</span>
-          </button>
-        );
-      })}
-    </div>
+    <FilterTabs tabs={filterTabs} counts={catCounts} active={filter} onSelect={selectFilter} />
   );
 
   return (
@@ -303,16 +355,24 @@ export default function ActivityPage() {
             File uploads, invites, role changes, releases and sign-ins show up here as they happen.
           </p>
         </div>
-      ) : filtered.length === 0 ? (
-        <div className="activity-empty">
-          {BellOffIcon}
-          <p className="activity-empty-title">
-            No {(CATEGORY_LABELS[filter] || filter).toLowerCase()} activity
-          </p>
-          <p className="activity-empty-help">Nothing in this category right now. Try the All tab to see everything.</p>
-        </div>
       ) : (
-        <div className="activity-groups">
+        /* Keyed on the filter so switching tabs remounts the feed and replays
+           the slide-in — entering from the side the underline travelled
+           toward. slideDir 0 (initial load) renders with no animation. */
+        <div
+          key={filter}
+          className={`activity-feed${slideDir > 0 ? ' is-enter-right' : slideDir < 0 ? ' is-enter-left' : ''}`}
+        >
+          {filtered.length === 0 ? (
+            <div className="activity-empty">
+              {BellOffIcon}
+              <p className="activity-empty-title">
+                No {(CATEGORY_LABELS[filter] || filter).toLowerCase()} activity
+              </p>
+              <p className="activity-empty-help">Nothing in this category right now. Try the All tab to see everything.</p>
+            </div>
+          ) : (
+            <div className="activity-groups">
           {groups.map((g) => (
             <section key={g.key} className="activity-group">
               {/* File groups get a Files-tab-style divider: thumbnail + name.
@@ -389,6 +449,8 @@ export default function ActivityPage() {
               </ul>
             </section>
           ))}
+            </div>
+          )}
         </div>
       )}
     </div>

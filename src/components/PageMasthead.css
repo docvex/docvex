@@ -51,17 +51,25 @@
    content column. */
 .pmh-compact {
   position: fixed;
-  /* Anchored to the top edge of the content frame (which is inset from the
-     window by --chrome-inset and sits to the right of the sidebar + the gap). */
-  top: calc(var(--titlebar-h, 0px) + 2 * var(--chrome-inset, 6.4px) + var(--topnav-h, 0px) + var(--sv-chrome-h, 0px));
-  left: calc(var(--sidebar-width, 0px) + 2 * var(--chrome-inset, 0px));
-  right: var(--chrome-inset, 0px);
+  /* SHARED mini-header geometry — one --chrome-inset below the title bar,
+     inset past the sidebar, matching the Hub button and every other bar
+     (.mx-compact / .dc-compact / .pjd-compact / .versions-compact). Keep
+     these in lock-step: a divergent inset makes the bars sit at different
+     heights as the user switches tabs. */
+  top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px) + var(--sv-chrome-h, 0px));
+  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px));
+  right: var(--chrome-inset, 6.4px);
   z-index: 30;
   height: 40px;
   display: flex;
   align-items: center;
   gap: 6.4px;
   padding: 0 17.6px;
+  /* Tight line boxes so the mixed-size title + eyebrow optically center in
+     the bar (inheriting the page's 1.5+ line-height pushes the text low) —
+     same as .versions-compact / .mx-compact, keeping every mini header's
+     items on one vertical line. */
+  line-height: 1;
   /* Visible overflow so an active tab underline hosted in compactRight can
      straddle the bar's bottom edge (chat mini-header recipe) without its
      lower half being clipped. Nothing else pokes past the bounds. */
@@ -72,8 +80,12 @@
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
   backdrop-filter: blur(6.4px);
   -webkit-backdrop-filter: blur(6.4px);
-  border: 1.5px solid var(--border);
-  box-shadow: none;
+  /* Opaque hairline (--border flattened over --bg-page) — a translucent
+     border over this frosted surface reads at different opacities top vs
+     bottom (page gap above, blurred content below). */
+  border: 1.5px solid var(--border-flat);
+  /* Seam cover following this bar's border radius — see miniHeader.css. */
+  box-shadow: var(--mini-seam-shadow);
   opacity: 0;
   transform: translateY(-8px);
   pointer-events: none;

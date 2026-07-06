@@ -48,15 +48,6 @@
   to   { opacity: 0; }
 }
 
-/* Stack spinner + label vertically with a small gap so the message reads
-   as a caption under the spinner instead of an unrelated overlay. */
-.switch-project-loader-stack {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 11.2px;
-}
-
 .switch-project-loader-spinner {
   width: 30.4px;
   height: 30.4px;
@@ -67,27 +58,6 @@
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: switch-project-loader-spin 0.7s linear infinite;
-}
-
-.switch-project-loader-label {
-  color: var(--text-primary);
-  font-size: 0.72rem;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  /* Cap width so very long project names wrap to 2-3 lines instead of
-     stretching across the whole content area. text-align center because
-     the parent flex centers the stack horizontally anyway. */
-  max-width: 256px;
-  text-align: center;
-  /* Soft fade-in slightly delayed from the overlay so the label settles
-     after the backdrop is in place â€” reads as "loading â€¦ here's what" */
-  opacity: 0;
-  animation: switch-project-loader-label-fade 180ms ease-out 80ms forwards;
-}
-
-@keyframes switch-project-loader-label-fade {
-  from { opacity: 0; transform: translateY(1.6px); }
-  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes switch-project-loader-spin {
