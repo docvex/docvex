@@ -1,0 +1,246 @@
+/* Events timeline tab — `pev-` prefixed. Recreates the app's shared header
+   language (the iOS large-title pattern): a big editorial masthead that
+   scrolls away (values copied 1:1 from the Files/Chat heroes: .fx-masthead /
+   .dvx-mh) and a sticky 40px toolbar that pins at the top as the frosted mini
+   header (same recipe as .fx-pathbar / .dvx-toolbar / .pmh-compact — see
+   styles/miniHeader.css for the shared glow + fade). All colours come from
+   tokens.css. The page renders inside the standard .project-page-frame, which
+   already supplies the 1.6rem top inset + the shared left content gap. */
+
+/* ── Masthead ─────────────────────────────────────────────────────────── */
+.pev-masthead {
+  display: flex;
+  flex-direction: column;
+  gap: 14.4px;
+  padding: 0 0 20.8px;
+}
+.pev-mh-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 9.6px;
+  flex-wrap: wrap;
+  font-size: 8.8px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.pev-mh-muted {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.pev-mh-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 44.8px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--text-primary);
+  text-wrap: pretty;
+}
+.pev-mh-kicker {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 464px;
+}
+
+/* ── Mini header (sticky toolbar) ─────────────────────────────────────────
+   Transparent while in flow under the masthead; once actually stuck at the
+   top (.is-pinned, rect-based detection in ProjectEvents.jsx) it paints the
+   sidebar's frosted surface. Same top gap + height as the Hub button and
+   every other mini header (40px, one --chrome-inset below the title bar). */
+.pev-toolbar {
+  position: sticky;
+  top: var(--chrome-inset, 6.4px);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 6.4px;
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border-radius: 9.6px;
+  /* Constant transparent border so gaining the pinned hairline doesn't
+     shift the row's height. */
+  border: 1.5px solid transparent;
+  background: transparent;
+  /* Tight line boxes so the mixed-size title + kicker optically centre in
+     the bar — same as the other compact headers. */
+  line-height: 1;
+  transition: background-color 200ms ease, box-shadow 240ms ease, border-color 200ms ease;
+}
+.pev-toolbar.is-pinned {
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  border-color: var(--border-flat);
+  /* Seam cover following this bar's border radius — see miniHeader.css. */
+  box-shadow: var(--mini-seam-shadow);
+}
+/* While transparent (not pinned) there's no border ring for the shared
+   .mini-glow shine to ride — keep just the interior spotlight. */
+.pev-toolbar:not(.is-pinned)::after { display: none; }
+
+.pev-tb-title {
+  font-family: var(--font-display);
+  font-size: 13.6px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.pev-tb-sep { color: var(--text-muted); font-weight: 600; margin: 0 4px; }
+.pev-tb-kicker {
+  font-size: 10.4px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Filter chips — compact pills on the bar's right. */
+.pev-tb-chips {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 3.2px;
+}
+.pev-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4.8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 4.8px 9.6px;
+  background: none;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.pev-chip:hover:not(.is-active) {
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+}
+.pev-chip.is-active {
+  color: var(--accent);
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.pev-chip-count {
+  font-size: 8.8px;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+/* ── Timeline ─────────────────────────────────────────────────────────── */
+.pev-timeline { margin-top: 20.8px; }
+
+.pev-day { margin: 0 0 4.8px; }
+.pev-day-label {
+  margin: 16px 0 9.6px;
+  font-size: 9.6px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pev-day:first-child .pev-day-label { margin-top: 4.8px; }
+
+/* Rows ride a vertical rail; each row's dot sits on it, tinted by the
+   notification category palette so event kinds read at a glance. */
+.pev-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+.pev-rows::before {
+  content: '';
+  position: absolute;
+  left: 5.6px;
+  top: 8px;
+  bottom: 8px;
+  width: 1.6px;
+  border-radius: 1px;
+  background: var(--border);
+}
+.pev-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3.2px;
+  padding: 8px 0 8px 25.6px;
+}
+.pev-dot {
+  position: absolute;
+  left: 0;
+  top: 11.2px;
+  width: 12.8px;
+  height: 12.8px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--bg-page);
+  border: 2px solid var(--cat-system);
+}
+.pev-dot[data-cat='file']    { border-color: var(--cat-file); }
+.pev-dot[data-cat='member']  { border-color: var(--cat-member); }
+.pev-dot[data-cat='project'] { border-color: var(--cat-project); }
+.pev-dot[data-cat='role']    { border-color: var(--cat-role); }
+.pev-dot[data-cat='update']  { border-color: var(--cat-update); }
+.pev-dot[data-cat='system']  { border-color: var(--cat-system); }
+
+.pev-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.pev-item-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.pev-item-time {
+  margin-left: auto;
+  font-size: 9.6px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.pev-item-body {
+  margin: 0;
+  font-size: 10.4px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  max-width: 576px;
+}
+
+.pev-empty {
+  margin: 24px 0 0;
+  font-size: 11.2px;
+  color: var(--text-muted);
+}
+.pev-foot {
+  margin: 19.2px 0 0;
+  font-size: 9.6px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* Match the other editorial tabs: content at three-quarters width on wide
+   screens, left-aligned (the Chat/Files 75% recipe). */
+@media (min-width: 1024px) {
+  .pev-masthead,
+  .pev-toolbar,
+  .pev-timeline,
+  .pev-empty,
+  .pev-foot { width: 75%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pev-toolbar { transition: none; }
+}

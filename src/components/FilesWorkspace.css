@@ -42,10 +42,21 @@
    / Newsletter — NOT pulled full-bleed under the sidebar. So keep the standard
    flush left margin and a normal content inset (no rail compensation). */
 .main-content--flush:has(.project-files-page.fx-root) {
-  /* Flush against the sidebar (the app-chrome gap is already 0) with no rail
-     inset — Files content sits right next to the rail. */
+  /* Flush frame against the sidebar (the app-chrome gap is already 0); the
+     CONTENT is inset by the shared left gap via --fx-rail-pad, so Files
+     starts the same distance from the rail as every other tab. */
   margin-left: 0;
-  --fx-rail-pad: 0px;
+  --fx-rail-pad: var(--content-left-gap, 17.6px);
+}
+
+/* The sticky pathbar (Files' mini header): its LEFT EDGE sits one
+   --chrome-inset off the sidebar — the same seam as the Hub button and the
+   Activity mini header — while the inner content is re-inset by the
+   difference so it stays aligned with the page content (--fx-rail-pad).
+   6.4px is the bar's own base padding (see .fx-pathbar). */
+.main-content--flush:has(.project-files-page.fx-root) .fx-pathbar {
+  margin-left: var(--chrome-inset, 6.4px);
+  padding-left: calc(6.4px + var(--content-left-gap, 17.6px) - var(--chrome-inset, 6.4px));
 }
 
 /* Uniform dot grid across the whole surface — no edge fade/gradient band by

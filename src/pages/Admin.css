@@ -85,8 +85,9 @@ h1.dc-title, .dc-mh-title, .dc-mail-head h2, .dc-danger-hd h2, .dc-modal-hd h3, 
 .dc-compact {
   position: fixed;
   top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px) + var(--sv-chrome-h, 0px));
-  /* Inset past the sidebar (don't tuck behind it) + a matching right gap. */
-  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px));
+  /* Inset past the sidebar (don't tuck behind it) + the shared content gap,
+     so the bar's left edge lines up with the page content below it. */
+  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px) + var(--content-left-gap, 0px));
   right: var(--chrome-inset, 6.4px);
   z-index: 30;
   height: 40px;

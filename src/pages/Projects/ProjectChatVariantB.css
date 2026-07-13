@@ -20,9 +20,11 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  /* Full-bleed: drop frame padding / rounded "lip" / bg so the page-bg dot grid
-     + cursor spotlight show through, matching the Files workspace. */
-  padding: 0;
+  /* Full-bleed: drop the frame padding / rounded "lip" / bg so the page-bg dot
+     grid + cursor spotlight show through, matching the Files workspace — but
+     keep the shared LEFT content gap so the chat (masthead, toolbar, messages)
+     starts the same distance from the rail as every other tab. */
+  padding: 0 0 0 var(--content-left-gap, 17.6px);
   background: none;
   border-radius: 0;
 }

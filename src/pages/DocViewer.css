@@ -9,9 +9,13 @@
      on top, the Project-files card below, with a gutter showing the dot grid. */
   flex-direction: column;
   gap: 8px;
-  padding: 8px;
+  /* No inset — the file preview uses ALL the window space below the title
+     bar; the floating side panel carries its own 8px offsets instead. */
+  padding: 0;
   box-sizing: border-box;
-  background: var(--bg-page);
+  /* Fixed dark neutral-gray backdrop with white dot circles (user-requested,
+     theme-independent) — same gray the old media stage used (#16181a). */
+  background: #16181a;
   color: var(--text-primary);
 }
 
@@ -20,7 +24,10 @@
    column (Documents/Multitool on top, Files browser below). */
 .dv-body-row { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; gap: 8px; }
 .dv-right-col { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
-.dv-main-row { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; }
+/* position: relative — the Multitool panel + its resize gutter float ABOVE
+   the document card (absolute), so the preview underneath spans the full
+   window width. */
+.dv-main-row { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; position: relative; }
 
 /* Document card — file tabs (header) + the active file's body. */
 .dv-doc-card {
@@ -33,71 +40,41 @@
      (which carry their own fills) read as filled bars. */
   background: transparent;
   /* Frameless: no visible outline around the document section (the toolbar pins
-     to the top and the content edges fade instead of meeting a hard border). */
+     to the top and the content edges fade instead of meeting a hard border).
+     Square corners — the preview section reads as an open area, not a card. */
   border: 1px solid transparent;
-  border-radius: 11.2px;
+  border-radius: 0;
   overflow: hidden;
 }
 /* Audio viewer: drop the rounded card frame so the player + lyrics read as an
    open section rather than a boxed card. */
 .dv-doc-card.is-audio-doc { border: none; border-radius: 0; }
 
-/* AI advisor — its own rounded card beside the document. */
+/* AI advisor — a rounded card FLOATING above the document's left side
+   (the preview below it runs the full window width). */
 .dv-advisor-card {
   flex: none; min-height: 0;
   display: flex; flex-direction: column;
-  position: relative; z-index: 1;
-  /* Sidebar material — translucent fill + border + shadow + cursor-spotlight
-     glow. NOTE: no `backdrop-filter` here on purpose. A backdrop-filter on the
-     card makes it a backdrop ROOT, which stops the footer's own backdrop-filter
-     from sampling the scroll text inside the card (it would only see the page
-     behind the whole card) — so the footer frost couldn't blur the thread.
-     Keeping the card filter-free lets the footer blur the content behind it.
-     Fill is OPAQUE so the page's dot-grid / cursor-spotlight behind the card
-     don't show through the sidebar (only the card's own radial glow shows). */
-  background: var(--bg-page);
+  position: absolute; left: 8px; top: 8px; bottom: 8px; z-index: 10;
+  /* Sidebar material — translucent frosted glass: the preview underneath
+     shows through faintly, BLURRED. (The cursor-spotlight glow + border
+     shine were removed.) TRADE-OFF, accepted deliberately: this makes the
+     card a backdrop ROOT, so the footer's own backdrop-filter samples the
+     page behind the card rather than the thread scrolling inside it — the
+     footer frost loses its in-card blur. */
+  background: color-mix(in srgb, var(--bg-page) 90%, transparent);
+  backdrop-filter: blur(32px) saturate(1.4);
+  -webkit-backdrop-filter: blur(32px) saturate(1.4);
   border: 1px solid var(--border);
   border-radius: 11.2px;
   box-shadow: var(--shadow-card);
   overflow: hidden;
   isolation: isolate;
 }
-/* Cursor-following spotlight glow (copied from .sidebar::before) — fed by the
-   --spot-x / --spot-y vars written on the aside's onMouseMove. */
-.dv-advisor-card::before {
-  content: ''; position: absolute; inset: 0; border-radius: inherit;
-  pointer-events: none; z-index: 0;
-  background: radial-gradient(
-    176px circle at var(--spot-x, 50%) var(--spot-y, 50%),
-    color-mix(in srgb, var(--accent) 12%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 4%, transparent) 40%,
-    transparent 70%
-  );
-  opacity: 0; transition: opacity 240ms ease;
-}
-.dv-advisor-card:hover::before { opacity: 1; }
-/* Lift the panel content above the glow (the glow sits at z 0, content at z 1 —
-   same layering the main app sidebar uses so the fill shows behind the content). */
+/* Keep the panel content lifted above the card fill (same layering the main
+   app sidebar uses). */
 .dv-advisor-card > .dv-advisor-slot,
 .dv-advisor-card > .dv-advisor-footerslot { position: relative; z-index: 1; }
-/* Border shine that tracks the pointer (copied from .sidebar::after) — a thin
-   accent glow on the card's edge that follows the cursor. */
-.dv-advisor-card::after {
-  content: ''; position: absolute; inset: 0; border-radius: inherit;
-  padding: 1px; pointer-events: none; z-index: 2;
-  background: radial-gradient(
-    160px circle at var(--spot-x, 50%) var(--spot-y, 50%),
-    color-mix(in srgb, var(--accent) 75%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 22%, transparent) 34%,
-    transparent 62%
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  opacity: 0; transition: opacity 240ms ease;
-}
-.dv-advisor-card:hover::after { opacity: 1; }
 /* Header is compact; the slot (portal target) fills the rest. */
 .dv-advisor-slot { flex: 1; min-height: 0; min-width: 0; display: flex; }
 .dv-advisor-slot > * { flex: 1; min-width: 0; min-height: 0; }
@@ -108,8 +85,15 @@
    its content. */
 .dv-advisor-slot > .dv-side-portal { flex: 1; min-width: 0; width: auto; }
 
-/* Draggable gutter between the two cards (transparent, accent line on hover). */
-.dv-advisor-resize { flex: none; width: 8px; cursor: col-resize; position: relative; z-index: 2; }
+/* Draggable gutter riding the floating panel's right edge (transparent,
+   accent line on hover). Positioned off the same --dv-advisor-w the panel's
+   inline width uses, so it tracks the drag. */
+.dv-advisor-resize {
+  flex: none; width: 8px; cursor: col-resize;
+  position: absolute; top: 8px; bottom: 8px;
+  left: calc(8px + var(--dv-advisor-w, 296px));
+  z-index: 10;
+}
 .dv-advisor-resize::after {
   content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1.6px;
   transform: translateX(-50%); border-radius: 999px; background: transparent; transition: background 120ms;
@@ -224,24 +208,26 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-files-recent-list { position: relative; flex: 1; min-height: 0; display: flex; }
 .dv-page-empty { align-items: center; justify-content: center; color: var(--text-muted); }
 
-/* Ambient dot grid + cursor spotlight (same effect as the app shell). These
-   sit BEHIND the page's children — which are lifted to z-index:1 — but above
-   the page's own background, so the frosted sidebars reveal them. */
+/* Ambient WHITE dot grid over the gray page backdrop. Sits BEHIND the page's
+   children — which are lifted to z-index:1 — but above the page's own
+   background, so the frosted sidebars reveal it. */
 .dv-page::before {
   content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
   background-image: radial-gradient(
     circle at center,
-    color-mix(in srgb, var(--text-primary) 9%, transparent) 0.96px,
+    rgba(255, 255, 255, 0.10) 0.96px,
     transparent 1.28px
   );
   background-size: 19.2px 19.2px; background-position: 0 0;
 }
+/* Cursor spotlight — a second, brighter white dot layer masked to a soft
+   circle that follows the pointer, so the grid "reacts" around the cursor. */
 .dv-cursor-spotlight {
   position: absolute; top: 0; left: 0; width: 344px; height: 344px;
   pointer-events: none; z-index: 0; will-change: transform;
   background-image: radial-gradient(
     circle at center,
-    color-mix(in srgb, var(--text-primary) 11%, transparent) 1.16px,
+    rgba(255, 255, 255, 0.24) 1.16px,
     transparent 1.48px
   );
   background-size: 19.2px 19.2px;
@@ -1829,18 +1815,20 @@ img.dv-wa-media { cursor: pointer; }
 .dv-media-stage {
   position: relative; flex: 1; min-width: 0; min-height: 0;
   display: flex; align-items: center; justify-content: center;
-  background: #16181a; overflow: hidden;
+  /* Transparent — the media floats directly over the app surface. (The old
+     dark #16181a photo stage was dropped; videos already ran transparent
+     via .is-floating.) */
+  background: transparent; overflow: hidden;
 }
-/* Video viewer: drop the enclosing dark "section" so the video + its overlaid
-   controls float directly over the app surface instead of sitting in a boxed
-   stage. (Photos keep the dark stage above.) */
-.dv-media-stage.is-floating { background: transparent; }
 .dv-media-el { max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: 50% 50%; }
 body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 
-/* ── Zoom controls ───────────────────────────────────────────────── */
+/* ── Zoom controls ───────────────────────────────────────────────────────
+   Pinned at the TOP of the stage, just right of the floating side panel
+   (its footprint = 8px inset + --dv-advisor-w + 8px gutter); the Center
+   button (.dv-stage-tools) sits below it. */
 .dv-zoom-controls {
-  position: absolute; top: 9.6px; left: 9.6px; z-index: 6;
+  position: absolute; top: 9.6px; left: calc(var(--dv-advisor-w, 296px) + 24px); z-index: 6;
   display: flex; align-items: center;
   background: rgba(10, 12, 14, 0.92);
   backdrop-filter: blur(17.6px) saturate(1.8);
@@ -1868,9 +1856,12 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 }
 .dv-zoom-pct:hover { color: #fff; }
 
-/* ── YouTube-style play/pause flash ─────────────────────────────── */
+/* ── YouTube-style play/pause flash ───────────────────────────────────────
+   Centred on the H axis between the floating side panel's right edge (8px
+   inset + --dv-advisor-w + 8px gutter) and the window's right edge, matching
+   the preview's own centring. */
 .dv-playback-flash {
-  position: absolute; inset: 0; z-index: 5;
+  position: absolute; inset: 0 0 0 calc(var(--dv-advisor-w, 296px) + 24px); z-index: 5;
   pointer-events: none;
   display: flex; align-items: center; justify-content: center;
 }
@@ -1916,6 +1907,10 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
   position: relative; z-index: 1;
   padding: 0 12.8px 11.2px;
   display: flex; flex-direction: column; gap: 8px;
+  /* The controls section spans from the floating side panel's RIGHT edge
+     (8px inset + --dv-advisor-w + 8px gutter) to the window's right edge,
+     so it never runs underneath the panel. */
+  margin-left: calc(var(--dv-advisor-w, 296px) + 24px);
 }
 
 /* Seek "decibel line" — the video's loudness envelope drawn across the controls,
@@ -1927,8 +1922,6 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
   display: block; width: 100%; height: 41.6px;
   color: var(--accent); --text-muted: rgba(255, 255, 255, 0.92);
   cursor: pointer; touch-action: none;
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 3%, #000 97%, transparent 100%);
-  mask-image: linear-gradient(to right, transparent 0%, #000 3%, #000 97%, transparent 100%);
 }
 .dv-player-scope:focus-visible {
   outline: 1.6px solid var(--accent); outline-offset: -1.6px; border-radius: 6.4px;
@@ -2096,25 +2089,15 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
    always as wide as the menu content and no width jump occurs on open.
    filter:drop-shadow is used instead of box-shadow because box-shadow is
    clipped by clip-path; drop-shadow is applied after clip. */
-/* Top-left tool stack: the Extract-text pill with the Center button below it. */
+/* Tool stack — the Center button, UNDER the zoom pill, right of the
+   floating side panel. (The Extract-text pill + its tool dropdown moved
+   into the sidebar's Extract-text tab.) */
 .dv-stage-tools {
-  position: absolute; top: 44.8px; left: 9.6px; z-index: 6;
+  position: absolute; top: 44.8px; left: calc(var(--dv-advisor-w, 296px) + 24px); z-index: 6;
   display: flex; flex-direction: column; align-items: flex-start; gap: 6.4px;
 }
 
-.dv-ocr-btn-wrap {
-  /* Tool dropdown opens downward from the Extract-text pill. */
-  position: relative;
-  display: flex; flex-direction: column; align-items: stretch;
-  background: rgba(10, 12, 14, 0.92);
-  backdrop-filter: blur(17.6px) saturate(1.8);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  filter: drop-shadow(0 6.4px 24px rgba(0, 0, 0, 0.65));
-  /* Collapsed = pill (matches zoom controls); armed = 14px rounded rect. */
-  clip-path: inset(0 round 999px);
-  transition: clip-path 180ms ease-in;
-}
-/* Center-video pill — matches the zoom / extract-text chrome. */
+/* Center-video pill — matches the zoom-controls chrome. */
 .dv-center-btn {
   display: inline-flex; align-items: center; gap: 5.6px;
   padding: 5.6px 10.4px;
@@ -2130,81 +2113,58 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 }
 .dv-center-btn:hover { color: #fff; background: rgba(28, 32, 36, 0.95); }
 .dv-center-btn svg { flex-shrink: 0; }
-.dv-ocr-btn-wrap.is-armed {
-  clip-path: inset(0 round 11.2px);
-  transition: clip-path 340ms cubic-bezier(0.16, 1, 0.3, 1);
-}
 
-/* Grid-accordion: 0fr → 1fr animates height without JS measurements.
-   Close is fast ease-in so the grid finishes before clip-path rounds. */
-.dv-ocr-toolbar-wrap {
-  display: grid; grid-template-rows: 0fr;
-  transition: grid-template-rows 180ms ease-in;
+/* ── Selection-tool options — under the Extract-text tab's header ─────────
+   (Moved here from the old on-stage pill's dropdown.) Sidebar surface, so
+   colours route through tokens; the options sit one next to the other.
+   Insets match the header above (.dv-ocr-history-head). */
+.dv-ocr-side-tools {
+  flex: 0 0 auto;
+  padding: 9.6px 11.2px;
 }
-.dv-ocr-toolbar-wrap.is-open {
-  grid-template-rows: 1fr;
-  transition: grid-template-rows 340ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* Collapsing grid item — ONLY overflow:hidden + min-height:0 (the grid trick).
-   It carries NO padding/border, so at grid-template-rows:0fr it collapses to
-   exactly 0 height (no leaked sliver of the dropdown under the button). All
-   visual padding + the divider live on .dv-ocr-toolbar-inner.
-   Content fades out fast on close, fades in with delay on open. */
-.dv-ocr-toolbar {
-  overflow: hidden; min-height: 0;
-  pointer-events: none; opacity: 0;
-  transition: opacity 100ms ease;
-}
-.dv-ocr-toolbar-wrap.is-open .dv-ocr-toolbar {
-  pointer-events: auto; opacity: 1;
-  transition: opacity 250ms ease 80ms;
-}
-.dv-ocr-toolbar-inner {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 1.6px;
-  padding: 6.4px 11.2px 11.2px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
-}
-
-/* Tools stacked vertically, left-aligned. */
-.dv-ocr-tools { display: flex; flex-direction: column; gap: 1.6px; align-items: stretch; }
+.dv-ocr-tools { display: flex; flex-direction: row; flex-wrap: wrap; gap: 3.2px; align-items: center; }
 .dv-ocr-tool {
-  display: inline-flex; align-items: center; flex-direction: row; gap: 6.4px;
+  display: inline-flex; align-items: center; gap: 6.4px;
   padding: 5.6px 9.6px; border-radius: 7.2px; cursor: pointer;
   font: inherit; font-size: 10.4px; font-weight: 500;
   border: none; background: transparent;
-  color: rgba(255, 255, 255, 0.48);
+  color: var(--text-secondary);
   transition: color 120ms ease, background 120ms ease;
 }
-.dv-ocr-tool:hover { color: rgba(255, 255, 255, 0.9); background: rgba(255, 255, 255, 0.07); }
-.dv-ocr-tool.is-active { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.dv-ocr-tool:hover { color: var(--text-primary); background: var(--bg-elevated); }
+.dv-ocr-tool.is-active { background: var(--accent-tint); color: var(--accent); }
 .dv-ocr-tool-hint {
   margin: 6.4px 0 0; font-size: 8.4px; line-height: 1.5;
-  color: rgba(255, 255, 255, 0.28); text-align: left;
-  max-width: 160px;
+  color: var(--text-muted); text-align: left;
 }
 
-/* "Extract text" button row — icon tinted accent; chevron rotates on open. */
-.dv-ocr-btn {
-  display: flex; align-items: center; gap: 6.4px;
-  padding: 8.8px 11.2px 8.8px 12.8px; cursor: pointer; white-space: nowrap;
-  font: inherit; font-size: 11.2px; font-weight: 600; letter-spacing: 0.008em;
-  border: none; background: transparent; color: rgba(255, 255, 255, 0.78);
-  transition: color 150ms ease, background 150ms ease;
+/* Selection-mode pill — shown while extraction is armed. Top of the window,
+   centred on the H axis between the floating panel's right edge (8px inset +
+   --dv-advisor-w + 8px gutter) and the window's right edge. */
+.dv-selmode-wrap {
+  position: absolute; top: 9.6px;
+  left: calc(var(--dv-advisor-w, 296px) + 24px); right: 0;
+  display: flex; justify-content: center;
+  pointer-events: none; z-index: 7;
 }
-.dv-ocr-btn > svg:first-child { color: var(--accent); flex-shrink: 0; transition: color 150ms ease; }
-.dv-ocr-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
-.dv-ocr-btn.is-active { color: #fff; }
-.dv-ocr-btn-chevron {
-  margin-left: auto; padding-left: 4.8px;
-  display: flex; align-items: center; flex-shrink: 0;
-  color: rgba(255, 255, 255, 0.28);
-  transition: transform 360ms cubic-bezier(0.16, 1, 0.3, 1), color 150ms ease;
+.dv-selmode-pill {
+  pointer-events: auto;
+  display: inline-flex; align-items: center; gap: 6.4px;
+  padding: 6.4px 11.2px; border-radius: 999px;
+  background: rgba(10, 12, 14, 0.92);
+  backdrop-filter: blur(17.6px) saturate(1.8);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  filter: drop-shadow(0 3.2px 12.8px rgba(0, 0, 0, 0.55));
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 10px; font-weight: 600; white-space: nowrap;
 }
-.dv-ocr-btn.is-active .dv-ocr-btn-chevron {
-  transform: rotate(180deg);
+.dv-selmode-pill > svg { color: var(--accent); flex-shrink: 0; }
+.dv-selmode-pill button {
+  border: none; background: none; cursor: pointer;
   color: rgba(255, 255, 255, 0.5);
+  font-size: 12px; line-height: 1; padding: 0 0 0 2.4px;
 }
+.dv-selmode-pill button:hover { color: #fff; }
 
 /* Error pill — bottom-centre, auto-dismisses after 4 s. */
 .dv-ocr-error {
@@ -2257,7 +2217,19 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
    header's colouring + spacing (scaled to the panel). */
 .dv-ocr-history-head {
   flex: none; display: flex; flex-direction: column; gap: 8px;
-  padding: 14.4px 11.2px 11.2px; border-bottom: 1px solid var(--border);
+  padding: 14.4px 11.2px 11.2px;
+  position: relative;
+}
+/* Hairline above the selection-tool buttons — inset from both edges (a
+   border can't carry margins, so it's a pseudo). */
+.dv-ocr-history-head::after {
+  content: '';
+  position: absolute;
+  left: 11.2px;
+  right: 11.2px;
+  bottom: 0;
+  height: 1px;
+  background: var(--border);
 }
 .dv-ocr-history-eyebrow {
   display: flex; align-items: center; gap: 6.4px; flex-wrap: wrap;
@@ -2311,23 +2283,12 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
   position: relative;
 }
 
-/* Rail line — bridges the full item height plus the flex gap so adjacent
-   entries connect. The ::before extends 14px below (= the list gap) on all
-   items except the last, which fades out at the node. */
+/* The vertical timeline lives on the CAPTIONS list only (moved off the
+   extracted-text list) — see the .dv-audio-caption-row block further down,
+   which must come AFTER the base .dv-ocr-history-date rule to win. */
 .dv-ocr-history-rail { position: relative; }
-.dv-ocr-history-rail::before {
-  content: ''; position: absolute; left: var(--ocr-linex); top: 0; bottom: -11.2px; width: 1.6px;
-  transform: translateX(-50%); background: var(--ocr-line);
-}
-.dv-ocr-history-item:last-child .dv-ocr-history-rail::before { bottom: 0; }
-
-/* Node dot at the START (top) of the line; accent like AI → Extractions. */
-.dv-ocr-history-node {
-  position: absolute; left: var(--ocr-linex); top: 0;
-  width: 8.8px; height: 8.8px; border-radius: 50%;
-  transform: translate(-50%, 0); z-index: 2;
-  background: var(--bg-page); border: 2px solid var(--accent);
-}
+/* Extracted-text list — no timeline: hide its node dots entirely. */
+.dv-ocr-history-item:not(.dv-audio-caption-row) .dv-ocr-history-node { display: none; }
 
 /* Date label, right-aligned beside the line, anchored at the top. */
 .dv-ocr-history-date {
@@ -2451,7 +2412,6 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 1.6px var(--accent
 .dv-audio-pane {
   position: relative; flex: 1; min-width: 0; height: 100%;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  padding-bottom: 83.2px;
 }
 /* With lyrics, the karaoke fills the pane and the play button docks below it. */
 .dv-audio-pane.has-lyrics { justify-content: flex-start; }
@@ -2477,7 +2437,7 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 1.6px var(--accent
 .dv-lyric-line {
   position: relative;
   display: block; width: 100%; text-align: left;
-  border: none; background: none; cursor: pointer;
+  border: none; background: none;
   font-family: var(--font-display);
   font-size: 22.4px; font-weight: 800; line-height: 1.3; letter-spacing: -0.015em;
   padding: 6.4px 11.2px 6.4px 35.2px; border-radius: 9.6px;
@@ -2485,21 +2445,8 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 1.6px var(--accent
   transform: scale(1); transform-origin: left center;
   transition: color 220ms ease, opacity 220ms ease, transform 220ms ease, background 160ms ease;
 }
-/* Vertical timeline line — one segment per lyric, extended past the bottom edge
-   by the list gap so adjacent segments join into a continuous line. */
-.dv-lyric-line::before {
-  content: ''; position: absolute; left: var(--lyric-railx); top: 0; bottom: -4.8px;
-  width: 1.6px; transform: translateX(-50%); background: var(--text-primary);
-}
-/* Fade the timeline's two ends: the first segment fades in from the top, the
-   last fades out toward the bottom. */
-.dv-lyric-line:first-child::before {
-  background: linear-gradient(to bottom, transparent, var(--text-primary) 70%);
-}
-.dv-lyric-line:last-child::before {
-  bottom: 50%;
-  background: linear-gradient(to bottom, var(--text-primary), transparent);
-}
+/* (The vertical timeline rail segments that ran beside the lines were
+   removed; only the now-playing accent dot below remains.) */
 /* Node — a dot in the play button's accent colour; only the active
    (now-playing) line shows it. */
 .dv-lyric-line::after {
@@ -2508,30 +2455,58 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 1.6px var(--accent
   background: var(--accent);
   opacity: 0; transition: opacity 200ms ease;
 }
-/* The current caption has no line through it — just the accent dot. */
-.dv-lyric-line.is-active::before { display: none; }
-/* Hover only brightens the text — no background fill, so the vertical timeline
-   stays unchanged when pointing at a line. */
-.dv-lyric-line:hover { opacity: 0.85; color: #fff; }
 .dv-lyric-line.is-past { opacity: 0.32; }
 /* Active (now-playing) line — full-white text. */
 .dv-lyric-line.is-active { color: #fff; opacity: 1; transform: scale(1.04); }
 .dv-lyric-line.is-active::after { opacity: 1; }
 
-/* Play/pause deck — sits under the lyrics, above the decibel line. */
-.dv-audio-deck { flex: none; display: flex; align-items: center; justify-content: center; width: 100%; padding-top: 6.4px; }
+/* Play/pause flash — the video pane's pop circle, centred over the audio
+   pane (which is already offset right of the floating panel). */
+.dv-audio-flash {
+  position: absolute; inset: 0; z-index: 5;
+  pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* Bottom deck — same stacking as the video player's .dv-player-controls:
+   the decibel-line scrubber ON TOP, the controls row underneath, docked to
+   the pane's bottom edge (margin-top:auto covers the no-lyrics case too). */
+.dv-audio-deck {
+  flex: none;
+  /* Full pane width with the video controls' insets (.dv-player-controls:
+     0 12.8px 11.2px) — no extra side margins. */
+  width: 100%;
+  margin: auto 0 0;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 6.4px 12.8px 11.2px;
+  box-sizing: border-box;
+  position: relative; z-index: 2;
+}
+/* Controls row — mirrors the video's .dv-player-row, re-themed for the
+   audio pane's app surface. */
+.dv-audio-controls {
+  flex: none; display: flex; align-items: center; gap: 3.2px;
+  width: 100%;
+}
+.dv-audio-controls .dv-player-btn { color: var(--text-secondary); }
+.dv-audio-controls .dv-player-btn:hover { color: var(--text-primary); background: var(--bg-elevated); }
+.dv-audio-controls .dv-player-time { color: var(--text-muted); }
+.dv-audio-controls .dv-player-vol {
+  background: linear-gradient(to right,
+    var(--accent) var(--pct, 100%),
+    color-mix(in srgb, var(--text-muted) 35%, transparent) var(--pct, 100%)
+  );
+}
+.dv-audio-controls .dv-player-vol::-webkit-slider-thumb { background: var(--accent); box-shadow: none; }
+.dv-audio-controls .dv-player-vol::-moz-range-thumb { background: var(--accent); }
 /* "Decibel line": the file's loudness envelope drawn across the bottom edge
    (played portion in accent, plus a playhead). Doubles as a scrubber — click or
    drag anywhere to seek. Accent-coloured; the canvas reads its fill from
    `color`. Narrower than the pane + centred, sitting under the player card. */
 .dv-audio-scope {
-  position: absolute; left: 0; right: 0; bottom: 0; margin: 0 auto;
-  width: calc(100% - 128px); height: 70.4px;
+  width: 100%; height: 70.4px;
   color: var(--accent); display: block;
   cursor: pointer; touch-action: none;
-  /* Soft fade at the very edges only, so the timeline reads end-to-end. */
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 4%, #000 96%, transparent 100%);
-  mask-image: linear-gradient(to right, transparent 0%, #000 4%, #000 96%, transparent 100%);
 }
 .dv-audio-scope:focus-visible {
   outline: 1.6px solid var(--accent); outline-offset: -1.6px; border-radius: 6.4px;
@@ -3432,19 +3407,82 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   transition: background 120ms ease;
 }
 .dv-audio-caption-row:hover { background: var(--bg-elevated); }
-.dv-audio-caption-row .dv-ocr-history-rail::before,
-.dv-audio-caption-row .dv-ocr-history-node { display: none; }
-.dv-audio-caption-row .dv-ocr-history-date {
-  position: static; width: auto; text-align: left;
-}
 .dv-audio-caption-row .dv-ocr-history-date-d {
   font-size: 9.6px; font-weight: 600; font-variant-numeric: tabular-nums;
   color: var(--text-muted); transition: color 120ms ease;
 }
 .dv-audio-caption-row:hover .dv-ocr-history-date-d { color: var(--text-secondary); }
-.dv-audio-caption-row.is-active { background: var(--accent-soft); }
-.dv-audio-caption-row.is-active .dv-ocr-history-date-d { color: var(--accent); }
-.dv-audio-caption-row.is-active .dv-ocr-history-text { color: var(--text-primary); font-weight: 600; }
+
+/* ── Captions timeline ──────────────────────────────────────────────────
+   ONE continuous vertical line on the list container (per-row segments
+   couldn't bridge each row's own padding, leaving gaps), with each row's
+   node dot + timestamp vertically centred on it. The line's x = the list's
+   9.6px side padding + the row's 8px side padding + the rail offset. */
+.dv-ocr-history-list:has(.dv-audio-caption-row) { position: relative; }
+.dv-ocr-history-list:has(.dv-audio-caption-row)::before {
+  content: '';
+  position: absolute;
+  left: calc(9.6px + 8px + var(--ocr-linex));
+  /* Inset past the list's own padding (9.6 top / 153.6 bottom) roughly to
+     the first/last rows' centres. */
+  top: calc(9.6px + 12.8px);
+  bottom: calc(153.6px + 12.8px);
+  width: 1.6px;
+  transform: translateX(-50%);
+  background: var(--ocr-line);
+  /* Above the rows' hover fill (the rows are positioned, so they'd
+     otherwise paint over the container's pseudo); the node dots sit at
+     z 2 and stay on top. */
+  z-index: 1;
+}
+/* Anchor the node + timestamp to the ROW, not the rail cell — the rail's
+   height inside a <button> grid isn't reliable, which left the dot
+   off-centre on short rows. */
+.dv-audio-caption-row .dv-ocr-history-rail { position: static; }
+/* Node dot — vertically centred in its row, riding the line. Grayed out by
+   default; only the NOW-PLAYING row's dot takes the accent. The 8px term is
+   the row's own side padding (the rail column starts past it). */
+.dv-audio-caption-row .dv-ocr-history-node {
+  position: absolute; left: calc(8px + var(--ocr-linex)); top: 50%;
+  width: 8.8px; height: 8.8px; border-radius: 50%;
+  transform: translate(-50%, -50%); z-index: 2;
+  background: var(--bg-page); border: 2px solid var(--border-strong);
+  transition: border-color 160ms ease;
+}
+.dv-audio-caption-row.is-active .dv-ocr-history-node { border-color: var(--accent); }
+/* Timestamp — vertically centred beside its node, row-anchored like it
+   (overrides the base rail-anchored .dv-ocr-history-date rule; must stay
+   after it). */
+.dv-audio-caption-row .dv-ocr-history-date {
+  left: 8px;
+  /* Right-aligned text ends 12.8px short of the line — breathing room
+     between the timestamp and the vertical timeline. */
+  width: calc(var(--ocr-linex) - 12.8px);
+  top: 50%; transform: translateY(-50%);
+}
+/* Now-playing styling lives entirely on the node dot (accent ring above) —
+   no row fill or text/timestamp recolouring. */
+
+/* Per-caption edit toggle — pencil on the row's right (hover-revealed),
+   check while that row is editing. Rows reserve the lane via padding. */
+.dv-audio-caption-row { padding-right: 30.4px; }
+.dv-caption-editbtn {
+  position: absolute; right: 4.8px; top: 50%; transform: translateY(-50%);
+  width: 20.8px; height: 20.8px;
+  display: grid; place-items: center;
+  border: none; border-radius: 5.6px; background: transparent;
+  color: var(--text-muted); cursor: pointer;
+  opacity: 0; pointer-events: none;
+  transition: opacity 120ms, color 120ms, background 120ms;
+  z-index: 3;
+}
+.dv-audio-caption-row:hover .dv-caption-editbtn,
+.dv-caption-editbtn:focus-visible,
+.dv-audio-caption-row.is-editing .dv-caption-editbtn {
+  opacity: 1; pointer-events: auto;
+}
+.dv-caption-editbtn:hover { color: var(--text-primary); background: var(--bg-elevated); }
+.dv-caption-editbtn.is-done { color: var(--accent); }
 /* Edit mode — timestamp becomes a small seek button + the text an editable field. */
 .dv-audio-caption-row.is-editing { cursor: default; }
 .dv-caption-seek {
@@ -3461,29 +3499,6 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 }
 .dv-caption-edit:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2.4px var(--accent-soft); }
 .dv-caption-edit::placeholder { color: var(--text-muted); }
-.dv-caption-fulledit { padding: 9.6px 11.2px; }
-.dv-audio-playbtn {
-  flex: none; display: flex; align-items: center; justify-content: center;
-  width: 38.4px; height: 38.4px; border-radius: 50%; border: none;
-  background: var(--accent); color: var(--text-on-accent); cursor: pointer;
-}
-.dv-audio-playbtn:hover { background: var(--accent-hover); }
-.dv-audio-playbtn svg { width: 17.6px; height: 17.6px; }
-.dv-audio-volume {
-  position: absolute; left: 14.4px; bottom: 14.4px; z-index: 2;
-  display: flex; flex-direction: column-reverse; align-items: center; gap: 8px;
-}
-.dv-audio-volume-btn {
-  flex: none; display: flex; align-items: center; justify-content: center;
-  width: 22.4px; height: 22.4px; padding: 0; border: none; background: none;
-  color: var(--text-secondary); cursor: pointer;
-}
-.dv-audio-volume-btn:hover { color: var(--text-primary); }
-.dv-audio-volume-btn svg { width: 14.4px; height: 14.4px; }
-.dv-audio-volume-slider {
-  writing-mode: vertical-lr; direction: rtl;
-  width: 4.8px; height: 96px; flex: none; accent-color: var(--accent);
-}
 
 .dv-audio-captions-btn svg { width: 12.8px; height: 12.8px; }
 .dv-audio-captions-status {
@@ -3537,3 +3552,17 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   background: var(--bg-page); color: var(--text-muted);
 }
 
+
+/* ── Preview centring vs the floating side panel ─────────────────────────
+   The Multitool panel floats over the preview's left side, so a preview
+   centred on the full window would sit half-hidden behind it. Reserve the
+   panel's footprint (8px inset + width + 8px gutter) as LEFT padding on the
+   preview containers, so their centring runs from the panel's RIGHT edge to
+   the window's right edge. --dv-advisor-w is set inline on .dv-main-row and
+   tracks the drag-resize live. */
+.dv-media-stage,
+.dv-doc-body:not(.is-split):not(.is-flush):not(.is-media),
+.dv-doc-main,
+.dv-doc-main:has(.dv-docview) {
+  padding-left: calc(var(--dv-advisor-w, 296px) + 24px);
+}

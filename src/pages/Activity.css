@@ -1,111 +1,186 @@
-/* Activity feed — merges the old (empty) "/" Activity dashboard with the
-   "/notifications" inbox into one feed. Visual language is the docvex token
-   set (cognac accent, --cat-* category colours, Inter / Plus Jakarta Sans),
-   ported from the Claude Design handoff (docvex-activity-notification-redesign).
-   Rows use a category-tinted glyph square (the design's "log" layout) since
-   notifications carry no actor avatar yet. */
+/* Activity feed — restyled to mirror the Events timeline tab (ProjectEvents):
+   the same editorial masthead, the same frosted sticky 40px toolbar that pins
+   as the mini header, and the same day-grouped vertical-rail timeline. The
+   one deliberate divergence: each row's rail marker is the NOTIFICATION'S OWN
+   contextual icon (notifications/icons.jsx) in a category-tinted medallion,
+   not the Events tab's plain rings. All `avt-` prefixed; colours come from
+   tokens.css (--cat-* category palette). Values are copied 1:1 from
+   ProjectEvents.css so the two timelines read identically. */
 
-/* Full width + full height — the page fills the content area and becomes a
-   flex column: the header and filter bar stay pinned at the top, while the
-   metrics strip AND the activity feed share one scroll region below them
-   (so the metrics scroll away as you move down to older notifications).
-   Height is anchored to the viewport minus .main-content's TOP 2rem padding;
-   `margin-bottom: -2rem` then cancels its bottom padding (same break-out
-   trick the tab bar uses horizontally) so the scroll region reaches the very
-   bottom edge with no leftover vertical gap. */
-.activity-page {
+.avt-root {
   width: 100%;
-  /* Whole page flows + scrolls inside the content shell's scroller (.sv-single
-     -scroll) — no inner scroll region — so the iOS-style compact masthead bar
-     (PageMasthead) can appear on scroll like Newsletter / Versions. */
   padding-bottom: 48px;
 }
 
-/* The masthead replaces the old pinned header; trim its bottom margin so the
-   filter tab bar sits at the same rhythm it did under the old header. The
-   masthead's divider line above the filters is dropped (per design). */
-.activity-page > .pmh .pmh-masthead { margin-bottom: 12.8px; border-bottom: none; }
+/* The page scroller's own TOP padding pushes a sticky child's pinned
+   position down by that padding (Chromium anchors sticky offsets past the
+   scroll container's padding) — the bar would pin 25.6px too low and the
+   rect-based .is-pinned check would never trigger. Zero it here and carry
+   the 1.6rem inset on the masthead instead, exactly like Files/Chat (whose
+   .project-page-frame zeroes the scroller padding for the same reason). */
+.sv-single-scroll:has(.avt-root) { padding-top: 0; }
 
-/* Filters mirrored into the on-scroll mini header (PageMasthead compactRight) —
-   single-row, compact, horizontally scrollable if they don't all fit. The strip
-   fills the bar height so each tab's active accent underline (border-bottom)
-   sits on the bar's bottom edge, exactly like the big header's tab strip. */
-.pmh-compact .pmh-compact-right:has(.activity-filters) { align-self: stretch; }
-.pmh-compact .activity-filters {
-  flex: 0 1 auto;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-  max-width: 100%;
-  align-items: stretch;
-  height: 100%;
-}
-.pmh-compact .activity-filters::-webkit-scrollbar { display: none; }
-.pmh-compact .activity-filter {
-  padding: 0 0.48rem;
-  font-size: 0.64rem;
-  white-space: nowrap;
-}
-.pmh-compact .activity-filter-count {
-  font-size: 0.52rem;
-  padding: 0.04rem 0.32rem;
-  min-width: auto;
-}
-
-/* On a wide window, split the content area into four and let the page occupy
-   three of those sections (75%), left-aligned — leaving the right quarter as
-   breathing room. Below the breakpoint the page stays full width. Shared
-   breakpoint across Activity / Newsletter / Projects. */
-@media (min-width: 1024px) { /* 1280px pre-scale */
-  .activity-page { width: 75%; }
-}
-
-/* Spacing between the filter tab bar and the feed now that they share one
-   page scroll (no inner scroll region). */
-.activity-groups,
-.activity-empty { margin-top: 17.6px; }
-
-/* ── Header — shared page-header spec (kept identical across Activity,
-       Newsletter and Projects): a left title-block (eyebrow + 22px display
-       title + 13px muted subtitle, 6px gap) with the page's actions on the
-       right. Here the divider rule is supplied by the filter tab bar that
-       sits directly below, so the header itself carries no border. */
-.activity-header {
+/* ── Masthead ─────────────────────────────────────────────────────────── */
+.avt-masthead {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12.8px;
+  flex-direction: column;
+  gap: 14.4px;
+  /* Top inset moved here from the scroller (see .sv-single-scroll rule
+     above) so the title sits at the same height as the other tabs'. */
+  padding: 1.6rem 0 20.8px;
 }
-.activity-title-block { display: flex; flex-direction: column; gap: 14.4px; }
-.activity-eyebrow {
-  font-family: var(--font-display);
+.avt-mh-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 9.6px;
+  flex-wrap: wrap;
   font-size: 8.8px;
   font-weight: 700;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--accent);
 }
-.activity-title {
+.avt-mh-muted {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.avt-mh-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(27.2px, calc(4.5 * var(--vw1)), 44.8px);
+  font-size: 44.8px;
   font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
   color: var(--text-primary);
-  letter-spacing: -0.03em;
-  line-height: 1.05;
+  text-wrap: pretty;
 }
-.activity-subtitle {
+.avt-mh-kicker {
   margin: 0;
-  font-size: 11.6px;
-  color: var(--text-muted);
-  max-width: 60ch;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 464px;
 }
-.activity-subtitle strong { color: var(--text-secondary); font-weight: 600; }
 
-.activity-header-actions {
-  display: flex; gap: 6.4px; align-items: center; flex-shrink: 0;
+/* ── Mini header (sticky toolbar) ─────────────────────────────────────────
+   Transparent while in flow under the masthead; once actually stuck at the
+   top (.is-pinned, rect-based detection in Activity.jsx) it paints the
+   sidebar's frosted surface — same recipe as every other pinned bar. */
+.avt-toolbar {
+  position: sticky;
+  top: var(--chrome-inset, 6.4px);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 6.4px;
+  height: 40px;
+  box-sizing: border-box;
+  /* Pull the bar's LEFT EDGE out past the content inset so its gap to the
+     sidebar equals the Hub-button seam (one --chrome-inset), then re-inset
+     the content by the same amount — the tabs stay at the content edge
+     while the bar's surface reaches closer to the rail. */
+  margin-left: calc(var(--chrome-inset, 6.4px) - var(--content-left-gap, 17.6px));
+  padding: 0 12px 0 calc(var(--content-left-gap, 17.6px) - var(--chrome-inset, 6.4px));
+  border-radius: 9.6px;
+  /* Constant transparent border so gaining the pinned hairline doesn't
+     shift the row's height. */
+  border: 1.5px solid transparent;
+  background: transparent;
+  line-height: 1;
+  transition: background-color 200ms ease, box-shadow 240ms ease, border-color 200ms ease;
+}
+.avt-toolbar.is-pinned {
+  /* No padding change on pin — the tabs keep the exact same x position
+     whether the bar is in flow or stuck. */
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  border-color: var(--border-flat);
+  /* Seam cover following this bar's border radius — see miniHeader.css. */
+  box-shadow: var(--mini-seam-shadow);
+}
+/* No .mini-glow here — the category bar renders without the shared cursor
+   spotlight / border shine the other mini headers carry. */
+
+/* ── Filter tab strip — the ORIGINAL tab-bar design: flat tabs with a
+   leading category dot, a muted count, and one shared underline that slides
+   to the active tab (FilterTabs measures the active button and writes
+   translate(x, y) + width inline; the transition here does the movement).
+   Hosted inside the sticky mini header: the chain stretches to the 40px
+   bar's height so the underline straddles the bar's bottom edge, and
+   overflow stays visible so its lower half isn't clipped. */
+.avt-toolbar .activity-filters {
+  display: flex;
+  /* Breathing room between the category tabs (on top of each tab's own
+     side padding). */
+  gap: 9.6px;
+  align-self: stretch;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: visible;
+  /* Anchor for the shared sliding underline (offsetLeft/offsetTop of the
+     tab buttons are measured relative to this box). */
+  position: relative;
+}
+.activity-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  border: none;
+  position: relative;
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 500;
+  padding: 0 0.48rem;
+  height: 100%;
+  white-space: nowrap;
+  overflow: visible;
+  cursor: pointer;
+  transition: color 150ms;
+  font-family: inherit;
+}
+/* First tab ("All") loses its leading inset so its label lines up with the
+   masthead and the timeline below. */
+.avt-toolbar .activity-filter:first-child { padding-left: 0; }
+.activity-filter:hover:not(.is-active) { color: var(--text-secondary); }
+.activity-filter.is-active { color: var(--text-primary); }
+
+/* Active underline — thin square bar, tinted by the active tab's category
+   via data-cat. */
+.activity-filter-underline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 2px;
+  border-radius: 0;
+  background: var(--accent);
+  z-index: 2;
+  pointer-events: none;
+  transition:
+    transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
+    width 280ms cubic-bezier(0.16, 1, 0.3, 1),
+    background 150ms;
+}
+.activity-filter-underline[data-cat="file"]    { background: var(--cat-file); }
+.activity-filter-underline[data-cat="member"]  { background: var(--cat-member); }
+.activity-filter-underline[data-cat="project"] { background: var(--cat-project); }
+.activity-filter-underline[data-cat="role"]    { background: var(--cat-role); }
+.activity-filter-underline[data-cat="update"]  { background: var(--cat-update); }
+.activity-filter-underline[data-cat="auth"]    { background: var(--cat-auth); }
+.activity-filter-underline[data-cat="support"] { background: var(--cat-support); }
+.activity-filter-underline[data-cat="social"]  { background: var(--cat-social, var(--cat-member)); }
+.activity-filter-underline[data-cat="system"]  { background: var(--cat-system); }
+
+/* Bulk actions (Clear all) at the bar's far right. */
+.avt-tb-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4.8px;
+  flex-shrink: 0;
 }
 .act-btn {
   display: inline-flex; align-items: center; gap: 4.8px;
@@ -124,368 +199,204 @@
 .act-btn:hover:not(:disabled) { background: var(--bg-elevated); border-color: var(--border-strong); color: var(--text-primary); }
 .act-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ── Filter tab bar — same recipe as .project-tabs / .project-tab:
-       flush row, single baseline border-bottom, each tab a flat button with
-       a 2px transparent bottom border that becomes category-tinted when
-       active. */
-.activity-tabbar {
-  display: flex;
-  align-items: stretch;
-  gap: 0;
-  border-bottom: 1px solid var(--border);
-  /* Full-bleed on the RIGHT only. The Activity page sits flush against the
-     sidebar (FLUSH_CONTENT_ROUTES), so a negative LEFT margin would slide the
-     bar under the rail and clip the first tab — instead the bar starts at the
-     content edge and the first tab is inset via padding-left below.
-     No bottom margin: the scroll region sits flush under the tab bar. */
-  margin: 0 -17.6px 0 0;
-  padding-left: 3.2px;
-  flex-wrap: wrap;
-}
-.activity-filters {
-  display: flex;
-  gap: 0;
-  flex: 1;
-  flex-wrap: wrap;
-  align-items: stretch;
-  /* Anchor for the shared sliding underline (offsetLeft/offsetTop of the
-     tab buttons are measured relative to this box). */
-  position: relative;
-}
-/* Bulk actions (Mark all read / Clear all) in line with the filter tabs —
-   pushed to the right by the filters' flex:1, vertically centred in the row,
-   inset from the full-bleed tab strip's right edge to align with content. */
-.activity-tabbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 6.4px;
-  align-self: center;
-  flex-shrink: 0;
-  padding-right: 17.6px;
-}
-.activity-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: transparent;
-  border: none;
-  position: relative;
-  color: var(--text-muted);
-  font-size: 0.704rem;
-  font-weight: 500;
-  padding: 0.56rem 0.8rem;
-  cursor: pointer;
-  transition: color 150ms;
-  font-family: inherit;
-}
-.activity-filter:hover:not(.is-active) { color: var(--text-secondary); }
-.activity-filter.is-active { color: var(--text-primary); }
-/* Active underline — same 3.2px rounded bar as before (inset past the leading
-   dot, tighter on the right, straddling the strip's baseline), but now ONE
-   shared element per strip that SLIDES to the active tab: FilterTabs measures
-   the active button and writes translate(x, y) + width inline; the transition
-   here does the movement. Tinted by the active tab's category via data-cat. */
-.activity-filter-underline {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 0;
-  height: 3.2px;
-  border-radius: 2px;
-  background: var(--accent);
-  z-index: 2;
-  pointer-events: none;
-  transition:
-    transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
-    width 280ms cubic-bezier(0.16, 1, 0.3, 1),
-    background 150ms;
-}
-.activity-filter-underline[data-cat="file"]    { background: var(--cat-file); }
-.activity-filter-underline[data-cat="member"]  { background: var(--cat-member); }
-.activity-filter-underline[data-cat="project"] { background: var(--cat-project); }
-.activity-filter-underline[data-cat="role"]    { background: var(--cat-role); }
-.activity-filter-underline[data-cat="update"]  { background: var(--cat-update); }
-.activity-filter-underline[data-cat="auth"]    { background: var(--cat-auth); }
-.activity-filter-underline[data-cat="support"] { background: var(--cat-support); }
-.activity-filter-underline[data-cat="social"]  { background: var(--cat-social, var(--cat-member)); }
+/* ── Timeline ─────────────────────────────────────────────────────────── */
+.avt-timeline { margin-top: 20.8px; }
 
 /* Feed slide — the content under the tab bar enters from the side the
-   underline just travelled toward (keyed remount replays the animation).
-   Killed globally by the data-reduce-motion switch in index.css. */
-.activity-feed.is-enter-right { animation: activity-feed-in-right 300ms cubic-bezier(0.16, 1, 0.3, 1); }
-.activity-feed.is-enter-left  { animation: activity-feed-in-left 300ms cubic-bezier(0.16, 1, 0.3, 1); }
-@keyframes activity-feed-in-right {
+   underline just travelled toward (keyed remount replays the animation). */
+.avt-feed.is-enter-right { animation: avt-feed-in-right 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+.avt-feed.is-enter-left  { animation: avt-feed-in-left 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes avt-feed-in-right {
   from { opacity: 0; transform: translateX(28px); }
   to   { opacity: 1; transform: none; }
 }
-@keyframes activity-feed-in-left {
+@keyframes avt-feed-in-left {
   from { opacity: 0; transform: translateX(-28px); }
   to   { opacity: 1; transform: none; }
 }
-
-/* Filters hosted inside the compact mini-header (PageMasthead's compactRight
-   slot): stretch the whole chain to the 40px bar's height so the shared
-   underline (above) straddles the bar's bottom edge; overflow stays visible
-   so its lower half isn't clipped. */
-.pmh-compact .pmh-compact-right { align-self: stretch; align-items: stretch; overflow: visible; }
-.pmh-compact .activity-filters { align-items: stretch; flex-wrap: nowrap; overflow: visible; }
-.pmh-compact .activity-filter { height: 100%; overflow: visible; }
-
-.activity-filter-dot {
-  width: 5.6px; height: 5.6px;
-  border-radius: 50%;
-  background: var(--cat-system);
-  flex-shrink: 0;
+@media (prefers-reduced-motion: reduce) {
+  .avt-feed.is-enter-right,
+  .avt-feed.is-enter-left { animation: none; }
 }
-.activity-filter[data-cat="file"]    .activity-filter-dot { background: var(--cat-file); }
-.activity-filter[data-cat="member"]  .activity-filter-dot { background: var(--cat-member); }
-.activity-filter[data-cat="project"] .activity-filter-dot { background: var(--cat-project); }
-.activity-filter[data-cat="role"]    .activity-filter-dot { background: var(--cat-role); }
-.activity-filter[data-cat="update"]  .activity-filter-dot { background: var(--cat-update); }
-.activity-filter[data-cat="auth"]    .activity-filter-dot { background: var(--cat-auth); }
-.activity-filter[data-cat="support"] .activity-filter-dot { background: var(--cat-support); }
-.activity-filter[data-cat="social"]  .activity-filter-dot { background: var(--cat-social, var(--cat-member)); }
 
-/* Count pill — no fill, just the tinted number, tucked close to the label
-   (negative margin eats most of the tab's flex gap) and faded down so it
-   reads as secondary to the category text. */
-.activity-filter-count {
-  font-size: 0.56rem;
-  font-weight: 600;
-  background: transparent;
-  color: var(--text-muted);
-  opacity: 0.6;
-  border-radius: 999px;
-  padding: 0.08rem 0.2rem;
-  margin-left: -0.25rem;
-  min-width: 0.88rem;
-  text-align: center;
-  line-height: 1.5;
-  font-variant-numeric: tabular-nums;
-}
-.activity-filter.is-active .activity-filter-count { color: var(--accent); }
-.activity-filter[data-cat="file"].is-active .activity-filter-count    { color: var(--cat-file); }
-.activity-filter[data-cat="member"].is-active .activity-filter-count  { color: var(--cat-member); }
-.activity-filter[data-cat="project"].is-active .activity-filter-count { color: var(--cat-project); }
-.activity-filter[data-cat="role"].is-active .activity-filter-count    { color: var(--cat-role); }
-.activity-filter[data-cat="update"].is-active .activity-filter-count  { color: var(--cat-update); }
-.activity-filter[data-cat="auth"].is-active .activity-filter-count    { color: var(--cat-auth); }
-.activity-filter[data-cat="support"].is-active .activity-filter-count { color: var(--cat-support); }
-
-/* ── Day groups ──────────────────────────────────────────────────────── */
-.activity-groups { display: flex; flex-direction: column; gap: 19.2px; }
-.activity-group { display: flex; flex-direction: column; gap: 6.4px; }
-.activity-group-label {
-  font-size: 8.8px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
+.avt-day { margin: 0 0 4.8px; }
+.avt-day-label {
+  margin: 16px 0 9.6px;
+  font-size: 9.6px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-muted);
-  margin: 0 0 1.6px 3.2px;
-  display: flex; align-items: center; gap: 8px;
 }
-.activity-group-label::after {
+.avt-day:first-child .avt-day-label { margin-top: 4.8px; }
+
+/* Rows ride a vertical rail; each row's marker is the notification's icon in
+   a category-tinted medallion sitting ON the rail. */
+.avt-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+.avt-rows::before {
   content: '';
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, var(--border), transparent);
+  position: absolute;
+  /* Centre of the 20.8px medallion, minus half the line width. */
+  left: 9.6px;
+  top: 10px;
+  bottom: 10px;
+  width: 1.6px;
+  border-radius: 1px;
+  background: var(--border);
+}
+/* Breathing room between rows (the rail on the container runs through it). */
+.avt-item + .avt-item { margin-top: 9.6px; }
+.avt-item {
+  position: relative;
+  /* Traps the hover pseudo's z-index:-1 inside this row so it can't slip
+     behind ancestor surfaces. */
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  gap: 3.2px;
+  padding: 8px 24px 8px 32px;
+  border-radius: 8px;
+  transition: opacity 120ms;
+}
+/* Hover wash — painted by a pseudo inset PAST the icon medallion + rail
+   (left 26.4px), so the marker column stays clean; z-index -1 keeps it under
+   the row's text (absolute elements otherwise paint above inline content). */
+.avt-item::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 26.4px;
+  border-radius: 8px;
+  background: transparent;
+  z-index: -1;
+  transition: background 120ms;
+}
+.avt-item:hover::before { background: color-mix(in srgb, var(--bg-elevated) 60%, transparent); }
+/* Read rows fade; unread keep full opacity (carried over from the old feed). */
+.avt-item:not(.is-unread) { opacity: 0.62; }
+.avt-item:not(.is-unread):hover { opacity: 0.92; }
+
+/* ── Icon medallion — replaces the Events tab's plain ring: the
+   notification's own contextual glyph, tinted by its category. Opaque
+   bg-page base so the rail line doesn't show through the tint. */
+.avt-ico {
+  position: absolute;
+  left: 0;
+  top: 7.2px;
+  width: 20.8px;
+  height: 20.8px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--cat-system) 12%, var(--bg-page));
+  border: 1px solid color-mix(in srgb, var(--cat-system) 30%, transparent);
+  color: var(--cat-system);
+}
+.avt-ico svg { width: 11.2px; height: 11.2px; display: block; }
+.avt-ico[data-cat='file']    { background: color-mix(in srgb, var(--cat-file) 12%, var(--bg-page));    border-color: color-mix(in srgb, var(--cat-file) 30%, transparent);    color: var(--cat-file); }
+.avt-ico[data-cat='member']  { background: color-mix(in srgb, var(--cat-member) 12%, var(--bg-page));  border-color: color-mix(in srgb, var(--cat-member) 30%, transparent);  color: var(--cat-member); }
+.avt-ico[data-cat='project'] { background: color-mix(in srgb, var(--cat-project) 12%, var(--bg-page)); border-color: color-mix(in srgb, var(--cat-project) 30%, transparent); color: var(--cat-project); }
+.avt-ico[data-cat='role']    { background: color-mix(in srgb, var(--cat-role) 12%, var(--bg-page));    border-color: color-mix(in srgb, var(--cat-role) 30%, transparent);    color: var(--cat-role); }
+.avt-ico[data-cat='update']  { background: color-mix(in srgb, var(--cat-update) 12%, var(--bg-page));  border-color: color-mix(in srgb, var(--cat-update) 30%, transparent);  color: var(--cat-update); }
+.avt-ico[data-cat='auth']    { background: color-mix(in srgb, var(--cat-auth) 12%, var(--bg-page));    border-color: color-mix(in srgb, var(--cat-auth) 30%, transparent);    color: var(--cat-auth); }
+.avt-ico[data-cat='support'] { background: color-mix(in srgb, var(--cat-support) 12%, var(--bg-page)); border-color: color-mix(in srgb, var(--cat-support) 30%, transparent); color: var(--cat-support); }
+.avt-ico[data-cat='social']  { background: color-mix(in srgb, var(--cat-social, var(--cat-member)) 12%, var(--bg-page)); border-color: color-mix(in srgb, var(--cat-social, var(--cat-member)) 30%, transparent); color: var(--cat-social, var(--cat-member)); }
+/* Error-variant rows (deletes, failures) read RED regardless of category —
+   after the data-cat rules so the variant wins the cascade. */
+.avt-item.is-var-error .avt-ico {
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg-page));
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+  color: var(--danger);
 }
 
-/* File-group divider — thumbnail tile + filename, like a Files-tab row.
-   The filename overrides the label's uppercase small-caps treatment. */
-.activity-group-file {
-  display: inline-flex;
+/* ── File rows — thumbnail | text ─────────────────────────────────────────
+   File events show the touched file's thumbnail beside the text, split by a
+   vertical hairline; the thumb rides the row's vertical centre. */
+.avt-file-row {
+  display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9.6px;
   min-width: 0;
 }
-.activity-group-thumb {
+.avt-file-thumb {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
+  width: 44.8px;
+  height: 44.8px;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   box-sizing: border-box;
-  flex-shrink: 0;
 }
-.activity-group-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-/* Folder-event dividers show the filled folder glyph in the accent colour. */
-.activity-group-thumb.is-folder { color: var(--accent); }
-
-/* File divider tail: filename — short rule — project name — (the h2's
-   trailing hairline then continues to the card edge). */
-.activity-group-rule {
-  width: 16px;
-  height: 1px;
-  flex: 0 0 auto;
+.avt-file-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avt-file-thumb svg { width: 22.4px; height: 22.4px; }
+/* Folder-event rows show the filled folder glyph in the accent colour. */
+.avt-file-thumb.is-folder { color: var(--accent); }
+/* The | — stretches to the taller of thumb/text, splitting the two. */
+.avt-file-divider {
+  flex-shrink: 0;
+  align-self: stretch;
+  width: 1px;
   background: var(--border);
 }
-.activity-group-projname {
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--text-muted);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.activity-group-thumb .project-files-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-}
-.activity-group-thumb .project-files-icon svg,
-.activity-group-thumb > svg { width: 16px; height: 16px; }
-.activity-group-filename {
-  font-size: 11.6px;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Project divider — the project's name, sized up and in the same accent as
-   the masthead eyebrow ("DocVex Journal"). Overrides the label's uppercase
-   small-caps treatment. */
-.activity-group-project {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--accent);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Account divider — the signed-in user's avatar circle (Google photo, or the
-   deterministic first-letter fallback) in the same slot as a file thumb. */
-.activity-group-avatar {
+.avt-file-content {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  overflow: hidden;
-  flex-shrink: 0;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: none;
-  border: 1px solid var(--border);
-  box-sizing: border-box;
-  user-select: none;
+  flex-direction: column;
+  gap: 3.2px;
 }
-.activity-group-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.activity-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  /* Responsive card grid — rows flow into as many ~340px columns as fit. */
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+
+/* ── Row content ──────────────────────────────────────────────────────── */
+.avt-item-head {
+  display: flex;
+  align-items: baseline;
   gap: 8px;
-  align-items: start;
 }
-
-/* ── Single row ──────────────────────────────────────────────────────── */
-.activity-row {
-  position: relative;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 11.2px;
-  /* Positioning context for the corner-pinned dismiss ×. */
-  position: relative;
-  /* Same surface as the app top bar / mini headers. */
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  border-left-width: 2.4px;
-  border-left-color: var(--cat-system);
-  border-radius: 9.6px;
-  padding: 11.2px 11.2px 11.2px 12.8px;
-  font-size: 10.8px;
+.avt-item-title {
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-primary);
-  cursor: pointer;
-  box-shadow: var(--shadow-card);
-  transition: background 120ms, border-color 120ms;
-}
-.activity-row:hover { background: var(--bg-elevated); }
-.activity-row[data-cat="file"]    { border-left-color: var(--cat-file); }
-.activity-row[data-cat="member"]  { border-left-color: var(--cat-member); }
-.activity-row[data-cat="project"] { border-left-color: var(--cat-project); }
-.activity-row[data-cat="role"]    { border-left-color: var(--cat-role); }
-.activity-row[data-cat="update"]  { border-left-color: var(--cat-update); }
-.activity-row[data-cat="auth"]    { border-left-color: var(--cat-auth); }
-.activity-row[data-cat="support"] { border-left-color: var(--cat-support); }
-.activity-row[data-cat="social"]  { border-left-color: var(--cat-social, var(--cat-member)); }
-
-/* Read rows fade; unread keep full opacity. */
-.activity-row:not(.is-unread) { opacity: 0.62; }
-.activity-row:not(.is-unread):hover { opacity: 0.92; }
-
-/* ── Glyph square (category-tinted; the design's "log" avatar) ────────── */
-.activity-avatar-wrap {
-  width: 28.8px; height: 28.8px;
-  flex-shrink: 0;
-  display: grid; place-items: center;
-  border-radius: 7.2px;
-  background: color-mix(in srgb, var(--cat-system) 10%, var(--bg-card));
-  border: 1px solid color-mix(in srgb, var(--cat-system) 22%, transparent);
-  color: var(--cat-system);
-}
-.activity-row[data-cat="file"]    .activity-avatar-wrap { background: color-mix(in srgb, var(--cat-file) 12%, var(--bg-card));    border-color: color-mix(in srgb, var(--cat-file) 26%, transparent);    color: var(--cat-file); }
-.activity-row[data-cat="member"]  .activity-avatar-wrap { background: color-mix(in srgb, var(--cat-member) 12%, var(--bg-card));  border-color: color-mix(in srgb, var(--cat-member) 26%, transparent);  color: var(--cat-member); }
-.activity-row[data-cat="project"] .activity-avatar-wrap { background: color-mix(in srgb, var(--cat-project) 12%, var(--bg-card)); border-color: color-mix(in srgb, var(--cat-project) 26%, transparent); color: var(--cat-project); }
-.activity-row[data-cat="role"]    .activity-avatar-wrap { background: color-mix(in srgb, var(--cat-role) 12%, var(--bg-card));    border-color: color-mix(in srgb, var(--cat-role) 26%, transparent);    color: var(--cat-role); }
-.activity-row[data-cat="update"]  .activity-avatar-wrap { background: color-mix(in srgb, var(--cat-update) 12%, var(--bg-card));  border-color: color-mix(in srgb, var(--cat-update) 26%, transparent);  color: var(--cat-update); }
-.activity-row[data-cat="auth"]    .activity-avatar-wrap { background: color-mix(in srgb, var(--cat-auth) 12%, var(--bg-card));    border-color: color-mix(in srgb, var(--cat-auth) 26%, transparent);    color: var(--cat-auth); }
-.activity-row[data-cat="support"] .activity-avatar-wrap { background: color-mix(in srgb, var(--cat-support) 12%, var(--bg-card)); border-color: color-mix(in srgb, var(--cat-support) 26%, transparent); color: var(--cat-support); }
-.activity-row[data-cat="social"]  .activity-avatar-wrap { background: color-mix(in srgb, var(--cat-social, var(--cat-member)) 12%, var(--bg-card)); border-color: color-mix(in srgb, var(--cat-social, var(--cat-member)) 26%, transparent); color: var(--cat-social, var(--cat-member)); }
-
-/* Error-variant rows (deletes, failures) read RED regardless of category —
-   placed after the data-cat rules so the variant wins the cascade. */
-.activity-row.is-var-error { border-left-color: var(--danger); }
-.activity-row.is-var-error .activity-avatar-wrap {
-  background: color-mix(in srgb, var(--danger) 12%, var(--bg-card));
-  border-color: color-mix(in srgb, var(--danger) 26%, transparent);
-  color: var(--danger);
-}
-
-.activity-glyph { display: grid; place-items: center; }
-.activity-glyph svg { width: 13.6px; height: 13.6px; }
-
-/* ── Body ────────────────────────────────────────────────────────────── */
-.activity-body { min-width: 0; display: flex; flex-direction: column; gap: 3.2px; }
-.activity-sentence {
-  font-size: 10.8px;
-  line-height: 1.45;
-  color: var(--text-secondary);
   word-break: break-word;
   text-wrap: pretty;
 }
-.activity-sentence strong { color: var(--text-primary); font-weight: 600; }
-.activity-detail {
-  font-size: 10px;
+/* Timestamp — pinned to the row's BOTTOM-right corner (the dismiss × owns
+   the top-right), clear of the text flow. Hidden until the row is hovered,
+   like the dismiss ×. */
+.avt-item-time {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  font-size: 9.6px;
   color: var(--text-muted);
-  line-height: 1.45;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 120ms;
 }
-.activity-actions {
+.avt-item:hover .avt-item-time { opacity: 1; }
+.avt-item-body {
+  margin: 0;
+  font-size: 10.4px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  max-width: 576px;
+}
+
+/* Per-notification action buttons (Install, Open, …). */
+.avt-item-actions {
   display: flex; gap: 4.8px;
   margin-top: 3.2px;
   flex-wrap: wrap;
 }
-.activity-action {
+.avt-action {
   display: inline-flex; align-items: center;
   background: transparent;
   border: 1px solid var(--border);
@@ -498,74 +409,72 @@
   font-family: inherit;
   transition: background 120ms, border-color 120ms, color 120ms;
 }
-.activity-action:hover { background: var(--bg-elevated); border-color: var(--border-strong); color: var(--text-primary); }
-.activity-action.is-primary {
+.avt-action:hover { background: var(--bg-elevated); border-color: var(--border-strong); color: var(--text-primary); }
+.avt-action.is-primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--text-on-accent);
 }
-.activity-action.is-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-.activity-action.is-ghost { border-color: transparent; color: var(--text-muted); }
-.activity-action.is-ghost:hover { color: var(--text-secondary); background: var(--bg-elevated); }
-.activity-action.is-danger { border-color: color-mix(in srgb, var(--danger) 40%, transparent); color: var(--danger); }
-.activity-action.is-danger:hover { background: var(--danger-soft); border-color: var(--danger); }
+.avt-action.is-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.avt-action.is-ghost { border-color: transparent; color: var(--text-muted); }
+.avt-action.is-ghost:hover { color: var(--text-secondary); background: var(--bg-elevated); }
+.avt-action.is-danger { border-color: color-mix(in srgb, var(--danger) 40%, transparent); color: var(--danger); }
+.avt-action.is-danger:hover { background: var(--danger-soft); border-color: var(--danger); }
 
-/* ── Meta ────────────────────────────────────────────────────────────── */
-.activity-meta {
-  display: flex; flex-direction: column;
-  align-items: flex-end;
-  gap: 6.4px;
-  flex-shrink: 0;
-}
-.activity-time {
-  font-size: 9.2px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  display: inline-flex; align-items: center; gap: 4.8px;
-}
-/* Dismiss × — a small chip whose CENTER sits exactly ON the card's rounded
-   top-right corner (translate(50%, -50%) off the corner point). Out of flow,
-   and only revealed while the row is hovered so the grid stays clean. */
-.activity-dismiss {
+/* Dismiss × — revealed while the row is hovered, vertically centred at the
+   row's right edge (the row's right padding reserves its lane). */
+.avt-dismiss {
   position: absolute;
   top: 0;
   right: 0;
-  /* Slightly inside the corner point (was 50%/-50% dead-centre on it). */
-  transform: translate(30%, -30%);
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-strong);
+  width: 26px;
+  height: 26px;
+  padding: 6.4px;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
   border-radius: 50%;
-  color: var(--text-secondary);
+  /* Same ink as the timestamp in the opposite corner, so the two hover-
+     revealed row ornaments read as one family. */
+  color: var(--text-muted);
   cursor: pointer;
   display: grid; place-items: center;
-  box-shadow: var(--shadow-card);
   opacity: 0;
   pointer-events: none;
   transition: color 120ms, background 120ms, opacity 120ms;
 }
-.activity-row:hover .activity-dismiss,
-.activity-dismiss:focus-visible {
+.avt-item:hover .avt-dismiss,
+.avt-dismiss:focus-visible {
   opacity: 1;
   pointer-events: auto;
 }
-.activity-dismiss:hover {
-  color: #fff;
-  background: var(--danger);
-  border-color: var(--danger);
+/* Hover — the × itself turns red; the button stays transparent. */
+.avt-dismiss:hover {
+  color: var(--danger);
+  background: transparent;
 }
 
 /* ── Empty state ─────────────────────────────────────────────────────── */
-.activity-empty {
+.avt-empty {
   text-align: center;
+  margin-top: 17.6px;
   padding: 38.4px 19.2px;
   border: 1px dashed var(--border);
   border-radius: 9.6px;
   color: var(--text-muted);
   display: flex; flex-direction: column; align-items: center; gap: 4.8px;
 }
-.activity-empty svg { color: var(--border-strong); margin-bottom: 3.2px; }
-.activity-empty-title { color: var(--text-secondary); font-size: 11.2px; font-weight: 500; margin: 0; }
-.activity-empty-help { font-size: 10px; margin: 0; max-width: 288px; }
+.avt-empty svg { color: var(--border-strong); margin-bottom: 3.2px; }
+.avt-empty-title { color: var(--text-secondary); font-size: 11.2px; font-weight: 500; margin: 0; }
+.avt-empty-help { font-size: 10px; margin: 0; max-width: 288px; }
+
+/* Match the other editorial tabs: content at three-quarters width on wide
+   screens, left-aligned. Shared breakpoint across Activity / Newsletter /
+   Projects / Events. */
+@media (min-width: 1024px) { /* 1280px pre-scale */
+  .avt-root { width: 75%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avt-toolbar { transition: none; }
+}

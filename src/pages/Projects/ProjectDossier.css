@@ -132,7 +132,7 @@
   position: fixed;
   top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px) + var(--sv-chrome-h, 0px));
   /* Inset past the sidebar (don't tuck behind it) + a matching right gap. */
-  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px));
+  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px) + var(--content-left-gap, 0px));
   right: var(--chrome-inset, 6.4px);
   z-index: 30;
   height: 40px;

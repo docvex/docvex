@@ -72,8 +72,9 @@
   /* Reserve the scrollbar gutter so content doesn't shift between scrolling
      and non-scrolling pages. */
   scrollbar-gutter: stable;
-  /* No left padding — content sits flush against the sidebar. */
-  padding: 1.6rem 17.6px 1.6rem 0;
+  /* Left padding = the shared content gap (AppShell.css --content-left-gap)
+     so every tab's content starts the same distance from the rail. */
+  padding: 1.6rem 17.6px 1.6rem var(--content-left-gap, 17.6px);
 }
 /* Project-scoped pages bring their own rounded "sheet" frame — render flush. */
 .sv-single-scroll:has(.project-page-frame) {

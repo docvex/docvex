@@ -173,6 +173,14 @@ const ChatIcon = (
   </svg>
 );
 
+// Clock glyph — the project Events timeline surface.
+const EventsIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="9"/>
+    <polyline points="12 7 12 12 15.5 14"/>
+  </svg>
+);
+
 // Sliders glyph — the project Settings/Overview surface (opens /projects/:id).
 const ProjectSettingsIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -300,6 +308,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }) {
     },
     { to: '/files', label: 'Files', icon: FilesIcon },
     { to: '/chat', label: 'Chat', icon: ChatIcon },
+    { to: '/events', label: 'Events', icon: EventsIcon },
     { to: '/ai', label: 'AI', icon: AiIcon },
   ] : [];
 

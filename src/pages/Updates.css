@@ -103,7 +103,7 @@
      past the sidebar with a matching right gap, seated flush under the title bar
      (the chromeless Versions route has --sv-chrome-h = 0). */
   top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px) + var(--sv-chrome-h, 0px));
-  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px));
+  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px) + var(--content-left-gap, 0px));
   right: var(--chrome-inset, 6.4px);
   z-index: 30;
   height: 40px;
@@ -136,7 +136,7 @@
    tabs). See AppShell.css for the derivation of this right inset. */
 @media (min-width: 1024px) {
   .updates-page .versions-compact {
-    right: calc(0.25 * (100vw - var(--sidebar-width, 192px) - var(--chrome-inset, 6.4px)) + 13.2px);
+    right: calc(0.25 * (100vw - var(--sidebar-width, 192px) - var(--chrome-inset, 6.4px) - var(--content-left-gap, 0px)) + 13.2px);
   }
 }
 .updates-page .versions-compact.is-visible {

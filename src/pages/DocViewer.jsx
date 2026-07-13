@@ -2624,14 +2624,6 @@ const ChevronGlyph = (
 // ── Custom video player glyphs ───────────────────────────────────
 // PlayGlyph, PauseGlyph, VolumeHighGlyph, VolumeMuteGlyph are already
 // declared above (shared with the WhatsApp media player).
-const FullscreenGlyph = (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M8 3H5a2 2 0 0 0-2 2v3" />
-    <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
-    <path d="M3 16v3a2 2 0 0 0 2 2h3" />
-    <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
-  </svg>
-);
 
 // Document glyph — the AI-document version cards in the advisor thread.
 const DocCardGlyph = (
@@ -4591,12 +4583,6 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     const v = mediaRef.current;
     if (v) v.muted = !v.muted;
   }, []);
-  const toggleFullscreen = useCallback(() => {
-    const el = stageRef.current;
-    if (!el) return;
-    if (document.fullscreenElement) document.exitFullscreen();
-    else el.requestFullscreen?.();
-  }, []);
 
   useEffect(() => {
     if (!playing) { clearTimeout(controlsTimerRef.current); setControlsShown(true); }
@@ -4642,11 +4628,16 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   // top-right target sits under the zoom pill + Extract-text button; the bottom
   // row stays above the timeline/controls.
   const captionSnapAnchors = useCallback((sr, halfW, halfH) => {
+    // The snap grid spans from the FLOATING SIDE PANEL's right edge (8px
+    // inset + --dv-advisor-w + 8px gutter) to the window's right edge, not
+    // the full stage — read the panel width live off the inherited var.
+    const varW = parseFloat(getComputedStyle(stageRef.current || document.body).getPropertyValue('--dv-advisor-w'));
+    const offX = (Number.isFinite(varW) ? varW : 296) + 24;
     // Snap-target CENTRES (x/y) — the caption box's centre when snapped here.
     // They use the REAL half-size so the box pins its edge at CAP_PAD and stays
     // fully inside the stage. These are viewport px, tested against the cursor.
-    const leftX = CAP_PAD + halfW;
-    const centreX = sr.width / 2;
+    const leftX = offX + CAP_PAD + halfW;
+    const centreX = offX + (sr.width - offX) / 2;
     const rightX = sr.width - CAP_PAD - halfW;
     const topY = CAP_PAD + halfH;
     const midY = sr.height / 2;
@@ -4656,7 +4647,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     // nominal half-size so the dots stay in the same place no matter how wide /
     // tall the current caption is (xPct/yPct are stage-relative %, since CSS px
     // ≠ viewport px under the app's CSS-zoom).
-    const dLeftX = CAP_PAD + CAP_DOT_HALFW;
+    const dLeftX = offX + CAP_PAD + CAP_DOT_HALFW;
     const dRightX = sr.width - CAP_PAD - CAP_DOT_HALFW;
     const dTopY = CAP_PAD + CAP_DOT_HALFH;
     const dBottomY = sr.height - CAP_BOTTOM - CAP_DOT_HALFH;
@@ -5126,6 +5117,17 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     setArmed(true);
   };
 
+  // Picking a selection tool in the sidebar also ARMS extraction mode right
+  // away (no separate "Extract text" click needed).
+  const pickTool = (id) => {
+    setTool(id);
+    if (!armed) {
+      setHighlightId(null);
+      if (kind === 'video') { try { mediaRef.current?.pause(); } catch { /* noop */ } }
+      setArmed(true);
+    }
+  };
+
   const copyHistoryEntry = async (entry) => {
     try {
       await navigator.clipboard.writeText(entry.text || '');
@@ -5153,7 +5155,10 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       return { kind: 'union', points: drag.points, r: brushRadius };
     }
     if (!cursorPos) return null;
-    if (tool === 'square') return { kind: 'rect', x1: cursorPos.x - brushRadius, y1: cursorPos.y - brushRadius, x2: cursorPos.x + brushRadius, y2: cursorPos.y + brushRadius };
+    // Square: no idle preview — the rectangle only appears while the mouse
+    // button is held (the drag branch above); until then just a small dot
+    // marks the anchor point, like the lasso.
+    if (tool === 'square') return { kind: 'circle', cx: cursorPos.x, cy: cursorPos.y, r: 4 };
     if (tool === 'lasso') return { kind: 'circle', cx: cursorPos.x, cy: cursorPos.y, r: 4 };
     return { kind: 'circle', cx: cursorPos.x, cy: cursorPos.y, r: brushRadius };
   }, [drag, cursorPos, tool, brushRadius]);
@@ -5420,55 +5425,37 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
                     {CaptionsGlyph}
                   </button>
                 )}
-                <button type="button" className="dv-player-btn" onClick={toggleFullscreen} aria-label="Toggle fullscreen">
-                  {FullscreenGlyph}
-                </button>
               </div>
             </div>
           </div>
         </>
       )}
 
-      {/* Top-left stage tools — the Extract-text pill, and (under it) a button
-          that re-centres the media in the stage. */}
-      <div className="dv-stage-tools">
-        {/* Extract-text button + tool-picker dropdown, co-located so the pill
-            morphs open from the button. Toolbar is always in the DOM so the
-            grid-accordion can animate height on both open and close. */}
-        <div className={`dv-ocr-btn-wrap${armed ? ' is-armed' : ''}`}>
-          <button type="button" className={`dv-ocr-btn${armed ? ' is-active' : ''}`} onClick={toggleTool}>
-            {ScanTextGlyph}
-            <span>Extract text</span>
-            <span className="dv-ocr-btn-chevron">{ChevronGlyph}</span>
+      {/* Top-left stage tools — re-centre button. (The Extract-text pill +
+          tool dropdown moved into the sidebar's Extract-text tab; arming
+          happens via the Multitool footer button.) */}
+      {/* Center — only rendered when the media is actually panned away, i.e.
+          when re-centring would do something. */}
+      {(panX !== 0 || panY !== 0) && (
+        <div className="dv-stage-tools">
+          <button type="button" className="dv-center-btn" onClick={recenter}>
+            {CenterGlyph}
+            <span>Center</span>
           </button>
-          <div className={`dv-ocr-toolbar-wrap${armed ? ' is-open' : ''}`}>
-            <div className="dv-ocr-toolbar">
-              <div className="dv-ocr-toolbar-inner">
-                <div className="dv-ocr-tools">
-                  {OCR_TOOLS.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      className={`dv-ocr-tool${tool === t.id ? ' is-active' : ''}`}
-                      onClick={() => setTool(t.id)}
-                    >
-                      {t.icon}
-                      <span>{t.label}</span>
-                    </button>
-                  ))}
-                </div>
-                <p className="dv-ocr-tool-hint">{OCR_TOOLS.find((t) => t.id === tool)?.hint}</p>
-              </div>
-            </div>
+        </div>
+      )}
+
+      {/* Selection-mode pill — appears while extraction is armed, top-centre
+          of the area right of the floating side panel. */}
+      {armed && (
+        <div className="dv-selmode-wrap">
+          <div className="dv-selmode-pill" role="status">
+            {ScanTextGlyph}
+            <span>Selection mode · {OCR_TOOLS.find((t) => t.id === tool)?.label}</span>
+            <button type="button" aria-label="Exit selection mode" onClick={disarm}>×</button>
           </div>
         </div>
-
-        {/* Re-centre the media (keeps the current zoom). */}
-        <button type="button" className="dv-center-btn" onClick={recenter}>
-          {CenterGlyph}
-          <span>Center video</span>
-        </button>
-      </div>
+      )}
 
       {/* Error pill — replaces the old bottom-of-stage status modal. */}
       {errorMsg && (
@@ -5519,11 +5506,25 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
             )}
           </div>
         </header>
-        {history.length === 0 ? (
-        <p className="dv-ocr-history-empty">
-          Click “Extract text”, then click the {kind === 'video' ? 'video frame' : 'image'} to start collecting snippets here. They'll be here next time you open this file.
-        </p>
-      ) : (
+        {/* Selection-tool options — one row directly under the header (moved
+            here from the old on-stage Extract-text pill's dropdown). */}
+        <div className="dv-ocr-side-tools">
+          <div className="dv-ocr-tools">
+            {OCR_TOOLS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`dv-ocr-tool${tool === t.id ? ' is-active' : ''}`}
+                onClick={() => pickTool(t.id)}
+              >
+                {t.icon}
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </div>
+          <p className="dv-ocr-tool-hint">{OCR_TOOLS.find((t) => t.id === tool)?.hint}</p>
+        </div>
+        {history.length === 0 ? null : (
         <div className="dv-ocr-history-list">
           {[...history].reverse().map((entry) => {
             const { date, time } = formatHistoryTimestamp(entry.createdAt);
@@ -5643,9 +5644,21 @@ const CAPTIONS_DEFAULT_WIDTH = HISTORY_DEFAULT_WIDTH;
 function captionsFromCache(path) {
   const c = loadCaptions(path);
   return c
-    ? { state: 'done', text: c.text, segments: c.segments || [], language: c.language || null, createdAt: c.createdAt }
+    ? { state: 'done', text: c.text, segments: c.segments || [], language: c.language || null, createdAt: c.createdAt, original: c.original || null }
     : null;
 }
+
+// Pencil / check glyphs for the per-caption edit toggle.
+const CaptionEditGlyph = (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+  </svg>
+);
+const CaptionDoneGlyph = (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
 
 // Clock mm:ss for caption timestamps.
 function fmtClock(s) {
@@ -5657,7 +5670,7 @@ function fmtClock(s) {
 
 // Auto-growing textarea for correcting a caption line — sizes to its content so
 // long lines wrap without an inner scrollbar.
-function CaptionEditor({ value, onChange, ariaLabel }) {
+function CaptionEditor({ value, onChange, ariaLabel, onCommit, onCancel }) {
   const ref = useRef(null);
   useLayoutEffect(() => {
     const el = ref.current;
@@ -5665,6 +5678,13 @@ function CaptionEditor({ value, onChange, ariaLabel }) {
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
   }, [value]);
+  // Autofocus with the caret at the end when the editor mounts.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
   return (
     <textarea
       ref={ref}
@@ -5674,6 +5694,11 @@ function CaptionEditor({ value, onChange, ariaLabel }) {
       aria-label={ariaLabel}
       placeholder="(no speech — type to add)"
       onChange={(e) => onChange(e.target.value)}
+      /* Enter applies (Shift+Enter still inserts a newline); Esc cancels. */
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onCommit?.(); }
+        else if (e.key === 'Escape') { e.preventDefault(); onCancel?.(); }
+      }}
     />
   );
 }
@@ -5688,13 +5713,17 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
   const { notify } = useNotifications();
   const [captions, setCaptions] = useState(() => captionsFromCache(file.storage_path));
   const [copied, setCopied] = useState(false);
-  const [editing, setEditing] = useState(false); // edit transcript text to fix AI mistakes
+  // Index of the caption currently being edited inline (null = none) — each
+  // row carries its own edit button on the right.
+  const [editingIdx, setEditingIdx] = useState(null);
+  // The segment's text as it was when editing began — Esc restores it.
+  const editStartTextRef = useRef('');
   const listRef = useRef(null);
 
   useEffect(() => {
     setCaptions(captionsFromCache(file.storage_path));
     setCopied(false);
-    setEditing(false);
+    setEditingIdx(null);
   }, [url, file.storage_path]);
 
   // Mirror the transcript out to any parent that wants it (audio-pane lyrics).
@@ -5705,11 +5734,14 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
     try {
       const result = await transcribeAudio(url, file.mime_type, file.name);
       const createdAt = Date.now();
+      // Keep the untouched AI transcript alongside — "Revert to original"
+      // restores it after manual edits.
+      const original = { text: result.text, segments: result.segments };
       // Cache the transcript per file so reopening it never re-spends tokens.
       saveCaptions(file.storage_path, {
-        text: result.text, segments: result.segments, language: result.language, createdAt,
+        text: result.text, segments: result.segments, language: result.language, createdAt, original,
       });
-      setCaptions({ state: 'done', text: result.text, segments: result.segments, language: result.language, createdAt });
+      setCaptions({ state: 'done', text: result.text, segments: result.segments, language: result.language, createdAt, original });
       notify({
         category: 'file',
         variant: 'success',
@@ -5748,20 +5780,35 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
     if (next?.state === 'done') {
       saveCaptions(file.storage_path, {
         text: next.text, segments: next.segments, language: next.language, createdAt: next.createdAt,
+        original: next.original || null,
       });
     }
   }, [file.storage_path]);
 
   const editSegment = (i, value) => {
     if (captions?.state !== 'done') return;
+    // Transcripts cached before originals existed: snapshot the pre-edit
+    // state as the original on the first edit.
+    const original = captions.original || { text: captions.text, segments: captions.segments };
     const segments = captions.segments.map((s, idx) => (idx === i ? { ...s, text: value } : s));
     const text = segments.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim();
-    persistCaptions({ ...captions, segments, text });
+    persistCaptions({ ...captions, original, segments, text });
   };
 
-  const editFullText = (value) => {
-    if (captions?.state !== 'done') return;
-    persistCaptions({ ...captions, text: value });
+  // True once the transcript differs from the AI's untouched original.
+  const isEdited = useMemo(() => (
+    captions?.state === 'done' && !!captions.original
+    && JSON.stringify(captions.segments) !== JSON.stringify(captions.original.segments)
+  ), [captions]);
+
+  const revertToOriginal = () => {
+    if (captions?.state !== 'done' || !captions.original) return;
+    setEditingIdx(null);
+    persistCaptions({
+      ...captions,
+      text: captions.original.text,
+      segments: captions.original.segments,
+    });
   };
 
   // Active caption line follows playback; auto-scrolled into view.
@@ -5793,6 +5840,11 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
                   : 'Transcript ready')
               : 'Not generated yet'}
           </span>
+          {isEdited && (
+            <button type="button" className="dv-ocr-history-clear" onClick={revertToOriginal}>
+              Revert to original
+            </button>
+          )}
         </div>
       </header>
 
@@ -5815,13 +5867,13 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
       ) : captions.segments.length > 0 ? (
         <div className="dv-ocr-history-list" ref={listRef}>
           {captions.segments.map((seg, i) => (
-            editing ? (
+            editingIdx === i ? (
               <div
                 key={i}
                 className={`dv-ocr-history-item dv-audio-caption-row is-editing${i === activeSegIndex ? ' is-active' : ''}`}
               >
+                <span className="dv-ocr-history-node" />
                 <div className="dv-ocr-history-rail">
-                  <span className="dv-ocr-history-node" />
                   <div className="dv-ocr-history-date">
                     <Tooltip content="Jump to this moment">
                       <button
@@ -5839,18 +5891,36 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
                     value={seg.text}
                     onChange={(v) => editSegment(i, v)}
                     ariaLabel={`Caption at ${fmtClock(seg.start)}`}
+                    /* Enter applies the edit (it persists live anyway) and
+                       closes the editor; Esc restores the pre-edit text. */
+                    onCommit={() => setEditingIdx(null)}
+                    onCancel={() => { editSegment(i, editStartTextRef.current); setEditingIdx(null); }}
                   />
                 </div>
+                <Tooltip content="Done editing">
+                  <button
+                    type="button"
+                    className="dv-caption-editbtn is-done"
+                    aria-label="Done editing"
+                    onClick={() => setEditingIdx(null)}
+                  >
+                    {CaptionDoneGlyph}
+                  </button>
+                </Tooltip>
               </div>
             ) : (
-              <button
+              <div
                 key={i}
-                type="button"
+                role="button"
+                tabIndex={0}
                 className={`dv-ocr-history-item dv-audio-caption-row${i === activeSegIndex ? ' is-active' : ''}`}
                 onClick={() => onSeek(seg.start)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSeek(seg.start); }
+                }}
               >
+                <span className="dv-ocr-history-node" />
                 <div className="dv-ocr-history-rail">
-                  <span className="dv-ocr-history-node" />
                   <div className="dv-ocr-history-date">
                     <span className="dv-ocr-history-date-d">{fmtClock(seg.start)}</span>
                   </div>
@@ -5860,17 +5930,23 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
                     <p className={`dv-ocr-history-text${seg.text ? '' : ' is-empty'}`}>{seg.text || ' '}</p>
                   </div>
                 </div>
-              </button>
+                <Tooltip content="Edit caption">
+                  <button
+                    type="button"
+                    className="dv-caption-editbtn"
+                    aria-label="Edit caption"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      editStartTextRef.current = seg.text ?? '';
+                      setEditingIdx(i);
+                    }}
+                  >
+                    {CaptionEditGlyph}
+                  </button>
+                </Tooltip>
+              </div>
             )
           ))}
-        </div>
-      ) : editing ? (
-        <div className="dv-caption-fulledit">
-          <CaptionEditor
-            value={captions.text}
-            onChange={editFullText}
-            ariaLabel="Transcript"
-          />
         </div>
       ) : (
         <p className="dv-ocr-history-empty">{captions.text || 'No speech detected in this file.'}</p>
@@ -6180,6 +6256,10 @@ function AudioPlayerPane({ file, url, sidePanelSlot = null, sideTabsSlot = null 
   const [envReady, setEnvReady] = useState(false); // re-renders the resting waveform once decoded
   const [playing, setPlaying] = useState(false);
   const [cur, setCur] = useState(0);
+  // YouTube-style play/pause flash — mirrors the video pane: `seq` remounts
+  // the element so the animation restarts on rapid toggles.
+  const [playbackFlash, setPlaybackFlash] = useState(null);
+  const flashSeqRef = useRef(0);
   const [dur, setDur] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
@@ -6219,7 +6299,14 @@ function AudioPlayerPane({ file, url, sidePanelSlot = null, sideTabsSlot = null 
   const toggle = () => {
     const a = audioRef.current;
     if (!a) return;
-    if (a.paused) a.play().catch(() => {}); else a.pause();
+    flashSeqRef.current += 1;
+    if (a.paused) {
+      a.play().catch(() => {});
+      setPlaybackFlash({ type: 'play', seq: flashSeqRef.current });
+    } else {
+      a.pause();
+      setPlaybackFlash({ type: 'pause', seq: flashSeqRef.current });
+    }
   };
   const fmt = (s) => {
     if (!Number.isFinite(s) || s < 0) return '0:00';
@@ -6487,7 +6574,28 @@ function AudioPlayerPane({ file, url, sidePanelSlot = null, sideTabsSlot = null 
 
   return (
     <div className="dv-audio-layout">
-      <div className={`dv-audio-pane${hasLyrics ? ' has-lyrics' : ''}`}>
+      <div
+        className={`dv-audio-pane${hasLyrics ? ' has-lyrics' : ''}`}
+        /* Clicking the pane background toggles play/pause (like the video
+           stage); clicks on the lyrics, controls or scrubber are theirs. */
+        onClick={(e) => {
+          if (e.target.closest('button, input, canvas, a')) return;
+          toggle();
+        }}
+      >
+        {/* Play/pause flash — the video pane's pop circle, centred here. */}
+        {playbackFlash && (
+          <div
+            key={playbackFlash.seq}
+            className="dv-audio-flash"
+            aria-hidden="true"
+            onAnimationEnd={() => setPlaybackFlash(null)}
+          >
+            <div className="dv-playback-flash-circle">
+              {playbackFlash.type === 'play' ? PlayGlyph : PauseGlyph}
+            </div>
+          </div>
+        )}
         <audio
           ref={audioRef}
           src={url}
@@ -6502,57 +6610,62 @@ function AudioPlayerPane({ file, url, sidePanelSlot = null, sideTabsSlot = null 
         />
         {hasLyrics && (
           <div className="dv-audio-lyrics" ref={lyricsRef}>
+            {/* Display-only karaoke lines — no seek-on-click, no tooltip.
+                (Seeking lives on the scrubber and the captions side panel.) */}
             {lyrics.segments.map((seg, i) => (
-              <Tooltip key={i} content={fmtClock(seg.start)}>
-                <button
-                  type="button"
-                  className={`dv-lyric-line${seg.text ? '' : ' is-empty'}${i === activeLyricIndex ? ' is-active' : ''}${i < activeLyricIndex ? ' is-past' : ''}`}
-                  onClick={() => seekTo(seg.start)}
-                >
-                  {seg.text || '♪'}
-                </button>
-              </Tooltip>
+              <div
+                key={i}
+                className={`dv-lyric-line${seg.text ? '' : ' is-empty'}${i === activeLyricIndex ? ' is-active' : ''}${i < activeLyricIndex ? ' is-past' : ''}`}
+              >
+                {seg.text || '♪'}
+              </div>
             ))}
           </div>
         )}
+        {/* Bottom deck — same layout as the video player (.dv-player-controls):
+            the waveform scrubber ON TOP, the controls row (play/pause + time +
+            spacer + mute/volume) underneath, docked at the pane's bottom. */}
         <div className="dv-audio-deck">
-          <button type="button" className="dv-audio-playbtn" onClick={toggle} aria-label={playing ? 'Pause' : 'Play'}>
-            {playing ? PauseGlyph : PlayGlyph}
-          </button>
+          <Tooltip content="Click or drag to seek">
+            <canvas
+              ref={scopeCanvasRef}
+              className="dv-audio-scope"
+              role="slider"
+              tabIndex={0}
+              aria-label="Seek through audio"
+              aria-valuemin={0}
+              aria-valuemax={Number.isFinite(dur) ? Math.round(dur) : 0}
+              aria-valuenow={Math.round(cur)}
+              aria-valuetext={`${fmt(cur)} of ${fmt(dur)}`}
+              onPointerDown={onScopePointerDown}
+              onPointerMove={onScopePointerMove}
+              onPointerUp={endScopeDrag}
+              onPointerCancel={endScopeDrag}
+              onKeyDown={onScopeKeyDown}
+            />
+          </Tooltip>
+          <div className="dv-audio-controls">
+            <button type="button" className="dv-player-btn" onClick={toggle} aria-label={playing ? 'Pause' : 'Play'}>
+              {playing ? PauseGlyph : PlayGlyph}
+            </button>
+            <span className="dv-player-time">{fmt(cur)} / {fmt(dur)}</span>
+            <div className="dv-player-spacer" />
+            <div className="dv-player-vol-wrap">
+              <button type="button" className="dv-player-btn" onClick={toggleMute} aria-label={muted ? 'Unmute' : 'Mute'}>
+                {muted || volume === 0 ? VolumeMuteGlyph : VolumeHighGlyph}
+              </button>
+              <input
+                type="range"
+                className="dv-player-vol"
+                min="0" max="1" step="0.01"
+                value={muted ? 0 : volume}
+                onChange={changeVolume}
+                style={{ '--pct': `${(muted ? 0 : volume) * 100}%` }}
+                aria-label="Volume"
+              />
+            </div>
+          </div>
         </div>
-        <div className="dv-audio-volume">
-          <button type="button" className="dv-audio-volume-btn" onClick={toggleMute} aria-label={muted ? 'Unmute' : 'Mute'}>
-            {muted || volume === 0 ? VolumeMuteGlyph : VolumeHighGlyph}
-          </button>
-          <input
-            type="range"
-            className="dv-audio-volume-slider"
-            min="0"
-            max="1"
-            step="0.01"
-            value={muted ? 0 : volume}
-            onChange={changeVolume}
-            aria-label="Volume"
-          />
-        </div>
-        <Tooltip content="Click or drag to seek">
-          <canvas
-            ref={scopeCanvasRef}
-            className="dv-audio-scope"
-            role="slider"
-            tabIndex={0}
-            aria-label="Seek through audio"
-            aria-valuemin={0}
-            aria-valuemax={Number.isFinite(dur) ? Math.round(dur) : 0}
-            aria-valuenow={Math.round(cur)}
-            aria-valuetext={`${fmt(cur)} of ${fmt(dur)}`}
-            onPointerDown={onScopePointerDown}
-            onPointerMove={onScopePointerMove}
-            onPointerUp={endScopeDrag}
-            onPointerCancel={endScopeDrag}
-            onKeyDown={onScopeKeyDown}
-          />
-        </Tooltip>
       </div>
 
       {(() => {
@@ -8027,8 +8140,10 @@ export default function DocViewer() {
       <div className="dv-body-row">
         {/* Right column — Documents + Multitool. */}
         <div className="dv-right-col">
-          {/* Main row: the Multitool panel (left) + the document card (right). */}
-          <div className="dv-main-row">
+          {/* Main row: the document card fills the whole area; the Multitool
+              panel FLOATS above its left side (absolute, see CSS). The var
+              feeds the resize gutter's position. */}
+          <div className="dv-main-row" style={{ '--dv-advisor-w': `${advisorW}px` }}>
             {/* Multitool panel — hosts the active file's tabbed side panel,
                 portalled into the slot below by its pane. No chrome header. */}
             <aside

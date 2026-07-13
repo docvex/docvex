@@ -37,7 +37,7 @@
   /* Rounded FLOATING section (matches the project tabs / .pjd-compact): inset
      past the sidebar with a matching right gap, seated under the title bar. */
   top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px) + var(--sv-chrome-h, 0px));
-  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px));
+  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px) + var(--content-left-gap, 0px));
   right: var(--chrome-inset, 6.4px);
   z-index: 30;
   height: 40px;

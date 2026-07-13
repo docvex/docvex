@@ -27,59 +27,15 @@
   --mini-seam-shadow: 0 calc(-1 * var(--chrome-inset, 6.4px)) 0 0 var(--bg-page);
 }
 
-/* Soft interior spotlight (mirrors .sidebar::before). */
-.mini-glow::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 0;
-  background: radial-gradient(
-    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
-    color-mix(in srgb, var(--mini-spot-color, var(--accent)) 4.5%, transparent) 0%,
-    color-mix(in srgb, var(--mini-spot-color, var(--accent)) 1.5%, transparent) 38%,
-    transparent 68%
-  );
-  opacity: 0;
-  transition: opacity 240ms ease;
-}
-.mini-glow:hover::before { opacity: 0.7; }
+/* The cursor-following interior spotlight + border shine that used to ride
+   on .mini-glow::before/::after were REMOVED (product decision: mini headers
+   render without the spotlight). The .mini-glow class and the miniHeaderSpot
+   mousemove wiring on the bars are now inert — kept so surfaces don't need
+   churn and the effect can be restored from git history if wanted. */
 
-/* Border shine — bright highlight masked to the 1.5px border ring (same
-   XOR-mask trick as .sidebar::after). SAME values as the sidebar's shine
-   (264px radius, 42% → 12% accent falloff, 0.7 hover opacity) so the rail
-   and every mini header read as one surface under the cursor. */
-.mini-glow::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1.5px;
-  pointer-events: none;
-  z-index: 2;
-  background: radial-gradient(
-    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
-    color-mix(in srgb, var(--mini-spot-color, var(--accent)) 42%, transparent) 0%,
-    color-mix(in srgb, var(--mini-spot-color, var(--accent)) 12%, transparent) 34%,
-    transparent 62%
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  opacity: 0;
-  transition: opacity 240ms ease;
-}
-.mini-glow:hover::after { opacity: 0.7; }
-
-/* Lift the bar's content above the glow layer. */
+/* Lift the bar's content above the (former) glow layer — kept so the bars'
+   internal stacking doesn't shift. */
 .mini-glow > * { position: relative; z-index: 1; }
-
-@media (prefers-reduced-motion: reduce) {
-  .mini-glow::before,
-  .mini-glow::after { display: none; }
-}
 
 /* Gap-strip fade — dissolves content passing through the seam between the
    window title bar's bottom edge and a mini header's TOP edge, so scrolling

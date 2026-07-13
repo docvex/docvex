@@ -20,7 +20,9 @@ function safeRemove(key) {
   try { localStorage.removeItem(key); return true; } catch { return false; }
 }
 
-// Returns { text, segments: [{ start, end, text }], language, createdAt } | null.
+// Returns { text, segments: [{ start, end, text }], language, createdAt,
+// original } | null. `original` is the untouched AI transcript kept alongside
+// manual edits so the panel's "Revert to original" can restore it.
 export function loadCaptions(filePath) {
   if (!filePath) return null;
   const raw = safeRead(KEY_PREFIX + filePath);
@@ -33,6 +35,12 @@ export function loadCaptions(filePath) {
       segments: Array.isArray(parsed.segments) ? parsed.segments : [],
       language: parsed.language || null,
       createdAt: parsed.createdAt || 0,
+      original: parsed.original && typeof parsed.original.text === 'string'
+        ? {
+            text: parsed.original.text,
+            segments: Array.isArray(parsed.original.segments) ? parsed.original.segments : [],
+          }
+        : null,
     };
   } catch {
     return null;
@@ -46,6 +54,12 @@ export function saveCaptions(filePath, data) {
     segments: Array.isArray(data.segments) ? data.segments : [],
     language: data.language || null,
     createdAt: data.createdAt || Date.now(),
+    original: data.original && typeof data.original.text === 'string'
+      ? {
+          text: data.original.text,
+          segments: Array.isArray(data.original.segments) ? data.original.segments : [],
+        }
+      : null,
   }));
 }
 

@@ -34,6 +34,12 @@
   /* Gap between the frameless window edge and the app chrome frame, so the
      ambient dot grid shows around the rounded surface. */
   --chrome-inset: 6.4px;
+  /* Uniform left breathing room between the sidebar rail and every tab's
+     content (matches the 17.6px right inset, so left = right). Read by the
+     page scrollers (.sv-single-scroll / .project-page-frame), the Files
+     workspace (--fx-rail-pad), the chat frame, and every fixed/sticky
+     mini header — change it HERE so all tabs move in lock-step. */
+  --content-left-gap: 17.6px;
   padding: var(--chrome-inset);
   box-sizing: border-box;
 }
@@ -225,11 +231,12 @@
    must stop at the content's right edge instead of running to the window edge
    (matching the project tabs). The right inset = the 25% content gap + the
    scroll's 17.6px right padding share, measured off the content column's width
-   (100vw minus the sidebar + chrome inset that sit to its left). */
+   (100vw minus the sidebar + chrome inset that sit to its left, minus the
+   shared left content gap that insets the content's start). */
 @media (min-width: 1024px) {
   .main-content--flush .pmh-compact,
   .main-content--flush .mx-compact {
-    right: calc(0.25 * (100vw - var(--sidebar-width, 192px) - var(--chrome-inset, 6.4px)) + 13.2px);
+    right: calc(0.25 * (100vw - var(--sidebar-width, 192px) - var(--chrome-inset, 6.4px) - var(--content-left-gap, 0px)) + 13.2px);
   }
 }
 
@@ -280,8 +287,9 @@
     transparent 0.9rem
   );
   border-radius: 14.4px 14.4px 0 0;
-  /* No left inset — content sits flush against the sidebar. */
-  padding: 1.6rem 17.6px 1.6rem 0;
+  /* Left inset = the shared content gap so project pages start the same
+     distance from the rail as every other tab. */
+  padding: 1.6rem 17.6px 1.6rem var(--content-left-gap, 17.6px);
   /* Previously calc(100% - 2.35rem) — accounted for the old
      banner's vertical band + margin-top. With the banner gone
      (now a fixed-position pill), the frame can fill the full

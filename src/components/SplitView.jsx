@@ -24,6 +24,7 @@ const NAV_ICONS = {
   dashboard: <Svg><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></Svg>,
   files: <Svg><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></Svg>,
   chat: <Svg><path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 9 9 0 0 1-4-1L3 21l1.5-4a8.5 8.5 0 0 1 4-11.5 8.38 8.38 0 0 1 12.5 6z" /></Svg>,
+  events: <Svg><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15.5 14" /></Svg>,
   ai: <Svg><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z" /><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z" /></Svg>,
   activity: <Svg><path d="M3 12h4l3 8 4-16 3 8h4" /></Svg>,
   projects: <Svg><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M3 11h18" /></Svg>,
@@ -41,6 +42,7 @@ function paneDestinations(selectedProject) {
     ? [
         { label: 'Files', to: '/files', icon: NAV_ICONS.files },
         { label: 'Chat', to: '/chat', icon: NAV_ICONS.chat },
+        { label: 'Events', to: '/events', icon: NAV_ICONS.events },
         { label: 'AI', to: '/ai', icon: NAV_ICONS.ai },
         { label: 'Updates', to: '/versions', icon: NAV_ICONS.versions },
       ]
@@ -91,6 +93,7 @@ function PaneChrome({ onRefresh }) {
     '/admin': 'Developer console',
     '/files': 'Project files & folders',
     '/chat': 'Team & private chat',
+    '/events': 'Project events timeline',
     '/ai': 'AI dashboard & tools',
     '/todos': 'Project to-dos',
     '/mail': 'AI-drafted replies',
@@ -145,7 +148,7 @@ function PaneFooter() {
 // Routes that render WITHOUT the in-content chrome bar — the personal
 // destinations plus the Hub (/projects) and Account (/account). They each carry
 // their own page masthead, so the chrome's title would just duplicate it.
-const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/mail', '/admin', '/projects', '/account', '/files', '/chat', '/ai']);
+const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/versions', '/settings', '/debug', '/mail', '/admin', '/projects', '/account', '/files', '/chat', '/events', '/ai']);
 
 // The project Overview / settings page (/projects/:id, no further segment) is
 // also chromeless — it carries its own Versions-style masthead + compact

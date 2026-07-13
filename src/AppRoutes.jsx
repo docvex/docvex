@@ -22,6 +22,7 @@ const ProjectFiles = lazy(() => import('./pages/Projects/ProjectFiles'));
 const ProjectClients = lazy(() => import('./pages/Projects/ProjectClients'));
 const ProjectTodos = lazy(() => import('./pages/Projects/ProjectTodos'));
 const ProjectChat = lazy(() => import('./pages/Projects/ProjectChat'));
+const ProjectEvents = lazy(() => import('./pages/Projects/ProjectEvents'));
 const ProjectGenerate = lazy(() => import('./pages/Projects/ProjectGenerate'));
 const ProjectAutomate = lazy(() => import('./pages/Projects/ProjectAutomate'));
 const ProjectAI = lazy(() => import('./pages/Projects/ProjectAI'));
@@ -83,6 +84,7 @@ export default function AppRoutes({ Shell, ProjectShell }) {
             <Route path="clients" element={<ProjectClients />} />
             <Route path="todos" element={<ProjectTodos />} />
             <Route path="chat" element={<ProjectChat />} />
+            <Route path="events" element={<ProjectEvents />} />
             <Route path="generate" element={<ProjectGenerate />} />
             <Route path="automate" element={<ProjectAutomate />} />
             <Route path="ai" element={<ProjectAI />} />

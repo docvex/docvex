@@ -35,6 +35,7 @@ export function isProjectScopedRoute(pathname) {
   if (pathname === '/clients' || pathname.startsWith('/clients/')) return true;
   if (pathname === '/todos' || pathname.startsWith('/todos/')) return true;
   if (pathname === '/chat' || pathname.startsWith('/chat/')) return true;
+  if (pathname === '/events' || pathname.startsWith('/events/')) return true;
   if (pathname === '/generate' || pathname.startsWith('/generate/')) return true;
   if (pathname === '/automate' || pathname.startsWith('/automate/')) return true;
   if (pathname === '/ai' || pathname.startsWith('/ai/')) return true;
@@ -54,7 +55,7 @@ export function isProjectScopedRoute(pathname) {
 // These all render their content full-bleed — no chrome frame (border / rounded
 // corners / shadow) and no gaps around the content section — so they read as one
 // consistent editorial surface. Keep in sync with Sidebar's personalItems.
-const FLUSH_CONTENT_ROUTES = new Set(['/', '/newsletter', '/versions', '/mail', '/admin', '/settings', '/debug', '/files', '/chat', '/ai']);
+const FLUSH_CONTENT_ROUTES = new Set(['/', '/newsletter', '/versions', '/mail', '/admin', '/settings', '/debug', '/files', '/chat', '/events', '/ai']);
 
 // The project Overview / settings page (/projects/:id, no further segment)
 // also renders full-bleed — it carries its own Versions-style masthead, so it
