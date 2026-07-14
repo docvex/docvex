@@ -241,8 +241,8 @@
 .avt-rows::before {
   content: '';
   position: absolute;
-  /* Centre of the 20.8px medallion, minus half the line width. */
-  left: 9.6px;
+  /* Centre of the 25.6px medallion, minus half the line width. */
+  left: 12px;
   top: 10px;
   bottom: 10px;
   width: 1.6px;
@@ -259,7 +259,7 @@
   display: flex;
   flex-direction: column;
   gap: 3.2px;
-  padding: 8px 24px 8px 32px;
+  padding: 8px 24px 8px 38.4px;
   border-radius: 8px;
   transition: opacity 120ms;
 }
@@ -269,7 +269,7 @@
 .avt-item::before {
   content: '';
   position: absolute;
-  inset: 0 0 0 26.4px;
+  inset: 0 0 0 32px;
   border-radius: 8px;
   background: transparent;
   z-index: -1;
@@ -286,9 +286,9 @@
 .avt-ico {
   position: absolute;
   left: 0;
-  top: 7.2px;
-  width: 20.8px;
-  height: 20.8px;
+  top: 4.8px;
+  width: 25.6px;
+  height: 25.6px;
   box-sizing: border-box;
   display: grid;
   place-items: center;
@@ -297,7 +297,7 @@
   border: 1px solid color-mix(in srgb, var(--cat-system) 30%, transparent);
   color: var(--cat-system);
 }
-.avt-ico svg { width: 11.2px; height: 11.2px; display: block; }
+.avt-ico svg { width: 14.4px; height: 14.4px; display: block; }
 .avt-ico[data-cat='file']    { background: color-mix(in srgb, var(--cat-file) 12%, var(--bg-page));    border-color: color-mix(in srgb, var(--cat-file) 30%, transparent);    color: var(--cat-file); }
 .avt-ico[data-cat='member']  { background: color-mix(in srgb, var(--cat-member) 12%, var(--bg-page));  border-color: color-mix(in srgb, var(--cat-member) 30%, transparent);  color: var(--cat-member); }
 .avt-ico[data-cat='project'] { background: color-mix(in srgb, var(--cat-project) 12%, var(--bg-page)); border-color: color-mix(in srgb, var(--cat-project) 30%, transparent); color: var(--cat-project); }

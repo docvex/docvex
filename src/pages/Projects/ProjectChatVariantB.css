@@ -662,7 +662,11 @@
    underline is a NARROW inset bar that hugs the tab's content (inset by the tab's
    horizontal padding) rather than the full padded width. */
 .dvx-toolbar .dvx-tab { margin-bottom: 0; box-sizing: border-box; position: relative; }
+/* First tab drops its own left padding so the "Team" label starts in line with
+   the masthead title/kicker above it (both sit at the content's left edge). */
+.dvx-toolbar .dvx-tab:first-child { padding-left: 0; }
 .dvx-toolbar .dvx-tab.is-active { border-bottom-color: transparent; }
+.dvx-toolbar .dvx-tab:first-child.is-active::after { left: 0; }
 .dvx-toolbar .dvx-tab.is-active::after {
   content: '';
   position: absolute;

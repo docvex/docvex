@@ -62,7 +62,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <AppPrefsProvider>
             <SelectedProjectProvider>
               <UpdatesProvider>
-                <NotificationsProvider>
+                {/* Aux windows (Doc Viewer / snip) restore the cached session on
+                    boot — suppress the source hooks there so "Signed in as …"
+                    only toasts in the main window. */}
+                <NotificationsProvider sourcesEnabled={!isDocViewer && !isSnip}>
                   <ChatUnreadProvider>
                     <App />
                   </ChatUnreadProvider>

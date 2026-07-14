@@ -58,111 +58,8 @@
   min-height: 0;
 }
 
-/* ── Hub launcher button ────────────────────────────────────────────
-   Floats OUTSIDE the sidebar at the top-left, styled distinctly from the
-   subtle rail nav items (accent gradient, display font, elevated). Caps the
-   rail when the sidebar is shown; persists over the content on the Hub page.
-   Pressing it navigates to /projects (where the sidebar is hidden). */
-.app-hub-btn {
-  position: fixed;
-  z-index: 60;
-  top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px));
-  left: var(--chrome-inset, 6.4px);
-  /* Same width as the rail; pinned ABOVE it (the rail is pushed down below). */
-  width: var(--sidebar-width, 192px);
-  height: 40px;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 9px;
-  padding: 0 12px;
-  /* Same frosted-glass surface as the rail below it (.sidebar): translucent
-     bg-page fill + blur + hairline border + card shadow, so the Hub launcher
-     reads as a detached piece of the sidebar rather than a separate accent
-     chip. Text stays accent so it still reads as the launcher. */
-  border: 1.5px solid var(--border);
-  border-radius: 9.6px;
-  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
-  backdrop-filter: blur(6.4px);
-  -webkit-backdrop-filter: blur(6.4px);
-  color: #fff;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  box-shadow: var(--shadow-card);
-  -webkit-app-region: no-drag;
-  transition:
-    background 140ms ease,
-    color 140ms ease,
-    border-color 140ms ease,
-    padding 250ms cubic-bezier(0.16, 1, 0.3, 1),
-    gap 250ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.app-hub-btn:hover {
-  background: var(--accent-tint);
-  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
-}
-.app-hub-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.app-hub-btn.is-active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--text-on-accent);
-}
-
-/* Plain accent grid glyph (no chip) — inherits the button's text colour so it
-   flips to on-accent when the button fills. */
-.app-hub-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  color: currentColor;
-}
-.app-hub-icon svg { width: 17px; height: 17px; }
-.app-hub-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  max-width: 160px;
-  transition: opacity 160ms ease, max-width 250ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* Collapsed rail — the Hub button shrinks to the narrow rail width (it tracks
-   --sidebar-width), so drop its wordmark and center the grid glyph. Centering is
-   done with a left inset (not justify-content) so the glyph slides smoothly to
-   centre as the button narrows — a justify-content swap snaps the glyph to the
-   middle of the still-wide button on the first frame, which reads as a jump.
-   With border 1.5 + padding-left 20 the 17px glyph lands dead-centre at 60px. */
-.app-hub-btn--collapsed {
-  gap: 0;
-  padding-left: 20px;
-  padding-right: 0;
-}
-.app-hub-btn--collapsed .app-hub-label {
-  opacity: 0;
-  max-width: 0;
-}
-.app-hub-sep { opacity: 0.4; font-weight: 400; }
-/* "HUB" reads as a lighter sub-label next to the bold DOCVEX wordmark. */
-.app-hub-suffix {
-  font-weight: 500;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  opacity: 0.72;
-  text-transform: uppercase;
-}
-
-/* Push the rail DOWN so it sits below the floating Hub button (which is pinned
-   above it at the same width), clear of the rail rather than overlapping it. */
-.app-chrome .sidebar {
-  margin-top: calc(40px + var(--chrome-inset, 6.4px));
-  height: calc(100% - 40px - var(--chrome-inset, 6.4px));
-}
+/* The floating Hub launcher was replaced by the sidebar's "All projects"
+   nav item — the rail now starts at the chrome top with no clearance offset. */
 
 .main-content {
   /* position:relative makes this the containing block for absolute-positioned
@@ -334,6 +231,4 @@
 /* Honour reduced-motion — snap the rail collapse instead of tweening it. */
 @media (prefers-reduced-motion: reduce) {
   .app-shell { transition: none; }
-  .app-hub-btn,
-  .app-hub-label { transition: none; }
 }

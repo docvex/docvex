@@ -1,6 +1,14 @@
-const { contextBridge, ipcRenderer, webFrame } = require('electron');
+const { contextBridge, ipcRenderer, webFrame, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  // On-disk path for a picked/dropped File object. Electron 32 removed the
+  // old `File.path` property — webUtils.getPathForFile is its replacement,
+  // and it only exists in the preload context, hence the bridge. Returns ''
+  // for synthetic Files (e.g. constructed blobs) that have no disk path.
+  getPathForFile: (file) => {
+    try { return webUtils.getPathForFile(file) || ''; } catch { return ''; }
+  },
+
   // OAuth bridge (also carries `docvex://invite?token=…` URLs — the channel
   // name is historical; main.js routes both kinds through it).
   openOAuthUrl: (url) => ipcRenderer.send('oauth:open-external', url),

@@ -184,6 +184,13 @@ export function openDocViewerWindow(file) {
   return false;
 }
 
+// On-disk path of a picked/dropped File object (webUtils.getPathForFile via
+// the preload — File.path itself was removed in Electron 32). Returns '' on
+// web or for synthetic Files that have no disk path.
+export function pathForFile(file) {
+  try { return electronAPI?.getPathForFile?.(file) || ''; } catch { return ''; }
+}
+
 // Subscribe to "open this file as a new tab" pushes for the shared doc-viewer
 // window. Returns an unsubscribe fn (no-op on web).
 export function onDocViewerAddFile(cb) {

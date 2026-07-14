@@ -35,7 +35,13 @@ import * as platform from '../lib/platform';
 
 const NotificationsContext = createContext(null);
 
-export function NotificationsProvider({ children }) {
+// `sourcesEnabled: false` mounts the provider without its event-source hooks
+// (auth sign-in/out, updater, social). Auxiliary windows (Doc Viewer, snip
+// overlay) share the renderer and restore the cached Supabase session on
+// boot — without the gate every one of them re-toasts "Signed in as …".
+// Those toasts belong to the main window only; aux windows keep notify()
+// for their own local toasts.
+export function NotificationsProvider({ children, sourcesEnabled = true }) {
   const { session, loading: authLoading } = useAuth();
   const userId = session?.user?.id || null;
 
@@ -357,9 +363,9 @@ export function NotificationsProvider({ children }) {
   // ── Source hooks (compose once, gated on bootstrap) ───────────────────────
   // The provider's job ends here — adding a new source is literally one line.
 
-  useAuthNotificationSource(notify, { ready });
-  useUpdateNotificationSource(notify, { ready });
-  useSocialNotificationSource(notify, userId, { ready });
+  useAuthNotificationSource(notify, { ready: ready && sourcesEnabled });
+  useUpdateNotificationSource(notify, { ready: ready && sourcesEnabled });
+  useSocialNotificationSource(notify, userId, { ready: ready && sourcesEnabled });
 
   // Derived values memoized so unrelated re-renders (e.g. toast hover) don't
   // bleed into every consumer of the context.

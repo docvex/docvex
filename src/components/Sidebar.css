@@ -329,6 +329,9 @@
   flex-direction: column;
   gap: 3.2px;
 }
+/* Lead group — the label-less "All projects" launcher row at the rail's top.
+   Tighter vertical padding so it reads as a compact cap above the sections. */
+.sidebar-cat--lead .nav-item { padding-top: 3.2px; padding-bottom: 3.2px; }
 /* Category title doubles as a section divider: the uppercase label followed by
    a hairline rule that fills the rest of the row. */
 .sidebar-cat-label {

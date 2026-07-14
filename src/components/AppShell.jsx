@@ -1,25 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation, useNavigate, Navigate } from 'react-router-dom';
+import { Outlet, useLocation, Navigate } from 'react-router-dom';
 import { RouteFallback } from '../AppRoutes';
 import Sidebar from './Sidebar';
 import UpdateProgressBar from './UpdateProgressBar';
 import SwitchProjectLoader from './SwitchProjectLoader';
 import ContentShell from './SplitView';
 import CursorSpotlight from './CursorSpotlight';
-import Tooltip from './Tooltip';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import './AppShell.css';
-
-// 2×2 grid glyph — the Hub launcher (the projects list at /projects).
-const HubIcon = (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="7" height="7" rx="1.5" />
-    <rect x="14" y="3" width="7" height="7" rx="1.5" />
-    <rect x="3" y="14" width="7" height="7" rx="1.5" />
-    <rect x="14" y="14" width="7" height="7" rx="1.5" />
-  </svg>
-);
 
 // Routes that operate on the currently-selected project. The banner shows on
 // these so the user always sees which project they're working in. /projects
@@ -74,7 +63,6 @@ const SIDEBAR_COLLAPSED_KEY = 'docvex.sidebarCollapsed';
 
 export default function AppShell() {
   const { pathname } = useLocation();
-  const navigate = useNavigate();
   const { session, loading: authLoading } = useAuth();
   // Sidebar minimize state — persisted per device (not per user; it's a layout
   // preference). Drives both the rail's own width and the --sidebar-width var
@@ -110,9 +98,9 @@ export default function AppShell() {
   }, [switching]);
   const showBanner = isProjectScopedRoute(pathname);
   const flushContent = FLUSH_CONTENT_ROUTES.has(pathname) || isProjectOverviewRoute(pathname);
-  // The Hub (/projects) is a full-screen launcher: pressing the floating Hub
-  // button navigates here and the sidebar is hidden so the launcher fills the
-  // window. Leaving /projects (e.g. picking a project) brings the rail back.
+  // The Hub (/projects) is a full-screen launcher: the sidebar's "All
+  // projects" item navigates here and the sidebar is hidden so the launcher
+  // fills the window. Leaving /projects (picking a project) brings it back.
   const onHub = pathname === '/projects' || pathname === '/projects/';
   // The live, sidebar-driven view. ContentShell wraps it as one pane with the
   // in-pane nav chrome (left rail + header) pinned above a scroll area.
@@ -144,23 +132,8 @@ export default function AppShell() {
             sidebar AND the content area so they read as one window-in-window
             surface, inset from the frameless window edges (the ambient dot grid
             shows around it). */}
-        {/* Hub launcher — lives OUTSIDE the sidebar as a floating button.
-            Pressing it opens the Hub (/projects); the sidebar hides there. */}
-        {session && !onHub && (
-          <Tooltip content="Hub — your projects">
-            <button
-              type="button"
-              className={`app-hub-btn${sidebarCollapsed ? ' app-hub-btn--collapsed' : ''}`}
-              onClick={() => navigate('/projects')}
-              aria-label="Open the Hub"
-            >
-              <span className="app-hub-icon">{HubIcon}</span>
-              <span className="app-hub-label">
-                DOCVEX<span className="app-hub-sep" aria-hidden="true">|</span><span className="app-hub-suffix">HUB</span>
-              </span>
-            </button>
-          </Tooltip>
-        )}
+        {/* The Hub launcher moved INTO the sidebar — it's the "All projects"
+            nav item at the top of the rail (see Sidebar.jsx). */}
         <div className="app-chrome">
           {!onHub && <Sidebar collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />}
           <main className={`main-content main-content--single${flushContent ? ' main-content--flush' : ''}`}>

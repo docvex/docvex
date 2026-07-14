@@ -51,6 +51,17 @@ function getDisplayName(user) {
 // in dev), a Documentation link out to the website, and the signed-out
 // "Sign in" CTA.
 
+// 2×2 grid — "All projects" (the Hub list at /projects; formerly the
+// floating DOCVEX | HUB launcher above the rail).
+const AllProjectsIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+    <rect x="14" y="3" width="7" height="7" rx="1.5" />
+    <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    <rect x="14" y="14" width="7" height="7" rx="1.5" />
+  </svg>
+);
+
 // Pulse/heartbeat line — reads as "activity feed".
 const ActivityIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -173,11 +184,13 @@ const ChatIcon = (
   </svg>
 );
 
-// Clock glyph — the project Events timeline surface.
-const EventsIcon = (
+// Winding-path glyph (two endpoint nodes joined by an S-curve) — the project
+// Timeline surface (case-timeline onboarding), from the design bundle.
+const TimelineIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="9"/>
-    <polyline points="12 7 12 12 15.5 14"/>
+    <circle cx="6" cy="19" r="3"/>
+    <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/>
+    <circle cx="18" cy="5" r="3"/>
   </svg>
 );
 
@@ -308,7 +321,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }) {
     },
     { to: '/files', label: 'Files', icon: FilesIcon },
     { to: '/chat', label: 'Chat', icon: ChatIcon },
-    { to: '/events', label: 'Events', icon: EventsIcon },
+    { to: '/events', label: 'Timeline', icon: TimelineIcon },
     { to: '/ai', label: 'AI', icon: AiIcon },
   ] : [];
 
@@ -478,8 +491,16 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }) {
   return (
     <nav className={`sidebar${collapsed ? ' is-collapsed' : ''}`} ref={navRef} onMouseMove={onSpotMove} onMouseLeave={onSpotLeave}>
       <ul className="sidebar-nav">
-        {/* The Hub launcher moved OUT of the rail — it's now a floating button
-            in AppShell that navigates to /projects and hides this sidebar. */}
+        {/* ── All projects — the Hub launcher as a regular rail tab (the old
+            floating DOCVEX | HUB button above the rail was removed). Opens
+            /projects, where this sidebar hides behind the full-screen Hub. */}
+        {session && (
+          <li className="sidebar-cat sidebar-cat--lead">
+            <div className="sidebar-cat-items">
+              {renderNavItem({ to: '/projects', label: 'All projects', icon: AllProjectsIcon, end: true })}
+            </div>
+          </li>
+        )}
 
         {/* ── Personal — the user's own feeds. ── */}
         <li className="sidebar-cat">
