@@ -1,0 +1,49 @@
+/* Delayed-capture countdown badge — floats over the user's desktop in a
+   transparent click-through window, so colours are inlined dark-glass (same
+   rationale as SnipOverlay.css), not theme tokens. */
+
+.sc-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  background: transparent;
+  pointer-events: none;
+}
+
+.sc-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  background: rgba(20, 20, 24, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  color: #f3f3f0;
+}
+
+.sc-num {
+  font-size: 52px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  animation: sc-pop 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes sc-pop {
+  from { transform: scale(1.35); opacity: 0.25; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.sc-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(243, 243, 240, 0.65);
+}

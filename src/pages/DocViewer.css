@@ -85,13 +85,14 @@
    its content. */
 .dv-advisor-slot > .dv-side-portal { flex: 1; min-width: 0; width: auto; }
 
-/* Draggable gutter riding the floating panel's right edge (transparent,
-   accent line on hover). Positioned off the same --dv-advisor-w the panel's
-   inline width uses, so it tracks the drag. */
+/* Draggable gutter — straddles the floating panel's RIGHT EDGE (4px on the
+   panel, 4px outside), so grabbing the edge itself resizes. Positioned off
+   the same --dv-advisor-w the panel's inline width uses, so it tracks the
+   drag; the ::after line paints exactly on the border. */
 .dv-advisor-resize {
   flex: none; width: 8px; cursor: col-resize;
   position: absolute; top: 8px; bottom: 8px;
-  left: calc(8px + var(--dv-advisor-w, 296px));
+  left: calc(8px + var(--dv-advisor-w, 296px) - 4px);
   z-index: 10;
 }
 .dv-advisor-resize::after {
@@ -2030,7 +2031,8 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
    reuses the lasso scrim/outline look with a heavier dim + accent glow. */
 .dv-ocr-highlight { position: absolute; inset: 0; z-index: 4; pointer-events: none; overflow: hidden; }
 .dv-ocr-highlight-scrim { fill: rgba(0, 0, 0, 0.58); }
-.dv-ocr-highlight-outline { stroke-width: 2.5; filter: drop-shadow(0 0 4.8px var(--accent)); }
+/* (Outline+glow style removed — located selections render as the Highlight
+   brush's flat accent fill, .dv-ocr-highlight-union below.) */
 /* Brush selection: one uniform fill clipped to the union of the brush
    circles (no per-circle strokes), so it reads as a smooth blob. */
 .dv-ocr-highlight-union { fill: color-mix(in srgb, var(--accent) 30%, transparent); stroke: none; }
@@ -2190,6 +2192,10 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 }
 .dv-ocr-resize:hover::after { background: color-mix(in srgb, var(--accent) 55%, transparent); }
 body.dv-ocr-resizing { cursor: col-resize; user-select: none; }
+/* While the panel is being resized, the pan compensates the stage's shifting
+   padding every frame (see the ResizeObserver in the media pane) — the media's
+   120ms transform ease (inline) would make it trail the drag, so freeze it. */
+body.dv-ocr-resizing .dv-media-el { transition: none !important; }
 body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
 
 /* Extracted-text history — persisted per file (see lib/extractionHistory).
@@ -2794,8 +2800,9 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   border-color: var(--color-cognac);
 }
 /* The thread reuses the main app's AI-advisor bubbles/markdown verbatim by
-   carrying its .ai-hub / .ai-chat-page classes. .ai-hub normally constrains the
-   page to 75% width — neutralise that here so the bubbles fill the side panel. */
+   carrying its .ai-hub / .ai-chat-page classes. .ai-hub normally caps the page
+   at its 944px measure — neutralise that here so the bubbles fill the side
+   panel. */
 .dv-advisor-chat.ai-hub.ai-chat-page {
   /* height: auto OVERRIDES the .ai-hub.ai-chat-page `height: 100%` (which is for
      the main app where the chat is the scroller). Here the scroll is the PARENT,
@@ -3566,3 +3573,118 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 .dv-doc-main:has(.dv-docview) {
   padding-left: calc(var(--dv-advisor-w, 296px) + 24px);
 }
+/* Mirror the 24px gap between the side panel and the preview's left edge on
+   the right side, so the media doesn't hug the window edge. */
+.dv-media-stage { padding-right: 24px; }
+
+/* ── Extract-text tool pill — top-centre over the media stage (Extract Tool
+   style), centred in the area right of the floating side panel. Replaces the
+   old sidebar tool row + footer "Extract text" button; shown only while the
+   Extract-text side tab is active. ── */
+.dv-tool-pill-wrap {
+  position: absolute; top: 9.6px;
+  left: calc(var(--dv-advisor-w, 296px) + 24px); right: 0;
+  display: flex; justify-content: center;
+  pointer-events: none; z-index: 7;
+}
+.dv-tool-pill {
+  pointer-events: auto;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(10, 12, 14, 0.92);
+  backdrop-filter: blur(17.6px) saturate(1.8);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  filter: drop-shadow(0 3.2px 12.8px rgba(0, 0, 0, 0.55));
+  cursor: default;
+}
+.dv-tool-pill-btn {
+  appearance: none;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font: inherit; font-size: 11px; font-weight: 600; letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+  white-space: nowrap;
+}
+.dv-tool-pill-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.dv-tool-pill-btn.is-active { background: #fff; border-color: #fff; color: #111; }
+.dv-tool-pill-sep {
+  width: 1px; align-self: stretch; margin: 3px 3px;
+  background: rgba(255, 255, 255, 0.16);
+}
+.dv-tool-pill-hint {
+  padding: 0 11px 0 7px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+
+/* ── Snippets — flat tiles (no card chrome) in a responsive grid that
+   reflows with the panel's width. Scoped via :has so the audio pane's
+   caption rows (same list class) keep their flex-column layout. ── */
+.dv-ocr-history-list:has(.dv-snip-entry) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.dv-snip-entry {
+  display: flex; flex-direction: column; gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: 1.5px solid transparent;
+  transition: background 150ms, color 150ms, border-color 150ms;
+}
+/* Whole card is the click target. Hover = the main sidebar's pointer-tracked
+   radial accent gradient (--item-spot-x/y fed via trackItemSpot); selected =
+   the sidebar's active-tab look (accent tint + accent ring + accent text). */
+/* Click target is the thumbnail button; the card itself only styles. */
+.dv-snip-entry.is-locatable:hover:not(.is-active) {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 100%
+  );
+}
+.dv-snip-entry.is-active {
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+.dv-snip-entry.is-active .dv-snip-entry-text { color: var(--accent); }
+/* Thumbnail — bare and left-aligned (no fill/frame around the crop). The
+   locate affordance paints a border only on hover/active. */
+/* Thumbnail — bare and left-aligned; it's the click-to-focus target (a
+   button when the entry carries a region), while hover/selected styling
+   stays card-wide. */
+.dv-snip-entry-thumb {
+  appearance: none;
+  align-self: flex-start;
+  width: 100%;
+  padding: 0; border: none;
+  background: transparent;
+  border-radius: 6px;
+  overflow: hidden;
+  line-height: 0;
+}
+button.dv-snip-entry-thumb { cursor: pointer; }
+.dv-snip-entry-thumb img {
+  width: 100%; max-height: 90px;
+  object-fit: contain; object-position: left top;
+}
+.dv-snip-entry-text {
+  margin: 0;
+  max-height: 150px; overflow-y: auto;
+  font-size: 12px; line-height: 1.5; white-space: pre-wrap;
+  color: var(--text-primary);
+  user-select: text; cursor: text;
+}
+.dv-snip-entry-text.is-empty { color: var(--text-muted); font-style: italic; }
+/* (No corner × — snippet actions live in the morph-pill right-click menu:
+   Find / Delete-with-confirm, same interaction as the Files page tiles.) */

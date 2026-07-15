@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation, Navigate } from 'react-router-dom';
+import { Outlet, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { RouteFallback } from '../AppRoutes';
 import Sidebar from './Sidebar';
 import UpdateProgressBar from './UpdateProgressBar';
@@ -99,9 +99,47 @@ export default function AppShell() {
   const showBanner = isProjectScopedRoute(pathname);
   const flushContent = FLUSH_CONTENT_ROUTES.has(pathname) || isProjectOverviewRoute(pathname);
   // The Hub (/projects) is a full-screen launcher: the sidebar's "All
-  // projects" item navigates here and the sidebar is hidden so the launcher
-  // fills the window. Leaving /projects (picking a project) brings it back.
+  // projects" item navigates here and the sidebar slides OUT of the window so
+  // the launcher fills it. Leaving /projects (picking a project) slides it
+  // back in. The sidebar stays mounted throughout — the `on-hub` shell class
+  // drives the slide via a margin-left transition (see AppShell.css), so both
+  // directions animate.
   const onHub = pathname === '/projects' || pathname === '/projects/';
+  const navigate = useNavigate();
+  // "All projects" click intercept: instead of navigating instantly (which
+  // would swap the content mid-frame), fade the current page out and start
+  // the rail slide (`hub-leaving`), THEN navigate once the fade has read.
+  // The Hub content then fades in via the onHub-flip effect below.
+  const [hubLeaving, setHubLeaving] = useState(false);
+  // Entrance fade for content crossing the hub boundary. Distinct from
+  // fadeInAfterSwitch: the switch fade carries a 220ms delay (it waits for
+  // the loader to dissolve), which here would read as a blank flicker.
+  const [hubFadeIn, setHubFadeIn] = useState(false);
+  const hubNavTimer = useRef(null);
+  const goToHub = () => {
+    if (onHub || hubLeaving) return;
+    setHubLeaving(true);
+    hubNavTimer.current = setTimeout(() => {
+      // One commit for all three: the hub must MOUNT with its entrance class
+      // already applied — setting the flag from an effect after navigation
+      // paints one full-opacity frame first (a visible flicker).
+      setHubFadeIn(true);
+      navigate('/projects');
+      setHubLeaving(false);
+    }, 200);
+  };
+  useEffect(() => () => clearTimeout(hubNavTimer.current), []);
+  // Fallback for hub crossings that don't go through goToHub (e.g. leaving
+  // the hub without a project switch). Skipped while switching — the content
+  // shell is unmounted then and re-enters via fadeInAfterSwitch; stacking
+  // both animations would double-flash.
+  const prevOnHub = useRef(onHub);
+  useEffect(() => {
+    if (prevOnHub.current !== onHub) {
+      prevOnHub.current = onHub;
+      if (!switching) setHubFadeIn(true);
+    }
+  }, [onHub, switching]);
   // The live, sidebar-driven view. ContentShell wraps it as one pane with the
   // in-pane nav chrome (left rail + header) pinned above a scroll area.
   const primary = showBanner ? (
@@ -125,7 +163,7 @@ export default function AppShell() {
 
   return (
       <div
-        className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}
+        className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}${onHub ? ' on-hub' : ''}${hubLeaving ? ' hub-leaving' : ''}`}
         style={sidebarCollapsed ? { '--sidebar-width': COLLAPSED_SIDEBAR_WIDTH } : undefined}
       >
         {/* App chrome — a single bordered, rounded frame that wraps the vertical
@@ -133,9 +171,16 @@ export default function AppShell() {
             surface, inset from the frameless window edges (the ambient dot grid
             shows around it). */}
         {/* The Hub launcher moved INTO the sidebar — it's the "All projects"
-            nav item at the top of the rail (see Sidebar.jsx). */}
+            nav item at the top of the rail (see Sidebar.jsx). On /projects the
+            rail stays MOUNTED but slides off-window (offstage) so the move
+            animates both ways instead of popping in/out of the DOM. */}
         <div className="app-chrome">
-          {!onHub && <Sidebar collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />}
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={toggleSidebar}
+            offstage={onHub || hubLeaving}
+            onHubNav={goToHub}
+          />
           <main className={`main-content main-content--single${flushContent ? ' main-content--flush' : ''}`}>
             {/* Cursor-following spotlight that brightens the ambient dot grid.
                 A real element moved by a direct transform write (not a CSS-var
@@ -150,6 +195,8 @@ export default function AppShell() {
                 primary={primary}
                 fadeIn={fadeInAfterSwitch}
                 onFadeInEnd={() => setFadeInAfterSwitch(false)}
+                hubFadeIn={hubFadeIn}
+                onHubFadeInEnd={() => setHubFadeIn(false)}
               />
             )}
             {/* Project-switch spinner — scoped to the content section (this

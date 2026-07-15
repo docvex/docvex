@@ -49,14 +49,42 @@
   --fx-rail-pad: var(--content-left-gap, 17.6px);
 }
 
-/* The sticky pathbar (Files' mini header): its LEFT EDGE sits one
-   --chrome-inset off the sidebar — the same seam as the Hub button and the
-   Activity mini header — while the inner content is re-inset by the
-   difference so it stays aligned with the page content (--fx-rail-pad).
-   6.4px is the bar's own base padding (see .fx-pathbar). */
+/* The sticky pathbar (Files' mini header): no left margin — the bar starts
+   flush at the rail seam and its inner content (the back/forward nav) is
+   inset by the shared content gap, so the buttons line up EXACTLY with the
+   masthead title/kicker above (both at --content-left-gap / --fx-rail-pad
+   from the frame edge). */
 .main-content--flush:has(.project-files-page.fx-root) .fx-pathbar {
-  margin-left: var(--chrome-inset, 6.4px);
-  padding-left: calc(6.4px + var(--content-left-gap, 17.6px) - var(--chrome-inset, 6.4px));
+  padding-left: var(--content-left-gap, 17.6px);
+}
+/* Kill the two residual insets between the bar's padding edge and the first
+   ‹ chevron's visible glyph: the tools row's own 3.2px left padding, and the
+   icon-centering inside the 22.4px-wide button (14px icon → 4.2px). With
+   both gone the GLYPH — not its invisible hit-box — sits on the content-gap
+   line with the masthead title; the hover pill overhangs left slightly,
+   which reads correctly (optical alignment). */
+.main-content--flush:has(.project-files-page.fx-root) .fx-pathbar .fx-chrome-tools {
+  padding-left: 0;
+}
+.main-content--flush:has(.project-files-page.fx-root) .fx-pathbar-nav {
+  margin-left: -4.2px;
+}
+/* List-view column header: break the "Name" label out of the pathbar's left
+   inset back to the rows' origin (negative margin cancels the bar's content
+   gap), then pad it to the rows' NAME TEXT position — thumb width + the name
+   cell's 8px gap — so the label aligns with the file names, not the icons.
+   The header carries the slider's --fx-row-thumb via inline style (see
+   FilesWorkspace.jsx) so the offset tracks row density; 24px is the shared
+   fallback. */
+.main-content--flush:has(.project-files-page.fx-root) .fx-list-head--chrome {
+  margin-left: calc(-1 * var(--content-left-gap, 17.6px));
+  /* Also cancel the pathbar's 6.4px right padding so the header spans the
+     same box as the rows — its edges then line up with the rows' inset
+     selection fill. */
+  margin-right: -6.4px;
+  /* The rows' 9.6px content inset plus a nudge so the "Name" label reads
+     clearly indented from the selection fill's edge. */
+  padding-left: 24px;
 }
 
 /* Uniform dot grid across the whole surface — no edge fade/gradient band by
@@ -95,13 +123,13 @@
   overflow: visible;
 }
 /* Match the other personal/editorial tabs (Activity / Newsletter / Projects):
-   the CONTENT (big masthead, file canvas, bottom action bar) sits at
-   three-quarters width on wide screens, left-aligned. The pinned mini-header
+   the CONTENT (big masthead, file canvas, bottom action bar) caps at the
+   shared content ceiling on wide screens, left-aligned. The pinned mini-header
    toolbar (.fx-pathbar) stays FULL width so it matches every other mini header
    in the app (pmh-compact / pjd-compact / chat). Full width below the
    breakpoint. */
 @media (min-width: 1024px) { /* 1280px pre-scale */
-  .project-files-page.fx-root { width: 75%; }
+  .project-files-page.fx-root { width: min(100%, var(--content-max-width, 1280px)); }
 }
 
 .fx-page-head {
@@ -144,8 +172,9 @@
   flex: 0 0 auto;
   /* Top inset = 1.6rem (25.6px) so the "Files" title sits at the SAME height as
      other tabs' headers — they get that 1.6rem from .sv-single-scroll's padding,
-     which the Files page zeroes out (it uses .project-page-frame). */
-  padding: 25.6px 17.6px 20.8px;
+     which the Files page zeroes out (it uses .project-page-frame). Tight 8px
+     bottom so the toolbar sits close under the kicker line. */
+  padding: 25.6px 17.6px 8px;
   /* Clear the rail so the title isn't hidden behind it (the frame extends left
      under the sidebar). Identity off the Files main window (var unset). */
   padding-left: var(--fx-rail-pad, 17.6px);
@@ -624,7 +653,10 @@
   padding: 6.4px;
   overflow: hidden;
   /* Transparent in-flow under the masthead; once pinned it becomes a rounded
-     section painted in the window top bar colour (.is-pinned). */
+     section painted in the window top bar colour (.is-pinned). The border is
+     RESERVED here (transparent) so pinning only recolours it — adding it on
+     pin would shrink the bar's inner box and squeeze its content. */
+  border: 1.5px solid transparent;
   background: transparent;
   border-radius: 9.6px;
   font-size: 10px;
@@ -654,11 +686,12 @@
 .fx-pathbar:not(.is-pinned):not(.is-editing)::after { display: none; }
 .fx-pathbar.is-pinned {
   /* Pinned → the SIDEBAR's frosted surface (see styles/miniHeader.css);
-     spotlight + border shine come from the shared .mini-glow class. */
+     spotlight + border shine come from the shared .mini-glow class. The
+     border width is already reserved in the base rule — only recolour. */
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
   backdrop-filter: blur(6.4px);
   -webkit-backdrop-filter: blur(6.4px);
-  border: 1.5px solid var(--border-flat);
+  border-color: var(--border-flat);
   box-shadow: var(--mini-seam-shadow);
 }
 /* Team edit mode → red surface, white spotlight (the shared glow's colour is
@@ -1040,7 +1073,7 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
-.fx-list-row.is-droptarget {
+.fx-list-row.is-droptarget::before {
   background: var(--accent-tint);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
@@ -1049,7 +1082,7 @@
 .fx-tile.is-bindrop {
   border-color: var(--danger);
 }
-.fx-list-row.is-bindrop {
+.fx-list-row.is-bindrop::before {
   box-shadow: inset 0 0 0 1px var(--danger);
 }
 /* Files cut to the clipboard render dimmed until pasted (Explorer-style). */
@@ -1169,6 +1202,11 @@
 
 /* Trash entry glyph — a trash icon where a folder glyph would sit. */
 .fx-bin-glyph { display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); }
+/* Timeline entry glyph — the sidebar's timeline icon where a folder glyph
+   would sit (stacked on .fx-bin-glyph for the shared sizing). Accent-tinted
+   once the timeline actually references files, muted while empty. */
+.fx-timeline-glyph { display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); }
+.fx-timeline-glyph.is-full { color: var(--accent); }
 .fx-list-thumb .fx-bin-glyph { color: var(--text-secondary); width: 90%; height: 90%; }
 /* Match the folder glyph's box (folder fills 100%), pulled to 90% so the
    taller bin shape reads the same visual size as a folder. */
@@ -1195,11 +1233,14 @@
   justify-content: center;
   box-sizing: border-box;
 }
-/* Inline variant in the list row — sits next to the name, not a corner. */
+/* Inline variant (list row + tile label) — sits next to the name, not a
+   corner. vertical-align centres it against the label text when the parent
+   is inline flow (the tile name) rather than a flex row. */
 .fx-bin-count.is-inline {
   position: static;
   margin-left: 6.4px;
   display: inline-flex;
+  vertical-align: middle;
 }
 
 /* Colored ext-label glyph (from the design) — shown when a file has no
@@ -1257,6 +1298,11 @@
   width: calc(var(--fx-tile, 134.4px) * 0.5);
   height: calc(var(--fx-tile, 134.4px) * 0.5);
 }
+/* List view: the solid brand-green square reads heavier than the stroke
+   glyphs at the same box size — pull it in a touch (still %-based, so it
+   keeps scaling with the row-density slider). Centered by the thumb's
+   flex-center. */
+.fx-list-thumb .fx-glyph-whatsapp { width: 68%; height: 68%; }
 
 /* Recognised WhatsApp export — the file keeps its real document-type glyph and
    the brand-green WhatsApp pill is ALWAYS shown in the corner. On hover the pill
@@ -1418,9 +1464,11 @@
   color: #fff;
   filter: drop-shadow(0 1px 1.6px rgba(0, 0, 0, 0.4));
 }
-/* Only badge a real poster — hide over the type-glyph badge and in list view. */
+/* Only badge a real poster — hide over the type-glyph badge (that badge
+   already carries its own play triangle). Shown in the list view too — the
+   button is %-sized off the thumb, so it scales down with the row density. */
 .fx-tile-thumb:has(.fx-glyph) .fx-video-play { display: none; }
-.fx-list-thumb .fx-video-play { display: none; }
+.fx-list-thumb:has(.fx-glyph) .fx-video-play { display: none; }
 /* Audio badge — a decibel line (equalizer bars) on a media gradient, mirroring
    the video badge. Reuses .fx-glyph-vid-tag for the corner format tag (so it
    also hides in the tiny list view). */
@@ -1630,17 +1678,9 @@
 /* Extra top margin so the divider clears the tools row by the same gap it keeps
    below itself (the section's vertical rhythm) instead of hugging the toolbar. */
 .fx-list-head--chrome { padding: 4.8px 11.2px 4px; margin-top: 8px; }
-/* Inset divider above the header — same as the chat tab bar's: stops short of
-   the edges, centered in the gap between the tools row and the header labels. */
-.fx-list-head--chrome::before {
-  content: '';
-  position: absolute;
-  left: 9.6px;
-  right: 9.6px;
-  top: -6.4px;
-  height: 1px;
-  background: var(--border);
-}
+/* (The inset divider that used to sit above the header labels was removed —
+   the 9.6px inset it established lives on in the rows' selection fill and
+   the rows' left content pad, which now provide the visual structure.) */
 
 /* The nav + breadcrumb + search row inside the chrome's row 2. Extra bottom
    padding gives the divider matching breathing room above + below (mirrors the
@@ -1677,8 +1717,9 @@
      (--fx-row-pad / --fx-row-thumb / --fx-row-font, computed in FilesWorkspace.jsx
      so the top two list steps can grow harder). Grid columns stay fixed (above)
      so the chrome header keeps lining up. Static fallbacks keep the row sane if
-     the vars are ever absent. Left padding removed so rows sit flush-left. */
-  padding: var(--fx-row-pad, 6.4px) 11.2px var(--fx-row-pad, 6.4px) 0;
+     the vars are ever absent. Left padding = the divider's 9.6px inset so the
+     content starts where the header divider starts. */
+  padding: var(--fx-row-pad, 6.4px) 11.2px var(--fx-row-pad, 6.4px) 9.6px;
   cursor: pointer;
   /* Text stays a FIXED size in list view — the slider scales only the thumbnail
      icon (--fx-row-thumb) + row height (--fx-row-pad), not the file names. */
@@ -1688,15 +1729,59 @@
   width: 100%;
   text-align: left;
   font-family: inherit;
+  /* The hover / selection fill paints on an INSET pseudo (below) rather than
+     the full-bleed row, so its edges line up with the column header's inset
+     divider. isolate keeps the z:-1 pseudo inside this row (behind the row
+     content, above the page background). */
+  isolation: isolate;
 }
-.fx-list-row:hover { background: var(--bg-elevated); }
-.fx-list-row.is-selected { background: var(--accent-tint); }
+.fx-list-row::before {
+  content: '';
+  position: absolute;
+  /* Small vertical inset so adjacent rows' fills read as separate pills
+     (a gap between selected/hovered sections) instead of merging. */
+  top: 1.6px;
+  bottom: 1.6px;
+  /* Starts left of the rows' 9.6px content inset so the fill carries its own
+     inner left padding — the icon gets breathing room without the content
+     moving. */
+  left: 3.2px;
+  right: 9.6px;
+  border-radius: 8px;
+  /* Reserved (transparent) so hover/selection only recolour — same geometry
+     in every state. */
+  border: 1px solid transparent;
+  z-index: -1;
+  transition: background 120ms, box-shadow 120ms, border-color 120ms;
+}
+/* Hover + selection mirror the GRID tiles (.fx-tile:hover / .is-selected):
+   card fill + strong border on hover; card fill + accent border + soft
+   accent ring when selected. */
+.fx-list-row:hover::before {
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
+  border-color: var(--border-strong);
+}
+.fx-list-row.is-selected::before {
+  background: var(--bg-card);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
+}
+/* No default keyboard-focus ring on the file items — Chromium's `outline:
+   auto` paints a white inner ring + an OS-accent outer ring around the
+   tabbed tile/row; selection state (the tinted fill) is the focus cue. */
+.fx-tile:focus-visible,
+.fx-list-row:focus-visible { outline: none; }
 .fx-list-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .fx-list-thumb {
   /* Scales with the slider (set on .fx-list-row) so the thumbnail grows with
      row density; falls back to 24px when the var is unset (chrome header). */
   width: var(--fx-row-thumb, 24px); height: var(--fx-row-thumb, 24px); border-radius: 4.8px;
   overflow: hidden; flex: 0 0 var(--fx-row-thumb, 24px);
+  /* Containing block for the absolutely-positioned video indicators (the
+     centred play badge + duration pill) — without this they'd anchor to the
+     positioned ROW and float mid-row instead of over the thumbnail. */
+  position: relative;
   /* Hard-lock a square box so no-thumbnail glyphs (and every thumb) keep a
      1:1 aspect ratio regardless of row height. */
   aspect-ratio: 1 / 1;
@@ -1712,7 +1797,12 @@
 .fx-list-thumb .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent); }
 /* Folder glyph fills the box (was a small 20px svg in a 30px box). */
 .fx-list-thumb .fx-folder-glyph { color: var(--accent); width: 100%; height: 100%; }
-.fx-list-thumb .project-files-icon svg { width: 13.6px; height: 13.6px; }
+/* Fill the thumb box (percentage, not a fixed px) so the glyphForFile stroke
+   icons (txt / audio / pdf / the WhatsApp transcript mark, …) render at the
+   SAME size as the Office icons (inline-styled to 100%) and every other
+   thumb, and scale with the row-density slider. The drawings carry their own
+   internal padding in the 24-unit viewBox, so 100% doesn't read oversized. */
+.fx-list-thumb .project-files-icon svg { width: 100%; height: 100%; }
 /* Type badge — an explicit centered square chip (not a percentage, which
    collapsed to the text height in the center-aligned grid above). Sized to sit
    in the 30px thumb with breathing room so it reads like the other icons
@@ -1835,41 +1925,44 @@
 
 /* ── Status bar ─────────────────────────────────────────────────────── */
 /* ── Bottom action bar — file operations + status ─────────────────────
-   Docked to the absolute bottom of the viewport (not just the bottom of
-   the section). Offset from the left by the sidebar width so it aligns
-   with the content area and follows the sidebar's expand/collapse. A
-   translucent blurred backdrop keeps the buttons legible over the
-   spotlight + scrolling content while still hinting the dots behind. */
+   A rounded FLOATING section hovering above the content (the mini-header
+   recipe, mirrored to the bottom): `position: sticky` keeps it docked a
+   chrome-inset above the window's bottom edge while the page scrolls behind
+   it. Surface = the pinned mini header's (.fx-pathbar.is-pinned): frosted
+   page wash + blur + 1.5px border + seam shadow + 9.6px radius. SAME recipe
+   as the chat footer (.sv-footer in SplitView.css) — keep the two in sync so
+   the Files and Chat footers read as one component. The bar spans .fx-root,
+   which is already capped at the shared content ceiling. */
 .fx-bottombar {
-  /* Bottom grid row (row 4); `position: sticky; bottom: 0` keeps it docked at
-     the bottom of the page viewport while the page scrolls behind it, so the
-     file actions stay reachable. */
   grid-row: 4;
   grid-column: 1;
   position: sticky;
-  bottom: 0;
+  /* Same gap below as the mini header keeps above (--chrome-inset). */
+  bottom: 6.4px;
   z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 9.6px;
   padding: 8px 17.6px;
-  /* Surface runs full width behind the rail; the actions/status content is
-     re-inset past it. Identity off the Files main window (var unset). */
+  /* The actions/status content is inset to the shared content start.
+     Identity off the Files main window (var unset). */
   padding-left: var(--fx-rail-pad, 17.6px);
-  border-top: 1px solid var(--border);
+  font-size: 9.2px;
+  color: var(--text-muted);
+  border: 1.5px solid var(--border-flat, var(--border));
+  border-radius: 9.6px;
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
   backdrop-filter: blur(6.4px);
   -webkit-backdrop-filter: blur(6.4px);
-  font-size: 9.2px;
-  color: var(--text-muted);
+  box-shadow: var(--mini-seam-shadow-down);
   transition: background-color 340ms ease, border-color 340ms ease;
 }
 /* Team edit mode → red-tinted footer, matching the toolbar + canvas wash so
    the whole workspace reads as "editing the main branch". */
 .fx-bottombar.is-editing {
   background: color-mix(in srgb, var(--danger) 12%, color-mix(in srgb, var(--bg-page) 82%, transparent));
-  border-top-color: color-mix(in srgb, var(--danger) 38%, var(--border));
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
 }
 /* Footer enter/exit (Team-tab edit mode only — added in JSX): slide up from
    below the viewport on enter, slide back down on exit. The `forwards` on

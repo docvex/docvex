@@ -2727,6 +2727,71 @@ function formatVideoTime(s) {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
 }
 
+// Sidebar-style hover: feed the cursor position into --item-spot-x/y so the
+// radial accent gradient brightens at the pointer (same recipe as
+// .nav-item:hover in Sidebar.css). Percentages are ratios of two viewport
+// values, so no toLayoutPx conversion is needed.
+function trackItemSpot(e) {
+  const el = e.currentTarget;
+  const r = el.getBoundingClientRect();
+  el.style.setProperty('--item-spot-x', `${((e.clientX - r.left) / r.width) * 100}%`);
+  el.style.setProperty('--item-spot-y', `${((e.clientY - r.top) / r.height) * 100}%`);
+}
+
+// One snippet card in the Extract panel's grid. Own component so each card
+// gets its own morph pill (hooks can't live in the render loop): hovering
+// shows the cursor-following tooltip, right-click morphs it into a dropdown
+// (Find → focus the selection on the media; Delete → morphs again into the
+// main-app confirm panel before removing). Clicking the card toggles the
+// locate highlight; the text stops propagation so copying by selection
+// doesn't toggle it.
+function SnipEntryCard({ entry, kind, active, onToggle, onFind, onDelete }) {
+  const morph = useMorphPill({
+    hoverContent: entry.region
+      ? (active ? 'Hide selection' : (kind === 'video' ? 'Jump to this moment & show the selection' : 'Show this selection on the image'))
+      : 'Extracted snippet',
+    menuItems: [
+      entry.region && { label: 'Find', key: 'find', onClick: onFind },
+      {
+        label: 'Delete',
+        key: 'delete',
+        danger: true,
+        onClick: onDelete,
+        confirm: {
+          title: 'Delete this snippet?',
+          message: 'The extracted text and its selection are removed from this file’s history.',
+          confirmLabel: 'Delete',
+          cancelLabel: 'Cancel',
+        },
+      },
+    ],
+  });
+  return (
+    <div
+      className={`dv-snip-entry${entry.region ? ' is-locatable' : ''}${active ? ' is-active' : ''}`}
+      onMouseMove={(e) => { trackItemSpot(e); morph.handleMouseMove(e); }}
+      onMouseLeave={morph.handleMouseLeave}
+      onContextMenu={morph.handleContextMenu}
+    >
+      {/* The THUMBNAIL is the click-to-focus target; the hover/selected
+          styling still paints across the whole card. */}
+      {entry.region ? (
+        <button type="button" className="dv-snip-entry-thumb" onClick={onToggle}>
+          <img src={entry.thumb} alt="" draggable={false} />
+        </button>
+      ) : (
+        <div className="dv-snip-entry-thumb">
+          <img src={entry.thumb} alt="" draggable={false} />
+        </div>
+      )}
+      <p className={`dv-snip-entry-text${entry.text ? '' : ' is-empty'}`}>
+        {entry.text || 'No text found in this selection.'}
+      </p>
+      {morph.node}
+    </div>
+  );
+}
+
 // "Jun 13" / "14:32" — split so the history timeline rail can stack them.
 function formatHistoryTimestamp(ms) {
   const d = new Date(ms);
@@ -4377,7 +4442,6 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   // Persisted snippet history for this file — newest first; rendered oldest
   // first so the newest snippet lands at the bottom of the list.
   const [history, setHistory] = useState(() => loadOcrHistory(file.path));
-  const [copiedId, setCopiedId] = useState(null);
   const [historyWidth, setHistoryWidth] = useState(HISTORY_DEFAULT_WIDTH);
   const jobIdRef = useRef(0);
   const historyListRef = useRef(null);
@@ -4744,27 +4808,128 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   // Keep panStateRef current so the drag closure reads the latest value.
   useEffect(() => { panStateRef.current = { x: panX, y: panY }; }, [panX, panY]);
 
-  // Scale the pan by the zoom factor so the point at the stage centre stays put
-  // through a zoom change — zooming in/out happens around the current view
-  // centre (the panned-to spot) rather than the image's own centre.
-  const reanchorPan = useCallback((factor) => {
+  // Current zoom, readable synchronously — wheel bursts fire faster than
+  // re-renders, and zoom math must chain off the latest value, not the one
+  // from the last committed render.
+  const zoomRef = useRef(1);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+
+  // Step the zoom and scale the pan by the same factor so the point at the
+  // stage centre stays put — zooming happens around the current view centre
+  // (the panned-to spot) rather than the image's own centre.
+  //
+  // IMPORTANT: the factor is computed OUTSIDE the state updaters. The old
+  // code called setPanX from inside setZoom's updater; React (StrictMode)
+  // invokes updaters twice, so the pan got re-scaled twice per step and the
+  // view jumped sideways after any pan + zoom combination.
+  const applyZoom = useCallback((dir) => {
+    const z = zoomRef.current;
+    // Zooming OUT while a snippet is focused ends the focus — the selection
+    // deselects and its highlight clears.
+    if (dir === 'out' && highlightIdRef.current) setHighlightId(null);
+    const raw = dir === 'in' ? z * ZOOM_STEP : z / ZOOM_STEP;
+    if (dir === 'out' && raw <= 1) {
+      zoomRef.current = 1;
+      setZoom(1);
+      setPanX(0);
+      setPanY(0);
+      return;
+    }
+    const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +raw.toFixed(3)));
+    const factor = next / z;
+    zoomRef.current = next;
+    setZoom(next);
     setPanX((px) => px * factor);
     setPanY((py) => py * factor);
   }, []);
 
-  const zoomIn = useCallback(() => setZoom(z => {
-    const next = Math.min(ZOOM_MAX, +(z * ZOOM_STEP).toFixed(3));
-    reanchorPan(next / z);
-    return next;
-  }), [reanchorPan]);
-  const zoomOut = useCallback(() => setZoom(z => {
-    const next = z / ZOOM_STEP;
-    if (next <= 1) { setPanX(0); setPanY(0); return 1; }
-    const clamped = Math.max(ZOOM_MIN, +next.toFixed(3));
-    reanchorPan(clamped / z);
-    return clamped;
-  }), [reanchorPan]);
-  const zoomReset = useCallback(() => { setZoom(1); setPanX(0); setPanY(0); }, []);
+  const zoomIn = useCallback(() => applyZoom('in'), [applyZoom]);
+  const zoomOut = useCallback(() => applyZoom('out'), [applyZoom]);
+
+  // Resizing the side panel changes the stage's padding-left (--dv-advisor-w),
+  // which re-centres the media and would drag a zoomed-in view sideways.
+  // Watch the media's untransformed layout centre (offsetLeft/Top ignore the
+  // pan/zoom transform) and cancel any shift through the pan, so the pixels
+  // the user is looking at stay put while the panel is dragged.
+  useEffect(() => {
+    const stage = stageRef.current;
+    const el = mediaRef.current;
+    if (!stage || !el || typeof ResizeObserver === 'undefined') return undefined;
+    let last = {
+      x: el.offsetLeft + el.offsetWidth / 2,
+      y: el.offsetTop + el.offsetHeight / 2,
+    };
+    const ro = new ResizeObserver(() => {
+      const cur = {
+        x: el.offsetLeft + el.offsetWidth / 2,
+        y: el.offsetTop + el.offsetHeight / 2,
+      };
+      if (zoomRef.current > 1) {
+        const dx = cur.x - last.x;
+        const dy = cur.y - last.y;
+        if (dx) setPanX((px) => px - dx);
+        if (dy) setPanY((py) => py - dy);
+      }
+      last = cur;
+    });
+    ro.observe(stage);
+    return () => ro.disconnect();
+  }, [url]);
+
+  // "Focus" a saved selection: zoom + pan so its region sits centred in the
+  // media area at a comfortable size (~55% of the stage). Pan maths mirror
+  // the transform (`translate(pan) scale(zoom)`, origin = element centre):
+  // pan is in screen px, so a natural-px offset from the media centre maps
+  // through baseScale (layout px per natural px) × zoom.
+  const focusRegion = useCallback((entry) => {
+    const el = mediaRef.current;
+    const stage = stageRef.current;
+    const reg = entry?.region;
+    if (!el || !stage || !reg) return;
+    const natW = kind === 'video' ? el.videoWidth : el.naturalWidth;
+    const natH = kind === 'video' ? el.videoHeight : el.naturalHeight;
+    if (!natW || !natH) return;
+    // Region bbox in natural px.
+    let minX;
+    let minY;
+    let maxX;
+    let maxY;
+    if (reg.kind === 'rect') {
+      minX = Math.min(reg.x1, reg.x2);
+      maxX = Math.max(reg.x1, reg.x2);
+      minY = Math.min(reg.y1, reg.y2);
+      maxY = Math.max(reg.y1, reg.y2);
+    } else if (Array.isArray(reg.points) && reg.points.length) {
+      const r = reg.kind === 'union' ? (reg.r || 0) : 0;
+      minX = Math.min(...reg.points.map((p) => p.x - r));
+      maxX = Math.max(...reg.points.map((p) => p.x + r));
+      minY = Math.min(...reg.points.map((p) => p.y - r));
+      maxY = Math.max(...reg.points.map((p) => p.y + r));
+    } else {
+      return;
+    }
+    const bw = Math.max(1, maxX - minX);
+    const bh = Math.max(1, maxY - minY);
+    // offsetWidth is the untransformed layout size (getBoundingClientRect
+    // would bake the current zoom in).
+    const baseScale = el.offsetWidth / natW;
+    const sr = stage.getBoundingClientRect();
+    const FILL = 0.55;
+    const fit = Math.min((sr.width * FILL) / (bw * baseScale), (sr.height * FILL) / (bh * baseScale));
+    const z = Math.max(1, Math.min(ZOOM_MAX, +fit.toFixed(3)));
+    zoomRef.current = z;
+    setZoom(z);
+    setPanX(-((minX + maxX) / 2 - natW / 2) * baseScale * z);
+    setPanY(-((minY + maxY) / 2 - natH / 2) * baseScale * z);
+  }, [kind]);
+  const zoomReset = useCallback(() => {
+    // Resetting the view also ends a snippet focus.
+    if (highlightIdRef.current) setHighlightId(null);
+    zoomRef.current = 1;
+    setZoom(1);
+    setPanX(0);
+    setPanY(0);
+  }, []);
   // Re-centre the media in the stage without changing the zoom level (brings a
   // panned-away video/image back to the middle).
   const recenter = useCallback(() => { setPanX(0); setPanY(0); }, []);
@@ -4776,17 +4941,11 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     const onWheel = (e) => {
       if (armed) return;
       e.preventDefault();
-      setZoom(z => {
-        const raw = e.deltaY < 0 ? z * ZOOM_STEP : z / ZOOM_STEP;
-        if (raw <= 1 && e.deltaY > 0) { setPanX(0); setPanY(0); return 1; }
-        const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +raw.toFixed(3)));
-        reanchorPan(next / z);
-        return next;
-      });
+      applyZoom(e.deltaY < 0 ? 'in' : 'out');
     };
     stage.addEventListener('wheel', onWheel, { passive: false });
     return () => stage.removeEventListener('wheel', onWheel);
-  }, [armed, reanchorPan]);
+  }, [armed, applyZoom]);
 
   // Stage mousedown: pan when zoomed, or click-to-play for video (replaces dv-player-click).
   const onStageMouseDown = useCallback((e) => {
@@ -5109,16 +5268,8 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     window.addEventListener('mouseup', onUp);
   };
 
-  const toggleTool = () => {
-    if (armed) { disarm(); return; }
-    setHighlightId(null);
-    // Extraction only ever reads a paused frame — arm pauses the video.
-    if (kind === 'video') { try { mediaRef.current?.pause(); } catch { /* noop */ } }
-    setArmed(true);
-  };
-
-  // Picking a selection tool in the sidebar also ARMS extraction mode right
-  // away (no separate "Extract text" click needed).
+  // Picking a selection tool in the stage pill also ARMS extraction mode
+  // right away (no separate "Extract text" click needed).
   const pickTool = (id) => {
     setTool(id);
     if (!armed) {
@@ -5126,14 +5277,6 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       if (kind === 'video') { try { mediaRef.current?.pause(); } catch { /* noop */ } }
       setArmed(true);
     }
-  };
-
-  const copyHistoryEntry = async (entry) => {
-    try {
-      await navigator.clipboard.writeText(entry.text || '');
-      setCopiedId(entry.id);
-      setTimeout(() => setCopiedId((cur) => (cur === entry.id ? null : cur)), 1500);
-    } catch { /* clipboard unavailable */ }
   };
 
   const removeHistoryEntry = (entryId) => {
@@ -5297,19 +5440,15 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
                 <rect width="100%" height="100%" fill="white" />
                 {shapeElements(highlightShape, undefined, { fill: 'black' })}
               </mask>
-              {/* Brush stroke = union of overlapping circles. Clip ONE uniform
-                  fill to that union (like the live tool's tint) so it reads as
-                  a single smooth blob, not stacked circle outlines. */}
-              {highlightShape.kind === 'union' && (
-                <clipPath id={`${clipBase}-hlc`} clipPathUnits="userSpaceOnUse">
-                  {shapeElements(highlightShape)}
-                </clipPath>
-              )}
+              {/* One uniform accent fill clipped to the selection — every
+                  shape kind renders like the Highlight brush (flat tint, no
+                  outline/glow), so located selections match highlight mode. */}
+              <clipPath id={`${clipBase}-hlc`} clipPathUnits="userSpaceOnUse">
+                {shapeElements(highlightShape)}
+              </clipPath>
             </defs>
             <rect className="dv-ocr-lasso-scrim dv-ocr-highlight-scrim" width="100%" height="100%" mask={`url(#${clipBase}-hl)`} />
-            {highlightShape.kind === 'union'
-              ? <rect className="dv-ocr-highlight-union" width="100%" height="100%" clipPath={`url(#${clipBase}-hlc)`} />
-              : shapeElements(highlightShape, 'dv-ocr-lasso-outline dv-ocr-highlight-outline')}
+            <rect className="dv-ocr-highlight-union" width="100%" height="100%" clipPath={`url(#${clipBase}-hlc)`} />
           </svg>
         </div>
       )}
@@ -5328,6 +5467,33 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
         <Tooltip content="Reset zoom"><button type="button" className="dv-zoom-pct" onClick={zoomReset}>{Math.round(zoom * 100)}%</button></Tooltip>
         <button type="button" className="dv-zoom-btn" onClick={zoomIn} aria-label="Zoom in">+</button>
       </div>
+
+      {/* Selection-tool pill — top-centre over the media, Extract Tool style
+          (replaces the old sidebar tool row + footer "Extract text" button).
+          Only while the Extract-text side tab is active. Clicking a tool arms
+          it; clicking the armed tool again cancels the selection mode. */}
+      {rightTab === 'extract' && (
+        <div className="dv-tool-pill-wrap">
+          <div className="dv-tool-pill" onMouseDown={(e) => e.stopPropagation()}>
+            {OCR_TOOLS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`dv-tool-pill-btn${armed && tool === t.id ? ' is-active' : ''}`}
+                aria-pressed={armed && tool === t.id}
+                onClick={() => { if (armed && tool === t.id) disarm(); else pickTool(t.id); }}
+              >
+                {t.icon}
+                {t.label}
+              </button>
+            ))}
+            <span className="dv-tool-pill-sep" />
+            <span className="dv-tool-pill-hint">
+              {armed ? 'Drag over the text to read it' : 'Pick a tool to extract text'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Custom video player — auto-hiding controls bar. */}
       {kind === 'video' && playbackFlash && (
@@ -5445,17 +5611,8 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
         </div>
       )}
 
-      {/* Selection-mode pill — appears while extraction is armed, top-centre
-          of the area right of the floating side panel. */}
-      {armed && (
-        <div className="dv-selmode-wrap">
-          <div className="dv-selmode-pill" role="status">
-            {ScanTextGlyph}
-            <span>Selection mode · {OCR_TOOLS.find((t) => t.id === tool)?.label}</span>
-            <button type="button" aria-label="Exit selection mode" onClick={disarm}>×</button>
-          </div>
-        </div>
-      )}
+      {/* (The old armed-only "Selection mode" pill was replaced by the
+          always-visible tool pill above — it shows the armed tool itself.) */}
 
       {/* Error pill — replaces the old bottom-of-stage status modal. */}
       {errorMsg && (
@@ -5477,16 +5634,8 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
         <CaptionsPanel file={file} url={url} currentTime={currentTime} onSeek={seekTo} onCaptionsChange={setCaptions} />
       ) : (
       <>
-      {/* "Extract text" in the shared Multitool footer — arms the lasso so you
-          can paint over the {kind} to read it. */}
-      <MultitoolFooter>
-        <div className="dv-doc-extract-bar">
-          <button type="button" className="dv-doc-extract-btn" onClick={toggleTool}>
-            {ScanTextGlyph}
-            <span>{armed ? 'Cancel selection' : 'Extract text'}</span>
-          </button>
-        </div>
-      </MultitoolFooter>
+      {/* No footer action — arming/tool choice moved to the floating pill
+          over the media stage (shown while this tab is active). */}
       <div className="dv-ocr-history-scroll" ref={historyListRef}>
         {/* Masthead — accent eyebrow + display title + meta (Versions style). */}
         <header className="dv-ocr-history-head">
@@ -5506,70 +5655,29 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
             )}
           </div>
         </header>
-        {/* Selection-tool options — one row directly under the header (moved
-            here from the old on-stage Extract-text pill's dropdown). */}
-        <div className="dv-ocr-side-tools">
-          <div className="dv-ocr-tools">
-            {OCR_TOOLS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                className={`dv-ocr-tool${tool === t.id ? ' is-active' : ''}`}
-                onClick={() => pickTool(t.id)}
-              >
-                {t.icon}
-                <span>{t.label}</span>
-              </button>
-            ))}
-          </div>
-          <p className="dv-ocr-tool-hint">{OCR_TOOLS.find((t) => t.id === tool)?.hint}</p>
-        </div>
+        {/* Selection cards — same shape as the Extract Tool overlay's sidebar
+            (numbered badge · thumbnail · text · copy), oldest first so the
+            numbers match the order the selections were made. */}
         {history.length === 0 ? null : (
         <div className="dv-ocr-history-list">
-          {[...history].reverse().map((entry) => {
-            const { date, time } = formatHistoryTimestamp(entry.createdAt);
-            return (
-              <div key={entry.id} className="dv-ocr-history-item">
-                <div className="dv-ocr-history-rail">
-                  <span className="dv-ocr-history-node" />
-                  <div className="dv-ocr-history-date">
-                    <span className="dv-ocr-history-date-d">{date}</span>
-                    <span className="dv-ocr-history-date-t">{time}</span>
-                  </div>
-                </div>
-                <div className="dv-ocr-history-content">
-                  {entry.region ? (
-                    <Tooltip content={highlightId === entry.id ? 'Hide selection' : (kind === 'video' ? 'Jump to this moment & show the selection' : 'Show this selection on the image')}>
-                      <button
-                        type="button"
-                        className={`dv-ocr-history-thumb is-locatable${highlightId === entry.id ? ' is-active' : ''}`}
-                        onClick={() => setHighlightId((cur) => (cur === entry.id ? null : entry.id))}
-                      >
-                        <img src={entry.thumb} alt="" />
-                      </button>
-                    </Tooltip>
-                  ) : (
-                    <div className="dv-ocr-history-thumb">
-                      <img src={entry.thumb} alt="" />
-                    </div>
-                  )}
-                  <div className="dv-ocr-history-card">
-                    <p className={`dv-ocr-history-text${entry.text ? '' : ' is-empty'}`}>
-                      {entry.text || 'No text found in this selection.'}
-                    </p>
-                    <div className="dv-ocr-history-actions">
-                      {entry.text && (
-                        <button type="button" className="dv-ocr-history-act" onClick={() => copyHistoryEntry(entry)}>
-                          {copiedId === entry.id ? 'Copied' : 'Copy'}
-                        </button>
-                      )}
-                      <button type="button" className="dv-ocr-history-remove" aria-label="Remove" onClick={() => removeHistoryEntry(entry.id)}>×</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {[...history].reverse().map((entry) => (
+            <SnipEntryCard
+              key={entry.id}
+              entry={entry}
+              kind={kind}
+              active={highlightId === entry.id}
+              onToggle={() => {
+                if (highlightId === entry.id) { setHighlightId(null); return; }
+                setHighlightId(entry.id);
+                focusRegion(entry);
+              }}
+              onFind={() => {
+                setHighlightId(entry.id);
+                focusRegion(entry);
+              }}
+              onDelete={() => removeHistoryEntry(entry.id)}
+            />
+          ))}
         </div>
       )}
       </div>

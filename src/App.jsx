@@ -135,9 +135,16 @@ export default function App() {
     <ReportProblemProvider>
       <WindowTitle />
       <ProjectPrefetch />
-      {/* The tray "Extract text" overlay window (?snip=1) is chromeless — the
-          frozen screenshot must fill the display edge-to-edge, no title bar. */}
-      {isElectron && new URLSearchParams(window.location.search).get('snip') !== '1' && <TitleBar />}
+      {/* The tray "Extract text" windows are chromeless — the overlay's
+          (?snip=1) frozen screenshot must fill the display edge-to-edge, the
+          launcher panel (?snipPanel=1) draws its own mini title bar, and the
+          delayed-capture countdown badge (?snipCountdown=1) is a transparent
+          click-through circle. */}
+      {isElectron
+        && !['snip', 'snipPanel', 'snipCountdown'].some(
+          (k) => new URLSearchParams(window.location.search).get(k) === '1',
+        )
+        && <TitleBar />}
       <AppRoutes Shell={AppShell} ProjectShell={ProjectShell} />
       <ReportProblemModal />
     </ReportProblemProvider>

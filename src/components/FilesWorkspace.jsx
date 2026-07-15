@@ -120,6 +120,8 @@ function Icon({ name, size = 16, strokeWidth = 1.8, className = '', filled = fal
     case 'file-sheet': return <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="8" y1="12" x2="16" y2="12" /><line x1="8" y1="16" x2="16" y2="16" /><line x1="12" y1="11" x2="12" y2="17" /></svg>;
     case 'file-pdf': return <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><path d="M8.5 13.5h1a1 1 0 0 0 0-2h-1z" /><path d="M8.5 11.5v4" /><path d="M12.5 11.5v4h1a1.2 1.2 0 0 0 1.2-1.2v-1.6a1.2 1.2 0 0 0-1.2-1.2z" /></svg>;
     case 'categories': return <svg {...p}><rect x="3" y="3" width="18" height="6" rx="1.5" /><rect x="3" y="13" width="18" height="6" rx="1.5" /></svg>;
+    case 'grid': return <svg {...p}><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>;
+    case 'list': return <svg {...p}><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg>;
     case 'image': return <svg {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>;
     default: return null;
   }
@@ -175,11 +177,30 @@ function FullBinGlyph({ size = 42 }) {
   );
 }
 
+// Timeline glyph — the sidebar's Timeline tab icon (a winding path with two
+// endpoint nodes), reused for the virtual Timeline folder entry so the two
+// surfaces read as the same feature. Keep in sync with Sidebar.jsx's
+// TimelineIcon.
+function TimelineGlyph({ size = 42 }) {
+  return (
+    <svg
+      width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth={1.6}
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    >
+      <circle cx="6" cy="19" r="3" />
+      <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" />
+      <circle cx="18" cy="5" r="3" />
+    </svg>
+  );
+}
+
 // Glyph for a folder-kind item: the Recycle bin entry gets the trash icon —
-// FILLED when it holds files, outline when empty; a folder probed as a
-// WhatsApp export (it CONTAINS a chat transcript — see isWhatsAppExport) gets
-// the WhatsApp mark like the export zips do; every other folder gets the folder
-// glyph (optionally a custom colour).
+// FILLED when it holds files, outline when empty; the Timeline entry gets the
+// sidebar's timeline glyph; a folder probed as a WhatsApp export (it CONTAINS
+// a chat transcript — see isWhatsAppExport) gets the WhatsApp mark like the
+// export zips do; every other folder gets the folder glyph (optionally a
+// custom colour).
 function FolderOrBinGlyph({ item, size = 42, color }) {
   if (item.binEntry) {
     const s = Math.round(size * 0.92);
@@ -187,6 +208,13 @@ function FolderOrBinGlyph({ item, size = 42, color }) {
     return (
       <span className={`fx-bin-glyph${full ? ' is-full' : ''}`}>
         {full ? <FullBinGlyph size={s} /> : <Icon name="trash" size={s} strokeWidth={1.6} />}
+      </span>
+    );
+  }
+  if (item.timelineEntry) {
+    return (
+      <span className={`fx-bin-glyph fx-timeline-glyph${item.timelineCount > 0 ? ' is-full' : ''}`}>
+        <TimelineGlyph size={Math.round(size * 0.88)} />
       </span>
     );
   }
@@ -231,7 +259,7 @@ function FolderColorRow({ current, onPick }) {
 function whatsappMenuHeader(item, isFolder, canEdit, folderColor, onSetColor) {
   // Only the zip/loose-file exports get the WhatsApp header — never folders.
   const isWa = isWhatsAppExport(item) && !isFolder;
-  const showColors = isFolder && !item.binEntry && canEdit;
+  const showColors = isFolder && !item.binEntry && !item.timelineEntry && canEdit;
   if (!isWa && !showColors) return undefined;
   return (closeMenu) => (
     <>
@@ -437,9 +465,10 @@ export function ItemGlyph({ item }) {
 
 // Real file thumbnail (poster / video slideshow / type glyph). Video files get
 // a centred play button layered over the poster so they read as playable at a
-// glance. The badge is CSS-hidden when no real poster resolved (the type-glyph
-// badge — which already shows its own play triangle — is showing) and in the
-// tiny list view. See .fx-video-play in FilesWorkspace.css.
+// glance — in both tile and list views (it's %-sized off the thumb). The badge
+// is CSS-hidden when no real poster resolved (the type-glyph badge — which
+// already shows its own play triangle — is showing). See .fx-video-play in
+// FilesWorkspace.css.
 export function ItemThumbnail({ item }) {
   const isVideo = extCategory(item.ext) === 'vid';
   return (
@@ -517,19 +546,10 @@ function trashHoverContent(item) {
   );
 }
 
-// Hover-tooltip content for a recognised WhatsApp export: the file name with a
-// WhatsApp badge + a "recognised as WhatsApp convo" note below it.
-function whatsappHoverContent(item) {
-  return (
-    <span className="fx-hover-rich fx-hover-wa">
-      <span className="fx-hover-wa-mark">{WhatsAppMark}</span>
-      <span className="fx-hover-wa-text">
-        <span className="fx-hover-name">{item.name}</span>
-        <span className="fx-hover-wa-note">Opens as a readable WhatsApp chat</span>
-      </span>
-    </span>
-  );
-}
+// (The rich WhatsApp hover pill — badge + "recognised as WhatsApp convo"
+// note — was removed; WhatsApp files show the standard name pill like every
+// other file. The right-click MENU header keeps its WhatsApp treatment via
+// whatsappMenuHeader.)
 
 // Right-click menu for a file / folder item. Tab-aware: in the bin, items
 // offer Restore + Delete forever; in drafts, the usual Open / Rename /
@@ -560,11 +580,28 @@ function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onPropertie
     }
     return entries;
   }
+  if (item.timelineEntry) {
+    // The Timeline entry is a read-only view of the case timeline's files —
+    // just open it.
+    return [{ key: 'open', label: 'Open', onClick: () => onOpen?.(item) }];
+  }
   const isFolder = item.kind === 'folder';
   const isBin = tab === 'trash';
   const localPath = isFolder ? item._dir?.path : item._raw?.path;
   const bulk = Boolean(isMultiSelected && bulkCount > 1);
   const subject = bulk ? `${bulkCount} items` : (isFolder ? `“${item.name}” and everything inside it` : `“${item.name}”`);
+
+  if (tab === 'timeline') {
+    // Timeline files are REFERENCES to files that live elsewhere (the project
+    // folder, or wherever they were picked from when the timeline was built)
+    // — read-only here: no rename / copy / cut / delete, which would break or
+    // orphan the timeline's filename links.
+    return [
+      { key: 'open', label: 'Open', onClick: () => onOpen?.(item) },
+      { key: 'props', label: 'Properties', onClick: () => onProperties?.(item) },
+      localPath && { key: 'loc', label: 'Open file location', onClick: () => onOpenLocation?.(item) },
+    ].filter(Boolean);
+  }
 
   if (isBin) {
     // Bin items: open (read in place), restore to the folder, or delete forever.
@@ -706,11 +743,11 @@ function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, 
   const isDropTarget = isFolder && dropFolderId === item.id;
   const isBinDrop = item.binEntry && isDropTarget;
   const isCut = !isFolder && cutPaths?.has(item._raw?.path);
-  const folderColor = isFolder && !item.binEntry ? folderColors?.[item.id] : undefined;
+  const folderColor = isFolder && !item.binEntry && !item.timelineEntry ? folderColors?.[item.id] : undefined;
   const morph = useMorphPill({
-    hoverContent: tab === 'trash' && !item.binEntry ? trashHoverContent(item)
-      : (isWhatsAppExport(item) && !isFolder) ? whatsappHoverContent(item)
-      : item.name,
+    // WhatsApp files use the SAME plain name pill as every other file (the
+    // old rich "recognised as WhatsApp convo" hover pill was removed).
+    hoverContent: tab === 'trash' && !item.binEntry ? trashHoverContent(item) : item.name,
     menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut }),
     // WhatsApp exports get a "recognised as WhatsApp convo" header; folders get
     // a colour-swatch row atop their menu (both shown if it's a WhatsApp folder).
@@ -739,22 +776,26 @@ function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, 
         onMouseMove={morph.handleMouseMove}
         onMouseLeave={morph.handleMouseLeave}
         onContextMenu={(e) => { e.stopPropagation(); morph.handleContextMenu(e); }}
-        draggable={draggable && !item.binEntry ? true : undefined}
-        onDragStart={draggable && !item.binEntry ? (e) => beginItemDrag?.(item, e) : undefined}
-        onDragEnd={draggable && !item.binEntry ? () => endItemDrag?.() : undefined}
+        draggable={draggable && !item.binEntry && !item.timelineEntry ? true : undefined}
+        onDragStart={draggable && !item.binEntry && !item.timelineEntry ? (e) => beginItemDrag?.(item, e) : undefined}
+        onDragEnd={draggable && !item.binEntry && !item.timelineEntry ? () => endItemDrag?.() : undefined}
         onDragOver={isFolder ? (e) => onFolderDragOver?.(item, e) : undefined}
         onDragLeave={isFolder ? () => onFolderDragLeave?.(item) : undefined}
         onDrop={isFolder ? (e) => onFolderDrop?.(item, e) : undefined}
       >
         {/* Bin items show a circular elapsed-time countdown; drafts carry no ribbon. */}
         {tab === 'trash' && <CountdownRing days={item.deletesInDays} size={20} className="fx-tile-countdown" />}
-        {/* Recycle bin entry shows how many items are inside. */}
-        {item.binEntry && item.binCount > 0 && <span className="fx-bin-count">{item.binCount}</span>}
         <span className="fx-tile-thumb">
           {isFolder ? <FolderOrBinGlyph item={item} color={folderColor} /> : <ItemThumbnail item={item} />}
         </span>
         <span>
-          <span className="fx-tile-name">{displayBaseName(item)}</span>
+          <span className="fx-tile-name">
+            {displayBaseName(item)}
+            {/* Recycle bin / Timeline entries show how many items are inside —
+                inline, right of the label (not a corner badge). */}
+            {item.binEntry && item.binCount > 0 && <span className="fx-bin-count is-inline">{item.binCount}</span>}
+            {item.timelineEntry && item.timelineCount > 0 && <span className="fx-bin-count is-inline">{item.timelineCount}</span>}
+          </span>
         </span>
       </button>
       {morph.node}
@@ -796,11 +837,10 @@ function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, o
   const isDropTarget = isFolder && dropFolderId === item.id;
   const isBinDrop = item.binEntry && isDropTarget;
   const isCut = !isFolder && cutPaths?.has(item._raw?.path);
-  const folderColor = isFolder && !item.binEntry ? folderColors?.[item.id] : undefined;
+  const folderColor = isFolder && !item.binEntry && !item.timelineEntry ? folderColors?.[item.id] : undefined;
   const morph = useMorphPill({
-    hoverContent: isBin && !item.binEntry ? trashHoverContent(item)
-      : (isWhatsAppExport(item) && !isFolder) ? whatsappHoverContent(item)
-      : item.name,
+    // WhatsApp files use the SAME plain name pill as every other file.
+    hoverContent: isBin && !item.binEntry ? trashHoverContent(item) : item.name,
     menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut }),
     menuHeader: whatsappMenuHeader(item, isFolder, canEdit, folderColor, onSetColor),
   });
@@ -828,9 +868,9 @@ function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, o
         onMouseMove={morph.handleMouseMove}
         onMouseLeave={morph.handleMouseLeave}
         onContextMenu={(e) => { e.stopPropagation(); morph.handleContextMenu(e); }}
-        draggable={draggable && !item.binEntry ? true : undefined}
-        onDragStart={draggable && !item.binEntry ? (e) => beginItemDrag?.(item, e) : undefined}
-        onDragEnd={draggable && !item.binEntry ? () => endItemDrag?.() : undefined}
+        draggable={draggable && !item.binEntry && !item.timelineEntry ? true : undefined}
+        onDragStart={draggable && !item.binEntry && !item.timelineEntry ? (e) => beginItemDrag?.(item, e) : undefined}
+        onDragEnd={draggable && !item.binEntry && !item.timelineEntry ? () => endItemDrag?.() : undefined}
         onDragOver={isFolder ? (e) => onFolderDragOver?.(item, e) : undefined}
         onDragLeave={isFolder ? () => onFolderDragLeave?.(item) : undefined}
         onDrop={isFolder ? (e) => onFolderDrop?.(item, e) : undefined}
@@ -840,11 +880,17 @@ function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, o
           <span className="fx-list-thumb">
             {isFolder ? <FolderOrBinGlyph item={item} size={20} color={folderColor} /> : <ItemThumbnail item={item} />}
           </span>
-          <span className="fx-name">{displayBaseName(item)}</span>
-          {item.binEntry && item.binCount > 0 && <span className="fx-bin-count is-inline">{item.binCount}</span>}
+          <span className="fx-name">
+            {displayBaseName(item)}
+            {/* Bin / Timeline count pill INSIDE the name span so it hugs the
+                label text (the span stretches flex:1 — a sibling pill would be
+                pushed to the column's far edge, next to the Date column). */}
+            {item.binEntry && item.binCount > 0 && <span className="fx-bin-count is-inline">{item.binCount}</span>}
+            {item.timelineEntry && item.timelineCount > 0 && <span className="fx-bin-count is-inline">{item.timelineCount}</span>}
+          </span>
         </span>
         <span className="fx-list-muted">{item.modifiedLabel || '—'}</span>
-        <span className="fx-list-muted">{isFolder ? 'Folder' : (item.ext ? item.ext.toUpperCase() : 'File')}</span>
+        <span className="fx-list-muted">{item.binEntry ? 'Trash' : item.timelineEntry ? 'Timeline' : isFolder ? 'Folder' : (item.ext ? item.ext.toUpperCase() : 'File')}</span>
         <span className="fx-list-muted">{item.sizeLabel || '—'}</span>
       </button>
       {morph.node}
@@ -922,6 +968,7 @@ export default function FilesWorkspace({
   onUndo, onRedo, canUndo, canRedo, undoLabel, redoLabel,
 }) {
   const isBin = tab === 'trash';
+  const isTimeline = tab === 'timeline';
   // Tile zoom — driven by Ctrl+scroll over the canvas. Zoom out far enough
   // and the grid collapses into the list view; zoom back in and the tiles
   // return. The INITIAL view honors Settings → "Default file view": 'list'
@@ -1065,8 +1112,9 @@ export default function FilesWorkspace({
   const cancelNewFile = () => setCreatingFile(false);
 
   // Write actions (rename / import / new folder) are only offered in the
-  // My-drafts tab — the bin is restore / delete-forever only.
-  const menuEditable = !isBin && canEdit;
+  // My-drafts tab — the bin is restore / delete-forever only, and the
+  // timeline view is a read-only reference list.
+  const menuEditable = !isBin && !isTimeline && canEdit;
 
   // Clear selection + inline edits when the tab changes.
   useEffect(() => {
@@ -1185,7 +1233,11 @@ export default function FilesWorkspace({
   // row-2 portal slot so the folder toolbar (nav + breadcrumb + search) renders
   // INTO the chrome — merging into one bar — instead of a separate in-page row.
   usePaneChromeSlot({
-    description: isBin ? 'Deleted files are removed for good after 30 days.' : summaryText,
+    description: isBin
+      ? 'Deleted files are removed for good after 30 days.'
+      : isTimeline
+      ? 'Files referenced by the case timeline.'
+      : summaryText,
   });
   const chromeSlotEl = usePaneChromePortalEl();
 
@@ -1232,14 +1284,15 @@ export default function FilesWorkspace({
     if (c === 'doc' || c === 'xls' || c === 'ppt' || c === 'pdf') return 'office';
     return 'other';
   };
-  // One flat ordering (no Folders/Files category split): the Recycle bin
-  // entry first, then folders A→Z, then files A→Z.
+  // One flat ordering (no Folders/Files category split): the special entries
+  // first — Recycle bin, then Timeline, side by side (their order in the
+  // `folders` prop is preserved by filter) — then folders A→Z, then files A→Z.
   const binFolders = useMemo(
-    () => (folders || []).filter((f) => f.binEntry && matches(f.name)),
+    () => (folders || []).filter((f) => (f.binEntry || f.timelineEntry) && matches(f.name)),
     [folders, q], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const shownFolders = useMemo(
-    () => (folders || []).filter((f) => !f.binEntry && matches(f.name)).sort(byName),
+    () => (folders || []).filter((f) => !f.binEntry && !f.timelineEntry && matches(f.name)).sort(byName),
     [folders, q], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // Compressed archives (zip / rar / 7z / tar / gz) are "compressed folders" —
@@ -1537,6 +1590,8 @@ export default function FilesWorkspace({
       if (dropFolderId !== folder.id) setDropFolderId(folder.id);
       return;
     }
+    // The Timeline entry is a read-only reference view — never a drop target.
+    if (folder.timelineEntry) return;
     if (!onMoveItems || !dragHasFiles(e)) return;
     // Don't accept a folder dropped onto itself / its own descendants — the
     // live payload comes from the drag bus since dragover can't read dataTransfer.
@@ -1560,6 +1615,7 @@ export default function FilesWorkspace({
       toDelete.forEach((it) => onDelete(it));
       return;
     }
+    if (folder.timelineEntry) return; // read-only reference view — no drops
     if (!onMoveItems || !dragHasFiles(e)) return;
     e.preventDefault();
     setDropFolderId(null);
@@ -1632,6 +1688,7 @@ export default function FilesWorkspace({
   const emptyHint = {
     drafts: 'No files in your folder yet. Add or import files and they’ll show up here.',
     trash: 'Files you delete wait in the trash for 30 days before they’re removed for good.',
+    timeline: 'Build a timeline in the Timeline tab — every file it references shows up here.',
   }[tab];
 
   // List view shows its column header INSIDE the window chrome (same bar/section
@@ -1701,6 +1758,20 @@ export default function FilesWorkspace({
             <span className="fx-size-dot fx-size-dot-lg" aria-hidden="true" />
           </div>
         </Tooltip>
+        {/* Grid ⇄ list toggle — the icon reflects the CURRENT view and flips
+            with it. Drives the same tileSize the slider / Ctrl+scroll use:
+            the list side snaps to the smallest step, the grid side to the
+            default tile size. Sits beside the categorize button. */}
+        <Tooltip content={view === 'list' ? 'Switch to grid view' : 'Switch to list view'}>
+          <button
+            type="button"
+            className="fx-cat-btn"
+            aria-label={view === 'list' ? 'Switch to grid view' : 'Switch to list view'}
+            onClick={() => setTileSize(view === 'list' ? FX_LIST_THRESHOLD : FX_MIN_TILE)}
+          >
+            <Icon name={view === 'list' ? 'list' : 'grid'} size={14} />
+          </button>
+        </Tooltip>
         {/* Categorize — split the listing into labelled category sections
             (folders & archives, media, Office docs, the Recycle bin, then
             other files) stacked vertically. Toggle. Available in the Recycle
@@ -1755,7 +1826,19 @@ export default function FilesWorkspace({
   );
 
   return (
-    <div className="fx-page" ref={pageRef}>
+    <div
+      className="fx-page"
+      ref={pageRef}
+      // Clicking inert page background OUTSIDE the canvas (the masthead, the
+      // toolbar/footer whitespace, layout gaps) clears the selection — the
+      // same rule as the canvas' own empty-space click. Interactive targets
+      // (items, buttons, inputs, menus) are exempt so actions that need the
+      // selection — footer Copy/Paste, the right-click menu — keep it.
+      onClick={(e) => {
+        if (e.target.closest?.('.fx-tile, .fx-list-row, button, input, textarea, a, [role="menu"], [role="dialog"]')) return;
+        clearSelection();
+      }}
+    >
       {chromeSlotEl && createPortal(toolbar, chromeSlotEl)}
       {/* Masthead — Versions-style hero (the page is chromeless on /files, so
           this is the page title). The whole page scrolls, so it simply scrolls
@@ -1834,8 +1917,10 @@ export default function FilesWorkspace({
             <div className="fx-empty"><p>Loading…</p></div>
           ) : (totalShown === 0 && !creatingFolder && !creatingFile) ? (
             <div className="fx-empty">
-              <Icon name={isBin ? 'trash' : 'inbox'} className="fx-icon" strokeWidth={1.2} />
-              <h3>{q ? 'No matches' : (isBin ? 'Trash is empty' : 'Nothing here yet')}</h3>
+              {isTimeline
+                ? <span className="fx-icon fx-timeline-glyph"><TimelineGlyph size={42} /></span>
+                : <Icon name={isBin ? 'trash' : 'inbox'} className="fx-icon" strokeWidth={1.2} />}
+              <h3>{q ? 'No matches' : (isBin ? 'Trash is empty' : isTimeline ? 'No timeline files yet' : 'Nothing here yet')}</h3>
               <p>{q ? `No files match “${query}”.` : emptyHint}</p>
             </div>
           ) : grouped ? (
@@ -2055,9 +2140,9 @@ export default function FilesWorkspace({
             </button>
           </div>
           <div className="fx-bottombar-status">
-            <span>{shownItems.length} {shownItems.length === 1 ? 'file' : 'files'}</span>
-            {shownFolders.length > 0 && <span>· {shownFolders.length} {shownFolders.length === 1 ? 'folder' : 'folders'}</span>}
-            {multiSel.size > 0 && <span>· {multiSel.size} selected</span>}
+            {/* No ambient file/folder tally — the masthead kicker carries the
+                counts; the footer only reports an active selection. */}
+            {multiSel.size > 0 && <span>{multiSel.size} selected</span>}
           </div>
         </div>
 
@@ -2075,7 +2160,11 @@ export default function FilesWorkspace({
 // the workspace already has (no extra fetch).
 function PropertiesModal({ item, onClose }) {
   const isFolder = item.kind === 'folder';
-  const typeLabel = isFolder
+  const typeLabel = item.binEntry
+    ? 'Trash'
+    : item.timelineEntry
+    ? 'Timeline'
+    : isFolder
     ? 'Folder'
     : (item.ext ? `${item.ext.toUpperCase()} file` : 'File');
   const location = isFolder
@@ -2085,7 +2174,7 @@ function PropertiesModal({ item, onClose }) {
   const rows = [
     ['Name', item.name],
     ['Type', typeLabel],
-    !isFolder && item.sizeLabel && ['Size', item.sizeLabel],
+    item.sizeLabel && ['Size', item.sizeLabel],
     item.modifiedLabel && ['Modified', item.modifiedLabel],
     ['Status', statusLabel],
     !isFolder && item.author && ['Edited by', item.author],

@@ -24,7 +24,13 @@
   /* Own stacking context so the cursor-spotlight glow (::before, z 0) sits
      behind the nav content (lifted to z 1 below) instead of over it. */
   isolation: isolate;
+  /* Hub slide — .app-shell.on-hub / .hub-leaving (AppShell.css) pull the rail
+     off-window with a negative margin-left + translateX; this transition
+     animates the ride both ways. */
+  transition: margin-left 320ms cubic-bezier(0.22, 1, 0.36, 1),
+              transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+[data-reduce-motion='true'] .sidebar { transition: none; }
 
 /* Cursor-following spotlight — a soft accent glow that tracks the pointer via
    the --spot-x / --spot-y vars written in Sidebar.jsx. Kept subtle; fades in
@@ -329,9 +335,11 @@
   flex-direction: column;
   gap: 3.2px;
 }
-/* Lead group — the label-less "All projects" launcher row at the rail's top.
-   Tighter vertical padding so it reads as a compact cap above the sections. */
-.sidebar-cat--lead .nav-item { padding-top: 3.2px; padding-bottom: 3.2px; }
+/* Lead group — the label-less "Projects" launcher row at the rail's top.
+   Full-height like every other tab; the negative margin tightens the gap to
+   the first section below (the rail's 14.4px group gap reads too airy under
+   a single cap row). */
+.sidebar-cat--lead { margin-bottom: -8px; }
 /* Category title doubles as a section divider: the uppercase label followed by
    a hairline rule that fills the rest of the row. */
 .sidebar-cat-label {

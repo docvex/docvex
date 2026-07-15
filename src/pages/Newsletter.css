@@ -39,11 +39,11 @@
   --impact-high: #F87171;
 }
 
-/* On a wide window, occupy three of four horizontal sections (75%), left-
-   aligned; full width below the breakpoint. Shared across Activity /
-   Newsletter / Projects. */
+/* On a wide window, cap at the shared content ceiling, left-aligned; full
+   width below the breakpoint (only narrows when the window can no longer fit
+   the cap). Shared across Activity / Newsletter / Projects. */
 @media (min-width: 1024px) { /* 1280px pre-scale */
-  .ed-page { width: 75%; }
+  .ed-page { width: min(100%, var(--content-max-width, 1280px)); }
 }
 
 /* ── Masthead — shared page-header spec (identical to Activity / Projects):

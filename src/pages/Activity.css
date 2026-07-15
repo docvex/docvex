@@ -468,11 +468,12 @@
 .avt-empty-title { color: var(--text-secondary); font-size: 11.2px; font-weight: 500; margin: 0; }
 .avt-empty-help { font-size: 10px; margin: 0; max-width: 288px; }
 
-/* Match the other editorial tabs: content at three-quarters width on wide
-   screens, left-aligned. Shared breakpoint across Activity / Newsletter /
+/* Match the other editorial tabs: content capped at the shared content
+   ceiling on wide screens, left-aligned; only narrows when the window can no
+   longer fit the cap. Shared breakpoint across Activity / Newsletter /
    Projects / Events. */
 @media (min-width: 1024px) { /* 1280px pre-scale */
-  .avt-root { width: 75%; }
+  .avt-root { width: min(100%, var(--content-max-width, 1280px)); }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -564,53 +564,155 @@ function createDocViewerWindow(file) {
 }
 ipcMain.on('window:open-doc-viewer', (_, file) => createDocViewerWindow(file));
 
-// ── Tray "Extract text" — freeze the desktop + OCR a selection ────────────
-// Screenshots the display under the cursor at full physical resolution,
-// stages it to a temp PNG (served via localfile://), and opens a frameless,
-// always-on-top overlay window covering that display — the frozen shot IS the
-// "freeze all windows" effect. The overlay boots the renderer at /snip
-// (?snip=1&shot=<path>), which draws the drag-selection UI and runs the crop
-// through the shared OCR pipeline (lib/ocr.js → doc-ai Edge Function).
-let snipWindow = null;
-async function openScreenSnip() {
-  if (snipWindow && !snipWindow.isDestroyed()) { snipWindow.focus(); return; }
-  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-  const sources = await desktopCapturer.getSources({
-    types: ['screen'],
-    thumbnailSize: {
-      width: Math.round(display.size.width * display.scaleFactor),
-      height: Math.round(display.size.height * display.scaleFactor),
-    },
-  });
-  const source = sources.find((s) => s.display_id === String(display.id)) || sources[0];
-  if (!source || source.thumbnail.isEmpty()) return;
-  const shotPath = path.join(app.getPath('temp'), `docvex-snip-${Date.now()}.png`);
-  await fsp.writeFile(shotPath, source.thumbnail.toPNG());
-  registerLocalfileFile(shotPath);
+// ── Tray "Extract text" — Snipping-Tool-style capture ─────────────────────
+// The tray item opens a small launcher window (openSnipPanel, /snip-panel) —
+// a Snipping-Tool bar: New · Delay · a freeze-scope toggle (all screens vs
+// the screen the panel is on). "New" fires snip:new {mode, delay, allScreens}:
+// the panel hides, the optional delay elapses, then openScreenSnip screenshots
+// the target display(s) at full physical resolution, stages each to a temp
+// PNG (served via localfile://), and opens a frameless fullscreen overlay per
+// display showing its frozen shot. Each overlay boots the renderer at /snip
+// (?snip=1&shot=<path>&mode=<mode>) — a top pill switches the selection mode
+// live; the crop runs through the shared OCR pipeline (lib/ocr.js → doc-ai
+// Edge Function). Starting a selection on one display closes the other frozen
+// overlays (snip:selection-started); when the last overlay closes, the
+// launcher panel pops back up (like the real Snipping Tool after a capture).
+let snipWindows = [];
+let snipPanelWindow = null;
+const SNIP_MODES = new Set(['rect', 'free', 'full']);
 
+// Freeze target: every display, or the one the launcher panel sits on
+// (falling back to the cursor's display if the panel is gone).
+function snipTargetDisplays(allScreens) {
+  if (allScreens) return screen.getAllDisplays();
+  const panelDisplay = snipPanelWindow && !snipPanelWindow.isDestroyed()
+    ? screen.getDisplayMatching(snipPanelWindow.getBounds())
+    : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  return [panelDisplay];
+}
+
+async function openScreenSnip(mode = 'rect', { allScreens = false } = {}) {
+  const alive = snipWindows.filter((w) => !w.isDestroyed());
+  if (alive.length) { alive[0].focus(); return; }
+  snipWindows = [];
+
+  const displays = snipTargetDisplays(allScreens);
+
+  // desktopCapturer applies ONE thumbnailSize to every source, so capture
+  // per display — each shot is requested at exactly THAT display's physical
+  // resolution (CSS size × scale factor). A shared max-size box would
+  // aspect-fit smaller displays into it and their shots wouldn't match
+  // their screen's native resolution.
+  for (const [displayIndex, display] of displays.entries()) {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: {
+        width: Math.round(display.size.width * display.scaleFactor),
+        height: Math.round(display.size.height * display.scaleFactor),
+      },
+    });
+    const source = sources.find((s) => s.display_id === String(display.id))
+      || (displays.length === 1 ? sources[0] : null);
+    if (!source || source.thumbnail.isEmpty()) continue;
+    const shotPath = path.join(app.getPath('temp'), `docvex-snip-${display.id}-${Date.now()}.png`);
+    await fsp.writeFile(shotPath, source.thumbnail.toPNG());
+    registerLocalfileFile(shotPath);
+
+    const win = new BrowserWindow({
+      // Bounds place the window on the right display; `fullscreen` then snaps
+      // it to cover that display completely — sizing to display.bounds alone
+      // can leave the window a few px short on Windows (DPI rounding / Win11
+      // rounded-corner inset), letting the real desktop peek through.
+      x: display.bounds.x,
+      y: display.bounds.y,
+      width: display.bounds.width,
+      height: display.bounds.height,
+      fullscreen: true,
+      frame: false,
+      // NOTE: no `resizable: false` — on Windows a non-resizable window can't
+      // enter fullscreen, which left the overlay at its plain bounds with the
+      // desktop visible around it. Fullscreen itself blocks user resizing.
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      hasShadow: false,
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+      },
+    });
+    // Above fullscreen apps / the taskbar, like a screenshot tool.
+    win.setAlwaysOnTop(true, 'screen-saver');
+    win.setFullScreen(true);
+    // Belt-and-suspenders: re-assert the display's full bounds once the page
+    // is ready, in case the WM applied the fullscreen transition to a stale
+    // rect.
+    win.webContents.once('did-finish-load', () => {
+      if (!win.isDestroyed()) win.setBounds(display.bounds);
+    });
+    // Pin to app content (navigation hardening) like every preload window.
+    const wcId = win.webContents.id;
+    appWindowContentIds.add(wcId);
+    win.removeMenu();
+    const query = { snip: '1', shot: shotPath, mode: SNIP_MODES.has(mode) ? mode : 'rect' };
+    // Multi-screen capture: number each overlay (w1, w2, …) — the overlay
+    // suffixes its saved screenshot with the number so every screen's capture
+    // + snippets can be kept side by side.
+    if (displays.length > 1) query.w = String(displayIndex + 1);
+    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+      win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}?${new URLSearchParams(query).toString()}`);
+    } else {
+      win.loadFile(
+        path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
+        { query },
+      );
+    }
+    snipWindows.push(win);
+    win.on('closed', () => {
+      appWindowContentIds.delete(wcId);
+      snipWindows = snipWindows.filter((w) => w !== win);
+      fsp.unlink(shotPath).catch(() => { /* temp dir self-cleans */ });
+      // When the LAST overlay closes, bring the launcher panel back — like
+      // the real Snipping Tool returning after a capture.
+      if (!snipWindows.length && snipPanelWindow && !snipPanelWindow.isDestroyed()) {
+        snipPanelWindow.show();
+        snipPanelWindow.focus();
+      }
+    });
+  }
+}
+
+// The Snipping-Tool-style launcher bar. A small, frameless, TRANSPARENT
+// window — the visible card paints itself in the renderer (/snip-panel); the
+// window is taller than the card so the Mode/Delay dropdowns have room to
+// open inside it (a child window can't overflow its own bounds).
+function openSnipPanel() {
+  if (snipPanelWindow && !snipPanelWindow.isDestroyed()) {
+    snipPanelWindow.show();
+    snipPanelWindow.focus();
+    return;
+  }
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const W = 560;
+  const H = 380;
   const win = new BrowserWindow({
-    x: display.bounds.x,
-    y: display.bounds.y,
-    width: display.bounds.width,
-    height: display.bounds.height,
+    x: Math.round(display.workArea.x + (display.workArea.width - W) / 2),
+    y: Math.round(display.workArea.y + display.workArea.height * 0.16),
+    width: W,
+    height: H,
     frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
     resizable: false,
-    movable: false,
+    maximizable: false,
     alwaysOnTop: true,
-    skipTaskbar: true,
     hasShadow: false,
-    fullscreenable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
-  // Above fullscreen apps / the taskbar, like a screenshot tool.
-  win.setAlwaysOnTop(true, 'screen-saver');
-  // Pin to app content (navigation hardening) like every preload window.
   const wcId = win.webContents.id;
   appWindowContentIds.add(wcId);
   win.removeMenu();
-  const query = { snip: '1', shot: shotPath };
+  const query = { snipPanel: '1' };
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}?${new URLSearchParams(query).toString()}`);
   } else {
@@ -619,13 +721,127 @@ async function openScreenSnip() {
       { query },
     );
   }
-  snipWindow = win;
+  snipPanelWindow = win;
   win.on('closed', () => {
     appWindowContentIds.delete(wcId);
-    if (snipWindow === win) snipWindow = null;
-    fsp.unlink(shotPath).catch(() => { /* temp dir self-cleans */ });
+    if (snipPanelWindow === win) snipPanelWindow = null;
+    // Closing the tool aborts a delayed capture that hasn't fired yet.
+    clearTimeout(snipDelayTimer);
+    snipDelayTimer = null;
+    closeSnipCountdowns();
   });
 }
+
+// Panel "New" → optional delay → hide the panel → capture. The panel must be
+// hidden BEFORE desktopCapturer runs or the tool photographs itself; the tiny
+// wait lets the OS actually take it off screen.
+// Delayed-capture countdown — a small click-through, non-focusable window at
+// the centre of every target display showing the seconds tick down (/snip-
+// countdown route). Destroyed BEFORE the screenshot so it never captures
+// itself.
+let snipCountdownWindows = [];
+function closeSnipCountdowns() {
+  for (const w of [...snipCountdownWindows]) {
+    if (!w.isDestroyed()) w.destroy();
+  }
+  snipCountdownWindows = [];
+}
+function openSnipCountdowns(delaySec, allScreens) {
+  closeSnipCountdowns();
+  const S = 240;
+  for (const display of snipTargetDisplays(allScreens)) {
+    const wa = display.workArea;
+    const win = new BrowserWindow({
+      x: Math.round(wa.x + (wa.width - S) / 2),
+      y: Math.round(wa.y + (wa.height - S) / 2),
+      width: S,
+      height: S,
+      frame: false,
+      transparent: true,
+      backgroundColor: '#00000000',
+      resizable: false,
+      movable: false,
+      show: false,
+      // Never steal focus from whatever the user is arranging for the shot.
+      focusable: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      hasShadow: false,
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+      },
+    });
+    win.setAlwaysOnTop(true, 'screen-saver');
+    // Clicks fall through to whatever is underneath.
+    win.setIgnoreMouseEvents(true);
+    const wcId = win.webContents.id;
+    appWindowContentIds.add(wcId);
+    win.removeMenu();
+    const query = { snipCountdown: '1', n: String(delaySec) };
+    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+      win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}?${new URLSearchParams(query).toString()}`);
+    } else {
+      win.loadFile(
+        path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
+        { query },
+      );
+    }
+    win.once('ready-to-show', () => { if (!win.isDestroyed()) win.showInactive(); });
+    snipCountdownWindows.push(win);
+    win.on('closed', () => {
+      appWindowContentIds.delete(wcId);
+      snipCountdownWindows = snipCountdownWindows.filter((w) => w !== win);
+    });
+  }
+}
+
+let snipDelayTimer = null;
+ipcMain.on('snip:new', (_e, opts) => {
+  const mode = SNIP_MODES.has(opts?.mode) ? opts.mode : 'rect';
+  const delaySec = Math.min(10, Math.max(0, Math.round(Number(opts?.delay) || 0)));
+  const allScreens = !!opts?.allScreens;
+  clearTimeout(snipDelayTimer);
+  const start = () => {
+    snipDelayTimer = null;
+    (async () => {
+      closeSnipCountdowns();
+      if (snipPanelWindow && !snipPanelWindow.isDestroyed()) {
+        snipPanelWindow.hide();
+      }
+      // Let the countdown/panel actually leave the screen before the shot.
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      await openScreenSnip(mode, { allScreens });
+    })().catch(() => {
+      // Capture unavailable — bring the panel back so the tool isn't lost.
+      if (snipPanelWindow && !snipPanelWindow.isDestroyed()) snipPanelWindow.show();
+    });
+  };
+  if (delaySec > 0) {
+    openSnipCountdowns(delaySec, allScreens);
+    snipDelayTimer = setTimeout(start, delaySec * 1000);
+  } else {
+    start();
+  }
+});
+// Esc in the panel while a delayed capture is counting down — abort the
+// countdown (timer + badges) but leave the Extract Tool window open.
+ipcMain.on('snip:cancel-pending', () => {
+  clearTimeout(snipDelayTimer);
+  snipDelayTimer = null;
+  closeSnipCountdowns();
+});
+
+// Esc in any overlay → close every snip window from the main process.
+// destroy() (not close()) so the frozen shots vanish in one frame — a
+// fullscreen window's close() can lag through async teardown, and the other
+// displays' overlays wouldn't hear a renderer-side window.close() at all.
+// (The last overlay's 'closed' handler above re-shows the launcher panel.)
+ipcMain.on('snip:cancel', () => {
+  for (const w of [...snipWindows]) {
+    if (!w.isDestroyed()) w.destroy();
+  }
+  snipWindows = [];
+});
 
 // Sidebar "Open files" section IPC: snapshot the open viewers, and refocus /
 // close a specific one by its BrowserWindow id.
@@ -2984,7 +3200,7 @@ app.whenReady().then(() => {
     appTray.setContextMenu(Menu.buildFromTemplate([
       {
         label: 'Extract text',
-        click: () => { openScreenSnip().catch(() => { /* capture unavailable — non-fatal */ }); },
+        click: () => { try { openSnipPanel(); } catch { /* window unavailable — non-fatal */ } },
       },
     ]));
   } catch { /* tray unavailable (some Linux DEs) — non-fatal */ }

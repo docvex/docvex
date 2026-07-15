@@ -4,9 +4,9 @@
    no token redefinitions; the global theme drives Cream / Ink. */
 
 /* Left-aligned content column — mirrors the Versions tab (no auto-centring),
-   three-quarters of the width on wide screens. */
+   capped at the shared content ceiling on wide screens. */
 .mx-page { width: 100%; max-width: none; margin: 0; }
-@media (min-width: 1024px) { /* 1280px pre-scale */ .mx-page { width: 75%; } }
+@media (min-width: 1024px) { /* 1280px pre-scale */ .mx-page { width: min(100%, var(--content-max-width, 1280px)); } }
 
 /* ── Masthead (mirrors the Versions tab "Editorial Dossier" header) ──────── */
 .mx-mast {

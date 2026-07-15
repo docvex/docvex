@@ -8,10 +8,10 @@
    page renders inside the standard .project-page-frame, which already
    supplies the top inset + the shared left content gap. */
 
-/* Match the other editorial tabs: content at three-quarters width on wide
-   screens, left-aligned (the Chat/Files 75% recipe). */
+/* Match the other editorial tabs: content capped at the shared content
+   ceiling on wide screens, left-aligned (the Chat/Files recipe). */
 @media (min-width: 1024px) {
-  .cto-root { width: 75%; }
+  .cto-root { width: min(100%, var(--content-max-width, 1280px)); }
 }
 
 /* ── Masthead (option 1a) ─────────────────────────────────────────────── */
@@ -874,4 +874,668 @@
   .cto-spinner { animation-duration: 1.6s; }
   .cto-scan-action.is-current,
   .cto-scan-action.is-past { animation: none; }
+}
+
+/* ── AI Council chamber (Scanning step) — Claude Design "AI Council" ──────
+   Surfaces/text/borders read theme tokens so the chamber holds up on Ink;
+   member identity colours (chair cognac, analyst indigo/amber/pink) are
+   fixed constants — each member keys one colour across avatar, bubble, fact
+   chips and log dots, like the avatar-palette convention. */
+
+@keyframes ccSpin { to { transform: rotate(360deg); } }
+@keyframes ccGlow { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.3); } }
+@keyframes ccPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+@keyframes ccPop {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ccGvSlam {
+  0% { transform: rotate(14deg); animation-timing-function: ease-out; }
+  14% { transform: rotate(17deg); animation-timing-function: cubic-bezier(0.55, 0, 0.9, 0.35); }
+  30% { transform: rotate(-8.7deg); animation-timing-function: ease-out; }
+  37% { transform: rotate(-4.7deg); animation-timing-function: ease-in-out; }
+  44% { transform: rotate(-6.2deg); animation-timing-function: ease-in-out; }
+  62% { transform: rotate(14deg); animation-timing-function: ease-out; }
+  100% { transform: rotate(14deg); }
+}
+@keyframes ccGvShake {
+  0%, 28% { transform: translateY(0); }
+  31% { transform: translateY(2.5px); }
+  38% { transform: translateY(0); }
+  100% { transform: translateY(0); }
+}
+
+/* Current phase — bare text at the centre of the council ring. */
+.cc-phase-center {
+  position: absolute;
+  left: 280px;
+  top: 260px;
+  transform: translate(-50%, -50%);
+  max-width: 220px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+/* No card chrome — the chamber sits directly on the page surface. */
+.cc-card {
+  padding: 0;
+}
+.cc-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  /* Rail flush left (aligned with the headers above/below); the ring centres
+     itself in the remaining width via its auto margins. */
+  justify-content: flex-start;
+  gap: 48px;
+}
+
+/* The scanned files — a kicker header (same style as Tasks / Decision log)
+   above a 3-wide grid of Files-tab tiles (fx-grid / fx-tile) to the left of
+   the ring. Fades with the end sequence and while the ask panel is up. */
+.cc-filewrap {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  transition: opacity 0.6s ease;
+}
+.cc-filewrap.is-out { opacity: 0; }
+.cc-filewrap-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-height: 0;
+}
+/* Display-only scroll indicator to the LEFT of the rail — mirrors the rail's
+   scroll state, accepts no input. Its vertical margins match the rail's
+   faded scroll edges. */
+.cc-filebar {
+  position: relative;
+  flex: 0 0 auto;
+  width: 3px;
+  margin: 28px 0;
+  border-radius: 999px;
+  background: var(--border);
+  pointer-events: none;
+}
+.cc-filebar-thumb {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  transition: top 0.16s ease, height 0.2s ease;
+}
+/* The rail scrolls to follow the reading head, native scrollbar hidden
+   (the indicator beside it is the only readout). --fx-tile is dialled down
+   from the Files tab's 134.4px so the tiles stay compact. */
+.cc-filerail {
+  --fx-tile: 112px;
+  max-height: 540px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  /* Scroll edges melt away instead of cutting hard. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+}
+.cc-filerail::-webkit-scrollbar { display: none; }
+.cc-filerail-grid {
+  grid-template-columns: repeat(3, var(--fx-tile, 112px));
+  align-content: center;
+  /* Tighter packing than the Files tab's 6.4px. */
+  gap: 3.2px;
+  /* Cancel the first column's tile padding so the icons' left edge lines up
+     with the kicker headers. */
+  margin-left: -6.4px;
+}
+/* One uniform glyph size for every file type. !important because the Office
+   glyphs (Word/Excel/PowerPoint) carry an inline width/height:100% style
+   that would otherwise render them much larger than the stroke glyphs —
+   and unsized stroke SVGs were clipping at the bottom. */
+.cc-filerail .fx-tile-thumb .project-files-icon svg {
+  width: 78% !important;
+  height: 78% !important;
+}
+/* No rounded thumb box — the icons sit directly on the page. */
+.cc-filerail .fx-tile-thumb { background: transparent; }
+/* Static scenery — no hover or selection affordance; the reading state shows
+   only through the icon's vertical progress mask. */
+.cc-filerail .fx-tile { cursor: default; }
+.cc-filerail .fx-tile:hover {
+  background: transparent;
+  box-shadow: none;
+  border-color: transparent;
+}
+/* Not-yet-scanned files sit faded until the reading head reaches them. */
+.cc-filerail .fx-tile.cc-unread { opacity: 0.35; }
+.cc-filerail .fx-tile { transition: opacity 0.4s ease, border-color 120ms, box-shadow 120ms; }
+
+/* While a file is being read the icon IS the loading indicator: a vertical
+   mask reveals it bottom-up with the file's real extraction progress
+   (--cc-read, set inline per tile) — the not-yet-read top stays faded. The
+   selection ring is untouched. */
+.cc-filerail .fx-tile.cc-reading .fx-tile-thumb > * {
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 var(--cc-read, 0%), rgba(0, 0, 0, 0.15) var(--cc-read, 0%));
+  mask-image: linear-gradient(to top, #000 0%, #000 var(--cc-read, 0%), rgba(0, 0, 0, 0.15) var(--cc-read, 0%));
+}
+
+/* The chamber — ring, orbiting artefacts, members. Auto margins centre it in
+   the width left over by the file rail. */
+.cc-ring-wrap {
+  position: relative;
+  z-index: 1;
+  width: 560px;
+  height: 540px;
+  flex-shrink: 0;
+  margin: 0 auto;
+}
+/* Dashed round-table mesh connecting every seat. The dashes march along
+   each line (stroke-dashoffset loop = dash 6 + gap 10). */
+.cc-mesh {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--border-strong);
+  transition: opacity 0.6s ease;
+}
+.cc-mesh path { animation: ccMeshFlow 1.1s linear infinite; }
+@keyframes ccMeshFlow { to { stroke-dashoffset: -16; } }
+
+/* A file/thought in transit — rides a mesh edge via offset-path, spawned by
+   real pipeline events. Styled like the sidebar's selected tab (accent-tint
+   fill, translucent accent border, accent glyph) — no spotlight. */
+.cc-packet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-tint);
+  border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  /* Under the members' avatar circles — a packet arriving at a seat slides
+     beneath the member rather than over them. */
+  z-index: 0;
+  offset-rotate: 0deg;
+  animation: ccTravel linear forwards;
+}
+.cc-packet.is-rev { animation-name: ccTravelRev; }
+.cc-packet.is-out { visibility: hidden; }
+@keyframes ccTravel {
+  from { offset-distance: 0%; }
+  to { offset-distance: 100%; }
+}
+@keyframes ccTravelRev {
+  from { offset-distance: 100%; }
+  to { offset-distance: 0%; }
+}
+.cc-mesh.is-out,
+.cc-member.is-out { opacity: 0; }
+
+.cc-member {
+  position: absolute;
+  /* Above the in-transit packets so arrivals slide beneath the avatar. */
+  z-index: 1;
+  transform: translate(-50%, -29px);
+  width: 124px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  text-align: center;
+  transition: opacity 0.6s ease;
+}
+.cc-avatar-wrap {
+  position: relative;
+  width: 58px;
+  height: 58px;
+}
+.cc-avatar-glow {
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  animation: ccGlow 1.6s ease-in-out infinite;
+  transition: opacity 0.3s ease;
+}
+.cc-avatar {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 2px solid currentColor;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  transition: box-shadow 0.3s ease;
+}
+.cc-member-name {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.cc-member-role {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.cc-member-stat {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 600;
+  min-height: 13px;
+}
+.cc-bubble {
+  position: absolute;
+  width: 186px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 6px 19px rgba(15, 23, 42, 0.10);
+  padding: 9px 11px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  text-align: left;
+  opacity: 0;
+  transform: translateY(5px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+  z-index: 5;
+}
+.cc-bubble.is-on {
+  opacity: 1;
+  transform: none;
+}
+.cc-bubble[data-pos="right"] { left: 108%; top: -6px; }
+.cc-bubble[data-pos="left"] { right: 108%; top: -6px; }
+.cc-bubble[data-pos="top-left"] { left: -24px; bottom: 106%; }
+.cc-bubble[data-pos="top-right"] { right: -24px; bottom: 106%; }
+.cc-bubble-name {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+/* Standing proposal — the latest draft's reading of the story, with vote
+   chips and the chair's ruling (Claude Design "AI Council" proposal card). */
+.cc-prop {
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--bg-page);
+  animation: ccPop 0.35s ease;
+}
+.cc-prop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 7px;
+}
+.cc-prop-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.cc-prop-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.cc-prop-lead {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.cc-prop-source {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text-secondary);
+}
+.cc-prop-text {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text-primary);
+  margin-bottom: 9px;
+  text-wrap: pretty;
+}
+.cc-prop-votes {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cc-prop-vote {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  animation: ccPop 0.3s ease;
+}
+.cc-prop-vote .cc-prop-dot { width: 7px; height: 7px; }
+.cc-prop-verb { color: #B91C1C; }
+.cc-prop-verb[data-ok] { color: #15803D; }
+.cc-prop-conf { color: var(--text-muted); }
+.cc-prop-ruling {
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  font-size: 11.5px;
+  background: rgba(185, 28, 28, 0.07);
+  border: 1px solid rgba(185, 28, 28, 0.28);
+  color: var(--text-secondary);
+}
+.cc-prop-ruling strong { color: #B91C1C; }
+.cc-prop-ruling[data-ok] {
+  background: rgba(21, 128, 61, 0.08);
+  border-color: rgba(21, 128, 61, 0.30);
+}
+.cc-prop-ruling[data-ok] strong { color: #15803D; }
+
+/* Under the chamber — decision log (left) + task rail (right), sharing the
+   same kicker header and row rhythm. */
+.cc-below {
+  display: flex;
+  align-items: flex-start;
+  gap: 32px;
+  margin-top: 16px;
+}
+.cc-tasks { flex: 0 0 220px; }
+.cc-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cc-task {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 2px 0;
+}
+.cc-task-dot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8.5px;
+  font-weight: 800;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1.5px solid var(--border-strong);
+}
+.cc-task[data-state="working"] .cc-task-dot {
+  background: #F59E0B;
+  border-color: #F59E0B;
+  color: #FFFFFF;
+  animation: ccPulse 1.2s ease-in-out infinite;
+}
+.cc-task[data-state="done"] .cc-task-dot {
+  background: #15803D;
+  border-color: #15803D;
+  color: #FFFFFF;
+}
+.cc-task-label {
+  flex: 1;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.cc-task[data-state="working"] .cc-task-label,
+.cc-task[data-state="done"] .cc-task-label { color: var(--text-primary); }
+
+/* Gavel slam + ruling card (end sequence). */
+.cc-gavel {
+  position: absolute;
+  left: 50%;
+  top: 245px;
+  transform: translate(-50%, -50%);
+  animation: ccPop 0.4s ease;
+}
+.cc-story {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  animation: ccPop 0.5s ease;
+}
+.cc-story-eyebrow {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #8B5E3C;
+}
+.cc-story-title {
+  font-family: var(--font-display), sans-serif;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  color: var(--text-primary);
+}
+.cc-story-lede {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+.cc-story-btn {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 11px 24px;
+  border-radius: 999px;
+  background: #8B5E3C;
+  color: #FFFFFF;
+  box-shadow: 0 6px 18px rgba(139, 94, 60, 0.30);
+}
+.cc-story-btn:hover { background: #74502F; }
+
+/* "The council needs your input" — real dispute panel. Fades in centered
+   ABOVE the chamber while the ring, members and files fade out around it. */
+.cc-ask {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  width: 380px;
+  max-width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, rgba(139, 94, 60, 0.10) 60%, var(--bg-card));
+  box-shadow: var(--shadow-card);
+  animation: ccAskIn 0.4s ease;
+}
+@keyframes ccAskIn {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 6px)) scale(0.98); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+.cc-ask-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8B5E3C;
+}
+.cc-ask-ico {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 1.5px solid #8B5E3C;
+  color: #8B5E3C;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.cc-ask-q {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.cc-ask-ctx {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+.cc-ask-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cc-ask-opt {
+  appearance: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-page);
+  color: var(--text-primary);
+  transition: border-color 120ms, background 120ms;
+}
+.cc-ask-opt:hover {
+  border-color: #8B5E3C;
+  background: rgba(139, 94, 60, 0.10);
+}
+.cc-ask-opt-label {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.cc-ask-opt-desc {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* Decision log. */
+.cc-log {
+  flex: 1;
+  min-width: 0;
+}
+.cc-log-kicker {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 9px;
+}
+/* Not a scroll box — the log grows down the page under the chamber. */
+.cc-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cc-log-empty {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  padding: 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  text-align: center;
+}
+/* Bare rows — no card chrome, just dot + text stacked down the page. */
+.cc-log-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  animation: ccPop 0.3s ease;
+  padding: 2px 0;
+}
+.cc-log-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.cc-log-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cc-log-main strong { color: var(--text-primary); }
+.cc-log-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.cc-log-chip {
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-mesh path,
+  .cc-avatar-glow,
+  .cc-task[data-state="working"] .cc-task-dot { animation: none; }
+  /* Packets are pure motion — without their travel animation they'd pile up
+     at the seats, so hide them entirely. */
+  .cc-packet { display: none; }
 }

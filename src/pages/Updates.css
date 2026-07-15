@@ -23,10 +23,11 @@
   margin: 0;
   padding: 0 0 2.4rem;
 }
-/* Three-quarters of the content width on wide screens, left-aligned — shared
-   with Activity / Newsletter / Settings / Debug. */
+/* Capped at the shared content ceiling on wide screens, left-aligned — shared
+   with Activity / Newsletter / Settings / Debug. Only narrows once the window
+   can no longer fit the cap (min() falls back to 100%). */
 @media (min-width: 1024px) { /* 1280px pre-scale */
-  .updates-page .page { width: 75%; }
+  .updates-page .page { width: min(100%, var(--content-max-width, 1280px)); }
 }
 
 /* ── Masthead (mirrors the Projects page "Editorial Dossier" header) ─────────
@@ -131,12 +132,13 @@
               transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
               left 250ms ease;
 }
-/* At ≥1024px the content narrows to 75% (left-aligned), so the mini header stops
-   at the content's right edge instead of the window edge (matches the project
-   tabs). See AppShell.css for the derivation of this right inset. */
+/* At ≥1024px the content caps at --content-max-width (left-aligned), so the
+   mini header stops at the content's right edge instead of the window edge
+   (matches the project tabs). See AppShell.css for the derivation of this
+   right inset. */
 @media (min-width: 1024px) {
   .updates-page .versions-compact {
-    right: calc(0.25 * (100vw - var(--sidebar-width, 192px) - var(--chrome-inset, 6.4px) - var(--content-left-gap, 0px)) + 13.2px);
+    right: max(17.6px, 100vw - var(--sidebar-width, 192px) - var(--chrome-inset, 6.4px) - var(--content-left-gap, 0px) - var(--content-max-width, 1280px));
   }
 }
 .updates-page .versions-compact.is-visible {

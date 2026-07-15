@@ -39,26 +39,78 @@
 }
 .snip-rect.is-working { border-color: #8ab4ff; }
 
-/* Top-centre hint pill. */
-.snip-hint {
+/* Free-form lasso — the mask'd rect supplies the outside-dim; the path is the
+   drawn outline. */
+.snip-lasso {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.snip-lasso-path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  stroke-linejoin: round;
+}
+.snip-lasso-path.is-working { stroke: #8ab4ff; }
+
+/* Top-centre mode pill — all capture modes side by side (Win11 capture bar).
+   Dark glass like the hint pill; the active segment reads solid. */
+.snip-modebar {
   position: absolute;
   top: 18px;
   left: 50%;
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 14px;
+  gap: 4px;
+  padding: 5px;
   border-radius: 999px;
-  background: rgba(20, 20, 24, 0.82);
+  background: rgba(20, 20, 24, 0.86);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #f3f3f0;
-  font-size: 12.5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  cursor: default;
+}
+.snip-mode-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(243, 243, 240, 0.75);
+  font: inherit;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  pointer-events: none;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
 }
+.snip-mode-btn:hover { background: rgba(255, 255, 255, 0.1); color: #f3f3f0; }
+.snip-mode-btn.is-active {
+  background: #fff;
+  border-color: #fff;
+  color: #111;
+}
+.snip-modebar-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 4px;
+  background: rgba(255, 255, 255, 0.16);
+}
+.snip-modebar-hint {
+  padding: 0 12px 0 8px;
+  color: rgba(243, 243, 240, 0.65);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .snip-spinner {
   width: 12px;
   height: 12px;
@@ -69,46 +121,161 @@
 }
 @keyframes snip-spin { to { transform: rotate(360deg); } }
 
-/* Result panel — centred dark glass card with the copyable text. */
-.snip-panel {
+.snip-error { font-size: 12.5px; color: #ffb4a8; }
+
+/* Numbered outlines of the selections already made on the shot. */
+.snip-mark {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: min(560px, calc(100vw - 48px));
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.snip-mark.is-working { border-color: #8ab4ff; }
+.snip-mark-badge {
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #fff;
+  color: #111;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Top-left vertical list of floating selection cards — no panel chrome. */
+.snip-list {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  bottom: 18px;
+  width: 300px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 16px;
-  border-radius: 14px;
-  background: rgba(18, 18, 22, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  overflow-y: auto;
   color: #f3f3f0;
   cursor: default;
 }
-.snip-panel-head {
-  font-size: 13px;
+.snip-entry {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(18, 18, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.snip-entry-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.snip-entry-idx {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  color: #111;
+  font-size: 11px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+.snip-entry-thumb {
+  flex: 1;
+  min-width: 0;
+  max-height: 72px;
+  object-fit: contain;
+  object-position: left top;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+}
+.snip-entry-x {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(243, 243, 240, 0.6);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.snip-entry-x:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.snip-entry-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(243, 243, 240, 0.75);
+}
+.snip-entry-text {
+  max-height: 130px;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: #f3f3f0;
+  user-select: text;
+  cursor: text;
+}
+.snip-entry-copy { align-self: flex-end; }
+
+/* Centered exit modal (Esc with selections) — save / discard / keep going. */
+.snip-confirm-scrim {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  cursor: default;
+}
+.snip-confirm {
+  width: 340px;
+  max-width: calc(100vw - 48px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 14px;
+  background: rgba(18, 18, 22, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  color: #f3f3f0;
+}
+.snip-confirm-title {
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
-.snip-text {
-  width: 100%;
-  min-height: 140px;
-  max-height: 40vh;
-  resize: vertical;
-  padding: 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(0, 0, 0, 0.35);
-  color: #f3f3f0;
-  font: inherit;
+.snip-confirm-body {
   font-size: 12.5px;
   line-height: 1.5;
-  box-sizing: border-box;
+  color: rgba(243, 243, 240, 0.75);
 }
-.snip-error { font-size: 12.5px; color: #ffb4a8; }
-.snip-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.snip-confirm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.snip-confirm-actions .snip-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .snip-btn {
   appearance: none;
   padding: 7px 14px;

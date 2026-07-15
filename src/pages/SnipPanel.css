@@ -1,0 +1,258 @@
+/* Snipping-Tool launcher bar (tray → "Extract text"). The window itself is
+   transparent (html.is-snip-panel in index.css); only .sp-card is visible.
+   The card uses theme tokens — it's an app window, unlike the /snip overlay
+   which paints dark-glass over the user's desktop. */
+
+.sp-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  user-select: none;
+  background: transparent;
+}
+
+.sp-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  overflow: visible; /* dropdowns hang below the card, inside the window apron */
+  color: var(--text-primary);
+  font-size: 12.5px;
+}
+
+/* ── Mini title bar ─────────────────────────────────────────────────────── */
+.sp-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 0 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  -webkit-app-region: drag; /* frameless window — the bar moves it */
+}
+.sp-title-icon { display: inline-flex; color: var(--accent); }
+.sp-title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.sp-title-controls {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  -webkit-app-region: no-drag; /* buttons must stay clickable inside the drag bar */
+}
+/* Same recipe as the main app's title bar (.tb-win-btn in TitleBar.css):
+   full-height square hit areas, elevated hover, Windows-red close. */
+.sp-winbtn {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36.8px;
+  height: 100%;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.sp-winbtn:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.sp-winbtn.is-close:hover { background: #e81123; color: #fff; }
+
+/* ── Toolbar ────────────────────────────────────────────────────────────── */
+.sp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+}
+.sp-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 4px;
+  background: var(--border);
+}
+.sp-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+/* Hover matches the main app's sidebar (.nav-item:hover in Sidebar.css): a
+   radial accent gradient that brightens at the pointer — --item-spot-x/y are
+   fed per-button from SnipPanel.jsx (trackSpot). */
+.sp-btn:hover:not(:disabled) {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 100%
+  );
+  color: var(--text-primary);
+}
+/* Open dropdown = selected state, copied from the sidebar's active tab
+   (.nav-item.active): accent tint fill + accent ring + accent text. */
+.sp-btn.is-open {
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+}
+.sp-btn:disabled { color: var(--text-muted); cursor: default; }
+.sp-btn.is-new { color: var(--accent); }
+.sp-btn-icon { display: inline-flex; }
+.sp-caret { display: inline-flex; color: var(--text-muted); margin-left: -2px; }
+/* Current-selection chip on the Delay button. */
+.sp-btn-value {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg-sidebar);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.sp-btn-value.is-set { background: var(--accent-tint); color: var(--accent); }
+
+/* Freeze-scope segmented pair — This screen | All screens. The selected look
+   is copied from the sidebar's active tab (accent tint + accent ring + accent
+   text) and lives on ONE sliding thumb layer so switching glides left⇄right. */
+.sp-scope {
+  position: relative;
+  display: inline-flex;
+  gap: 4px; /* breathing room between the two sides' selected/hover fills */
+  align-self: stretch; /* match the height of the sibling toolbar buttons */
+  align-items: stretch;
+  box-sizing: border-box;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-sidebar);
+}
+/* Thumb geometry accounts for the 4px gap: each button is (50% − 4px) of the
+   padding box wide, and the right slot starts one gap past the thumb's own
+   width. */
+.sp-scope-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(50% - 4px);
+  box-sizing: border-box;
+  border-radius: 7px;
+  background: var(--accent-tint);
+  border: 1.5px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+.sp-scope-thumb.is-right { transform: translateX(calc(100% + 4px)); }
+.sp-scope-btn {
+  appearance: none;
+  position: relative; /* above the thumb */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 112px;
+  padding: 0 10px; /* vertical size comes from stretching to the group */
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+/* Sidebar-style pointer-tracked hover on the not-yet-selected side. */
+.sp-scope-btn:hover:not(.is-active) {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 100%
+  );
+  color: var(--text-primary);
+}
+.sp-scope-btn.is-active { color: var(--accent); }
+
+/* ── Dropdown menus ─────────────────────────────────────────────────────── */
+.sp-dd { position: relative; }
+.sp-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  min-width: 196px;
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-elev);
+}
+.sp-menu-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+/* Sidebar-style pointer-tracked hover (same recipe as the toolbar buttons). */
+.sp-menu-item:hover:not(.is-disabled) {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 100%
+  );
+  color: var(--text-primary);
+}
+.sp-menu-item.is-disabled { color: var(--text-muted); cursor: default; }
+.sp-menu-note {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+.sp-radio-dot {
+  width: 6px;
+  height: 6px;
+  margin-left: auto; /* selected marker sits at the row's right edge */
+  border-radius: 50%;
+  background: var(--accent);
+  flex: 0 0 auto;
+}
+
+/* ── Info strip ─────────────────────────────────────────────────────────── */
+.sp-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.sp-info-icon { display: inline-flex; color: var(--accent); flex: 0 0 auto; }

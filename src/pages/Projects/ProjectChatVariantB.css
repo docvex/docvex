@@ -49,15 +49,16 @@
   overflow-y: auto;
   overflow-x: hidden;
 }
-/* Match the Files tab: the CONTENT sits at 75% width (left-aligned, leaving the
-   right gap) while the SCROLLER stays full width, so the scrollbar rides the far
-   right edge of the content area rather than the 75% boundary. */
+/* Match the Files tab: the CONTENT caps at the shared content ceiling
+   (left-aligned, leaving the right gap only on windows wider than the cap)
+   while the SCROLLER stays full width, so the scrollbar rides the far right
+   edge of the content area rather than the content boundary. */
 @media (min-width: 1024px) {
-  /* Content AND the mini-header bar sit at 75% (left-aligned), so the mini header
-     has the same right gap as the content below it. */
+  /* Content AND the mini-header bar share the cap (left-aligned), so the mini
+     header has the same right gap as the content below it. (The floating
+     composer footer caps itself — see the .sv-footer width rule below.) */
   .dvx-scroll-area > *,
-  .dvx-chat.vb-chat.is-private > * { width: 75%; }
-  .sv-footer .vb-composer-wrap { width: 75%; }
+  .dvx-chat.vb-chat.is-private > * { width: min(100%, var(--content-max-width, 1280px)); }
 }
 
 /* ───── Big masthead (Versions / Files-style hero) ────────────────────
@@ -127,7 +128,10 @@
      bottom half being clipped. Children stay inside the rounded shape
      visually — nothing else pokes past the bounds. */
   overflow: visible;
-  /* Transparent while still in flow under the masthead. */
+  /* Transparent while still in flow under the masthead. The border is
+     RESERVED (transparent) so pinning only recolours it — adding it on pin
+     would change the bar's box and nudge its content. */
+  border: 1.5px solid transparent;
   background: transparent;
   transition: background-color 200ms ease, box-shadow 240ms ease;
 }
@@ -141,7 +145,8 @@
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
   backdrop-filter: blur(6.4px);
   -webkit-backdrop-filter: blur(6.4px);
-  border: 1.5px solid var(--border-flat);
+  /* Width reserved in the base rule — only recolour. */
+  border-color: var(--border-flat);
   box-shadow: var(--mini-seam-shadow);
 }
 /* Transparent in-flow (not pinned) → no border for the shared shine to ride. */
@@ -1612,19 +1617,25 @@
    than `.sv-single` so it doesn't span across the rail. */
 .sv-pane-inner:has(> .sv-footer .dvx-composer),
 .sv-single-body:has(> .sv-footer .dvx-composer) { position: relative; }
+/* Rounded floating section (the surface lives on .sv-footer in SplitView.css,
+   mirroring the mini header): inset from the rail by the shared content gap,
+   lifted a chrome-inset off the bottom edge, and capped at the shared content
+   ceiling — the same geometry as the chat's sticky toolbar above. */
 .sv-pane-inner:has(> .sv-footer .dvx-composer) > .sv-footer,
 .sv-single-body:has(> .sv-footer .dvx-composer) > .sv-footer {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: var(--content-left-gap, 17.6px);
+  right: auto;
+  bottom: 6.4px;
+  width: min(calc(100% - var(--content-left-gap, 17.6px) - 17.6px), var(--content-max-width, 1280px));
   z-index: 6;
 }
 
 /* Composer portalled into the window's app footer (.sv-footer): the input IS
-   the whole footer — it fills it edge to edge, flat (no rounded floating box,
-   shadow, frosted layers, or focus ring that would overflow / disturb the
-   surrounding layout). The footer itself supplies the top border + ground.
+   the whole footer — it fills the rounded floating section edge to edge, flat
+   (no nested box, shadow, frosted layers, or focus ring of its own). The
+   footer element (SplitView.css) supplies the rounded frosted surface,
+   matching the Files action bar and the mini headers.
    (Overrides the floating-absolute base that the Private tab still uses.) */
 .sv-footer .vb-composer-wrap {
   position: static;

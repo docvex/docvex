@@ -9,10 +9,10 @@
    (.sv-single-scroll), which already supplies the outer padding + scroll. */
 
 .set-page { width: 100%; }
-/* Three-quarters of the content width on wide screens, left-aligned — shared
+/* Capped at the shared content ceiling on wide screens, left-aligned — shared
    with Activity / Newsletter / Versions / Debug. */
 @media (min-width: 1024px) { /* 1280px pre-scale */
-  .set-page { width: 75%; }
+  .set-page { width: min(100%, var(--content-max-width, 1280px)); }
 }
 
 /* ───────────────────────── Sections grid ─────────────────────────

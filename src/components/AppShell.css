@@ -40,6 +40,14 @@
      workspace (--fx-rail-pad), the chat frame, and every fixed/sticky
      mini header — change it HERE so all tabs move in lock-step. */
   --content-left-gap: 17.6px;
+  /* Fixed ceiling for every tab's content column (Activity / Newsletter /
+     Versions / Settings / Debug / Mail / Account / Files / Chat / Events).
+     Replaces the old proportional `width: 75%` recipe: content renders at up
+     to this width and only shrinks (to 100%) once the window is actually too
+     narrow to fit it, instead of scaling with every resize. The mini-header
+     right-inset calcs below and in Updates.css derive from it — change it
+     HERE so all tabs move in lock-step. */
+  --content-max-width: 1280px;
   padding: var(--chrome-inset);
   box-sizing: border-box;
 }
@@ -60,6 +68,35 @@
 
 /* The floating Hub launcher was replaced by the sidebar's "All projects"
    nav item — the rail now starts at the chrome top with no clearance offset. */
+
+/* ── Hub transition (/projects) ─────────────────────────────────────────
+   On the Hub the sidebar stays MOUNTED but slides out of the window: a
+   negative margin-left pulls the rail (rigid, at its full width) past the
+   window's left edge while the content column expands to fill the row — one
+   smooth move, reversed when a project is selected and the class drops.
+   `hub-leaving` applies the same slide DURING the pre-navigation beat (the
+   "All projects" click is intercepted in AppShell.jsx) so the rail is already
+   moving while the old page fades out.
+   The margin stops at exactly -width (outer flex size 0, so the content
+   column lands exactly where it would with no rail — going further would pull
+   the content past the window edge); the translateX carries the rail's
+   remaining sliver (chrome inset + border + card shadow) fully off-window
+   without affecting layout. NOTE: the margin half tweens layout (~320ms,
+   one-off, only when crossing the hub boundary) — unlike the sidebar collapse
+   toggle, which snaps --sidebar-width to avoid per-frame reflow on heavy
+   pages. */
+.app-shell.on-hub .sidebar,
+.app-shell.hub-leaving .sidebar {
+  margin-left: calc(-1 * var(--sidebar-width, 192px));
+  transform: translateX(-32px);
+  pointer-events: none;
+}
+/* Old page fades out under the departing rail; once navigation lands, the
+   incoming content plays the shared is-switch-fade-in entrance instead. */
+.app-shell.hub-leaving .sv-single {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
 
 .main-content {
   /* position:relative makes this the containing block for absolute-positioned
@@ -124,16 +161,17 @@
 /* The compact bar's geometry (top / left / right) is now defined ONCE in
    PageMasthead.css with the shared one-inset values every mini header uses —
    flush and non-flush pages get the same bar position, so no override here. */
-/* At ≥1024px the page content narrows to 75% (left-aligned), so the mini header
-   must stop at the content's right edge instead of running to the window edge
-   (matching the project tabs). The right inset = the 25% content gap + the
-   scroll's 17.6px right padding share, measured off the content column's width
-   (100vw minus the sidebar + chrome inset that sit to its left, minus the
-   shared left content gap that insets the content's start). */
+/* At ≥1024px the page content caps at --content-max-width (left-aligned), so
+   the mini header must stop at the content's right edge instead of running to
+   the window edge (matching the project tabs). Right inset = the content
+   column's width (100vw minus the sidebar + chrome inset to its left, minus
+   the shared left content gap) minus the capped content width — clamped at
+   the scroller's 17.6px right padding for windows where the content still
+   fills the column (i.e. nothing narrows until the content would clip). */
 @media (min-width: 1024px) {
   .main-content--flush .pmh-compact,
   .main-content--flush .mx-compact {
-    right: calc(0.25 * (100vw - var(--sidebar-width, 192px) - var(--chrome-inset, 6.4px) - var(--content-left-gap, 0px)) + 13.2px);
+    right: max(17.6px, 100vw - var(--sidebar-width, 192px) - var(--chrome-inset, 6.4px) - var(--content-left-gap, 0px) - var(--content-max-width, 1280px));
   }
 }
 

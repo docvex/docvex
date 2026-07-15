@@ -27,6 +27,7 @@ import {
   reconcileWithFilesystem,
 } from '../../lib/localBranchMeta';
 import { getPrefetchedProjectFiles } from '../../lib/projectFilesPrefetch';
+import { loadCaseTimeline } from '../../lib/caseTimeline';
 import './ProjectScoped.css';
 import './ProjectFiles.css';
 
@@ -140,9 +141,15 @@ export default function ProjectFiles({ embedded = false } = {}) {
 
   const [sidecar, setSidecar] = useState(() => seed?.sidecar || emptySidecar(projectId, seed?.folder || ''));
 
-  const [filesTab, setFilesTab] = useState('drafts');    // 'drafts' | 'trash'
+  const [filesTab, setFilesTab] = useState('drafts');    // 'drafts' | 'trash' | 'timeline'
   const [trashItems, setTrashItems] = useState([]);
   const [trashLoading, setTrashLoading] = useState(false);
+
+  // The project's saved case timeline (built in the Timeline tab, stored via
+  // lib/caseTimeline) — backs the virtual "Timeline" folder in the item model
+  // below. Re-read when the panel mode changes so opening the folder picks up
+  // a timeline generated since this page mounted.
+  const caseTimeline = useMemo(() => loadCaseTimeline(projectId), [projectId, filesTab]);
 
   // Undo / redo stack for file operations (delete, rename, new folder,
   // import, restore). Each action records its own inverse; see the
@@ -1151,17 +1158,41 @@ export default function ProjectFiles({ embedded = false } = {}) {
   }
 
   // ── Item model ────────────────────────────────────────────────────────
-  const realDraftFolders = browseDirs.map((dir) => ({
-    id: `dir:${dir.path}`,
-    kind: 'folder',
-    name: dir.name,
-    empty: dir.empty,
-    status: 'synced',
-    // Content-probed (see the waByPath effect) — an extracted WhatsApp
-    // export folder keeps its mark whatever it's renamed to.
-    isWhatsApp: waByPath[dir.path] === true,
-    _dir: dir,
-  }));
+  // Folder metrics — total size + last-modified across EVERYTHING under the
+  // folder, from the recursive listing (path-prefix match). Null when the
+  // folder has no matched files (empty, or the backend's paths can't be
+  // prefix-matched) so the row falls back to its '—' placeholders.
+  const statsForDir = (dirPath) => {
+    if (typeof dirPath !== 'string' || !dirPath) return null;
+    let bytes = 0;
+    let latest = 0;
+    let count = 0;
+    for (const f of localFiles) {
+      if (typeof f.path !== 'string') continue;
+      if (!(f.path.startsWith(`${dirPath}\\`) || f.path.startsWith(`${dirPath}/`))) continue;
+      count += 1;
+      bytes += Number(f.sizeBytes) || 0;
+      const t = f.mtimeIso ? new Date(f.mtimeIso).getTime() : 0;
+      if (t > latest) latest = t;
+    }
+    return count > 0 ? { bytes, latest } : null;
+  };
+  const realDraftFolders = browseDirs.map((dir) => {
+    const stats = statsForDir(dir.path);
+    return {
+      id: `dir:${dir.path}`,
+      kind: 'folder',
+      name: dir.name,
+      empty: dir.empty,
+      status: 'synced',
+      sizeLabel: stats ? formatBytes(stats.bytes) : '',
+      modifiedLabel: stats?.latest ? formatDate(new Date(stats.latest).toISOString()) : '',
+      // Content-probed (see the waByPath effect) — an extracted WhatsApp
+      // export folder keeps its mark whatever it's renamed to.
+      isWhatsApp: waByPath[dir.path] === true,
+      _dir: dir,
+    };
+  });
 
   // The Recycle bin lives INSIDE the My drafts panel as a special folder at
   // the root — opening it shows the deleted files (with restore / delete-
@@ -1177,6 +1208,11 @@ export default function ProjectFiles({ embedded = false } = {}) {
     }
     return groups.size + loose;
   })();
+  // The special entries carry real metrics like any folder: total size of
+  // their contents, and — since neither has a filesystem mtime of its own —
+  // the PROJECT's creation date as their date column.
+  const projectCreatedLabel = selectedProject?.created_at ? formatDate(selectedProject.created_at) : '';
+  const trashBytes = trashItems.reduce((sum, t) => sum + (Number(t.sizeBytes) || 0), 0);
   const binEntryItem = {
     id: '__recycle-bin',
     kind: 'folder',
@@ -1185,11 +1221,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
     status: 'synced',
     binEntry: true,
     binCount: trashDisplayCount,
+    sizeLabel: trashItems.length > 0 ? formatBytes(trashBytes) : '',
+    modifiedLabel: projectCreatedLabel,
   };
-  // Surface the bin entry as the first item in every folder (it opens the one
-  // project-wide Trash regardless of where you are in the tree).
-  const draftFolders = [binEntryItem, ...realDraftFolders];
-
   const draftItems = browseFiles.map((lf) => {
     const fid = sidecar.byFilename.get((lf.name || '').toLowerCase());
     const localUrl = localUrlFor(lf.path, lf.mtimeIso);
@@ -1210,6 +1244,66 @@ export default function ProjectFiles({ embedded = false } = {}) {
       _raw: lf,
     };
   });
+
+  // ── Timeline virtual folder ──
+  // The files referenced by the project's case timeline (Timeline tab):
+  // every unique event.files name, resolved against the recursive local
+  // listing first (live size/mtime), falling back to the timeline's persisted
+  // fileRefs for files picked from outside the project folder. Names that
+  // resolve to no path are skipped. These are READ-ONLY references — rename /
+  // delete / move are withheld (they'd break the timeline's filename links).
+  const timelineFileItems = (() => {
+    if (!caseTimeline) return [];
+    const out = [];
+    const seen = new Set();
+    const byName = new Map(localFiles.map((f) => [(f.name || '').toLowerCase(), f]));
+    for (const ev of caseTimeline.events || []) {
+      for (const name of ev.files || []) {
+        const key = (name || '').toLowerCase();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        const lf = byName.get(key);
+        const ref = caseTimeline.fileRefs?.[name];
+        if (!lf && !ref?.path) continue;
+        const raw = lf || { name, path: ref.path, mimeType: ref.mime };
+        const localUrl = localUrlFor(raw.path, raw.mtimeIso);
+        out.push({
+          id: `timeline:${raw.path || name}`,
+          kind: 'file',
+          name: raw.name || name,
+          ext: fileExtOf(raw.name || name),
+          sizeLabel: raw.sizeBytes != null ? formatBytes(raw.sizeBytes) : '',
+          modifiedLabel: raw.mtimeIso ? formatDate(raw.mtimeIso) : '',
+          author: 'You',
+          status: 'synced',
+          timelineRef: true,
+          descriptor: describeLocalFile({ localFile: raw, localUrl, cloud: null, bytesChanged: false, localContentHash: null }),
+          _raw: raw,
+        });
+      }
+    }
+    return out;
+  })();
+  // The Timeline entry sits beside the Trash at the root of every folder —
+  // opening it shows the timeline's files as one flat, read-only listing.
+  // Size = the referenced files' total (where a real size is known); date =
+  // the project's creation, mirroring the Trash entry.
+  const timelineBytes = timelineFileItems.reduce((sum, it) => sum + (Number(it._raw?.sizeBytes) || 0), 0);
+  const timelineEntryItem = {
+    id: '__timeline',
+    kind: 'folder',
+    name: 'Timeline',
+    empty: timelineFileItems.length === 0,
+    status: 'synced',
+    timelineEntry: true,
+    timelineCount: timelineFileItems.length,
+    sizeLabel: timelineFileItems.length > 0 ? formatBytes(timelineBytes) : '',
+    modifiedLabel: projectCreatedLabel,
+  };
+  // Surface the bin + timeline entries as the first items in every folder
+  // (each opens its one project-wide view regardless of where you are in the
+  // tree).
+  const draftFolders = [binEntryItem, timelineEntryItem, ...realDraftFolders];
 
   // Files deleted as part of a folder share a `folderGroup`; collapse each
   // group into ONE folder item (Windows-style) so the bin shows the deleted
@@ -1257,22 +1351,28 @@ export default function ProjectFiles({ embedded = false } = {}) {
     });
   }
 
-  // Breadcrumb. In the bin, the crumb chain is Project › Recycle bin (clicking
-  // the project name exits the bin back to drafts).
+  // Breadcrumb. In the bin / timeline views, the crumb chain is Home › <view>
+  // (clicking Home exits back to drafts).
   const fxCrumbs = filesTab === 'trash'
     ? [
         { label: 'Home', path: '__drafts' },
         { label: 'Trash', path: '__bin' },
       ]
+    : filesTab === 'timeline'
+    ? [
+        { label: 'Home', path: '__drafts' },
+        { label: 'Timeline', path: '__timeline' },
+      ]
     : [
         { label: 'Home', path: '__root' },
         ...folderStack.map((seg, i) => ({ label: seg.name, path: `__stack:${i}` })),
       ];
-  const fxCanUp = filesTab === 'trash' ? true : folderStack.length > 0;
+  const fxCanUp = filesTab !== 'drafts' ? true : folderStack.length > 0;
 
   // ── Workspace action handlers ─────────────────────────────────────────
   const fxOpen = (item) => {
-    if (item.binEntry) { setFilesTab('trash'); return; }   // open the recycle bin
+    if (item.binEntry) { setFilesTab('trash'); return; }        // open the recycle bin
+    if (item.timelineEntry) { setFilesTab('timeline'); return; } // open the timeline view
     if (item.kind === 'folder') {
       // Double-clicking any folder — including a WhatsApp export — browses its
       // contents. The export's reconstructed conversation is reachable from the
@@ -1306,13 +1406,13 @@ export default function ProjectFiles({ embedded = false } = {}) {
     }
   };
   const fxCrumbNav = (path) => {
-    if (path === '__drafts') { setFilesTab('drafts'); return; } // leave the bin
-    if (path === '__bin') return;
+    if (path === '__drafts') { setFilesTab('drafts'); return; } // leave the bin / timeline
+    if (path === '__bin' || path === '__timeline') return;
     if (path === '__root') handleNavigateCrumb(-1);
     else if (typeof path === 'string' && path.startsWith('__stack:')) handleNavigateCrumb(Number(path.slice(8)));
   };
   const fxUp = () => {
-    if (filesTab === 'trash') { setFilesTab('drafts'); return; }
+    if (filesTab !== 'drafts') { setFilesTab('drafts'); return; }
     handleNavigateCrumb(folderStack.length - 2);
   };
   const fxRename = (item, newName) => {
@@ -1439,26 +1539,55 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // describe the FILES (not the project): where they live, how many, how big,
   // and when they last changed. Totals come from the recursive listing.
   // Shown only in the drafts tab (not the recycle bin).
-  const fxTotalBytes = localFiles.reduce((sum, f) => sum + (Number(f.sizeBytes) || 0), 0);
-  const fxLatestMtime = localFiles.reduce((latest, f) => {
+  // The masthead follows the folder you're in: at Home it's the project-wide
+  // "Files" hero; inside a subfolder the hero becomes THAT folder (its name
+  // as the title, its contents' stats as the kicker, and the containing path
+  // as the muted eyebrow tail). Stats scope to everything under the current
+  // folder via a path-prefix match on the recursive listing, falling back to
+  // the current level's listing when paths can't be matched (web backend).
+  const inFolder = folderStack.length > 0;
+  const mastheadFiles = (() => {
+    if (!inFolder) return localFiles;
+    if (typeof currentDir === 'string' && currentDir) {
+      const matches = localFiles.filter((f) => typeof f.path === 'string'
+        && (f.path.startsWith(`${currentDir}\\`) || f.path.startsWith(`${currentDir}/`)));
+      if (matches.length) return matches;
+    }
+    return browseFiles;
+  })();
+  const fxTotalBytes = mastheadFiles.reduce((sum, f) => sum + (Number(f.sizeBytes) || 0), 0);
+  const fxLatestMtime = mastheadFiles.reduce((latest, f) => {
     const t = f.mtimeIso ? new Date(f.mtimeIso).getTime() : 0;
     return t > latest ? t : latest;
   }, 0);
   const fxUpdatedLabel = fxLatestMtime
     ? new Date(fxLatestMtime).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
     : null;
-  const fxKicker = localFiles.length === 0
-    ? 'No files yet — add or import files to get started'
+  const fxKicker = mastheadFiles.length === 0
+    ? (inFolder ? 'Empty folder' : 'No files yet — add or import files to get started')
     : [
-        `${fmtCount(localFiles.length)} ${localFiles.length === 1 ? 'file' : 'files'}`,
+        `${fmtCount(mastheadFiles.length)} ${mastheadFiles.length === 1 ? 'file' : 'files'}`,
         fmtBytesFull(fxTotalBytes),
         fxUpdatedLabel ? `Updated ${fxUpdatedLabel}` : null,
       ].filter(Boolean).join(' · ');
-  const filesMasthead = filesTab === 'drafts' ? {
+  const filesMasthead = filesTab === 'drafts' ? (inFolder ? {
+    eyebrow: 'Project files',
+    // The folder's location — Home plus any folders above it in the stack.
+    access: ['Home', ...folderStack.slice(0, -1).map((s) => s.name)].join(' › '),
+    title: folderStack[folderStack.length - 1].name,
+    kicker: fxKicker,
+  } : {
     eyebrow: 'Project files',
     access: 'Stored in your local folder',
     title: 'Files',
     kicker: fxKicker,
+  }) : filesTab === 'timeline' ? {
+    eyebrow: 'Project files',
+    access: 'Case timeline',
+    title: 'Timeline',
+    kicker: timelineFileItems.length === 0
+      ? 'No timeline files yet — build a timeline in the Timeline tab and its files appear here'
+      : `${fmtCount(timelineFileItems.length)} ${timelineFileItems.length === 1 ? 'file' : 'files'} referenced by the case timeline`,
   } : {
     eyebrow: 'Project files',
     access: 'Recycle bin',
@@ -1472,8 +1601,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
     projectId,
     masthead: filesMasthead,
     summaryText: `${localFiles.length} ${localFiles.length === 1 ? 'file' : 'files'}`,
-    // `tab` ('drafts' | 'trash') is the in-panel mode: 'trash' is the recycle
-    // bin, entered by opening the bin folder and exited via the breadcrumb.
+    // `tab` ('drafts' | 'trash' | 'timeline') is the in-panel mode: 'trash' is
+    // the recycle bin, 'timeline' the read-only case-timeline file view — each
+    // entered by opening its root folder entry and exited via the breadcrumb.
     tab: filesTab,
     canEdit: true,
     hasLocalFolder: Boolean(localFolder),
@@ -1489,13 +1619,15 @@ export default function ProjectFiles({ embedded = false } = {}) {
     onUp: fxUp,
     canBack: fxCanUp,
     canUp: fxCanUp,
-    folders: filesTab === 'drafts' ? draftFolders : binFolderItems,
-    items: filesTab === 'drafts' ? draftItems : binFileItems,
+    folders: filesTab === 'drafts' ? draftFolders : filesTab === 'timeline' ? [] : binFolderItems,
+    items: filesTab === 'drafts' ? draftItems : filesTab === 'timeline' ? timelineFileItems : binFileItems,
     loading: filesTab === 'trash' ? trashLoading : localLoading,
     onOpen: fxOpen,
     onOpenContent: fxOpenContent,
-    onRename: fxRename,
-    onDelete: fxDelete,
+    // Timeline items are references — no rename/delete (a rename would break
+    // the timeline's filename links; deleting from a reference list is a trap).
+    onRename: filesTab === 'timeline' ? undefined : fxRename,
+    onDelete: filesTab === 'timeline' ? undefined : fxDelete,
     onRestore: fxRestore,
     onOpenLocation: fxOpenLocation,
     // No toolbar refresh button — the doc-viewer's "Files" chrome has its own

@@ -25,6 +25,11 @@
    Every pinned bar sets `box-shadow: var(--mini-seam-shadow)`. */
 :root {
   --mini-seam-shadow: 0 calc(-1 * var(--chrome-inset, 6.4px)) 0 0 var(--bg-page);
+  /* Mirrored variant for the floating BOTTOM bars (the Files action bar +
+     the chat composer footer): paints the seam BELOW the bar and around its
+     rounded bottom corners, so scrolling content can't peek through the
+     corner crescents in the gap under the bar. */
+  --mini-seam-shadow-down: 0 var(--chrome-inset, 6.4px) 0 0 var(--bg-page);
 }
 
 /* The cursor-following interior spotlight + border shine that used to ride

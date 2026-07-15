@@ -37,12 +37,72 @@
   animation: none;
 }
 
+/* Hub-boundary entrance (AppShell's hubFadeIn) — same shape as the switch
+   fade but NO delay: there's no dissolving loader to wait for, and a delayed
+   start reads as a blank flicker while the sidebar slides. Separate keyframe
+   name so the onAnimationEnd handler can tell the two apart. */
+@keyframes svHubFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.sv-single.is-hub-fade-in {
+  animation: svHubFadeIn 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+/* Both classes present (switch + hub crossing in one navigation): the
+   delay-free hub entrance wins so the content never sits blank. */
+.sv-single.is-switch-fade-in.is-hub-fade-in {
+  animation: svHubFadeIn 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+[data-reduce-motion='true'] .sv-single.is-hub-fade-in {
+  animation: none;
+}
+
 .sv-single-body {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* Anchor for the bottom content fade below (and the chat footer float in
+     ProjectChatVariantB.css, which previously set this conditionally). */
+  position: relative;
+}
+/* Bottom content fade — EVERY tab's scrolling content dissolves into the
+   page colour just before the window's bottom edge instead of hard-clipping.
+   An overlay (not a mask on the scroller) so the sticky bottom surfaces stay
+   fully painted: z 5 sits above the scrolling content but below the chat
+   composer footer (z 6), the Files action bar (z 20) and the nav chrome
+   (z 40). pointer-events: none keeps clicks flowing through.
+   The gradient goes fully SOLID over the last chrome-inset — the seam under
+   the floating footers (mirroring the mini header's .mini-fade strip, which
+   is solid for the same reason: a gradient tail would let scrolling rows
+   poke through the gap). Content dissolves through the footers' frost, then
+   disappears into this seam. */
+.sv-single-body::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 56px;
+  z-index: 5;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--bg-page) calc(100% - var(--chrome-inset, 6.4px))
+  );
+}
+/* Floating-footer pages (Files action bar / Chat composer): the tall
+   gradient would paint BEHIND the frosted footer and bleach it through the
+   frost. Mirror the mini header exactly instead — no fade behind the bar
+   (content scrolls visibly through its frost) and just the SOLID seam strip
+   in the chrome-inset gap below it; the bar's own seam shadow
+   (--mini-seam-shadow-down) plugs the rounded-corner crescents. */
+.sv-single-body:has(.fx-bottombar)::after,
+.sv-single-body:has(> .sv-footer .dvx-composer)::after {
+  height: var(--chrome-inset, 6.4px);
+  background: var(--bg-page);
 }
 
 /* The chrome sits at the top of the body and SIZES TO ITS CONTENT (row 1 +
@@ -117,15 +177,24 @@
 /* ── Window footer ──
    Symmetric to the topbar chrome but pinned at the BOTTOM: a slot the routed
    page portals content into via usePaneChromeFooterEl (e.g. the chat message
-   composer). Collapses when the page publishes nothing. */
+   composer). Collapses when the page publishes nothing.
+   A rounded FLOATING section above the content — the mini-header recipe
+   mirrored to the bottom (frosted page wash + blur + 1.5px border + seam
+   shadow + 9.6px radius). SAME surface as the Files action bar
+   (.fx-bottombar in FilesWorkspace.css) — keep the two in sync so the Chat
+   and Files footers read as one component. Positioning (the float, edge
+   gaps, width cap) comes from the chat's own rule in
+   ProjectChatVariantB.css. */
 .sv-footer {
+  position: relative;
+  z-index: 0;
   flex: 0 0 auto;
-  border-top: 1px solid var(--border);
-  /* Frosted glass — slightly transparent page wash + backdrop blur so content
-     scrolling underneath shows through faintly. */
+  border: 1.5px solid var(--border-flat, var(--border));
+  border-radius: 9.6px;
   background: color-mix(in srgb, var(--bg-page) 66%, transparent);
   backdrop-filter: blur(6.4px);
   -webkit-backdrop-filter: blur(6.4px);
+  box-shadow: var(--mini-seam-shadow-down);
 }
 .sv-footer:empty { display: none; }
 

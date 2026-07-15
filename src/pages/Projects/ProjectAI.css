@@ -13,9 +13,10 @@
   --impact-med: #B45309;
   --impact-high: #B91C1C;
 
-  /* Left-aligned, spanning 3/4 of the content width (matches the design's
-     v2 direction). No auto-centering — the hub hugs the left edge. */
-  width: 75%;
+  /* Left-aligned, capped at the hub's own 944px design measure (tighter than
+     the shared --content-max-width). No auto-centering — the hub hugs the
+     left edge and only narrows when the window can no longer fit it. */
+  width: 100%;
   max-width: 944px;
   margin: 0;
   padding-bottom: 32px;

@@ -46,6 +46,12 @@ body {
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
 }
+/* Snipping-Tool launcher + delayed-capture countdown windows (tray →
+   "Extract text") — TRANSPARENT windows whose cards paint themselves; the
+   opaque page fill would put a wall behind them. renderer.jsx stamps the
+   classes before first paint. */
+html.is-snip-panel, html.is-snip-panel body,
+html.is-snip-countdown, html.is-snip-countdown body { background: transparent; }
 
 /* #root must be exactly the viewport — any overflow here scrolls the whole
    document, which would carry the sidebar up with everything else. The

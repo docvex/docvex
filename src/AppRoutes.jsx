@@ -30,6 +30,8 @@ const Mail = lazy(() => import('./pages/Mail'));
 const InviteAccept = lazy(() => import('./pages/Projects/InviteAccept'));
 const DocViewer = lazy(() => import('./pages/DocViewer'));
 const SnipOverlay = lazy(() => import('./pages/SnipOverlay'));
+const SnipPanel = lazy(() => import('./pages/SnipPanel'));
+const SnipCountdown = lazy(() => import('./pages/SnipCountdown'));
 
 // Shared full-screen spinner — reuses the `.spinner` class from Sidebar.css.
 export function RouteFallback() {
@@ -61,6 +63,12 @@ export default function AppRoutes({ Shell, ProjectShell }) {
         {/* Full-screen "extract text from screen" overlay — opened from the
             system tray over a frozen screenshot of the desktop. */}
         <Route path="/snip" element={<SnipOverlay />} />
+        {/* Snipping-Tool-style launcher bar (tray → "Extract text") — small
+            transparent always-on-top window; "New" starts the /snip capture. */}
+        <Route path="/snip-panel" element={<SnipPanel />} />
+        {/* Delayed-capture countdown badge — click-through transparent window
+            centred on each target display while the snip delay ticks down. */}
+        <Route path="/snip-countdown" element={<SnipCountdown />} />
         <Route path="/" element={<Shell />}>
           <Route index element={<Activity />} />
           <Route path="versions" element={<Updates />} />

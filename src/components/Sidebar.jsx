@@ -227,7 +227,7 @@ const AiIcon = (
   </svg>
 );
 
-export default function Sidebar({ collapsed = false, onToggleCollapse }) {
+export default function Sidebar({ collapsed = false, onToggleCollapse, offstage = false, onHubNav }) {
   const { session, logout } = useAuth();
   const { unreadCount } = useNotifications();
   const { selectedProjectId, selectedProject } = useSelectedProject();
@@ -355,11 +355,12 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }) {
 
   // Render a single NavLink nav-item from a descriptor (shared by every
   // category group).
-  const renderNavItem = ({ to, label, icon, end, badge, pill }) => (
+  const renderNavItem = ({ to, label, icon, end, badge, pill, onClick }) => (
     <NavLink
       key={to}
       to={to}
       end={end}
+      onClick={onClick}
       className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
     >
       <span className="icon">
@@ -489,15 +490,32 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }) {
   }, []);
 
   return (
-    <nav className={`sidebar${collapsed ? ' is-collapsed' : ''}`} ref={navRef} onMouseMove={onSpotMove} onMouseLeave={onSpotLeave}>
+    <nav
+      className={`sidebar${collapsed ? ' is-collapsed' : ''}`}
+      ref={navRef}
+      onMouseMove={onSpotMove}
+      onMouseLeave={onSpotLeave}
+      // Off-window on the Hub (slid out via the .app-shell.on-hub margin
+      // transition) — inert so the hidden rail can't take keyboard focus.
+      inert={offstage || undefined}
+    >
       <ul className="sidebar-nav">
         {/* ── All projects — the Hub launcher as a regular rail tab (the old
             floating DOCVEX | HUB button above the rail was removed). Opens
-            /projects, where this sidebar hides behind the full-screen Hub. */}
+            /projects, where this sidebar slides out of the window so the Hub
+            fills it. The click is intercepted (onHubNav → AppShell) so the
+            current page fades out and the rail starts sliding BEFORE the
+            route swaps; plain navigation still works as the fallback. */}
         {session && (
           <li className="sidebar-cat sidebar-cat--lead">
             <div className="sidebar-cat-items">
-              {renderNavItem({ to: '/projects', label: 'All projects', icon: AllProjectsIcon, end: true })}
+              {renderNavItem({
+                to: '/projects',
+                label: 'Projects',
+                icon: AllProjectsIcon,
+                end: true,
+                onClick: onHubNav ? (e) => { e.preventDefault(); onHubNav(); } : undefined,
+              })}
             </div>
           </li>
         )}

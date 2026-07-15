@@ -160,7 +160,7 @@ function isProjectOverviewRoute(pathname) {
   return !!m && m[1] !== 'new';
 }
 
-export default function ContentShell({ primary, fadeIn = false, onFadeInEnd }) {
+export default function ContentShell({ primary, fadeIn = false, onFadeInEnd, hubFadeIn = false, onHubFadeInEnd }) {
   const { pathname } = useLocation();
   // Bumping the nonce remounts the routed content (chrome refresh button + F5),
   // re-running the page's mount effects — i.e. a refresh.
@@ -186,10 +186,12 @@ export default function ContentShell({ primary, fadeIn = false, onFadeInEnd }) {
   const chromeless = CHROMELESS_FULLSCREEN_ROUTES.has(pathname) || isProjectOverviewRoute(pathname);
   return (
     <div
-      className={`sv-single${chromeless ? ' is-chromeless' : ''}${fadeIn ? ' is-switch-fade-in' : ''}`}
-      onAnimationEnd={fadeIn ? (e) => {
-        // Only react to OUR fade-in keyframe — child animations bubble here too.
-        if (e.target === e.currentTarget && e.animationName === 'svSwitchFadeIn') onFadeInEnd?.();
+      className={`sv-single${chromeless ? ' is-chromeless' : ''}${fadeIn ? ' is-switch-fade-in' : ''}${hubFadeIn ? ' is-hub-fade-in' : ''}`}
+      onAnimationEnd={(fadeIn || hubFadeIn) ? (e) => {
+        // Only react to OUR fade-in keyframes — child animations bubble here too.
+        if (e.target !== e.currentTarget) return;
+        if (e.animationName === 'svSwitchFadeIn') onFadeInEnd?.();
+        if (e.animationName === 'svHubFadeIn') onHubFadeInEnd?.();
       } : undefined}
     >
       <div className="sv-single-body">

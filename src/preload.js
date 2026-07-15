@@ -145,6 +145,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeDocViewerTab: (id) => ipcRenderer.send('doc-viewer:close', id),
   // "Back to app" from a doc-viewer window — raise the main app window.
   focusMainWindow: () => ipcRenderer.send('window:focus-main'),
+  // Tray "Extract text" overlay: Esc → main destroys every snip window
+  // (instant, no async close teardown).
+  snipCancel: () => ipcRenderer.send('snip:cancel'),
+  // Snipping-Tool launcher panel (/snip-panel): "New" starts a capture with
+  // the chosen mode + delay + freeze scope ({ allScreens }).
+  snipNew: (opts) => ipcRenderer.send('snip:new', opts),
+  // Abort a delayed capture that hasn't fired yet (Esc during the countdown)
+  // — kills the timer + countdown badges, keeps the panel open.
+  snipCancelPending: () => ipcRenderer.send('snip:cancel-pending'),
   // A doc-viewer window reports whether its AI advisor is currently working, so
   // the main app's "Open files" list can show an AI-busy marker on that row.
   setDocViewerAiStatus: (busy) => ipcRenderer.send('doc-viewer:ai-status', busy),
