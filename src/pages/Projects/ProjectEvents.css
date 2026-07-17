@@ -517,7 +517,13 @@
   animation: cto-spin 0.8s linear infinite;
 }
 
-/* Debug trigger under the masthead — deliberately low-key dev chrome. */
+/* Debug triggers under the masthead — deliberately low-key dev chrome. */
+.cto-debug-row {
+  display: flex;
+  gap: 8px;
+  align-self: flex-start;
+  margin-bottom: 16px;
+}
 .cto-debug-btn {
   appearance: none;
   align-self: flex-start;
@@ -526,16 +532,42 @@
   border: 1px dashed var(--border-strong);
   border-radius: 999px;
   padding: 4px 12px;
-  margin-bottom: 16px;
   font-family: inherit;
   font-size: 10px;
   font-weight: 600;
   color: var(--text-muted);
 }
 .cto-debug-btn:hover { color: var(--accent); border-color: var(--accent); }
+/* Pause toggle while active — solid accent so the frozen state is obvious. */
+.cto-debug-btn.is-on {
+  color: var(--accent);
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--accent-tint);
+}
 
 /* ── Timeline step — option 1b's narrative dossier ────────────────────── */
-.cto-dossier { max-width: 820px; }
+/* Step-body enter — the Activity tab's feed treatment: the content under
+   the step rail fades/slides in from the side the rail just travelled
+   toward (keyed remount replays the animation on each switch). */
+.cto-step-body.is-enter-right { animation: cto-step-in-right 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+.cto-step-body.is-enter-left  { animation: cto-step-in-left 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes cto-step-in-right {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes cto-step-in-left {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cto-step-body.is-enter-right,
+  .cto-step-body.is-enter-left { animation: none; }
+}
+
+/* Full content width — the event body's 1fr column absorbs the extra room
+   (date rail and annotation gutter stay fixed). */
+.cto-dossier { max-width: none; }
 /* Meta line — sits under the masthead description once the timeline is
    built. No bottom margin: the masthead's flex-gap + its own margin handle
    the spacing. */
@@ -548,7 +580,10 @@
 }
 .cto-event {
   display: grid;
-  grid-template-columns: 58px 1fr 188px;
+  /* Date rail fixed; the body column hugs its content (story text + the
+     file tiles beside it); the contradictions/flags gutter absorbs ALL the
+     remaining width. */
+  grid-template-columns: 58px auto minmax(188px, 1fr);
   gap: 16px;
 }
 .cto-ev-date { text-align: right; }
@@ -583,18 +618,20 @@
   gap: 8px;
   margin-bottom: 3px;
 }
+/* Colour comes inline per distinct kind label (see TimelineStep's
+   kindColors); --cat-system is only the fallback. The soft currentColor
+   pill (same recipe as .cto-ev-ai) makes the hue read at this tiny size —
+   a swatch of fill distinguishes far better than coloured glyphs alone. */
 .cto-ev-kind {
   font-size: 8.5px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--cat-system);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  padding: 2px 7px;
+  border-radius: 999px;
 }
-.cto-ev-kind[data-cat='project'] { color: var(--cat-project); }
-.cto-ev-kind[data-cat='file']    { color: var(--cat-file); }
-.cto-ev-kind[data-cat='update']  { color: var(--cat-update); }
-.cto-ev-kind[data-cat='member']  { color: var(--cat-member); }
-.cto-ev-kind[data-cat='role']    { color: var(--cat-role); }
 .cto-ev-ai {
   display: inline-flex;
   align-items: center;
@@ -631,73 +668,55 @@
 }
 .cto-ev-margin { padding-top: 2px; }
 
-/* Event content row — text on the left, the event's source-file chips in a
-   column at the right edge. */
+/* Event content — story text on top, the event's source-file tiles in a
+   left-aligned row underneath. */
 .cto-ev-row {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
+  gap: 10px;
 }
-.cto-ev-main { flex: 1; min-width: 0; }
+/* The story text holds to a readable ~half-page measure (a ch cap, not a %,
+   so it stays stable inside the auto-sized grid column). */
+.cto-ev-main { min-width: 0; max-width: 60ch; }
 .cto-ev-files {
+  /* Files-tab tile grid in miniature — --fx-tile drives tile width AND the
+     thumb height, exactly like the Files page's Ctrl+scroll zoom. */
+  --fx-tile: 96px;
   flex: none;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 5px;
-  max-width: 190px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-content: flex-start;
+  gap: 3.2px;
+  /* Four tiles per row under the text; stays narrower than the 60ch text
+     measure so the tiles never widen the auto-sized body column. */
+  max-width: 400px;
 }
-/* File chip — Files-tab language in miniature: thumbnail well + name on a
-   bordered card; accent ring on hover. Inert (no pointer) when the file's
-   on-disk path isn't known. */
+/* File tile — a real Files-tab tile (.fx-tile provides the thumb well with
+   the name underneath), with the Files tab's own hover / is-selected styles.
+   Inert (no pointer, no affordance) when the file's on-disk path isn't
+   known. */
 .cto-ev-file {
   appearance: none;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 4px 9px 4px 4px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-card);
-  font-family: inherit;
-  cursor: pointer;
-  text-align: left;
-  min-width: 0;
-  transition: border-color 120ms, background 120ms;
-}
-.cto-ev-file:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  background: var(--accent-tint);
+  width: var(--fx-tile);
 }
 .cto-ev-file:disabled { cursor: default; }
-.cto-ev-file-thumb {
-  position: relative;
-  width: 24px;
-  height: 24px;
-  flex: none;
-  border-radius: 5px;
-  overflow: hidden;
-  display: grid;
-  place-items: center;
-  color: var(--accent);
-  background: var(--bg-elevated);
+.cto-ev-file:disabled:hover {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
-.cto-ev-file-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+/* One uniform glyph size for every file type (same fix as the scanning
+   rail): Office glyphs carry inline 100% sizing that would dwarf the
+   stroke glyphs. */
+.cto-ev-files .fx-tile-thumb .project-files-icon svg {
+  width: 78% !important;
+  height: 78% !important;
 }
-.cto-ev-file-thumb svg { width: 13px; height: 13px; }
-.cto-ev-file-name {
-  font-size: 9.5px;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* No rounded thumb box — the icons sit directly on the page (same as the
+   scanning rail). */
+.cto-ev-files .fx-tile-thumb { background: transparent; }
 
 /* Margin annotation — the 1b flag treatment: severity-coloured left rule,
    faint wash, uppercase label. */
@@ -977,6 +996,10 @@
   max-height: 540px;
   overflow-y: auto;
   scrollbar-width: none;
+  /* Anchors the fact layer; the right padding reserves its lane INSIDE the
+     scroll box so pills scroll in lockstep with the tiles. */
+  position: relative;
+  padding-right: 168px;
   /* Scroll edges melt away instead of cutting hard. */
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
@@ -1009,6 +1032,52 @@
   box-shadow: none;
   border-color: transparent;
 }
+/* Fact pills to the RIGHT of each file — what the analysts pulled from it
+   (design bundle's f.facts). The layer lives inside the rail's scroll box
+   (see .cc-filerail's padding-right lane), so it scrolls natively with the
+   tiles and inherits the rail's fade mask; the tile text is never squeezed. */
+.cc-factcol {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 160px;
+  pointer-events: none;
+}
+.cc-factstack {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  /* Drop the first fact down to sit level with the file icon (tile padding
+     plus a bit of breathing room). */
+  margin-top: 20px;
+}
+/* Plain text — no pill chrome. */
+.cc-fact {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  animation: ccPop 0.35s ease;
+}
+/* Divider between consecutive facts — a hairline that melts away at both
+   ends instead of cutting hard. */
+.cc-fact + .cc-fact {
+  position: relative;
+  padding-top: 5px;
+}
+.cc-fact + .cc-fact::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--border-strong) 22%, var(--border-strong) 78%, transparent);
+}
+
 /* Not-yet-scanned files sit faded until the reading head reaches them. */
 .cc-filerail .fx-tile.cc-unread { opacity: 0.35; }
 .cc-filerail .fx-tile { transition: opacity 0.4s ease, border-color 120ms, box-shadow 120ms; }
@@ -1016,7 +1085,18 @@
 /* While a file is being read the icon IS the loading indicator: a vertical
    mask reveals it bottom-up with the file's real extraction progress
    (--cc-read, set inline per tile) — the not-yet-read top stays faded. The
-   selection ring is untouched. */
+   selection ring is untouched. Registering --cc-read as a real <percentage>
+   lets the tile TRANSITION it, so the reveal glides between the interval's
+   discrete ticks instead of stepping. */
+@property --cc-read {
+  syntax: '<percentage>';
+  inherits: true;
+  initial-value: 0%;
+}
+.cc-filerail .fx-tile.cc-reading {
+  /* Restates the base tile transitions — this rule replaces, not extends. */
+  transition: opacity 0.4s ease, border-color 120ms, box-shadow 120ms, --cc-read 0.3s linear;
+}
 .cc-filerail .fx-tile.cc-reading .fx-tile-thumb > * {
   -webkit-mask-image: linear-gradient(to top, #000 0%, #000 var(--cc-read, 0%), rgba(0, 0, 0, 0.15) var(--cc-read, 0%));
   mask-image: linear-gradient(to top, #000 0%, #000 var(--cc-read, 0%), rgba(0, 0, 0, 0.15) var(--cc-read, 0%));
@@ -1030,7 +1110,36 @@
   width: 560px;
   height: 540px;
   flex-shrink: 0;
-  margin: 0 auto;
+  /* Fixed margin, NOT `0 auto`: auto margins can't transition, so the wrap
+     (and every member in it — the chair most visibly) would snap sideways
+     when the ask opens/closes instead of riding the width animation. With
+     the margin pinned, the members' seats ↔ list glide reverses smoothly. */
+  margin: 0;
+  /* Pinned to the stage top (not centred) so the asking layout's "Members"
+     kicker can sit at exactly the Files kicker's height, whatever the file
+     rail's own height is. */
+  align-self: flex-start;
+  transition: width 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* While the council prompts the author the chamber narrows into a slim
+   column beside the files — the members re-seat as a vertical list (inline
+   coords from JSX) and the ask panel takes the space to its right. */
+.cc-ring-wrap.is-asking {
+  width: 132px;
+}
+/* "Members" kicker above the vertical list — fades in on the modal's own
+   delay so it never rides the re-seat glide. */
+.cc-members-kicker {
+  position: absolute;
+  /* Wrap top == stage top == Files-kicker top, so 0 lines the titles up. */
+  top: 0;
+  left: 4px;
+  margin-bottom: 0;
+  animation: ccKickerIn 0.4s ease 0.45s backwards;
+}
+@keyframes ccKickerIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 /* Dashed round-table mesh connecting every seat. The dashes march along
    each line (stroke-dashoffset loop = dash 6 + gap 10). */
@@ -1052,12 +1161,16 @@
   position: absolute;
   left: 0;
   top: 0;
-  width: 32px;
-  height: 32px;
+  /* Same size and OPAQUE fill as the packet-key icons (.cc-legend-ico), so
+     travellers look identical to their legend — the mesh doesn't bleed
+     through them. --pk-c is the packet type's identity colour (set inline
+     from PACKET_COLORS). */
+  width: 27px;
+  height: 27px;
   border-radius: 50%;
-  background: var(--accent-tint);
-  border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--pk-c, var(--accent)) 12%, var(--bg-card));
+  border: 1px solid color-mix(in srgb, var(--pk-c, var(--accent)) 65%, transparent);
+  color: var(--pk-c, var(--accent));
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1070,6 +1183,45 @@
 }
 .cc-packet.is-rev { animation-name: ccTravelRev; }
 .cc-packet.is-out { visibility: hidden; }
+/* The open question — one BIG ?-mark pinned at the crossing of the chair's
+   line and the analysts' horizontal (280, 330), pulsing for a beat before
+   the ask panel opens. Grey like the question packets it replaces. */
+.cc-askmark {
+  position: absolute;
+  left: 280px;
+  top: 330px;
+  /* Base centring — the pulse keyframes restate it; without this the mark
+     sits off-centre when the animation is disabled (reduced motion). */
+  transform: translate(-50%, -50%);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-muted) 12%, var(--bg-card));
+  border: 1px solid color-mix(in srgb, var(--text-muted) 55%, transparent);
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 1;
+  /* Hidden at rest; .is-on fades it in and removing it fades it back out
+     (the pulse keeps running underneath so scale never snaps). */
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  animation: ccAskMark 0.9s ease-in-out infinite;
+}
+.cc-askmark.is-on { opacity: 1; }
+@keyframes ccAskMark {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.2); }
+}
+
+/* Debug pause — freeze every chamber animation in place (packets mid-edge,
+   glows, pulses, mesh flow) while the council process is paused. */
+.cc-card.is-paused *,
+.cc-card.is-paused *::before,
+.cc-card.is-paused *::after {
+  animation-play-state: paused !important;
+}
 @keyframes ccTravel {
   from { offset-distance: 0%; }
   to { offset-distance: 100%; }
@@ -1080,6 +1232,95 @@
 }
 .cc-mesh.is-out,
 .cc-member.is-out { opacity: 0; }
+
+/* Packet key — vertical legend to the right of the graph explaining each
+   traveller. Collapses (flex-basis → 0) while the ask panel / end sequence
+   needs the width. */
+.cc-legend {
+  flex: 0 0 210px;
+  min-width: 0;
+  align-self: flex-start;
+  /* Pushed to the stage's right edge — the leftover width sits between the
+     graph and the key rather than after it. */
+  margin-left: auto;
+  /* Layout-immune: the key holds its 210px slot through every chamber
+     animation (ask reflow, end sequence) and only fades — no width change,
+     so nothing around it shifts. */
+  transition: opacity 0.4s ease;
+  /* Always the LAST flex column, so the ask modal (later in the DOM) takes
+     the space to the legend's left rather than being pushed past it. */
+  order: 1;
+}
+/* While the ask panel / end sequence is up the key leaves the layout
+   entirely, so the modal claims ALL the width to the stage's right edge. */
+.cc-legend.is-out {
+  opacity: 0;
+  display: none;
+}
+/* Colour-mode toggle under the kicker — tiny segmented pill. */
+.cc-legend-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  margin-bottom: 12px;
+}
+.cc-legend-toggle button {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  background: transparent;
+  font-family: inherit;
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  transition: background 120ms, color 120ms;
+}
+.cc-legend-toggle button.is-on {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-page));
+  color: var(--accent);
+}
+.cc-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cc-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+/* Static twin of .cc-packet (same recipe, driven by the same --pk-c
+   identity colour), just not travelling. */
+.cc-legend-ico {
+  flex-shrink: 0;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pk-c, var(--accent)) 12%, var(--bg-card));
+  border: 1px solid color-mix(in srgb, var(--pk-c, var(--accent)) 65%, transparent);
+  color: var(--pk-c, var(--accent));
+  display: grid;
+  place-items: center;
+}
+.cc-legend-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.cc-legend-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.cc-legend-desc {
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
 
 .cc-member {
   position: absolute;
@@ -1092,7 +1333,34 @@
   align-items: center;
   gap: 5px;
   text-align: center;
-  transition: opacity 0.6s ease;
+  /* left/top transition carries the seats ↔ vertical-list glide while the
+     council asks for input. */
+  transition:
+    opacity 0.6s ease,
+    left 0.65s cubic-bezier(0.16, 1, 0.3, 1),
+    top 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* Reaction burst — an expanding ring in the member's colour, fired when
+   they send or receive a packet (re-keyed per ping, so bursts restart). */
+.cc-avatar-ping {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  animation: ccPing 0.7s ease-out 1;
+}
+@keyframes ccPing {
+  0% { transform: scale(0.92); opacity: 0.85; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+/* Receiving a packet pulses the member's WHOLE circle instead (re-keyed per
+   arrival) — a quick SHRINK, like the seat absorbing the delivery. */
+.cc-avatar.is-pong { animation: ccPong 0.36s ease; }
+@keyframes ccPong {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(0.86); }
 }
 .cc-avatar-wrap {
   position: relative;
@@ -1173,12 +1441,10 @@
 
 /* Standing proposal — the latest draft's reading of the story, with vote
    chips and the chair's ruling (Claude Design "AI Council" proposal card). */
+/* Chrome-less section — no card box; it sits directly on the page surface
+   like the decision log / tasks below it. */
 .cc-prop {
   margin-top: 16px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px 16px;
-  background: var(--bg-page);
   animation: ccPop 0.35s ease;
 }
 .cc-prop-head {
@@ -1195,23 +1461,25 @@
   font-size: 11px;
   font-weight: 700;
 }
-.cc-prop-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-}
+/* Standing-proposal member badges reuse .cc-log-ico's circular tinted look,
+   sized down to sit in the 11px proposal rows. */
+.cc-log-ico.cc-prop-member-ico { width: 18px; height: 18px; }
+.cc-log-ico.cc-prop-member-ico svg { width: 10px; height: 10px; }
+.cc-prop-vote .cc-log-ico.cc-prop-member-ico { width: 16px; height: 16px; }
+.cc-prop-vote .cc-log-ico.cc-prop-member-ico svg { width: 9px; height: 9px; }
 .cc-prop-lead {
   font-size: 11px;
   color: var(--text-muted);
 }
+/* Source-file pill — flat accent tint, deliberately NOT animated. */
 .cc-prop-source {
   font-size: 10px;
   font-weight: 600;
   padding: 2px 9px;
   border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  color: var(--accent);
 }
 .cc-prop-text {
   font-size: 14px;
@@ -1226,38 +1494,63 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+/* Vote entries are bare rows (no pill chrome) — the animated pill lives on
+   the verb ("agrees" / "objects") instead. */
 .cc-prop-vote {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 10.5px;
   font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
   color: var(--text-primary);
-  animation: ccPop 0.3s ease;
 }
-.cc-prop-vote .cc-prop-dot { width: 7px; height: 7px; }
-.cc-prop-verb { color: #B91C1C; }
-.cc-prop-verb[data-ok] { color: #15803D; }
+/* Faded-edge divider between adjacent votes — a 1px vertical line whose top
+   and bottom melt into transparent. */
+.cc-prop-vote + .cc-prop-vote::before {
+  content: '';
+  align-self: stretch;
+  width: 1px;
+  margin-right: 8px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--border-strong) 30%,
+    var(--border-strong) 70%,
+    transparent
+  );
+}
+.cc-prop-verb {
+  --pill-c: var(--danger);
+  color: var(--danger-text);
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--pill-c) 60%, transparent);
+}
+.cc-prop-verb[data-ok] {
+  --pill-c: var(--success);
+  color: var(--success);
+}
 .cc-prop-conf { color: var(--text-muted); }
+/* Ruling pill — danger-tinted shimmer while rejected, success-tinted when
+   accepted (gradient + animation from the shared .cc-pill shimmer block). */
 .cc-prop-ruling {
+  --pill-c: var(--danger);
   margin-top: 10px;
   padding: 9px 12px;
   border-radius: 9px;
   font-size: 11.5px;
-  background: rgba(185, 28, 28, 0.07);
-  border: 1px solid rgba(185, 28, 28, 0.28);
+  border: 1px solid color-mix(in srgb, var(--pill-c) 38%, transparent);
   color: var(--text-secondary);
+  /* Shrink-wrap the pill to its text instead of the section's full width. */
+  width: fit-content;
+  max-width: 100%;
 }
-.cc-prop-ruling strong { color: #B91C1C; }
-.cc-prop-ruling[data-ok] {
-  background: rgba(21, 128, 61, 0.08);
-  border-color: rgba(21, 128, 61, 0.30);
-}
-.cc-prop-ruling[data-ok] strong { color: #15803D; }
+.cc-prop-ruling strong { color: var(--danger); }
+/* Inline verdict glyph (the decision log's tick/cross) rides the text line. */
+.cc-prop-ruling strong svg { vertical-align: -1px; margin-right: 2px; }
+.cc-prop-ruling[data-ok] { --pill-c: var(--success); }
+.cc-prop-ruling[data-ok] strong { color: var(--success); }
 
 /* Under the chamber — decision log (left) + task rail (right), sharing the
    same kicker header and row rhythm. */
@@ -1279,30 +1572,32 @@
   gap: 9px;
   padding: 2px 0;
 }
+/* Task markers — the decision log's medallion recipe (currentColor tinted
+   12% into the page bg + 30% translucent ring), coloured per state: muted
+   while queued, palette sand pulsing while working, green with a ✓ when
+   done. */
 .cc-task-dot {
-  width: 15px;
-  height: 15px;
+  width: 25.6px;
+  height: 25.6px;
+  box-sizing: border-box;
   border-radius: 50%;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 8.5px;
+  font-size: 11px;
   font-weight: 800;
-  background: transparent;
   color: var(--text-muted);
-  border: 1.5px solid var(--border-strong);
+  background: color-mix(in srgb, currentColor 12%, var(--bg-page));
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
 }
 .cc-task[data-state="working"] .cc-task-dot {
-  background: #F59E0B;
-  border-color: #F59E0B;
-  color: #FFFFFF;
+  /* Brand palette yellow (sand) — matches the Chair's identity colour. */
+  color: #DCC9A3;
   animation: ccPulse 1.2s ease-in-out infinite;
 }
 .cc-task[data-state="done"] .cc-task-dot {
-  background: #15803D;
-  border-color: #15803D;
-  color: #FFFFFF;
+  color: #15803D;
 }
 .cc-task-label {
   flex: 1;
@@ -1314,32 +1609,48 @@
 .cc-task[data-state="done"] .cc-task-label { color: var(--text-primary); }
 
 /* Gavel slam + ruling card (end sequence). */
+/* Gavel + ruling card centre on the STAGE (full content width, in line with
+   the step tabs above), and fade in only after the chamber has faded out —
+   the backwards-filled delay stops the "teleport" pop-in. */
+/* No fade-in — the gavel appears instantly and only the slam plays; it
+   fades OUT over its last ~300ms (the stage lasts 1050ms before the story
+   card takes over). */
 .cc-gavel {
   position: absolute;
   left: 50%;
   top: 245px;
   transform: translate(-50%, -50%);
-  animation: ccPop 0.4s ease;
+  z-index: 2;
+  animation: ccGavelOut 0.3s ease 0.75s forwards;
+}
+@keyframes ccGavelOut {
+  to { opacity: 0; }
 }
 .cc-story {
   position: absolute;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
+  z-index: 2;
   width: 400px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 14px;
   text-align: center;
-  animation: ccPop 0.5s ease;
+  animation: ccEndPop 0.5s ease 0.2s backwards;
+}
+@keyframes ccEndPop {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 6px)) scale(0.98); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
 }
 .cc-story-eyebrow {
   font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: #8B5E3C;
+  /* Brand palette yellow (sand). */
+  color: #DCC9A3;
 }
 .cc-story-title {
   font-family: var(--font-display), sans-serif;
@@ -1364,35 +1675,61 @@
   font-weight: 700;
   padding: 11px 24px;
   border-radius: 999px;
-  background: #8B5E3C;
-  color: #FFFFFF;
-  box-shadow: 0 6px 18px rgba(139, 94, 60, 0.30);
+  /* Palette sand; ink text — white would wash out on the light yellow. */
+  background: #DCC9A3;
+  color: var(--color-ink);
+  box-shadow: 0 6px 18px rgba(220, 201, 163, 0.45);
 }
-.cc-story-btn:hover { background: #74502F; }
+.cc-story-btn:hover { background: #CFB88B; }
+.cc-story-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Redo — ghost sibling of the primary pill (the design bundle's "Run
+   again" affordance). */
+.cc-story-redo {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 11px 24px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+  transition: background 120ms, border-color 120ms;
+}
+.cc-story-redo:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-page));
+  border-color: var(--accent);
+}
 
 /* "The council needs your input" — real dispute panel. Fades in centered
    ABOVE the chamber while the ring, members and files fade out around it. */
+/* In-flow flex column to the RIGHT of the members' vertical list (the
+   narrowed ring wrap), not an overlay — the files and the list stay
+   visible around it. Chrome-less: no card box, it sits directly on the
+   page surface. */
 .cc-ask {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
   z-index: 2;
-  width: 380px;
-  max-width: 90%;
+  /* Grow into ALL the width right of the member list. */
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Top-aligned with the stage. */
+  align-self: flex-start;
+  margin-top: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: color-mix(in srgb, rgba(139, 94, 60, 0.10) 60%, var(--bg-card));
-  box-shadow: var(--shadow-card);
-  animation: ccAskIn 0.4s ease;
+  /* Held invisible (backwards fill) while the members' re-seat glide plays
+     out, then fades in near its settled position — so the modal never rides
+     the board's layout animation. */
+  animation: ccAskIn 0.4s ease 0.45s backwards;
 }
 @keyframes ccAskIn {
-  from { opacity: 0; transform: translate(-50%, calc(-50% + 6px)) scale(0.98); }
-  to { opacity: 1; transform: translate(-50%, -50%); }
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
 }
 .cc-ask-head {
   display: flex;
@@ -1402,19 +1739,8 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #8B5E3C;
-}
-.cc-ask-ico {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--bg-card);
-  border: 1.5px solid #8B5E3C;
-  color: #8B5E3C;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  /* Brand palette yellow (sand) — matches the Chair. */
+  color: #DCC9A3;
 }
 .cc-ask-q {
   margin: 0;
@@ -1429,10 +1755,12 @@
   line-height: 1.55;
   color: var(--text-secondary);
 }
+/* Answer options tile side-by-side in a grid, filling the modal's width. */
 .cc-ask-opts {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 6px;
+  align-items: stretch;
 }
 .cc-ask-opt {
   appearance: none;
@@ -1444,14 +1772,69 @@
   gap: 2px;
   padding: 10px 14px;
   border-radius: 10px;
+  /* Bordered at rest; the border drops away on hover (the accent wash
+     carries the shape instead). */
   border: 1px solid var(--border);
   background: var(--bg-page);
   color: var(--text-primary);
-  transition: border-color 120ms, background 120ms;
+  transition: background 120ms, border-color 120ms;
 }
+/* Hover — the main app sidebar tab's accent fill, minus the cursor
+   spotlight: a flat wash at the tab hover's base opacity. Mixed into the
+   page bg (opaque) so the global cursor spotlight can't glow through. */
 .cc-ask-opt:hover {
-  border-color: #8B5E3C;
-  background: rgba(139, 94, 60, 0.10);
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-page));
+  border-color: transparent;
+  color: var(--text-primary);
+}
+/* Clicked answer — the sidebar's SELECTED-tab look (opaque variant of the
+   accent-tint fill + accent ring + accent text); it holds for a beat before
+   the modal fades out. */
+.cc-ask-opt.is-picked,
+.cc-ask-opt.is-picked:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-page));
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+}
+.cc-ask-opt.is-picked .cc-ask-opt-desc { color: var(--accent); opacity: 0.75; }
+/* multi_select / free_text controls (Doc Viewer ask_user shapes). */
+.cc-ask-submit {
+  align-self: flex-start;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 8px 20px;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  transition: opacity 120ms;
+}
+.cc-ask-submit:disabled { opacity: 0.45; cursor: default; }
+.cc-ask-text {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 64px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.cc-ask-text:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+/* Modal fade-out after an answer is picked, before the chamber reassembles. */
+.cc-ask.is-leaving { animation: ccAskOut 0.32s ease forwards; }
+@keyframes ccAskOut {
+  to { opacity: 0; transform: translateY(6px) scale(0.98); }
 }
 .cc-ask-opt-label {
   font-size: 12px;
@@ -1494,7 +1877,8 @@
 /* Bare rows — no card chrome, just dot + text stacked down the page. */
 .cc-log-row {
   display: flex;
-  align-items: flex-start;
+  /* Centre the medallion against the entry text (incl. chip rows). */
+  align-items: center;
   gap: 8px;
   font-size: 11.5px;
   line-height: 1.45;
@@ -1509,6 +1893,38 @@
   flex-shrink: 0;
   margin-top: 4px;
 }
+/* Log row markers — the Activity tab's icon-medallion recipe (avt-ico):
+   the glyph in a colour-tinted circle (12% tint on the page bg, 30% border),
+   coloured per board member or status; "You decided" rows carry the
+   signed-in user's avatar at the same size. */
+.cc-log-ico {
+  flex-shrink: 0;
+  width: 25.6px;
+  height: 25.6px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 12%, var(--bg-page));
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+}
+.cc-log-ico svg { width: 14.4px; height: 14.4px; display: block; }
+.cc-log-avatar {
+  flex-shrink: 0;
+  width: 25.6px;
+  height: 25.6px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.cc-log-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 11px;
+  font-weight: 700;
+}
 .cc-log-main {
   flex: 1;
   min-width: 0;
@@ -1522,18 +1938,63 @@
   gap: 4px;
   flex-wrap: wrap;
 }
+/* Chips — accent ring + accent text over the shared shimmer gradient. */
 .cc-log-chip {
   font-size: 9.5px;
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--text-muted);
+  border: 1.5px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  color: var(--accent);
+}
+
+/* ── Animated-gradient pills — the Danger Zone card's shimmer recipe (a
+   5-stop linear gradient swept via background-position), tinted per pill
+   through --pill-c (accent by default; the ruling swaps in danger/success). */
+.cc-prop-ruling,
+.cc-prop-verb,
+.cc-log-chip {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--pill-c, var(--accent)) 3%, transparent) 0%,
+    color-mix(in srgb, var(--pill-c, var(--accent)) 9%, transparent) 25%,
+    color-mix(in srgb, var(--pill-c, var(--accent)) 13%, transparent) 50%,
+    color-mix(in srgb, var(--pill-c, var(--accent)) 9%, transparent) 75%,
+    color-mix(in srgb, var(--pill-c, var(--accent)) 3%, transparent) 100%
+  );
+  background-size: 300% 100%;
+  animation: ccPillShimmer 9s linear infinite;
+}
+/* The verb pill runs a stronger sweep of the same shimmer than the other
+   pills so the agree/object call reads at a glance. */
+.cc-prop-verb {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--pill-c, var(--accent)) 10%, transparent) 0%,
+    color-mix(in srgb, var(--pill-c, var(--accent)) 20%, transparent) 25%,
+    color-mix(in srgb, var(--pill-c, var(--accent)) 28%, transparent) 50%,
+    color-mix(in srgb, var(--pill-c, var(--accent)) 20%, transparent) 75%,
+    color-mix(in srgb, var(--pill-c, var(--accent)) 10%, transparent) 100%
+  );
+  background-size: 300% 100%;
+}
+/* Votes keep their pop-in; the shimmer now rides the verb pill. */
+.cc-prop-vote { animation: ccPop 0.3s ease; }
+@keyframes ccPillShimmer {
+  0% { background-position: 0% 0; }
+  100% { background-position: 300% 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .cc-mesh path,
   .cc-avatar-glow,
+  .cc-avatar-ping,
+  .cc-avatar.is-pong,
+  .cc-askmark,
+  .cc-prop-ruling,
+  .cc-prop-vote,
+  .cc-prop-verb,
+  .cc-log-chip,
   .cc-task[data-state="working"] .cc-task-dot { animation: none; }
   /* Packets are pure motion — without their travel animation they'd pile up
      at the seats, so hide them entirely. */
