@@ -1,16 +1,23 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { useAuth } from '../../context/AuthContext';
 import { glyphForFile } from '../../components/fileGlyph';
 import FileThumbnail from '../../components/FileThumbnail';
+import { useMorphPill } from '../../components/useMorphPill';
+import Tooltip from '../../components/Tooltip';
 import { extractFileText } from '../../lib/extractFileText';
 import { recognizeCanvas, OCR_MAX_EDGE } from '../../lib/ocr';
 import { transcribeAudio } from '../../lib/transcribe';
-import { runTimelineCouncil, DISPUTE_OPTIONS } from '../../lib/timelineCouncil';
+import { runTimelineCouncil, refineTimelineWithClarifications, draftFlagAsks, DISPUTE_OPTIONS } from '../../lib/timelineCouncil';
 import { toLayoutPx } from '../../lib/appZoom';
-import { openDocViewerWindow, pathForFile } from '../../lib/platform';
+import { openDocViewerWindow, pathForFile, allowLocalFile } from '../../lib/platform';
 import { loadCaseTimeline, saveCaseTimeline } from '../../lib/caseTimeline';
+import { loadExtract, saveExtract } from '../../lib/scanExtractCache';
+import { loadCaptions, saveCaptions } from '../../lib/captionsHistory';
+import { loadOcrHistory, saveOcrHistory } from '../../lib/extractionHistory';
+import CouncilSphere, { SPHERE_PACKET_COLORS } from '../../components/CouncilSphere';
 import './ProjectScoped.css';
 import './ProjectEvents.css';
 // The council backdrop reuses the Files tab's fx-grid / fx-tile styling —
@@ -54,6 +61,18 @@ const IcoPlay = (props) => (
 const IcoUser = (props) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="8" r="4" /><path d="M4.5 20.5c1.4-3.4 4.2-5 7.5-5s6.1 1.6 7.5 5" /></svg>
 );
+const IcoEllipsis = (props) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M5 12h.01M12 12h.01M19 12h.01" /></svg>
+);
+const IcoDown = (props) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m6 9 6 6 6-6" /></svg>
+);
+const IcoGridView = (props) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
+);
+const IcoListView = (props) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M8 6h13M8 12h13M8 18h13" /><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" /></svg>
+);
 const IcoGavel = (props) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m14 13-7.5 7.5a2.12 2.12 0 0 1-3-3L11 10" /><path d="m16 16 6-6" /><path d="m8 8 6-6" /><path d="m9 7 8 8" /><path d="m21 11-8-8" /></svg>
 );
@@ -75,10 +94,30 @@ const IcoSearch = (props) => (
 // ── Sample data (verbatim from the design bundle) ─────────────────────────
 const STEPS = [
   { id: 'upload', n: '1', label: 'Upload files' },
-  { id: 'scan', n: '2', label: 'Scanning' },
+  { id: 'scan', n: '2', label: 'Scanning & review' },
   { id: 'timeline', n: '3', label: 'Timeline' },
-  { id: 'review', n: '4', label: 'Review' },
 ];
+
+// Masthead copy per step — the header reflects the active tab. (When the
+// timeline is built, the Timeline step swaps in its own story header.)
+const STEP_HEADERS = {
+  upload: {
+    title: 'Upload files',
+    kicker: 'Drop in every document, email and recording tied to the matter. DocVex reads, transcribes and cross-checks them, then assembles a chronological story — flagging gaps and contradictions for you to resolve.',
+  },
+  scan: {
+    title: 'Scanning',
+    kicker: 'The AI council is reading your sources — three analysts draft independent chronologies in parallel while the chair cross-checks the drafts and merges them into one story.',
+  },
+  timeline: {
+    title: 'Timeline',
+    kicker: 'Drop in every document, email and recording tied to the matter. DocVex reads, transcribes and cross-checks them, then assembles a chronological story — flagging gaps and contradictions for you to resolve.',
+  },
+  review: {
+    title: 'Review',
+    kicker: 'The council needs you. Each flag below is an open question from the record — answer with what you know first-hand (or dismiss non-issues), and the final timeline is assembled from your answers.',
+  },
+};
 
 // ── Council chamber (Scanning step) — Claude Design "AI Council" ──────────
 // The Scanning step renders the council LIVE: files reading in on the left,
@@ -99,20 +138,18 @@ const COUNCIL_TASKS = [
   { id: 'save', label: 'Save & hand off' },
 ];
 
-// Council seating + identity colours (fixed identities like the avatar
-// palette — not theme tokens on purpose; the design keys each member to one
-// colour across bubbles, fact chips and log dots). Seating follows the
-// author's sketch: the Chair presides at the apex, the three analysts fan
-// out below (left · bottom-centre · right); a dashed mesh (.cc-mesh)
-// connects every seat to every other.
+// Council identities + colours (fixed identities like the avatar palette —
+// not theme tokens on purpose; each member keys to one colour across
+// bubbles, fact lines and log dots, matching SPHERE_MEMBERS in
+// components/CouncilSphere, where the on-canvas seats now live).
 const COUNCIL_UI = [
   // The Chair wears the brand palette's yellow (sand); the analysts get
   // neon-leaning identities — cyan / pink / lime — picked to be instantly
   // distinguishable from each other, the chair, and the packet colours.
-  { id: 'chair', name: 'The Chair', role: 'Presiding', color: '#DCC9A3', x: 280, y: 60, bubblePos: 'right' },
-  { id: 'chronologist', name: 'Chronologist', role: 'Dates & record', color: '#06B6D4', x: 85, y: 330, bubblePos: 'top-left' },
-  { id: 'narrator', name: 'Narrator', role: 'Causal story', color: '#EC4899', x: 475, y: 330, bubblePos: 'top-right' },
-  { id: 'auditor', name: 'Auditor', role: 'Contradictions', color: '#84CC16', x: 280, y: 435, bubblePos: 'right' },
+  { id: 'chair', name: 'The Chair', role: 'Presiding', color: '#DCC9A3' },
+  { id: 'chronologist', name: 'Chronologist', role: 'Dates & record', color: '#06B6D4' },
+  { id: 'narrator', name: 'Narrator', role: 'Causal story', color: '#EC4899' },
+  { id: 'auditor', name: 'Auditor', role: 'Contradictions', color: '#84CC16' },
 ];
 const COUNCIL_COLORS = Object.fromEntries(COUNCIL_UI.map((m) => [m.id, m.color]));
 const MEMBER_BY_COLOR = Object.fromEntries(COUNCIL_UI.map((m) => [m.color, m.id]));
@@ -122,21 +159,6 @@ const COUNCIL_BY_ID = Object.fromEntries(COUNCIL_UI.map((m) => [m.id, m]));
 // log, proposal badges) so the chair reads the same across surfaces.
 const memberIcon = (id) => (id === 'chair' ? IcoGavel : IcoUser);
 
-// Packets must ride the DRAWN lines. Per the author's sketch the chair has
-// DIRECT dashed diagonals to each side analyst plus the straight line down
-// to the auditor (crossing the analysts' horizontal); only the two bottom
-// edges are special — curves that bow downward like a table's near side.
-const SPECIAL_EDGES = {
-  'chronologist|auditor': { d: 'M 85 330 Q 172 452 280 435', start: 'chronologist' },
-  'narrator|auditor': { d: 'M 475 330 Q 388 452 280 435', start: 'narrator' },
-};
-function packetPath(fromId, toId) {
-  const edge = SPECIAL_EDGES[`${fromId}|${toId}`] || SPECIAL_EDGES[`${toId}|${fromId}`];
-  if (edge) return { d: edge.d, reverse: edge.start !== fromId };
-  const a = COUNCIL_BY_ID[fromId];
-  const b = COUNCIL_BY_ID[toId];
-  return { d: `M ${a.x} ${a.y} L ${b.x} ${b.y}`, reverse: false };
-}
 // Every shape the "We have a question…" modal supports — mirrors the Doc
 // Viewer ask_user panel's response types (single select, multi select,
 // confirm, free text). The debug "ask variations" button cycles these.
@@ -187,30 +209,59 @@ const PACKET_LEGEND = [
   { icon: 'no', label: 'Declined', desc: 'an objection or rejection' },
 ];
 
-// Every packet type carries its own identity colour (like the council
-// seats) — applied through the --pk-c custom property on both the
-// travelling packets and the legend, so the two can never drift apart.
-const PACKET_COLORS = {
-  doc: 'var(--accent)',
-  pen: '#4F46E5',
-  fact: '#0D9488',
-  chat: '#0369A1',
-  flag: 'var(--warning)',
-  ask: 'var(--text-muted)',
-  ok: 'var(--success)',
-  no: 'var(--danger)',
+// SVG twins of the canvas packet glyphs (CouncilSphere's drawGlyph) — the key
+// chips wear the same icon the packet carries in flight and on landing.
+const PACKET_GLYPHS = {
+  doc: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="6.5" y="4.5" width="11" height="15" rx="1.5" />
+      <path d="M9.5 9.5h5M9.5 12h5M9.5 14.5h5" />
+    </svg>
+  ),
+  pen: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+      <path d="M6.5 17.5L16 8" />
+      <circle cx="16.8" cy="7.2" r="1.8" fill="currentColor" stroke="none" />
+    </svg>
+  ),
+  fact: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="4.6" />
+      <path d="M14 14l4.5 4.5" />
+    </svg>
+  ),
+  chat: (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="6.4" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="17.6" cy="12" r="1.8" />
+    </svg>
+  ),
+  flag: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M7.5 20V4.5" />
+      <path d="M7.5 5l9 3-9 3z" fill="currentColor" stroke="none" />
+    </svg>
+  ),
+  ask: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+      <path d="M8.8 9.3a3.2 3.2 0 1 1 4.6 2.9c-1 .5-1.4 1.1-1.4 2.2" />
+      <circle cx="12" cy="17.6" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  ),
+  ok: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5.5 12.5l4.2 4L18.5 7.5" />
+    </svg>
+  ),
+  no: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true">
+      <path d="M7 7l10 10M17 7L7 17" />
+    </svg>
+  ),
 };
-function packetGlyph(icon) {
-  const Icon = icon === 'pen' ? IcoPen
-    : icon === 'chat' ? IcoChat
-    : icon === 'ask' ? IcoAsk
-    : icon === 'ok' ? IcoCheck
-    : icon === 'no' ? IcoX
-    : icon === 'flag' ? IcoAlert
-    : icon === 'fact' ? IcoSearch
-    : IcoDoc;
-  return { Icon, color: PACKET_COLORS[icon] || 'var(--accent)' };
-}
+
+// Packet identity colours come from the AI Thinking Sphere design bundle
+// (SPHERE_PACKET_COLORS in components/CouncilSphere) — shared by the canvas
+// flights, the legend dots and the file-rail fact lines so they never drift.
 
 // What each analyst "says" while their draft call is in flight.
 const MEMBER_WORKING_LINE = {
@@ -314,10 +365,13 @@ function segmentsToKeySections(tr) {
 }
 
 // One entry point for every media kind — returns { kind, text, segments }.
+// `raw` (images) / `transcript` (audio+video: full timed segments +
+// language) carry the untrimmed AI result so it can be shared with the Doc
+// Viewer's own caches, not just the council's excerpt.
 async function mediaToAiText(file, mime) {
   if (mime.startsWith('image/')) {
     const text = await imageToAiText(file);
-    return { kind: 'image', text: text ? `AI reading of this image:\n${text}` : '', segments: 0 };
+    return { kind: 'image', text: text ? `AI reading of this image:\n${text}` : '', raw: text || '', segments: 0 };
   }
   const tr = await transcribeAudio(objectUrlFor(file), mime, file.name);
   const sections = segmentsToKeySections(tr);
@@ -325,7 +379,60 @@ async function mediaToAiText(file, mime) {
     kind: mime.startsWith('video/') ? 'video' : 'audio',
     text: sections ? `AI captions (timestamped key sections):\n${sections}` : '',
     segments: (tr.segments || []).length,
+    transcript: { text: tr.text || '', segments: tr.segments || [], language: tr.language || null },
   };
+}
+
+// ── Cross-surface cache bridge ─────────────────────────────────────────────
+// What the council gathers is shared with the Doc Viewer's own path-keyed
+// caches (lib/captionsHistory, lib/extractionHistory) — so opening a video
+// the council already transcribed shows its captions without pressing
+// Generate, and an image the council read seeds the Extract-text history.
+// The reverse also holds: captions generated in the Doc Viewer are reused
+// by the scan (see analyzeFiles).
+
+// Small JPEG thumb of an image pick — the OCR-history entry pairs a
+// thumbnail with the text, so the seeded entry needs one to render.
+async function tinyImageThumb(file) {
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = 96 / Math.max(bmp.width, bmp.height, 1);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(bmp.width * scale));
+    c.height = Math.max(1, Math.round(bmp.height * scale));
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    bmp.close?.();
+    return c.toDataURL('image/jpeg', 0.6);
+  } catch {
+    return null;
+  }
+}
+
+function seedDocViewerCaches(file, res) {
+  const fpath = pathForFile(file);
+  if (!fpath || !res?.text || !res.media) return;
+  const tr = res.media.transcript;
+  if (tr && Array.isArray(tr.segments) && (tr.text || tr.segments.length)) {
+    // Audio/video → the Doc Viewer captions cache (skip if the viewer
+    // already has a — possibly hand-edited — transcript).
+    if (!loadCaptions(fpath)) {
+      const text = tr.text || tr.segments.map((s) => String(s.text || '').trim()).filter(Boolean).join(' ');
+      saveCaptions(fpath, {
+        text,
+        segments: tr.segments,
+        language: tr.language || null,
+        original: { text, segments: tr.segments },
+      });
+    }
+  } else if (res.media.kind === 'image' && res.media.raw) {
+    // Image → one Extract-text history entry with a whole-image thumb.
+    if (loadOcrHistory(fpath).length === 0) {
+      tinyImageThumb(file).then((thumb) => {
+        if (!thumb) return;
+        saveOcrHistory(fpath, [{ id: `scan-${Date.now()}`, thumb, text: res.media.raw, createdAt: Date.now() }]);
+      });
+    }
+  }
 }
 
 // Event tags map to the notification category palette (--cat-*).
@@ -397,36 +504,164 @@ function objectUrlFor(file) {
   return url;
 }
 
+// Human-readable pick size for the list view's trailing column.
+const fmtBytes = (n) => (n >= 1024 * 1024
+  ? `${(n / (1024 * 1024)).toFixed(1)} MB`
+  : `${Math.max(1, Math.round(n / 1024))} KB`);
+
+// ⌘ vs Ctrl in the search box's shortcut hint.
+const IS_MAC = /mac/i.test(navigator.platform || '');
+
+// Picked-file entry on the Upload step — a real Files-tab tile (fx-tile:
+// thumbnail well + name underneath), or a compact list row when the view
+// toggle is on 'list'. Both carry the Files tab's interaction model: click
+// selects (is-selected ring, cleared on blur), double click opens the file
+// in the Doc Viewer, and the hover pill morphs into the right-click menu
+// (Open / Remove). The hover × removes the pick.
+function UploadFileTile({ file, onRemove, view = 'grid', selected, onSelect }) {
+  const mime = file.type || guessMimeFromName(file.name);
+  const path = pathForFile(file);
+  const openFile = () => path && openDocViewerWindow({ path, name: file.name, mime });
+  const morphPill = useMorphPill({
+    hoverContent: file.name,
+    menuItems: [
+      { key: 'open', label: 'Open', onClick: openFile, disabled: !path },
+      { key: 'remove', label: 'Remove', danger: true, onClick: () => onRemove(file) },
+    ],
+  });
+  const interact = {
+    role: 'button',
+    tabIndex: 0,
+    onClick: () => onSelect(selected ? null : file),
+    onDoubleClick: openFile,
+    onBlur: () => selected && onSelect(null),
+    onMouseMove: morphPill.handleMouseMove,
+    onMouseLeave: morphPill.handleMouseLeave,
+    onContextMenu: morphPill.handleContextMenu,
+  };
+  const removeBtn = (
+    <button
+      type="button"
+      className="cto-tile-remove"
+      aria-label={`Remove ${file.name}`}
+      onClick={(e) => { e.stopPropagation(); onRemove(file); }}
+    >
+      ×
+    </button>
+  );
+  const thumb = (
+    <FileThumbnail
+      mimeType={mime}
+      sourceUrl={objectUrlFor(file)}
+      glyph={glyphForFile(mime, file.name)}
+    />
+  );
+  if (view === 'list') {
+    return (
+      <div className={`cto-upload-row${selected ? ' is-selected' : ''}`} {...interact}>
+        <span className="cto-upload-row-thumb">{thumb}</span>
+        <span className="cto-upload-row-name">{file.name}</span>
+        <span className="cto-upload-row-size">{fmtBytes(file.size)}</span>
+        {removeBtn}
+        {morphPill.node}
+      </div>
+    );
+  }
+  return (
+    <div className={`fx-tile cto-upload-tile${selected ? ' is-selected' : ''}`} {...interact}>
+      <span className="fx-tile-thumb">{thumb}</span>
+      <span className="fx-tile-name">{file.name}</span>
+      {removeBtn}
+      {morphPill.node}
+    </div>
+  );
+}
+
+// Tile-zoom bounds for the upload picks — mirrors the Files tab's slider
+// (FX_MIN_TILE / FX_MAX_TILE / FX_LIST_THRESHOLD in FilesWorkspace): below
+// the threshold the grid gives way to the list view.
+const UP_MIN_TILE = 70;
+const UP_MAX_TILE = 320;
+const UP_LIST_THRESHOLD = 100;
+const UP_DEFAULT_TILE = 134;
+
 // Files state lives in the page (ProjectEvents) so the Scanning step can
 // build its progress grid from the same picks.
 function UploadStep({ files, addFiles, removeFile, onAnalyze, analyzing }) {
   const [dragOver, setDragOver] = useState(false);
+  // Icon-size / view state — same semantics as the Files tab: the slider
+  // drives the tile size; dropping below the threshold flips to list view.
+  const [tileSize, setTileSize] = useState(UP_DEFAULT_TILE);
+  const view = tileSize < UP_LIST_THRESHOLD ? 'list' : 'grid';
   const inputRef = useRef(null);
+  // Search + single selection (lifted here so the keyboard shortcuts can
+  // act on the selected pick).
+  const searchRef = useRef(null);
+  const [query, setQuery] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
+  const q = query.trim().toLowerCase();
+  const shown = q ? files.filter((f) => f.name.toLowerCase().includes(q)) : files;
+
+  // Keyboard shortcuts (Files-tab language): Ctrl/Cmd+F focuses search from
+  // anywhere on the step; with a pick selected, Enter opens it, Delete /
+  // Backspace removes it, Escape clears the selection. Keys typed into
+  // inputs (search box, etc.) are left alone.
+  // Ctrl+scroll over the drop zone zooms the picks — same gesture (and step)
+  // as the Files tab's canvas; a native non-passive listener so
+  // preventDefault can stop the page/app zoom.
+  const zoneRef = useRef(null);
+  useEffect(() => {
+    const el = zoneRef.current;
+    if (!el) return undefined;
+    const onWheel = (e) => {
+      if (!e.ctrlKey || !e.deltaY) return;
+      e.preventDefault();
+      setTileSize((prev) => {
+        const next = prev - Math.sign(e.deltaY) * 14;
+        return Math.max(UP_MIN_TILE, Math.min(UP_MAX_TILE, next));
+      });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      }
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (!selectedFile) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        removeFile(selectedFile);
+        setSelectedFile(null);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const p = pathForFile(selectedFile);
+        if (p) {
+          openDocViewerWindow({
+            path: p,
+            name: selectedFile.name,
+            mime: selectedFile.type || guessMimeFromName(selectedFile.name),
+          });
+        }
+      } else if (e.key === 'Escape') {
+        setSelectedFile(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedFile, removeFile]);
 
   return (
     <div>
-      {/* Ready-count + the real "Analyze with AI" trigger — its own card
-          section, leading the step above the drop bar. */}
-      {files.length > 0 && (
-        <div className="cto-upload-bar">
-          <div className="cto-upload-bar-copy">
-            <div className="cto-upload-bar-num">{files.length}</div>
-            <div className="cto-upload-bar-text">
-              <div className="cto-upload-bar-title">
-                {files.length === 1 ? 'file ready' : 'files ready'}
-              </div>
-              <div className="cto-upload-bar-sub">
-                DocVex will read them and reconstruct the case timeline.
-              </div>
-            </div>
-          </div>
-          <button type="button" className="cto-btn-ink" onClick={onAnalyze} disabled={analyzing}>
-            {analyzing ? 'Analyzing…' : 'Analyze with AI'}
-            <IcoArrow width="13" height="13" />
-          </button>
-        </div>
-      )}
       <div
+        ref={zoneRef}
         className={`cto-dropzone${dragOver ? ' is-dragover' : ''}${files.length > 0 ? ' is-compact' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
@@ -434,13 +669,6 @@ function UploadStep({ files, addFiles, removeFile, onAnalyze, analyzing }) {
           e.preventDefault();
           setDragOver(false);
           addFiles(e.dataTransfer?.files);
-        }}
-        onMouseMove={(e) => {
-          // Cursor-tracked spotlight (same recipe as the sidebar's selected
-          // tab): write zone-relative coords the ::before gradient reads.
-          const r = e.currentTarget.getBoundingClientRect();
-          e.currentTarget.style.setProperty('--drop-spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
-          e.currentTarget.style.setProperty('--drop-spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
         }}
       >
         <span className="cto-drop-ico"><IcoUpload width="26" height="26" /></span>
@@ -455,7 +683,7 @@ function UploadStep({ files, addFiles, removeFile, onAnalyze, analyzing }) {
           </div>
         </div>
         <button type="button" className="cto-btn-accent" onClick={() => inputRef.current?.click()}>
-          Import files
+          Import
         </button>
         <input
           ref={inputRef}
@@ -469,103 +697,157 @@ function UploadStep({ files, addFiles, removeFile, onAnalyze, analyzing }) {
             e.target.value = '';
           }}
         />
+        {/* Content-render controls (Files-tab language) — icon-size slider +
+            grid ⇄ list toggle, right-aligned under the zone's header row. */}
+        {files.length > 0 && (
+          <div className="cto-upload-controls">
+            <Tooltip content="Icon size">
+              <div className="fx-size-slider">
+                <span className="fx-size-dot fx-size-dot-sm" aria-hidden="true" />
+                <input
+                  type="range"
+                  className="fx-size-range"
+                  min={UP_MIN_TILE}
+                  max={UP_MAX_TILE}
+                  step={2}
+                  value={tileSize}
+                  onChange={(e) => setTileSize(Number(e.target.value))}
+                  aria-label="Icon size"
+                />
+                <span className="fx-size-dot fx-size-dot-lg" aria-hidden="true" />
+              </div>
+            </Tooltip>
+            <Tooltip content={view === 'list' ? 'Switch to grid view' : 'Switch to list view'}>
+              <button
+                type="button"
+                className="fx-cat-btn"
+                aria-label={view === 'list' ? 'Switch to grid view' : 'Switch to list view'}
+                onClick={() => setTileSize(view === 'list' ? UP_DEFAULT_TILE : UP_MIN_TILE)}
+              >
+                {view === 'list'
+                  ? <IcoListView width="14" height="14" />
+                  : <IcoGridView width="14" height="14" />}
+              </button>
+            </Tooltip>
+            {/* Search — same fx-search chrome as the Files tab, with the
+                Ctrl/⌘+F hint while empty. */}
+            <div className={`fx-search${query ? ' is-active' : ''}`}>
+              <IcoSearch width="15" height="15" className="fx-search-glyph" />
+              <input
+                ref={searchRef}
+                placeholder="Search picks"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  // Escape exits search mode entirely — clears the query and
+                  // drops focus out of the field.
+                  if (e.key === 'Escape') {
+                    e.stopPropagation();
+                    setQuery('');
+                    e.currentTarget.blur();
+                  }
+                }}
+              />
+              {query ? (
+                <Tooltip content="Clear search">
+                  <button
+                    type="button"
+                    className="fx-search-clear"
+                    aria-label="Clear search"
+                    onClick={() => { setQuery(''); searchRef.current?.focus(); }}
+                  >
+                    <IcoX width="13" height="13" />
+                  </button>
+                </Tooltip>
+              ) : (
+                <span className="fx-search-kbd">
+                  <kbd>{IS_MAC ? '⌘' : 'Ctrl'}</kbd>
+                  <span className="fx-search-kbd-plus">+</span>
+                  <kbd>F</kbd>
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+        {/* Files-tab rendering of the picks (fx-grid / fx-tile, or list
+            rows), living INSIDE the drop zone under its header + controls.
+            The scroll wrapper clamps the zone's height — content scrolls
+            beneath the header, fading out at the section's top and bottom
+            edges. */}
+        {files.length > 0 && (
+          <div className="cto-upload-scroll">
+            {shown.length === 0 && (
+              <p className="cto-upload-nomatch">No picks match “{query.trim()}”.</p>
+            )}
+            {view === 'grid' ? (
+              <div className="fx-grid cto-upload-grid" style={{ '--fx-tile': `${tileSize}px` }}>
+                {shown.map((f) => (
+                  <UploadFileTile
+                    key={`${f.name} ${f.size}`}
+                    file={f}
+                    onRemove={removeFile}
+                    selected={selectedFile === f}
+                    onSelect={setSelectedFile}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="cto-upload-list">
+                {shown.map((f) => (
+                  <UploadFileTile
+                    key={`${f.name} ${f.size}`}
+                    file={f}
+                    onRemove={removeFile}
+                    view="list"
+                    selected={selectedFile === f}
+                    onSelect={setSelectedFile}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
+      {/* Ready-count + the real "Analyze with AI" trigger — under the drop
+          zone. */}
       {files.length > 0 && (
-        <>
-          {/* Same tile grid as the Scanning step (thumbnail above name),
-              minus the progress bars, plus a hover × to remove. */}
-          <div className="cto-scan-grid">
-            {files.map((f) => (
-              <div key={`${f.name} ${f.size}`} className="cto-scan-tile">
-                <span className="cto-scan-tile-ico">
-                  <FileThumbnail
-                    mimeType={f.type || guessMimeFromName(f.name)}
-                    sourceUrl={objectUrlFor(f)}
-                    glyph={glyphForFile(f.type || guessMimeFromName(f.name), f.name)}
-                  />
-                </span>
-                <span className="cto-scan-tile-name">{f.name}</span>
-                <button
-                  type="button"
-                  className="cto-tile-remove"
-                  aria-label={`Remove ${f.name}`}
-                  onClick={() => removeFile(f)}
-                >
-                  ×
-                </button>
+        <div className="cto-upload-bar">
+          <div className="cto-upload-bar-copy">
+            <div className="cto-upload-bar-num">{files.length}</div>
+            <div className="cto-upload-bar-text">
+              <div className="cto-upload-bar-title">
+                {files.length === 1 ? 'file ready' : 'files ready'}
               </div>
-            ))}
+              <div className="cto-upload-bar-sub">
+                DocVex will read them and reconstruct the case timeline.
+              </div>
+            </div>
           </div>
-        </>
+          <button type="button" className="cto-btn-tab" onClick={onAnalyze} disabled={analyzing}>
+            {analyzing ? 'Analyzing…' : 'Analyze with AI'}
+          </button>
+        </div>
       )}
     </div>
   );
 }
 
-// Scanning step — the AI-council chamber. `items`/`progress` drive the faded
-// file grid behind the ring (Files-tab tiles; the one currently being read
-// carries the Files tab's selection styling), `council` is the live chamber
-// state built from the pipeline's event stream. `onAnswer` resolves the
-// dispute panel; the ending story card's button hands off to the Timeline
-// step via `onReadStory`.
-function CouncilStep({ items, progress, council, paused, user, error, onAnswer, onPacketDone, onReadStory, onRedo }) {
-  // Keep the file currently being read in view — the rail scrolls (with its
-  // native scrollbar hidden), so follow the reading head as it moves down
-  // the grid.
-  const railRef = useRef(null);
-  const readingIdx = progress.findIndex((p) => p > 0 && p < 100);
-  useEffect(() => {
-    if (readingIdx < 0) return;
-    const rail = railRef.current;
-    const tile = rail?.querySelector(`[data-idx="${readingIdx}"]`);
-    if (!rail || !tile) return;
-    // Keep the file being read pinned as the SECOND visible row — one row
-    // of already-read tiles stays above it for context. Scroll the rail's
-    // own scrollTop (not scrollIntoView, which would also drag the page's
-    // scroll container along).
-    const railRect = rail.getBoundingClientRect();
-    const tileRect = tile.getBoundingClientRect();
-    const delta = toLayoutPx((tileRect.top - railRect.top) - (tileRect.height + 4));
-    rail.scrollTo({ top: rail.scrollTop + delta, behavior: 'smooth' });
-  }, [readingIdx]);
-  // Display-only scroll indicator to the LEFT of the rail — size/position
-  // mirror the rail's scroll state; it accepts no input (pointer-events off).
-  const [bar, setBar] = useState({ size: 0, top: 0 });
-  // Per-tile vertical offsets (rail coords) so the fact column to the RIGHT
-  // of the rail can align each pill stack with its file — re-measured on
-  // scroll so the stacks track the tiles.
-  const [factTops, setFactTops] = useState({});
-  const measureRail = () => {
-    const el = railRef.current;
-    if (!el) return;
-    const scrollable = el.scrollHeight > el.clientHeight + 1;
-    setBar({
-      size: scrollable ? el.clientHeight / el.scrollHeight : 0,
-      top: scrollable ? el.scrollTop / el.scrollHeight : 0,
-    });
-    // Content-space offsets (the fact layer lives INSIDE the scroll
-    // container, so it scrolls natively with the tiles — offsets only
-    // change when the item set changes).
-    const tops = {};
-    el.querySelectorAll('[data-idx]').forEach((node) => {
-      tops[node.dataset.idx] = node.offsetTop;
-    });
-    setFactTops(tops);
-  };
-  useEffect(measureRail, [items.length]);
-
-  // Answer choreography: the clicked option wears the sidebar selected-tab
-  // style for a beat, then the modal fades out, and only then does the
-  // answer resolve (which glides the members back to their seats).
+// Scanning step — the AI Thinking Sphere (Claude Design bundle). The packet
+// key sits on the left, the canvas renders the council as a growing
+// dot-sphere (CouncilSphere). Everything is driven by real pipeline events:
+// the council state machine's packet stream is bridged into canvas flights,
+// the per-file `progress` births the sphere's file nodes, and the endStage
+// flags run the constellation finale + "It is decided!" card. `onAnswer`
+// resolves the dispute panel; the story card hands off to the Timeline step.
+function CouncilStep({ items, progress, council, paused, user, error, onAnswer, onPacketDone, onReadStory, storyCta, onRedo }) {
+  // Answer choreography: the clicked option wears the selected style for a
+  // beat, then the modal fades out, and only then does the answer resolve.
   const [picked, setPicked] = useState(null);
   const [askLeaving, setAskLeaving] = useState(false);
   // multi_select / free_text working state (Doc Viewer ask_user shapes).
   const [multiSel, setMultiSel] = useState([]);
   const [textVal, setTextVal] = useState('');
-  // Packet colouring mode — per packet TYPE (identity colours from
-  // PACKET_COLORS) or tinted by the SENDING member.
-  const [tintBySender, setTintBySender] = useState(false);
   const answerTimers = useRef([]);
   useEffect(() => () => answerTimers.current.forEach(clearTimeout), []);
   useEffect(() => {
@@ -584,6 +866,20 @@ function CouncilStep({ items, progress, council, paused, user, error, onAnswer, 
     }, 500));
   };
 
+  // Bridge the council's packet stream into the sphere: every new packet id
+  // becomes one canvas flight, and the id is retired after the flight so the
+  // end-sequence "wait for the last packet" gate keeps working.
+  const sphereRef = useRef(null);
+  const seenPacketsRef = useRef(new Set());
+  useEffect(() => {
+    (council?.packets || []).forEach((p) => {
+      if (seenPacketsRef.current.has(p.id)) return;
+      seenPacketsRef.current.add(p.id);
+      sphereRef.current?.spawnPacket(p.from, p.to, p.icon || 'doc');
+      answerTimers.current.push(setTimeout(() => onPacketDone(p.id), p.dur || 1600));
+    });
+  }, [council?.packets, onPacketDone]);
+
   if (!council || items.length === 0) {
     return (
       <p className="cto-scan-empty">
@@ -593,236 +889,36 @@ function CouncilStep({ items, progress, council, paused, user, error, onAnswer, 
     );
   }
   const ending = council.endStage === 'gavel' || council.endStage === 'story';
-  // While the council waits on the author the chamber reflows instead of
-  // hiding: the mesh/bubbles/packets fade (`hidden`), the members glide into
-  // a vertical list beside the files (chair on top) and the ask panel sits
-  // to the right of that list. Files stay visible; only the end sequence
-  // fades them.
   const asking = !!council.ask && !ending;
   const hidden = ending || asking;
+  // The debate web starts wiring once the analysts begin filing/voting.
+  const debate = ['working', 'done'].includes(council.tasks?.vote)
+    || ['working', 'done'].includes(council.tasks?.dispute);
 
   return (
     <div>
-      <div className={`cc-card${paused ? ' is-paused' : ''}`}>
-        <div className="cc-stage">
-          {/* The scanned files — Files-tab tiles (fx-grid / fx-tile) in a
-              3-wide grid to the left of the ring. The file currently being
-              read lights up with the Files tab's selection styling. */}
-          <div className={`cc-filewrap${ending ? ' is-out' : ''}`}>
-            <div className="cc-log-kicker">Files</div>
-            <div className="cc-filewrap-row">
-              {bar.size > 0 && (
-                <div className="cc-filebar" aria-hidden="true">
-                  <span
-                    className="cc-filebar-thumb"
-                    style={{ top: `${bar.top * 100}%`, height: `${bar.size * 100}%` }}
-                  />
-                </div>
-              )}
-              <div className="cc-filerail" ref={railRef} onScroll={measureRail}>
-                <div className="fx-grid cc-filerail-grid">
-              {items.map((f, i) => {
-                const pct = Math.round(progress[i] ?? 0);
-                const reading = pct > 0 && pct < 100;
-                return (
-                  <div
-                    key={`${f.name} ${i}`}
-                    data-idx={i}
-                    className={`fx-tile${reading ? ' cc-reading' : ''}${pct === 0 ? ' cc-unread' : ''}`}
-                    // The icon IS the loading indicator: a vertical mask
-                    // reveals it bottom-up with the file's real extraction
-                    // progress (see .cc-reading in ProjectEvents.css).
-                    style={reading ? { '--cc-read': `${pct}%` } : undefined}
-                    role={reading ? 'progressbar' : undefined}
-                    aria-valuenow={reading ? pct : undefined}
-                    aria-label={reading ? `Reading ${f.name}` : undefined}
-                  >
-                    <span className="fx-tile-thumb">
-                      <FileThumbnail
-                        mimeType={f.mime || guessMimeFromName(f.name)}
-                        sourceUrl={f.url || undefined}
-                        glyph={glyphForFile(f.mime || guessMimeFromName(f.name), f.name)}
-                      />
-                    </span>
-                    <span>
-                      <span className="fx-tile-name">{f.name}</span>
-                    </span>
-                  </div>
-                );
-              })}
-                </div>
-                {/* Fact pills to the RIGHT of each file — what the analysts
-                    pulled from it (design bundle's f.facts), left-border
-                    tinted with the finding member's colour. The layer lives
-                    INSIDE the scroll container so it scrolls in lockstep
-                    with the tiles; stacks sit at their tile's content-space
-                    offset and never squeeze the tile text. */}
-                <div className="cc-factcol" aria-hidden="true">
-                  {items.map((f, i) => {
-                    const facts = (council.facts || {})[f.name];
-                    const top = factTops[i];
-                    if (!facts?.length || top == null) return null;
-                    return (
-                      <div key={`${f.name} ${i}`} className="cc-factstack" style={{ top }}>
-                        {facts.map((ft, j) => (
-                          <div key={`${ft.text} ${j}`} className="cc-fact">{ft.text}</div>
-                        ))}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* The chamber — spinning ring, orbiting artefacts, four members.
-              While asking it narrows into the members' vertical list. */}
-          <div className={`cc-ring-wrap${asking ? ' is-asking' : ''}`}>
-            {/* Column header while the members stand as a vertical list. */}
-            {asking && <div className="cc-log-kicker cc-members-kicker">Members</div>}
-            {/* Dashed round-table mesh (the author's sketch): the chair fans
-                out with direct diagonals to both side analysts plus the
-                straight line down to the auditor — crossing the analysts'
-                horizontal — and the bottom edges bow downward like a
-                table's near side. */}
-            <svg className={`cc-mesh${hidden ? ' is-out' : ''}`} viewBox="0 0 560 540" aria-hidden="true">
-              <g fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="6 10">
-                <path d="M 280 60 L 85 330" />
-                <path d="M 280 60 L 475 330" />
-                <path d="M 280 60 L 280 435" />
-                <path d="M 85 330 L 475 330" />
-                <path d="M 85 330 Q 172 452 280 435" />
-                <path d="M 475 330 Q 388 452 280 435" />
-              </g>
-            </svg>
-            {/* The open question — ONE big pulsing ?-mark at the crossing of
-                the chair's line and the analysts' horizontal, heralding the
-                ask panel. Always mounted so it can FADE in and out (a
-                conditional mount would snap). */}
-            <span
-              className={`cc-askmark${council.askMark && !hidden ? ' is-on' : ''}`}
-              aria-hidden="true"
-            >
-              <IcoAsk width="22" height="22" />
-            </span>
-            {/* Current phase — bare text at the centre of the ring (the end
-                sequence takes the centre over). */}
-            {!hidden && council.phase !== 'Story complete' && (
-              <div className="cc-phase-center">{council.phase}</div>
-            )}
-            {/* Files & thoughts in transit — packets ride the mesh edges,
-                spawned by real pipeline events: the brief going out to an
-                analyst, draft pages shuttling back while a call is in
-                flight, the filed draft, disagreement chatter, the author's
-                steer relayed by the chair. */}
-            {(council.packets || []).map((p) => {
-              const path = packetPath(p.from, p.to);
-              const { Icon, color } = packetGlyph(p.icon);
-              const pkColor = tintBySender ? (COUNCIL_BY_ID[p.from]?.color || color) : color;
-              return (
-                <span
-                  key={p.id}
-                  className={`cc-packet${path.reverse ? ' is-rev' : ''}${hidden ? ' is-out' : ''}`}
-                  style={{ offsetPath: `path("${path.d}")`, animationDuration: `${p.dur}ms`, '--pk-c': pkColor }}
-                  onAnimationEnd={() => onPacketDone(p.id)}
-                  aria-hidden="true"
-                >
-                  <Icon width="13" height="13" />
-                </span>
-              );
-            })}
-            {COUNCIL_UI.map((m, mi) => {
-              const st = council.members[m.id] || {};
-              const MIcon = memberIcon(m.id);
-              // Seat position normally; while asking, a vertical list (the
-              // COUNCIL_UI order already leads with the chair). left/top
-              // transition in CSS so the members glide between the layouts.
-              // List layout: starts below the "Members" kicker and runs a
-              // single uniform 140px step so the gap between every pair of
-              // members is identical (offsets account for the card's
-              // translate(-50%, -29px) anchor).
-              const pos = asking
-                ? { left: 66, top: 62 + mi * 140 }
-                : { left: m.x, top: m.y };
-              return (
-                <div key={m.id} className={`cc-member${ending ? ' is-out' : ''}${asking ? ' is-listed' : ''}`} style={pos}>
-                  <div className="cc-avatar-wrap">
-                    {/* Reaction ring — re-keyed per ping so sending or
-                        receiving a packet restarts the burst. */}
-                    {(st.ping || 0) > 0 && (
-                      <span key={`ping-${st.ping}`} className="cc-avatar-ping" style={{ borderColor: m.color }} aria-hidden="true" />
-                    )}
-                    <span
-                      className="cc-avatar-glow"
-                      style={{
-                        background: `radial-gradient(circle, ${m.color}55 0%, ${m.color}22 45%, transparent 70%)`,
-                        opacity: st.active ? 1 : 0,
-                      }}
-                      aria-hidden="true"
-                    />
-                    <span
-                      key={`pong-${st.pong || 0}`}
-                      className={`cc-avatar${(st.pong || 0) > 0 ? ' is-pong' : ''}`}
-                      style={{
-                        borderColor: m.color,
-                        color: m.color,
-                        boxShadow: st.active ? `0 0 0 4px ${m.color}22, 0 6px 16px rgba(15, 23, 42, 0.12)` : undefined,
-                      }}
-                    >
-                      <MIcon width="26" height="26" />
-                    </span>
-                  </div>
-                  <div>
-                    <span className="cc-member-name">{m.name}</span>
-                    <span className="cc-member-role">{m.role}</span>
-                    <span className="cc-member-stat" style={{ color: m.color }}>{st.stats || ''}</span>
-                  </div>
-                  <div className={`cc-bubble${st.bubble && !hidden ? ' is-on' : ''}`} data-pos={m.bubblePos}>
-                    <span className="cc-bubble-name" style={{ color: m.color }}>{m.name}</span>
-                    {st.bubble}
-                  </div>
-                </div>
-              );
-            })}
-
-          </div>
-
-          {/* Packet key — what each traveller on the mesh means. Collapses
-              away (width + opacity) while the ask panel or the end sequence
-              needs the room. */}
-          <div className={`cc-legend${hidden ? ' is-out' : ''}`} aria-hidden={hidden || undefined}>
+      <div className={`cc-card is-sphere${paused ? ' is-paused' : ''}`}>
+        <div className={`cc-stage csx-stage${ending ? ' is-ending' : ''}${asking ? ' is-asking' : ''}`}>
+          {/* Packet key — what each traveller through the sphere means. It
+              sits where the source manifest used to; while the ask panel or
+              the end sequence needs the room it fades out in place, then its
+              width glides closed so the sphere carries to the left edge. */}
+          <div
+            className={`cc-legend csx-keycol${ending ? ' is-out' : ''}${asking ? ' is-aside' : ''}`}
+            aria-hidden={hidden || undefined}
+          >
             <div className="cc-log-kicker">Packet key</div>
-            {/* Colour mode — each packet type in its own colour, or every
-                packet tinted by the member who sent it. */}
-            <div className="cc-legend-toggle" role="radiogroup" aria-label="Packet colours">
-              <button
-                type="button"
-                className={!tintBySender ? 'is-on' : ''}
-                aria-checked={!tintBySender}
-                role="radio"
-                onClick={() => setTintBySender(false)}
-              >
-                By type
-              </button>
-              <button
-                type="button"
-                className={tintBySender ? 'is-on' : ''}
-                aria-checked={tintBySender}
-                role="radio"
-                onClick={() => setTintBySender(true)}
-              >
-                By sender
-              </button>
-            </div>
             <div className="cc-legend-list">
               {PACKET_LEGEND.map((l) => {
-                const { Icon, color } = packetGlyph(l.icon);
+                const c = SPHERE_PACKET_COLORS[l.icon] || '#DCC9A3';
                 return (
                   <div key={l.icon} className="cc-legend-row">
-                    {/* In sender mode colour stops meaning "type", so the
-                        key's icons go neutral. */}
-                    <span className="cc-legend-ico" style={{ '--pk-c': tintBySender ? 'var(--accent)' : color }} aria-hidden="true">
-                      <Icon width="13" height="13" />
+                    <span
+                      className="csx-legend-ico"
+                      style={{ background: c, boxShadow: `0 0 8px ${c}66` }}
+                      aria-hidden="true"
+                    >
+                      {PACKET_GLYPHS[l.icon] || PACKET_GLYPHS.doc}
                     </span>
                     <span className="cc-legend-main">
                       <span className="cc-legend-label">{l.label}</span>
@@ -832,49 +928,54 @@ function CouncilStep({ items, progress, council, paused, user, error, onAnswer, 
                 );
               })}
             </div>
+            {/* Board members — the council roster in a 2-wide grid, each
+                wearing their glyph badge (gavel for the chair) in their
+                cluster colour; the desc line carries the member's live stat
+                once one lands. */}
+            <div className="cc-log-kicker csx-members-kicker">Board members</div>
+            <div className="csx-members-grid">
+              {COUNCIL_UI.map((m) => {
+                const st = council.members[m.id] || {};
+                const MIcon = memberIcon(m.id);
+                return (
+                  <div key={m.id} className={`csx-member-cell${st.active ? ' is-active' : ''}`}>
+                    <span className="cc-log-ico" style={{ color: m.color }} aria-hidden="true">
+                      <MIcon width="14.4" height="14.4" />
+                    </span>
+                    <span className="cc-legend-main">
+                      <span className="cc-legend-label">{m.name}</span>
+                      <span className="cc-legend-desc">{st.stats || m.role}</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
-          {/* End sequence — gavel slam, then the ruling card with the real
-              lede and the hand-off to the Timeline step. Direct children of
-              the STAGE (not the ring wrap) so they centre on the full
-              content width, in line with the step tabs above. */}
-          {council.endStage === 'gavel' && (
-            <div className="cc-gavel">
-              <svg width="180" height="180" viewBox="0 0 200 200" aria-label="Gavel slam">
-                <g fill="#DCC9A3" style={{ transformBox: 'view-box', transformOrigin: '57px 151px', animation: 'ccGvShake 1.8s 1' }}>
-                  <path d="M 22.0,146.9 v-5.4 a6.5,6.5 0 0 1 6.5,-6.5 h56.4 a6.5,6.5 0 0 1 6.5,6.5 v5.4 z" />
-                  <rect x="17.8" y="151.0" width="77.7" height="13.6" rx="2.6" />
-                </g>
-                <g fill="#DCC9A3" style={{ transformBox: 'view-box', transformOrigin: '179.9px 140.7px', animation: 'ccGvSlam 1.8s 1 forwards' }}>
-                  <g transform="translate(83.8 74.9) rotate(124.4)">
-                    <path d="M -10.4,-15.7 L -10.4,-115.0 A 10.5,10.5 0 0 1 10.5,-115.0 L 10.5,-15.7 Z" />
-                    <rect x="-22.5" y="-21.6" width="44.9" height="43.2" rx="8.5" />
-                    <rect x="-42.7" y="-26.8" width="16.1" height="53.6" rx="4.8" />
-                    <rect x="26.6" y="-26.9" width="16.1" height="53.7" rx="4.8" />
-                  </g>
-                </g>
-              </svg>
-            </div>
-          )}
-          {council.endStage === 'story' && (
-            <div className="cc-story">
-              <div className="cc-story-eyebrow">Council ruling · {council.ruling}</div>
-              <div className="cc-story-title">It is decided!</div>
-              <p className="cc-story-lede">
-                {council.lede || 'The council assembled the story — every beat sourced and merged.'}
-              </p>
-              <div className="cc-story-actions">
-                <button type="button" className="cc-story-redo" onClick={onRedo}>
-                  Run again
-                </button>
-                <button type="button" className="cc-story-btn" onClick={onReadStory}>
-                  Read the whole story
-                </button>
-              </div>
-            </div>
-          )}
+          {/* The AI Thinking Sphere — the council as a living dot-sphere.
+              Remounts (fresh random seats) whenever a new run starts. */}
+          <CouncilSphere
+            key={council.startedAt || 0}
+            ref={sphereRef}
+            files={items}
+            progress={progress}
+            members={council.members}
+            phase={!hidden && council.phase !== 'Story complete' ? council.phase : ''}
+            debate={debate}
+            agitated={asking || !!council.askMark}
+            prompted={asking}
+            merging={council.tasks?.merge === 'working'}
+            contracting={ending}
+            storyOn={council.endStage === 'story'}
+            storyEyebrow={`Council ruling · ${council.ruling}`}
+            storyLede={council.lede}
+            storyCta={storyCta}
+            onReadStory={onReadStory}
+            onRedo={onRedo}
+            paused={paused}
+          />
 
-          {/* Real dispute panel — beside the ring while open; the picked
+          {/* Real dispute panel — beside the sphere while open; the picked
               option's rule steers the chair's merge. */}
           {council.ask && !ending && (
             <div className={`cc-ask${askLeaving ? ' is-leaving' : ''}`}>
@@ -970,8 +1071,6 @@ function CouncilStep({ items, progress, council, paused, user, error, onAnswer, 
               <div className="cc-log-kicker">Standing proposal</div>
               <div className="cc-prop-head">
                 <span className="cc-prop-by" style={{ color: by.color }}>
-                  {/* Same circular member badge as the decision log rows,
-                      scaled down to the proposal row's rhythm. */}
                   {(() => { const ByIcon = memberIcon(by.id); return (
                     <span className="cc-log-ico cc-prop-member-ico" aria-hidden="true"><ByIcon /></span>
                   ); })()}
@@ -1008,7 +1107,7 @@ function CouncilStep({ items, progress, council, paused, user, error, onAnswer, 
           );
         })()}
 
-        {/* Under the chamber — decision log (left) + task rail (right),
+        {/* Under the sphere — decision log (left) + task rail (right),
             sharing the same kicker header, spacing and row rhythm. */}
         <div className="cc-below">
           <div className="cc-log">
@@ -1090,6 +1189,15 @@ function localFileUrl(path) {
   return path ? `localfile://local/${encodeURIComponent(path)}` : null;
 }
 
+// Register every source-file path of a timeline with the localfile://
+// containment layer, resolving once main has them all — callers await this
+// BEFORE mounting the tiles so the first thumbnail fetch is already inside
+// the allowed roots.
+function allowTimelinePaths(tl) {
+  const refs = Object.values(tl?.fileRefs || {});
+  return Promise.all(refs.map((r) => (r?.path ? allowLocalFile(r.path) : null))).catch(() => {});
+}
+
 // Source-file tile on a timeline event — a real Files-tab tile (fx-tile:
 // thumbnail well with the name underneath) with the Files tab's interaction
 // model: single click selects (is-selected ring, cleared on blur), double
@@ -1099,14 +1207,26 @@ function EventFileChip({ name, fileRef }) {
   const [selected, setSelected] = useState(false);
   const mime = fileRef?.mime || guessMimeFromName(name);
   const openable = !!fileRef?.path;
+  const openFile = () => openable && openDocViewerWindow({ path: fileRef.path, name, mime });
+  // Files-tab hover pill: cursor-following filename tooltip morphing into
+  // the right-click menu (Open) via the shared FLIP recipe.
+  const morphPill = useMorphPill({
+    hoverContent: name,
+    menuItems: [
+      { key: 'open', label: 'Open', onClick: openFile, disabled: !openable },
+    ],
+  });
   return (
     <button
       type="button"
       className={`cto-ev-file fx-tile${selected ? ' is-selected' : ''}`}
       disabled={!openable}
       onClick={() => setSelected((s) => !s)}
-      onDoubleClick={() => openable && openDocViewerWindow({ path: fileRef.path, name, mime })}
+      onDoubleClick={openFile}
       onBlur={() => setSelected(false)}
+      onMouseMove={morphPill.handleMouseMove}
+      onMouseLeave={morphPill.handleMouseLeave}
+      onContextMenu={morphPill.handleContextMenu}
     >
       <span className="fx-tile-thumb">
         <FileThumbnail
@@ -1116,6 +1236,7 @@ function EventFileChip({ name, fileRef }) {
         />
       </span>
       <span className="fx-tile-name">{name}</span>
+      {morphPill.node}
     </button>
   );
 }
@@ -1124,8 +1245,57 @@ function EventFileChip({ name, fileRef }) {
 // margin rail and the AI flags as review annotations in the right gutter.
 // Renders the AI-reconstructed `timeline`; empty state until one is built.
 // (The lede renders in the page masthead, not here.)
-function TimelineStep({ timeline }) {
+function TimelineStep({ timeline, draftPending, goReview, onRegenerate }) {
+  // Anchors for the regenerate section and the very end of its bottom
+  // clearance — the floating jump button scrolls to the END marker so the
+  // section lands in view WITH its breathing room below.
+  const regenRef = useRef(null);
+  const regenEndRef = useRef(null);
+  // The floating pill lines up with the step rail's Review tab: measure the
+  // tab's centre (viewport px → layout px, per the zoom convention) on mount
+  // and resize. Falls back to the CSS 75vw guide until measured.
+  const [jumpLeft, setJumpLeft] = useState(null);
+  useEffect(() => {
+    const measure = () => {
+      const el = document.querySelector('.cto-steps .cto-step-cell:last-child .cto-step');
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setJumpLeft(toLayoutPx(r.left + r.width / 2));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+  // The pill fades away while the regenerate section itself is on screen —
+  // a jump cue is noise once its destination is visible.
+  const [regenInView, setRegenInView] = useState(false);
+  useEffect(() => {
+    const el = regenRef.current;
+    if (!el) return undefined;
+    const obs = new IntersectionObserver(
+      ([entry]) => setRegenInView(entry.isIntersecting),
+      { threshold: 0.2 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [timeline]);
   if (!timeline) {
+    // A drafted story waiting on the Review round is NOT shown here — the
+    // timeline is only written from the author's answers.
+    if (draftPending) {
+      return (
+        <div className="cto-timeline-pending">
+          <p className="cto-scan-empty">
+            The council has drafted the story, but it still has open questions —
+            the timeline is written from your answers.
+          </p>
+          <button type="button" className="cto-btn-ink" onClick={goReview}>
+            Answer the council’s questions
+            <IcoArrow width="13" height="13" />
+          </button>
+        </div>
+      );
+    }
     return (
       <p className="cto-scan-empty">
         No timeline yet — upload the case files and press “Analyze with AI”
@@ -1159,7 +1329,8 @@ function TimelineStep({ timeline }) {
               <div className="cto-ev-y">{e.y}</div>
             </div>
             <div className="cto-ev-body">
-              <span className="cto-ev-node" aria-hidden="true" />
+              {/* Rail node wears the same colour as the event's kind pill. */}
+              <span className="cto-ev-node" style={{ background: kindColors.get(e.kind) }} aria-hidden="true" />
               <div className="cto-ev-row">
                 <div className="cto-ev-main">
                   <div className="cto-ev-tags">
@@ -1173,6 +1344,9 @@ function TimelineStep({ timeline }) {
                 </div>
                 {e.files?.length > 0 && (
                   <div className="cto-ev-files">
+                    {/* What these tiles are — the sources this event was
+                        reconstructed from. */}
+                    <div className="cto-ev-files-head">Source files</div>
                     {e.files.map((name) => (
                       <EventFileChip key={name} name={name} fileRef={timeline.fileRefs?.[name]} />
                     ))}
@@ -1191,11 +1365,68 @@ function TimelineStep({ timeline }) {
           </div>
         ))}
       </div>
+
+      {/* Under all the content — the "not the story you wanted?" section.
+          The council re-reads the sources and drafts a fresh story. */}
+      <div className="cto-regen" ref={regenRef}>
+        <div className="cto-regen-copy">
+          <div className="cto-regen-title">Not the story you expected?</div>
+          <p className="cto-regen-sub">
+            The council can take another pass — re-reading every source,
+            redrafting the chronologies and merging a fresh story. The current
+            timeline is replaced once the new run completes.
+          </p>
+        </div>
+        <button type="button" className="cto-btn-tab" onClick={onRegenerate}>
+          Regenerate story
+        </button>
+      </div>
+      {/* End-of-clearance marker — the jump scrolls this into view so the
+          section shows with its full breathing room. */}
+      <div ref={regenEndRef} aria-hidden="true" />
+
+      {/* Floating jump — pinned in place in the viewport (in line with the
+          step rail's Review tab), takes the reader down to the regenerate
+          section. Portalled to <body> so the shell's bottom content-fade
+          overlay (.sv-single-body::after) can never wash it out, and faded
+          away while the section itself is on screen. */}
+      {createPortal(
+        <button
+          type="button"
+          className={`cto-regen-jump${regenInView ? ' is-hidden' : ''}`}
+          style={jumpLeft != null ? { left: `${jumpLeft}px` } : undefined}
+          onClick={() => regenEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })}
+        >
+          Regenerate
+          <IcoDown width="12" height="12" />
+        </button>,
+        document.body,
+      )}
     </div>
   );
 }
 
-function ReviewStep({ timeline, goTimeline }) {
+// Review step — the clarification round. Every flag the council raised
+// prompts the author: type what you know (their answer is authoritative) or
+// dismiss the flag as a non-issue. Once every flag is addressed, "Create
+// final story" sends story + answers back to the chair for ONE refinement
+// pass (lib/timelineCouncil's refineTimelineWithClarifications) and the
+// finalised timeline replaces the draft.
+function ReviewStep({ timeline, goTimeline, onFinalize, finalizing, finalizeError, asks, asksLoading }) {
+  const flags = timeline?.flags || [];
+  // One answer slot per flag: { text, dismissed, submitted } — `submitted`
+  // flips on the explicit "Submit answer" press and drives the strip's
+  // verified (✓) badge state; editing the text again un-verifies it.
+  const [answers, setAnswers] = useState(() => flags.map(() => ({ text: '', dismissed: false, submitted: false })));
+  // The questions show ONE at a time — `cur` is the flag on deck; the top
+  // strip doubles as the navigator.
+  const [cur, setCur] = useState(0);
+  // A different flag set can land while this step is mounted (the debug
+  // variations seeder) — re-seat the answer slots and reset the deck.
+  useEffect(() => {
+    setAnswers((prev) => (prev.length === flags.length ? prev : flags.map(() => ({ text: '', dismissed: false, submitted: false }))));
+    setCur((c) => (c < flags.length ? c : 0));
+  }, [flags.length]);
   if (!timeline) {
     return (
       <p className="cto-scan-empty">
@@ -1204,52 +1435,246 @@ function ReviewStep({ timeline, goTimeline }) {
       </p>
     );
   }
-  const flags = timeline.flags || [];
-  const count = (sev) => flags.filter((fl) => fl.sev === sev).length;
+  const patchAnswer = (i, patch) => setAnswers((prev) => prev.map((a, j) => (j === i ? { ...a, ...patch } : a)));
+  const addressed = (a) => a.dismissed || a.text.trim().length > 0;
+  const allAddressed = answers.length === flags.length && answers.every(addressed);
   return (
     <div>
-      <div className="cto-sev-cards">
-        <div className="cto-sev-card" data-sev="danger">
-          <div className="cto-sev-num">{count('High')}</div>
-          <div className="cto-sev-label">High — resolve before filing</div>
-        </div>
-        <div className="cto-sev-card" data-sev="warning">
-          <div className="cto-sev-num">{count('Medium')}</div>
-          <div className="cto-sev-label">Medium — gaps in the record</div>
-        </div>
-        <div className="cto-sev-card" data-sev="success">
-          <div className="cto-sev-num">{count('Low')}</div>
-          <div className="cto-sev-label">Low — clarify wording</div>
-        </div>
+      <div className="cto-kicker cto-flags-kicker">
+        {timeline.meta?.final ? 'Final story — remaining flags' : 'The council’s questions'}
       </div>
-      <div className="cto-kicker cto-flags-kicker">Flags to resolve</div>
+      {/* Flag strip — one badge per flag carrying the severity mini-gauge
+          (the three ascending bars), filling green as each is addressed.
+          It's the navigator: clicking a badge shows that question; a ring
+          marks the one on deck. The answered count sits on its own line
+          under the strip. */}
+      {flags.length > 0 && (
+        <>
+          <div className="cto-flagstrip" role="list" aria-label="Open flags">
+            {flags.map((fl, i) => {
+              const a = answers[i] || { text: '', dismissed: false, submitted: false };
+              return (
+                <Tooltip key={fl.title} content={`${fl.type} · ${fl.sev} — ${fl.title}`}>
+                  <button
+                    type="button"
+                    role="listitem"
+                    className={`cto-flagstrip-ico${a.dismissed ? ' is-dismissed' : a.submitted ? ' is-done' : ''}${i === cur ? ' is-active' : ''}`}
+                    data-sev={fl.tone}
+                    aria-label={`${fl.type}: ${fl.title}${a.dismissed ? ' (dismissed)' : a.submitted ? ' (answered)' : ''}`}
+                    aria-current={i === cur || undefined}
+                    onClick={() => setCur(i)}
+                  >
+                    {/* Severity bars until settled — then a verified ✓ for a
+                        submitted answer, or a greyed … for a dismissal. */}
+                    {a.dismissed ? (
+                      <IcoEllipsis width="14" height="14" />
+                    ) : a.submitted ? (
+                      <IcoCheck width="14" height="14" />
+                    ) : (
+                      <span className="cto-flag-bars" aria-hidden="true">
+                        <span data-on={fl.bars >= 1 || undefined} /><span data-on={fl.bars >= 2 || undefined} /><span data-on={fl.bars >= 3 || undefined} />
+                      </span>
+                    )}
+                  </button>
+                </Tooltip>
+              );
+            })}
+          </div>
+          <div className="cto-flag-nav">
+            <button
+              type="button"
+              className="cto-btn-back"
+              disabled={cur === 0}
+              onClick={() => setCur(cur - 1)}
+            >
+              ← Previous
+            </button>
+            <span className="cto-flag-nav-pos">Question {cur + 1} of {flags.length}</span>
+            <button
+              type="button"
+              className="cto-btn-back"
+              disabled={cur === flags.length - 1}
+              onClick={() => setCur(cur + 1)}
+            >
+              Next →
+            </button>
+          </div>
+        </>
+      )}
       {flags.length === 0 && (
         <p className="cto-scan-empty">No open flags — the record reads clean.</p>
       )}
-      <div className="cto-flag-list">
-        {flags.map((fl) => (
-          <div key={fl.title} className="cto-flag-row" data-sev={fl.tone}>
-            <span className="cto-flag-bars" aria-hidden="true">
-              <span data-on={fl.bars >= 1 || undefined} /><span data-on={fl.bars >= 2 || undefined} /><span data-on={fl.bars >= 3 || undefined} />
-            </span>
-            <div className="cto-flag-main">
-              <div className="cto-flag-type">{fl.type} <span>· {fl.sev}</span></div>
-              <div className="cto-flag-title">{fl.title}</div>
-              <div className="cto-flag-detail">{fl.detail}</div>
-              <div className="cto-ev-source"><IcoDoc width="11" height="11" />{fl.sources}</div>
-            </div>
-            <div className="cto-flag-actions">
-              <button type="button" className="cto-btn-resolve">Resolve</button>
-              <button type="button" className="cto-btn-dismiss">Dismiss</button>
+      {/* ONE question at a time, in the Scanning tab's ask-panel language
+          (cc-ask-head / q / ctx / text / submit — same "the council needs
+          your input" look, no card box). Keyed so each switch replays the
+          pop-in; the strip above navigates; dismissing auto-advances. */}
+      {flags.length > 0 && (() => {
+        const fl = flags[cur] || flags[0];
+        const i = flags.indexOf(fl);
+        const a = answers[i] || { text: '', dismissed: false, submitted: false };
+        // The AI-designed ask for this flag: its question, shape and
+        // suggested answers. Absent (failed/loading) → plain free text.
+        const ask = asks?.[i] || null;
+        const kind = ask?.options?.length ? (ask.kind === 'multi' ? 'multi' : 'options') : 'text';
+        const sel = a.sel || [];
+        return (
+          <div className="cto-flag-list">
+            <div key={`${fl.title} ${i}`} className="cto-review-ask" data-sev={fl.tone}>
+              {/* Type · severity leads (with the severity mini-gauge as its
+                  indicator), then the flag's title as the eyebrow and the
+                  AI's question (or the flag detail) under it. */}
+              <div className="cto-review-ask-meta">
+                <span className="cto-flag-type">
+                  <span className="cto-flag-bars" aria-hidden="true">
+                    <span data-on={fl.bars >= 1 || undefined} /><span data-on={fl.bars >= 2 || undefined} /><span data-on={fl.bars >= 3 || undefined} />
+                  </span>
+                  {fl.type} <span>· {fl.sev}</span>
+                </span>
+              </div>
+              <div className="cc-ask-head">
+                <span>{fl.title}</span>
+              </div>
+              <p className="cc-ask-q">{ask?.question || fl.detail}</p>
+              {ask?.question && <p className="cc-ask-ctx">{fl.detail}</p>}
+              {/* The flag's sources as REAL timeline file tiles (fx-tile +
+                  morph pill; click selects, double click opens in the Doc
+                  Viewer). Falls back to the plain source line when the
+                  string carries no recognisable filenames. */}
+              {(() => {
+                const srcNames = String(fl.sources || '')
+                  .split('·').map((s) => s.trim()).filter((s) => s.includes('.'));
+                if (srcNames.length === 0) {
+                  return fl.sources
+                    ? <span className="cto-ev-source"><IcoDoc width="11" height="11" />{fl.sources}</span>
+                    : null;
+                }
+                return (
+                  <div className="cto-ev-files">
+                    <div className="cto-ev-files-head">Source files</div>
+                    {srcNames.map((n) => (
+                      <EventFileChip key={n} name={n} fileRef={timeline.fileRefs?.[n]} />
+                    ))}
+                  </div>
+                );
+              })()}
+              {/* AI suggestions still drafting — the free-text path works
+                  meanwhile. */}
+              {asksLoading && !ask && (
+                <p className="cc-ask-ctx cto-asks-loading">The council is drafting suggested answers…</p>
+              )}
+              {/* AI-suggested answers, in the chamber's option-tile language.
+                  Single pick answers (and advances) in one click; multi pick
+                  toggles, then Submit joins the picks. */}
+              {kind !== 'text' && (
+                <div className="cc-ask-opts">
+                  {ask.options.map((o, oi) => {
+                    const on = sel.includes(oi);
+                    return (
+                      <button
+                        key={`${o.label} ${oi}`}
+                        type="button"
+                        role={kind === 'multi' ? 'checkbox' : undefined}
+                        aria-checked={kind === 'multi' ? on : undefined}
+                        className={`cc-ask-opt${on ? ' is-picked' : ''}`}
+                        disabled={a.dismissed || finalizing}
+                        onClick={() => {
+                          if (kind === 'options') {
+                            // Select only (toggle off on re-click) — the
+                            // explicit Submit press confirms the answer.
+                            patchAnswer(i, on
+                              ? { sel: [], text: '', submitted: false, dismissed: false }
+                              : {
+                                sel: [oi],
+                                text: o.desc ? `${o.label} — ${o.desc}` : o.label,
+                                submitted: false,
+                                dismissed: false,
+                              });
+                          } else {
+                            patchAnswer(i, {
+                              sel: on ? sel.filter((x) => x !== oi) : [...sel, oi],
+                              submitted: false,
+                              dismissed: false,
+                            });
+                          }
+                        }}
+                      >
+                        <span className="cc-ask-opt-label">{o.label}</span>
+                        {o.desc && <span className="cc-ask-opt-desc">{o.desc}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {/* The author's clarification — first-hand knowledge the chair
+                  folds into the final story. Disabled once dismissed. */}
+              <textarea
+                className="cc-ask-text"
+                rows={3}
+                autoFocus
+                placeholder={kind === 'text'
+                  ? 'What do you know about this? Clarify dates, facts or context…'
+                  : '…or type your own answer'}
+                value={a.text}
+                disabled={finalizing}
+                // Editing after a submit un-verifies the badge — the shown
+                // answer must be the one that was actually submitted — and
+                // typing into a dismissed question un-dismisses it.
+                onChange={(e) => patchAnswer(i, { text: e.target.value, submitted: false, dismissed: false })}
+              />
+              <div className="cto-review-ask-actions">
+                {/* One button, two meanings: with an answer (typed or
+                    picked) it SUBMITS; with nothing it DISMISSES the flag
+                    as a non-issue. */}
+                {(() => {
+                  const hasInput = !!a.text.trim() || (kind === 'multi' && sel.length > 0);
+                  return (
+                    <button
+                      type="button"
+                      className={`cc-ask-submit${!hasInput && !a.submitted ? ' is-dismiss' : ''}`}
+                      disabled={finalizing || a.submitted || (a.dismissed && !hasInput)}
+                      onClick={() => {
+                        const text = a.text.trim()
+                          || (kind === 'multi' ? sel.map((oi) => ask.options[oi]?.label).filter(Boolean).join(' · ') : '');
+                        if (text) patchAnswer(i, { text, submitted: true, dismissed: false });
+                        else patchAnswer(i, { text: '', submitted: false, dismissed: true });
+                        if (i < flags.length - 1) setCur(i + 1);
+                      }}
+                    >
+                      {a.submitted ? 'Submitted' : a.dismissed ? 'Dismissed' : hasInput ? 'Submit' : 'Dismiss'}
+                    </button>
+                  );
+                })()}
+              </div>
             </div>
           </div>
-        ))}
-      </div>
+        );
+      })()}
+      {finalizeError && (
+        <p className="cto-finalize-error">Couldn’t create the final story: {finalizeError}</p>
+      )}
       <div className="cto-review-foot">
-        <button type="button" className="cto-btn-back" onClick={goTimeline}>← Back to timeline</button>
-        <button type="button" className="cto-btn-ink">
-          Finish &amp; open case dossier<IcoArrow width="13" height="13" />
-        </button>
+        {/* No skip — answering (or dismissing) the questions is the path to
+            the timeline; only a finalised story offers the way back. */}
+        {timeline.meta?.final && (
+          <button type="button" className="cto-btn-back" onClick={goTimeline}>
+            ← Back to timeline
+          </button>
+        )}
+        {flags.length > 0 && (
+          <button
+            type="button"
+            className="cto-btn-ink"
+            disabled={!allAddressed || finalizing}
+            onClick={() => onFinalize(flags.map((fl, i) => ({
+              flag: { type: fl.type, sev: fl.sev, title: fl.title, detail: fl.detail, sources: fl.sources },
+              text: (answers[i]?.text || '').trim(),
+              dismissed: !!answers[i]?.dismissed,
+            })))}
+          >
+            {finalizing ? 'Assembling the timeline…' : 'Create timeline'}
+            {!finalizing && <IcoArrow width="13" height="13" />}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1261,6 +1686,12 @@ export default function ProjectEvents() {
   const { selectedProject, loading } = useSelectedProject();
   const { session } = useAuth();
   const [step, setStep] = useState('upload');
+  // The merged Scanning & review tab shows one of two faces: the council
+  // CHAMBER (file rail + ring + packets) or the REVIEW round (the council's
+  // questions). A flagged draft flips the tab to review BEFORE any gavel;
+  // once every flag is addressed the chamber returns for the finalize
+  // theatre, and only then the gavel + "It is decided" panel close the run.
+  const [scanView, setScanView] = useState('chamber');
   // Signed-in identity for the decision log's "You decided" rows — Google
   // avatar when present, first-letter circle fallback (app convention).
   const logUser = {
@@ -1348,6 +1779,8 @@ export default function ProjectEvents() {
     setPaused(false);
   };
   const freshCouncil = () => ({
+    // Remount key for the sphere — a fresh run gets fresh random seats.
+    startedAt: Date.now(),
     phase: 'Convening',
     tasks: Object.fromEntries(COUNCIL_TASKS.map((t) => [t.id, 'queued'])),
     members: Object.fromEntries(COUNCIL_UI.map((m) => [m.id, { active: false, bubble: '', stats: '' }])),
@@ -1652,10 +2085,166 @@ export default function ProjectEvents() {
     const pid = selectedProject?.id;
     if (!pid) return;
     const saved = loadCaseTimeline(pid);
-    setTimeline(saved);
-    setStep(saved ? 'timeline' : 'upload');
-    setScanError(null);
+    let alive = true;
+    // Surface every source-file path with the localfile:// containment layer
+    // BEFORE the timeline mounts. A restored timeline's folders may never
+    // have been opened this session — without this, the event tiles'
+    // thumbnail requests fall outside the allowed roots and 403 (and the
+    // one-shot retry re-resolves the same URL, so they'd stay broken).
+    allowTimelinePaths(saved).then(() => {
+      if (!alive) return;
+      setTimeline(saved);
+      // A saved DRAFT with open flags resumes at the merged tab's Review
+      // face (answer → final timeline); a finalised/clean story lands on
+      // the timeline.
+      const resumeReview = !!(saved && saved.flags?.length && !saved.meta?.final);
+      setScanView(resumeReview ? 'review' : 'chamber');
+      setStep(!saved ? 'upload' : (resumeReview ? 'scan' : 'timeline'));
+      setScanError(null);
+    });
+    return () => { alive = false; };
   }, [selectedProject?.id]);
+
+  // ── AI-designed Review asks ──────────────────────────────────────────────
+  // The council designs each flag's question: its shape (single pick / multi
+  // pick / free text) + suggested answers. The fetch is kicked off from the
+  // SCANNING step the moment a flagged draft lands (while the gavel finale
+  // plays), so entering Review finds the answers already loaded. Falls back
+  // to plain free-text questions on failure. Skipped for debug-seeded flags
+  // (the seeder supplies its own variations).
+  const [flagAsks, setFlagAsks] = useState(null);
+  const [asksLoading, setAsksLoading] = useState(false);
+  const asksForRef = useRef(null);
+  // One fetch per timeline build (generatedAt identity); the key guard also
+  // drops a stale response if a newer build superseded it mid-flight.
+  const prefetchFlagAsks = (tl) => {
+    if (!tl?.flags?.length || tl.meta?.final || tl.meta?.debugFlags) return;
+    const key = tl.meta?.generatedAt || 0;
+    if (asksForRef.current === key) return;
+    asksForRef.current = key;
+    setFlagAsks(null);
+    setAsksLoading(true);
+    draftFlagAsks({ projectName: selectedProject?.name, timeline: tl })
+      .then((a) => { if (asksForRef.current === key) setFlagAsks(a); })
+      .catch(() => { if (asksForRef.current === key) setFlagAsks(null); })
+      .finally(() => { if (asksForRef.current === key) setAsksLoading(false); });
+  };
+  // Fallback for drafts that DIDN'T just come off a scan run (a draft with
+  // open flags restored from a previous session resumes at Review) — the
+  // key guard makes this a no-op when the scan-time prefetch already ran.
+  useEffect(() => {
+    if (step !== 'scan' || scanView !== 'review') return;
+    prefetchFlagAsks(timeline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, scanView, timeline]);
+
+  // ── Final pass — the Review round's clarifications → chair refinement ────
+  // One chair call folds the author's answers into the story, drops the
+  // resolved/dismissed flags, and the finalised timeline replaces the draft
+  // (persisted like any other build). The tab flips BACK to the chamber for
+  // the duration — packets flying while the chair redrafts — and the run
+  // closes with the gavel + "It is decided" panel (its button opens the
+  // Timeline). On failure the review face returns with the error shown.
+  const [finalizing, setFinalizing] = useState(false);
+  const [finalizeError, setFinalizeError] = useState(null);
+  const finalizeStory = async (clarifications) => {
+    if (!timeline || finalizing) return;
+    setFinalizing(true);
+    setFinalizeError(null);
+    // ── Chamber theatre while the refinement call is in flight ──
+    clearTimers();
+    resetCouncilPause();
+    // Sessions that resumed straight into Review never ran a scan this
+    // session — seed the file rail from the saved story's refs so the
+    // chamber has tiles to show.
+    if (scanItems.length === 0) {
+      const seeded = Object.keys(timeline.fileRefs || {}).map((name) => ({
+        name,
+        mime: timeline.fileRefs[name]?.mime || '',
+        url: '',
+        path: timeline.fileRefs[name]?.path,
+      }));
+      const items = seeded.length > 0 ? seeded : FALLBACK_SCAN_FILES;
+      setScanItems(items);
+      setScanProgress(items.map(() => 100));
+    }
+    setScanView('chamber');
+    setStep('scan');
+    const answered = clarifications.filter((c) => !c.dismissed && c.text).length;
+    const dismissed = clarifications.length - answered;
+    setCouncil((c) => ({
+      ...(c || freshCouncil()),
+      ask: null,
+      askMark: false,
+      prop: null,
+      endStage: '',
+      phase: 'Final deliberation',
+      tasks: { ...Object.fromEntries(COUNCIL_TASKS.map((t) => [t.id, 'done'])), save: 'working' },
+    }));
+    setActive('chair', true);
+    say('chair', 'Answers in hand. Folding your clarifications into the final story…');
+    addDecision(LOG_STEER, 'You answered the council', `— ${answered} ${answered === 1 ? 'clarification' : 'clarifications'}${dismissed > 0 ? `, ${dismissed} dismissed` : ''} handed to the chair.`);
+    // The answers ride out to every analyst, and each seat keeps material
+    // shuttling with the chair for however long the redraft takes.
+    COUNCIL_UI.slice(1).forEach((m, i) => {
+      schedule(350 + i * 450, () => {
+        setActive(m.id, true);
+        say(m.id, 'Re-checking my beats against your answers…');
+        startShuttle(m.id);
+      });
+    });
+    try {
+      const parsed = await refineTimelineWithClarifications({
+        projectName: selectedProject?.name,
+        timeline,
+        clarifications,
+      });
+      const built = normalizeTimeline(parsed, timeline.meta?.fileCount ?? 0);
+      if (!built) throw new Error('the refined story came back empty');
+      // Carry the run's identity forward: council credit, source-file refs,
+      // and mark the story as finalised with the author's input.
+      built.meta = {
+        ...built.meta,
+        council: timeline.meta?.council,
+        fileCount: timeline.meta?.fileCount ?? built.meta.fileCount,
+        final: true,
+        clarified: answered,
+      };
+      built.fileRefs = timeline.fileRefs;
+      await allowTimelinePaths(built);
+      setTimeline(built);
+      saveCaseTimeline(selectedProject.id, built);
+      // ── End sequence: verdict packets home, gavel, "It is decided". ──
+      // clearTimers also kills any still-pending shuttle starts so a late
+      // packet can't hold the 'wait' stage open.
+      clearTimers();
+      COUNCIL_UI.slice(1).forEach((m, i) => {
+        setActive(m.id, false);
+        schedule(200 + i * 300, () => sendPacket(m.id, 'chair', 'ok', 1600));
+      });
+      setActive('chair', false);
+      setTask('save', 'done');
+      setPhase('Story complete');
+      say('chair', 'It is decided — the story stands, your answers folded in.');
+      addDecision(LOG_OK, 'Final story approved', `— ${built.events.length} events; ${built.flags.length === 0 ? 'every flag resolved' : `${built.flags.length} ${built.flags.length === 1 ? 'flag' : 'flags'} still open`}.`, [
+        'refined with your answers',
+        ...(dismissed > 0 ? [`${dismissed} dismissed`] : []),
+      ]);
+      patchCouncil({ ruling: 'unanimous', lede: built.lede });
+      schedule(600, () => patchCouncil({ endStage: 'wait' }));
+      schedule(5200, () => patchCouncil((c) => (c.endStage === 'wait' ? { endStage: 'gavel' } : {})));
+    } catch (err) {
+      // Refinement failed — adjourn the theatre and return to the questions
+      // with the error shown (the answers are still in hand).
+      clearTimers();
+      setFinalizeError(String(err?.message || err));
+      patchCouncil({ phase: 'Adjourned', endStage: '' });
+      addDecision(LOG_BAD, 'Refinement failed', `— ${String(err?.message || err)}`);
+      setScanView('review');
+    } finally {
+      setFinalizing(false);
+    }
+  };
 
   // ── Real pipeline: extract text per file (the reading rail), then the AI
   // council (three analysts in parallel + the chair's merge) — every chamber
@@ -1672,11 +2261,12 @@ export default function ProjectEvents() {
     pendingFactsRef.current = {};
     askQueueRef.current = [];
     askResolverRef.current = null;
-    const items = files.map((f) => ({ name: f.name, mime: f.type || '', url: objectUrlFor(f) }));
+    const items = files.map((f) => ({ name: f.name, mime: f.type || '', url: objectUrlFor(f), path: pathForFile(f) }));
     setScanItems(items);
     setScanProgress(items.map(() => 0));
     setScanning(true);
     setStep('scan');
+    setScanView('chamber');
     decisionSeq.current = 0;
     setCouncil({ ...freshCouncil(), phase: 'Reading sources' });
     setTask('read', 'working');
@@ -1698,7 +2288,35 @@ export default function ProjectEvents() {
         }, 120);
         const mime = files[i].type || guessMimeFromName(files[i].name);
         const isMedia = /^(image|video|audio)\//.test(mime);
+        // Cache first — a file scanned before (same name/size/mtime) recalls
+        // what the AI gathered last time instead of re-paying for
+        // vision/transcription/extraction.
+        const cached = loadExtract(files[i]);
         let res;
+        // Captions the user already generated in the Doc Viewer for this
+        // exact file are reused instead of re-transcribing.
+        const viewerCap = !cached && isMedia && !mime.startsWith('image/')
+          ? loadCaptions(pathForFile(files[i]))
+          : null;
+        if (cached) {
+          res = cached;
+          say('chair', `${files[i].name} — recalling my notes from the last reading.`);
+          clearInterval(creep);
+        } else if (viewerCap && (viewerCap.text || viewerCap.segments.length > 0)) {
+          const sections = segmentsToKeySections({ text: viewerCap.text, segments: viewerCap.segments });
+          res = {
+            text: sections ? `AI captions (timestamped key sections):\n${sections}` : '',
+            media: {
+              kind: mime.startsWith('video/') ? 'video' : 'audio',
+              segments: viewerCap.segments.length,
+              transcript: { text: viewerCap.text, segments: viewerCap.segments, language: viewerCap.language },
+            },
+          };
+          if (!res.text) res = { error: 'no speech found' };
+          say('chair', `${files[i].name} — using the captions already generated in the viewer.`);
+          clearInterval(creep);
+          saveExtract(files[i], res);
+        } else {
         try {
           // Sequential on purpose — keeps memory bounded and the rail readable.
           if (isMedia) {
@@ -1723,6 +2341,14 @@ export default function ProjectEvents() {
         } finally {
           clearInterval(creep);
         }
+        // Remember what the AI gathered so the next scan of this exact file
+        // starts from here (successful reads only).
+        saveExtract(files[i], res);
+        }
+        // Share the gathering with the Doc Viewer's own caches — captions
+        // for audio/video, an Extract-text entry for images — so opening
+        // the file there needs no Generate press.
+        if (res.text) seedDocViewerCaches(files[i], res);
         excerpts.push(res.text
           ? { name: files[i].name, text: res.text.slice(0, perFileCap) }
           : { name: files[i].name, error: res.error || 'unreadable' });
@@ -1732,14 +2358,17 @@ export default function ProjectEvents() {
         // with what the AI made of it.
         const analyst = COUNCIL_UI[1 + (i % (COUNCIL_UI.length - 1))].id;
         sendPacket('chair', analyst, 'doc', 1800);
-        if (res.text && res.media) {
+        if (cached) {
+          addDecision(LOG_INFO, files[i].name, `— recalled from the previous scan (cached${res.media ? `, ${res.media.kind === 'image' ? 'AI vision' : 'AI captions'}` : ''}).`);
+          addFact(files[i].name, 'Recalled from the last scan', SPHERE_PACKET_COLORS.fact);
+        } else if (res.text && res.media) {
           const m = res.media;
           addDecision(LOG_INFO, files[i].name, m.kind === 'image'
             ? `— image understood with AI vision (${(res.text.length / 1000).toFixed(1)}k characters).`
             : `— AI captions generated (${m.segments} timed ${m.segments === 1 ? 'segment' : 'segments'})${m.kind === 'video' ? '; key sections extracted' : ''}.`);
           addFact(files[i].name, m.kind === 'image'
             ? 'Understood with AI vision'
-            : m.kind === 'video' ? 'Key sections captioned by AI' : 'Captions generated by AI', PACKET_COLORS.fact);
+            : m.kind === 'video' ? 'Key sections captioned by AI' : 'Captions generated by AI', SPHERE_PACKET_COLORS.fact);
           // The finding rides back to the chair as a fact packet.
           schedule(900, () => sendPacket(analyst, 'chair', 'fact', 1800));
         } else if (res.text) {
@@ -1791,29 +2420,57 @@ export default function ProjectEvents() {
       files.forEach((f) => {
         built.fileRefs[f.name] = { path: pathForFile(f), mime: f.type || '' };
       });
+      // Containment first, tiles second — see allowTimelinePaths.
+      await allowTimelinePaths(built);
+      // The timeline is only CREATED once the author answers the review
+      // questions (finalizeStory builds the story from those answers).
+      // With open flags, this run yields an in-memory DRAFT the Review round
+      // works from — nothing is saved yet. A clean, flag-free run has no
+      // questions to ask, so it stands as the story immediately.
+      const clean = built.flags.length === 0;
+      if (clean) built.meta.final = true;
       setTimeline(built);
-      saveCaseTimeline(selectedProject.id, built);
+      if (clean) saveCaseTimeline(selectedProject.id, built);
+      // Open flags → start drafting the Review round's suggested answers NOW
+      // (in the background, while the finale plays), so the Review tab opens
+      // with the AI's answers already loaded.
+      if (!clean) prefetchFlagAsks(built);
       setScanning(false);
-      // End sequence — the story is saved; slam the gavel, then show the
-      // ruling card with the real lede (its button opens the Timeline step).
-      setTask('save', 'done');
-      addDecision(LOG_INFO, 'Story saved', '— the reconstructed timeline is stored with this project.');
-      setPhase('Story complete');
-      say('chair', 'We have our story — every beat sourced and merged.');
-      addDecision(LOG_OK, 'Final story approved', `— ${built.events.length} events, ${built.flags.length} open ${built.flags.length === 1 ? 'flag' : 'flags'}.`, [
+      const councilChips = [
         result.council.merged ? 'merged by the chair' : 'best draft stands',
         `${result.council.size} of ${COUNCIL_UI.length - 1} analysts filed`,
         ...(result.council.steer ? ['steered by you'] : []),
-      ]);
-      patchCouncil({
-        ruling: result.council.merged && !result.council.degraded ? 'unanimous' : 'majority',
-        lede: built.lede,
-      });
-      // Hold the finale until every travelling packet lands (the 'wait'
-      // stage — see the end-sequence gating effects), with a fallback in
-      // case a packet animation never finishes.
-      schedule(400, () => patchCouncil({ endStage: 'wait' }));
-      schedule(5000, () => patchCouncil((c) => (c.endStage === 'wait' ? { endStage: 'gavel' } : {})));
+      ];
+      if (clean) {
+        // Clean record — straight to the end sequence: gavel, then the
+        // ruling card whose button opens the Timeline.
+        setTask('save', 'done');
+        addDecision(LOG_INFO, 'Story saved', '— the reconstructed timeline is stored with this project.');
+        setPhase('Story complete');
+        say('chair', 'We have our story — every beat sourced and merged.');
+        addDecision(LOG_OK, 'Final story approved', `— ${built.events.length} events, no open flags.`, councilChips);
+        patchCouncil({
+          ruling: result.council.merged && !result.council.degraded ? 'unanimous' : 'majority',
+          lede: built.lede,
+        });
+        // Hold the finale until every travelling packet lands (the 'wait'
+        // stage — see the end-sequence gating effects), with a fallback in
+        // case a packet animation never finishes.
+        schedule(400, () => patchCouncil({ endStage: 'wait' }));
+        schedule(5000, () => patchCouncil((c) => (c.endStage === 'wait' ? { endStage: 'gavel' } : {})));
+      } else {
+        // Open flags — NO gavel yet. The chair suspends the ruling and the
+        // tab flips to its Review face (the council's questions); the
+        // chamber and the gavel return once every flag is addressed
+        // (finalizeStory's theatre).
+        setTask('save', 'working');
+        setActive('chair', true);
+        setPhase('Author consultation');
+        say('chair', `${built.flags.length} open ${built.flags.length === 1 ? 'question' : 'questions'} — I need the author before I rule.`);
+        addDecision(LOG_STEER, 'Ruling suspended', `— ${built.flags.length} open ${built.flags.length === 1 ? 'flag' : 'flags'}; the council turns to you for answers.`, councilChips);
+        // A beat so the chair's line lands, then the questions take the tab.
+        schedule(1600, () => setScanView('review'));
+      }
     } catch (err) {
       // Clears shuttles AND any scheduled dispute/ask timers, so a delayed
       // ask panel can't reopen over an adjourned session.
@@ -1839,7 +2496,7 @@ export default function ProjectEvents() {
     askQueueRef.current = [];
     askResolverRef.current = null;
     const items = files.length > 0
-      ? files.map((f) => ({ name: f.name, mime: f.type || '', url: objectUrlFor(f) }))
+      ? files.map((f) => ({ name: f.name, mime: f.type || '', url: objectUrlFor(f), path: pathForFile(f) }))
       : FALLBACK_SCAN_FILES;
     setScanItems(items);
     setScanProgress(items.map(() => 0));
@@ -1847,6 +2504,7 @@ export default function ProjectEvents() {
     setDebugRun(true);
     setScanError(null);
     setStep('scan');
+    setScanView('chamber');
     decisionSeq.current = 0;
     setCouncil({ ...freshCouncil(), phase: 'Reading sources' });
     // Every mechanic the chamber has, in one scripted session: read facts +
@@ -2125,7 +2783,7 @@ export default function ProjectEvents() {
     askQueueRef.current = [];
     askResolverRef.current = null;
     const items = files.length > 0
-      ? files.map((f) => ({ name: f.name, mime: f.type || '', url: objectUrlFor(f) }))
+      ? files.map((f) => ({ name: f.name, mime: f.type || '', url: objectUrlFor(f), path: pathForFile(f) }))
       : FALLBACK_SCAN_FILES;
     setScanItems(items);
     setScanProgress(items.map(() => 100));
@@ -2133,6 +2791,7 @@ export default function ProjectEvents() {
     setDebugRun(true);
     setScanError(null);
     setStep('scan');
+    setScanView('chamber');
     decisionSeq.current = 0;
     setCouncil({
       ...freshCouncil(),
@@ -2149,6 +2808,89 @@ export default function ProjectEvents() {
   // ── Debug ask variations (fourth button): step through every shape the
   // "We have a question…" modal supports — single select, multi select,
   // confirm, free text — advancing on each answer.
+  // Debug — TOGGLE the Review round between a seeded set of flag/ask
+  // variations (all severities, every ask shape: single pick / multi pick /
+  // free text, with and without parseable source filenames) and the real
+  // ones. In-memory only: the seeded timeline is never saved, and toggling
+  // back restores the real story + its AI-designed asks untouched.
+  const debugReviewBackupRef = useRef(null);
+  const debugReviewOn = !!timeline?.meta?.debugFlags;
+  const startDebugReviewFlags = () => {
+    if (debugReviewOn) {
+      // Toggle OFF — restore the real flags + asks.
+      const backup = debugReviewBackupRef.current;
+      debugReviewBackupRef.current = null;
+      setTimeline(backup?.timeline || null);
+      setFlagAsks(backup?.flagAsks || null);
+      setScanView('review');
+      setStep('scan');
+      return;
+    }
+    debugReviewBackupRef.current = { timeline, flagAsks };
+    const mk = (sev, tone, bars, type, title, detail, sources) => ({ type, sev, tone, bars, title, detail, sources });
+    setTimeline({
+      lede: 'Debug story — flag variations for the Review round.',
+      events: timeline?.events || [],
+      flags: [
+        mk('High', 'danger', 3, 'Contradiction',
+          'Transfer date conflict: 14 Oct (WhatsApp) vs 15 Oct (bank screenshot)',
+          'The WhatsApp thread reads as if the transfer happened on 14 Oct, but the bank screenshot shows a value date of 15 Oct. Which date should the story carry?',
+          '02_chat_whatsapp_export.txt · 05_screenshot_bank_app.png'),
+        mk('High', 'danger', 3, 'Missing evidence',
+          'The claimed repayment has no supporting document',
+          'A partial repayment is mentioned twice but no receipt, transfer or acknowledgement covers it. Did it happen, and is there a document for it?',
+          'no supporting file in the set'),
+        mk('Medium', 'warning', 2, 'Gap in the record',
+          'Nothing covers March–May 2024',
+          'The files jump from the notice straight to the payment demand — three months with no correspondence. What happened in between?',
+          '02_chat_whatsapp_export.txt'),
+        mk('Low', 'success', 1, 'Wording',
+          'Ambiguous “advance” wording in the acknowledgement',
+          'The handwritten note says “advance” — an advance on the debt, or a fresh loan? A one-word answer settles the reading.',
+          '06_foto_recunoastere_datorie.jpg'),
+      ],
+      fileRefs: timeline?.fileRefs || {},
+      meta: { ...(timeline?.meta || {}), fileCount: timeline?.meta?.fileCount ?? 3, final: false, debugFlags: true },
+    });
+    // One ask of every shape the AI can present, pre-populated with
+    // suggested answers.
+    setFlagAsks([
+      {
+        kind: 'options',
+        question: 'Which transfer date should the story carry?',
+        options: [
+          { label: '14 Oct — WhatsApp', desc: 'The money left when the chat says it did' },
+          { label: '15 Oct — bank record', desc: 'The value date on the statement governs' },
+          { label: 'Both are right', desc: 'Sent on the 14th, settled on the 15th' },
+        ],
+      },
+      {
+        kind: 'text',
+        question: 'Did the partial repayment actually happen — and is there any document for it?',
+        options: [],
+      },
+      {
+        kind: 'multi',
+        question: 'What happened between March and May 2024?',
+        options: [
+          { label: 'Verbal talks only', desc: 'Calls / in-person, nothing written' },
+          { label: 'A meeting took place', desc: 'The parties met at least once' },
+          { label: 'Complete silence', desc: 'No contact in that window' },
+        ],
+      },
+      {
+        kind: 'options',
+        question: 'What does “advance” mean in the handwritten note?',
+        options: [
+          { label: 'Advance on the existing debt', desc: 'Partial repayment of what was owed' },
+          { label: 'A fresh loan', desc: 'New money on top of the debt' },
+        ],
+      },
+    ]);
+    setScanView('review');
+    setStep('scan');
+  };
+
   const startDebugAsks = () => {
     if (analyzing) return;
     // Already showing a question in debug mode? Each press CYCLES to the
@@ -2165,7 +2907,7 @@ export default function ProjectEvents() {
     askQueueRef.current = [];
     askResolverRef.current = null;
     const items = files.length > 0
-      ? files.map((f) => ({ name: f.name, mime: f.type || '', url: objectUrlFor(f) }))
+      ? files.map((f) => ({ name: f.name, mime: f.type || '', url: objectUrlFor(f), path: pathForFile(f) }))
       : FALLBACK_SCAN_FILES;
     setScanItems(items);
     setScanProgress(items.map(() => 100));
@@ -2173,6 +2915,7 @@ export default function ProjectEvents() {
     setDebugRun(true);
     setScanError(null);
     setStep('scan');
+    setScanView('chamber');
     decisionSeq.current = 0;
     askVarIdxRef.current = 0;
     askQueueRef.current = ASK_VARIATIONS.slice(1);
@@ -2266,7 +3009,7 @@ export default function ProjectEvents() {
             <span>Case chronology</span>
             <span className="cto-mh-ref">· built from your files</span>
           </div>
-          {step === 'timeline' && timeline ? (
+          {step === 'timeline' && timeline?.meta?.final ? (
             <>
               <h1 className="cto-mh-title">The story, reconstructed</h1>
               <p className="cto-mh-kicker">
@@ -2284,43 +3027,60 @@ export default function ProjectEvents() {
                 <span className="cto-story-flags">
                   {timeline.flags.length} open {timeline.flags.length === 1 ? 'flag' : 'flags'}
                 </span>
+                {timeline.meta?.final ? ' · finalised with your clarifications' : ''}
               </div>
             </>
-          ) : (
-            <>
-              <h1 className="cto-mh-title">Timeline</h1>
-              <p className="cto-mh-kicker">
-                Drop in every document, email and recording tied to the matter.
-                DocVex reads, transcribes and cross-checks them, then assembles
-                a chronological story — flagging gaps and contradictions for you
-                to resolve.
-              </p>
-            </>
-          )}
+          ) : (() => {
+            // The merged tab's review face wears the Review masthead copy.
+            const headerKey = step === 'scan' && scanView === 'review' ? 'review' : step;
+            const head = STEP_HEADERS[headerKey] || STEP_HEADERS.timeline;
+            return (
+              <>
+                <h1 className="cto-mh-title">{head.title}</h1>
+                <p className="cto-mh-kicker">{head.kicker}</p>
+              </>
+            );
+          })()}
         </div>
+        {/* Dev affordances — the simulator seeds the Scanning grid from the
+            uploaded files (or the fallback sample set) and animates their
+            progress; the pause toggle freezes the council process in place.
+            Sit to the RIGHT of the Scanning header, on that tab only. */}
+        {step === 'scan' && scanView === 'chamber' && (
+          <div className="cto-debug-row">
+            <button type="button" className="cto-debug-btn" onClick={startDebugScan}>
+              Debug · simulate scan
+            </button>
+            <button
+              type="button"
+              className={`cto-debug-btn${paused ? ' is-on' : ''}`}
+              onClick={toggleCouncilPause}
+            >
+              {paused ? 'Debug · resume council' : 'Debug · pause council'}
+            </button>
+            <button type="button" className="cto-debug-btn" onClick={startDebugGavel}>
+              Debug · gavel finale
+            </button>
+            <button type="button" className="cto-debug-btn" onClick={startDebugAsks}>
+              Debug · ask variations
+            </button>
+          </div>
+        )}
+        {/* Review-tab dev affordance — TOGGLES between a seeded set of
+            flag/ask variations and the real ones (in-memory only; the saved
+            story is untouched). */}
+        {step === 'scan' && scanView === 'review' && (
+          <div className="cto-debug-row">
+            <button
+              type="button"
+              className={`cto-debug-btn${debugReviewOn ? ' is-on' : ''}`}
+              onClick={startDebugReviewFlags}
+            >
+              {debugReviewOn ? 'Debug · back to real flags' : 'Debug · flag variations'}
+            </button>
+          </div>
+        )}
       </header>
-
-      {/* Dev affordances — the simulator seeds the Scanning grid from the
-          uploaded files (or the fallback sample set) and animates their
-          progress; the pause toggle freezes the council process in place. */}
-      <div className="cto-debug-row">
-        <button type="button" className="cto-debug-btn" onClick={startDebugScan}>
-          Debug · simulate scan
-        </button>
-        <button
-          type="button"
-          className={`cto-debug-btn${paused ? ' is-on' : ''}`}
-          onClick={toggleCouncilPause}
-        >
-          {paused ? 'Debug · resume council' : 'Debug · pause council'}
-        </button>
-        <button type="button" className="cto-debug-btn" onClick={startDebugGavel}>
-          Debug · gavel finale
-        </button>
-        <button type="button" className="cto-debug-btn" onClick={startDebugAsks}>
-          Debug · ask variations
-        </button>
-      </div>
 
       {/* ── Step rail (option 1a) — numbered circles + connector lines. */}
       <div className="cto-steps" role="tablist" aria-label="Onboarding steps">
@@ -2346,7 +3106,9 @@ export default function ProjectEvents() {
         })}
       </div>
 
-      <div key={step} className={`cto-step-body is-enter-${stepEnterDir}`}>
+      {/* The scan step's chamber↔review face swap re-keys the body too, so
+          the same enter animation plays on the flip. */}
+      <div key={step === 'scan' ? `scan-${scanView}` : step} className={`cto-step-body is-enter-${stepEnterDir}`}>
       {step === 'upload' && (
         <UploadStep
           files={files}
@@ -2356,7 +3118,7 @@ export default function ProjectEvents() {
           analyzing={analyzing}
         />
       )}
-      {step === 'scan' && (
+      {step === 'scan' && scanView === 'chamber' && (
         <CouncilStep
           items={scanItems}
           progress={scanProgress}
@@ -2366,7 +3128,11 @@ export default function ProjectEvents() {
           error={scanError}
           onAnswer={answerCouncil}
           onPacketDone={removePacket}
+          // The ruling card only appears once the story is final (a clean
+          // run, or the post-review finalize theatre) — flagged drafts flip
+          // to the review face before any gavel.
           onReadStory={() => setStep('timeline')}
+          storyCta="Read the whole story"
           // Redo — re-run the same kind of session that just finished: the
           // simulator for debug runs, the real analysis when files are in
           // hand (falls back to the Upload step otherwise).
@@ -2377,8 +3143,33 @@ export default function ProjectEvents() {
           }}
         />
       )}
-      {step === 'timeline' && <TimelineStep timeline={timeline} />}
-      {step === 'review' && <ReviewStep timeline={timeline} goTimeline={() => setStep('timeline')} />}
+      {step === 'scan' && scanView === 'review' && (
+        <ReviewStep
+          timeline={timeline}
+          goTimeline={() => setStep('timeline')}
+          onFinalize={finalizeStory}
+          finalizing={finalizing}
+          finalizeError={finalizeError}
+          asks={flagAsks}
+          asksLoading={asksLoading}
+        />
+      )}
+      {step === 'timeline' && (
+        <TimelineStep
+          // The timeline EXISTS only once the author's review answers have
+          // built it (or a clean, flag-free run stood as the story) — an
+          // unanswered draft shows the empty state, not the draft story.
+          timeline={timeline?.meta?.final ? timeline : null}
+          draftPending={!!(timeline && !timeline.meta?.final)}
+          goReview={() => { setScanView('review'); setStep('scan'); }}
+          // Re-run the council when the picks are still in hand; otherwise
+          // bounce to Upload so the user can re-provide the sources.
+          onRegenerate={() => {
+            if (files.length > 0) analyzeFiles();
+            else setStep('upload');
+          }}
+        />
+      )}
       </div>
     </div>
   );

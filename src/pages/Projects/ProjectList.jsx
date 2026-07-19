@@ -13,7 +13,15 @@ import {
 } from '../../lib/recentProjects';
 import { readProjectsDir } from '../../lib/projectsDir';
 import { localFolderApi, isElectronBranch } from '../../lib/localFolder';
-import { openExternal } from '../../lib/platform';
+import {
+  openExternal,
+  listExternalOpens,
+  openExternalFile,
+  removeExternalOpen,
+  onExternalOpensChanged,
+} from '../../lib/platform';
+import { glyphForFile } from '../../components/fileGlyph';
+import { formatRelativeTime } from '../../lib/notifications';
 import { PLAN } from '../../lib/plan';
 import { getStatusOption, updateStatus, DEFAULT_STATUS_KEY } from '../../lib/userStatus';
 import Tooltip from '../../components/Tooltip';
@@ -356,6 +364,20 @@ export default function ProjectList() {
     return () => window.removeEventListener(RECENT_PROJECTS_CHANGED_EVENT, onRecent);
   }, [userId]);
 
+  // "Opened with DocVex" — standalone files opened through the OS file
+  // association. Electron-only (the web list is always empty) and NOT tied
+  // to any project.
+  const [externalOpens, setExternalOpens] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => {
+      listExternalOpens().then((l) => { if (alive) setExternalOpens(Array.isArray(l) ? l : []); });
+    };
+    refresh();
+    const off = onExternalOpensChanged(refresh);
+    return () => { alive = false; off(); };
+  }, []);
+
   const ordered = useMemo(() => sortProjectsByRecent(userId, projects), [userId, projects, recencyTick]);
   const mostRecentId = useMemo(() => getMostRecentProjectId(userId), [userId, projects, recencyTick]);
   const recentMap = useMemo(() => getRecentMap(userId), [userId, projects, recencyTick]);
@@ -540,6 +562,44 @@ export default function ProjectList() {
                 )}
               </div>
             </>
+          )}
+
+          {/* Standalone files opened via the OS "Open with DocVex" verb —
+              each reopens in its own Doc Viewer window; none belong to a
+              project. */}
+          {externalOpens.length > 0 && (
+            <section className="lh-extopens">
+              <div className="lh-extopens-head">Opened with DocVex</div>
+              <div className="lh-extopens-list">
+                {externalOpens.map((f) => (
+                  <div
+                    key={f.path}
+                    className="lh-extopen-row"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openExternalFile(f.path)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') openExternalFile(f.path); }}
+                  >
+                    <span className="lh-extopen-ico">{glyphForFile(f.mime || '', f.name)}</span>
+                    <span className="lh-extopen-main">
+                      <span className="lh-extopen-name">{f.name}</span>
+                      <span className="lh-extopen-path">{f.path}</span>
+                    </span>
+                    <span className="lh-extopen-time">{formatRelativeTime(f.at)}</span>
+                    <Tooltip content="Remove from this list">
+                      <button
+                        type="button"
+                        className="lh-extopen-remove"
+                        aria-label={`Remove ${f.name} from this list`}
+                        onClick={(e) => { e.stopPropagation(); removeExternalOpen(f.path); }}
+                      >
+                        ×
+                      </button>
+                    </Tooltip>
+                  </div>
+                ))}
+              </div>
+            </section>
           )}
         </div>
       </main>

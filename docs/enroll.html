@@ -6,6 +6,18 @@
 <base href="/">
 <title>Join the waitlist — DocVex</title>
 <meta name="description" content="Be first to know when DocVex opens up. Save your spot on the waitlist.">
+<link rel="icon" href="favicon.ico">
+<link rel="canonical" href="https://docvex.ro/enroll.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DocVex">
+<meta property="og:title" content="Join the waitlist — DocVex">
+<meta property="og:description" content="Be first to know when DocVex opens up. Save your spot on the waitlist.">
+<meta property="og:url" content="https://docvex.ro/enroll.html">
+<meta property="og:image" content="https://docvex.ro/assets/logo-lockup.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Join the waitlist — DocVex">
+<meta name="twitter:description" content="Be first to know when DocVex opens up. Save your spot on the waitlist.">
+<meta name="twitter:image" content="https://docvex.ro/assets/logo-lockup.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
@@ -112,6 +124,33 @@ import { supabase } from './supabase.js';
 var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 var $ = function (id) { return document.getElementById(id); };
 
+// The page serves two intents: ?mode=demo (from the homepage "Book a demo"
+// CTAs) and the default waitlist. Copy + the enrollment `type` follow the mode.
+var MODE = new URLSearchParams(window.location.search).get('mode') === 'demo' ? 'demo' : 'waitlist';
+if (MODE === 'demo') {
+  document.title = 'Book a demo — DocVex';
+  document.querySelector('.en-eyebrow').textContent = 'See it live';
+  document.querySelector('.en-title').textContent = 'Book a demo';
+  document.querySelector('.en-lead').textContent = 'Tell us a little about your practice and we’ll reach out to schedule a walkthrough.';
+  $('enSubmit').textContent = 'Request a demo';
+  $('enDone').querySelector('h3').textContent = 'Request received';
+  $('enDone').querySelector('p').textContent = 'Thanks — we’ll be in touch shortly to schedule your demo.';
+}
+
+function insertEnrollment(row) {
+  return supabase.from('enrollments').insert(row).then(function (res) {
+    // If the live table constrains `type`, degrade to a tagged waitlist row
+    // rather than losing the submission.
+    if (res.error && row.type !== 'waitlist') {
+      return supabase.from('enrollments').insert(Object.assign({}, row, {
+        type: 'waitlist',
+        message: '[' + row.type + ' request] ' + (row.message || ''),
+      }));
+    }
+    return res;
+  });
+}
+
 $('enSubmit').addEventListener('click', function () {
   var name = $('enName').value.trim();
   var firm = $('enFirm').value.trim();
@@ -122,7 +161,7 @@ $('enSubmit').addEventListener('click', function () {
   if (!EMAIL_RE.test(email)) { err.textContent = 'Please enter a valid email address.'; err.className = 'en-msg err'; err.hidden = false; return; }
   var btn = $('enSubmit');
   btn.disabled = true; var orig = btn.textContent; btn.textContent = 'Sending…';
-  supabase.from('enrollments').insert({ type: 'waitlist', name: name || null, email: email, firm: firm || null, message: message || null }).then(function (res) {
+  insertEnrollment({ type: MODE, name: name || null, email: email, firm: firm || null, message: message || null }).then(function (res) {
     if (res.error) {
       err.textContent = 'Something went wrong. Please try again or email docvexteam@docvex.ro.';
       err.className = 'en-msg err'; err.hidden = false;

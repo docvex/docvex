@@ -184,6 +184,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('files:changed', listener);
   },
 
+  // Surface a known file path for localfile:// preview (timeline source
+  // thumbnails restored from a saved timeline). Awaitable so callers can
+  // register BEFORE mounting <img> tiles.
+  allowLocalFile: (p) => ipcRenderer.invoke('localfile:allow-file', p),
+
+  // "Opened with DocVex" — standalone files opened through the OS file
+  // association (not linked to any project). The Hub lists them; open
+  // re-launches a file in its own Doc Viewer window.
+  listExternalOpens: () => ipcRenderer.invoke('external-opens:list'),
+  openExternalFile: (p) => ipcRenderer.send('external-opens:open', p),
+  removeExternalOpen: (p) => ipcRenderer.invoke('external-opens:remove', p),
+  onExternalOpensChanged: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on('external-opens:changed', listener);
+    return () => ipcRenderer.removeListener('external-opens:changed', listener);
+  },
+
   // Extract text from a legacy .doc file (main process parses the binary).
   extractDocText: (filePath) => ipcRenderer.invoke('doc:extract-text', filePath),
 
@@ -219,6 +236,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // platforms where the in-app updater can't run (unsigned macOS / Linux).
   getPlatformInfo: () => ipcRenderer.invoke('app:get-platform-info'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  // Last-known updater status (pull). Lets a renderer that mounted after an
+  // update:status push already fired (e.g. background download finished
+  // before boot) recover the 'downloaded' state and prompt for a restart.
+  getUpdateStatus: () => ipcRenderer.invoke('update:get-status'),
   installUpdate: () => ipcRenderer.send('update:install'),
   // macOS self-update: download the new build's zip, swap the .app bundle,
   // and relaunch. Resolves to { ok, error? }; on success the app quits and

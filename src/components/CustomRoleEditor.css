@@ -18,6 +18,39 @@
   line-height: 1.4;
 }
 
+/* ── Suggested-role presets — one-tap chips under the name field ───────── */
+
+.custom-role-editor-presets {
+  display: flex;
+  gap: 0.34rem;
+  margin: 0.34rem 0 0.15rem;
+  flex-wrap: wrap;
+}
+
+.custom-role-editor-preset {
+  padding: 0.26rem 0.62rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 140ms, color 140ms, background 140ms;
+}
+
+.custom-role-editor-preset:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-tint);
+}
+
+.custom-role-editor-preset:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* â”€â”€ Base tier picker â€” three radio buttons as colored chips â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .custom-role-editor-tiers {

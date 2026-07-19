@@ -206,11 +206,11 @@ function StatusBanner() {
     return (
       <div className="updates-banner updates-banner-success">
         <div>
-          <strong>Update ready to install</strong>
-          <p>Version {installerState.releaseName || latestVersion} has been downloaded. Restart to apply.</p>
+          <strong>Update installed — restart to apply</strong>
+          <p>Version {installerState.releaseName || latestVersion} has been downloaded and installed. Restart DocVex to start using it.</p>
         </div>
         <button className="updates-btn updates-btn-primary" onClick={installUpdate}>
-          {DownloadIcon} Restart &amp; install
+          {DownloadIcon} Restart now
         </button>
       </div>
     );

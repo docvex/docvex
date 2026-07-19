@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en" data-theme="cream">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cookie Policy — DocVex</title>
+<meta name="description" content="How DocVex uses cookies and browser storage — essential and preference storage only, no advertising trackers.">
+<link rel="icon" href="favicon.ico">
+<link rel="canonical" href="https://docvex.ro/cookies.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DocVex">
+<meta property="og:title" content="Cookie Policy — DocVex">
+<meta property="og:description" content="How DocVex uses cookies and browser storage — essential and preference storage only, no advertising trackers.">
+<meta property="og:url" content="https://docvex.ro/cookies.html">
+<meta property="og:image" content="https://docvex.ro/assets/logo-lockup.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Cookie Policy — DocVex">
+<meta name="twitter:description" content="How DocVex uses cookies and browser storage — essential and preference storage only, no advertising trackers.">
+<meta name="twitter:image" content="https://docvex.ro/assets/logo-lockup.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="chrome.css">
+<link rel="stylesheet" href="legal.css">
+<script>(function(){try{var t=localStorage.getItem('docvex.site.theme')||'cream';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+</head>
+<body>
+  <div class="lg-shell">
+    <a class="lg-back" href="legal.html">&larr; Legal center</a>
+    <header class="lg-head">
+      <p class="lg-eyebrow">DocVex — Legal</p>
+      <h1 class="lg-title">Cookie Policy</h1>
+      <p class="lg-lead">DocVex uses only the browser storage the Service needs to function — signing you in and remembering your preferences. No advertising cookies, no third-party trackers.</p>
+      <p class="lg-updated">Last updated: 18 July 2026</p>
+    </header>
+
+    <div class="lg-layout">
+      <nav class="lg-toc" aria-label="Sections">
+        <p class="lg-toc-title">On this page</p>
+        <ul>
+          <li><a href="#overview">1. What this policy covers</a></li>
+          <li><a href="#what">2. Cookies &amp; similar storage</a></li>
+          <li><a href="#inventory">3. What we store</a></li>
+          <li><a href="#third">4. Third-party requests</a></li>
+          <li><a href="#manage">5. Managing storage</a></li>
+          <li><a href="#changes">6. Changes &amp; contact</a></li>
+        </ul>
+        <div class="lg-toc-related">
+          <p class="lg-toc-title">Related</p>
+          <ul>
+            <li><a href="privacy.html">Privacy Policy</a></li>
+            <li><a href="gdpr.html">GDPR Compliance</a></li>
+          </ul>
+        </div>
+      </nav>
+
+      <div class="lg-doc">
+        <section class="lg-card" id="overview">
+          <h2>1. What this policy covers</h2>
+          <p class="lg-sub">Scope.</p>
+          <p>This policy explains how the docvex.ro website, the web application at docvex.ro/app, and the DocVex desktop application use cookies and similar browser-storage technologies (localStorage, sessionStorage, and IndexedDB). It supplements the <a href="privacy.html">Privacy Policy</a>.</p>
+        </section>
+
+        <section class="lg-card" id="what">
+          <h2>2. Cookies &amp; similar storage</h2>
+          <p class="lg-sub">A short primer.</p>
+          <p>Cookies are small files a website places in your browser; localStorage, sessionStorage, and IndexedDB are related browser mechanisms for storing data on your device. DocVex primarily uses <strong>browser storage rather than cookies</strong>: the authentication session and your preferences are held in localStorage, temporary caches in sessionStorage, and (on the web app) the connection to your local project folder in IndexedDB.</p>
+          <p>Everything we store falls into two categories: <strong>essential</strong> (the Service cannot work without it) and <strong>preferences</strong> (remembering choices you made). We use no analytics, advertising, or cross-site tracking storage of any kind.</p>
+        </section>
+
+        <section class="lg-card" id="inventory">
+          <h2>3. What we store</h2>
+          <p class="lg-sub">The complete inventory.</p>
+          <div class="lg-tablewrap">
+            <table class="lg-table">
+              <thead><tr><th>Storage</th><th>Category</th><th>Purpose</th><th>Lifetime</th></tr></thead>
+              <tbody>
+                <tr><td>Authentication session (sb-*)</td><td>Essential</td><td>Keeps you signed in to your DocVex account (Supabase session tokens).</td><td>Until sign-out or expiry</td></tr>
+                <tr><td>Theme (docvex.site.theme, docvex.theme.*)</td><td>Preference</td><td>Remembers your Cream/Ink theme choice on the site and in the app.</td><td>Until cleared</td></tr>
+                <tr><td>App preferences (docvex.appPrefs.*)</td><td>Preference</td><td>Interface settings such as text size, display scale, language, and file view.</td><td>Until cleared</td></tr>
+                <tr><td>Workspace state (docvex.*)</td><td>Essential / Preference</td><td>Selected project, chat read-markers, notification history, recently opened projects, cached AI results for files you opened.</td><td>Until cleared</td></tr>
+                <tr><td>Release &amp; digest caches (sessionStorage)</td><td>Essential</td><td>Short-lived caches of release notes and the legal-feed briefing to avoid repeated fetches.</td><td>Browser session</td></tr>
+                <tr><td>Folder handle (IndexedDB, web app only)</td><td>Essential</td><td>Remembers which local folder you granted the web app access to, per project.</td><td>Until disconnected or cleared</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>All of this data stays in your browser or app profile on your device; it is storage <em>about</em> your session and preferences, not a tracking mechanism.</p>
+        </section>
+
+        <section class="lg-card" id="third">
+          <h2>4. Third-party requests</h2>
+          <p class="lg-sub">External services a page may contact.</p>
+          <ul class="lg-list">
+            <li><strong>Supabase</strong> — the site and app talk to our EU-hosted backend for sign-in and data sync; the session is stored locally as described above.</li>
+            <li><strong>Google Fonts</strong> — the website loads its typefaces from Google Fonts, which involves a request to Google's servers. The desktop app does not depend on this at runtime.</li>
+            <li><strong>Google / Microsoft sign-in pages</strong> — if you use Google sign-in or connect a mailbox, those providers' own pages set their own cookies under their own policies.</li>
+          </ul>
+          <p>None of these are used by DocVex for advertising or cross-site tracking.</p>
+        </section>
+
+        <section class="lg-card" id="manage">
+          <h2>5. Managing storage</h2>
+          <p class="lg-sub">You are in control.</p>
+          <p>You can clear DocVex's stored data at any time from your browser's site-data settings, or in the app via <strong>Account → Erase data</strong>, which signs you out everywhere and clears local storage. Because the stored items are essential or preference-only, there is no consent banner to manage — blocking the essential storage simply means you cannot stay signed in.</p>
+        </section>
+
+        <section class="lg-card" id="changes">
+          <h2>6. Changes &amp; contact</h2>
+          <p class="lg-sub">Staying informed.</p>
+          <p>If we ever introduce a new category of storage — for example privacy-respecting analytics — we will update this policy first and, where required, ask for your consent. Questions: <a href="mailto:docvexteam@docvex.ro">docvexteam@docvex.ro</a>.</p>
+          <p class="lg-note">This document has not yet been reviewed by counsel and does not constitute legal advice.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+
+<script type="module" src="chrome.js"></script>
+<script src="legal.js"></script>
+</body>
+</html>

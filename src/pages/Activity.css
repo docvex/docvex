@@ -75,13 +75,15 @@
   gap: 6.4px;
   height: 40px;
   box-sizing: border-box;
-  /* Pull the bar's LEFT EDGE out past the content inset so its gap to the
-     sidebar equals the Hub-button seam (one --chrome-inset), then re-inset
-     the content by the same amount — the tabs stay at the content edge
-     while the bar's surface reaches closer to the rail. */
-  margin-left: calc(var(--chrome-inset, 6.4px) - var(--content-left-gap, 17.6px));
-  padding: 0 12px 0 calc(var(--content-left-gap, 17.6px) - var(--chrome-inset, 6.4px));
-  border-radius: 9.6px;
+  /* Pull the bar's LEFT EDGE out past the whole content inset so its surface
+     sits FLUSH against the sidebar rail (no seam), then re-inset the content
+     by the same amount — the tabs keep their exact x position at the content
+     edge while the frosted surface fills the gap to the rail. */
+  margin-left: calc(-1 * var(--content-left-gap, 17.6px));
+  padding: 0 12px 0 var(--content-left-gap, 17.6px);
+  /* Flush against the rail, the left corners lose their rounding — a radius
+     there would open tiny page-bg crescents against the sidebar's edge. */
+  border-radius: 0 9.6px 9.6px 0;
   /* Constant transparent border so gaining the pinned hairline doesn't
      shift the row's height. */
   border: 1.5px solid transparent;

@@ -24,6 +24,23 @@ module.exports = {
         schemes: ['docvex'],
       },
     ],
+    // macOS "Open with DocVex": declare a catch-all document type in the
+    // bundle's Info.plist so Finder offers DocVex in every file's Open With
+    // menu (role Viewer — we never claim to be the default editor). The OS
+    // then delivers opens via app.on('open-file') in src/main.js, which
+    // routes them to a standalone Doc Viewer window. Windows needs no
+    // packaging change — main.js writes the Explorer verb into HKCU at
+    // runtime.
+    extendInfo: {
+      CFBundleDocumentTypes: [
+        {
+          CFBundleTypeName: 'Document',
+          CFBundleTypeRole: 'Viewer',
+          LSHandlerRank: 'Alternate',
+          LSItemContentTypes: ['public.item', 'public.content', 'public.data'],
+        },
+      ],
+    },
   },
   rebuildConfig: {},
   publishers: [

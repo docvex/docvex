@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <base href="/">
 <title>DocVex — Intelligent legal workflows</title>
+<meta name="description" content="DocVex — intelligent legal workflows for modern law firms. Draft, review, organize, and collaborate on legal documents with privacy-first local file storage and focused AI tooling.">
+<link rel="icon" href="favicon.ico">
+<link rel="canonical" href="https://docvex.ro/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DocVex">
+<meta property="og:title" content="DocVex — Intelligent legal workflows">
+<meta property="og:description" content="DocVex — intelligent legal workflows for modern law firms. Draft, review, organize, and collaborate on legal documents with privacy-first local file storage and focused AI tooling.">
+<meta property="og:url" content="https://docvex.ro/">
+<meta property="og:image" content="https://docvex.ro/assets/logo-lockup.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="DocVex — Intelligent legal workflows">
+<meta name="twitter:description" content="DocVex — intelligent legal workflows for modern law firms. Draft, review, organize, and collaborate on legal documents with privacy-first local file storage and focused AI tooling.">
+<meta name="twitter:image" content="https://docvex.ro/assets/logo-lockup.png">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -548,6 +561,14 @@
               <p style="margin:0;"><a href="mailto:docvexteam@docvex.ro" style="color:inherit; text-decoration:none;">docvexteam@docvex.ro</a></p>
               <p style="margin:0;"><a href="https://docvex.ro" style="color:inherit; text-decoration:none;">docvex.ro</a></p>
             </div>
+            <div style="margin-top:22px; max-width:280px;">
+              <p style="margin:0 0 8px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.16em; color:var(--text-muted);">Legal Newsfeed — weekly briefing</p>
+              <form id="dvxNewsForm" style="display:flex; gap:7px;">
+                <input id="dvxNewsEmail" type="email" placeholder="you@firm.law" autocomplete="email" aria-label="Email for the newsletter" style="flex:1; min-width:0; height:36px; padding:0 11px; border-radius:9px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-primary); font-size:12.5px; font-family:inherit; outline:none;">
+                <button type="submit" style="height:36px; padding:0 14px; border:none; border-radius:9px; background:var(--accent); color:var(--text-on-accent); font-size:12.5px; font-weight:700; font-family:inherit; cursor:pointer;">Subscribe</button>
+              </form>
+              <p id="dvxNewsMsg" style="margin:8px 0 0; font-size:12px; color:var(--text-muted);" hidden></p>
+            </div>
           </div>
 
           <!-- Product -->
@@ -557,7 +578,6 @@
               <li><a href="#features" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Features</a></li>
               <li><a href="#security" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Security</a></li>
               <li><a href="#updates" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Updates</a></li>
-              <li><a href="#clients" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Client Portal</a></li>
               <li><a href="#pricing" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Pricing</a></li>
               <li><a href="#faq" style="font-size:14px; color:var(--text-muted); text-decoration:none;">FAQ</a></li>
             </ul>
@@ -578,11 +598,12 @@
           <div>
             <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.22em; color:var(--accent);">Legal</p>
             <ul style="margin:16px 0 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:10px;">
-              <li><a href="legal.html#terms" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Terms &amp; Conditions</a></li>
-              <li><a href="legal.html#privacy" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Privacy Policy</a></li>
-              <li><a href="legal.html#cookies" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Cookie Policy</a></li>
-              <li><a href="legal.html#gdpr" style="font-size:14px; color:var(--text-muted); text-decoration:none;">GDPR Compliance</a></li>
-              <li><a href="legal.html#confidentiality" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Security &amp; Confidentiality</a></li>
+              <li><a href="terms.html" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Terms &amp; Conditions</a></li>
+              <li><a href="privacy.html" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Privacy Policy</a></li>
+              <li><a href="cookies.html" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Cookie Policy</a></li>
+              <li><a href="gdpr.html" style="font-size:14px; color:var(--text-muted); text-decoration:none;">GDPR Compliance</a></li>
+              <li><a href="security.html" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Security Policy</a></li>
+              <li><a href="dpa.html" style="font-size:14px; color:var(--text-muted); text-decoration:none;">Data Processing Agreement</a></li>
             </ul>
           </div>
         </div>
@@ -596,6 +617,30 @@
   </div>
 
 </div>
+<script type="module">
+// Footer newsletter signup → enrollments (type 'newsletter'; degrades to a
+// tagged 'waitlist' row if the live table constrains the type column).
+import { supabase as dvxNewsSb } from './supabase.js';
+(function () {
+  var form = document.getElementById('dvxNewsForm');
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var email = (document.getElementById('dvxNewsEmail').value || '').trim();
+    var msg = document.getElementById('dvxNewsMsg');
+    var show = function (text, ok) { msg.textContent = text; msg.style.color = ok ? '' : 'var(--danger-soft)'; msg.hidden = false; };
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { show('Please enter a valid email address.', false); return; }
+    dvxNewsSb.from('enrollments').insert({ type: 'newsletter', name: null, email: email, firm: null, message: null }).then(function (res) {
+      if (res.error) return dvxNewsSb.from('enrollments').insert({ type: 'waitlist', name: null, email: email, firm: null, message: '[newsletter subscription]' });
+      return res;
+    }).then(function (res) {
+      if (res && res.error) { show('Something went wrong — try again later.', false); return; }
+      form.hidden = true;
+      show('Subscribed — welcome to the briefing.', true);
+    });
+  });
+})();
+</script>
 <script type="module">
 import { supabase } from './supabase.js';
 // ── Signed-in header: swap the Sign in / Sign up buttons for the user's

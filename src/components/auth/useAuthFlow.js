@@ -123,17 +123,32 @@ export function useAuthFlow(initial = {}) {
       return setError('Enter your email above first, then tap Forgot.');
     }
     setError(''); setNotice('');
-    const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim());
+    // The website's auth page handles the PASSWORD_RECOVERY landing (set-new-
+    // password panel) — a custom docvex:// redirect can't carry the recovery
+    // token through Supabase's email template, so the site is the reset surface.
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: 'https://docvex.ro/auth.html',
+    });
     if (err) setError(err.message);
     else setNotice('Password reset link sent — check your email.');
   }, [email]);
+
+  // Re-send the signup confirmation email (throttled server-side by Supabase).
+  const [resent, setResent] = useState(false);
+  const resendConfirm = useCallback(async () => {
+    if (!confirmEmail) return;
+    setError(''); setNotice('');
+    const { error: err } = await supabase.auth.resend({ type: 'signup', email: confirmEmail });
+    if (err) setError(err.message || 'Could not resend the email.');
+    else { setResent(true); setNotice('Confirmation email re-sent — check your inbox.'); }
+  }, [confirmEmail]);
 
   const firstName = (name.trim().split(/\s+/)[0]) || 'there';
 
   return {
     // state
     mode, step, email, password, name, firm, agree, news,
-    error, notice, busy, done, confirmEmail, firstName,
+    error, notice, busy, done, confirmEmail, firstName, resent,
     strength: passwordStrength(password),
     strengthLabel: STRENGTH_LABELS[passwordStrength(password)],
     // field setters (clear error on edit)
@@ -144,6 +159,6 @@ export function useAuthFlow(initial = {}) {
     onAgree: bind(setAgree),
     onNews: bind(setNews),
     // actions
-    toSignup, toSignin, next, back, doSignin, finish, google, forgot, reset,
+    toSignup, toSignin, next, back, doSignin, finish, google, forgot, reset, resendConfirm,
   };
 }

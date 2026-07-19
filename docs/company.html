@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Company — DocVex</title>
 <meta name="description" content="About DocVex — our mission, customers, and careers.">
+<link rel="icon" href="favicon.ico">
+<link rel="canonical" href="https://docvex.ro/company.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DocVex">
+<meta property="og:title" content="Company — DocVex">
+<meta property="og:description" content="About DocVex — our mission, customers, and careers.">
+<meta property="og:url" content="https://docvex.ro/company.html">
+<meta property="og:image" content="https://docvex.ro/assets/logo-lockup.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Company — DocVex">
+<meta name="twitter:description" content="About DocVex — our mission, customers, and careers.">
+<meta name="twitter:image" content="https://docvex.ro/assets/logo-lockup.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
@@ -48,6 +60,18 @@
 
   .lg-contact-btn { display: inline-flex; align-items: center; gap: 9px; margin-top: 6px; padding: 12px 22px; border-radius: 999px; background: var(--accent); color: var(--text-on-accent); font-weight: 600; font-size: 14px; text-decoration: none; box-shadow: var(--shadow-card); }
   .lg-contact-btn:hover { background: var(--accent-hover); text-decoration: none; }
+  .lg-contact-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .ct-row { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+  @media (max-width: 460px) { .ct-row { grid-template-columns: 1fr; } }
+  .ct-field { margin-bottom: 11px; }
+  .ct-label { display: block; font-size: 10.5px; letter-spacing: 0.13em; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; }
+  .ct-input, .ct-textarea { width: 100%; padding: 0 13px; height: 40px; border-radius: 9px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text-primary); font-size: 13.5px; font-family: inherit; outline: none; transition: border-color 160ms, box-shadow 160ms; }
+  .ct-textarea { height: auto; padding: 10px 13px; min-height: 88px; resize: none; line-height: 1.5; }
+  .ct-input::placeholder, .ct-textarea::placeholder { color: var(--text-muted); }
+  .ct-input:focus, .ct-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+  .ct-msg { margin: 0 0 8px; font-size: 13px; color: var(--danger-soft); }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -106,21 +130,61 @@
         <section class="lg-card" id="contact">
           <h2>Contact</h2>
           <p class="lg-sub">We'd love to hear from you.</p>
-          <p>For product questions, demos, partnerships, or support, reach the DocVex team directly:</p>
-          <ul class="lg-list">
-            <li>Email: <a href="mailto:docvexteam@docvex.ro">docvexteam@docvex.ro</a></li>
-            <li>Web: <a href="https://docvex.ro">docvex.ro</a></li>
-          </ul>
-          <a class="lg-contact-btn" href="mailto:docvexteam@docvex.ro">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
-            Email the team
-          </a>
+          <p>For product questions, demos, partnerships, or support, send us a message — we reply to every one.</p>
+          <div id="ctForm">
+            <div class="ct-row">
+              <div class="ct-field"><label class="ct-label" for="ctName">Name</label><input class="ct-input" id="ctName" type="text" placeholder="Ana Popescu" autocomplete="name"></div>
+              <div class="ct-field"><label class="ct-label" for="ctEmail">Email</label><input class="ct-input" id="ctEmail" type="email" placeholder="you@firm.law" autocomplete="email"></div>
+            </div>
+            <div class="ct-field"><label class="ct-label" for="ctMessage">Message</label><textarea class="ct-textarea" id="ctMessage" placeholder="How can we help?"></textarea></div>
+            <p class="ct-msg" id="ctError" hidden></p>
+            <button class="lg-contact-btn" id="ctSubmit" type="button" style="border:none; cursor:pointer; font-family:inherit;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+              Send message
+            </button>
+          </div>
+          <div id="ctDone" hidden>
+            <p><strong>Message sent.</strong> Thanks for reaching out — we'll get back to you at the address you provided.</p>
+          </div>
+          <p style="margin-top:14px;">Prefer email? Write to <a href="mailto:docvexteam@docvex.ro">docvexteam@docvex.ro</a>.</p>
         </section>
       </div>
     </div>
   </div>
 
 <script type="module" src="chrome.js"></script>
+<script type="module">
+  // Contact form → enrollments table (type 'contact'; degrades to a tagged
+  // 'waitlist' row if the live table constrains the type column).
+  import { supabase } from './supabase.js';
+  var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  var $ = function (id) { return document.getElementById(id); };
+  $('ctSubmit').addEventListener('click', function () {
+    var name = $('ctName').value.trim();
+    var email = $('ctEmail').value.trim();
+    var message = $('ctMessage').value.trim();
+    var err = $('ctError');
+    err.hidden = true;
+    if (!EMAIL_RE.test(email)) { err.textContent = 'Please enter a valid email address.'; err.hidden = false; return; }
+    if (!message) { err.textContent = 'Please write a short message.'; err.hidden = false; return; }
+    var btn = $('ctSubmit');
+    btn.disabled = true;
+    supabase.from('enrollments').insert({ type: 'contact', name: name || null, email: email, firm: null, message: message }).then(function (res) {
+      if (res.error) {
+        return supabase.from('enrollments').insert({ type: 'waitlist', name: name || null, email: email, firm: null, message: '[contact] ' + message });
+      }
+      return res;
+    }).then(function (res) {
+      if (res && res.error) {
+        err.textContent = 'Something went wrong. Please email docvexteam@docvex.ro instead.';
+        err.hidden = false; btn.disabled = false;
+        return;
+      }
+      $('ctForm').hidden = true;
+      $('ctDone').hidden = false;
+    });
+  });
+</script>
 <script>
   (function () {
     var links = Array.prototype.slice.call(document.querySelectorAll('.lg-toc a'));

@@ -256,6 +256,17 @@ export function UpdatesProvider({ children }) {
           setOsPlatform(info?.platform ?? null);
           setOsArch(info?.arch ?? null);
         }
+        // Recover the last-known updater status from main. update:status is
+        // push-only, so if update-electron-app's background poll finished
+        // downloading BEFORE this renderer mounted (or the window reloaded),
+        // we'd otherwise never learn the installer is sitting at 'downloaded'
+        // and the restart prompt would never appear. Only adopt in-progress /
+        // actionable states — transient ones ('checking', 'up-to-date') are
+        // stale by definition at mount time.
+        const s = await platform.getUpdateStatus();
+        if (!cancelled && (s?.state === 'downloading' || s?.state === 'downloaded')) {
+          setInstallerState(s);
+        }
       } catch {
         /* adapter / IPC missing — fall back to no version */
       }
@@ -268,7 +279,12 @@ export function UpdatesProvider({ children }) {
       setInstallerState(payload);
     });
 
-    fetchReleases();
+    // Aux windows (Doc Viewer, snip) surface no release notes or update
+    // banner — skip the GitHub API call so N open viewers don't burn N
+    // requests of the unauthenticated 60/hour rate limit at every boot.
+    // The main window owns update checking.
+    if (platform.isAuxWindow) setLoading(false);
+    else fetchReleases();
 
     return () => {
       cancelled = true;
@@ -309,6 +325,12 @@ export function UpdatesProvider({ children }) {
       // installerState past 'checking' via update:status events.
       if (s?.state === 'dev' || s?.state === 'web' || s?.state === 'unsupported') {
         setInstallerState({ state: 'idle' });
+      } else if (s?.state === 'downloaded') {
+        // Update already fully downloaded + staged (main short-circuits the
+        // re-check in that case, so no further events will follow) — adopt it
+        // so the UI moves straight to the restart prompt instead of hanging
+        // on the 'checking' spinner we set above.
+        setInstallerState(s);
       }
     } catch {
       await finishAfterMinDelay();

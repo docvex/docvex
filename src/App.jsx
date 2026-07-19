@@ -3,7 +3,7 @@ import { Outlet, useMatch } from 'react-router-dom';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { useSelectedProject } from './context/SelectedProjectContext';
 import { useAuth } from './context/AuthContext';
-import { isElectron } from './lib/platform';
+import { isElectron, isAuxWindow } from './lib/platform';
 import { prefetchProjectFiles } from './lib/projectFilesPrefetch';
 import AppShell from './components/AppShell';
 import TitleBar from './components/TitleBar';
@@ -95,7 +95,10 @@ function ProjectPrefetch() {
   const { session } = useAuth();
   const userId = session?.user?.id || null;
   useEffect(() => {
-    if (!isElectron || !selectedProjectId) return;
+    // Main window only — a Doc Viewer / snip window will never open the Files
+    // page, so paying the recursive folder scan + sidecar read per window
+    // (times every open viewer) is pure waste.
+    if (!isElectron || isAuxWindow || !selectedProjectId) return;
     prefetchProjectFiles({
       projectId: selectedProjectId,
       projectName: selectedProject?.name || null,

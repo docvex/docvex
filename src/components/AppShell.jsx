@@ -3,6 +3,7 @@ import { Outlet, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { RouteFallback } from '../AppRoutes';
 import Sidebar from './Sidebar';
 import UpdateProgressBar from './UpdateProgressBar';
+import UpdateRestartModal from './UpdateRestartModal';
 import SwitchProjectLoader from './SwitchProjectLoader';
 import ContentShell from './SplitView';
 import CursorSpotlight from './CursorSpotlight';
@@ -211,6 +212,10 @@ export default function AppShell() {
             update is checking/downloading. Lives at the shell level so the
             user keeps the feedback even after navigating away from /updates. */}
         <UpdateProgressBar />
+        {/* Once the update finishes downloading + staging ('downloaded'),
+            prompt for the restart that actually applies it. Shell-level so
+            it appears wherever the user is, not only on /versions. */}
+        <UpdateRestartModal />
       </div>
   );
 }

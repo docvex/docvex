@@ -663,3 +663,90 @@
   .lh-sb-nav { flex-direction: row; flex-wrap: wrap; }
   .lh-sb-footer { margin-top: 0; border-top: none; width: 100%; }
 }
+
+/* ── "Opened with DocVex" — standalone files opened via the OS file
+   association (Explorer/Finder "Open with"). Not linked to any project;
+   each row reopens the file in its own Doc Viewer window. ─────────────── */
+.lh-extopens { margin-top: 34px; }
+.lh-extopens-head {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.lh-extopens-list {
+  display: flex;
+  flex-direction: column;
+}
+.lh-extopen-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 120ms;
+}
+.lh-extopen-row:hover { background: var(--bg-card); }
+.lh-extopen-ico {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+}
+.lh-extopen-ico svg { width: 22px; height: 22px; }
+.lh-extopen-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.lh-extopen-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lh-extopen-path {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lh-extopen-time {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+.lh-extopen-remove {
+  flex: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 120ms, color 120ms, background 120ms;
+}
+.lh-extopen-row:hover .lh-extopen-remove,
+.lh-extopen-remove:focus-visible { opacity: 1; }
+.lh-extopen-remove:hover {
+  color: #fff;
+  background: var(--danger);
+}

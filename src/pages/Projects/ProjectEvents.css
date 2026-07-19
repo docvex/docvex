@@ -133,6 +133,9 @@
   appearance: none;
   border: none;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   background: var(--accent);
   color: var(--text-on-accent);
   font-family: inherit;
@@ -175,29 +178,35 @@
   align-items: center;
   gap: 12px;
   text-align: center;
+  /* Empty ⇄ compact morph — the flex-direction flip itself is discrete, but
+     transitioning the numeric chrome (padding/gap/icon/type sizes, below)
+     makes the collapse into the slim header row — and the expansion back —
+     read as one continuous move. */
+  transition: padding 300ms cubic-bezier(0.16, 1, 0.3, 1), gap 300ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms, border-color 150ms;
 }
-/* Cursor-tracked accent spotlight — same recipe as the sidebar's selected
-   tab (.nav-item.active::before): a radial gradient centred on the
-   --drop-spot vars written per mousemove, fading in on hover as its own
-   opacity layer (a background swap can't transition). */
-.cto-dropzone::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(
-    240px circle at var(--drop-spot-x, 50%) var(--drop-spot-y, 50%),
-    color-mix(in srgb, var(--accent) 12%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 6%, transparent) 55%,
-    transparent 100%
-  );
-  opacity: 0;
-  transition: opacity 220ms ease;
-  pointer-events: none;
-  z-index: -1;
+.cto-drop-ico,
+.cto-drop-ico svg,
+.cto-drop-title,
+.cto-drop-sub {
+  transition: width 300ms cubic-bezier(0.16, 1, 0.3, 1), height 300ms cubic-bezier(0.16, 1, 0.3, 1), border-radius 300ms cubic-bezier(0.16, 1, 0.3, 1), font-size 300ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-.cto-dropzone:hover::before,
-.cto-dropzone.is-dragover::before { opacity: 1; }
+/* The picks content (controls + scroll shelf) rises in as the zone lands in
+   its compact shape. */
+.cto-upload-controls,
+.cto-upload-scroll { animation: ctoZoneIn 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes ctoZoneIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cto-dropzone,
+  .cto-drop-ico,
+  .cto-drop-ico svg,
+  .cto-drop-title,
+  .cto-drop-sub { transition: none; }
+  .cto-upload-controls,
+  .cto-upload-scroll { animation: none; }
+}
 .cto-dropzone.is-dragover {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
@@ -212,6 +221,9 @@
    edge. Still a live drop target. */
 .cto-dropzone.is-compact {
   flex-direction: row;
+  /* The picks grid lives inside the zone as a full-width row under the
+     icon · copy · button header. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 14px;
   padding: 12px 16px;
@@ -240,15 +252,14 @@
    the drop bar: a big accent count, stacked title/sub beside it, and the
    primary CTA at the right edge. Mirrors the drop bar's shape. */
 .cto-upload-bar {
+  /* Chrome-less — no card box; the count + copy + CTA sit directly on the
+     page surface, under the drop zone. */
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 0 0 14px;
-  padding: 14px 18px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--bg-card);
+  margin: 14px 0 0;
+  padding: 4px 2px;
 }
 .cto-upload-bar-copy {
   display: flex;
@@ -279,26 +290,172 @@
 /* The file grid follows the compact drop bar directly now that the action
    card leads the step. */
 .cto-dropzone + .cto-scan-grid { margin-top: 14px; }
+/* Upload picks — a real Files-tab grid (fx-grid / fx-tile at the Files
+   page's default tile size), full-width inside the drop zone under its
+   header row. The wrapper clamps the zone's height and owns the scrolling:
+   tiles scroll beneath the header row, fading out at the section's top and
+   bottom edges (same mask recipe as the scanning file rail). */
+.cto-upload-scroll {
+  width: 100%;
+  /* Viewport-based clamp: leave room for the masthead, step rail, the
+     zone's own header + controls rows, and the files-ready bar below, so
+     the whole Upload step fits in view; floor keeps a usable strip on
+     short windows. */
+  max-height: max(130px, calc(100vh - 620px));
+  overflow-y: auto;
+  scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
+  /* Breathing room inside the mask so resting tiles don't sit faded. */
+  padding: 10px 0;
+}
+/* Slim scroll indicator on the right edge. */
+.cto-upload-scroll::-webkit-scrollbar { width: 8px; }
+.cto-upload-scroll::-webkit-scrollbar-track { background: transparent; }
+.cto-upload-scroll::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+}
+/* Content-render controls — right-aligned row between the zone's header and
+   the picks (slider + toggle chrome comes from FilesWorkspace.css). */
+.cto-upload-controls {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  /* Size/view controls hug the left edge; the search bar holds the right. */
+  justify-content: flex-start;
+  gap: 6px;
+  margin-bottom: -6px;
+}
+.cto-upload-controls .fx-search { margin-left: auto; }
+/* The picks search bar sits on the drop zone's tinted surface — transparent
+   fill so only the border draws the field. */
+.cto-upload-controls .fx-search { background: transparent; }
+/* Search miss — small muted note in the scroll shelf. */
+.cto-upload-nomatch {
+  margin: 6px 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+/* List view — compact Files-tab-style rows: small thumb · name · size. */
+.cto-upload-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.cto-upload-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.cto-upload-row:hover { background: var(--bg-card); }
+.cto-upload-row.is-selected {
+  background: var(--bg-card);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.cto-upload-row-thumb {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--accent);
+}
+.cto-upload-row-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.cto-upload-row-thumb svg { width: 16px; height: 16px; }
+.cto-upload-row-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cto-upload-row-size {
+  flex: none;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+/* The row's remove × sits inline at the row's end (the tile version is
+   absolutely pinned to the tile corner). */
+.cto-upload-row .cto-tile-remove { position: static; }
+.cto-upload-row:hover .cto-tile-remove { opacity: 1; }
+.cto-upload-grid {
+  width: 100%;
+  text-align: center;
+}
+/* No rounded thumb box — icons sit directly on the page (same as the
+   scanning rail / timeline tiles) — and one uniform glyph size matching the
+   Files tab's badge scale (0.65 × tile), height-capped to the thumb so
+   nothing clips at the bottom edge. */
+.cto-upload-grid .fx-tile-thumb { background: transparent; }
+.cto-upload-grid .fx-tile-thumb .project-files-icon svg {
+  width: calc(var(--fx-tile, 134.4px) * 0.55) !important;
+  height: calc(var(--fx-tile, 134.4px) * 0.55) !important;
+}
 .cto-btn-ink:disabled { opacity: 0.55; cursor: default; }
+/* "Analyze with AI" — styled like the main sidebar's selected tab
+   (.nav-item.active): accent-tint fill, soft accent ring, accent text. */
+.cto-btn-tab {
+  appearance: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 6.4px;
+  background: var(--accent-tint);
+  border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+  transition: border-color 120ms, background 120ms;
+}
+.cto-btn-tab:hover:not(:disabled) { border-color: var(--accent); }
+.cto-btn-tab:disabled { opacity: 0.55; cursor: default; }
 /* Hover × on an upload tile (the Upload step reuses the scan grid's tiles). */
 .cto-tile-remove {
   position: absolute;
-  top: 0;
-  right: 4px;
+  top: 2px;
+  right: 2px;
   appearance: none;
-  background: none;
-  border: none;
-  padding: 2px 4px;
+  /* Solid circular badge (was a bare glyph) so the affordance reads at a
+     glance against any thumbnail. */
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-card);
   cursor: pointer;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   opacity: 0;
-  transition: opacity 120ms, color 120ms;
+  transition: opacity 120ms, color 120ms, background 120ms, border-color 120ms;
 }
 .cto-scan-tile:hover .cto-tile-remove,
+.cto-upload-tile:hover .cto-tile-remove,
 .cto-tile-remove:focus-visible { opacity: 1; }
-.cto-tile-remove:hover { color: var(--danger); }
+.cto-tile-remove:hover {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
 .cto-drop-ico {
   width: 56px;
   height: 56px;
@@ -501,6 +658,14 @@
   font-size: 12px;
   color: var(--text-muted);
 }
+/* Timeline step while a draft awaits the Review answers — the nudge back to
+   the questions, since the timeline is only written from them. */
+.cto-timeline-pending {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
 .cto-scan-error {
   margin: 14px 0 0;
   font-size: 11.5px;
@@ -518,11 +683,15 @@
 }
 
 /* Debug triggers under the masthead — deliberately low-key dev chrome. */
+/* Debug buttons live at the masthead's right edge (Scanning tab only),
+   wrapping toward the right on narrow windows. */
 .cto-debug-row {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
-  align-self: flex-start;
-  margin-bottom: 16px;
+  flex: none;
+  max-width: 46%;
 }
 .cto-debug-btn {
   appearance: none;
@@ -568,6 +737,69 @@
 /* Full content width — the event body's 1fr column absorbs the extra room
    (date rail and annotation gutter stay fixed). */
 .cto-dossier { max-width: none; }
+
+/* Regenerate section — sits under all the timeline content: copy on the
+   left, the tab-styled CTA at the right. */
+/* Chrome-less — no card box; the copy + CTA sit directly on the page. */
+.cto-regen {
+  margin-top: 34px;
+  /* Generous bottom clearance so scrolling to the section lands it well in
+     view (clear of the floating jump pill too). */
+  margin-bottom: 148px;
+  padding: 16px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.cto-regen-copy { min-width: 0; }
+.cto-regen-title {
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.cto-regen-sub {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 62ch;
+}
+/* Floating jump — fixed at the viewport's bottom right so it holds the same
+   spot no matter where the reader is; clicking scrolls down to .cto-regen. */
+.cto-regen-jump {
+  position: fixed;
+  /* Anchored on the 3/4 vertical line of the viewport (right-side rule-of-
+     quarters guide) rather than hugging the corner. */
+  left: 75vw;
+  transform: translateX(-50%);
+  bottom: 22px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-elev);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 220ms ease, border-color 120ms, color 120ms;
+}
+.cto-regen-jump:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* Faded away while the regenerate section itself is on screen. */
+.cto-regen-jump.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
 /* Meta line — sits under the masthead description once the timeline is
    built. No bottom margin: the masthead's flex-gap + its own margin handle
    the spacing. */
@@ -623,13 +855,13 @@
    pill (same recipe as .cto-ev-ai) makes the hue read at this tiny size —
    a swatch of fill distinguishes far better than coloured glyphs alone. */
 .cto-ev-kind {
-  font-size: 8.5px;
+  font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--cat-system);
   background: color-mix(in srgb, currentColor 12%, transparent);
-  padding: 2px 7px;
+  padding: 2px 8px;
   border-radius: 999px;
 }
 .cto-ev-ai {
@@ -666,7 +898,16 @@
   font-weight: 500;
   color: var(--text-muted);
 }
-.cto-ev-margin { padding-top: 2px; }
+/* The annotation stretches to the full height of the event it annotates —
+   the gutter mirrors the body column's bottom padding (26px row gap / 4px on
+   the last row) so the card ends level with the event's content. */
+.cto-ev-margin {
+  padding: 2px 0 26px;
+  display: flex;
+  align-items: stretch;
+}
+.cto-event:last-child .cto-ev-margin { padding-bottom: 4px; }
+.cto-ev-margin .cto-annot { flex: 1; box-sizing: border-box; }
 
 /* Event content — story text on top, the event's source-file tiles in a
    left-aligned row underneath. */
@@ -692,6 +933,17 @@
   /* Four tiles per row under the text; stays narrower than the 60ch text
      measure so the tiles never widen the auto-sized body column. */
   max-width: 400px;
+}
+/* Kicker above the tiles naming what they are. */
+.cto-ev-files-head {
+  width: 100%;
+  text-align: left;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 2px;
 }
 /* File tile — a real Files-tab tile (.fx-tile provides the thumb well with
    the name underneath), with the Files tab's own hover / is-selected styles.
@@ -723,7 +975,7 @@
 .cto-annot {
   border-left: 2.4px solid var(--warning);
   background: color-mix(in srgb, var(--warning) 7%, transparent);
-  border-radius: 0 8px 8px 0;
+  border-radius: 0 14px 14px 0;
   padding: 8px 11px;
 }
 .cto-annot[data-sev='danger'] {
@@ -733,19 +985,21 @@
 .cto-annot-head {
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 8px;
+  gap: 6px;
+  font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--warning);
-  margin-bottom: 3px;
+  margin-bottom: 5px;
 }
+.cto-annot-head svg { width: 13px; height: 13px; }
 .cto-annot[data-sev='danger'] .cto-annot-head { color: var(--danger); }
+/* Body copy matches the timeline event's story text (.cto-ev-text). */
 .cto-annot-text {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 500;
-  line-height: 1.5;
+  line-height: 1.65;
   color: var(--text-secondary);
 }
 
@@ -791,6 +1045,168 @@
   border-radius: 11px;
   background: var(--bg-card);
 }
+/* Flag strip — one severity-glyph badge per open flag at the top of the
+   Review round; clicking jumps to that flag's question card. data-sev sets
+   the tone var; addressed flags flip to the success tone. */
+.cto-flagstrip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.cto-flagstrip-ico {
+  --fs-c: var(--warning);
+  appearance: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  color: var(--fs-c);
+  background: color-mix(in srgb, var(--fs-c) 12%, var(--bg-page));
+  border: 1px solid color-mix(in srgb, var(--fs-c) 35%, transparent);
+  transition: border-color 120ms, background 120ms, color 120ms;
+}
+.cto-flagstrip-ico[data-sev='danger'] { --fs-c: var(--danger); }
+.cto-flagstrip-ico[data-sev='success'] { --fs-c: var(--info); }
+.cto-flagstrip-ico.is-done { --fs-c: var(--success); }
+/* Dismissed — a greyed-out … (settled, but with nothing to fold in). */
+.cto-flagstrip-ico.is-dismissed { --fs-c: var(--text-muted); }
+.cto-flagstrip-ico:hover { border-color: var(--fs-c); }
+/* Badges carry the severity mini-gauge — bars tint with the badge's tone
+   (and success once addressed), tracking --fs-c like the old glyphs. */
+.cto-flagstrip-ico .cto-flag-bars { margin-top: 0; }
+.cto-flagstrip-ico .cto-flag-bars span[data-on] { background: var(--fs-c); }
+/* Addressed (answered or dismissed) rows read as settled. */
+.cto-flag-row.is-addressed {
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+}
+/* One-at-a-time deck in the chamber's ask-panel language (cc-ask-* child
+   classes) — chrome-less, no card box; pops in on every switch, with the
+   Previous / position / Next rail under it. */
+.cto-review-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 620px;
+  animation: ccPop 0.3s ease;
+}
+.cto-review-ask-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+/* The type · severity lead line reads bigger and bolder here than the flag
+   cards' micro-label — weighted to match the solid severity-bar gauge
+   beside it. */
+.cto-review-ask .cto-flag-type {
+  font-size: 11.5px;
+  font-weight: 900;
+  /* Text sits on the same baseline as the gauge's bottom edge (the bars
+     are bottom-anchored and ascend). */
+  align-items: flex-end;
+  line-height: 1;
+}
+/* The answer box grows with its content (field-sizing) instead of offering
+   a manual drag handle. */
+.cto-review-ask .cc-ask-text {
+  resize: none;
+  field-sizing: content;
+  min-height: 64px;
+  max-height: 320px;
+}
+/* The problem line reads lighter here than the chamber's ask (the eyebrow
+   already carries the emphasis): regular weight, relaxed leading. */
+.cto-review-ask .cc-ask-q {
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+.cto-review-ask-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Submit pushed to the panel's right edge. A permanent (transparent when
+   accent) border keeps the box stable so the Submit ⇄ Dismiss morph can
+   tween colours only. */
+.cto-review-ask-actions .cc-ask-submit {
+  order: 2;
+  margin-left: auto;
+  align-self: auto;
+  border: 1px solid transparent;
+  transition: background 220ms ease, border-color 220ms ease, color 220ms ease, opacity 120ms;
+}
+/* Acting as DISMISS (no answer entered) — quiet ghost pill instead of the
+   accent submit, so the destructive-ish default reads clearly different. */
+.cto-review-ask-actions .cc-ask-submit.is-dismiss {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+.cto-review-ask-actions .cc-ask-submit.is-dismiss:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger-text);
+}
+.cto-flag-nav { max-width: 620px; }
+/* Sits under the flag strip + answered count, above the question. */
+.cto-flag-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -6px 0 18px;
+}
+.cto-flag-nav .cto-btn-back:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.cto-flag-nav-pos {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+/* Strip ring on the question currently on deck. */
+.cto-flagstrip-ico.is-active {
+  border-color: var(--fs-c);
+  box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--fs-c) 25%, transparent);
+}
+/* The author's clarification input under each flag. */
+.cto-flag-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  resize: vertical;
+}
+.cto-flag-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.cto-flag-input:disabled {
+  opacity: 0.55;
+  resize: none;
+}
+.cto-btn-dismiss.is-on {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+.cto-finalize-error {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  color: var(--danger-text);
+}
 /* Severity mini-gauge — three ascending bars, filled count = severity. */
 .cto-flag-bars {
   flex: none;
@@ -807,19 +1223,29 @@
 .cto-flag-bars span:nth-child(1) { height: 8px; }
 .cto-flag-bars span:nth-child(2) { height: 11px; }
 .cto-flag-bars span:nth-child(3) { height: 14px; }
-.cto-flag-row[data-sev='danger'] .cto-flag-bars span[data-on]  { background: var(--danger); }
-.cto-flag-row[data-sev='warning'] .cto-flag-bars span[data-on] { background: var(--warning); }
-.cto-flag-row[data-sev='success'] .cto-flag-bars span[data-on] { background: var(--success); }
+.cto-flag-row[data-sev='danger'] .cto-flag-bars span[data-on],
+.cto-review-ask[data-sev='danger'] .cto-flag-bars span[data-on]  { background: var(--danger); }
+.cto-flag-row[data-sev='warning'] .cto-flag-bars span[data-on],
+.cto-review-ask[data-sev='warning'] .cto-flag-bars span[data-on] { background: var(--warning); }
+.cto-flag-row[data-sev='success'] .cto-flag-bars span[data-on],
+.cto-review-ask[data-sev='success'] .cto-flag-bars span[data-on] { background: var(--success); }
 .cto-flag-main { flex: 1; min-width: 0; }
 .cto-flag-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 8.5px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-.cto-flag-row[data-sev='danger'] .cto-flag-type  { color: var(--danger); }
-.cto-flag-row[data-sev='warning'] .cto-flag-type { color: var(--warning); }
-.cto-flag-row[data-sev='success'] .cto-flag-type { color: var(--success); }
+.cto-flag-type svg { flex: none; }
+.cto-flag-row[data-sev='danger'] .cto-flag-type,
+.cto-review-ask[data-sev='danger'] .cto-flag-type  { color: var(--danger); }
+.cto-flag-row[data-sev='warning'] .cto-flag-type,
+.cto-review-ask[data-sev='warning'] .cto-flag-type { color: var(--warning); }
+.cto-flag-row[data-sev='success'] .cto-flag-type,
+.cto-review-ask[data-sev='success'] .cto-flag-type { color: var(--success); }
 .cto-flag-title {
   font-family: var(--font-display);
   font-size: 12.5px;
@@ -1061,6 +1487,19 @@
   line-height: 1.4;
   color: var(--text-secondary);
   animation: ccPop 0.35s ease;
+}
+/* Progress-derived placeholder line shown until a file's first real
+   finding lands — muted + italic so status reads apart from findings. */
+.cc-fact-status {
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Tiles with a real on-disk path open in the Doc Viewer on double-click —
+   restore the pointer + a light hover cue the static rail suppresses. */
+.cc-filerail .fx-tile.cc-openable { cursor: pointer; }
+.cc-filerail .fx-tile.cc-openable:hover {
+  background: var(--bg-card);
+  border-color: var(--border);
 }
 /* Divider between consecutive facts — a hairline that melts away at both
    ends instead of cutting hard. */
@@ -1999,4 +2438,414 @@
   /* Packets are pure motion — without their travel animation they'd pile up
      at the seats, so hide them entirely. */
   .cc-packet { display: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   AI Thinking Sphere (Claude Design bundle) — the Scanning step's council
+   visualization. The stage is a deliberate DARK surface (the design paints
+   the council chamber on #0F172A regardless of app theme); everything inside
+   .cc-card.is-sphere is recolored to the design's palette. */
+
+/* No card surface — the stage sits directly on the page so the cursor
+   spotlight background reads through the sphere. */
+.cc-card.is-sphere {
+  background: transparent;
+  border-radius: 18px;
+  padding: 6px 30px 30px;
+  color: #F5F2EA;
+}
+
+.cc-card.is-sphere .cc-stage.csx-stage {
+  /* Positioning context for the OUT-OF-FLOW canvas layer (.csx-stagewrap). */
+  position: relative;
+  align-items: flex-start;
+  gap: 40px;
+  /* The stage is exactly the sphere's height — the ask panel scrolls inside
+     that box instead of growing the section. */
+  height: 540px;
+}
+/* The ask panel is OUT OF FLOW on the sphere stage — absolutely placed on
+   the LEFT, in the area the sphere's rightward glide frees up, so its mount
+   never reflows the layout: the content is already in place and simply
+   fades in (the existing ccAskIn delay lets the glide play first). */
+.cc-card.is-sphere .cc-ask {
+  position: absolute;
+  left: 0;
+  right: 760px; /* sphere width (720) + stage gap (40) */
+  top: 0;
+  z-index: 2; /* above the fixed canvas layer */
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(245, 242, 234, 0.20) transparent;
+}
+/* The sections below the stage (proposal card, decision log, tasks) render
+   ABOVE the canvas layer, which extends 240px down beneath them — the sphere
+   draws behind their content instead of being cut off at the stage edge. */
+.cc-card.is-sphere .cc-prop,
+.cc-card.is-sphere .cc-below {
+  position: relative;
+  z-index: 2;
+}
+
+/* Board-members kicker — breathing room between the key and the roster. */
+.csx-members-kicker { margin-top: 22px; }
+
+/* Board members — 2-wide grid of glyph badges + name/stat. */
+.csx-members-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px 10px;
+}
+.csx-member-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.csx-member-cell .cc-legend-desc {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.csx-member-cell .cc-log-ico { transition: box-shadow 0.3s ease; }
+.csx-member-cell.is-active .cc-log-ico { box-shadow: 0 0 10px currentColor; }
+
+/* ── Packet-key column — sits where the source manifest used to ────────── */
+.csx-keycol {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  max-width: 320px;
+  /* Stage content renders ABOVE the fixed canvas layer. */
+  position: relative;
+  z-index: 1;
+  /* Beat the base .cc-legend rules that push the key to the right edge —
+     here it leads the row, to the LEFT of the sphere. */
+  order: 0;
+  margin-left: 0;
+  /* Return path: the column's room glides back first (slow), THEN the list
+     fades back in — so the section only ever fades, never visibly slides. */
+  transition: opacity 0.4s ease-in-out 0.5s, max-width 0.9s cubic-bezier(0.45, 0, 0.22, 1), margin-right 0.9s cubic-bezier(0.45, 0, 0.22, 1);
+}
+/* While the ask panel is up the key FADES out in place, and only then does
+   its room collapse — a slow glide that carries the sphere to the left edge
+   without the list ever reading as "pushed aside". */
+.csx-keycol.is-aside {
+  opacity: 0;
+  max-width: 0;
+  margin-right: -40px; /* swallow the stage gap too */
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 0.3s ease-in-out, max-width 0.9s cubic-bezier(0.45, 0, 0.22, 1) 0.25s, margin-right 0.9s cubic-bezier(0.45, 0, 0.22, 1) 0.25s;
+}
+
+/* ── The sphere stage — canvas + projected member labels ───────────────── */
+/* OUT OF FLOW and FIXED IN PLACE: the canvas is an absolute layer under the
+   stage content, so nothing — key column collapsing, ask panel mounting, the
+   "It is decided!" ending — ever moves or resizes it. Content stacks above it
+   (keycol z1 / ask z2). Anchored at the stage's LEFT edge: the canvas spans
+   the full stage width (the sphere's 720px run PLUS the 520px left run under
+   the key column / ask panel), so nothing drawn ever clips at a hard left
+   edge — the ask panel simply renders over the canvas. The sphere keeps its
+   screen position because CX carries the 520px pad (SPHERE_LEFT_PAD in
+   CouncilSphere.jsx). */
+.csx-stagewrap {
+  position: absolute;
+  left: 0;
+  /* The canvas carries 80px of headroom above the stage (pulled up over the
+     gap to the step rail) and 240px below it (running under the decision
+     log / tasks sections, which stack above at z2) so the sphere's growth
+     and glow never hit a hard section edge. Clicks pass through the layer —
+     only the story card's buttons re-enable them. */
+  top: -80px;
+  width: 1240px; /* SPHERE_LEFT_PAD (520) + the sphere's 720px stage */
+  height: 860px;
+  z-index: 0;
+  pointer-events: none;
+  transition: filter 0.55s ease-in-out;
+}
+/* The fade toward the step-tab connector line is painted INSIDE the canvas
+   (destination-out gradient at the top of each frame) — a CSS mask here made
+   the compositor re-mask the whole layer every frame. */
+/* End sequence: the packet key fades out; the sphere HOLDS its position (no
+   glide — the canvas layer is fixed in place). The "It is decided!" card
+   lives inside the wrap, so it appears centred on the settled sphere. */
+.csx-stage.is-ending .csx-keycol {
+  opacity: 0;
+  max-width: 0;
+  margin-right: -40px; /* swallow the stage gap too */
+  overflow: hidden;
+  pointer-events: none;
+}
+/* While the council is prompting the author the sphere calms (spin eased down
+   to a slow idle, jitter stopped in the engine) and its colors mute to gray
+   until the answer lands. */
+.csx-stagewrap.is-prompted { filter: grayscale(1) brightness(0.85); }
+.csx-label {
+  position: absolute;
+  left: 880px; /* sphere centre incl. the 520px left pad */
+  top: 368px; /* sphere centre incl. the 80px canvas headroom */
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  width: 130px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 2;
+  transition: opacity 0.5s ease;
+}
+.csx-label-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #F5F2EA;
+}
+.csx-label-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.csx-label-role {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: #8A93A8;
+}
+.csx-label-stat {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 600;
+  min-height: 13px;
+}
+.csx-phase {
+  position: absolute;
+  left: 880px; /* sphere centre incl. the 520px left pad */
+  top: 625px; /* 505 + the 80px canvas headroom + the 40px sphere drop */
+  transform: translateX(-50%);
+  max-width: 260px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #C9CEDC;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+  white-space: nowrap;
+}
+
+/* ── "It is decided!" story card — anchored to the LEFT of the section, in
+   the area the collapsed key column frees up (the sphere stays put on the
+   right). The canvas wrap now starts AT the stage's left edge, so the card
+   anchors at 0. ─────────────────────────────────────────────────────────── */
+@keyframes csxEndPop {
+  from { opacity: 0; transform: translate(0, calc(-50% + 6px)) scale(0.98); }
+  to { opacity: 1; transform: translate(0, -50%); }
+}
+.csx-story {
+  /* The wrap is pointer-events: none (clicks fall through the canvas layer to
+     the sections it overlaps) — the story card's buttons re-enable them. */
+  pointer-events: auto;
+  position: absolute;
+  left: 0; /* the wrap is anchored at the stage's left edge */
+  top: 368px; /* vertically centred on the sphere's line */
+  transform: translate(0, -50%);
+  z-index: 3;
+  /* Use the run of space between the stage's left edge and the settled
+     sphere on the right, minus a little breathing room before the orb. */
+  width: 560px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  text-align: left;
+  animation: csxEndPop 0.5s ease 0.2s backwards;
+}
+.csx-story-eyebrow {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #DCC9A3;
+}
+.csx-story-title {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  color: #F5F2EA;
+}
+.csx-story-lede {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #C9CEDC;
+  text-wrap: pretty;
+}
+.csx-story-actions { display: flex; gap: 10px; margin-top: 4px; }
+.csx-story-redo {
+  appearance: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 9px 18px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid rgba(245, 242, 234, 0.20);
+  color: #C9CEDC;
+}
+.csx-story-redo:hover { border-color: rgba(245, 242, 234, 0.4); }
+.csx-story-btn {
+  appearance: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 9px 18px;
+  border-radius: 999px;
+  background: #DCC9A3;
+  border: none;
+  color: #0F172A;
+  box-shadow: 0 2px 7px rgba(220, 201, 163, 0.4);
+}
+.csx-story-btn:hover { background: #C8B58E; }
+
+/* ── Core hotspot (final product) — the core IS the final story ─────────── */
+.csx-core-hit {
+  position: absolute;
+  left: 880px;
+  top: 368px; /* the core's canvas position (CX, CY) incl. the left pad */
+  width: 104px;
+  height: 104px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  padding: 0;
+  pointer-events: auto; /* the wrap is pointer-events: none */
+  cursor: pointer;
+  z-index: 4;
+}
+.csx-core-hit::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  border: 1px solid rgba(220, 201, 163, 0);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.csx-core-hit:hover::after {
+  border-color: rgba(220, 201, 163, 0.55);
+  box-shadow: 0 0 28px rgba(220, 201, 163, 0.35), inset 0 0 18px rgba(220, 201, 163, 0.15);
+}
+.csx-core-hint {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 10px);
+  transform: translateX(-50%) translateY(4px);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: #DCC9A3;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(245, 242, 234, 0.18);
+  border-radius: 999px;
+  padding: 6px 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.csx-core-hit:hover .csx-core-hint,
+.csx-core-hit:focus-visible .csx-core-hint {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ── Packet-key icon chips — the same glyph the packet wears on the canvas,
+   dark ink on the packet colour (the chip bg + glow come inline). ────────── */
+.csx-legend-ico {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #0F172A;
+}
+.csx-legend-ico svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+/* ── Dark recolor of the shared chamber chrome inside the sphere card ──── */
+.cc-card.is-sphere .cc-log-kicker { color: #8A93A8; }
+.cc-card.is-sphere .cc-legend-label { color: #F5F2EA; }
+.cc-card.is-sphere .cc-legend-desc { color: #8A93A8; }
+.cc-card.is-sphere .cc-legend-toggle { border-color: rgba(245, 242, 234, 0.10); }
+.cc-card.is-sphere .cc-legend-toggle button { color: #8A93A8; background: transparent; }
+.cc-card.is-sphere .cc-legend-toggle button.is-on {
+  background: rgba(220, 201, 163, 0.12);
+  color: #DCC9A3;
+}
+.cc-card.is-sphere .cc-log-main { color: #C9CEDC; }
+.cc-card.is-sphere .cc-log-main strong { color: #F5F2EA; }
+.cc-card.is-sphere .cc-log-empty {
+  color: #8A93A8;
+  border-color: rgba(245, 242, 234, 0.20);
+}
+.cc-card.is-sphere .cc-log-ico {
+  background: color-mix(in srgb, currentColor 12%, #0F172A);
+  border-color: color-mix(in srgb, currentColor 30%, transparent);
+}
+.cc-card.is-sphere .cc-log-chip {
+  background: rgba(220, 201, 163, 0.09);
+  border-color: rgba(220, 201, 163, 0.35);
+  color: #DCC9A3;
+}
+.cc-card.is-sphere .cc-task-label { color: #F5F2EA; }
+.cc-card.is-sphere .cc-task[data-state="queued"] .cc-task-label { color: #8A93A8; }
+.cc-card.is-sphere .cc-task-dot {
+  color: #8A93A8;
+  background: color-mix(in srgb, currentColor 12%, #0F172A);
+  border-color: color-mix(in srgb, currentColor 30%, transparent);
+}
+.cc-card.is-sphere .cc-task[data-state="working"] .cc-task-dot { color: #DCC9A3; }
+.cc-card.is-sphere .cc-task[data-state="done"] .cc-task-dot { color: #22C55E; }
+.cc-card.is-sphere .cc-prop-lead { color: #8A93A8; }
+.cc-card.is-sphere .cc-prop-source { color: #DCC9A3; }
+.cc-card.is-sphere .cc-prop-text { color: #C9CEDC; }
+.cc-card.is-sphere .cc-prop-vote { color: #C9CEDC; }
+.cc-card.is-sphere .cc-ask-head { color: #DCC9A3; }
+.cc-card.is-sphere .cc-ask-q { color: #F5F2EA; }
+.cc-card.is-sphere .cc-ask-ctx { color: #8A93A8; }
+.cc-card.is-sphere .cc-ask-opt {
+  background: #1E293B;
+  border-color: rgba(245, 242, 234, 0.20);
+}
+.cc-card.is-sphere .cc-ask-opt:hover { border-color: #DCC9A3; }
+.cc-card.is-sphere .cc-ask-opt.is-picked,
+.cc-card.is-sphere .cc-ask-opt.is-picked:hover {
+  background: rgba(220, 201, 163, 0.12);
+  border-color: #DCC9A3;
+}
+.cc-card.is-sphere .cc-ask-opt-label { color: #F5F2EA; }
+.cc-card.is-sphere .cc-ask-opt.is-picked .cc-ask-opt-label { color: #DCC9A3; }
+.cc-card.is-sphere .cc-ask-opt-desc { color: #8A93A8; }
+.cc-card.is-sphere .cc-ask-opt.is-picked .cc-ask-opt-desc { color: #DCC9A3; opacity: 0.75; }
+.cc-card.is-sphere .cc-ask-submit {
+  background: #DCC9A3;
+  color: #0F172A;
+}
+.cc-card.is-sphere .cc-ask-text {
+  background: #1E293B;
+  border-color: rgba(245, 242, 234, 0.20);
+  color: #F5F2EA;
 }

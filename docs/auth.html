@@ -5,6 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <base href="/">
 <title>Sign in — DocVex</title>
+<meta name="description" content="Sign in to DocVex or create your account.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="favicon.ico">
+<link rel="canonical" href="https://docvex.ro/auth.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DocVex">
+<meta property="og:title" content="Sign in — DocVex">
+<meta property="og:description" content="Sign in to DocVex or create your account.">
+<meta property="og:url" content="https://docvex.ro/auth.html">
+<meta property="og:image" content="https://docvex.ro/assets/logo-lockup.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Sign in — DocVex">
+<meta name="twitter:description" content="Sign in to DocVex or create your account.">
+<meta name="twitter:image" content="https://docvex.ro/assets/logo-lockup.png">
 <meta name="robots" content="noindex, nofollow">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -346,7 +360,7 @@
               <div class="auv-summary-rule"></div>
               <div class="auv-summary-row"><span>Email</span><strong data-sum="email">your email</strong></div>
             </div>
-            <label class="auv-check"><input type="checkbox" id="su-agree"><span>I agree to the <a href="#" data-prevent>Terms of Service</a> and <a href="#" data-prevent>Privacy Policy</a>.</span></label>
+            <label class="auv-check"><input type="checkbox" id="su-agree"><span>I agree to the <a href="terms.html" target="_blank" rel="noopener">Terms &amp; Conditions</a> and <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</span></label>
             <label class="auv-check" style="margin-top:13px;"><input type="checkbox" id="su-news"><span>Send me the <strong>Legal Newsfeed</strong> — a weekly briefing on Romanian legislation.</span></label>
             <p class="auv-msg" data-msg="step2"></p>
             <div class="auv-btn-row">
@@ -362,6 +376,22 @@
           <h3 class="auv-h3" id="doneTitle">Confirm your email</h3>
           <p class="auv-sub center" id="doneSub"></p>
           <button class="auv-btn auv-btn--cognac is-auto" data-go="signin">Back to sign in</button>
+        </div>
+
+        <!-- SET NEW PASSWORD (arrived via a password-reset email link) -->
+        <div class="auv-fade" data-view="recovery" hidden>
+          <h3 class="auv-h3">Set a new password</h3>
+          <p class="auv-sub">Choose a new password for your DocVex account.</p>
+          <div class="auv-field">
+            <div class="auv-label-row"><label class="auv-label" for="rc-pass">New password</label></div>
+            <input class="auv-input" id="rc-pass" type="password" placeholder="••••••••" autocomplete="new-password">
+          </div>
+          <div class="auv-field">
+            <div class="auv-label-row"><label class="auv-label" for="rc-pass2">Confirm password</label></div>
+            <input class="auv-input" id="rc-pass2" type="password" placeholder="••••••••" autocomplete="new-password">
+          </div>
+          <p class="auv-msg" data-msg="recovery"></p>
+          <button class="auv-btn auv-btn--cognac" data-action="set-password">Save new password</button>
         </div>
 
       </div>
@@ -457,10 +487,36 @@ import { supabase } from './supabase.js';
     var act = e.target.closest('[data-action]');
     if (!act) {
       if (e.target.closest('[data-prevent]')) e.preventDefault();
-      if (e.target.closest('[data-forgot]')) { setMsg('signin', 'Password reset is available inside the app.', 'ok'); }
+      if (e.target.closest('[data-forgot]')) {
+        var fem = document.getElementById('si-email').value.trim();
+        if (!EMAIL_RE.test(fem)) { setMsg('signin', 'Enter your email above first, then tap "Forgot?" again.'); return; }
+        supabase.auth.resetPasswordForEmail(fem, {
+          redirectTo: window.location.origin + window.location.pathname,
+        }).then(function (res) {
+          if (res.error) { setMsg('signin', friendly(res.error)); return; }
+          setMsg('signin', 'Password reset link sent — check your email.', 'ok');
+        });
+      }
       return;
     }
     var action = act.getAttribute('data-action');
+
+    if (action === 'set-password') {
+      var np = document.getElementById('rc-pass').value;
+      var np2 = document.getElementById('rc-pass2').value;
+      if (np.length < 8) return setMsg('recovery', 'Password must be at least 8 characters.');
+      if (np !== np2) return setMsg('recovery', 'Passwords don’t match.');
+      act.disabled = true; act.textContent = 'Saving…';
+      supabase.auth.updateUser({ password: np }).then(function (res) {
+        if (res.error) {
+          setMsg('recovery', friendly(res.error));
+          act.disabled = false; act.textContent = 'Save new password';
+          return;
+        }
+        window.location.href = HOME_URL;
+      });
+      return;
+    }
 
     if (action === 'signin') {
       var em = document.getElementById('si-email').value.trim();
@@ -558,6 +614,13 @@ import { supabase } from './supabase.js';
     if (/password/i.test(m) && /6|characters|short/i.test(m)) return 'Password is too short.';
     return m;
   }
+
+  // ── Password-recovery landing: the reset email links back to this page.
+  // supabase-js (detectSessionInUrl: true) exchanges the token and fires
+  // PASSWORD_RECOVERY — switch to the set-new-password panel.
+  supabase.auth.onAuthStateChange(function (event) {
+    if (event === 'PASSWORD_RECOVERY') showView('recovery');
+  });
 
   // ── Back button (navbar is hidden on this tab) ──
   var backBtn = document.getElementById('authBack');

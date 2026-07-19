@@ -189,6 +189,131 @@ function draftsDispute(drafts) {
 //   { size, memberModel, chairModel, members: [{ id, name, ok, events }],
 //     merged, degraded, steer? }
 // Throws when no analyst produced a usable draft.
+// ── Review asks — the AI designs each flag's question + suggested answers ──
+// One analyst-model call turns every open flag into an interactive ask: the
+// question the chair would put to the author, its best SHAPE (single pick /
+// multi pick / free text), and plausible answers as tappable options. The
+// Review round renders these; a null return (parse/AI failure) degrades to
+// plain free-text questions.
+function parseJsonArray(text) {
+  try {
+    const s = String(text || '').replace(/```json|```/g, '');
+    const start = s.indexOf('[');
+    const end = s.lastIndexOf(']');
+    if (start < 0 || end <= start) return null;
+    const arr = JSON.parse(s.slice(start, end + 1));
+    return Array.isArray(arr) ? arr : null;
+  } catch { return null; }
+}
+
+export async function draftFlagAsks({ projectName, timeline }) {
+  const flags = (timeline?.flags || []);
+  if (flags.length === 0) return null;
+  const flagLines = flags.map((fl, i) => `${i + 1}. [${fl.sev}] ${fl.type}: ${fl.title} — ${fl.detail} (sources: ${fl.sources || 'n/a'})`).join('\n');
+  const prompt = `You are the presiding chair of the council that reconstructed the chronological story of a legal matter${projectName ? ` for the project "${projectName}"` : ''}. Each flag below is an open question in the record. The author has FIRST-HAND knowledge — for each flag, design the question you would put to them, and propose the most plausible answers as tappable options.
+
+Respond with ONLY a JSON array — no prose, no fences — one entry per flag, in the same order:
+[{ "kind": "options" | "multi" | "text",
+   "question": "one-sentence question to the author",
+   "options": [{ "label": "short answer (≤8 words)", "desc": "what picking it means (≤15 words)" }] }]
+
+Rules:
+- "options": 2-4 mutually exclusive readings — use when the flag has enumerable resolutions (which date, which document governs, yes/no).
+- "multi": 2-4 answers of which several may apply (what happened in a gap period).
+- "text": only the author can supply the fact (an amount, a name, a missing document) — "options" must be [].
+- Ground every option in the flag and story; phrase options as the author's own answers, not questions.
+
+STORY LEDE: ${String(timeline?.lede || '').slice(0, 500)}
+
+FLAGS:
+${flagLines}`;
+  const res = await askProjectAi({
+    messages: [{ role: 'user', content: prompt }],
+    projectName,
+    model: MEMBER_MODEL,
+    tools: false,
+  });
+  if (res.error) throw res.error;
+  const arr = parseJsonArray(res.text);
+  if (!arr) return null;
+  // Clamp to the flags' shape — a malformed entry degrades to free text.
+  return flags.map((_, i) => {
+    const e = arr[i] || {};
+    const options = (Array.isArray(e.options) ? e.options : [])
+      .map((o) => ({ label: String(o?.label || '').slice(0, 80), desc: String(o?.desc || '').slice(0, 140) }))
+      .filter((o) => o.label)
+      .slice(0, 4);
+    const kind = e.kind === 'multi' && options.length ? 'multi'
+      : e.kind === 'options' && options.length ? 'options' : 'text';
+    return {
+      kind,
+      question: String(e.question || '').slice(0, 240),
+      options: kind === 'text' ? [] : options,
+    };
+  });
+}
+
+// ── Final pass — resolve the flags with the author's clarifications ────────
+// After the merged story stands, the Review step collects the author's
+// answer for every open flag. ONE chair-model call rewrites the timeline
+// with those answers treated as authoritative first-hand input: it corrects
+// dates/bodies, folds the clarified facts in, drops resolved (or dismissed)
+// flags, and keeps anything the author couldn't clarify flagged. Works from
+// the existing story alone — no re-reading of the source files — so it also
+// runs on a timeline restored in a later session.
+// `clarifications`: [{ flag: { type, sev, title, detail, sources }, text, dismissed }]
+// Returns the same strict-JSON shape normalizeTimeline expects.
+export async function refineTimelineWithClarifications({ projectName, timeline, clarifications }) {
+  const story = {
+    lede: timeline.lede || '',
+    events: (timeline.events || []).map((e) => ({
+      date: e.d,
+      year: e.y,
+      kind: e.kind,
+      cat: e.cat,
+      title: e.title,
+      body: e.body,
+      files: e.files || [],
+      isVideo: !!e.isVideo,
+      flag: e.flag ? { sev: e.flag.sev, label: e.flag.label, text: e.flag.text } : null,
+    })),
+    flags: (timeline.flags || []).map((fl) => ({
+      type: fl.type, sev: fl.sev, title: fl.title, detail: fl.detail, sources: fl.sources,
+    })),
+  };
+  const answers = (clarifications || []).map((c, i) => {
+    const f = c.flag || {};
+    return `${i + 1}. FLAG [${f.sev || 'Medium'}] ${f.title || ''} — ${f.detail || ''}\n   AUTHOR'S ANSWER: ${c.dismissed
+      ? '(dismissed — not an issue; drop this flag and keep the story as written)'
+      : String(c.text || '').slice(0, 600)}`;
+  }).join('\n');
+  const prompt = `You are the presiding chair of the council that reconstructed the chronological story of a legal matter${projectName ? ` for the project "${projectName}"` : ''}. The merged story is below, together with the author's answer to EVERY open flag. The author has first-hand knowledge of the matter — treat their answers as authoritative clarifications.
+
+Produce the FINAL story:
+- Fold each clarification into the affected events (fix dates, bodies, titles; add what the author supplied).
+- Remove a flag (and the matching event-level flag) once its answer resolves it; keep a flag only if the answer genuinely leaves it open.
+- Dismissed flags are dropped without changing the story.
+- Do not invent facts beyond the story and the author's answers. Keep every event that is still supported.
+
+${TIMELINE_JSON_SPEC}
+
+CURRENT STORY (JSON):
+${JSON.stringify(story)}
+
+AUTHOR'S ANSWERS:
+${answers}`;
+  const res = await askProjectAi({
+    messages: [{ role: 'user', content: prompt }],
+    projectName,
+    model: CHAIR_MODEL,
+    tools: false,
+  });
+  if (res.error) throw res.error;
+  const parsed = parseTimelineJson(res.text);
+  if (!usableDraft(parsed)) throw new Error('the chair returned no usable final story');
+  return parsed;
+}
+
 export async function runTimelineCouncil({ projectName, fileNames, excerpts, onPhase, onEvent, resolveDispute }) {
   const emit = (e) => { try { onEvent?.(e); } catch { /* UI-only */ } };
   emit({ type: 'convene', members: COUNCIL_MEMBERS.map((m) => ({ id: m.id, name: m.name })) });

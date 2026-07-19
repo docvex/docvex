@@ -93,6 +93,8 @@ function markActiveNav() {
   var path = window.location.pathname.replace(/\/+$/, '');
   var page = path.split('/').pop() || 'index.html';
   if (page === '' || page === 'index') page = 'index.html';
+  // The legal document pages live under the "Legal" nav item.
+  if (['terms.html', 'privacy.html', 'cookies.html', 'gdpr.html', 'security.html', 'dpa.html'].indexOf(page) !== -1) page = 'legal.html';
   var links = document.querySelectorAll('.dvx-nav a');
   for (var i = 0; i < links.length; i++) {
     var href = (links[i].getAttribute('href') || '').split('#')[0].split('?')[0];
@@ -114,14 +116,46 @@ function footerHTML() {
           '<div class="dvx-footer-brandrow"><img class="dvx-footer-lockup" src="assets/logo-lockup.png" alt="DocVex — Intelligent Legal Workflows"></div>' +
           '<p class="dvx-footer-tag">Intelligent legal workflows for modern law firms.</p>' +
           '<div class="dvx-footer-contact"><p><a href="mailto:docvexteam@docvex.ro">docvexteam@docvex.ro</a></p><p><a href="https://docvex.ro">docvex.ro</a></p></div>' +
+          '<div class="dvx-footer-news">' +
+            '<p class="dvx-footer-newstitle">Legal Newsfeed — weekly briefing</p>' +
+            '<form class="dvx-footer-newsform" id="dvxNewsForm">' +
+              '<input class="dvx-footer-newsinput" id="dvxNewsEmail" type="email" placeholder="you@firm.law" autocomplete="email" aria-label="Email for the newsletter">' +
+              '<button class="dvx-footer-newsbtn" type="submit">Subscribe</button>' +
+            '</form>' +
+            '<p class="dvx-footer-newsmsg" id="dvxNewsMsg" hidden></p>' +
+          '</div>' +
         '</div>' +
-        col('Product', [['Features','index.html#features'],['Security','index.html#security'],['Updates','index.html#updates'],['Client Portal','index.html#clients'],['Pricing','index.html#pricing'],['FAQ','index.html#faq']]) +
+        col('Product', [['Features','index.html#features'],['Security','index.html#security'],['Updates','index.html#updates'],['Pricing','index.html#pricing'],['FAQ','index.html#faq'],['Download','installers.html']]) +
         col('Company', [['About','company.html#about'],['Customers','company.html#customers'],['Careers','company.html#careers'],['Contact','company.html#contact']]) +
-        col('Legal', [['Terms &amp; Conditions','legal.html#terms'],['Privacy Policy','legal.html#privacy'],['Cookie Policy','legal.html#cookies'],['GDPR Compliance','legal.html#gdpr'],['Security &amp; Confidentiality','legal.html#confidentiality']]) +
+        col('Legal', [['Terms &amp; Conditions','terms.html'],['Privacy Policy','privacy.html'],['Cookie Policy','cookies.html'],['GDPR Compliance','gdpr.html'],['Security Policy','security.html'],['Data Processing Agreement','dpa.html']]) +
       '</div>' +
       '<div class="dvx-footer-bottom"><p>© 2026 DOCVEX. All rights reserved.</p><p style="text-transform:uppercase; letter-spacing:0.22em;">Intelligent Legal Workflows</p></div>' +
     '</div></footer>'
   );
+}
+
+// Footer newsletter signup → enrollments table (type 'newsletter'; degrades to
+// a tagged 'waitlist' row if the live table constrains the type column).
+function wireNewsletter() {
+  var form = document.getElementById('dvxNewsForm');
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var email = (document.getElementById('dvxNewsEmail').value || '').trim();
+    var msg = document.getElementById('dvxNewsMsg');
+    var show = function (text, ok) { msg.textContent = text; msg.style.color = ok ? '' : 'var(--danger-soft)'; msg.hidden = false; };
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { show('Please enter a valid email address.', false); return; }
+    import('./supabase.js').then(function (m) {
+      return m.supabase.from('enrollments').insert({ type: 'newsletter', name: null, email: email, firm: null, message: null }).then(function (res) {
+        if (res.error) return m.supabase.from('enrollments').insert({ type: 'waitlist', name: null, email: email, firm: null, message: '[newsletter subscription]' });
+        return res;
+      });
+    }).then(function (res) {
+      if (res && res.error) { show('Something went wrong — try again later.', false); return; }
+      form.hidden = true;
+      show('Subscribed — welcome to the briefing.', true);
+    }).catch(function () { show('Something went wrong — try again later.', false); });
+  });
 }
 
 function renderChip() {
@@ -316,6 +350,7 @@ function mount() {
     wireScrollHeader();
   }
   document.body.insertAdjacentHTML('beforeend', footerHTML());
+  wireNewsletter();
   if (!noNav) wire();
   else applyTheme(currentTheme());
 }

@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from './AuthContext';
 import { useSelectedProject } from './SelectedProjectContext';
+import { isAuxWindow } from '../lib/platform';
 
 // Tracks "unread chat messages" for the currently-selected project so
 // the sidebar's Chat row can render a badge. Scoped to the selected
@@ -27,7 +28,10 @@ function storageKey(userId, projectId) {
 export function ChatUnreadProvider({ children }) {
   const { session } = useAuth();
   const { selectedProjectId } = useSelectedProject();
-  const viewerId = session?.user?.id || null;
+  // The unread badge only renders in the main window's sidebar — aux windows
+  // (Doc Viewer, snip) skip the count query AND the Realtime channel, so five
+  // open viewers don't hold five extra live chat subscriptions.
+  const viewerId = isAuxWindow ? null : session?.user?.id || null;
   const projectId = selectedProjectId || null;
 
   const [unreadCount, setUnreadCount] = useState(0);

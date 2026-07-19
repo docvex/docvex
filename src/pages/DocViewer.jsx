@@ -991,7 +991,7 @@ const WA_EARLIER_CHUNK = 1200;
 // Memoized: every prop is referentially stable across a rail resize / other
 // DocTextPane-local state commits, so the (large) conversation subtree only
 // re-renders when something it actually shows changes.
-const WhatsAppChat = React.memo(function WhatsAppChat({ variant = 'whatsapp', messages, dir, sep, highlight, query, rawQuery, onQueryChange, dateFrom, dateTo, onOpenDates, datesOpen, rangeActive, timeInRange, railOpen, onToggleRail, footerSlot = null, headerSlot = null }) {
+const WhatsAppChat = React.memo(function WhatsAppChat({ variant = 'whatsapp', messages, dir, sep, highlight, query, rawQuery, onQueryChange, dateFrom, dateTo, onOpenDates, datesOpen, rangeActive, timeInRange, railOpen, onToggleRail, headerSlot = null }) {
   // `query` is the deferred copy (drives the expensive filtering); `rawQuery`
   // is what the header's search input shows so typing never lags behind.
   // `rangeActive`/`timeInRange` come from DocTextPane (shared with the rail).
@@ -1008,29 +1008,6 @@ const WhatsAppChat = React.memo(function WhatsAppChat({ variant = 'whatsapp', me
   const showNames = useMemo(() => {
     const s = new Set(messages.filter((m) => !m.system && m.sender).map((m) => m.sender));
     return s.size > 2;
-  }, [messages]);
-
-  // Conversation tallies shown in the footer (middle-dot separated). Reuses the
-  // rail's bucketing for media/voice/stickers/docs/links/calls/contacts; text
-  // messages are the non-system, non-attachment, non-call lines.
-  const stats = useMemo(() => {
-    const { media, stickers, voice, docs, contacts, links, calls } = buildRailContent(messages);
-    let textCount = 0;
-    for (const m of messages) {
-      if (m.system || m.attachment || m.omitted) continue;
-      if (m.text && detectCall(m.text)) continue;
-      if (m.text) textCount += 1;
-    }
-    return [
-      { one: 'message', many: 'messages', n: textCount },
-      { one: 'media file', many: 'media', n: media.length },
-      { one: 'voice note', many: 'voice notes', n: voice.length },
-      { one: 'sticker', many: 'stickers', n: stickers.length },
-      { one: 'document', many: 'documents', n: docs.length },
-      { one: 'link', many: 'links', n: links.length },
-      { one: 'call', many: 'calls', n: calls.length },
-      { one: 'contact', many: 'contacts', n: contacts.length },
-    ].filter((s) => s.n > 0);
   }, [messages]);
 
   const rows = useMemo(() => buildRenderRows(messages), [messages]);
@@ -1188,9 +1165,8 @@ const WhatsAppChat = React.memo(function WhatsAppChat({ variant = 'whatsapp', me
       </div>
     </div>
   );
-  // The search + date-range controls live in a sticky FOOTER at the bottom of
-  // the chat section (see the <footer className="dv-wa-footer"> after the
-  // message list, and .dv-wa-footer in DocViewer.css).
+  // The search + date-range controls portal into the header slot above the
+  // tab bars (see controlsNode below).
   return (
     <div className={`dv-wa${docvex ? ' is-docvex' : ''}`}>
       <div className="dv-wa-inner">
@@ -1386,30 +1362,9 @@ const WhatsAppChat = React.memo(function WhatsAppChat({ variant = 'whatsapp', me
           )}
         </div>
         );
-        // Footer now carries the conversation tallies (messages · media · …)
-        // instead of the controls, which moved up to the header slot.
-        const footerNode = (
-        <footer className="dv-wa-footer">
-          <div className="dv-wa-stats">
-            {stats.length ? stats.map((s, i) => (
-              <React.Fragment key={s.many}>
-                {i > 0 && <span className="dv-wa-stat-dot" aria-hidden="true">·</span>}
-                <span className="dv-wa-stat">
-                  <strong>{s.n.toLocaleString()}</strong> {s.n === 1 ? s.one : s.many}
-                </span>
-              </React.Fragment>
-            )) : <span className="dv-wa-stat dv-wa-stat-empty">No messages</span>}
-          </div>
-        </footer>
-        );
-        // Controls portal up above the tab bars; the stats footer spans the
-        // full pane width (chat + media rail) via the slot below the split.
-        return (
-          <>
-            {headerSlot ? createPortal(controlsNode, headerSlot) : controlsNode}
-            {footerSlot ? createPortal(footerNode, footerSlot) : footerNode}
-          </>
-        );
+        // Controls portal up above the tab bars. (The stats footer that used
+        // to span the pane below the split was removed.)
+        return headerSlot ? createPortal(controlsNode, headerSlot) : controlsNode;
       })()}
     </div>
   );
@@ -1814,15 +1769,26 @@ function buildRailContent(messages) {
   return { media, stickers, voice, docs, contacts, links, calls };
 }
 
-function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, timeInRange }) {
+function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, timeInRange, query }) {
   const railAll = useMemo(() => buildRailContent(messages), [messages]);
-  // The chat's date-range filter propagates here: every entry is tied to its
-  // source message (msgIndex), so each section — and its tab count — narrows
-  // to the same From → To window the conversation shows. Entries that can't
-  // be dated (no msgIndex) stay visible rather than silently vanishing.
+  // The chat's date-range filter AND the search query propagate here: every
+  // entry is tied to its source message (msgIndex), so each section — and its
+  // tab count — narrows to the same From → To window the conversation shows,
+  // and the search matches against each entry's own text (filename, URL,
+  // e-mail, call label, …) plus its sender. Entries that can't be dated (no
+  // msgIndex) stay visible under the date filter rather than silently
+  // vanishing.
+  const q = (query || '').trim().toLowerCase();
   const { media, stickers, voice, docs, contacts, links, calls } = useMemo(() => {
-    if (!rangeActive) return railAll;
-    const keep = (it) => it.msgIndex == null || timeInRange(messages[it.msgIndex]?.time);
+    if (!rangeActive && !q) return railAll;
+    const inRange = (it) => !rangeActive || it.msgIndex == null || timeInRange(messages[it.msgIndex]?.time);
+    const matchesQ = (it) => {
+      if (!q) return true;
+      const src = it.msgIndex != null ? messages[it.msgIndex] : null;
+      return [it.name, it.email, it.url, it.label, it.value, it.sender, src?.sender]
+        .some((s) => s && String(s).toLowerCase().includes(q));
+    };
+    const keep = (it) => inRange(it) && matchesQ(it);
     return {
       media: railAll.media.filter(keep),
       stickers: railAll.stickers.filter(keep),
@@ -1832,7 +1798,7 @@ function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, ti
       links: railAll.links.filter(keep),
       calls: railAll.calls.filter(keep),
     };
-  }, [railAll, rangeActive, timeInRange, messages]);
+  }, [railAll, rangeActive, timeInRange, messages, q]);
   const tabs = [
     { id: 'media', label: 'Media', count: media.length, icon: RAIL_ICONS.media },
     { id: 'stickers', label: 'Stickers', count: stickers.length, icon: RAIL_ICONS.stickers },
@@ -1850,6 +1816,17 @@ function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, ti
   const thumbFor = (name) => (dir ? localUrlFor(`${dir}${sep}${name}`, 256) : null);
   const pathFor = (name) => (dir ? `${dir}${sep}${name}` : name);
   const openOnDisk = (name) => { if (dir) localFolderApi.openPath(pathFor(name)); };
+
+  // Files-tab interaction model: a single click SELECTS an entry (accent ring,
+  // like .fx-tile.is-selected), a double click performs its open action.
+  // Keys are `${section}:${msgIndex}` — one rail entry per source message, so
+  // selection survives the search/date filters reordering the lists.
+  const [selKey, setSelKey] = useState(null);
+  const isSel = (key) => selKey === key;
+  const selProps = (key, onOpen) => ({
+    onClick: () => setSelKey(key),
+    onDoubleClick: onOpen,
+  });
 
   // Right-click morph-menu entries shared by every section: an open action
   // (label varies — Copy for IBANs) + "Find in chat".
@@ -1870,7 +1847,7 @@ function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, ti
               role="tab"
               aria-selected={tab === t.id}
               className={`dv-wa-rail-tab${tab === t.id ? ' is-active' : ''}`}
-              onClick={() => setTab(t.id)}
+              onClick={() => { setTab(t.id); setSelKey(null); }}
             >
               {t.icon}
               <span className="dv-wa-rail-tab-label">{t.label}</span>
@@ -1890,8 +1867,8 @@ function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, ti
                 render={(morphProps) => (
                   <button
                     type="button"
-                    className="dv-wa-rail-tile"
-                    onClick={() => openOnDisk(it.name)}
+                    className={`dv-wa-rail-tile${isSel(`media:${it.msgIndex}`) ? ' is-selected' : ''}`}
+                    {...selProps(`media:${it.msgIndex}`, () => openOnDisk(it.name))}
                     {...morphProps}
                   >
                     {it.kind === 'image' ? (
@@ -1925,8 +1902,8 @@ function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, ti
                 render={(morphProps) => (
                   <button
                     type="button"
-                    className="dv-wa-rail-sticker"
-                    onClick={() => openOnDisk(it.name)}
+                    className={`dv-wa-rail-sticker${isSel(`sticker:${it.msgIndex}`) ? ' is-selected' : ''}`}
+                    {...selProps(`sticker:${it.msgIndex}`, () => openOnDisk(it.name))}
                     {...morphProps}
                   >
                     <img src={thumbFor(it.name)} alt={it.name} loading="lazy" decoding="async" onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
@@ -1945,7 +1922,11 @@ function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, ti
                 label={v.name}
                 items={railMenuItems({ onOpen: () => onFindInChat?.(v.msgIndex), openDisabled: v.msgIndex == null, msgIndex: v.msgIndex })}
                 render={(morphProps) => (
-                  <li className="dv-wa-rail-voice" {...morphProps}>
+                  <li
+                    className={`dv-wa-rail-voice${isSel(`voice:${v.msgIndex}`) ? ' is-selected' : ''}`}
+                    {...selProps(`voice:${v.msgIndex}`, () => onFindInChat?.(v.msgIndex))}
+                    {...morphProps}
+                  >
                     {dir && <VoiceNote src={urlFor(v.name)} preload="none" />}
                     <span className="dv-wa-rail-voice-name">{v.name}</span>
                   </li>
@@ -1973,8 +1954,8 @@ function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, ti
                           render={(morphProps) => (
                             <button
                               type="button"
-                              className="dv-wa-rail-link dv-wa-rail-iban"
-                              onClick={() => copyText(l.value)}
+                              className={`dv-wa-rail-link dv-wa-rail-iban${isSel(`iban:${l.msgIndex}:${l.value}`) ? ' is-selected' : ''}`}
+                              {...selProps(`iban:${l.msgIndex}:${l.value}`, () => copyText(l.value))}
                               {...morphProps}
                             >
                               {l.label}
@@ -1987,9 +1968,10 @@ function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, ti
                           items={railMenuItems({ onOpen: () => openExternal(l.url), msgIndex: l.msgIndex })}
                           render={(morphProps) => (
                             <a
-                              className="dv-wa-rail-link"
+                              className={`dv-wa-rail-link${isSel(`link:${l.msgIndex}:${l.url}`) ? ' is-selected' : ''}`}
                               href={l.url}
-                              onClick={(e) => { e.preventDefault(); openExternal(l.url); }}
+                              onClick={(e) => { e.preventDefault(); setSelKey(`link:${l.msgIndex}:${l.url}`); }}
+                              onDoubleClick={() => openExternal(l.url)}
                               {...morphProps}
                             >
                               {l.label}
@@ -2015,8 +1997,8 @@ function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, ti
                 render={(morphProps) => (
                   <button
                     type="button"
-                    className="dv-wa-rail-doc"
-                    onClick={() => openOnDisk(d.name)}
+                    className={`dv-wa-rail-doc${isSel(`doc:${d.msgIndex}`) ? ' is-selected' : ''}`}
+                    {...selProps(`doc:${d.msgIndex}`, () => openOnDisk(d.name))}
                     disabled={!dir}
                     {...morphProps}
                   >
@@ -2037,7 +2019,11 @@ function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, ti
                 label={c.email}
                 items={railMenuItems({ onOpen: () => openExternal(`mailto:${c.email}`), msgIndex: c.msgIndex })}
                 render={(morphProps) => (
-                  <div {...morphProps}>
+                  <div
+                    className={`dv-wa-rail-contactwrap${isSel(`contact:${c.msgIndex}:${c.email}`) ? ' is-selected' : ''}`}
+                    {...selProps(`contact:${c.msgIndex}:${c.email}`, () => openExternal(`mailto:${c.email}`))}
+                    {...morphProps}
+                  >
                     <EmailContactCard email={c.email} />
                   </div>
                 )}
@@ -2048,7 +2034,11 @@ function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, ti
                 label={c.name}
                 items={railMenuItems({ onOpen: () => openOnDisk(c.name), openDisabled: !dir, msgIndex: c.msgIndex })}
                 render={(morphProps) => (
-                  <div {...morphProps}>
+                  <div
+                    className={`dv-wa-rail-contactwrap${isSel(`contact:${c.msgIndex}`) ? ' is-selected' : ''}`}
+                    {...selProps(`contact:${c.msgIndex}`, () => openOnDisk(c.name))}
+                    {...morphProps}
+                  >
                     <ContactCard name={c.name} fullPath={dir ? pathFor(c.name) : null} url={urlFor(c.name)} />
                   </div>
                 )}
@@ -2067,8 +2057,8 @@ function WhatsAppRail({ messages, dir, sep, onFindInChat, width, rangeActive, ti
                   render={(morphProps) => (
                 <button
                   type="button"
-                  className="dv-wa-rail-call"
-                  onClick={() => onFindInChat?.(c.msgIndex)}
+                  className={`dv-wa-rail-call${isSel(`call:${c.msgIndex}`) ? ' is-selected' : ''}`}
+                  {...selProps(`call:${c.msgIndex}`, () => onFindInChat?.(c.msgIndex))}
                   {...morphProps}
                 >
                   <span className={`dv-wa-call-icon${c.missed ? ' is-missed' : c.duration ? ' is-answered' : ''}`}>
@@ -2155,13 +2145,8 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
   // sit OUTSIDE it (the native bar is hidden), keeping the sticky tab strip and
   // footer full-width instead of being narrowed by the gutter.
   const chatScrollRef = useRef(null);
-  // Slot below the chat+media split that the conversation footer (search + date
-  // range + view toggle) portals into, so it spans the FULL width — across the
-  // media / stickers rail too, not just the chat column.
-  const [footerSlot, setFooterSlot] = useState(null);
   // Slot ABOVE the tab bars that the search + date-range controls portal into,
-  // so they sit at the very top of the conversation section (the footer below
-  // now carries the conversation stats instead).
+  // so they sit at the very top of the conversation section.
   const [headerSlot, setHeaderSlot] = useState(null);
   // Both drags write widths STRAIGHT to the DOM (rAF-coalesced) and commit
   // React state once on mouseup. Routing every mousemove through setState
@@ -2403,9 +2388,10 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
   return (
     <div className="dv-text-pane">
       {showChat ? (
-        <>
+        <div className="dv-wa-card">
         {/* Full-width slot ABOVE the tab bars — the search + date controls
-            portal in here so they top the whole conversation section. */}
+            portal in here so they top the whole conversation section, as the
+            rounded card's top bar. */}
         <div className="dv-wa-headerslot" ref={setHeaderSlot} />
         <DateRangeProvider
           open={pickerOpen}
@@ -2463,10 +2449,6 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
                   timeInRange={timeInRange}
                   railOpen={railOpen}
                   onToggleRail={toggleRail}
-                  /* While the picker is open its tally takes the footer, so the
-                     chat's own footer portal is suppressed (renders inline,
-                     hidden with the messages body). */
-                  footerSlot={footerSlot}
                   headerSlot={headerSlot}
                 />
               </div>
@@ -2487,6 +2469,7 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
                 width={docvex ? null : (railWidth ?? RAIL_BASE)}
                 rangeActive={rangeActive}
                 timeInRange={timeInRange}
+                query={deferredQuery}
               />
               {!docvex && <Tooltip content="Drag to resize the panel"><div className="dv-wa-resizer" onMouseDown={startRailResize} role="separator" aria-orientation="vertical" /></Tooltip>}
             </>
@@ -2504,12 +2487,8 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
             />
           )}
         </div>
-        {/* Full-width footer slot — the conversation footer portals in here so
-            it spans the chat + media rail. The picker's in-range tally now
-            lives under the calendars (inside the overlay), not here. */}
-        <div className="dv-wa-footerslot" ref={setFooterSlot} />
         </DateRangeProvider>
-        </>
+        </div>
       ) : (
         <>
           {/* Search + From → To bar (same controls as the chat view), so the

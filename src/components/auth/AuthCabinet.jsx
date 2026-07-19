@@ -156,7 +156,14 @@ function Done({ flow: f }) {
         <>
           <h3 className="auv-h3">Confirm your email</h3>
           <p className="auv-sub center">We've sent a confirmation link to <strong>{f.confirmEmail}</strong>. Open it to enter your workspace.</p>
+          <FormMsg error={f.error} notice={f.notice} />
           <button className="auv-btn auv-btn--cognac is-auto" onClick={f.toSignin}>Back to sign in</button>
+          <p className="auv-foot">
+            Didn't get it?{' '}
+            <button type="button" className="auv-link" onClick={f.resendConfirm} disabled={f.resent}>
+              {f.resent ? 'Sent again' : 'Resend email'}
+            </button>
+          </p>
         </>
       ) : (
         <>

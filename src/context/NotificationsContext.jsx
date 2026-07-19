@@ -95,8 +95,11 @@ export function NotificationsProvider({ children, sourcesEnabled = true }) {
     // localStorage parse + React render. The local cache still hydrates
     // synchronously — what changes is that the server response is already
     // in flight by the time React commits the cached state.
+    // Aux windows (Doc Viewer, snip) hydrate from the localStorage cache only:
+    // they render no history UI, so the per-window Supabase fetch (times every
+    // open viewer window) buys nothing. The main window owns server sync.
     let cancelled = false;
-    const serverPromise = userId
+    const serverPromise = userId && !platform.isAuxWindow
       ? fetchRecent(userId, HISTORY_CAP).catch((err) => ({ data: null, error: err }))
       : null;
 
@@ -148,9 +151,11 @@ export function NotificationsProvider({ children, sourcesEnabled = true }) {
   }, [authLoading, userId]);
 
   // Debounced persist on every state change (after the bucket is settled).
-  // Doubles as the offline cache when signed-in.
+  // Doubles as the offline cache when signed-in. Main window only: an aux
+  // window's copy of the bucket is a boot-time snapshot, and writing it back
+  // would overwrite newer state the main window persisted since.
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || platform.isAuxWindow) return;
     const bucket = storageKeyForUser(userId);
     const handle = setTimeout(() => {
       try {
@@ -188,8 +193,12 @@ export function NotificationsProvider({ children, sourcesEnabled = true }) {
   // already saw it where it was created). UPDATE syncs read_at; DELETE drops.
   // We dedupe by id against current state so the echo of our own write is a
   // no-op (we already optimistically applied it in notify()/markRead()/etc.).
+  // Aux windows skip the subscription entirely — they show no toasts or
+  // history, and each Realtime channel means another live websocket per
+  // window. Their own notify() calls mirror to Supabase, which this
+  // subscription (in the main window) picks up.
   useEffect(() => {
-    if (!ready || !userId) return;
+    if (!ready || !userId || platform.isAuxWindow) return;
     const unsubscribe = subscribeForUser(userId, (payload) => {
       const { eventType, new: newRow, old: oldRow } = payload;
       if (eventType === 'INSERT' && newRow?.id) {

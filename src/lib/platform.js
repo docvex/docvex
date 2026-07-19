@@ -33,6 +33,26 @@ export const isWebBuild = import.meta.env.VITE_TARGET === 'web';
 export const isMac =
   typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent || '');
 
+// True in auxiliary windows — Doc Viewer (?docViewer=1) and the tray
+// "Extract text" windows (?snip / ?snipPanel / ?snipCountdown). These share
+// the renderer bundle with the main app window, but they must NOT each pay
+// for the main window's background infrastructure (project-files prefetch,
+// notifications history fetch + Realtime channel, chat-unread channel,
+// GitHub releases fetch): with several viewer windows open at once those
+// duplicated fetches, sockets, and folder scans multiply into real lag.
+// Contexts consult this flag to skip their background work in aux windows;
+// the main window (no marker param) keeps full behaviour.
+export const isAuxWindow =
+  typeof window !== 'undefined' &&
+  (() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      return ['docViewer', 'snip', 'snipPanel', 'snipCountdown'].some((k) => q.get(k) === '1');
+    } catch {
+      return false;
+    }
+  })();
+
 // ── App metadata ──────────────────────────────────────────────────────────
 
 // Returns the running app's semver string.
@@ -182,6 +202,35 @@ export function openDocViewerWindow(file) {
     return true;
   }
   return false;
+}
+
+// Surface a known on-disk file for localfile:// preview without opening a
+// window (timeline source thumbnails). Awaitable — resolves once the path
+// is inside containment. No-op (resolved) on web.
+export function allowLocalFile(p) {
+  try {
+    return Promise.resolve(electronAPI?.allowLocalFile?.(p));
+  } catch {
+    return Promise.resolve(false);
+  }
+}
+
+// "Opened with DocVex" — standalone files opened via the OS file association
+// (Explorer/Finder "Open with"), not linked to any project. list snapshots
+// the recorded opens; onExternalOpensChanged subscribes to changes
+// (unsubscribe fn returned); open re-launches one in its own Doc Viewer
+// window; remove drops it from the list. All no-op / empty on web.
+export function listExternalOpens() {
+  return electronAPI?.listExternalOpens ? electronAPI.listExternalOpens() : Promise.resolve([]);
+}
+export function openExternalFile(p) {
+  electronAPI?.openExternalFile?.(p);
+}
+export function removeExternalOpen(p) {
+  return electronAPI?.removeExternalOpen ? electronAPI.removeExternalOpen(p) : Promise.resolve(false);
+}
+export function onExternalOpensChanged(cb) {
+  return electronAPI?.onExternalOpensChanged ? electronAPI.onExternalOpensChanged(cb) : (() => {});
 }
 
 // On-disk path of a picked/dropped File object (webUtils.getPathForFile via
@@ -399,6 +448,14 @@ export function onAccountSwitch(handler) {
 export async function checkForUpdates() {
   if (electronAPI?.checkForUpdates) return electronAPI.checkForUpdates();
   return { state: 'web' };
+}
+
+// Pull the last-known updater status from main (recovers e.g. 'downloaded'
+// after a renderer reload, since update:status events are push-only).
+// { state: 'idle' } on web / when the bridge is missing.
+export async function getUpdateStatus() {
+  if (electronAPI?.getUpdateStatus) return electronAPI.getUpdateStatus();
+  return { state: 'idle' };
 }
 
 // Trigger Squirrel's quit-and-install path. No-op on web.

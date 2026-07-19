@@ -139,6 +139,30 @@ if (started) {
 let pendingStartupDeepLink = (process.argv || [])
   .find((arg) => typeof arg === 'string' && arg.startsWith('docvex://')) || null;
 
+// ── "Open with DocVex" (OS file association) ───────────────────────────────
+// A plain file path on the command line means the OS handed us a file to
+// open (Explorer's "Open with DocVex" verb on Windows; Finder's Open With
+// on macOS fires `open-file` instead). Standalone — the file is NOT linked
+// to any project: it opens in its own Doc Viewer window and is recorded in
+// the "Opened with DocVex" list the Hub displays.
+const pendingExternalOpens = [];
+function isOpenableFileArg(arg) {
+  if (typeof arg !== 'string' || !arg) return false;
+  if (arg.startsWith('-') || arg.startsWith('docvex://')) return false;
+  try { return fs.statSync(arg).isFile(); } catch { return false; }
+}
+// Cold start: skip the executable (and the app path in dev) before probing.
+(process.argv || []).slice(process.defaultApp ? 2 : 1).forEach((arg) => {
+  if (isOpenableFileArg(arg)) pendingExternalOpens.push(arg);
+});
+// macOS delivers file-opens as an event — often BEFORE ready on cold start,
+// so the listener must exist this early and queue until the app is up.
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  if (app.isReady()) openExternalFile(filePath);
+  else pendingExternalOpens.push(filePath);
+});
+
 // Squirrel-based in-place auto-update only works on Windows for this app.
 // The macOS build is NOT Developer-ID signed (forge.config.js ad-hoc signs
 // it), so Squirrel.Mac's autoUpdater refuses to apply updates — it emits an
@@ -1112,7 +1136,89 @@ app.on('second-instance', (_, argv) => {
   if (callbackUrl && mainWindow) {
     mainWindow.webContents.send('oauth:callback-url', callbackUrl);
   }
+  // "Open with DocVex" while the app is already running — the second
+  // instance's argv carries the file path(s).
+  (argv || []).slice(1).forEach((arg) => {
+    if (isOpenableFileArg(arg)) openExternalFile(arg);
+  });
 });
+
+// ── "Opened with DocVex" store + opener ────────────────────────────────────
+// Standalone files opened through the OS association. Persisted to userData
+// (JSON, newest first, capped) so the Hub's "Opened with DocVex" section
+// survives restarts. Deliberately NOT linked to any project.
+const EXTERNAL_OPENS_FILE = path.join(app.getPath('userData'), 'external-opens.json');
+const EXTERNAL_OPENS_CAP = 50;
+function loadExternalOpens() {
+  try {
+    const arr = JSON.parse(fs.readFileSync(EXTERNAL_OPENS_FILE, 'utf8'));
+    return Array.isArray(arr) ? arr.filter((e) => e && typeof e.path === 'string') : [];
+  } catch { return []; }
+}
+function saveExternalOpens(list) {
+  try { fs.writeFileSync(EXTERNAL_OPENS_FILE, JSON.stringify(list.slice(0, EXTERNAL_OPENS_CAP))); }
+  catch { /* best-effort */ }
+}
+function broadcastExternalOpensChanged() {
+  for (const w of BrowserWindow.getAllWindows()) {
+    try { w.webContents.send('external-opens:changed'); } catch { /* closing */ }
+  }
+}
+function recordExternalOpen(filePath) {
+  const norm = path.resolve(filePath);
+  const list = loadExternalOpens().filter((e) => e.path !== norm);
+  list.unshift({ path: norm, name: path.basename(norm), mime: guessMimeFromName(norm), at: Date.now() });
+  saveExternalOpens(list);
+  broadcastExternalOpensChanged();
+}
+// Open an OS-handed file in a standalone Doc Viewer window (no project).
+function openExternalFile(filePath) {
+  try { if (!fs.statSync(filePath).isFile()) return; } catch { return; }
+  recordExternalOpen(filePath);
+  createDocViewerWindow({
+    path: path.resolve(filePath),
+    name: path.basename(filePath),
+    mime: guessMimeFromName(filePath),
+  });
+}
+// The Hub's section: list (pruned to files that still exist), reopen, remove.
+ipcMain.handle('external-opens:list', () => loadExternalOpens().filter((e) => {
+  try { return fs.statSync(e.path).isFile(); } catch { return false; }
+}));
+ipcMain.on('external-opens:open', (_, p) => {
+  if (typeof p === 'string') openExternalFile(p);
+});
+ipcMain.handle('external-opens:remove', (_, p) => {
+  saveExternalOpens(loadExternalOpens().filter((e) => e.path !== p));
+  broadcastExternalOpensChanged();
+  return true;
+});
+
+// Windows "Open with DocVex" — an Explorer context-menu verb for every file
+// type, written per-user (HKCU\Software\Classes\*\shell — no admin prompt).
+// Dev registers the electron.exe + app-path command form, the same trick as
+// the docvex:// protocol registration, so the verb works under forge start.
+// Best-effort and silent: a locked-down registry just means no verb.
+function registerOpenWithDocVexVerb() {
+  if (process.platform !== 'win32') return;
+  const exe = process.execPath;
+  const cmd = process.defaultApp && process.argv.length >= 2
+    ? `"${exe}" "${path.resolve(process.argv[1])}" "%1"`
+    : `"${exe}" "%1"`;
+  const base = 'HKCU\\Software\\Classes\\*\\shell\\DocVex';
+  const run = (args) => new Promise((resolve) => {
+    try {
+      const child = spawn('reg.exe', ['add', ...args, '/f'], { windowsHide: true });
+      child.on('error', () => resolve(false));
+      child.on('exit', (code) => resolve(code === 0));
+    } catch { resolve(false); }
+  });
+  (async () => {
+    await run([base, '/ve', '/d', 'Open with DocVex']);
+    await run([base, '/v', 'Icon', '/d', `"${exe}",0`]);
+    await run([`${base}\\command`, '/ve', '/d', cmd]);
+  })();
+}
 
 // On macOS: the OS fires open-url instead of launching a second instance
 app.on('open-url', (event, url) => {
@@ -1401,6 +1507,20 @@ ipcMain.on('app:open-file-window', (_, payload) => {
   openInAppWindow(url, fileName);
 });
 
+// Surface a single known file path for localfile:// preview WITHOUT opening
+// a window — used by the case-timeline's source-file thumbnails: a timeline
+// restored from storage carries absolute paths whose folders may never have
+// been opened this session, so without this the thumbnail requests fall
+// outside the containment roots and 403. Grants the same per-file dirname
+// scope the doc-viewer/file-window paths already get.
+// invoke-style so the renderer can AWAIT registration before mounting the
+// <img> tiles — a fire-and-forget send could lose the race against the
+// first thumbnail fetch.
+ipcMain.handle('localfile:allow-file', (_, p) => {
+  if (typeof p === 'string' && p) registerLocalfileFile(p);
+  return true;
+});
+
 // Open an arbitrary HTML string in its own in-app window. Used by the
 // .docx viewer: Chromium can't render .docx bytes natively, so the
 // renderer rasterizes the document to self-contained HTML via
@@ -1569,6 +1689,15 @@ ipcMain.handle('update:check', async () => {
   // the renderer to use its manual browser-download fallback instead of
   // spinning forever on a 'checking' state that never resolves.
   if (!AUTO_UPDATE_SUPPORTED) return { state: 'unsupported' };
+  // Already staged: Squirrel has fully applied the update to the next-launch
+  // folder — re-checking here can emit `update-not-available` and clobber the
+  // 'downloaded' state (the renderer's "restart to apply" prompt would
+  // vanish). Re-broadcast + return it instead so the UI settles on the
+  // restart prompt rather than hanging on a re-download that never comes.
+  if (updateStatus.state === 'downloaded') {
+    sendUpdateStatus(updateStatus);
+    return updateStatus;
+  }
   try {
     autoUpdater.checkForUpdates();
   } catch (err) {
@@ -1576,6 +1705,12 @@ ipcMain.handle('update:check', async () => {
   }
   return updateStatus;
 });
+
+// Pull-based recovery of the last-known updater status. update:status is
+// push-only, so a renderer that mounts (or reloads) AFTER the background
+// download already finished would otherwise sit at 'idle' forever and never
+// show the restart prompt. UpdatesContext calls this once at mount.
+ipcMain.handle('update:get-status', () => updateStatus);
 
 ipcMain.on('update:install', () => {
   if (app.isPackaged && updateStatus.state === 'downloaded') {
@@ -3184,6 +3319,13 @@ app.whenReady().then(() => {
   }
 
   createWindow();
+
+  // "Open with DocVex": register the Explorer verb (Windows, best-effort)
+  // and open any files the OS handed us before we were ready.
+  registerOpenWithDocVexVerb();
+  if (pendingExternalOpens.length) {
+    pendingExternalOpens.splice(0).forEach((p) => openExternalFile(p));
+  }
 
   // ── System tray / menu-bar icon ─────────────────────────────────────────
   // Puts the app icon in the Windows notification area / macOS menu bar. The

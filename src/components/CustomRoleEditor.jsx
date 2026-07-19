@@ -26,6 +26,16 @@ import './CustomRoleEditor.css';
 //   onSaved     — called with the new/updated role's id after a successful
 //                 RPC; the parent uses this to refresh state. (Realtime
 //                 also fires, but the callback gives instant feedback.)
+
+// One-tap starting points for the roles a law firm actually staffs. Each maps
+// to a base tier; capabilities stay tweakable after picking one.
+const ROLE_PRESETS = [
+  { name: 'Lawyer', base: 'member', description: 'Works matters end to end — full file and drafting access.' },
+  { name: 'Paralegal', base: 'member', description: 'Prepares and organizes case files alongside the lawyers.' },
+  { name: 'Associate', base: 'member', description: 'Junior fee-earner working under supervision.' },
+  { name: 'Client', base: 'viewer', description: 'Reads shared documents and follows matter progress.' },
+];
+
 export default function CustomRoleEditor({ open, role, projectId, onClose, onSaved }) {
   const isEdit = !!role;
   const nameRef = useRef(null);
@@ -183,12 +193,31 @@ export default function CustomRoleEditor({ open, role, projectId, onClose, onSav
             className="invite-modal-input"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Designer"
+            placeholder="e.g. Lawyer"
             maxLength={50}
             autoComplete="off"
             spellCheck={false}
             disabled={pending}
           />
+          {!isEdit && (
+            <div className="custom-role-editor-presets" aria-label="Suggested roles">
+              {ROLE_PRESETS.map((p) => (
+                <button
+                  key={p.name}
+                  type="button"
+                  className="custom-role-editor-preset"
+                  disabled={pending}
+                  onClick={() => {
+                    setName(p.name);
+                    setBaseRole(p.base);
+                    if (!description) setDescription(p.description);
+                  }}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
 
           <label htmlFor="cre-desc" className="invite-modal-label">Description</label>
           <textarea

@@ -116,10 +116,9 @@ body.dv-ocr-resizing .dv-advisor-resize::after { background: var(--accent); }
    identical regardless of focus — the ONLY effect of selecting a window is that
    its footer shows while the others' stay hidden. Selection = the `.is-selected`
    class on each window's root (clicking anywhere in a window selects it). The
-   footers: Documents → the chat stats bar (.dv-wa-footerslot), Files → the Files
-   action bar (.fx-bottombar). The Multitool footer (.dv-advisor-footerslot) is
-   exempt — it always shows its active tab's action regardless of selection. */
-.dv-doc-card:not(.is-selected) .dv-wa-footerslot { display: none; }
+   footers: Files → the Files action bar (.fx-bottombar). The Multitool footer
+   (.dv-advisor-footerslot) is exempt — it always shows its active tab's action
+   regardless of selection. (The chat stats footer was removed.) */
 .dv-files-footer:not(.is-selected) .fx-bottombar { display: none; }
 
 /* The single Multitool footer slot — each active tab portals its primary action
@@ -575,8 +574,15 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 /* Positioned wrap so the custom overlay scrollbar pins to the scroll area's right
    gutter (clear of the top tab strip). */
 .dv-wa-chatscroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
-/* The actual scroller — native bar hidden; the custom .dv-tabbar-scroll overlays. */
-.dv-wa-chatscroll { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; -ms-overflow-style: none; }
+/* The actual scroller — native bar hidden; the custom .dv-tabbar-scroll overlays.
+   A mask fades the reconstructed messages out at the bottom edge of the card
+   instead of a hard cut. */
+.dv-wa-chatscroll {
+  flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: none; -ms-overflow-style: none;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 48px), transparent);
+}
 .dv-wa-chatscroll::-webkit-scrollbar { width: 0; height: 0; display: none; }
 /* No track background — only the thumb shows. Centered on the chat column's
    right edge so the resize handle (which straddles that edge) cuts through the
@@ -658,6 +664,21 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-wa-rail-tile {
   position: relative; aspect-ratio: 1; padding: 0; border: none; border-radius: 4px;
   overflow: hidden; cursor: pointer; background: var(--bg-elevated);
+}
+/* Files-tab interaction model across every rail section: a single click
+   SELECTS (same accent ring as .fx-tile.is-selected), a double click opens.
+   user-select: none so the double click doesn't highlight the label text. */
+.dv-wa-rail-tile, .dv-wa-rail-sticker, .dv-wa-rail-voice, .dv-wa-rail-link,
+.dv-wa-rail-doc, .dv-wa-rail-call, .dv-wa-rail-contactwrap {
+  user-select: none; cursor: pointer;
+}
+.dv-wa-rail-contactwrap { border-radius: 9.6px; }
+.dv-wa-rail-tile.is-selected, .dv-wa-rail-sticker.is-selected,
+.dv-wa-rail-voice.is-selected, .dv-wa-rail-link.is-selected,
+.dv-wa-rail-doc.is-selected, .dv-wa-rail-call.is-selected,
+.dv-wa-rail-contactwrap.is-selected {
+  background: var(--bg-card);
+  box-shadow: 0 0 0 1.6px var(--accent), 0 0 0 4px var(--accent-tint);
 }
 .dv-wa-rail-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .dv-wa-rail-vid {
@@ -792,10 +813,6 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 /* Left-aligned chat column (not centred). Holds the message inset that used
    to live on .dv-wa, so the header above can run full-bleed. */
 .dv-wa-inner { max-width: 656px; margin: 0; padding: 9.6px 12.8px 12.8px; display: flex; flex-direction: column; gap: 2.4px; }
-/* Full-width slot below the chat+media split that the conversation footer
-   portals into, so the footer spans the chat AND the media rail. */
-.dv-wa-footerslot { flex: none; }
-.dv-wa-footerslot:empty { display: none; }
 /* Full-width slot ABOVE the chat+media split — the search + date controls
    portal in here so they top the conversation section, above the tab bars. */
 .dv-wa-headerslot { flex: none; }
@@ -829,40 +846,6 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   display: flex; flex-direction: column; align-items: flex-start; gap: 6.4px;
   min-width: 0;
 }
-
-/* Chat footer — a sticky bar at the BOTTOM of the conversation that holds the
-   search pill + From → To date range. Styled to MATCH the Project-files footer
-   (.fx-bottombar): a frosted --bg-page tint over backdrop blur, a plain top
-   border, no drop shadow. Stays in view while the messages scroll behind it. */
-.dv-wa-footer {
-  position: sticky; bottom: 0; z-index: 5;
-  /* Same height as the Project-files footer (.fx-bottombar): ~32px control row
-     + 10px top/bottom padding ≈ 52px. */
-  margin: 0; padding: 8px 17.6px; min-height: 41.6px;
-  display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 8px 11.2px;
-  border-top: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
-  -webkit-backdrop-filter: blur(6.4px);
-  backdrop-filter: blur(6.4px);
-  font-size: 9.2px; color: var(--text-muted);
-}
-/* In the footer the controls run in a ROW (the header stacked them vertically). */
-.dv-wa-footer .dv-wa-header-controls {
-  flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px 11.2px;
-}
-/* Burger (rail toggle, WhatsApp skin only) sits at the far right of the footer. */
-.dv-wa-footer .dv-wa-burger { margin-left: auto; }
-
-/* Conversation tallies — "12 messages · 4 media · 2 voice notes · …" with a
-   middle dot between each. */
-.dv-wa-stats {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 3.2px 6.4px;
-  min-width: 0;
-}
-.dv-wa-stat { white-space: nowrap; color: var(--text-muted); }
-.dv-wa-stat strong { font-weight: 650; color: var(--text-secondary); }
-.dv-wa-stat-dot { color: var(--text-muted); opacity: 0.6; user-select: none; }
-.dv-wa-stat-empty { font-style: italic; }
 
 /* Burger — toggles the Media, links & docs rail. Chrome-less: just the
    icon, vertically centred against the header's controls; solid white while
@@ -3572,6 +3555,24 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 .dv-doc-main,
 .dv-doc-main:has(.dv-docview) {
   padding-left: calc(var(--dv-advisor-w, 296px) + 24px);
+}
+/* The text pane (WhatsApp chat, plain text, markdown) is FLUSH
+   (.dv-doc-main.is-flush zeroes the padding), so without its own inset its
+   content slides behind the floating side panel. Reserve the same footprint on
+   the left; the 8px top/right/bottom matches the floating panel's window inset
+   so the conversation card lines up with the panel's edges. */
+.dv-text-pane {
+  padding: 8px 8px 8px calc(var(--dv-advisor-w, 296px) + 24px);
+}
+/* The conversation card — search/date controls bar + the chat + media-rail
+   split — matches the side panel's corner radius + border; overflow clips the
+   bars and the conversation wallpaper to the rounding. */
+.dv-wa-card {
+  flex: 1; min-height: 0; min-width: 0;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 11.2px;
+  overflow: hidden;
 }
 /* Mirror the 24px gap between the side panel and the preview's left edge on
    the right side, so the media doesn't hug the window edge. */
