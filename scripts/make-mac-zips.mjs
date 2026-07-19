@@ -53,6 +53,14 @@ const ARCHES = ['x64', 'arm64'];
 // files macOS actually needs to execute.
 const isMacHost = process.platform === 'darwin';
 
+// When APPLE_SIGNING_IDENTITY is set, forge.config.js had electron-packager
+// sign the app with a Developer ID cert + Hardened Runtime and (creds allowing)
+// notarize + staple it. In that case we must NOT ad-hoc re-sign here — that
+// would strip the Developer ID signature and invalidate the notarization,
+// re-triggering the "Apple could not verify …" Gatekeeper block. Instead we
+// just verify the Developer ID signature + stapled ticket, then zip as-is.
+const DEVELOPER_ID_SIGNED = isMacHost && !!process.env.APPLE_SIGNING_IDENTITY;
+
 function modeForFile(rel, statMode) {
   if (isMacHost) return statMode;
   const needsExec =
@@ -92,6 +100,38 @@ async function zipApp(arch) {
   // iCloud-synced build folder keeps re-applying ("resource fork ... detritus
   // not allowed"). ditto handles the copy + final zip, preserving the framework
   // symlinks and the fresh signature.
+  // ── macOS host, Developer ID build: verify + zip AS-IS (no re-sign) ──────
+  if (DEVELOPER_ID_SIGNED) {
+    // The app is already signed with the Developer ID cert and (if creds were
+    // present) notarized + stapled by electron-packager. Confirm both before
+    // shipping so a mis-signed or un-notarized bundle fails the build loudly
+    // rather than silently reproducing the Gatekeeper prompt for users.
+    execFileSync('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], { stdio: 'inherit' });
+    // spctl is the authoritative Gatekeeper check; "source=Notarized Developer
+    // ID" is what we want. It's informative (some setups assess differently),
+    // so log its verdict but don't hard-fail on a non-zero exit.
+    try {
+      execFileSync('spctl', ['--assess', '--type', 'execute', '--verbose=2', appPath], { stdio: 'inherit' });
+    } catch {
+      console.warn(`[make-mac-zips] ${arch}: spctl assessment non-clean — check notarization creds were set at package time.`);
+    }
+    // stapler validate fails if the notarization ticket isn't stapled into the
+    // bundle. If notarization was intentionally skipped (sign-only run), this
+    // will fail — surface it as a warning rather than blocking a sign-only zip.
+    try {
+      execFileSync('xcrun', ['stapler', 'validate', appPath], { stdio: 'inherit' });
+      console.log(`[make-mac-zips] ${arch}: Developer ID signed + notarization stapled ✓`);
+    } catch {
+      console.warn(`[make-mac-zips] ${arch}: no stapled notarization ticket — build is signed but NOT notarized; users will still hit Gatekeeper. Set notarization creds and rebuild.`);
+    }
+    // ditto to a temp copy then zip, so a com.apple.FinderInfo xattr from an
+    // iCloud-synced out/ folder doesn't ride along into the archive.
+    execFileSync('ditto', ['-c', '-k', '--keepParent', appPath, outPath]);
+    const sizeMB = (fs.statSync(outPath).size / (1024 * 1024)).toFixed(1);
+    console.log(`[make-mac-zips] wrote ${outPath} (${sizeMB} MB)`);
+    return outPath;
+  }
+
   if (isMacHost) {
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'docvex-sign-'));
     try {

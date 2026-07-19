@@ -1,5 +1,80 @@
+const path = require('node:path');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
+
+// ── macOS Developer ID signing + notarization (opt-in via env) ──────────────
+// When APPLE_SIGNING_IDENTITY is set (a "Developer ID Application: … (TEAMID)"
+// certificate present in the login keychain), electron-packager signs the app
+// with the Hardened Runtime + our entitlements and — if notarization creds are
+// also present — submits it to Apple's notary service and staples the ticket.
+// A notarized+stapled build launches WITHOUT the "Apple could not verify …"
+// Gatekeeper block, even downloaded from the internet.
+//
+// When the identity is NOT set, everything below is a no-op and the build
+// falls back to the existing ad-hoc-signed path (make-mac-zips.mjs re-signs
+// ad-hoc; users must "Open Anyway" once). This keeps CI / non-Mac hosts and
+// developers without an Apple Developer membership working unchanged.
+//
+// Ordering note: the FusesPlugin flips fuse bytes in the `packageAfterCopy`
+// hook, which runs BEFORE electron-packager's signing step — so osxSign signs
+// the already-fuse-flipped binary and the signature stays valid. That's why
+// resetAdHocDarwinSignature is turned OFF on the Developer ID path (the proper
+// signature replaces the ad-hoc one; no manual re-sign needed).
+const APPLE_IDENTITY = process.env.APPLE_SIGNING_IDENTITY || null;
+const SIGNING_MAC = process.platform === 'darwin' && !!APPLE_IDENTITY;
+
+// Notarization credentials — support both notarytool auth forms. App-Store-
+// Connect API key (APPLE_API_*) is preferred by CI; Apple-ID + app-specific
+// password (APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID) is simplest
+// for a developer's own Mac. We only notarize if signing AND one full set of
+// creds is present, so a sign-only run (e.g. offline) still works.
+function resolveOsxNotarize() {
+  if (!SIGNING_MAC) return undefined;
+  const { APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER } = process.env;
+  if (APPLE_API_KEY && APPLE_API_KEY_ID && APPLE_API_ISSUER) {
+    return {
+      appleApiKey: APPLE_API_KEY,
+      appleApiKeyId: APPLE_API_KEY_ID,
+      appleApiIssuer: APPLE_API_ISSUER,
+    };
+  }
+  const { APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID } = process.env;
+  if (APPLE_ID && APPLE_APP_SPECIFIC_PASSWORD && APPLE_TEAM_ID) {
+    return {
+      appleId: APPLE_ID,
+      appleIdPassword: APPLE_APP_SPECIFIC_PASSWORD,
+      teamId: APPLE_TEAM_ID,
+    };
+  }
+  console.warn(
+    '[forge] APPLE_SIGNING_IDENTITY set but no notarization creds found — ' +
+      'signing only (the build will still be Gatekeeper-blocked until notarized). ' +
+      'Set APPLE_API_KEY/APPLE_API_KEY_ID/APPLE_API_ISSUER or ' +
+      'APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID.',
+  );
+  return undefined;
+}
+
+const osxSign = SIGNING_MAC
+  ? {
+      identity: APPLE_IDENTITY,
+      // Apply the Hardened Runtime + our entitlements to every code item
+      // (@electron/osx-sign signs the frameworks/helpers bottom-up and uses
+      // the inherit variant for children automatically).
+      optionsForFile: () => ({
+        hardenedRuntime: true,
+        entitlements: path.resolve(__dirname, 'build/entitlements.mac.plist'),
+      }),
+    }
+  : undefined;
+const osxNotarize = resolveOsxNotarize();
+
+if (SIGNING_MAC) {
+  console.log(
+    `[forge] macOS Developer ID signing ON (identity: ${APPLE_IDENTITY})` +
+      (osxNotarize ? ' + notarization' : ' (no notarization creds — sign only)'),
+  );
+}
 
 module.exports = {
   packagerConfig: {
@@ -10,6 +85,11 @@ module.exports = {
     // Mismatched versions make the updater re-prompt forever, so the rebuilt
     // assets for vX must report vX.
     ...(process.env.DOCVEX_APP_VERSION ? { appVersion: process.env.DOCVEX_APP_VERSION } : {}),
+    // macOS code signing + notarization — only populated when
+    // APPLE_SIGNING_IDENTITY is set (see the block above); otherwise both are
+    // `undefined` and electron-packager skips signing entirely (ad-hoc path).
+    ...(osxSign ? { osxSign } : {}),
+    ...(osxNotarize ? { osxNotarize } : {}),
     // electron-packager picks the right extension for each target by
     // appending it to this basename:
     //   - Windows:  src/favicon.ico    ← committed
@@ -137,7 +217,12 @@ module.exports = {
     // run `make` on an actual Mac.
     new FusesPlugin({
       version: FuseVersion.V1,
-      resetAdHocDarwinSignature: process.platform === 'darwin',
+      // On the Developer ID path, osxSign re-signs the fuse-flipped binary
+      // AFTER this hook, so an ad-hoc reset here would just be overwritten —
+      // turn it off. On the ad-hoc path (no identity) keep re-signing on macOS
+      // so the fuse flip doesn't leave an invalid signature that Apple Silicon
+      // SIGKILLs at launch.
+      resetAdHocDarwinSignature: process.platform === 'darwin' && !SIGNING_MAC,
       [FuseV1Options.RunAsNode]: false,
       [FuseV1Options.EnableCookieEncryption]: true,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,

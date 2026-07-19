@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Entitlements applied when signing the macOS app with a Developer ID
+    certificate under the Hardened Runtime (required for Apple notarization).
+    Electron's renderer runs V8, which JITs machine code and needs the three
+    JIT/executable-memory exceptions below or the app crashes at launch once
+    the Hardened Runtime is enabled. disable-library-validation lets the main
+    binary load the Electron Framework + helper dylibs (all signed with the
+    same Team ID, but the flag keeps ad-hoc-signed native addons loadable too).
+    allow-dyld-environment-variables is needed because Electron sets a few
+    DYLD_* vars for its helper processes.
+
+    These match @electron/osx-sign's built-in Electron defaults; we keep an
+    explicit copy so the release pipeline is self-documenting and stable even
+    if the tool's defaults drift.
+  -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+</dict>
+</plist>

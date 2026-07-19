@@ -173,9 +173,17 @@ async function main() {
       }
     }
 
+    // Use the release's server-provided upload_url (strip the {?name,label}
+    // template) rather than a hardcoded uploads.github.com host. If the repo
+    // was ever renamed/transferred GitHub 307-redirects the hardcoded host,
+    // and Node's fetch can't replay a streamed body across a redirect — so it
+    // surfaces the 307 as a failure. The upload_url is already canonical.
+    const uploadBase = (release.upload_url || '').replace(/\{[^}]*\}$/, '')
+      || `https://uploads.github.com/repos/${owner}/${repo}/releases/${release.id}/assets`;
+
     log(`Uploading ${name} (${(size / (1024 * 1024)).toFixed(1)} MB)…`);
     const uploadRes = await fetch(
-      `https://uploads.github.com/repos/${owner}/${repo}/releases/${release.id}/assets?name=${encodeURIComponent(name)}`,
+      `${uploadBase}?name=${encodeURIComponent(name)}`,
       {
         method: 'POST',
         headers: {

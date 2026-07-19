@@ -71,17 +71,42 @@ npm run fix:mac           # rebuild + ad-hoc re-sign + re-zip + replace the
 npm run fix:mac -- v7.2.5 # ...on a specific tag. Needs GITHUB_TOKEN.
 ```
 
-> **macOS code-signing — read before cutting a release.** The mac build is
-> ad-hoc signed only. electron-forge's FusesPlugin flips fuse bytes AFTER
-> signing, invalidating the Electron Framework signature — on Apple Silicon
-> the app gets SIGKILLed at launch (`Code Signature Invalid`). The fix is a
-> full `codesign --deep` re-sign, which **only works on macOS**, so darwin
-> artifacts MUST be built/signed on a Mac (`npm run fix:mac` to repair an
-> existing release). Two gotchas the scripts already handle: sign in a `/tmp`
-> copy (an iCloud-synced folder keeps re-applying the `com.apple.FinderInfo`
-> xattr that codesign rejects), and stamp the rebuilt bundle with
-> `DOCVEX_APP_VERSION` or the updater re-prompts forever. The in-app
-> self-updater also re-signs each download on the user's Mac as a safety net.
+> **macOS code-signing — read before cutting a release.** Two mutually
+> exclusive paths, chosen by whether `APPLE_SIGNING_IDENTITY` is set:
+>
+> - **Developer ID + notarization (preferred).** Set `APPLE_SIGNING_IDENTITY`
+>   to a `Developer ID Application: … (TEAMID)` cert in the login keychain,
+>   plus notarization creds — either `APPLE_API_KEY` / `APPLE_API_KEY_ID` /
+>   `APPLE_API_ISSUER` (App Store Connect API key, preferred for CI) **or**
+>   `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID`. Then
+>   `forge.config.js` has electron-packager sign with the Hardened Runtime +
+>   `build/entitlements.mac.plist`, notarize, and staple the ticket, so the
+>   build launches with **no Gatekeeper "Apple could not verify …" block**.
+>   `make-mac-zips.mjs` then verifies + zips as-is (it must NOT re-sign, which
+>   would strip the notarization). Because the FusesPlugin flips fuse bytes in
+>   `packageAfterCopy` (before packager's signing step), the signature covers
+>   the flipped bytes and stays valid — so `resetAdHocDarwinSignature` is
+>   turned OFF on this path. Still Mac-only (codesign/notarytool are macOS).
+> - **Ad-hoc (fallback, when the identity is unset).** The build is ad-hoc
+>   signed only, so Gatekeeper shows "Apple could not verify …" and users must
+>   "Open Anyway" once. electron-forge's FusesPlugin flips fuse bytes AFTER the
+>   ad-hoc sign, invalidating the Electron Framework signature — on Apple
+>   Silicon the app gets SIGKILLed at launch (`Code Signature Invalid`). The
+>   fix is a full `codesign --deep` re-sign in `make-mac-zips.mjs`, which
+>   **only works on macOS**, so darwin artifacts MUST be built/signed on a Mac
+>   (`npm run fix:mac` to repair an existing release). Two gotchas the scripts
+>   already handle: sign in a `/tmp` copy (an iCloud-synced folder keeps
+>   re-applying the `com.apple.FinderInfo` xattr that codesign rejects), and
+>   stamp the rebuilt bundle with `DOCVEX_APP_VERSION` or the updater re-prompts
+>   forever. The in-app self-updater also re-signs each download on the user's
+>   Mac as a safety net.
+>
+> `npm run fix:mac` honours the same env vars — set them and it repairs an
+> existing release's darwin zips as notarized builds. Notarization is a
+> Developer ID feature ($99/yr Apple Developer Program); without the cert only
+> the ad-hoc path is available. (The `.dmg` from `maker-dmg` isn't separately
+> notarized, but the `.app` inside it carries its own stapled ticket, so it
+> still launches clean.)
 
 No tests, no linter (`npm run lint` is a stub).
 
@@ -500,6 +525,12 @@ Dismissal: Escape, scroll (capture), outside `mousedown`, or mouseleave on the m
 - **Supabase dashboard, not in code:** Google OAuth provider config (client id / secret), `docvex://auth/callback` and the web origin registered as redirect URLs, the SMTP for email Edge Functions.
 - **Edge Function secrets (Supabase dashboard → Edge Functions → Secrets), not in code:** `RESEND_API_KEY` (email functions); `ANTHROPIC_API_KEY` (`legal-ai` + `doc-ai` OCR — without it the Newsletter AI line falls back to a computed line, ingest 500s, and OCR fails); `OPENAI_API_KEY` (`doc-ai` Whisper transcription — **not yet configured**); `LEGAL_INGEST_SECRET` (optional — guards `legal-ai`'s `ingest` action; while unset, ingest returns 403); `LEGAL_AI_MODEL` (optional — overrides the default `claude-opus-4-7`, e.g. `claude-haiku-4-5` to cut digest cost).
 - **Google Cloud Console:** OAuth consent screen must be User Type **External** (Internal blocks `@gmail.com` testers with `org_internal` 403). Authorized redirect URI = `https://pntxlvhkqfryyyxlqytr.supabase.co/auth/v1/callback`.
+- **macOS signing env (release-time, not in code):** `APPLE_SIGNING_IDENTITY`
+  (a `Developer ID Application: … (TEAMID)` cert in the login keychain) enables
+  the Developer ID + notarization path in `forge.config.js`; pair it with notary
+  creds — `APPLE_API_KEY`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER` **or**
+  `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID`. Unset ⇒ ad-hoc
+  fallback (Gatekeeper-blocked). See the code-signing note above.
 - **GitHub:** `GITHUB_TOKEN` (PAT, `public_repo` scope) required for `npm run publish` — set via `[Environment]::SetEnvironmentVariable("GITHUB_TOKEN", ..., "User")` or per-session `$env:GITHUB_TOKEN = ...`. VSCode integrated terminals cache env vars from launch; restart the whole VSCode window after setting persistently.
 
 ## Scripts (`scripts/`)
