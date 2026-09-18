@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { glyphForFile } from '../../components/fileGlyph';
 import FileThumbnail from '../../components/FileThumbnail';
 import { useMorphPill } from '../../components/useMorphPill';
+import DropZone from '../../components/DropZone';
 import Tooltip from '../../components/Tooltip';
 import { extractFileText } from '../../lib/extractFileText';
 import { recognizeCanvas, OCR_MAX_EDGE } from '../../lib/ocr';
@@ -588,12 +589,10 @@ const UP_DEFAULT_TILE = 134;
 // Files state lives in the page (ProjectEvents) so the Scanning step can
 // build its progress grid from the same picks.
 function UploadStep({ files, addFiles, removeFile, onAnalyze, analyzing }) {
-  const [dragOver, setDragOver] = useState(false);
   // Icon-size / view state — same semantics as the Files tab: the slider
   // drives the tile size; dropping below the threshold flips to list view.
   const [tileSize, setTileSize] = useState(UP_DEFAULT_TILE);
   const view = tileSize < UP_LIST_THRESHOLD ? 'list' : 'grid';
-  const inputRef = useRef(null);
   // Search + single selection (lifted here so the keyboard shortcuts can
   // act on the selected pick).
   const searchRef = useRef(null);
@@ -660,45 +659,19 @@ function UploadStep({ files, addFiles, removeFile, onAnalyze, analyzing }) {
 
   return (
     <div>
-      <div
-        ref={zoneRef}
-        className={`cto-dropzone${dragOver ? ' is-dragover' : ''}${files.length > 0 ? ' is-compact' : ''}`}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          addFiles(e.dataTransfer?.files);
-        }}
+      {/* The Timeline's import surface, and the Playbook's — one component,
+          one stylesheet (components/DropZone.css). The picked-files grid below
+          renders INSIDE it, which is why the zone collapses to its compact row
+          as soon as there is something to show. */}
+      <DropZone
+        zoneRef={zoneRef}
+        compact={files.length > 0}
+        onFiles={addFiles}
+        title="Drop case files here"
+        sub={files.length > 0
+          ? 'Any file type — read securely on your machine.'
+          : 'Any file type. DocVex reads documents, runs OCR on scans and transcribes recordings automatically — files it can’t read still anchor the story by name. Nothing leaves your machine unencrypted.'}
       >
-        <span className="cto-drop-ico"><IcoUpload width="26" height="26" /></span>
-        {/* display:contents while expanded (layout identical to before);
-            becomes a stacked text column in the compact row. */}
-        <div className="cto-drop-copy">
-          <div className="cto-drop-title">Drop case files here</div>
-          <div className="cto-drop-sub">
-            {files.length > 0
-              ? 'Any file type — read securely on your machine.'
-              : 'Any file type. DocVex reads documents, runs OCR on scans and transcribes recordings automatically — files it can’t read still anchor the story by name. Nothing leaves your machine unencrypted.'}
-          </div>
-        </div>
-        <button type="button" className="cto-btn-accent" onClick={() => inputRef.current?.click()}>
-          Import
-        </button>
-        {/* No `accept` filter — every file type is pickable (matching the
-            drop path). The scan pipeline handles unknown formats honestly:
-            unreadable files fall back to filename-as-context. */}
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          className="cto-file-input"
-          onChange={(e) => {
-            addFiles(e.target.files);
-            // Reset so re-picking the same file fires onChange again.
-            e.target.value = '';
-          }}
-        />
         {/* Content-render controls (Files-tab language) — icon-size slider +
             grid ⇄ list toggle, right-aligned under the zone's header row. */}
         {files.length > 0 && (
@@ -809,7 +782,7 @@ function UploadStep({ files, addFiles, removeFile, onAnalyze, analyzing }) {
             )}
           </div>
         )}
-      </div>
+      </DropZone>
 
       {/* Ready-count + the real "Analyze with AI" trigger — under the drop
           zone. */}

@@ -85,6 +85,27 @@ export function saveConversation(filePath, { messages, versions, branches, activ
   // storage — deleting on empty would wipe the saved chat on every reopen. Use
   // clearConversation() to remove a thread on purpose.
   if (!msgs.length && !vers.length && !hasBranchContent && !hasParaContent) return false;
+
+  // NEVER DOWNGRADE. The check above only catches a save that is empty in
+  // EVERY respect; a file with paragraph threads (or an in-flight version list)
+  // clears it while its document thread is still [] — which is exactly the
+  // state the provider is in for one render after a file is opened, before the
+  // load effect's setState lands. That save was overwriting real conversations
+  // with empty ones, and the next render's correct save only repaired it if the
+  // window survived that long. It did not always.
+  //
+  // So: a stored record that HAS a thread is never replaced by one that has
+  // none. Emptying a conversation on purpose goes through clearConversation().
+  const priorRaw = safeRead(keyFor(filePath)) || safeRead(KEY_PREFIX + filePath);
+  const prior = parseRecord(priorRaw);
+  if (prior) {
+    const priorHasThread = prior.messages.length
+      || prior.versions.length
+      || (prior.branches || []).some((b) => Array.isArray(b.messages) && b.messages.length);
+    const nextHasThread = msgs.length || vers.length || hasBranchContent;
+    if (priorHasThread && !nextHasThread) return false;
+  }
+
   const record = { messages: msgs, versions: vers, updatedAt: Date.now() };
   // Persist the branch set (split conversations) + which one is active so
   // reopening the file restores every branch, not just the active thread.

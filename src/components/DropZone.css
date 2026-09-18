@@ -1,0 +1,133 @@
+/* ── Drop zone ────────────────────────────────────────────────────────────
+   The import surface from the Timeline's first step, lifted out of
+   ProjectEvents.css so the Playbook can use the SAME one rather than a copy of
+   it. The class names are unchanged (`cto-`) precisely so nothing on the
+   Timeline side had to move: both pages import this sheet, so restyling it
+   restyles both, and the two can no longer drift apart.
+
+   Rendered by components/DropZone.jsx. */
+
+.cto-btn-accent {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 9px 18px;
+  border-radius: 9px;
+}
+.cto-btn-accent:hover { background: var(--accent-hover); }
+
+.cto-dropzone {
+  /* Isolate so the spotlight layer (::before, z-index:-1) stacks inside the
+     zone — above its fill, below the copy/button. */
+  position: relative;
+  isolation: isolate;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  padding: 38px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  /* Empty ⇄ compact morph — the flex-direction flip itself is discrete, but
+     transitioning the numeric chrome (padding/gap/icon/type sizes, below)
+     makes the collapse into the slim header row — and the expansion back —
+     read as one continuous move. */
+  transition: padding 300ms cubic-bezier(0.16, 1, 0.3, 1), gap 300ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms, border-color 150ms;
+}
+.cto-drop-ico,
+.cto-drop-ico svg,
+.cto-drop-title,
+.cto-drop-sub {
+  transition: width 300ms cubic-bezier(0.16, 1, 0.3, 1), height 300ms cubic-bezier(0.16, 1, 0.3, 1), border-radius 300ms cubic-bezier(0.16, 1, 0.3, 1), font-size 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* The picks content (controls + scroll shelf) rises in as the zone lands in
+   its compact shape. */
+.cto-upload-controls,
+.cto-upload-scroll { animation: ctoZoneIn 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes ctoZoneIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cto-dropzone,
+  .cto-drop-ico,
+  .cto-drop-ico svg,
+  .cto-drop-title,
+  .cto-drop-sub { transition: none; }
+  .cto-upload-controls,
+  .cto-upload-scroll { animation: none; }
+}
+.cto-dropzone.is-dragover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.cto-dropzone .cto-btn-accent { margin-top: 4px; }
+/* Invisible wrapper while expanded — the title/sub still lay out as direct
+   flex children — that becomes a stacked text column in the compact row. */
+.cto-drop-copy { display: contents; }
+
+/* Compact dropzone — once files are picked the zone collapses to a slim
+   row: icon · title + description stacked · Browse button at the right
+   edge. Still a live drop target. */
+.cto-dropzone.is-compact {
+  flex-direction: row;
+  /* The picks grid lives inside the zone as a full-width row under the
+     icon · copy · button header. */
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  text-align: left;
+}
+.cto-dropzone.is-compact .cto-drop-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.cto-dropzone.is-compact .cto-drop-ico {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  flex: none;
+}
+.cto-dropzone.is-compact .cto-drop-ico svg { width: 18px; height: 18px; }
+.cto-dropzone.is-compact .cto-drop-title { font-size: 13.5px; }
+.cto-dropzone.is-compact .cto-drop-sub { font-size: 11px; }
+.cto-dropzone.is-compact .cto-btn-accent { margin: 0 0 0 auto; flex: none; }
+/* Hidden native input the Browse button proxies to. */
+.cto-file-input { display: none; }
+
+.cto-drop-ico {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  box-shadow: var(--shadow-card);
+}
+.cto-drop-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.cto-drop-sub {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  max-width: 44ch;
+}

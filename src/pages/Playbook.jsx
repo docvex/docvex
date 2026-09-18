@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import PageMasthead from '../components/PageMasthead';
 import Tooltip from '../components/Tooltip';
+import DropZone from '../components/DropZone';
 import { useAuth } from '../context/AuthContext';
 import { extractFileText } from '../lib/extractFileText';
 import {
@@ -24,12 +25,6 @@ import './Playbook.css';
 const ACCEPT = '.docx,.pdf,.txt,.md,.rtf,.csv,.xlsx';
 const MAX_BYTES = 25 * 1024 * 1024;
 
-const IconUpload = (
-  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M12 16V4" /><path d="m7 9 5-5 5 5" />
-    <path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16" />
-  </svg>
-);
 const IconDoc = (
   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H14l5 5v11.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.5z" />
@@ -63,11 +58,8 @@ export default function Playbook() {
   const [loading, setLoading] = useState(true);
   const [learning, setLearning] = useState(false);
   const [note, setNote] = useState(null);       // { tone, text }
-  const [dragging, setDragging] = useState(false);
   // Filename → why it was skipped, while a batch is being read.
   const [importing, setImporting] = useState([]);
-  const fileRef = useRef(null);
-  const dragDepth = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!signedIn) { setLoading(false); return; }
@@ -143,12 +135,6 @@ export default function Playbook() {
     setProfile((p) => (p ? { ...p, enabled: on } : p));
     const res = await setStyleEnabled(on);
     if (res.error) { setProfile((p) => (p ? { ...p, enabled: !on } : p)); }
-  };
-
-  const onDrop = (e) => {
-    e.preventDefault();
-    dragDepth.current = 0; setDragging(false);
-    ingest(e.dataTransfer?.files);
   };
 
   const hasStyle = !!profile?.text;
@@ -230,32 +216,26 @@ export default function Playbook() {
               </p>
             </header>
 
-            <div
-              className={`pbk-drop${dragging ? ' is-over' : ''}${busy ? ' is-busy' : ''}`}
-              onDragEnter={(e) => { e.preventDefault(); dragDepth.current += 1; setDragging(true); }}
-              onDragOver={(e) => e.preventDefault()}
-              onDragLeave={() => { dragDepth.current -= 1; if (dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false); } }}
-              onDrop={onDrop}
-            >
-              <input
-                ref={fileRef}
-                type="file"
-                multiple
-                accept={ACCEPT}
-                className="pbk-file"
-                onChange={(e) => { const f = e.target.files; e.target.value = ''; ingest(f); }}
-              />
-              <span className="pbk-drop-mark" aria-hidden="true">{IconUpload}</span>
-              <p className="pbk-drop-title">Drop documents here</p>
-              <p className="pbk-drop-sub">or <button type="button" className="pbk-drop-browse" onClick={() => fileRef.current?.click()}>choose files</button></p>
-              {/* Said plainly, before anything is uploaded rather than in a
-                  policy nobody opens. These are the user's own documents and
-                  some of them are privileged. */}
-              <p className="pbk-drop-fine">
-                Only the text is kept, and only the first pages of it — enough to
-                read your style from. The files stay on your computer.
-              </p>
-            </div>
+            {/* The Timeline's import surface, shared verbatim — same component,
+                same stylesheet. It collapses to its compact row once there are
+                documents, exactly as it does there.
+
+                The one deliberate difference is `accept`: the Timeline takes
+                any file, because one it cannot read still anchors the story by
+                name. Here a file that yields no text teaches nothing, so the
+                picker is filtered to the formats that can actually be read. */}
+            <DropZone
+              compact={samples.length > 0 || importing.length > 0}
+              disabled={busy}
+              accept={ACCEPT}
+              onFiles={ingest}
+              title="Drop documents you wrote here"
+              sub={
+                samples.length > 0
+                  ? 'Word, PDF or plain text. Only the text is kept — the files stay on your computer.'
+                  : 'Word, PDF or plain text. The AI reads how you draft — your structure, your phrasing, your tone — and writes in that voice from then on. Only the text is kept, and only the first pages of it; the files stay on your computer.'
+              }
+            />
 
             {note && (
               <p className={`pbk-note is-${note.tone}`} role={note.tone === 'error' ? 'alert' : 'status'}>

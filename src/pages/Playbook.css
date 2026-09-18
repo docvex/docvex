@@ -91,31 +91,9 @@
 }
 .pbk-samples-head p { margin: 0 0 14px; max-width: 62ch; font-size: 12.5px; line-height: 1.6; color: var(--text-muted); }
 
-.pbk-file { display: none; }
-.pbk-drop {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 28px 24px;
-  border: 1.5px dashed var(--border-strong); border-radius: 12px;
-  background: var(--bg-elevated);
-  text-align: center;
-  transition: border-color 140ms ease, background 140ms ease;
-}
-.pbk-drop.is-over { border-color: var(--accent); background: var(--accent-tint); }
-.pbk-drop.is-busy { opacity: 0.6; pointer-events: none; }
-.pbk-drop-mark { color: var(--accent); margin-bottom: 4px; }
-.pbk-drop-title { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
-.pbk-drop-sub { margin: 0; font-size: 12px; color: var(--text-muted); }
-.pbk-drop-browse {
-  padding: 0; border: 0; background: none;
-  font: inherit; font-size: 12px; font-weight: 600; color: var(--accent);
-  cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
-}
-/* What is kept and what is not, said here rather than in a policy nobody
-   opens — these are the user's own documents and some of them are privileged. */
-.pbk-drop-fine {
-  margin: 10px 0 0; max-width: 46ch;
-  font-size: 10.8px; line-height: 1.5; color: var(--text-muted);
-}
+/* The drop zone is the Timeline's, rendered by components/DropZone.jsx and
+   styled by components/DropZone.css — nothing about it is redefined here, which
+   is the point: one stylesheet, two pages, no drift. */
 
 .pbk-note {
   margin: 12px 0 0; padding: 8px 12px; border-radius: 8px;
@@ -151,5 +129,5 @@
 .pbk-item-drop:disabled { opacity: 0.4; cursor: not-allowed; }
 
 @media (prefers-reduced-motion: reduce) {
-  .pbk-switch-knob, .pbk-switch-track, .pbk-drop { transition: none; }
+  .pbk-switch-knob, .pbk-switch-track { transition: none; }
 }

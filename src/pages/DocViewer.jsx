@@ -3377,6 +3377,11 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
   const { session } = useAuth();
   const { selectedProject } = useSelectedProject();
   const [messages, setMessages] = useState([]); // [{ role, content } | { role:'artifact', version, instructions }]
+  // Which file's saved thread is actually IN `messages` right now. Null until
+  // the load effect below has run and its setState has landed. Everything that
+  // writes to storage waits for this to match the open file — see the note in
+  // the load effect.
+  const [hydratedId, setHydratedId] = useState(null);
   // Split-conversation branches. Splitting from a message keeps the ORIGINAL
   // thread intact and starts a new branch; nav pills under the header switch
   // between them. branchStoreRef holds every branch's messages; the active
@@ -3529,15 +3534,23 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
     versionCountRef.current = vers.reduce((mx, v) => Math.max(mx, v.n || 0), 0);
     // The last generated iteration is what's currently on disk.
     setActiveVersion(vers.length ? vers[vers.length - 1].n : null);
+    // Everything above is a setState, so none of it is visible to the effects
+    // that run after this one IN THIS COMMIT — they still see the previous
+    // file's (or the initial, empty) thread. This marker is a setState too, so
+    // it lands in the same render as the restored thread and not before: the
+    // mirror and persist effects below wait for it, and so never write an empty
+    // thread over the one just read off disk.
+    setHydratedId(file?.id || null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file?.id]);
 
   // Keep the live thread mirrored into whichever store owns the current scope,
   // so a switch (branch OR paragraph) and every persist see the latest.
   useEffect(() => {
+    if (hydratedId !== (file?.id || null)) return;
     if (threadScope === 'document') branchStoreRef.current[activeBranchId] = messages;
     else paraThreadsRef.current[threadScope] = messages;
-  }, [messages, activeBranchId, threadScope]);
+  }, [messages, activeBranchId, threadScope, hydratedId, file?.id]);
 
   // Move the conversation to another scope. The mirror above already stashed the
   // outgoing thread, so this only has to swap in the incoming one.
@@ -3563,6 +3576,9 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
   // reopening the file restores all split conversations.
   useEffect(() => {
     if (!file?.path) return;
+    // Not until this file's saved thread has actually landed in state. Writing
+    // before that is writing the empty initial thread over the saved one.
+    if (hydratedId !== (file?.id || null)) return;
     // While a paragraph thread is on screen, `messages` is NOT the active
     // branch's — read every branch from the store instead.
     const onDoc = threadScope === 'document';
@@ -3574,7 +3590,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
       messages, versions, branches: branchRecords, activeBranchId,
       paraThreads: paraThreadsRef.current,
     });
-  }, [file?.path, messages, versions, branches, activeBranchId, threadScope]);
+  }, [file?.path, file?.id, hydratedId, messages, versions, branches, activeBranchId, threadScope]);
 
   // Build `text` into `kind`, write it to disk, and reload the preview. If the
   // file's current name doesn't already carry `kind`'s extension (a wildcard, or
@@ -4908,7 +4924,7 @@ function AdvisorEmpty({ show, paragraph }) {
   return (
     <div className={`dv-advisor-empty${leaving ? ' is-leaving' : ''}`} aria-hidden={leaving || undefined}>
       <span className="dv-advisor-empty-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+        <svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" strokeLinejoin="round">
           <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H14l6 6v8.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5z" />
           <path d="M14 4v6h6" />
           <path d="M8 13.5h7M8 16.5h4.5" />
