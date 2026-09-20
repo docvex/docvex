@@ -14,8 +14,11 @@
 
 import { askProjectAi } from './projectAi';
 import { recognizeCanvas, OCR_MAX_EDGE } from './ocr';
+import { loadPdfModule } from './pdfWorker';
+import { extractFileText } from './extractFileText';
+import { extractDocText } from './platform';
 import {
-  emptyIdentity, identityKey, mergeIdentity, listIdentities, writeIdentity,
+  emptyIdentity, identityKey, mergeIdentity, listIdentities, writeIdentity, isIdentityFile,
 } from './identities';
 
 const EXTRACT_MODEL = 'claude-sonnet-4-6';
@@ -153,13 +156,14 @@ export function parseIdentities(text) {
 // Write the extracted parties into the project's Identities/ folder, folding
 // each into whatever is already there. Returns what actually changed, so the
 // caller can report "4 added, 2 updated" rather than a bare count.
-export async function saveExtractedIdentities(projectDir, identities) {
+export async function saveExtractedIdentities(projectDir, identities, { dir } = {}) {
   if (!projectDir || !identities?.length) return { added: 0, updated: 0, names: [] };
   const existing = await listIdentities(projectDir);
   const byKey = new Map(existing.map((e) => [identityKey(e), e]));
   let added = 0;
   let updated = 0;
   const names = [];
+  const paths = [];
   for (const incoming of identities) {
     const key = identityKey(incoming);
     if (!key) continue;
@@ -167,13 +171,18 @@ export async function saveExtractedIdentities(projectDir, identities) {
     // A record the user has already opened and filled in keeps everything they
     // typed; only its blanks get completed.
     const record = prior ? mergeIdentity(prior, incoming) : incoming;
-    const res = await writeIdentity(projectDir, record, { previousFileName: prior?._fileName });
+    // A record that already exists is rewritten where it is; a new one goes to
+    // `dir` — beside the files it was read from — or the project root.
+    const res = await writeIdentity(projectDir, record, {
+      previousFileName: prior?._fileName, previousPath: prior?._path, dir,
+    });
     if (res.error) continue;
     if (prior) updated += 1; else added += 1;
     names.push(record.name);
-    byKey.set(key, { ...record, _fileName: res.filename });
+    byKey.set(key, { ...record, _fileName: res.filename, _path: res.path });
+    paths.push(res.path);
   }
-  return { added, updated, names };
+  return { added, updated, names, paths };
 }
 
 // Read an image file with the OCR the Doc Viewer already uses. The lasso tool
@@ -338,4 +347,262 @@ export async function readIdentityFromImage(imageBlob, record, { jurisdiction, p
   // hid the one case worth a person's attention. The caller decides what to
   // show; overwriting is still never automatic.
   return { fields, text };
+}
+
+// ── Reading a record off ANY file ───────────────────────────────────────
+// A photograph is only one of the ways an identity reaches a project. The same
+// card arrives as a scanned PDF from the client, the company's details sit in a
+// certificate exported to PDF or in the opening clause of a Word contract. So
+// the reader takes whatever it is given and finds the route to its text:
+//
+//   picture            → OCR (as above)
+//   PDF with text      → its text layer
+//   PDF without text   → a scan: its first pages are rendered and OCR'd
+//   Word / Excel / text→ extracted in the renderer
+//   legacy .doc        → extracted by the main process (needs the file's path)
+//   anything else      → read as text if that is what the bytes turn out to be
+//
+// What cannot be read says why, in the caller's terms, rather than failing as
+// "unsupported": audio and video have no page to read, an identity record is
+// already one.
+const IMAGE_EXT_RE = /\.(png|jpe?g|webp|heic|heif|bmp|tiff?|gif|avif)$/i;
+const MEDIA_EXT_RE = /\.(mp3|wav|m4a|ogg|opus|flac|aac|mp4|mov|mkv|webm|avi|wmv)$/i;
+// How many pages of a text-less PDF are OCR'd. An identity document is one or
+// two pages; past that a scan is a contract, and each page is a paid call.
+const SCAN_PDF_PAGES = 4;
+
+export function identitySourceKind(name, mime = '') {
+  const n = String(name || '').toLowerCase();
+  if (isIdentityFile(n)) return 'identity';
+  if (IMAGE_EXT_RE.test(n) || mime.startsWith('image/')) return 'image';
+  if (/\.pdf$/.test(n) || mime === 'application/pdf') return 'pdf';
+  if (MEDIA_EXT_RE.test(n) || mime.startsWith('audio/') || mime.startsWith('video/')) return 'media';
+  if (/\.doc$/.test(n)) return 'doc';
+  return 'document';
+}
+
+// Can this file be offered for a scan at all? Everything can except what has
+// no text to give — so the pickers dim only those.
+export function canScanForIdentity(name, mime = '') {
+  const kind = identitySourceKind(name, mime);
+  return kind !== 'media' && kind !== 'identity';
+}
+
+async function ocrPdfPages(blob) {
+  const pdfjs = await loadPdfModule();
+  const data = new Uint8Array(await blob.arrayBuffer());
+  const doc = await pdfjs.getDocument({ data }).promise;
+  try {
+    const out = [];
+    const pages = Math.min(doc.numPages, SCAN_PDF_PAGES);
+    for (let p = 1; p <= pages; p += 1) {
+      const page = await doc.getPage(p);
+      const base = page.getViewport({ scale: 1 });
+      const scale = Math.min(3, OCR_MAX_EDGE / Math.max(base.width, base.height));
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(viewport.width));
+      canvas.height = Math.max(1, Math.round(viewport.height));
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const text = await recognizeCanvas(canvas);
+      if (text) out.push(text);
+    }
+    return out.join('\n\n');
+  } finally {
+    try { doc.destroy(); } catch { /* ignore */ }
+  }
+}
+
+// Bytes that are text without saying so — a .eml, a .vcf, an extensionless
+// export. Decoded strictly, and rejected if it is mostly control characters.
+async function sniffText(blob) {
+  try {
+    const buf = await blob.slice(0, 200000).arrayBuffer();
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+    // eslint-disable-next-line no-control-regex
+    const odd = (text.match(/[\u0000-\u0008\u000e-\u001f]/g) || []).length;
+    return odd > text.length * 0.02 ? '' : text;
+  } catch {
+    return '';
+  }
+}
+
+// `{ text }` or `{ error, detail? }`. Errors: decode_failed, ocr_failed,
+// no_text, media, identity, unsupported.
+export async function readSourceText(blob, name, { path } = {}) {
+  if (!blob) return { error: 'no_image' };
+  const kind = identitySourceKind(name, blob.type || '');
+  if (kind === 'media') return { error: 'media' };
+  if (kind === 'identity') return { error: 'identity' };
+  try {
+    if (kind === 'image') {
+      const text = await ocrImageBlob(blob);
+      return text.trim() ? { text } : { error: 'no_text' };
+    }
+    if (kind === 'pdf') {
+      const layer = await extractFileText(blob, name);
+      if (layer?.text && layer.text.replace(/\s+/g, '').length > 40) return { text: layer.text };
+      // No text layer worth the name: it is a scan.
+      const text = await ocrPdfPages(blob);
+      return text.trim() ? { text } : { error: 'no_text' };
+    }
+    if (kind === 'doc') {
+      const res = path ? await extractDocText(path) : null;
+      const text = String(res?.text || '').trim();
+      return text ? { text } : { error: res?.error ? 'unsupported' : 'no_text' };
+    }
+    const res = await extractFileText(blob, name);
+    if (res?.text) return { text: res.text };
+    if (res?.error === 'empty') return { error: 'no_text' };
+    const sniffed = (await sniffText(blob)).trim();
+    return sniffed ? { text: sniffed.slice(0, 16000) } : { error: 'unsupported' };
+  } catch (e) {
+    const why = String(e?.message || '');
+    if (why === 'decode_failed') return { error: 'decode_failed' };
+    return { error: 'ocr_failed', detail: why };
+  }
+}
+
+// Fill ONE record from one or several files — the front and the back of a card,
+// a certificate and the act that goes with it. Every file is read, the texts go
+// to the model together, and the answer comes back in the same shape as
+// readIdentityFromImage: `{ fields, text, read, skipped }`.
+export async function readIdentityFromFiles(files, record, { jurisdiction, projectId, onProgress } = {}) {
+  const list = (files || []).filter((f) => f?.blob);
+  if (!list.length) return { fields: {}, error: 'no_image' };
+  const texts = [];
+  const skipped = [];
+  let lastError = null;
+  for (let i = 0; i < list.length; i += 1) {
+    const f = list[i];
+    onProgress?.({ index: i, total: list.length, name: f.name });
+    const res = await readSourceText(f.blob, f.name, { path: f.path });
+    if (res.text) texts.push({ name: f.name, text: res.text });
+    else { skipped.push({ name: f.name, error: res.error }); lastError = res; }
+  }
+  if (!texts.length) return { fields: {}, error: lastError?.error || 'no_text', detail: lastError?.detail, skipped };
+
+  const joined = texts.length === 1
+    ? texts[0].text
+    : texts.map((t) => `--- ${t.name} ---\n${t.text}`).join('\n\n');
+  const res = await askProjectAi({
+    messages: [{ role: 'user', content: autofillPrompt(record?.kind || 'person', joined.slice(0, 24000)) }],
+    jurisdiction,
+    usageProject: projectId,
+    usageAction: 'identity-autofill',
+  });
+  if (res?.error) return { fields: {}, error: 'ai_failed', detail: String(res.error?.message || res.error), skipped };
+  const parsed = parseAutofill(res?.text);
+  if (!parsed) return { fields: {}, error: 'unreadable', text: joined, skipped };
+  const fields = {};
+  for (const key of AUTOFILL_KEYS) {
+    const value = String(parsed[key] ?? '').trim();
+    if (value) fields[key] = value;
+  }
+  return { fields, text: joined, read: texts.map((t) => t.name), skipped };
+}
+
+// ── Files → identity records ────────────────────────────────────────────
+// The Files tab's "Create identity": scan the selected documents and write a
+// record for each party found in them. Several files about ONE party — the two
+// sides of a card, a card and a proof of address — come back as one record,
+// because the model is shown them together and told so; a contract yields a
+// record per party. Existing records are merged into, never overwritten.
+const SCAN_SPEC = `Respond with ONLY a JSON object — no prose, no markdown fences — in exactly this shape:
+{
+  "identities": [
+    {
+      "name": "Popescu Ion",
+      "kind": "person",
+      "role": "",
+      "legalName": "Popescu Ion-Marian",
+      "nationalId": "", "dateOfBirth": "", "placeOfBirth": "", "nationality": "", "gender": "",
+      "idType": "", "idSeries": "", "idNumber": "", "idIssuer": "", "idIssuedAt": "",
+      "taxId": "", "regNo": "", "legalForm": "", "representative": "", "repCapacity": "",
+      "iban": "", "bank": "",
+      "address": "", "city": "", "county": "", "country": "",
+      "email": "", "phone": "",
+      "notes": "",
+      "sources": ["carte-identitate.pdf"]
+    }
+  ]
+}
+
+Rules:
+- One entry per PARTY, not per file. Several files about the same person or company — the front and back of a card, a certificate and its annex — are ONE entry, with every filename in "sources".
+- An identity document (carte de identitate, passport, certificat de înregistrare) yields exactly the person or company it belongs to — not the authority that issued it.
+- A contract, a power of attorney or a letter yields each party it identifies. Skip courts, notaries, banks and authorities unless they are a party to the act.
+- "kind" is "person" for a natural person, "org" for a company or other legal entity.
+- "name" is the short everyday name and becomes the record's title; "legalName" is the full name exactly as printed.
+- Person-only fields (nationalId = CNP, dateOfBirth, placeOfBirth, nationality, gender, id*) stay "" for organisations; organisation-only fields (taxId = CUI, regNo, legalForm, representative, repCapacity) stay "" for people.
+- "SERIA RX NR 456789" is idSeries "RX" and idNumber "456789" — two keys, never one.
+- gender: "male" for M / masculin, "female" for F / feminin, "" if not stated.
+- address is the full line as printed, in one string, keeping its "str." / "nr." / "bl." markers; city is the locality, county the județ or sector.
+- Copy values VERBATIM. Leave a key as "" when the documents do not state it. Never guess a CNP, a number, an address or a date.
+- If no party can be identified, return {"identities": []}.`;
+
+// Returns `{ added, updated, names, read, skipped, error? }`.
+// `dir` is where NEW records are written — the folder the files were picked in.
+export async function createIdentitiesFromFiles(projectDir, files, { projectName, projectId, jurisdiction, onProgress, dir } = {}) {
+  const list = (files || []).filter((f) => f?.blob);
+  const out = { added: 0, updated: 0, names: [], read: [], skipped: [] };
+  if (!projectDir) return { ...out, error: 'no_folder' };
+  if (!list.length) return { ...out, error: 'no_files' };
+
+  const excerpts = [];
+  for (let i = 0; i < list.length; i += 1) {
+    const f = list[i];
+    onProgress?.({ stage: 'read', index: i, total: list.length, name: f.name });
+    const res = await readSourceText(f.blob, f.name, { path: f.path });
+    if (res.text) { excerpts.push({ name: f.name, text: res.text }); out.read.push(f.name); }
+    else out.skipped.push({ name: f.name, error: res.error, detail: res.detail });
+  }
+  if (!excerpts.length) return { ...out, error: 'nothing_read' };
+
+  onProgress?.({ stage: 'extract', total: list.length });
+  // A wider slice per file than the timeline uses: here the files ARE the
+  // subject, and an address on page two is the point rather than noise.
+  let budget = TOTAL_CHARS;
+  const blocks = [];
+  for (const f of excerpts) {
+    if (budget <= 0) break;
+    const text = f.text.slice(0, Math.min(8000, budget));
+    budget -= text.length;
+    blocks.push(`--- FILE: ${f.name} ---\n${text}`);
+  }
+  const prompt = [
+    'The files below were selected by a lawyer to create identity records from. Each was read by OCR or text extraction, so expect stray characters and broken lines.',
+    '',
+    'FILE CONTENTS:',
+    blocks.join('\n\n'),
+    '',
+    SCAN_SPEC,
+  ].join('\n');
+
+  let identities = [];
+  try {
+    const res = await askProjectAi({
+      messages: [{ role: 'user', content: prompt }],
+      projectName,
+      fileNames: excerpts.map((f) => f.name),
+      model: EXTRACT_MODEL,
+      tools: false,
+      jurisdiction,
+      usageProject: projectId,
+      usageAction: 'identity-scan',
+    });
+    if (res?.error) return { ...out, error: 'ai_failed', detail: String(res.error?.message || res.error) };
+    // Scanned in on purpose by the user, not inferred by the timeline.
+    identities = parseIdentities(res.text || '').map((r) => ({ ...r, origin: 'manual' }));
+  } catch (e) {
+    return { ...out, error: 'ai_failed', detail: String(e?.message || e) };
+  }
+  if (!identities.length) return { ...out, error: 'no_party' };
+
+  onProgress?.({ stage: 'save', total: identities.length });
+  const saved = await saveExtractedIdentities(projectDir, identities, { dir });
+  return { ...out, ...saved };
 }

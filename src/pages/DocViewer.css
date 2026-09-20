@@ -5336,14 +5336,79 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   font-size: 14.4px; line-height: 1.55; color: var(--text-muted);
   text-align: center;
 }
+/* The catalogue is taller than the window, so it starts at the top and the
+   root scrolls — a centred flex child that overflows loses its top edge, which
+   is exactly where the title and the search field are. */
+.dvt-root.is-catalog { align-items: flex-start; padding-top: 56px; }
+.dvt-root.is-catalog .dvt-inner { max-width: 1180px; }
+
+/* Search — the way into a catalogue this size, so it is the largest control on
+   the screen and takes focus as the screen opens. */
+.dvt-search {
+  position: relative; margin: 30px auto 0; max-width: 640px;
+  display: flex; align-items: center;
+}
+.dvt-search.is-busy { opacity: 0.5; pointer-events: none; }
+.dvt-search-glyph {
+  position: absolute; left: 16px; color: var(--text-muted); pointer-events: none;
+}
+.dvt-search-input {
+  flex: 1; min-width: 0; box-sizing: border-box;
+  padding: 13px 42px 13px 44px; border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--bg-input) 92%, transparent);
+  backdrop-filter: blur(18px);
+  color: var(--text-primary); font: inherit; font-size: 14.4px;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.dvt-search-input::placeholder { color: var(--text-muted); }
+.dvt-search-input:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-tint);
+}
+.dvt-search-clear {
+  position: absolute; right: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 50%;
+  border: none; background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.dvt-search-clear:hover { background: var(--accent-tint); color: var(--text-primary); }
+
+/* Category chips. Muted while a query is active: the search runs across every
+   category, so none of them is "on". */
+.dvt-chips {
+  margin-top: 18px;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 7px;
+  transition: opacity 140ms ease;
+}
+.dvt-chips.is-muted { opacity: 0.55; }
+.dvt-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary); font: inherit; font-size: 12.4px; font-weight: 550;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+.dvt-chip:hover:not(:disabled) { border-color: var(--accent); color: var(--text-primary); }
+.dvt-chip.is-on { border-color: var(--accent); background: var(--accent-tint); color: var(--accent); }
+.dvt-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+.dvt-chip-count { font-size: 10.8px; font-weight: 600; color: var(--text-muted); }
+.dvt-chip.is-on .dvt-chip-count { color: inherit; opacity: 0.75; }
+
+.dvt-count {
+  margin: 18px 0 0; text-align: center;
+  font-size: 12.4px; color: var(--text-muted);
+}
+
 .dvt-grid {
-  margin-top: 36px;
-  display: grid; gap: 14px;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin-top: 22px;
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
 }
 .dvt-card {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
-  padding: 20px; border-radius: 14px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+  min-width: 0; padding: 16px; border-radius: 14px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-card) 92%, transparent);
   backdrop-filter: blur(18px);
@@ -5351,39 +5416,50 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   cursor: pointer;
   transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
 }
-.dvt-card:hover:not(:disabled):not(.dvt-card-other) {
+.dvt-card:hover:not(:disabled) {
   border-color: var(--accent);
   background: var(--accent-soft);
   transform: translateY(-2px);
 }
 .dvt-card:disabled { opacity: 0.5; cursor: not-allowed; }
+.dvt-card-head {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; margin-bottom: 6px;
+}
 .dvt-card-ico {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 40px; height: 40px; margin-bottom: 6px;
-  border-radius: 11px;
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  border-radius: 9px;
   background: var(--accent-tint); color: var(--accent);
 }
-.dvt-card-label { font-size: 16px; font-weight: 650; }
-.dvt-card-blurb { font-size: 12.8px; line-height: 1.5; color: var(--text-muted); }
-
-/* The "something else" card holds an input, so it never lifts on hover the way
-   a clickable card does — the thing you press is inside it. */
-.dvt-card-other { cursor: default; }
-.dvt-card-other.is-busy { opacity: 0.5; pointer-events: none; }
-.dvt-other-row { margin-top: 12px; display: flex; gap: 6px; width: 100%; }
-.dvt-other-input {
-  flex: 1; min-width: 0; box-sizing: border-box;
-  padding: 8px 11px; border-radius: 9px;
-  border: 1px solid var(--border); background: var(--bg-input);
-  color: var(--text-primary); font: inherit; font-size: 13px;
+.dvt-card-cat {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--text-muted);
 }
-.dvt-other-input::placeholder { color: var(--text-muted); }
-.dvt-other-input:focus { outline: none; border-color: var(--accent); }
-.dvt-other-go {
-  flex: none; display: inline-flex; align-items: center; justify-content: center;
-  width: 34px; border-radius: 9px;
+.dvt-card-label { font-size: 14.4px; font-weight: 650; line-height: 1.3; }
+.dvt-card-blurb { font-size: 12.2px; line-height: 1.5; color: var(--text-muted); }
+.dvt-card-meta {
+  margin-top: auto; padding-top: 8px;
+  font-size: 10.8px; color: var(--text-muted); opacity: 0.8;
+}
+
+/* "Something else" — dashed, so it reads as the open-ended choice among the
+   fixed ones. Inert until there is something typed to write from. */
+.dvt-card-other { border-style: dashed; }
+.dvt-card-other:disabled { opacity: 0.6; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dvt-card:hover:not(:disabled) { transform: none; }
+}
+
+/* The blank-PDF screen has one thing to do, so it gets one button rather than
+   a grid of cards: reopen the picker it arrived with. */
+.dvt-actions { margin-top: 32px; display: flex; justify-content: center; }
+.dvt-action {
+  padding: 11px 20px; border-radius: 999px;
   border: 1px solid var(--accent); background: var(--accent); color: var(--text-on-accent);
+  font: inherit; font-size: 13.6px; font-weight: 600;
   cursor: pointer; transition: background 120ms ease;
 }
-.dvt-other-go:hover:not(:disabled) { background: var(--accent-hover); }
-.dvt-other-go:disabled { opacity: 0.4; cursor: not-allowed; }
+.dvt-action:hover { background: var(--accent-hover); }

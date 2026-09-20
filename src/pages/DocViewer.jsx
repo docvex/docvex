@@ -24,7 +24,7 @@ import { askProjectAi, AI_MODELS, DEFAULT_AI_MODEL, coerceModel, makeAskAnswers 
 import { useAppPrefs } from '../context/AppPrefsContext';
 import AskUserPanel from '../components/AskUserPanel';
 import TokenUsagePill from '../components/TokenUsagePill';
-import { docKindFromName, buildDocumentBlobSmart, mimeForKind, inferDocKind, withKindExtension, labelForKind } from '../lib/documentGen';
+import { docKindFromName, buildDocumentBlob, buildDocumentBlobSmart, mimeForKind, inferDocKind, withKindExtension, labelForKind } from '../lib/documentGen';
 import { renderedOfficeToPdfBlob } from '../lib/exportPdf';
 import { loadConversation, saveConversation, clearConversation } from '../lib/conversationHistory';
 import { withStyleSteer } from '../lib/writingStyle';
@@ -33,14 +33,16 @@ import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useAuth } from '../context/AuthContext';
 import { readProjectsDir } from '../lib/projectsDir';
 import { extractFileText } from '../lib/extractFileText';
-import { readIdentityFromImage } from '../lib/identityExtract';
+import { readIdentityFromFiles, canScanForIdentity, identitySourceKind } from '../lib/identityExtract';
 import { ItemThumbnail, FolderOrBinGlyph, Icon as FxIcon } from '../components/FilesWorkspace';
 import { describeLocalFile } from '../lib/thumbnailDescriptor';
 import { useChatFind } from '../lib/useChatFind';
-import { DOC_TEMPLATES, templatePrompt, customPrompt } from '../lib/docTemplates';
+import { TEMPLATE_CATEGORIES, searchTemplates, templatePrompt, customPrompt } from '../lib/docTemplates';
+import DocConstructor from '../components/DocConstructor';
+import { FIELD_RE as CONSTRUCTOR_FIELD_RE } from '../lib/docConstructor';
 import {
   IDENTITY_KINDS, IDENTITY_ROLES, IDENTITY_ORIGINS, IDENTITY_ID_TYPES, IDENTITY_LEGAL_FORMS,
-  fieldsFor, parseIdentity, saveIdentityAt, isIdentityFile,
+  fieldsFor, parseIdentity, saveIdentityAt, isIdentityFile, emptyIdentity, writeIdentity,
   identityMrz, identityInitials, identityNameParts, looksLikeIdentityJson, isInIdentityFolder,
   listProjectIdentities, resolveIdentityFields, identityValueForField, classifyCounty,
   APARTMENT_ONLY_FIELDS, addressIsApartment, applyGenderToText, IDENTITY_GENDERS,
@@ -3717,6 +3719,73 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
     return { ok: true, version: n, applied, missed };
   }, [versions, activeVersion, file?.name, writeDoc]);
 
+  // Commit the Constructor's draft as a new version.
+  //
+  // The Constructor works on the document's SOURCE, so unlike a paragraph edit
+  // there is nothing to locate and patch — it hands over the whole composed
+  // text. Two copies are kept on the version: `text` (blanks filled — what the
+  // file is built from, and what the advisor is shown as the current document)
+  // and `template` (blanks kept), which is what lets the Constructor reopen with
+  // its chips and party assignments intact instead of finding plain prose.
+  //
+  // Works with no prior version too — a Word file that wasn't written here gets
+  // its first one this way.
+  const saveConstructorVersion = useCallback(async ({ text, template, values, assigned }) => {
+    if (!String(text || '').trim()) return { error: 'empty' };
+    const active = versions.find((v) => v.n === activeVersion)
+      || (versions.length ? versions[versions.length - 1] : null);
+    const kind = active?.kind || docKindFromName(file?.name || '') || 'docx';
+    setSwitching(true);
+    try {
+      await writeDoc(text, kind);
+    } catch {
+      return { error: 'write_failed' };
+    } finally {
+      setSwitching(false);
+    }
+    const n = versionCountRef.current + 1;
+    versionCountRef.current = n;
+    const label = 'Your changes in the Constructor';
+    setVersions((v) => [...v, { n, text, template, values, assigned, instructions: label, kind, manual: true }]);
+    setActiveVersion(n);
+    setMessages((m) => [...m, { role: 'artifact', version: n, instructions: label, at: Date.now(), manual: true }]);
+    return { ok: true, version: n };
+  }, [versions, activeVersion, file?.name, writeDoc]);
+
+  // Reword ONE piece of the document on instruction. A single stateless call —
+  // it deliberately rides outside the thread: the result lands in the
+  // Constructor's draft, not in a new version, so there is nothing for the
+  // conversation to record until the draft is saved.
+  const rewritePiece = useCallback(async (pieceText, instruction) => {
+    const prompt = [
+      'You are editing ONE paragraph of a legal document. Rewrite it according to the instruction.',
+      '',
+      'Rules:',
+      '- Keep the language the paragraph is written in.',
+      '- Keep every [[double-bracket placeholder]] exactly as written unless the instruction says to remove it. Never invent the facts they stand for.',
+      '- Reply with the rewritten paragraph ONLY — no quotes, no commentary, no markdown fences.',
+      '',
+      `INSTRUCTION: ${instruction}`,
+      '',
+      'PARAGRAPH:',
+      pieceText,
+    ].join('\n');
+    const res = await askProjectAi({
+      messages: [{ role: 'user', content: prompt }],
+      model,
+      tools: false,
+      usageProject: selectedProject?.id,
+      usageAction: 'constructor-rewrite',
+    });
+    if (res.error) return null;
+    addUsage(res.usage);
+    const out = String(res.text || '')
+      .replace(/^\s*```[a-z]*\s*|\s*```\s*$/gi, '')
+      .replace(/^\s*[“"]([\s\S]*)[”"]\s*$/, '$1')
+      .trim();
+    return out || null;
+  }, [model, selectedProject?.id, addUsage]);
+
   // One assistant turn. In generate-mode the model drives the file through the
   // `write_document` tool: every create/change request saves a NEW version, and
   // the user can iterate without limit. We pin tool_choice to write_document when
@@ -3774,29 +3843,26 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
     }
   }, [selectedProject?.id, selectedProject?.name, session?.user?.id]);
 
+  // The advisor reads ONE other file only when the user asks for it by its
+  // exact filename ("use the address from extras-cf.pdf"). Nothing else in the
+  // project reaches the model — no inventory of the Files tab, and no loose
+  // matching of filenames against the prompt.
+  //
+  // It used to send the whole file list on every turn and attach any file whose
+  // bare name appeared in the message. A file called "contract.pdf" therefore
+  // rode along with every "Contract de …" template, and the drafter — handed
+  // real names, CNPs and addresses — wrote them into the parties instead of
+  // leaving blanks. Party data now comes from exactly one place: the identity
+  // record the user picks, which is itself made from the documents THEY select.
   const buildProjectFilesNote = useCallback(async (userText) => {
-    const { files } = await listProjectFiles();
-    const others = files.filter((f) => f.name !== file?.name);
-    if (!others.length) return '';
-    const shown = others.slice(0, PROJECT_FILE_LIST_MAX);
-    const inventory = shown
-      .map((f) => (f.folder ? `${f.folder}/${f.name}` : f.name))
-      .join('\n');
-    const parts = [
-      `[Project files — the other files in this project's Files tab (${others.length} in total`
-      + `${others.length > shown.length ? `, ${shown.length} listed` : ''}):\n${inventory}\n\n`
-      + 'You can read any of these: name the one you need and its text will be included with the next message. '
-      + 'Never invent what a file you have not been shown contains.]',
-    ];
-    // Which of them did the user actually name? Match the whole filename, or the
-    // bare stem when it is long enough that a chance word will not match it.
     const hay = String(userText || '').toLowerCase();
-    const named = others.filter((f) => {
-      const n = f.name.toLowerCase();
-      if (hay.includes(n)) return true;
-      const stem = n.replace(/\.[^.]+$/, '');
-      return stem.length >= 4 && hay.includes(stem);
-    }).slice(0, PROJECT_FILE_READ_MAX);
+    // Cheap exit: a filename has an extension, so no dot-word means no file.
+    if (!/\.[a-z0-9]{2,5}\b/.test(hay)) return '';
+    const { files } = await listProjectFiles();
+    const named = files
+      .filter((f) => f.name !== file?.name && f.name.includes('.') && hay.includes(f.name.toLowerCase()))
+      .slice(0, PROJECT_FILE_READ_MAX);
+    const parts = [];
     for (const f of named) {
       try {
         const blob = await readLocalBlob(f.path);
@@ -3805,8 +3871,8 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
         const text = (res?.text || '').trim();
         if (!text) continue;
         const cut = text.length > REF_FILE_CHARS;
-        parts.push(`[Contents of "${f.name}"${cut ? ' (truncated)' : ''}:\n${text.slice(0, REF_FILE_CHARS)}\n]`);
-      } catch { /* unreadable (an image, a locked file) — the inventory still names it */ }
+        parts.push(`[Contents of "${f.name}", which I asked you to use${cut ? ' (truncated)' : ''}:\n${text.slice(0, REF_FILE_CHARS)}\n]`);
+      } catch { /* unreadable (an image, a locked file) */ }
     }
     return parts.join('\n\n');
   }, [file?.name, listProjectFiles]);
@@ -3814,9 +3880,9 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
   const runTurn = useCallback(async (convo, lastUserText) => {
     const seq = ++turnSeqRef.current;
     const stopped = () => turnSeqRef.current !== seq;
-    // What the Files tab holds, plus the full text of anything the user named.
-    // Attached to the OUTGOING copy of the last user message only — see
-    // buildProjectFilesNote for why it must not touch the stored thread.
+    // The text of a file the user named outright, if any — nothing else from
+    // the project. Attached to the OUTGOING copy of the last user message only,
+    // so it is never stored in the thread.
     const filesNote = await buildProjectFilesNote(lastUserText);
     const withFiles = (msgs) => (filesNote
       ? msgs.map((m, i) => (
@@ -4170,61 +4236,6 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
   const clearPick = useCallback(() => fieldsApiRef.current?.clearPick?.(), []);
   const getDocumentText = useCallback(() => fieldsApiRef.current?.documentText?.() || '', []);
 
-  // Text of the project's OTHER files. Reading a folder of PDFs is slow, so it
-  // happens once and is then reused for the life of the window — re-extracted
-  // only when the folder's contents actually change. The folder LISTING is
-  // cheap and always re-read; its signature (name + size + modified time of
-  // each candidate) is what decides whether the expensive part runs again.
-  const refFilesRef = useRef({ sig: null, files: [] });
-  const refFilesRunRef = useRef(null);
-  const loadReferenceFiles = useCallback(async () => {
-    // Single-flight: the background warm-up and a user opening the panel can
-    // both ask at once, and neither should start a second folder walk.
-    if (refFilesRunRef.current) return refFilesRunRef.current;
-    const run = (async () => {
-      const cached = refFilesRef.current;
-      try {
-        const projectId = selectedProject?.id;
-        if (!projectId) return { sig: '', files: [] };
-        const baseDir = readProjectsDir(session?.user?.id || '_anonymous') || undefined;
-        const { path } = await localFolderApi.projectDir(projectId, selectedProject?.name, baseDir);
-        const { files: list } = await localFolderApi.listAll(path || undefined);
-        // Newest first (listAll already sorts that way), skipping the document
-        // being completed and anything hidden.
-        const candidates = (list || [])
-          .filter((f) => f?.name && f.name !== file?.name && !f.name.startsWith('.'))
-          .slice(0, REF_FILE_LIMIT);
-        const sig = candidates
-          .map((f) => `${f.folderPath || ''}/${f.name}:${f.sizeBytes ?? ''}:${f.mtimeIso || ''}`)
-          .join('|');
-        if (sig === cached.sig) return cached;   // folder untouched — reuse the text
-        const out = [];
-        for (const f of candidates) {
-          try {
-            const blob = await readLocalBlob(f.path || f.name);
-            if (!blob) continue;
-            const res = await extractFileText(blob, f.name);
-            const text = (res?.text || '').trim();
-            if (text) out.push({ name: f.name, text: text.slice(0, REF_FILE_CHARS) });
-          } catch { /* unreadable file — the others still count */ }
-        }
-        return { sig, files: out };
-      } catch {
-        // No folder connected, or it went away: keep whatever we already had
-        // rather than losing a good extraction to a transient failure.
-        return cached.sig != null ? cached : { sig: '', files: [] };
-      }
-    })();
-    refFilesRunRef.current = run;
-    try {
-      const res = await run;
-      refFilesRef.current = res;
-      return res;
-    } finally {
-      if (refFilesRunRef.current === run) refFilesRunRef.current = null;
-    }
-  }, [file?.name, selectedProject?.id, selectedProject?.name, session?.user?.id]);
-
   // Suggested values, held here rather than in the panel so they survive the
   // panel being closed and reopened. `key` is the document plus the folder it
   // was answered against: same key means the cached answers still stand.
@@ -4244,7 +4255,10 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
   const ensureFieldSuggestions = useCallback(async (list, documentText, sig, { force = false } = {}) => {
     const wanted = (list || []).filter((f) => f?.id);
     if (!wanted.length) return null;
-    const refs = await loadReferenceFiles();
+    // No reference files: suggestions may come from the document and the
+    // conversation only. Reading every other file in the project to answer a
+    // blank is what put one client's details into another's contract.
+    const refs = { sig: '', files: [] };
     const key = `${sig || ''}|${refs.sig || ''}`;
     if (!force) {
       const inflight = suggestRunRef.current;
@@ -4314,11 +4328,11 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
     } finally {
       if (suggestRunRef.current.promise === run) suggestRunRef.current = { key: null, promise: null };
     }
-  }, [addUsage, loadReferenceFiles, model, selectedProject?.id]);
+  }, [addUsage, model, selectedProject?.id]);
 
   const value = useMemo(
-    () => ({ messages, input, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, selection, addSelection, clearSelection, applyManualEdit, completing, setCompleting, paraPicked, setParaPicked, paraText, setParaText, paraKey, setParaKey, paraScope, threadScope, switchScope, paraSlot, setParaSlot, hoverField, setHoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions }),
-    [messages, input, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, selection, addSelection, clearSelection, applyManualEdit, completing, setCompleting, paraPicked, paraText, paraKey, paraScope, threadScope, switchScope, paraSlot, hoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions],
+    () => ({ messages, input, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, paraPicked, setParaPicked, paraText, setParaText, paraKey, setParaKey, paraScope, threadScope, switchScope, paraSlot, setParaSlot, hoverField, setHoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions }),
+    [messages, input, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, paraPicked, paraText, paraKey, paraScope, threadScope, switchScope, paraSlot, hoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions],
   );
   return <MultitoolAdvisorContext.Provider value={value}>{children}</MultitoolAdvisorContext.Provider>;
 }
@@ -8000,17 +8014,9 @@ function DocumentWithPanel({ file, url, kind, mainClass = '', sidePanelSlot = nu
 // ellipsis in ordinary prose and "[3]" is a footnote marker, so neither is
 // treated as a field. A miss is harmless; a false positive would offer to
 // rewrite real text.
-// How much of the project folder a suggestion run is allowed to read. Extracting
-// text from PDFs and Word files is slow, so this is a budget, not a limit on
-// what the user may keep in the folder: the newest files are the ones a draft is
-// usually being completed from.
-const REF_FILE_LIMIT = 8;
+// How much of a file the advisor reads when the user names it outright, and how
+// many such files per turn. Nothing else in the project is ever read.
 const REF_FILE_CHARS = 5000;
-
-// How much of the Files tab the ADVISOR carries per turn. The inventory is just
-// names, so it is nearly free and can be generous; reading a file costs a text
-// extraction, so only the ones the user actually named get read, and only a few.
-const PROJECT_FILE_LIST_MAX = 80;
 const PROJECT_FILE_READ_MAX = 3;
 // The folder listing is re-read at most this often — a chat turn takes longer
 // than this anyway, so it only collapses the bursts (send, retry, ask_user
@@ -8452,15 +8458,18 @@ function OpenNativeButton({ onOpen, kind }) {
   );
 }
 
-function ExportPdfButton({ getRoot, kind, onExport, label = 'Convert to PDF' }) {
+// `makeBlob` replaces the default capture of the rendered pages — the
+// Constructor has no rendered pages to capture, so it builds the PDF from the
+// document's source instead.
+function ExportPdfButton({ getRoot, kind, onExport, makeBlob = null, label = 'Convert to PDF' }) {
   const [state, setState] = useState('idle'); // idle | working | done | error
   const run = async () => {
     if (state === 'working') return;
-    const root = getRoot?.();
-    if (!root) { setState('error'); window.setTimeout(() => setState('idle'), 2200); return; }
+    const root = makeBlob ? null : getRoot?.();
+    if (!makeBlob && !root) { setState('error'); window.setTimeout(() => setState('idle'), 2200); return; }
     setState('working');
     try {
-      const blob = await renderedOfficeToPdfBlob(root, kind);
+      const blob = makeBlob ? await makeBlob() : await renderedOfficeToPdfBlob(root, kind);
       await onExport?.(blob);
       setState('done');
       window.setTimeout(() => setState((s) => (s === 'done' ? 'idle' : s)), 2200);
@@ -8828,8 +8837,6 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
   // the ordinary edit tracking and saves as a new version like any other edit.
   const publishFields = adv?.publishFields;
   const registerFieldsApi = adv?.registerFieldsApi;
-  const ensureFieldSuggestions = adv?.ensureFieldSuggestions;
-  const setCompleting = adv?.setCompleting;
 
   // Fingerprint of the document AS RENDERED, computed once per render and
   // reused. It must not follow the text as blanks get filled in — otherwise
@@ -8942,10 +8949,12 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
       const found = scanDocFields(host);
       allFieldsRef.current = found;
       publishFields([], sig, found);
-      if (found.length) ensureFieldSuggestions?.(found, (host.innerText || '').trim(), sig);
+      // No suggestion warm-up: the blanks side panel that showed them is gone
+      // (blanks are filled in the Constructor now), and that was an AI call
+      // paid for on every render of a document with a blank in it.
     }, 0);
     return () => { cancelled = true; window.clearTimeout(id); };
-  }, [renderTick, publishFields, ensureFieldSuggestions, documentSignature]);
+  }, [renderTick, publishFields, documentSignature]);
 
   // The markup belongs to one rendered document: drop it when a new version
   // replaces it, and when the pane goes away.
@@ -8954,10 +8963,9 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
     return () => { if (host) clearDocFields(host); };
   }, [renderTick]);
 
-  // What the side panel lists: the blanks in the paragraphs you have picked,
-  // never the whole document. Picking a paragraph with no blanks in it leaves
-  // the panel closed — a click on ordinary prose should not throw the layout
-  // around.
+  // The blanks in the paragraphs you have picked, published for the advisor.
+  // This used to open the autofill panel on the right as well; that panel was
+  // removed, so picking a paragraph no longer moves the layout.
   useEffect(() => {
     if (!publishFields) return;
     const picked = new Set(paras.map((pp) => pp.index));
@@ -8965,8 +8973,7 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
       ? allFieldsRef.current.filter((f) => f.paraIndex != null && picked.has(f.paraIndex))
       : [];
     publishFields(list, documentSignature());
-    setCompleting?.(list.length > 0);
-  }, [paras, publishFields, setCompleting, documentSignature]);
+  }, [paras, publishFields, documentSignature]);
 
   // The panel drives the document through this — it has no access to the DOM
   // docx-preview renders.
@@ -9412,6 +9419,302 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
   );
 }
 
+// ── A Word document's two views ──────────────────────────────────────────
+// CONSTRUCTOR shows what the document is made of — sections, pieces, blanks,
+// parties (components/DocConstructor). WORD PREVIEW shows the file itself,
+// rendered from disk. The switch between them sits top-right of the document.
+//
+// The Constructor reads the active version's SOURCE (its `template` when it has
+// one, so filled blanks stay chips) and edits a draft held HERE — not in the
+// Constructor — so flipping to the preview and back loses nothing, and so the
+// preview pane can be unmounted rather than hidden (a hidden docx host has no
+// width to fit its pages to, and its text would still answer the find bar).
+//
+// Going to the preview with unsaved Constructor changes saves them first: the
+// preview renders the FILE, so without that it would show a stale document and
+// the two views would disagree. A file that wasn't written in DocVex is the
+// exception — saving rebuilds it from text, which costs it formatting, so that
+// only ever happens on an explicit "Save to document".
+function DocxWorkspace({ file, url, regenTick = 0, startInBuilder = false, onExportPdf, onOpenNative }) {
+  const adv = useMultitoolAdvisor();
+  const versions = adv?.versions || [];
+  const active = versions.find((v) => v.n === adv?.activeVersion)
+    || (versions.length ? versions[versions.length - 1] : null);
+  const foreign = !active;
+
+  // A document with a DocVex source — or one about to get one — opens on the
+  // Constructor. Read from storage so the answer is there on the first render;
+  // the provider's own copy arrives an effect later, by which time the preview
+  // would already have started rendering a document nobody asked to see.
+  const [view, setView] = useState(() => (
+    startInBuilder || (loadConversation(file.path)?.versions || []).length ? 'builder' : 'word'
+  ));
+  const choseViewRef = useRef(false);
+  const hasVersions = versions.length > 0;
+  useEffect(() => {
+    if (hasVersions && !choseViewRef.current) setView('builder');
+  }, [hasVersions]);
+
+  // A foreign file has no source, so its text stands in for one.
+  const [foreignText, setForeignText] = useState(null);
+  useEffect(() => {
+    if (!foreign || view !== 'builder') return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const blob = await readLocalBlob(file.path);
+        const res = blob ? await extractFileText(blob, file.name) : null;
+        if (!cancelled) setForeignText(res?.text || '');
+      } catch {
+        if (!cancelled) setForeignText('');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [foreign, view, file.path, file.name, regenTick]);
+
+  const source = active ? (active.template ?? active.text ?? '') : (foreignText || '');
+  const sourceKey = active ? `v${active.n}` : 'foreign';
+
+  // A new source starts a new draft. Values already typed are carried across
+  // when the blank they answer still exists — a revision from the advisor
+  // shouldn't cost the user the party they had just filled in.
+  const [draft, setDraft] = useState(null);
+  useEffect(() => {
+    setDraft((d) => {
+      const ids = new Set();
+      String(source).replace(CONSTRUCTOR_FIELD_RE, (all, raw) => { ids.add(raw.trim()); return all; });
+      const pool = { ...(d?.values || {}), ...(active?.values || {}) };
+      const values = {};
+      for (const [k, v] of Object.entries(pool)) if (ids.has(k)) values[k] = v;
+      return { edits: {}, values, assigned: active?.assigned || d?.assigned || {}, open: null, plain: {} };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceKey, source]);
+
+  const [records, setRecords] = useState([]);
+  const loadIdentities = adv?.loadIdentities;
+  useEffect(() => {
+    let cancelled = false;
+    loadIdentities?.().then((list) => { if (!cancelled) setRecords(list || []); });
+    return () => { cancelled = true; };
+  }, [loadIdentities]);
+
+  // The Constructor's two doors into the identity feature. A record opens where
+  // every record opens — its own Doc Viewer window, as the form it is — and a
+  // party typed in by hand can be saved as a new record in the project's
+  // Identities folder, which is where the Files tab and the Timeline keep them.
+  const { selectedProject } = useSelectedProject();
+  const { session } = useAuth();
+  const openIdentity = useCallback((rec) => {
+    if (!rec?._path) return;
+    openDocViewerWindow({ path: rec._path, name: rec._fileName || `${rec.name || 'Identity'}.dvx`, mime: 'application/json' });
+  }, []);
+  const createIdentity = useCallback(async (fromValues) => {
+    try {
+      const projectId = selectedProject?.id;
+      if (!projectId || !fromValues) return null;
+      const baseDir = readProjectsDir(session?.user?.id || '_anonymous') || undefined;
+      const { path } = await localFolderApi.projectDir(projectId, selectedProject?.name, baseDir);
+      const res = await writeIdentity(path, { ...emptyIdentity(fromValues.kind), ...fromValues });
+      if (res?.error) return null;
+      notifyFilesChanged();
+      const rec = { ...res.identity, _path: res.path, _fileName: res.filename };
+      setRecords((list) => [...list.filter((r) => r._path !== rec._path), rec]);
+      return rec;
+    } catch (err) {
+      console.error('[doc-viewer] could not save the party as an identity', err);
+      return null;
+    }
+  }, [selectedProject?.id, selectedProject?.name, session?.user?.id]);
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const apiRef = useRef(null);   // { compose(), isDirty() } — set by the Constructor
+  const saveVersion = adv?.saveConstructorVersion;
+  const save = useCallback(async (payload) => {
+    if (!saveVersion) return false;
+    setSaving(true); setSaveError(null);
+    const res = await saveVersion(payload);
+    setSaving(false);
+    if (res?.error) {
+      setSaveError(res.error === 'empty'
+        ? 'There is nothing to save yet.'
+        : 'Couldn’t write the document — it may be open in Word. Close it there and try again.');
+      return false;
+    }
+    return true;
+  }, [saveVersion]);
+
+  const switchTo = async (next) => {
+    if (next === view || saving) return;
+    choseViewRef.current = true;
+    if (next === 'word' && !foreign && apiRef.current?.isDirty?.()) {
+      const ok = await save(apiRef.current.compose());
+      if (!ok) return;
+    }
+    setView(next);
+  };
+
+  const docLabel = String(file.name || '').replace(/\.[^./\\]+$/, '');
+
+  return (
+    <div className="dcx-workspace">
+      <div className="dcx-viewtoggle" role="radiogroup" aria-label="Document view">
+        <button type="button" role="radio" aria-checked={view === 'builder'} className={view === 'builder' ? 'is-on' : ''} disabled={saving} onClick={() => switchTo('builder')}>
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" />
+          </svg>
+          Constructor
+        </button>
+        <button type="button" role="radio" aria-checked={view === 'word'} className={view === 'word' ? 'is-on' : ''} disabled={saving} onClick={() => switchTo('word')}>
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" />
+          </svg>
+          {saving ? 'Saving…' : 'Word preview'}
+        </button>
+      </div>
+
+      {view === 'builder' ? (
+        <>
+          <DocConstructor
+            source={source}
+            fileName={file.name}
+            docLabel={docLabel}
+            draft={draft}
+            setDraft={setDraft}
+            baseValues={active?.values || null}
+            records={records}
+            busy={!!adv?.busy || (foreign && foreignText === null)}
+            saving={saving}
+            saveError={saveError}
+            foreign={foreign && !adv?.busy}
+            apiRef={apiRef}
+            onAskAi={adv?.rewritePiece}
+            onSave={save}
+            onOpenIdentity={openIdentity}
+            onCreateIdentity={createIdentity}
+          />
+          <div className="dcx-foot">
+            <OpenNativeButton onOpen={onOpenNative} kind="docx" />
+            {onExportPdf && (
+              <ExportPdfButton
+                kind="docx"
+                onExport={onExportPdf}
+                makeBlob={async () => buildDocumentBlob('pdf', apiRef.current?.compose?.().text || source)}
+              />
+            )}
+          </div>
+        </>
+      ) : (
+        <DocxRenderPane key={`pv-${regenTick}`} url={url} onExportPdf={onExportPdf} onOpenNative={onOpenNative} />
+      )}
+    </div>
+  );
+}
+
+// ── A new PDF: made FROM something ───────────────────────────────────────
+// Turn one file into a PDF Blob, by the most faithful route there is for it.
+// A Word document is rendered exactly as the preview renders it — docx-preview,
+// then our own pagination — in a host parked off-screen, and captured one page
+// per page. A picture becomes a single page its own size. Plain text is set as
+// a document by the local PDF builder.
+async function convertFileToPdfBlob(blob, name) {
+  const ext = extOfName(name);
+  if (ext === 'docx') {
+    const { renderAsync } = await import('docx-preview');
+    // Off-screen rather than hidden: a display:none host has no layout, and the
+    // pagination below is nothing but layout measurements.
+    const park = document.createElement('div');
+    park.setAttribute('aria-hidden', 'true');
+    park.style.cssText = 'position:fixed;left:-20000px;top:0;width:1000px;pointer-events:none;';
+    const host = document.createElement('div');
+    host.className = 'dv-docx';
+    park.appendChild(host);
+    document.body.appendChild(park);
+    try {
+      await renderAsync(blob, host, undefined, {
+        className: 'docx', inWrapper: true, breakPages: false,
+        ignoreLastRenderedPageBreak: true, experimental: true, useBase64URL: true,
+        renderHeaders: false, renderFooters: false,
+      });
+      try { await document.fonts.ready; } catch { /* ignore */ }
+      try { paginateDocx(host); } catch { /* a continuous flow still converts */ }
+      return await renderedOfficeToPdfBlob(host, 'docx');
+    } finally {
+      park.remove();
+    }
+  }
+  if (PDF_IMAGE_EXTS.has(ext) || String(blob.type || '').startsWith('image/')) {
+    const bmp = await createImageBitmap(blob);
+    const canvas = document.createElement('canvas');
+    canvas.width = bmp.width; canvas.height = bmp.height;
+    const ctx = canvas.getContext('2d');
+    // JPEG has no alpha — without a ground a transparent PNG comes out black.
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bmp, 0, 0);
+    bmp.close?.();
+    const mod = await import('jspdf');
+    const JsPDF = mod.jsPDF || mod.default || mod;
+    const w = canvas.width;
+    const h = canvas.height;
+    const doc = new JsPDF({ orientation: w >= h ? 'landscape' : 'portrait', unit: 'px', format: [w, h], compress: true });
+    doc.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, w, h);
+    return doc.output('blob');
+  }
+  if (PDF_TEXT_EXTS.has(ext) || String(blob.type || '').startsWith('text/')) {
+    const text = (await blob.text()).trim();
+    if (!text) throw new Error('empty');
+    return buildDocumentBlob('pdf', text);
+  }
+  throw new Error('unsupported');
+}
+
+// What a blank .pdf opens on. A PDF isn't written, it's made from something —
+// so instead of "what do you want to make?" the question is "from what?", asked
+// with the same project-files picker an identity is filled from. The converted
+// bytes replace this (empty) file, which keeps the name the user just gave it.
+function PdfSourceChooser({ file, onConverted }) {
+  const [open, setOpen] = useState(true);
+  const convert = useCallback(async (src, blob) => {
+    try {
+      const pdf = await convertFileToPdfBlob(blob, src.name);
+      const { dir } = dirAndSep(file.path);
+      const wr = await localFolderApi.writeFiles({ dir, files: [{ filename: file.name, blob: pdf }] });
+      if (wr?.error || !wr?.results?.[0]?.ok) return { error: 'Couldn’t write the PDF — it may be open somewhere else.' };
+      notifyFilesChanged();
+      setOpen(false);
+      onConverted?.(src.name);
+      return { ok: true };
+    } catch (err) {
+      console.error('[doc-viewer] could not convert to PDF', err);
+      return {
+        error: err?.message === 'empty'
+          ? 'That file is empty — there is nothing to convert.'
+          : 'Couldn’t convert that file.',
+      };
+    }
+  }, [file.path, file.name, onConverted]);
+
+  return (
+    <div className="dvt-root">
+      <div className="dvt-inner">
+        <h1 className="dvt-title">What should this PDF be made from?</h1>
+        <p className="dvt-sub">
+          Choose a Word document, a picture or a text file from the project and
+          it is converted into “{file.name}”.
+        </p>
+        <div className="dvt-actions">
+          <button type="button" className="dvt-action" onClick={() => setOpen(true)}>
+            Choose a document
+          </button>
+        </div>
+      </div>
+      <IdentityAutofillModal open={open} onClose={() => setOpen(false)} mode="pdf" onConvert={convert} />
+    </div>
+  );
+}
+
 // Above this, a document is assumed to have content: extracting text from it
 // just to find out would cost more than the answer is worth, and a file this
 // size is not one that was created empty a moment ago.
@@ -9430,8 +9733,10 @@ const BLANK_PROBE_MAX_BYTES = 256 * 1024;
 // description typed instead of picked.
 function DocTemplateChooser({ onChosen }) {
   const adv = useMultitoolAdvisor();
-  const [custom, setCustom] = useState('');
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('top');
   const [busy, setBusy] = useState(false);
+  const searchRef = useRef(null);
 
   // `shown` is what goes in the thread, `prompt` is what the model reads.
   const start = useCallback((shown, prompt) => {
@@ -9444,8 +9749,32 @@ function DocTemplateChooser({ onChosen }) {
     adv?.send?.(shown, undefined, { apiText: prompt });
   }, [adv, busy, onChosen]);
 
+  // Typing searches the WHOLE catalogue: someone who types "apel" wants the
+  // appeal, not to be told it isn't among the most-used ones. The chip only
+  // scopes browsing, so it steps aside while there is a query and comes back
+  // when the field is cleared.
+  const q = query.trim();
+  const results = useMemo(() => searchTemplates(q, q ? 'all' : category), [q, category]);
+  const categoryLabel = useMemo(
+    () => Object.fromEntries(TEMPLATE_CATEGORIES.map((c) => [c.id, c.label])),
+    [],
+  );
+  const describe = () => { if (q) start(q, customPrompt(q)); };
+
+  // ⌘/Ctrl+F lands in the search field, as it does everywhere else in the app.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        searchRef.current?.focus(); searchRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
-    <div className="dvt-root">
+    <div className="dvt-root is-catalog">
       <div className="dvt-inner">
         <h1 className="dvt-title">What do you want to make?</h1>
         <p className="dvt-sub">
@@ -9453,60 +9782,122 @@ function DocTemplateChooser({ onChosen }) {
           or describe anything else.
         </p>
 
-        <div className="dvt-grid">
-          {DOC_TEMPLATES.map((t) => (
+        {/* One field, two jobs: it filters the templates as you type, and
+            whatever is in it can be handed to the drafter as a description
+            when no template is the thing you meant. */}
+        <div className={`dvt-search${busy ? ' is-busy' : ''}`}>
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="dvt-search-glyph" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" /><path d="m20 20-3.6-3.6" />
+          </svg>
+          <input
+            ref={searchRef}
+            className="dvt-search-input"
+            type="text"
+            value={query}
+            disabled={busy}
+            autoFocus
+            placeholder="Search templates, or describe the document you need…"
+            aria-label="Search templates"
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); return; }
+              if (e.key !== 'Enter' || !q) return;
+              e.preventDefault();
+              // Enter takes the only match; otherwise it means "write this".
+              if (results.length === 1) start(`Make: ${results[0].label}.`, templatePrompt(results[0]));
+              else if (results.length === 0) describe();
+            }}
+          />
+          {query && (
+            <Tooltip content="Clear search">
+              <button
+                type="button"
+                className="dvt-search-clear"
+                aria-label="Clear search"
+                onClick={() => { setQuery(''); searchRef.current?.focus(); }}
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </Tooltip>
+          )}
+        </div>
+
+        <div className={`dvt-chips${q ? ' is-muted' : ''}`} role="tablist" aria-label="Template categories">
+          {[...TEMPLATE_CATEGORIES, { id: 'all', label: 'Toate' }].map((c) => (
             <button
               type="button"
-              key={t.id}
+              key={c.id}
+              role="tab"
+              aria-selected={!q && category === c.id}
+              className={`dvt-chip${!q && category === c.id ? ' is-on' : ''}`}
+              disabled={busy}
+              onClick={() => { setCategory(c.id); setQuery(''); }}
+            >
+              {c.label}
+              <span className="dvt-chip-count">{searchTemplates('', c.id).length}</span>
+            </button>
+          ))}
+        </div>
+
+        {q && (
+          <p className="dvt-count">
+            {results.length === 0
+              ? `No template matches “${q}”.`
+              : `${results.length} template${results.length === 1 ? '' : 's'} match “${q}”.`}
+          </p>
+        )}
+
+        <div className="dvt-grid">
+          {results.map((tpl) => (
+            <button
+              type="button"
+              key={tpl.id}
               className="dvt-card"
               disabled={busy}
-              onClick={() => start(`Make a ${t.label}.`, templatePrompt(t))}
+              onClick={() => start(`Make: ${tpl.label}.`, templatePrompt(tpl))}
             >
-              <span className="dvt-card-ico" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-                  <path d="M14 3v5h5" /><path d="M9 13h6" /><path d="M9 17h4" />
-                </svg>
+              <span className="dvt-card-head">
+                <span className="dvt-card-ico" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                    <path d="M14 3v5h5" /><path d="M9 13h6" /><path d="M9 17h4" />
+                  </svg>
+                </span>
+                <span className="dvt-card-cat">{categoryLabel[tpl.category] || ''}</span>
               </span>
-              <span className="dvt-card-label">{t.label}</span>
-              <span className="dvt-card-blurb">{t.blurb}</span>
+              <span className="dvt-card-label">{tpl.label}</span>
+              <span className="dvt-card-blurb">{tpl.blurb}</span>
+              <span className="dvt-card-meta">{tpl.outline.length} sections</span>
             </button>
           ))}
 
-          {/* Anything the templates don't cover. Same card shape so it reads as
-              one more choice rather than a fallback. */}
-          <div className={`dvt-card dvt-card-other${busy ? ' is-busy' : ''}`}>
-            <span className="dvt-card-ico" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 5v14" /><path d="M5 12h14" />
-              </svg>
-            </span>
-            <span className="dvt-card-label">Something else</span>
-            <span className="dvt-card-blurb">Describe the document you need.</span>
-            <div className="dvt-other-row">
-              <input
-                className="dvt-other-input"
-                value={custom}
-                disabled={busy}
-                placeholder="A power of attorney for…"
-                onChange={(e) => setCustom(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && custom.trim()) { e.preventDefault(); start(custom.trim(), customPrompt(custom)); }
-                }}
-              />
-              <button
-                type="button"
-                className="dvt-other-go"
-                disabled={busy || !custom.trim()}
-                onClick={() => start(custom.trim(), customPrompt(custom))}
-                aria-label="Start writing this"
-              >
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M5 12h13" /><path d="M12 5l7 7-7 7" />
+          {/* Anything the templates don't cover — the same card shape, so it
+              reads as one more choice rather than a fallback. It carries the
+              search text: by the time nothing matches, the user has already
+              typed what they want. */}
+          <button
+            type="button"
+            className="dvt-card dvt-card-other"
+            disabled={busy || !q}
+            onClick={describe}
+          >
+            <span className="dvt-card-head">
+              <span className="dvt-card-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14" /><path d="M5 12h14" />
                 </svg>
-              </button>
-            </div>
-          </div>
+              </span>
+              <span className="dvt-card-cat">Something else</span>
+            </span>
+            <span className="dvt-card-label">{q ? `Write “${q}”` : 'Describe it instead'}</span>
+            <span className="dvt-card-blurb">
+              {q
+                ? 'No template needed — the draft is written from your description.'
+                : 'Type what you need in the search field above, then pick this.'}
+            </span>
+          </button>
         </div>
       </div>
     </div>
@@ -9537,17 +9928,15 @@ const ADDRESS_PART_LABELS = [
 
 // ── Autofill picker ─────────────────────────────────────────────────────
 // The project's Files tab, in a modal over the viewer, so a record can be
-// filled from a photograph of the document it came from — an ID card, a
-// passport page, a company certificate.
+// filled from the documents it came from — a photo of an ID card, a scanned
+// PDF, a company certificate, the contract that names the party.
 //
-// It shows the WHOLE folder rather than just the pictures, because that is what
-// the Files tab shows and hiding half of it would leave the user wondering
-// where their file went. Only an image can actually be read, so everything else
-// is present but dimmed and says why.
-const AUTOFILL_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp', 'heic', 'heif', 'bmp', 'tif', 'tiff', 'gif', 'avif']);
+// It shows the WHOLE folder, because that is what the Files tab shows and
+// hiding half of it would leave the user wondering where their file went.
+// Almost everything can be read (see lib/identityExtract › readSourceText);
+// what can't — audio, video, a record itself — is present but dimmed and says
+// why.
 const extOfName = (name) => String(name || '').slice(String(name || '').lastIndexOf('.') + 1).toLowerCase();
-// Pictures sort first — they are the only ones that can be read.
-const imageRank = (name) => (AUTOFILL_IMAGE_EXTS.has(extOfName(name)) ? 0 : 1);
 // Where the recycle bin lives inside a project folder (see localFolder.js).
 const TRASH_DIR = '.docvex-trash';
 
@@ -9555,8 +9944,11 @@ const TRASH_DIR = '.docvex-trash';
 // about it. A blanket "try a sharper photo" was wrong for every case but one.
 const AUTOFILL_ERRORS = {
   no_image: 'That file couldn’t be opened.',
+  media: 'Audio and video have no text to read.',
+  identity: 'That file is already an identity record.',
+  unsupported: 'That file type couldn’t be read.',
   decode_failed: 'This picture can’t be opened here — try a JPEG or PNG.',
-  no_text: 'No text was found in that picture. Make sure the document fills the frame and is in focus.',
+  no_text: 'No text was found. For a photo, make sure the document fills the frame and is in focus.',
   ocr_failed: 'The AI service couldn’t be reached. Check you’re signed in and online.',
   ai_failed: 'The AI service couldn’t be reached. Check you’re signed in and online.',
   unreadable: 'The text was read, but nothing in it looked like an identity document.',
@@ -9567,13 +9959,58 @@ const AUTOFILL_ERRORS = {
 // — change one and change the other.
 const MODAL_EXIT_MS = 180;
 
+// What a file can be turned into a PDF from. A Word document is rendered and
+// captured page by page; a picture becomes a one-page PDF; plain text is set as
+// a document. Anything else has no faithful route, so it is shown but dimmed.
+const PDF_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif', 'avif']);
+const PDF_TEXT_EXTS = new Set(['txt', 'md', 'markdown', 'csv', 'log']);
+const pdfSourceOk = (ext) => ext === 'docx' || PDF_IMAGE_EXTS.has(ext) || PDF_TEXT_EXTS.has(ext);
+
+// The project-files picker serves two jobs. Everything that differs between
+// them — what can be chosen, and what every label says — lives here, so the
+// component itself stays one picker rather than two that drift apart.
+const PICKER_MODES = {
+  // Any file that has text to give: a photo or a scanned PDF is OCR'd, a PDF
+  // with a text layer, a Word or Excel file or plain text is read directly.
+  // Several can be chosen — the two sides of a card, a certificate and its
+  // annex — and they are read together into the one record.
+  scan: {
+    eyebrow: 'Fill from documents',
+    hint: 'Choose one or more files above — a photo, a PDF, a Word document…',
+    actionLabel: 'Scan',
+    busyLabel: 'Reading…',
+    accept: '',
+    multi: true,
+    importTip: 'Read files from this computer — they are not added to the project',
+    pickLabel: 'Select for scan',
+    unpickLabel: 'Remove from scan',
+    hoverWhy: 'can’t be scanned',
+    whyNot: (ext) => (identitySourceKind(`f.${ext}`) === 'identity'
+      ? 'Already an identity record'
+      : 'Audio and video have no text to read'),
+    readable: (ext) => canScanForIdentity(`f.${ext}`),
+  },
+  pdf: {
+    eyebrow: 'Convert to PDF',
+    hint: 'Choose the document to convert.',
+    actionLabel: 'Convert',
+    busyLabel: 'Converting…',
+    accept: '.docx,.txt,.md,.csv,image/*',
+    importTip: 'Convert a file from this computer — it is not added to the project',
+    pickLabel: 'Select to convert',
+    hoverWhy: 'can’t be converted here',
+    whyNot: (ext) => (ext === 'pdf' ? 'Already a PDF' : ext ? `A ${String(ext).toUpperCase()} can’t be converted here` : 'This file can’t be converted here'),
+    readable: pdfSourceOk,
+  },
+};
+
 // One tile in the picker, rendered exactly as the Files tab renders one:
 // `ItemThumbnail` (the real poster, falling back to the type glyph), the
 // `.fx-tile` shell, and `useMorphPill` for the cursor-following name pill that
 // morphs into a right-click menu. Imported rather than reimplemented — a
 // lookalike would drift from the real thing on the first change to either.
 function AutofillTile({
-  item, disabled, selected, inTrash,
+  item, disabled, selected, inTrash, mode = PICKER_MODES.scan,
   onPick, onOpen, onOpenFolder, onShowInFolder, onDelete, onRestore,
 }) {
   const isFolder = item.kind === 'folder';
@@ -9587,7 +10024,7 @@ function AutofillTile({
     ? [{ label: 'Open', onClick: () => onOpenFolder?.(item) }]
     : inTrash
       ? [
-        readable && { key: 'scan', label: 'Select for scan', onClick: () => onPick?.(item) },
+        readable && { key: 'scan', label: mode.pickLabel, onClick: () => onPick?.(item) },
         { key: 'open', label: 'Open', onClick: () => onOpen?.(item) },
         { key: 'restore', label: 'Restore', onClick: () => onRestore?.(item) },
         {
@@ -9620,14 +10057,8 @@ function AutofillTile({
         ]
         : [
           readable
-            ? { key: 'scan', label: 'Select for scan', onClick: () => onPick?.(item) }
-            : {
-              key: 'scan',
-              label: item.ext
-                ? `A ${String(item.ext).toUpperCase()} has no picture to read`
-                : 'Only a picture can be read',
-              disabled: true,
-            },
+            ? { key: 'scan', label: (selected && mode.unpickLabel) || mode.pickLabel, onClick: () => onPick?.(item) }
+            : { key: 'scan', label: mode.whyNot(item.ext), disabled: true },
           { key: 'open', label: 'Open', onClick: () => onOpen?.(item) },
           { key: 'loc', label: 'Open file location', onClick: () => onShowInFolder?.(item) },
           {
@@ -9651,7 +10082,7 @@ function AutofillTile({
         <span className="fx-hover-name">{item.name}</span>
         <span className="dvi-hover-note">
           {item.ext ? `${String(item.ext).toUpperCase()} — ` : ''}
-          can’t be scanned — double-click to open it
+          {mode.hoverWhy} — double-click to open it
         </span>
       </span>
     ),
@@ -9707,7 +10138,11 @@ function AutofillTile({
   );
 }
 
-function IdentityAutofillModal({ open, onClose, record, onFilled }) {
+// `mode` is what the picker is FOR (see PICKER_MODES). Reading a picture into a
+// record is the default; 'pdf' chooses the document a new PDF is made from, and
+// hands the chosen file to `onConvert(file, blob)` instead of to the OCR.
+function IdentityAutofillModal({ open, onClose, record, onFilled, mode: modeId = 'scan', onConvert }) {
+  const mode = PICKER_MODES[modeId] || PICKER_MODES.scan;
   const { selectedProject } = useSelectedProject();
   const { session } = useAuth();
   const [root, setRoot] = useState('');        // the project folder's own path
@@ -9718,9 +10153,10 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
   const [inTrash, setInTrash] = useState(false);
   const [query, setQuery] = useState('');
   const [busyPath, setBusyPath] = useState(null);
-  // The picture chosen but not yet read: { name, path, blob? }. `blob` is set
-  // only for one imported from the computer, which is never in the grid.
-  const [picked, setPicked] = useState(null);
+  // The files chosen but not yet read: [{ name, path, blob? }]. `blob` is set
+  // only for one imported from the computer, which is never in the grid. One
+  // entry at most unless the mode takes several (`mode.multi`).
+  const [picked, setPicked] = useState([]);
   const [note, setNote] = useState(null);      // { tone, text }
   // Bumped after anything that changes the folder, so the listing and the bin
   // are re-read. The picker is a live view of the project, not a snapshot.
@@ -9751,7 +10187,7 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
     setQuery('');
     // A chosen file that is no longer on screen is a Scan button pointing at
     // something invisible. Leaving the folder un-chooses it.
-    setPicked(null);
+    setPicked([]);
     setNote(null);
     setHist((h) => {
       const stack = h.stack.slice(0, h.at + 1);
@@ -9765,7 +10201,7 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
       const entry = h.stack[at];
       if (!entry) return h;
       setCwd(entry.dir); setInTrash(entry.trash); setQuery('');
-      setPicked(null); setNote(null);
+      setPicked([]); setNote(null);
       return { ...h, at };
     });
   }, []);
@@ -9775,7 +10211,7 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
   useEffect(() => {
     if (!open) return undefined;
     let cancelled = false;
-    setListing(null); setTrash([]); setNote(null); setQuery(''); setPicked(null);
+    setListing(null); setTrash([]); setNote(null); setQuery(''); setPicked([]);
     (async () => {
       try {
         const projectId = selectedProject?.id;
@@ -9839,17 +10275,33 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  // `blobOverride` is set when the picture came from the computer rather than
-  // the project — everything after reading the bytes is identical.
-  const runOn = useCallback(async (file, blobOverride) => {
-    const path = file.path || file.name;
-    setBusyPath(path); setNote(null);
+  // Read what is chosen. A file imported from the computer carries its own
+  // bytes; one from the project is read from disk here.
+  const runOn = useCallback(async (list) => {
+    const chosen = (list || []).filter(Boolean);
+    if (!chosen.length) return;
+    setBusyPath(chosen[0].path || chosen[0].name); setNote(null);
     try {
-      const blob = blobOverride || await readLocalBlob(path);
-      if (!blob) throw new Error('unreadable');
-      const res = await readIdentityFromImage(blob, record, {
+      const files = [];
+      for (const f of chosen) {
+        const blob = f.blob || await readLocalBlob(f.path || f.name);
+        if (blob) files.push({ blob, name: f.name, path: f.imported ? null : f.path });
+      }
+      if (!files.length) throw new Error('unreadable');
+      if (modeId === 'pdf') {
+        // The caller converts, writes the file and closes the picker; all that
+        // comes back here is whether it worked.
+        const out = await onConvert?.(chosen[0], files[0].blob);
+        if (out?.error) setNote({ tone: 'error', text: out.error });
+        else setPicked([]);
+        return;
+      }
+      const res = await readIdentityFromFiles(files, record, {
         jurisdiction: record?.jurisdiction,
         projectId: selectedProject?.id,
+        onProgress: ({ index, total, name }) => {
+          if (total > 1) setNote({ tone: 'ok', text: `Reading ${index + 1} of ${total} — ${name}…` });
+        },
       });
       if (res.error) {
         // Say which step failed. One message for every failure sent people off
@@ -9871,7 +10323,7 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
           .filter(([k, v]) => String(record?.[k] ?? '').trim() !== v),
       );
       if (!Object.keys(fresh).length) {
-        // Not a failure: it read the picture and everything on it is already in
+        // Not a failure: it read the files and everything in them is already in
         // the record. Saying so beats a silent no-op — and the picker stays
         // open, because there is nothing behind it to go and look at.
         setNote({ tone: 'ok', text: 'Nothing new — everything it read is already in the record.' });
@@ -9881,18 +10333,30 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
       // fields they belong to, in the record itself, which is where they have to
       // be judged: a value is right or wrong next to the rest of the record, not
       // in a list floating over it.
-      setPicked(null);
-      onFilled?.(fresh, file.name);
+      setPicked([]);
+      onFilled?.(fresh, (res.read?.length ? res.read : chosen.map((f) => f.name)).join(', '));
     } catch {
       setNote({ tone: 'error', text: 'Couldn’t open that file.' });
     } finally {
       setBusyPath(null);
     }
-  }, [record, onFilled, selectedProject?.id]);
+  }, [record, onFilled, selectedProject?.id, modeId, onConvert]);
 
   const scan = useCallback(() => {
-    if (picked && !busyPath) runOn(picked, picked.blob);
+    if (picked.length && !busyPath) runOn(picked);
   }, [picked, busyPath, runOn]);
+
+  // Choosing: a mode that takes several toggles the file in and out of the
+  // list; one that takes a single file replaces the choice.
+  const pick = useCallback((entry) => {
+    setNote(null);
+    setPicked((cur) => {
+      if (!mode.multi) return [entry];
+      return cur.some((x) => x.path === entry.path)
+        ? cur.filter((x) => x.path !== entry.path)
+        : [...cur, entry];
+    });
+  }, [mode.multi]);
 
   // Open a file in this window, as the Files tab does — it adds a tab rather
   // than opening a second viewer. Checking what a picture actually is before
@@ -9910,21 +10374,21 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
       ? await localFolderApi.trashFolder({ dir: root, path: f.path })
       : await localFolderApi.trashFile({ dir: root, path: f.path });
     if (res?.error) { setNote({ tone: 'error', text: 'Couldn’t delete that — it may be open somewhere.' }); return; }
-    setPicked((cur) => (cur?.path === f.path ? null : cur));
+    setPicked((cur) => cur.filter((x) => x.path !== f.path));
     setTick((n) => n + 1);
     notifyFilesChanged();
   }, [root]);
   const restoreItem = useCallback(async (f) => {
     const res = await localFolderApi.restoreFromTrash({ dir: root, stored: f.stored });
     if (res?.error) { setNote({ tone: 'error', text: 'Couldn’t restore that file.' }); return; }
-    setPicked((cur) => (cur?.path === f.path ? null : cur));
+    setPicked((cur) => cur.filter((x) => x.path !== f.path));
     setTick((n) => n + 1);
     notifyFilesChanged();
   }, [root]);
   const purgeItem = useCallback(async (f) => {
     const res = await localFolderApi.deleteFromTrash({ dir: root, stored: f.stored });
     if (res?.error) { setNote({ tone: 'error', text: 'Couldn’t delete that file.' }); return; }
-    setPicked((cur) => (cur?.path === f.path ? null : cur));
+    setPicked((cur) => cur.filter((x) => x.path !== f.path));
     setTick((n) => n + 1);
   }, [root]);
   useEffect(() => { scanRef.current = scan; }, [scan]);
@@ -9940,7 +10404,7 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
     name: f.name,
     path: f.path || f.name,
     ext: extOfName(f.name),
-    readable: AUTOFILL_IMAGE_EXTS.has(extOfName(f.name)),
+    readable: mode.readable(extOfName(f.name)),
     mimeType: f.mimeType || '',
     busy: busyPath === (f.path || f.name),
     virtual,
@@ -9962,9 +10426,8 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
     id: `dir:${d.path}`, kind: 'folder', name: d.name, path: d.path, empty: d.empty,
   }));
   const files = inTrash ? trashItems : (listing?.files || []).map((f) => fileItem(f));
-  // Pictures first — they are the only ones that can be read, and the reason
-  // the picker was open.
-  files.sort((a, b) => imageRank(a.name) - imageRank(b.name));
+  // What can be chosen comes first — it is the reason the picker was open.
+  files.sort((a, b) => (a.readable ? 0 : 1) - (b.readable ? 0 : 1));
 
   const q = query.trim().toLowerCase();
   const match = (x) => !q || x.name.toLowerCase().includes(q);
@@ -9991,10 +10454,10 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
           component that declares its own theme (see tokens.css / ThemePicker).
           That is what makes the Files tiles inside come out dark too: they read
           the same semantic tokens, so they follow without a single override. */}
-      <div className="dvi-modal" data-theme="ink" role="dialog" aria-modal="true" aria-label="Fill from a picture">
+      <div className="dvi-modal" data-theme="ink" role="dialog" aria-modal="true" aria-label={mode.eyebrow}>
         <header className="dvi-modal-head">
           <div className="dvi-modal-head-text">
-            <span className="dvi-modal-eyebrow">Fill from a picture</span>
+            <span className="dvi-modal-eyebrow">{mode.eyebrow}</span>
             <h2 className="dvi-modal-title">{selectedProject?.name || 'Project'} · Files</h2>
           </div>
           <Tooltip content="Close">
@@ -10080,21 +10543,25 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
             <input
               ref={importRef}
               type="file"
-              accept="image/*"
+              accept={mode.accept || undefined}
+              multiple={!!mode.multi}
               className="dvi-modal-file"
               onChange={(e) => {
-                const chosen = e.target.files?.[0];
+                const chosen = Array.from(e.target.files || []);
                 // Reset first, so choosing the same file twice fires again.
                 e.target.value = '';
                 // Chosen, not read — the Scan button is the one thing that
-                // starts a read, wherever the picture came from.
-                if (chosen) {
+                // starts a read, wherever the file came from.
+                if (chosen.length) {
                   setNote(null);
-                  setPicked({ name: chosen.name, path: `import:${chosen.name}`, blob: chosen, imported: true });
+                  const entries = chosen.map((f) => ({ name: f.name, path: `import:${f.name}`, blob: f, imported: true }));
+                  setPicked((cur) => (mode.multi
+                    ? [...cur.filter((x) => !entries.some((n) => n.path === x.path)), ...entries]
+                    : entries.slice(0, 1)));
                 }
               }}
             />
-            <Tooltip content="Read a picture from this computer — it is not added to the project">
+            <Tooltip content={mode.importTip}>
               <button
                 type="button"
                 className="dvi-modal-import"
@@ -10182,10 +10649,11 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
                 <AutofillTile
                   key={f.id}
                   item={f}
+                  mode={mode}
                   disabled={!!busyPath}
                   inTrash={inTrash}
-                  selected={picked?.path === f.path}
-                  onPick={() => { setNote(null); setPicked({ name: f.name, path: f.path }); }}
+                  selected={picked.some((x) => x.path === f.path)}
+                  onPick={() => pick({ name: f.name, path: f.path })}
                   onOpen={() => openInViewer(f)}
                   onShowInFolder={() => localFolderApi.showInFolder(f.path)}
                   onRestore={() => restoreItem(f)}
@@ -10203,14 +10671,15 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
             point it at, so the modal always says whether it is ready. */}
         <footer className="dvi-modal-foot">
           <span className="dvi-modal-foot-status">
-            {picked && !busyPath && (
+            {picked.length > 0 && !busyPath && (
               <span className="dvi-modal-picked">
-                <span className="dvi-modal-picked-name">{picked.name}</span>
-                {picked.imported && <span className="dvi-modal-picked-tag">from this computer</span>}
+                {picked.length > 1 && <span className="dvi-modal-picked-tag">{picked.length} files</span>}
+                <span className="dvi-modal-picked-name">{picked.map((x) => x.name).join(', ')}</span>
+                {picked.some((x) => x.imported) && <span className="dvi-modal-picked-tag">from this computer</span>}
               </span>
             )}
-            {!picked && !busyPath && !note && (
-              <span className="dvi-modal-foot-hint">Choose a picture above.</span>
+            {!picked.length && !busyPath && !note && (
+              <span className="dvi-modal-foot-hint">{mode.hint}</span>
             )}
             {note && (
               <p className={`dvi-modal-note is-${note.tone}`} role={note.tone === 'error' ? 'alert' : 'status'}>
@@ -10222,7 +10691,7 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
             type="button"
             className="dvi-modal-scan"
             onClick={scan}
-            disabled={!picked || !!busyPath}
+            disabled={!picked.length || !!busyPath}
           >
             {busyPath ? (
               <span className="dvi-modal-scan-spin" aria-hidden="true" />
@@ -10232,7 +10701,7 @@ function IdentityAutofillModal({ open, onClose, record, onFilled }) {
                 <path d="M3 12h18" />
               </svg>
             )}
-            {busyPath ? 'Reading…' : 'Scan'}
+            {busyPath ? mode.busyLabel : mode.actionLabel}
           </button>
         </footer>
       </div>
@@ -10498,7 +10967,7 @@ function IdentityPane({ file, onRenamed }) {
           {/* Bottom-left of the card, over the machine strip: the details on
               this record are already written on a document somewhere, and
               typing them again is work a computer should be doing. */}
-          <Tooltip content="Read the details off a photo of the ID or certificate">
+          <Tooltip content="Read the details off the ID or certificate — a photo, a PDF, a Word file, or several at once">
             <button
               type="button"
               className={`dvi-card-action${autofillOpen ? ' is-on' : ''}`}
@@ -11158,7 +11627,7 @@ function PptxRenderPane({ url, onExportPdf, onOpenNative }) {
   );
 }
 
-function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, sideTabsSlot = null, regenTick = 0 }) {
+function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, sideTabsSlot = null, regenTick = 0, startInBuilder = false }) {
   const { notify } = useNotifications();
   const { kind: baseKind, mime } = useMemo(
     () => classify(file.mime, file.name, file.path),
@@ -11279,7 +11748,7 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
 
   let content;
   if (kind === 'docx') {
-    content = <DocxRenderPane url={url} onExportPdf={exportPdfNextTo} onOpenNative={openNative} />;
+    content = <DocxWorkspace file={file} url={url} regenTick={regenTick} startInBuilder={startInBuilder} onExportPdf={exportPdfNextTo} onOpenNative={openNative} />;
   } else if (kind === 'pptx') {
     content = <PptxRenderPane url={url} onExportPdf={exportPdfNextTo} onOpenNative={openNative} />;
   } else if (kind === 'doc') {
@@ -11302,6 +11771,20 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
     content = <IdentityPane file={{ ...file, url }} onRenamed={onRenamed} />;
   } else if (kind === 'text') {
     content = <DocTextPane file={previewFile} url={url} dir={dir} sep={sep} onWhatsAppDetected={onWhatsAppDetected} />;
+  } else if (kind === 'other' && startInBuilder) {
+    // A new document that has no type yet: the advisor is deciding what it is
+    // and writing it. It becomes a real file — and a real preview — in a moment.
+    content = (
+      <div className="dv-noview">
+        {adv?.busy && <span className="dv-preview-spinner" aria-hidden="true" />}
+        <p className="dv-noview-title">{adv?.busy ? 'Writing your document…' : 'Nothing here yet'}</p>
+        <p className="dv-noview-sub">
+          {adv?.busy
+            ? 'The file type is picked from what you asked for.'
+            : 'Tell the assistant what you need and it will write it.'}
+        </p>
+      </div>
+    );
   } else if (kind === 'other') {
     content = (
       <div className="dv-noview">
@@ -11318,7 +11801,10 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
   // file from disk (the localfile:// url is stable, so the preview must remount
   // to refetch) — without remounting the side panel / chat, which would refresh
   // and jump it. The advisor (in DocumentWithPanel's side slot) stays put.
-  if (content) content = React.cloneElement(content, { key: `pv-${regenTick}` });
+  // A Word document is the exception: its workspace holds the Constructor's
+  // draft and the chosen view, so it stays mounted and re-keys only the preview
+  // inside it.
+  if (content && kind !== 'docx') content = React.cloneElement(content, { key: `pv-${regenTick}` });
 
   return (
     <div className={bodyClass}>
@@ -12266,6 +12752,17 @@ export default function DocViewer() {
   // A different file has different blanks — never carry the mode across.
   useEffect(() => { setCompleting(false); }, [active?.id]);
 
+  // Tell the title bar which file this is. It can't read it from the URL: a
+  // pre-warmed window boots without one, and a generated document changes name
+  // when it gets its extension. The global covers a title bar that mounts after
+  // this has already fired.
+  useEffect(() => {
+    const name = active?.name || '';
+    window.__docvexDocViewerFile = name;
+    window.dispatchEvent(new CustomEvent('docvex:doc-viewer-file', { detail: { name } }));
+    if (name) { try { document.title = `DocVex — ${name}`; } catch { /* non-fatal */ } }
+  }, [active?.name]);
+
   // Decide once per file whether it is still blank.
   //
   // Not just "zero bytes": a file created as a Word document is a valid, empty
@@ -12325,16 +12822,24 @@ export default function DocViewer() {
   // the generator can (re)build — Word / PowerPoint / Excel / PDF / text — so the
   // Generate sidebar (engine toggle + version cards) shows for those too.
   const GENERATABLE_DOC_KINDS = new Set(['docx', 'doc', 'pptx', 'sheet', 'pdf', 'text']);
+  // The third case is the same wildcard after the user named it something with
+  // a dot in it ("Contract v1.2 draft"): the tail reads as an extension, but an
+  // EMPTY file of no type we know is a document waiting to be written.
+  const activeClass = classify(active.mime, active.name, active.path).kind;
   const generateArmed = wantsGenerate
     || extOf(active.name) === ''
-    || GENERATABLE_DOC_KINDS.has(classify(active.mime, active.name, active.path).kind);
+    || (docIsBlank === true && activeClass === 'other')
+    || GENERATABLE_DOC_KINDS.has(activeClass);
 
   // The chooser stands in for the whole workspace while the document is still
   // blank AND the AI is armed to write it. `docIsBlank === true` (not truthy):
   // while the probe is in flight the answer is null and neither surface should
   // paint, or the chooser flashes over a document that turns out to have
   // content.
-  const showTemplateChooser = generateArmed && docIsBlank === true && !templateChosen;
+  // A blank PDF is the exception: it is made FROM a document rather than
+  // written, so it asks which one instead (the Create menu's "PDF").
+  const showPdfChooser = docIsBlank === true && extOf(active.name) === 'pdf';
+  const showTemplateChooser = !showPdfChooser && generateArmed && docIsBlank === true && !templateChosen;
 
   // Audio drops the document card's rounded-corner frame so the player +
   // lyrics read as an open section rather than a boxed card.
@@ -12363,7 +12868,12 @@ export default function DocViewer() {
       {/* A blank document has nothing to preview and nothing to discuss — it
           opens on the chooser, with neither the side panel nor the preview
           mounted, until it is something. */}
-      {showTemplateChooser ? (
+      {showPdfChooser ? (
+        <PdfSourceChooser
+          file={active}
+          onConverted={() => { setDocIsBlank(false); setRegenTick((t) => t + 1); }}
+        />
+      ) : showTemplateChooser ? (
         <DocTemplateChooser onChosen={() => setTemplateChosen(true)} />
       ) : (
       <>
@@ -12423,7 +12933,7 @@ export default function DocViewer() {
                       version doesn't remount the whole pane — that would refresh
                       and jump the chat. regenTick is passed down so only the
                       PREVIEW re-reads the file from disk. */}
-                  <DocPane key={active.id} regenTick={regenTick} file={active} sidePanelSlot={sidePanelSlot} sideTabsSlot={sideTabsSlot} onWhatsAppDetected={() => markActiveWhatsApp(active.id)} onRenamed={(newName) => applyGeneratedRename(active.id, newName, 'application/json')} />
+                  <DocPane key={active.id} regenTick={regenTick} startInBuilder={docIsBlank === true} file={active} sidePanelSlot={sidePanelSlot} sideTabsSlot={sideTabsSlot} onWhatsAppDetected={() => markActiveWhatsApp(active.id)} onRenamed={(newName) => applyGeneratedRename(active.id, newName, 'application/json')} />
                 </div>
                 {/* Clarifying questions now render in the shared AskUserPanel
                     directly above the composer (see MultitoolComposer), not as an
@@ -12431,10 +12941,8 @@ export default function DocViewer() {
               </div>
             </div>
 
-            {/* Blanks panel — mirrors the advisor on the opposite edge. Always
-                mounted so it can fade rather than pop, and so a suggestion run
-                already in flight isn't thrown away by a stray toggle. */}
-            <DocFieldsPanel />
+            {/* The autofill (blanks) panel used to mount here, on the right
+                edge. Removed — blanks are filled in the Constructor. */}
           </div>
         </div>
       </div>

@@ -28,8 +28,9 @@ import {
 } from '../../lib/localBranchMeta';
 import {
   isIdentityFile, isIdentityCandidate, isInIdentityFolder, readIdentityIfRecord,
-  emptyIdentity, writeIdentity, IDENTITY_FOLDER,
+  emptyIdentity, writeIdentity,
 } from '../../lib/identities';
+import { createIdentitiesFromFiles } from '../../lib/identityExtract';
 import { getPrefetchedProjectFiles } from '../../lib/projectFilesPrefetch';
 import { prefetchMetadata } from '../../lib/metadataPrefetch';
 import './ProjectScoped.css';
@@ -155,6 +156,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // count between renders (React: "Rendered more hooks than during the
   // previous render").
   const [renameTargetPath, setRenameTargetPath] = useState(null);
+  // True while "Create identity" is scanning — declared up here with the other
+  // hooks, above the early returns (see the note above).
+  const [identityScanBusy, setIdentityScanBusy] = useState(false);
   // Path of a just-created folder the workspace should select (not open) —
   // set after an archive is extracted.
   const [selectTargetPath, setSelectTargetPath] = useState(null);
@@ -1542,10 +1546,11 @@ export default function ProjectFiles({ embedded = false } = {}) {
   };
   // ── Identities ─────────────────────────────────────────────────────────
   // A party to the case — a person or a company — rather than a document. The
-  // record lands in the project's `Identities/` folder as a `.dvx` file, so it
-  // lives with the documents it was taken from and shows up in this tab like
-  // anything else. The Timeline council writes the same files automatically for
-  // every party it finds in the story; this is the manual door to them.
+  // record is a `.dvx` file written into the folder you are looking at, beside
+  // the documents it was taken from; no `Identities/` folder is made for it.
+  // The "Identities" CATEGORY (Group by category) is what gathers records
+  // together. The Timeline council writes the same files for every party it
+  // finds in the story; this is the manual door to them.
   //
   // Nothing here is edited in a dialog: a record is a file, so creating one
   // writes a blank record and opens it in the Doc Viewer — the same place an
@@ -1565,7 +1570,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
     const existing = new Set((localFiles || []).map((f) => String(f.name || '').toLowerCase()));
     let seed = 'New identity';
     for (let n = 2; existing.has(`${seed}.dvx`.toLowerCase()); n += 1) seed = `New identity ${n}`;
-    const res = await writeIdentity(localFolder, { ...emptyIdentity('person'), name: seed });
+    const res = await writeIdentity(localFolder, { ...emptyIdentity('person'), name: seed }, { dir: currentDir });
     if (res.error) {
       notify({ category: 'file', variant: 'error', title: 'Couldn’t add the identity', body: res.error === 'no_folder' ? 'No project folder is connected.' : String(res.error), dedupeKey: 'fx-identity-save' });
       return;
@@ -1578,10 +1583,99 @@ export default function ProjectFiles({ embedded = false } = {}) {
       variant: 'success',
       icon: 'plus',
       title: 'Identity added',
-      body: `A blank record is in this project’s ${IDENTITY_FOLDER} folder — fill it in and save.`,
+      body: 'A blank record was added to this folder — fill it in and save.',
       silent: true,
       payload: actMeta('create', res.filename, { filePath: res.path }),
     });
+  };
+
+  // "Create identity" on a file or a selection: scan the documents — OCR for a
+  // picture or a scanned PDF, text extraction for everything else — and write a
+  // record for each party found, into the folder they were picked in. The files
+  // are read TOGETHER, so the two sides of one card become one record and a
+  // contract becomes a record per party. One progress toast, updated in place.
+  const fxCreateIdentityFromFiles = async (picked) => {
+    const sources = (picked || []).filter((f) => f?.path);
+    if (!sources.length || identityScanBusy) return;
+    if (!localFolder) {
+      notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then you can add identities to it.', dedupeKey: 'fx-identity-nofolder' });
+      return;
+    }
+    const many = sources.length > 1;
+    const say = (body, extra = {}) => notify({
+      category: 'file', variant: 'info', icon: 'sparkles', title: 'Creating identity', body,
+      dedupeKey: 'fx-identity-scan', dedupeStrategy: 'replace', persistent: true, ...extra,
+    });
+    setIdentityScanBusy(true);
+    say(many ? `Reading ${sources.length} files…` : `Reading “${sources[0].name}”…`);
+    try {
+      const files = [];
+      for (const f of sources) {
+        try {
+          const blob = await readLocalBlob(f.path);
+          if (blob) files.push({ blob, name: f.name, path: f.path });
+        } catch { /* unreadable — reported below as skipped */ }
+      }
+      const res = await createIdentitiesFromFiles(localFolder, files, {
+        dir: currentDir,
+        projectName: selectedProject?.name,
+        projectId,
+        onProgress: (pr) => {
+          if (pr.stage === 'read') say(many ? `Reading ${pr.index + 1} of ${pr.total} — “${pr.name}”…` : `Reading “${pr.name}”…`);
+          else if (pr.stage === 'extract') say('Working out who the documents belong to…');
+          else if (pr.stage === 'save') say('Writing the records…');
+        },
+      });
+      const WHY = {
+        media: 'audio and video have no text to read',
+        identity: 'it is already an identity record',
+        no_text: 'no text was found in it',
+        decode_failed: 'the picture couldn’t be opened',
+        unsupported: 'this file type couldn’t be read',
+        ocr_failed: 'the AI service couldn’t be reached',
+      };
+      const skippedNote = res.skipped?.length
+        ? ` Skipped: ${res.skipped.map((k) => `“${k.name}” (${WHY[k.error] || 'unreadable'})`).join('; ')}.`
+        : '';
+      if (res.error) {
+        const body = {
+          nothing_read: `None of the selected files could be read.${skippedNote}`,
+          no_party: `The text was read, but no person or company could be identified in it.${skippedNote}`,
+          ai_failed: 'The AI service couldn’t be reached. Check you’re signed in and online.',
+          no_folder: 'No project folder is connected.',
+          no_files: 'None of the selected files could be opened.',
+        }[res.error] || 'Something went wrong while scanning.';
+        notify({ category: 'file', variant: 'error', title: 'Couldn’t create an identity', body, dedupeKey: 'fx-identity-scan', dedupeStrategy: 'replace' });
+        return;
+      }
+      setBrowseTick((t) => t + 1);
+      await refetchLocalFiles();
+      const total = res.added + res.updated;
+      const parts = [
+        res.added ? `${res.added} added` : '',
+        res.updated ? `${res.updated} updated` : '',
+      ].filter(Boolean).join(', ');
+      notify({
+        category: 'file',
+        variant: 'success',
+        icon: 'plus',
+        title: total === 1 ? 'Identity created' : `${total} identities created`,
+        body: `${res.names.join(', ')} — ${parts}.${skippedNote}`,
+        dedupeKey: 'fx-identity-scan',
+        dedupeStrategy: 'replace',
+        payload: actMeta('create', res.names.join(', '), { filePath: res.paths?.[0] }),
+      });
+      // One record → open it, where its readings can be checked against the
+      // document. Several → leave them selected-in-place in the listing.
+      if (res.paths?.length === 1) {
+        const path = res.paths[0];
+        openIdentityInViewer({ path, name: path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1) });
+      }
+    } catch (err) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t create an identity', body: err?.message || String(err), dedupeKey: 'fx-identity-scan', dedupeStrategy: 'replace' });
+    } finally {
+      setIdentityScanBusy(false);
+    }
   };
 
   // Create new <type> file → write an empty styled Office file of the chosen kind
@@ -1591,13 +1685,28 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // collide. Backs the "Create new file" dropdown in the Files toolbar.
   const fxCreateTypedFile = async (kind) => {
     if (!localFolder) { notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then you can create files in it.', dedupeKey: 'fx-newfile-nofolder' }); return; }
-    const ext = ['pptx', 'xlsx', 'pdf'].includes(kind) ? kind : 'docx';
-    // Pick the first free "Untitled[.n].<ext>" against the current folder listing.
+    // 'auto' (the Create menu's single "Document" entry) makes a "wildcard": an
+    // empty file with NO extension. Opening it lands on "What do you want to
+    // make?", and the advisor picks Word / PowerPoint / Excel / PDF from what
+    // the user asks for, renaming the file to match when it writes it.
+    const ext = kind === 'auto' ? '' : (['pptx', 'xlsx', 'pdf'].includes(kind) ? kind : 'docx');
+    const suffix = ext ? `.${ext}` : '';
+    // Pick the first free "Untitled[ n]" against the current folder listing. A
+    // wildcard also steers clear of "Untitled.docx" and friends — it is about
+    // to become one of them.
     const existing = new Set((localFiles || []).map((f) => String(f.name || '').toLowerCase()));
-    let filename = `Untitled.${ext}`;
-    for (let n = 2; existing.has(filename.toLowerCase()); n += 1) filename = `Untitled ${n}.${ext}`;
+    const taken = (base) => (ext
+      ? existing.has(`${base}${suffix}`.toLowerCase())
+      : ['', '.docx', '.pptx', '.xlsx', '.pdf'].some((s) => existing.has(`${base}${s}`.toLowerCase())));
+    let base = 'Untitled';
+    for (let n = 2; taken(base); n += 1) base = `Untitled ${n}`;
+    const filename = `${base}${suffix}`;
     try {
-      const blob = await emptyDocumentBlob(ext);
+      // A PDF starts as zero bytes too: it isn't written, it's converted from
+      // another file, and an empty file is what makes the viewer ask which.
+      const blob = (ext && ext !== 'pdf')
+        ? await emptyDocumentBlob(ext)
+        : new Blob([''], { type: ext === 'pdf' ? 'application/pdf' : 'application/octet-stream' });
       const { results, error } = await localFolderApi.writeFiles({ dir: currentDir, files: [{ filename, blob }] });
       setBrowseTick((t) => t + 1);
       const res = results?.[0];
@@ -1735,6 +1844,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
     onNewFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxNewFile : undefined,
     onCreateTypedFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxCreateTypedFile : undefined,
     onAddIdentity: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxAddIdentity : undefined,
+    onCreateIdentityFromFiles: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxCreateIdentityFromFiles : undefined,
     renameTargetPath,
     onRenameTargetConsumed: () => setRenameTargetPath(null),
     selectTargetPath,

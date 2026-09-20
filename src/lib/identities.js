@@ -1112,8 +1112,13 @@ export function identitySummary(identity) {
 }
 
 // ── Folder IO ────────────────────────────────────────────────────────────
-// Everything lives in one `Identities/` subfolder so the project root stays the
-// documents themselves. The folder is created on first write.
+// A record is written BESIDE the documents — into whichever folder it was made
+// from, or the project root — never into a folder of its own. Nothing here
+// creates `Identities/` any more: the Files tab gathers records into an
+// "Identities" CATEGORY instead, which groups them wherever they sit without
+// moving anyone's files. Projects that already have an `Identities/` folder
+// keep it, and its records are still found (listProjectIdentities walks the
+// whole project).
 
 export function identityDirIn(projectDir) {
   if (!projectDir) return '';
@@ -1121,30 +1126,10 @@ export function identityDirIn(projectDir) {
   return `${projectDir.replace(/[\\/]+$/, '')}${sep}${IDENTITY_FOLDER}`;
 }
 
-export async function ensureIdentityDir(projectDir) {
-  if (!projectDir) return '';
-  const dir = identityDirIn(projectDir);
-  // Already there → createFolder reports an error we can ignore; the write
-  // that follows is the real test of whether the folder is usable.
-  await localFolderApi.createFolder({ dir: projectDir, name: IDENTITY_FOLDER }).catch(() => null);
-  return dir;
-}
-
-// Every identity in the project, newest first. Missing folder → empty list.
+// Every identity in the project, wherever it sits. (Used to read only the
+// `Identities/` folder; records are no longer kept in one.)
 export async function listIdentities(projectDir) {
-  if (!projectDir) return [];
-  try {
-    const { files } = await localFolderApi.list(identityDirIn(projectDir));
-    const found = (files || []).filter((f) => isIdentityFile(f?.name));
-    const out = [];
-    for (const f of found) {
-      const rec = await readIdentity(f.path || f.name);
-      if (rec) out.push({ ...rec, _path: f.path || null, _fileName: f.name });
-    }
-    return out;
-  } catch {
-    return [];
-  }
+  return listProjectIdentities(projectDir);
 }
 
 export async function readIdentity(pathOrName) {
@@ -1159,9 +1144,15 @@ export async function readIdentity(pathOrName) {
 
 // Write a record. `previousFileName` lets a rename replace the old file instead
 // of leaving a stale duplicate behind when the person's name is corrected.
-export async function writeIdentity(projectDir, identity, { previousFileName } = {}) {
-  if (!projectDir) return { error: 'no_folder' };
-  const dir = await ensureIdentityDir(projectDir);
+//
+// Where it lands: next to the record it replaces (`previousPath`), else in
+// `dir` (the folder the user is looking at), else the project root. No folder
+// is created for it.
+export async function writeIdentity(projectDir, identity, { previousFileName, previousPath, dir: wantedDir } = {}) {
+  if (!projectDir && !wantedDir && !previousPath) return { error: 'no_folder' };
+  const prior = String(previousPath || '');
+  const cut = Math.max(prior.lastIndexOf('/'), prior.lastIndexOf('\\'));
+  const dir = (cut > 0 ? prior.slice(0, cut) : '') || wantedDir || projectDir;
   const filename = identityFileName(identity);
   const record = { ...identity, updatedAt: new Date().toISOString() };
   const { results, error } = await localFolderApi.writeFiles({

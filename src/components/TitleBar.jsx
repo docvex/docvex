@@ -136,9 +136,29 @@ export default function TitleBar() {
   // file viewer, so it hides the project chrome and shows the open file's name
   // (carried in the boot query string) in its place.
   const onDocViewer = pathname === '/doc-viewer';
+  // The boot query string only knows the file a COLD window was opened with. A
+  // pre-warmed window boots empty and is handed its file later, and a generated
+  // document is renamed when it gets its real extension — so the viewer
+  // announces the live name (see DocViewer) and that wins once it arrives.
+  const [liveDocName, setLiveDocName] = useState(() => window.__docvexDocViewerFile || '');
+  useEffect(() => {
+    if (!onDocViewer) return undefined;
+    const onName = (e) => setLiveDocName(String(e.detail?.name || ''));
+    window.addEventListener('docvex:doc-viewer-file', onName);
+    return () => window.removeEventListener('docvex:doc-viewer-file', onName);
+  }, [onDocViewer]);
   const docViewerFileName = onDocViewer
-    ? (new URLSearchParams(search).get('name') || 'Document')
+    ? (liveDocName || new URLSearchParams(search).get('name') || '')
     : null;
+  // Shown as "<name> (.<format>)" — the name says what the file is, the suffix
+  // what it's stored as. A new document that has no type yet is just its name.
+  const docViewerTitle = (() => {
+    const name = docViewerFileName || '';
+    const dot = name.lastIndexOf('.');
+    const ext = dot > 0 ? name.slice(dot + 1) : '';
+    if (!ext || ext.length > 8 || /\s/.test(ext)) return name;
+    return `${name.slice(0, dot)} (.${ext.toLowerCase()})`;
+  })();
   // The Hub is the projects launcher (/projects). There the brand reads
   // "DOCVEX | HUB" and ALL selected-project chrome (name chip + member avatars
   // + file count + usage meters) is hidden — you're between projects, not in one.
@@ -278,7 +298,7 @@ export default function TitleBar() {
           <>
             <span className="tb-brand-sep" aria-hidden="true">|</span>
             <Tooltip content={docViewerFileName}>
-              <span className="tb-docviewer-file">{docViewerFileName}</span>
+              <span className="tb-docviewer-file">{docViewerTitle}</span>
             </Tooltip>
           </>
         )}

@@ -290,6 +290,9 @@ const FX_LIST_THRESHOLD = 100;
 const FX_GROUPS = [
   { key: 'trash', label: 'Trash', icon: 'trash' },
   { key: 'folders', label: 'Folders & compressed folders', icon: 'folder' },
+  // The parties to the case. Records are ordinary files sitting among the
+  // documents — this section is what gathers them, instead of a folder.
+  { key: 'identities', label: 'Identities', icon: 'identity' },
   { key: 'media', label: 'Media', icon: 'image' },
   { key: 'office', label: 'Office documents', icon: 'file-doc' },
   { key: 'other', label: 'Other files', icon: 'inbox' },
@@ -443,7 +446,7 @@ function trashHoverContent(item) {
 // offer Restore + Delete forever; in drafts, the usual Open / Rename /
 // Properties / Open-file-location / Delete. Falsy entries collapse via
 // useMorphPill's filter.
-function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut }) {
+function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onCreateIdentityFrom }) {
   // The Recycle bin entry opens the bin; when it holds files it can also be
   // emptied (permanent delete of everything inside).
   if (item.binEntry) {
@@ -531,6 +534,15 @@ function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onPropertie
     !bulk && canEdit && { key: 'rename', label: 'Rename',  onClick: () => onRename?.(item) },
     canEdit && onCopy && { key: 'copy', label: bulk ? `Copy ${bulkCount} items` : 'Copy', onClick: () => onCopy?.(item) },
     canEdit && onCut && { key: 'cut', label: bulk ? `Cut ${bulkCount} items` : 'Cut', onClick: () => onCut?.(item) },
+    // Scan the document(s) and write an identity record for each party found —
+    // an ID card, a certificate, a contract. With several files selected they
+    // are read together, so the two sides of one card make one record. Not
+    // offered on a record itself: it already is one.
+    canEdit && onCreateIdentityFrom && !String(item.ext || '').startsWith('identity') && {
+      key: 'create-identity',
+      label: bulk ? `Create identity from ${bulkCount} files` : 'Create identity',
+      onClick: () => onCreateIdentityFrom?.(item),
+    },
     { key: 'props',  label: 'Properties',         onClick: () => onProperties?.(item) },
     localPath && { key: 'loc', label: 'Open file location', onClick: () => onOpenLocation?.(item) },
     deleteEntry,
@@ -608,7 +620,7 @@ function InlineNameInput({ initial = '', placeholder, onCommit, onCancel, classN
 }
 
 // ── Tile ──────────────────────────────────────────────────────────────
-function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
+function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onCreateIdentityFrom, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
   const isDropTarget = isFolder && dropFolderId === item.id;
@@ -619,7 +631,7 @@ function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, 
     // WhatsApp files use the SAME plain name pill as every other file (the
     // old rich "recognised as WhatsApp convo" hover pill was removed).
     hoverContent: tab === 'trash' && !item.binEntry ? trashHoverContent(item) : item.name,
-    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut }),
+    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut, onCreateIdentityFrom }),
     // WhatsApp exports get a "recognised as WhatsApp convo" header; folders get
     // a colour-swatch row atop their menu (both shown if it's a WhatsApp folder).
     menuHeader: whatsappMenuHeader(item, isFolder, canEdit, folderColor, onSetColor),
@@ -700,7 +712,7 @@ function NewFileTile({ onCommit, onCancel }) {
 }
 
 // ── List row ──────────────────────────────────────────────────────────
-function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
+function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onCreateIdentityFrom, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
   const isBin = tab === 'trash';
@@ -711,7 +723,7 @@ function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, o
   const morph = useMorphPill({
     // WhatsApp files use the SAME plain name pill as every other file.
     hoverContent: isBin && !item.binEntry ? trashHoverContent(item) : item.name,
-    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut }),
+    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut, onCreateIdentityFrom }),
     menuHeader: whatsappMenuHeader(item, isFolder, canEdit, folderColor, onSetColor),
   });
   if (renaming) {
@@ -824,7 +836,7 @@ export default function FilesWorkspace({
   selectTargetPath,       // path of a just-created file/FOLDER to auto-select (no rename)
   onSelectTargetConsumed, // () => void — clear the request once it's applied
   // actions
-  onOpen, onOpenContent, onRename, onDelete, onRestore, onNewFolder, onNewFile, onCreateTypedFile, onAddIdentity, onUpload, onUploadFolder, onOpenLocation,
+  onOpen, onOpenContent, onRename, onDelete, onRestore, onNewFolder, onNewFile, onCreateTypedFile, onAddIdentity, onCreateIdentityFromFiles, onUpload, onUploadFolder, onOpenLocation,
   onEmptyBin,
   onRefresh,         // () => void — re-list the folder (toolbar refresh button)
   onDebugSeedTrash,  // DEV-only — seed the bin with staggered-expiry dummy items
@@ -1172,6 +1184,8 @@ export default function FilesWorkspace({
   const itemCat = (f) => {
     if (f.binEntry) return 'trash';
     if (f.kind === 'folder') return 'folders';
+    // ProjectFiles gives a record the synthetic ext 'identity' / 'identity-org'.
+    if (String(f.ext || '').startsWith('identity')) return 'identities';
     const c = extCategory(f.ext);
     if (c === 'zip') return 'folders';
     if (c === 'img' || c === 'vid' || c === 'aud' || c === 'psd' || c === 'ai') return 'media';
@@ -1599,7 +1613,7 @@ export default function FilesWorkspace({
   // Right-click on empty canvas → a morph menu with Paste / Import / Create /
   // Open directory (drafts only). "Import" is a single action (import files);
   // "Create" expands an inline submenu mirroring the footer Create button
-  // (New folder + the Build-with-AI document types).
+  // (New folder, Add identity, Document).
   const bgMorph = useMorphPill({
     // No hover tooltip precedes this one, so there's nothing to morph FROM —
     // the scale-up just made the menu look like it took 220ms to appear.
@@ -1610,21 +1624,15 @@ export default function FilesWorkspace({
       menuEditable && { key: 'import', label: 'Import', onClick: () => onUpload?.() },
       menuEditable && {
         key: 'create',
-        label: <span className="project-files-morph-ai-label"><Icon name="sparkles" className="fx-icon" /> Create</span>,
-        className: 'project-files-morph-ai',
+        label: 'Create',
         submenu: [
           { key: 'newfolder', label: <><Icon name="folder-plus" className="fx-icon" /> New folder</>, onClick: () => requestNewFolder() },
           onAddIdentity && { key: 'identity', label: <><Icon name="identity" className="fx-icon" /> Add identity</>, onClick: () => onAddIdentity() },
-          onCreateTypedFile && {
-            key: 'aigroup',
-            aiGroup: true,
-            heading: 'Build with AI',
-            items: [
-              { key: 'docx', label: <><Icon name="file-doc" className="fx-icon fx-create-ico fx-create-ico-doc" /> Word</>, onClick: () => onCreateTypedFile('docx') },
-              { key: 'pptx', label: <><Icon name="file-slides" className="fx-icon fx-create-ico fx-create-ico-ppt" /> PowerPoint</>, onClick: () => onCreateTypedFile('pptx') },
-              { key: 'xlsx', label: <><Icon name="file-sheet" className="fx-icon fx-create-ico fx-create-ico-xls" /> Excel</>, onClick: () => onCreateTypedFile('xlsx') },
-            ],
-          },
+          // One entry, no type: the file is created without an extension and
+          // becomes Word / PowerPoint / Excel / PDF from what the user asks for.
+          onCreateTypedFile && { key: 'document', label: <><Icon name="file-doc" className="fx-icon" /> Document</>, onClick: () => onCreateTypedFile('auto') },
+          // A PDF is made FROM a document: opening it asks which one to convert.
+          onCreateTypedFile && { key: 'pdf', label: <><Icon name="file-pdf" className="fx-icon" /> PDF</>, onClick: () => onCreateTypedFile('pdf') },
         ].filter(Boolean),
       },
       onOpenDirectory && { key: 'opendir', label: 'Open directory', onClick: () => onOpenDirectory() },
@@ -1801,6 +1809,11 @@ export default function FilesWorkspace({
     onBulkDelete: bulkDelete,
     onCopy: onPasteItems ? copyItem : null,
     onCut: onMoveItems ? cutItem : null,
+    // Acts on the right-clicked file — or the whole selection when that file is
+    // part of it, the same rule Copy and Cut follow.
+    onCreateIdentityFrom: onCreateIdentityFromFiles
+      ? (item) => { const picked = itemsForContext(item); if (picked.length) onCreateIdentityFromFiles(picked); }
+      : null,
     // Drag-to-move: file items are draggable; non-bin folders accept drops.
     draggable: menuEditable,
     beginItemDrag,
@@ -2259,8 +2272,7 @@ export default function FilesWorkspace({
             )}
             {!isBin ? (
               <>
-                {/* Single "Create" button — a dropdown merging New folder with the
-                    Build-with-AI file types. */}
+                {/* Single "Create" button — New folder, Identity, Document. */}
                 <div className="fx-menu-wrap" ref={createMenuRef}>
                   <Tooltip content="Create a folder or a new document">
                     <button
@@ -2286,21 +2298,19 @@ export default function FilesWorkspace({
                         </button>
                       )}
                       {onCreateTypedFile && (
-                        <>
-                          <div className="fx-create-menu-head">Build with AI</div>
-                          <button onClick={() => { setCreateMenuOpen(false); onCreateTypedFile('docx'); }}>
-                            <Icon name="file-doc" className="fx-icon fx-create-ico fx-create-ico-doc" /> Word document
-                          </button>
-                          <button onClick={() => { setCreateMenuOpen(false); onCreateTypedFile('pptx'); }}>
-                            <Icon name="file-slides" className="fx-icon fx-create-ico fx-create-ico-ppt" /> PowerPoint presentation
-                          </button>
-                          <button onClick={() => { setCreateMenuOpen(false); onCreateTypedFile('xlsx'); }}>
-                            <Icon name="file-sheet" className="fx-icon fx-create-ico fx-create-ico-xls" /> Excel spreadsheet
-                          </button>
-                          <button onClick={() => { setCreateMenuOpen(false); onCreateTypedFile('pdf'); }}>
-                            <Icon name="file-pdf" className="fx-icon fx-create-ico fx-create-ico-pdf" /> PDF document
-                          </button>
-                        </>
+                        // One entry, no type: the file is created without an
+                        // extension and becomes Word / PowerPoint / Excel / PDF
+                        // from what the user asks for when they open it.
+                        <button onClick={() => { setCreateMenuOpen(false); onCreateTypedFile('auto'); }}>
+                          <Icon name="file-doc" className="fx-icon" /> Document
+                        </button>
+                      )}
+                      {/* A PDF is made FROM a document: opening it asks which
+                          one to convert. */}
+                      {onCreateTypedFile && (
+                        <button onClick={() => { setCreateMenuOpen(false); onCreateTypedFile('pdf'); }}>
+                          <Icon name="file-pdf" className="fx-icon" /> PDF
+                        </button>
                       )}
                     </div>
                   )}

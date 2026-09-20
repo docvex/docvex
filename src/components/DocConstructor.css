@@ -1,0 +1,457 @@
+/* ── Doc Viewer · Constructor ────────────────────────────────────────────
+   The Word document as sections made of pieces (DocConstructor.jsx), plus the
+   Constructor / Word-preview switch and the chrome it moves around. All
+   `dcx-`-prefixed. Sits on the viewer's dark dot-grid, so surfaces are
+   translucent washes of the theme tokens rather than opaque cards. */
+
+/* The workspace wraps both views of a .docx. In the Constructor view there is
+   no .dv-docview inside .dv-doc-main, so the flex/overflow set-up that rule
+   normally provides is repeated here (left/right padding still comes from the
+   shared .dv-doc-main rules — the side panel's and the blanks panel's
+   footprints). */
+.dv-doc-main:has(.dcx-workspace) {
+  display: flex; flex-direction: column; overflow: hidden;
+  padding-top: 0; padding-bottom: 0;
+}
+.dcx-workspace {
+  flex: 1; min-height: 0; min-width: 0;
+  display: flex; flex-direction: column; position: relative;
+}
+
+/* Constructor / Word preview — top-right of the document area. */
+.dcx-viewtoggle {
+  position: absolute; top: 9.6px; right: 14.4px; z-index: 7;
+  display: inline-flex; align-items: center; gap: 2px; padding: 2px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+.dcx-viewtoggle button {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border-radius: 999px; border: 0;
+  background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: 10.4px; font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.dcx-viewtoggle button:hover:not(.is-on):not(:disabled) { color: var(--text-primary); }
+.dcx-viewtoggle button.is-on { background: var(--accent); color: var(--text-on-accent); }
+.dcx-viewtoggle button:disabled { cursor: progress; opacity: 0.7; }
+.dcx-viewtoggle svg { flex: none; }
+
+/* With the switch in the corner, the find field tucks in under it and the
+   whole-document actions move to the bottom-right — the right edge becomes the
+   document's tool rail, the left stays clear beside the side panel. */
+.dv-section-body:has(.dcx-workspace) .dv-find {
+  left: auto;
+  right: calc(14.4px + var(--dv-fields-pad, 0px));
+  top: 45.6px;
+}
+.dcx-workspace .dv-docview-toolbar--foot {
+  left: auto; right: 14.4px;
+  align-items: flex-end;
+}
+.dcx-foot { position: absolute; right: 14.4px; bottom: 12.8px; z-index: 6; display: flex; flex-direction: column; align-items: stretch; gap: 4.8px; }
+.dcx-foot > * { width: 100%; justify-content: flex-start; }
+
+/* ── The Constructor itself ───────────────────────────────────────────── */
+.dcx-scroll { flex: 1; min-height: 0; overflow: auto; padding: 24px 14.4px 60px 0; }
+.dcx-root {
+  width: 100%; max-width: 1320px;
+  padding: 0 12px 120px 0;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  animation: dcxFadeIn 260ms ease;
+}
+@keyframes dcxFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.dcx-head { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-bottom: 22px; padding-top: 36px; }
+.dcx-head-titles { display: flex; flex-direction: column; gap: 6px; }
+.dcx-eyebrow {
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--accent);
+}
+.dcx-title {
+  margin: 0;
+  font-family: var(--font-display); font-size: 30px; font-weight: 600; letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+.dcx-head-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 28px; }
+.dcx-status { font-size: 13px; color: var(--text-muted); text-wrap: pretty; }
+.dcx-save {
+  padding: 6px 14px; border-radius: 999px;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--text-on-accent);
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: background 120ms ease;
+}
+.dcx-save:hover:not(:disabled) { background: var(--accent-hover); }
+.dcx-save:disabled { cursor: progress; opacity: 0.7; }
+.dcx-note { margin: 0; max-width: 720px; font-size: 12px; line-height: 1.55; color: var(--text-muted); }
+.dcx-note.is-error { color: var(--danger-text, var(--danger)); }
+
+.dcx-skeleton {
+  display: flex; flex-direction: column; gap: 12px; padding: 24px 0;
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+.dcx-skel-line { height: 9px; border-radius: 4px; background: color-mix(in srgb, var(--text-primary) 8%, transparent); animation: dcxPulse 1.4s ease-in-out infinite; }
+.dcx-skel-line.is-head { height: 12px; width: 40%; background: color-mix(in srgb, var(--text-primary) 14%, transparent); }
+@keyframes dcxPulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+
+.dcx-empty { padding: 28px 0; border-top: 1px solid var(--border); }
+.dcx-empty-title { margin: 0; font-size: 15px; font-weight: 600; }
+.dcx-empty-sub { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); }
+
+
+.dcx-sections { display: flex; flex-direction: column; gap: 20px; padding-top: 18px; }
+
+/* One section. The margin on the right is the gutter its progress ring hangs
+   in; the shape layer reaches 18px above the box, which is the knob. */
+.dcx-section { position: relative; animation: dcxParaIn 260ms ease both; }
+@keyframes dcxParaIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.dcx-shape { position: absolute; inset: -18px 0 0 0; pointer-events: none; z-index: 0; }
+.dcx-shape svg { display: block; }
+.dcx-shape path {
+  fill: color-mix(in srgb, var(--bg-card) 35%, transparent);
+  stroke: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  stroke-width: 1;
+}
+.dcx-section-in { position: relative; z-index: 1; }
+
+
+.dcx-section-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+.dcx-grip { display: inline-flex; color: color-mix(in srgb, var(--text-muted) 65%, transparent); cursor: grab; }
+.dcx-secnum {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--accent-tint); color: var(--accent);
+  font-size: 13px; font-weight: 600;
+}
+.dcx-sectitle { margin: 0; flex: 1; min-width: 0; font-family: var(--font-display); font-size: 19px; font-weight: 600; color: var(--text-primary); }
+.dcx-plainbtn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent);
+  background: transparent; color: var(--text-muted);
+  font: inherit; font-size: 11px; font-weight: 600; cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+.dcx-plainbtn:hover { border-color: var(--accent); color: var(--text-primary); }
+.dcx-plainbtn.is-on { border-color: var(--accent); background: var(--accent-tint); color: var(--text-primary); }
+
+/* The document's own face — Word's default sans, as the preview renders it. */
+.dcx-plain, .dcx-textarea {
+  font-family: 'Aptos', 'Calibri', 'Carlito', 'Segoe UI', Arial, sans-serif;
+  font-size: 13.5px;
+}
+.dcx-plain {
+  border-top: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
+  padding: 16px 20px 20px 70px;
+  line-height: 1.7; color: var(--text-primary);
+  white-space: pre-line; text-align: justify;
+  animation: dcxFadeIn 200ms ease;
+}
+
+.dcx-piece { border-top: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.dcx-piece.is-open { background: color-mix(in srgb, var(--bg-card) 55%, transparent); }
+.dcx-piece-row {
+  display: grid; grid-template-columns: 1fr auto; column-gap: 16px; row-gap: 8px; align-items: center;
+  width: 100%; padding: 16px 16px 16px 70px;
+  border: 0; background: transparent; color: var(--text-primary);
+  font: inherit; text-align: left; cursor: pointer;
+}
+/* Sub-points — 1.1.1 under 1.1, a) b) c) under their clause — step in, with a
+   hairline down the left so the run reads as belonging to the row above. */
+.dcx-piece.is-sub .dcx-piece-row {
+  padding-left: calc(70px + var(--dcx-depth, 1) * 26px);
+  padding-top: 11px; padding-bottom: 11px;
+  background-image: linear-gradient(var(--border), var(--border));
+  background-repeat: no-repeat;
+  background-size: 1px 100%;
+  background-position: calc(58px + var(--dcx-depth, 1) * 26px) 0;
+}
+.dcx-piece.is-sub .dcx-piece-label { font-size: 14px; font-weight: 550; }
+.dcx-piece.is-sub { border-top-color: color-mix(in srgb, var(--text-primary) 3%, transparent); }
+.dcx-piece-row:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.dcx-piece-label { display: flex; align-items: baseline; gap: 8px; font-size: 15px; font-weight: 600; min-width: 0; }
+/* Text is never clipped anywhere in the Constructor — it wraps, and the row
+   takes the height it needs. */
+.dcx-piece-text { min-width: 0; overflow-wrap: anywhere; line-height: 1.45; }
+.dcx-piece-num { flex: none; font-variant-numeric: tabular-nums; color: var(--accent); font-size: 13px; }
+/* Pills sit UNDER the title, so the title reads straight across. */
+.dcx-piece-row .dcx-chips { grid-column: 1; grid-row: 2; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+/* Scoped to clause rows: a party card has four columns of its own, and this
+   rule used to drag its chevron into the name column. */
+.dcx-piece-row .dcx-chev { grid-column: 2; grid-row: 1 / span 2; }
+.dcx-chip { font-size: 13.5px; }
+.dcx-chip.is-filled, .dcx-chip.is-blank {
+  display: inline-flex; padding: 4px 12px; border-radius: 999px; font-weight: 500;
+  max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left;
+  border-radius: 14px; line-height: 1.35;
+}
+.dcx-chip.is-filled {
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--text-primary); background: var(--accent-tint);
+}
+.dcx-chip.is-preview { font-style: italic; opacity: 0.85; }
+.dcx-chip.is-blank {
+  border: 1.5px dashed color-mix(in srgb, var(--text-muted) 50%, transparent);
+  color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 6%, transparent);
+  font-style: italic;
+}
+.dcx-chip.is-note { color: color-mix(in srgb, var(--text-muted) 70%, transparent); }
+.dcx-chip.is-accent { color: var(--accent); font-weight: 600; }
+.dcx-chev { display: inline-flex; color: var(--text-muted); transition: transform 160ms ease; }
+.dcx-piece.is-open .dcx-chev { transform: rotate(180deg); }
+
+/* ── A party ─────────────────────────────────────────────────────────────
+   Not a clause row: a person or a company, tied to an identity record. The
+   avatar, name and summary are the record's own, as the Identities tab shows
+   them, so it is recognisably the same thing.
+
+   It is a CARD, set in from the section's edges with its own border — sharing
+   the row treatment made it read as a clause with odd contents, and let its
+   opened body (pills, identity list) run edge to edge with nothing holding it
+   together. Everything a party shows now lives inside the one frame. */
+.dcx-piece.is-party {
+  margin: 10px 16px 10px 70px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-card) 70%, transparent);
+  overflow: hidden;
+  transition: border-color 140ms ease;
+}
+.dcx-piece.is-party:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.dcx-piece.is-party.is-open { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: var(--bg-card); }
+.dcx-piece.is-party.is-sub { margin-left: calc(70px + var(--dcx-depth, 1) * 26px); }
+.dcx-piece.is-party + .dcx-piece:not(.is-party) { margin-top: 6px; }
+.dcx-party {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 14px; align-items: center;
+  width: 100%; box-sizing: border-box; padding: 14px 16px;
+  border: 0; background: transparent; color: var(--text-primary);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.dcx-party:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+/* The opened card: one column, pills first, then the records to choose from. */
+.dcx-piece.is-party .dcx-piece-body {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px; padding: 14px 16px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+.dcx-piece.is-party .dcx-optional { padding-left: 0; }
+.dcx-party-av {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 1.5px dashed color-mix(in srgb, var(--text-muted) 55%, transparent);
+  color: var(--text-muted); font-size: 14px; font-weight: 700; letter-spacing: 0.02em;
+}
+.dcx-party.is-linked .dcx-party-av,
+.dcx-sign-card.is-named .dcx-party-av {
+  border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--accent-tint); color: var(--accent);
+}
+.dcx-party-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dcx-party-role {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted);
+}
+.dcx-party-role .dcx-piece-num { letter-spacing: 0; }
+.dcx-party-name { font-family: var(--font-display); font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+.dcx-party-name.is-empty { color: var(--text-muted); font-weight: 500; font-style: italic; }
+.dcx-party.is-preview .dcx-party-name { font-style: italic; opacity: 0.85; }
+.dcx-party-meta { font-size: 12.5px; color: var(--text-muted); overflow-wrap: anywhere; }
+.dcx-party-state {
+  white-space: nowrap;
+  padding: 4px 11px; border-radius: 999px;
+  border: 1.5px dashed color-mix(in srgb, var(--text-muted) 50%, transparent);
+  color: var(--text-muted); font-size: 12px; font-weight: 600;
+}
+.dcx-party-state.is-on {
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--accent-tint); color: var(--accent);
+}
+.dcx-party-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Optional details — a row of switches across the top of an opened party. */
+.dcx-optional { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; padding-left: 54px; }
+.dcx-optional-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.dcx-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px 5px 8px; border-radius: 999px;
+  border: 1.5px dashed color-mix(in srgb, var(--text-muted) 50%, transparent);
+  background: transparent; color: var(--text-muted);
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+.dcx-pill:hover { border-color: var(--accent); color: var(--text-primary); }
+.dcx-pill.is-on {
+  border: 1.5px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-tint); color: var(--accent);
+}
+.dcx-pill-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 1.5px solid currentColor; opacity: 0.85;
+}
+.dcx-pill-mark svg { width: 10px; height: 10px; }
+.dcx-pill.is-on .dcx-pill-mark { border-color: transparent; background: var(--accent); color: var(--text-on-accent); opacity: 1; }
+
+/* ── Signatures ──────────────────────────────────────────────────────────
+   One card per party, drawn from the same list as the cards above — so the
+   section reads as "these people sign", and changes when they do. */
+.dcx-sign {
+  border-top: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
+  padding: 14px 16px 18px 70px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.dcx-sign-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dcx-sign-state { flex: 1; min-width: 220px; display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-muted); }
+.dcx-sign-state-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warning); }
+.dcx-sign-state.is-on .dcx-sign-state-dot { background: var(--success); }
+.dcx-sign-btn {
+  padding: 6px 13px; border-radius: 999px;
+  border: 1px solid var(--border-strong); background: transparent; color: var(--text-primary);
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+.dcx-sign-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.dcx-sign-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.dcx-sign-btn.is-primary { border-color: var(--accent); background: var(--accent); color: var(--text-on-accent); }
+.dcx-sign-btn.is-primary:hover:not(:disabled) { background: var(--accent-hover); color: var(--text-on-accent); }
+.dcx-sign-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+.dcx-sign-card {
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  padding: 14px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-primary); font: inherit; text-align: left; cursor: pointer;
+  transition: border-color 140ms ease;
+}
+.dcx-sign-card:hover { border-color: var(--accent); }
+.dcx-sign-card.is-linked { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.dcx-sign-role { font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); }
+.dcx-sign-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dcx-sign-who .dcx-party-av { width: 34px; height: 34px; font-size: 12px; }
+.dcx-sign-name { min-width: 0; font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
+.dcx-sign-card:not(.is-named) .dcx-sign-name { color: var(--text-muted); font-weight: 500; font-style: italic; }
+.dcx-sign-rep { font-size: 12.5px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.dcx-sign-line { margin-top: 14px; border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 35%, transparent); }
+.dcx-sign-foot { font-size: 11.5px; color: var(--text-muted); }
+
+.dcx-piece-body {
+  padding: 0 16px 18px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px;
+  animation: dcxFadeIn 200ms ease;
+}
+.dcx-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dcx-collabel { font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); }
+.dcx-collabel--split { display: flex; justify-content: space-between; gap: 8px; }
+.dcx-collabel-sub { font-weight: 500; letter-spacing: 0; text-transform: none; color: color-mix(in srgb, var(--text-muted) 70%, transparent); }
+
+.dcx-variants { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dcx-variants-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+.dcx-variant {
+  padding: 6px 16px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent);
+  background: transparent; color: var(--text-primary);
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.dcx-variant:hover { border-color: var(--accent); }
+.dcx-variant.is-on { border-color: var(--accent); background: var(--accent); color: var(--text-on-accent); }
+
+.dcx-textarea {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  padding: 12px 14px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--bg-input); color: var(--text-primary);
+  line-height: 1.6; outline: none;
+}
+.dcx-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+
+.dcx-askrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dcx-ask {
+  flex: 1; min-width: 220px; display: flex; align-items: center; gap: 8px;
+  padding: 6px 6px 6px 12px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg-input);
+}
+.dcx-ask:focus-within { border-color: var(--accent); }
+.dcx-ask-glyph { display: inline-flex; color: var(--accent); }
+.dcx-ask input {
+  flex: 1; min-width: 0; border: 0; outline: none; background: transparent;
+  font: inherit; font-size: 13px; color: var(--text-primary);
+}
+.dcx-ask input::placeholder, .dcx-blank input::placeholder { color: var(--text-muted); }
+.dcx-ask-go {
+  flex: none; padding: 6px 12px; border-radius: 999px; border: 0;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-muted);
+  font: inherit; font-size: 12px; font-weight: 600; cursor: default;
+  transition: background 120ms ease;
+}
+.dcx-ask-go.is-ready { background: var(--accent); color: var(--text-on-accent); cursor: pointer; }
+.dcx-reset {
+  flex: none; padding: 7px 12px; border-radius: 999px;
+  border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.dcx-reset:hover { border-color: var(--accent); color: var(--accent); }
+
+.dcx-identity {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 10px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  font: inherit; cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.dcx-identity:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg-card)); }
+.dcx-identity.is-on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg-card)); }
+.dcx-identity-av {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--accent-tint); color: var(--accent);
+  font-family: var(--font-display); font-size: 12px; font-weight: 600;
+}
+.dcx-identity-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; text-align: left; }
+.dcx-identity-name { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+.dcx-identity-meta { font-size: 11.5px; color: var(--text-muted); overflow-wrap: anywhere; }
+.dcx-identity-mark { flex: none; display: inline-flex; color: var(--accent); opacity: 0; transition: opacity 120ms ease; }
+.dcx-identity.is-on .dcx-identity-mark { opacity: 1; }
+
+.dcx-blank {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px 10px; border-radius: 10px;
+  background: var(--bg-card); border: 1px solid var(--border);
+}
+.dcx-blank-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.dcx-blank input {
+  width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--bg-input); color: var(--text-primary);
+  font: inherit; font-size: 13px; outline: none;
+}
+.dcx-blank input:focus { border-color: var(--accent); }
+.dcx-suggs { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+.dcx-sugg {
+  padding: 3px 9px; border-radius: 999px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent); color: var(--accent);
+  font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+}
+.dcx-sugg:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+@media (max-width: 900px) {
+  .dcx-piece-row { padding-left: 16px; }
+  .dcx-piece.is-party, .dcx-piece.is-party.is-sub { margin-left: 16px; }
+  .dcx-party { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .dcx-party-state { grid-column: 2; grid-row: 2; justify-self: start; white-space: normal; }
+  .dcx-party .dcx-chev { grid-column: 3; grid-row: 1; }
+  .dcx-sign { padding-left: 16px; }
+  .dcx-optional { padding-left: 0; }
+  .dcx-piece.is-sub .dcx-piece-row {
+    padding-left: calc(16px + var(--dcx-depth, 1) * 18px);
+    background-position: calc(8px + var(--dcx-depth, 1) * 18px) 0;
+  }
+  .dcx-plain { padding-left: 20px; }
+}
+
+:root[data-reduce-motion='true'] .dcx-root,
+:root[data-reduce-motion='true'] .dcx-section,
+:root[data-reduce-motion='true'] .dcx-piece-body,
+:root[data-reduce-motion='true'] .dcx-skel-line { animation: none; }
