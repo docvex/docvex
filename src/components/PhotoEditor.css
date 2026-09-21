@@ -1,0 +1,259 @@
+/* The Doc Viewer's photo editor (components/PhotoEditor.jsx). It takes the image
+   pane's place while open: a tool bar, the picture with its crop overlay, a hint. */
+.phe {
+  /* Positioned and lifted so it paints over the preview it replaces, which
+     fades out underneath it rather than being cut away (see .dv-media-stage
+     .is-editing / .dv-pdf-edit). */
+  position: relative; z-index: 1;
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  overflow: hidden;   /* the sleeve starts above the top edge */
+}
+/* The picture's box is the WHOLE pane, edge to edge — no inset of any kind, so
+   it runs UNDER the floating side panel and the Quick actions card, which stand
+   over it (they are painted above: .dv-advisor-card / .dv-quick-card). Nothing
+   is stacked above or below it either — the chrome floats OVER it — which is
+   what keeps the picture one size for the whole of edit mode. */
+.phe-stage { position: absolute; inset: 0; box-sizing: border-box; }
+/* The sleeve and the zoom pill, a column floating at the top of that box. Only
+   the controls themselves take the pointer — everywhere else is the picture. */
+.phe-chrome {
+  position: absolute; z-index: 3;
+  top: 8px;
+  left: calc(var(--dv-advisor-w, 296px) + 24px);
+  right: calc(var(--dv-fields-pad, 0px) + 8px);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  pointer-events: none;
+}
+.phe-chrome > * { pointer-events: auto; }
+
+@keyframes phe-fade-in { from { opacity: 0; } to { opacity: 1; } }
+/* The sleeve arrives from ABOVE THE PANE, out of sight (`.phe` clips it), and
+   comes down into place. It moves by TRANSFORM and its space is reserved from
+   the first frame: the picture below is therefore the same size before, during
+   and after — it used to move the sleeve's own top margin, which pushed the
+   picture down AND shrank it as the sleeve came in, so entering edit looked
+   like the preview zooming. (`-100%` is the sleeve's own height, whatever it
+   wraps to; the 24px is clearance for its shadow.) */
+.phe-bar {
+  flex: none; width: 100%; box-sizing: border-box;
+  transform: translateY(calc(-100% - 24px));
+  opacity: 0;
+  display: flex; flex-direction: column; align-items: stretch; gap: 0;
+  /* No padding: the title band is the bar's top edge. `overflow: hidden` is
+     what rounds the band's corners to the bar's own radius. */
+  padding: 0; border-radius: 11.2px; overflow: hidden;
+  /* The same material as the side panel and the Quick actions card it sits
+     beside (.dv-advisor-card / .dv-quick-card): frosted page, not the sidebar's
+     flat fill — so the three read as one set of chrome. */
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-page) 90%, transparent);
+  backdrop-filter: blur(32px) saturate(1.4);
+  -webkit-backdrop-filter: blur(32px) saturate(1.4);
+  box-shadow: var(--shadow-card);
+}
+.phe-bar.is-in {
+  transform: none;
+  opacity: 1;
+  transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease-out;
+}
+:root[data-reduce-motion='true'] .phe-bar.is-in { transition: none; }
+:root[data-reduce-motion='true'] .phe-overlay { animation: none; }
+.phe-barrow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding: 6px 8px; }
+/* The bar's header, the same one the Quick actions / Convert blocks carry
+   (.drb-quick-title). */
+.phe-bartitle {
+  /* The side panel's Advisor / Data strip (.dv-advisor-slot .dv-side-tabs +
+     .dv-side-tab.is-active): a --bg-sidebar band closed by a hairline, the
+     label at a tab's size and weight, at full strength. It runs EDGE TO EDGE —
+     no inset, no gap: it is the top of the card, not a pill floating on it, so
+     the inset lives on the actions below instead. */
+  margin: 0; padding: 0.4rem 0.8rem; border-radius: 0;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+  font: inherit; font-size: 0.704rem; font-weight: 500;
+  letter-spacing: normal; text-transform: none;
+  color: var(--text-primary);
+}
+.phe-group { display: flex; align-items: center; gap: 4px; }
+/* A hairline between one set of controls and the next — stepping back, turning,
+   cropping, saving are four different jobs. Faded at both ends, like the Quick
+   actions card's dividers. */
+.phe-group + .phe-group {
+  margin-left: 10px; padding-left: 10px;
+  border-left: 1px solid transparent;
+  border-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--border-strong) 48%, transparent) 26%,
+    color-mix(in srgb, var(--border-strong) 48%, transparent) 74%,
+    transparent 100%
+  ) 1;
+}
+.phe-group.is-end { margin-left: auto; gap: 6px; }
+
+/* Buttons: the app sidebar's tab — bare at rest, accent tint when on. */
+.phe-btn {
+  appearance: none; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 30px; height: 30px; padding: 0 7px;
+  border: 1.5px solid transparent; border-radius: 6.4px;
+  background: none; color: var(--text-secondary);
+  font: inherit; font-size: 11.6px; font-weight: 600; white-space: nowrap;
+  transition: background 150ms, color 150ms, border-color 150ms;
+}
+.phe-btn.is-wide { padding: 0 11px; }
+.phe-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--text-primary); }
+.phe-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.phe-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.phe-btn.is-on {
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+}
+.phe-btn.is-primary { background: var(--accent); color: var(--text-on-accent); }
+.phe-btn.is-primary:hover:not(:disabled) { background: var(--accent-hover); color: var(--text-on-accent); }
+.phe-btn.is-danger { background: var(--danger-soft); border-color: var(--danger); color: var(--danger-text); }
+.phe-btn.is-danger:hover:not(:disabled) { background: var(--danger-soft); color: var(--danger-text); }
+
+.phe-slider {
+  display: inline-flex; align-items: center; gap: 8px; margin-left: 6px;
+  font-size: 10.8px; font-weight: 600; color: var(--text-muted);
+}
+.phe-slider input { width: 150px; accent-color: var(--accent); cursor: pointer; }
+.phe-slider output { min-width: 44px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* A size container, so the frame can take whichever of its width / height
+   binds. Its size is the FIT size and the zoom never changes it (the zoom is a
+   transform on .phe-pan). */
+.phe-stage { container-type: size; }
+/* A FIXED view, like the image pane's stage: nothing scrolls, the picture is
+   moved across it by a transform on .phe-pan, so it can be dragged at any zoom.
+   `center`, not `safe center`: zoomed past the view the picture hangs off BOTH
+   sides and the drag is what reaches it. */
+.phe-view {
+  position: relative; width: 100%; height: 100%; overflow: hidden;
+  display: grid; place-items: center;
+  cursor: grab;
+}
+.phe-view.is-panning { cursor: grabbing; }
+/* The moving layer: it carries the pan AND the zoom, as one transform, the way
+   the image pane moves a picture. Separate from the frame because the frame's
+   own transform belongs to the quarter-turn. */
+.phe-pan { display: block; min-width: 0; line-height: 0; will-change: transform; }
+/* The zoom pill: the stage's top-left, i.e. under the tool bar — which is what
+   pushes it down into view rather than sitting over it. */
+.phe-zoom { cursor: default; }
+.phe-frame {
+  position: relative; flex: none;
+  /* The FIT. The zoom is a scale on .phe-pan, exactly as the image pane shows
+     it — laid out instead, every step re-flowed the frame and its overlay. */
+  width: min(100cqw, calc(100cqh * var(--phe-ratio, 1)));
+  border-radius: 4px;
+  box-shadow: var(--shadow-elev);
+  /* A checker would shout; a quiet fill shows a PNG's bare corners honestly. */
+  background: var(--bg-elevated);
+  touch-action: none;
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Landing on the new orientation: the transform drops to none in the same paint
+   as the canvas redraws — animating THAT would unwind the turn backwards. */
+.phe-frame.is-landing { transition: none; }
+.phe-canvas { display: block; width: 100%; height: 100%; border-radius: inherit; }
+.phe-overlay {
+  position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; touch-action: none;
+  /* After the picture has come to rest, not during — `both` keeps them out of
+     sight through the delay. */
+  animation: phe-fade-in 260ms ease-out 300ms both;
+}
+.phe-loading {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 12px; color: var(--text-muted);
+}
+
+/* What the crop covers beyond the picture, shown as the blank space it will
+   actually be. A literal white, not a token: this is paper in the saved file,
+   not a surface of the app, and it must not follow the theme. */
+.phe-blank { fill: #ffffff; pointer-events: none; }
+.phe-dim { fill: color-mix(in srgb, var(--color-ink) 58%, transparent); pointer-events: none; }
+/* The picture's own edge, drawn only while the crop reaches past it, so it is
+   clear which part of the result is the picture and which is blank space. */
+.phe-edge { fill: none; stroke: color-mix(in srgb, var(--color-cream) 55%, transparent); stroke-dasharray: 6 4; pointer-events: none; }
+/* The Center button, under the zoom pill — the image pane's own control
+   (.dv-center-btn), so the two views offer the same things. */
+.phe-tools { display: flex; }
+/* The flattened result: what the four corners will actually produce. Stands at
+   the RIGHT, under the sleeve, out of the way of the controls — and bare, with
+   no card under it: its own white page is frame enough, and a second surface
+   only competed with the picture behind. Toggled by the sleeve's Result button.
+   `.phe-chrome` is a positioned box, so `top: 100%` is just below it. */
+.phe-preview {
+  position: absolute; right: 0; top: calc(100% + 8px);
+  margin: 0; padding: 0; max-width: 300px;
+  display: flex; flex-direction: column; gap: 5px; align-items: flex-end;
+  animation: phe-fade-in 180ms ease-out;
+}
+.phe-preview img {
+  display: block; max-width: 100%; max-height: 380px;
+  border-radius: 3px; background: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22), 0 10px 30px rgba(0, 0, 0, 0.22);
+}
+.phe-preview figcaption {
+  font-size: 0.52rem; font-weight: 600; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+:root[data-reduce-motion='true'] .phe-preview { animation: none; }
+/* `pointer-events: all` is what makes the BOX ITSELF draggable: an SVG shape
+   with a transparent fill is hit only on its stroke by default, so pressing
+   inside the crop fell through to the stage and panned the picture instead of
+   moving the crop. */
+.phe-shape { fill: transparent; stroke: var(--color-cream); vector-effect: none; }
+.phe-shape.is-movable { cursor: move; pointer-events: all; }
+/* Four points: the area between them isn't something you drag — only the four
+   corners are — so it shows no grab hand. It takes the pointer purely to say
+   so; a press still reaches the stage underneath and pans, because nothing
+   here stops it bubbling. */
+.phe-shape.is-area { pointer-events: all; cursor: default; }
+.phe-thirds line { stroke: color-mix(in srgb, var(--color-cream) 45%, transparent); pointer-events: none; }
+.phe-knob { fill: var(--color-cream); stroke: var(--accent); }
+.phe-knob.is-n, .phe-knob.is-s { cursor: ns-resize; }
+.phe-knob.is-e, .phe-knob.is-w { cursor: ew-resize; }
+.phe-knob.is-nw, .phe-knob.is-se { cursor: nwse-resize; }
+.phe-knob.is-ne, .phe-knob.is-sw { cursor: nesw-resize; }
+/* A four-point corner is PLACED, not shoved about: a crosshair says "this
+   exact spot", where a grab hand says "carry this". It stays a crosshair while
+   dragging — the loupe is what shows where the point has landed. */
+.phe-point, .phe-point-hit, .phe-point-ring, .phe-point-dot { cursor: crosshair; }
+
+/* The loupe — the picture around the corner being dragged, enlarged, riding the
+   cursor. `position: fixed` is load-bearing: without a rule of its own this div
+   lays out in the stage's flow and shoves the picture down the moment a handle
+   is grabbed. It is placed from the pointer's viewport position (PhotoEditor,
+   via toLayoutPx) and centred on it. */
+.phe-loupe {
+  position: fixed; z-index: 60; pointer-events: none;
+  transform: translate(-50%, -50%);
+  width: 132px; height: 132px;
+  border-radius: 50%; overflow: hidden; line-height: 0;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  animation: phe-loupe-in 120ms ease-out;
+}
+.phe-loupe canvas { display: block; width: 100%; height: 100%; }
+@keyframes phe-loupe-in { from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); } to { opacity: 1; } }
+:root[data-reduce-motion='true'] .phe-loupe { animation: none; }
+.phe-point-hit { fill: transparent; }
+.phe-point-ring { fill: color-mix(in srgb, var(--accent) 30%, transparent); stroke: var(--color-cream); }
+.phe-point-dot { fill: var(--color-cream); }
+
+.phe-hint {
+  position: absolute; z-index: 3; bottom: 10px;
+  left: calc(var(--dv-advisor-w, 296px) + 24px);
+  right: calc(var(--dv-fields-pad, 0px) + 8px);
+  margin: 0; font-size: 11px; line-height: 1.5; color: var(--text-muted); text-align: center;
+  text-shadow: 0 1px 2px var(--bg-page);
+}
+.phe-error {
+  position: relative; z-index: 3; margin: 8px auto 0; width: max-content; max-width: 80%; padding: 8px 12px; border-radius: 8px;
+  border: 1px solid var(--danger); background: var(--danger-soft);
+  font-size: 11.6px; color: var(--danger-text);
+}

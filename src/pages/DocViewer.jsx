@@ -33,15 +33,34 @@ import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useAuth } from '../context/AuthContext';
 import { readProjectsDir } from '../lib/projectsDir';
 import { extractFileText } from '../lib/extractFileText';
-import { readIdentityFromFiles, canScanForIdentity, identitySourceKind } from '../lib/identityExtract';
+import { readIdentityFromFiles, readSourceText, canScanForIdentity, identitySourceKind } from '../lib/identityExtract';
 import { ItemThumbnail, FolderOrBinGlyph, Icon as FxIcon } from '../components/FilesWorkspace';
-import { describeLocalFile } from '../lib/thumbnailDescriptor';
+import { describeLocalFile, describeLooseFile } from '../lib/thumbnailDescriptor';
+import FileThumbnail from '../components/FileThumbnail';
+import DropZone from '../components/DropZone';
+import PhotoEditor from '../components/PhotoEditor';
+import { extractImageText, loadImageText, loadReadingMode, saveReadingMode } from '../lib/textRegions';
+import { pdfToDocx, pdfToImages } from '../lib/pdfConvert';
+import { alignWithSidePanel } from '../lib/sidePanelEdges';
+import { AI_FACETS, loadAiData, subscribeAiData, facetText } from '../lib/aiData';
+import {
+  phoneCountries, dialCodeOf, formatPhoneIntl, splitPhone, typePhone, loadPhoneFlags, DEFAULT_PHONE_COUNTRY,
+} from '../lib/phone';
+import { searchCounties, loadLocalities, searchLocalities, plateForCountyValue } from '../lib/roPlaces';
+import { normalizeNationality, searchNationalities } from '../lib/nationalities';
 import { useChatFind } from '../lib/useChatFind';
 import { TEMPLATE_CATEGORIES, searchTemplates, templatePrompt, customPrompt } from '../lib/docTemplates';
-import DocConstructor from '../components/DocConstructor';
-import { FIELD_RE as CONSTRUCTOR_FIELD_RE } from '../lib/docConstructor';
+import DocParagraphConstructor from '../components/DocConstructor';
+import { DocThemeGrid, DocQuickActions, useItemSpots } from '../components/DocRibbon';
+import { DOC_THEMES, applyDocTheme, loadDocTheme, saveDocTheme } from '../lib/docThemes';
 import {
-  IDENTITY_KINDS, IDENTITY_ROLES, IDENTITY_ORIGINS, IDENTITY_ID_TYPES, IDENTITY_LEGAL_FORMS,
+  FIELD_RE as CONSTRUCTOR_FIELD_RE, parseSource as parseConstructorSource, composeSource as composeConstructorSource,
+  findPieceForText, fieldInfo as constructorFieldInfo,
+  paragraphHistory, normaliseParagraphText, pieceDisplayText, fillText as fillConstructorText,
+} from '../lib/docConstructor';
+import {
+  IDENTITY_KINDS, IDENTITY_ORIGINS, IDENTITY_ID_TYPES, IDENTITY_LEGAL_FORMS,
+  IDENTITY_DATE_KEYS, normalizeRoDate, roDateToIso, joinPersonName, splitPersonName,
   fieldsFor, parseIdentity, saveIdentityAt, isIdentityFile, emptyIdentity, writeIdentity,
   identityMrz, identityInitials, identityNameParts, looksLikeIdentityJson, isInIdentityFolder,
   listProjectIdentities, resolveIdentityFields, identityValueForField, classifyCounty,
@@ -2929,11 +2948,34 @@ function writeDvLayout(patch) {
 // sideTabsForKind: Text extraction is for images + video, AI captions for
 // audio + video, and the AI advisor is available for every file type. All three
 // live in ONE tabbed side panel (the "AI advisor" panel) beside the document.
-const SIDE_TAB_LABELS = { extract: 'Extract text', captions: 'Captions', advisor: 'Advisor', metadata: 'Metadata' };
+// The record's drop zone — the footer of the side panel's Sources tab. It IS the
+// shared `components/DropZone` (the Timeline's and the Playbook's), so the three
+// can't drift apart; documents dropped on it or imported from the computer are
+// read into READINGS by IdentityPane, which hands in both callbacks through
+// `recordPanel`. Its Import button opens the picker over the PROJECT's own files
+// (the modal "Browse project" used to open) rather than the computer's dialog.
+function RecordDropZone({ onFiles, onBrowse, centered = false }) {
+  return (
+    <div className={`dvr-side-foot${centered ? ' is-centered' : ''}`}>
+      <DropZone
+        title="Add source documents"
+        sub="Upload an ID, a certificate or a contract — photo or PDF. The AI reads it and you choose which details to fill in."
+        buttonLabel="Import"
+        onFiles={onFiles}
+        onButtonClick={onBrowse}
+      />
+    </div>
+  );
+}
+
+const SIDE_TAB_LABELS = { extracted: 'Extracted text', extract: 'Extract text', captions: 'Captions', advisor: 'Advisor', sources: 'Sources', metadata: 'Data', theme: 'Theme', add: 'Add' };
 // The Multitool always shows all three tools; each pane renders a graceful empty
 // state for a tool that doesn't apply to its file type. Metadata is last and
 // applies to everything — every file has facts to report.
-function sideTabsForKind() {
+function sideTabsForKind(kind) {
+  // A picture has nothing to caption, and its text is read by the Extract text
+  // quick action — Advisor, the pieces it found (Extracted text), and Data.
+  if (kind === 'image') return ['advisor', 'extracted', 'metadata'];
   return ['extract', 'captions', 'advisor', 'metadata'];
 }
 
@@ -2973,11 +3015,179 @@ const MetaGlyph = (
   </svg>
 );
 
+// The Data tab's **AI data** section: what has been WORKED OUT about this file
+// and saved (`lib/aiData`) so it is never paid for twice — one card per facet
+// (the text read off a picture, a paid transcription…), each with when and by
+// what it was made, the text itself (plain, selectable) and a **Recapture** that makes
+// it again. Live: it follows the store, so pressing Extract text in the pane
+// fills this in while the tab is open.
+const AiRefreshGlyph = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" />
+  </svg>
+);
+const AI_ENGINE_LABELS = {
+  tesseract: 'Read on this device (the AI reading wasn’t available)',
+  'vision-model': 'Read by the AI',
+  claude: 'Read by the AI',
+  'tesseract+claude': 'Read by the AI · placed on the picture on this device',
+  'vision-model+claude': 'Read by the AI',
+};
+function aiDataWhen(at) {
+  try { return new Date(at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
+}
+function AiDataSection({ file }) {
+  const path = file.storage_path || file.path || '';
+  const { selectedProjectId } = useSelectedProject();
+  const isImage = classify(file.mime_type, file.name, path).kind === 'image';
+  const [record, setRecord] = useState(() => loadAiData(path));
+  // DEBUG — which reader supplies the WORDS (positions are always measured; see
+  // lib/textRegions, "The reading MODE"). A per-machine preference; changing it
+  // recomposes this picture's reading, running only a reader that hasn't run yet.
+  const [readingMode, setReadingMode] = useState(loadReadingMode);
+  const [busy, setBusy] = useState('');       // the facet kind being (re)made
+  const [error, setError] = useState('');
+  useEffect(() => {
+    setRecord(loadAiData(path)); setError(''); setBusy('');
+    return subscribeAiData((changed) => { if (changed === path) setRecord(loadAiData(path)); });
+  }, [path]);
+  // How each kind is made again. A kind with no entry here is shown read-only.
+  const refreshers = useMemo(() => ({
+    text: isImage ? () => extractImageText({ path, name: file.name, projectId: selectedProjectId }, { force: true }) : null,
+    ocr: async () => {
+      const blob = await readLocalBlob(path);
+      return readSourceText(blob, file.name, { path, force: true, projectId: selectedProjectId });
+    },
+  }), [isImage, path, file.name, selectedProjectId]);
+
+  const changeMode = async (key, value) => {
+    if (busy || readingMode[key] === value) return;
+    const next = { ...readingMode, [key]: value };
+    setReadingMode(next);
+    saveReadingMode(next);
+    setBusy('text'); setError('');
+    try {
+      const res = await extractImageText({ path, name: file.name, projectId: selectedProjectId }, { mode: next });
+      if (res?.error) setError(typeof res.error === 'string' && res.error.includes(' ') ? res.error : 'Couldn’t read this picture that way.');
+    } catch { setError('Couldn’t read this picture that way.'); }
+    setBusy('');
+    setRecord(loadAiData(path));
+  };
+  const refresh = async (kind) => {
+    const make = refreshers[kind];
+    if (!make || busy) return;
+    setBusy(kind); setError('');
+    try {
+      const res = await make();
+      if (res?.error) setError(typeof res.error === 'string' && res.error.includes(' ') ? res.error : 'Couldn’t read this file again.');
+    } catch { setError('Couldn’t read this file again.'); }
+    setBusy('');
+    setRecord(loadAiData(path));
+  };
+  // A PICTURE has one card. Extract text runs both readers and merges them into
+  // the `text` facet (lib/textRegions); the AI's own transcription (`ocr` — also
+  // written when the identity reader reads the file) is the same knowledge, so it
+  // is folded in rather than shown twice: its words are shown until a merged
+  // reading exists, and Recapture always redoes both.
+  const all = Object.values(record?.facets || {}).filter((f) => f && AI_FACETS[f.kind]);
+  const textFacet = all.find((f) => f.kind === 'text');
+  const ocrFacet = all.find((f) => f.kind === 'ocr');
+  const facets = !isImage ? all : [textFacet || ocrFacet].filter(Boolean).map((f) => (
+    f.kind === 'text' && !f.data?.mode && !f.data?.ai && facetText(ocrFacet)   // a pre-mode reading only
+      ? { ...f, engine: 'claude', data: { ...f.data, text: facetText(ocrFacet) } }
+      : f
+  ));
+  const remake = (kind) => (isImage ? 'text' : kind);
+  return (
+    <div className="dv-data-ai">
+      {error && <p className="dv-meta-error" role="alert">{error}</p>}
+      {facets.map((f) => {
+        // A `identity` facet is fields, not prose: shown as the details it holds.
+        const text = f.kind === 'identity'
+          ? fieldsFor(f.data?.kind || 'person')
+            .filter((fd) => f.data?.fields?.[fd.key])
+            .map((fd) => `${fd.label}: ${f.data.fields[fd.key]}`).join('\n')
+          : facetText(f);
+        const pieces = Array.isArray(f.data?.regions) ? f.data.regions.length : 0;
+        const made = f.data?.mode
+          ? `Text: ${f.data.mode.result === 'ai' ? (f.data.ai ? 'read by the AI' : 'local engine — the AI wasn’t available') : 'local engine'} · Placed on this device`
+          : (AI_ENGINE_LABELS[f.engine] || null);
+        const meta = [f.kind === 'identity' ? `Read into a ${f.data?.kind === 'org' ? 'company' : 'person'} record` : made, aiDataWhen(f.at), pieces ? `${pieces} piece${pieces === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ');
+        return (
+          <section className="dv-ai-facet" key={f.kind}>
+            <header className="dv-ai-facet-head">
+              <div className="dv-ai-facet-titles">
+                <h3 className="dv-meta-group-title">{AI_FACETS[f.kind].label}</h3>
+                <span className="dv-ai-facet-meta">{meta}</span>
+              </div>
+              {refreshers[remake(f.kind)] && (
+                <Tooltip content={AI_FACETS[f.kind].paid ? 'Read the file again — uses AI tokens' : 'Read the file again'}>
+                  <button type="button" className={`dv-ai-refresh${busy === remake(f.kind) ? ' is-busy' : ''}`} onClick={() => refresh(remake(f.kind))} disabled={!!busy} aria-label={`Recapture ${AI_FACETS[f.kind].label}`}>
+                    {AiRefreshGlyph}
+                    <span>{busy === remake(f.kind) ? 'Reading…' : 'Recapture'}</span>
+                  </button>
+                </Tooltip>
+              )}
+            </header>
+            {text ? (
+              <div className="dv-ai-facet-text">{text}</div>
+            ) : (
+              <p className="dv-ocr-history-empty">Nothing readable was found.</p>
+            )}
+          </section>
+        );
+      })}
+      {isImage && (
+        <section className="dv-ai-facet dv-ai-debug">
+          <h3 className="dv-meta-group-title">Debug · who reads what</h3>
+          {[
+            { key: 'result', label: 'Result', hint: 'whose words are shown', options: [['local', 'Local engine'], ['ai', 'AI']] },
+          ].map((row) => (
+            <div className="dv-ai-debug-row" key={row.key}>
+              <div className="dv-ai-debug-label"><span>{row.label}</span><small>{row.hint}</small></div>
+              <div className="dv-ai-seg" role="group" aria-label={row.label}>
+                {row.options.map(([value, text]) => (
+                  <button
+                    type="button" key={value}
+                    className={`dv-ai-seg-btn${readingMode[row.key] === value ? ' is-on' : ''}`}
+                    aria-pressed={readingMode[row.key] === value}
+                    disabled={!!busy}
+                    onClick={() => changeMode(row.key, value)}
+                  >{text}</button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <span className="dv-ai-facet-meta">
+            {busy ? 'Reading…' : 'Positions are always measured on this device; the AI reads each measured piece. Switching is free once both have read the picture.'}
+          </span>
+        </section>
+      )}
+      {facets.length === 0 && (
+        <>
+          <p className="dv-ocr-history-empty">
+            {isImage
+              ? 'Nothing saved for this picture yet. Extract its text once — read by the AI — and it is kept here, for this file and for the rest of the project.'
+              : 'Nothing saved for this file yet.'}
+          </p>
+          {isImage && (
+            <div className="dv-meta-actions">
+              <button type="button" className="dv-doc-extract-btn" onClick={() => refresh('text')} disabled={!!busy}>
+                {MetaGlyph}
+                <span>{busy ? 'Reading…' : 'Extract text'}</span>
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function MetadataPanel({ file }) {
   const [status, setStatus] = useState('idle');   // idle | working | done
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [copied, setCopied] = useState(false);
 
   // A different file in the same panel starts over — metadata is per-file —
   // but a file we've already read comes straight back from the cache, so the
@@ -3041,34 +3251,12 @@ function MetadataPanel({ file }) {
   const runRef = useRef(run);
   useEffect(() => { runRef.current = run; }, [run]);
 
-  const copyAll = async () => {
-    if (!data) return;
-    const text = data.groups
-      .map((g) => `${g.title}\n${g.rows.map((r) => `  ${r.label}: ${r.value}`).join('\n')}`)
-      .join('\n\n');
-    try {
-      await navigator.clipboard.writeText(`${file.name}\n\n${text}`);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch { /* clipboard unavailable */ }
-  };
-
-  const rowCount = data ? data.groups.reduce((n, g) => n + g.rows.length, 0) : 0;
-
+  // The **Data** tab: what is known ABOUT the file, in two sections — Metadata
+  // (read off the file itself, below) and AI data (what the AI has worked out
+  // about it; intentionally empty for now).
   return (
-    <div className="dv-ocr-history-scroll">
-      <div className="dv-ocr-history-meta">
-        <span className="dv-ocr-history-count">
-          {status === 'done'
-            ? <><strong>{rowCount}</strong> {rowCount === 1 ? 'property' : 'properties'}</>
-            : 'Not extracted yet'}
-        </span>
-        {status === 'done' && (
-          <button type="button" className="dv-ocr-history-clear" onClick={copyAll}>
-            {copied ? 'Copied' : 'Copy all'}
-          </button>
-        )}
-      </div>
+    <div className="dv-ocr-history-scroll dv-data">
+      <h2 className="dv-data-title">Metadata</h2>
 
       {/* Only Re-extract. The first read happens on open — a button whose one
           answer was always "yes" is a question not worth asking — and this
@@ -3126,6 +3314,9 @@ function MetadataPanel({ file }) {
           )}
         </div>
       )}
+
+      <h2 className="dv-data-title">AI data</h2>
+      <AiDataSection file={file} />
     </div>
   );
 }
@@ -3374,7 +3565,7 @@ function patchVersionParagraph(src, before, after) {
 const MultitoolAdvisorContext = React.createContext(null);
 function useMultitoolAdvisor() { return useContext(MultitoolAdvisorContext); }
 
-function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false, onDocWritten, onRenameFile, completing = false, setCompleting, children }) {
+function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, generateMode = false, onDocWritten, onRenameFile, completing = false, setCompleting, children }) {
   const { notify } = useNotifications();
   const { session } = useAuth();
   const { selectedProject } = useSelectedProject();
@@ -3398,6 +3589,13 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
   // the thread mirror, `switchScope`, the persist effect, and `send` (which
   // decides from the scope what a prompt is aimed at).
   const [paraPicked, setParaPicked] = useState(false);
+  // The Word preview's tools — themes + quick actions — published by the pane
+  // that owns them (DocxRenderPane) for the side panel to show. Null for every
+  // other kind of file.
+  const [docTools, setDocTools] = useState(null);
+  // An identity record's side of the panel — the documents behind it and its
+  // history — published by IdentityPane for the panel's **Sources** tab.
+  const [recordPanel, setRecordPanel] = useState(null);
   // The picked paragraph's text, published by the document pane, so the
   // composer can aim a prompt at it without reaching into the document's DOM.
   const [paraText, setParaText] = useState('');
@@ -3730,7 +3928,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
   //
   // Works with no prior version too — a Word file that wasn't written here gets
   // its first one this way.
-  const saveConstructorVersion = useCallback(async ({ text, template, values, assigned }) => {
+  const saveConstructorVersion = useCallback(async ({ text, template, values, assigned, quiet = false }) => {
     if (!String(text || '').trim()) return { error: 'empty' };
     const active = versions.find((v) => v.n === activeVersion)
       || (versions.length ? versions[versions.length - 1] : null);
@@ -3746,7 +3944,9 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
     const n = versionCountRef.current + 1;
     versionCountRef.current = n;
     const label = 'Your changes in the Constructor';
-    setVersions((v) => [...v, { n, text, template, values, assigned, instructions: label, kind, manual: true }]);
+    // `quiet`: saved from a suggested answer alone — kept as a version of the
+    // document, but not a step in any paragraph's own history (paragraphHistory).
+    setVersions((v) => [...v, { n, text, template, values, assigned, instructions: label, kind, manual: true, quiet }]);
     setActiveVersion(n);
     setMessages((m) => [...m, { role: 'artifact', version: n, instructions: label, at: Date.now(), manual: true }]);
     return { ok: true, version: n };
@@ -4198,6 +4398,11 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
   // pick's controls into; the document pane portals its bar there. (The pick
   // state itself is declared above `send`, which needs it.)
   const [paraSlot, setParaSlot] = useState(null);
+  // Where the picked paragraph's AUTOFILL options go: a node above the composer
+  // (MultitoolComposer). The Word pane hands it to the paragraph's Constructor,
+  // which portals its identity grid in — so the options sit with the prompt
+  // field in the side panel instead of under the paragraph on the page.
+  const [ctorSlot, setCtorSlot] = useState(null);
 
   // Which blank the pointer is over, wherever the pointer happens to be. The
   // document publishes it when you hover a marked gap; the fields panel
@@ -4331,8 +4536,8 @@ function MultitoolAdvisorProvider({ file, footSlot = null, generateMode = false,
   }, [addUsage, model, selectedProject?.id]);
 
   const value = useMemo(
-    () => ({ messages, input, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, paraPicked, setParaPicked, paraText, setParaText, paraKey, setParaKey, paraScope, threadScope, switchScope, paraSlot, setParaSlot, hoverField, setHoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions }),
-    [messages, input, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, paraPicked, paraText, paraKey, paraScope, threadScope, switchScope, paraSlot, hoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions],
+    () => ({ messages, input, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, quickSlot, recordPanel, setRecordPanel, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, docTools, setDocTools, paraPicked, setParaPicked, paraText, setParaText, paraKey, setParaKey, paraScope, threadScope, switchScope, paraSlot, setParaSlot, ctorSlot, setCtorSlot, hoverField, setHoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions }),
+    [messages, input, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, quickSlot, recordPanel, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, docTools, paraPicked, paraText, paraKey, paraScope, threadScope, switchScope, paraSlot, ctorSlot, hoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions],
   );
   return <MultitoolAdvisorContext.Provider value={value}>{children}</MultitoolAdvisorContext.Provider>;
 }
@@ -4464,45 +4669,6 @@ function MultitoolDebugTray() {
   );
 }
 
-// ── Document / Paragraph sub-tabs ───────────────────────────────────────
-// A second row under the panel's tab strip, present only while a paragraph is
-// picked — with nothing picked there is only the document to talk about.
-//
-// The two are separate CONVERSATIONS, not two views of one: a paragraph's
-// thread starts empty, keeps only what was said about that paragraph, and the
-// version cards produced from it stay there too. Switching back to Document
-// finds the file-level conversation exactly as it was left.
-function AdvisorScopeTabs() {
-  const adv = useMultitoolAdvisor();
-  if (!adv?.paraPicked || !adv?.paraScope) return null;
-  const onDoc = (adv.threadScope || 'document') === 'document';
-  const quote = (adv.paraText || '').replace(/\s+/g, ' ').trim();
-  return (
-    <div className="dv-advisor-subtabs" role="tablist" aria-label="Conversation">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={onDoc}
-        className={`dv-advisor-subtab${onDoc ? ' is-active' : ''}`}
-        onClick={() => adv.switchScope?.('document')}
-      >
-        Document
-      </button>
-      <Tooltip content={quote || 'The paragraph you picked'}>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={!onDoc}
-          className={`dv-advisor-subtab${onDoc ? '' : ' is-active'}`}
-          onClick={() => adv.switchScope?.(adv.paraScope)}
-        >
-          Paragraph
-        </button>
-      </Tooltip>
-    </div>
-  );
-}
-
 function MultitoolComposer() {
   const adv = useMultitoolAdvisor();
   const [askSlot, setAskSlot] = useState(null);
@@ -4592,6 +4758,9 @@ function MultitoolComposer() {
           {wantPanels ? panelsInner : lastPanelsRef.current}
         </div>
       )}
+      {/* The picked paragraph's autofill options (the Word pane's Constructor
+          portals them in) — empty, and so collapsed, the rest of the time. */}
+      <div className="dv-advisor-ctorslot" ref={adv?.setCtorSlot} />
       {/* Frosted composer card (.dvx-composer style): textarea + send button. */}
       <div
         className="dv-advisor-composer"
@@ -5135,9 +5304,10 @@ function AdvisorPanel({ file }) {
       {/* No masthead and no compact-on-scroll bar: the side panel's tab strip
           already names this pane, so a title inside it was a second label for
           the same thing, eating the height the thread wants. */}
-      {/* Outside the scroller on purpose — which conversation you are in has to
-          stay visible while you read back through it. */}
-      <AdvisorScopeTabs />
+      {/* No Document / Paragraph switch: picking a paragraph IS the switch — the
+          conversation moves to that paragraph's thread for as long as it is
+          picked, and back to the document's when the pick is dropped (see the
+          paraScope effect in the provider). */}
       {/* The picked paragraph's Save-as-new-version action heads its own thread.
           The document pane renders it into this node — it owns the pick and the
           edit tracking behind it. Mounted only on the Paragraph sub-tab, and
@@ -5180,6 +5350,9 @@ function AdvisorPanel({ file }) {
           {messages.length === 0 && !busy ? null : (
             <div className="chat">
               {messages.map((m, i) => {
+                // The user's own changes are per-paragraph now (the dots over a
+                // picked paragraph); only versions the AI wrote get a card.
+                if (m.role === 'artifact' && m.manual) return null;
                 const inner = m.role === 'artifact' ? (
                   <DocVersionCard
                     fileName={file.name}
@@ -5340,8 +5513,430 @@ const CAP_SNAP = 46;
 const CAP_DOT_HALFW = 80;
 const CAP_DOT_HALFH = 18;
 
+// The picture's detected text, laid over it: one button per region, highlighted
+// where the text is; a click copies that text. The layer is a box the size of
+// the <img>'s own layout box carrying the SAME transform (pan + zoom, origin
+// centre), so the regions ride the picture exactly — they are percentages of it.
+// LIVE TEXT over a picture (the Extract text quick action): the picture is
+// dimmed everywhere EXCEPT the reading's shapes (the text keeps its own pixels), and real — invisible — text is laid over every line, so it
+// is selected by dragging and copied like any other text (Ctrl+C), across lines
+// too. Nothing is clicked-to-copy.
+//
+// `shapes` are closed outlines normalised to the picture (neighbouring lines
+// already merged — lib/textRegions); here they become ONE path in the layer's
+// pixels with every corner rounded — by `radius`, or by half the shorter of the
+// two edges meeting there, so a small step becomes a soft shoulder, not a nick.
+function textShapesPath(shapes, box, radius) {
+  const f = (v) => Math.round(v * 100) / 100;
+  let d = '';
+  for (const loop of shapes) {
+    const pts = loop.map(([x, y]) => [x * box.width, y * box.height]);
+    const n = pts.length;
+    if (n < 3) continue;
+    for (let i = 0; i < n; i += 1) {
+      const v = pts[i];
+      const p = pts[(i + n - 1) % n];
+      const q = pts[(i + 1) % n];
+      const lp = Math.hypot(p[0] - v[0], p[1] - v[1]) || 1;
+      const lq = Math.hypot(q[0] - v[0], q[1] - v[1]) || 1;
+      const rr = Math.min(radius, lp / 2, lq / 2);
+      const a = [v[0] + ((p[0] - v[0]) / lp) * rr, v[1] + ((p[1] - v[1]) / lp) * rr];
+      const c = [v[0] + ((q[0] - v[0]) / lq) * rr, v[1] + ((q[1] - v[1]) / lq) * rr];
+      d += `${i ? 'L' : 'M'}${f(a[0])} ${f(a[1])}Q${f(v[0])} ${f(v[1])} ${f(c[0])} ${f(c[1])}`;
+    }
+    d += 'Z';
+  }
+  return d;
+}
+
+// How wide a line of text sets at 100px in the layer's font — what its
+// invisible copy is stretched (or squeezed) from to span the line in the
+// picture, so the letter under the cursor is the letter that gets selected.
+const TEXT_LINE_FONT = 'Arial, Helvetica, sans-serif';
+let textMeasureCtx = null;
+function textWidthAt100(text) {
+  try {
+    if (!textMeasureCtx) textMeasureCtx = document.createElement('canvas').getContext('2d');
+    textMeasureCtx.font = `100px ${TEXT_LINE_FONT}`;
+    try { textMeasureCtx.fontKerning = 'none'; } catch { /* older engine */ }
+    return textMeasureCtx.measureText(text).width || 0;
+  } catch { return 0; }
+}
+
+function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, active = -1, activeSrc = '', bare = false }) {
+  const [box, setBox] = useState(null);
+  useLayoutEffect(() => {
+    const el = mediaRef.current;
+    const stage = stageRef.current;
+    if (!el || !stage) return undefined;
+    // offset* ignore transforms — this is the untransformed box, which is what
+    // the shared transform is then applied to.
+    const measure = () => setBox({ left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight });
+    measure();
+    el.addEventListener('load', measure);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(stage); ro?.observe(el);
+    return () => { el.removeEventListener('load', measure); ro?.disconnect(); };
+  }, [mediaRef, stageRef]);
+  const regions = reading?.regions || [];
+  const turns = reading?.turns || 0;
+  const side = turns % 2 === 1;   // the text runs up/down the picture
+  const lines = useMemo(() => {
+    if (!box?.width) return [];
+    return regions.map((r) => {
+      const w = r.w * box.width;
+      const h = r.h * box.height;
+      const length = side ? h : w;          // along the text
+      const thick = Math.max(1, side ? w : h);
+      // Every word gets the room from ITS start to the NEXT word's start (its
+      // trailing space included), and is stretched to fill exactly that — so a
+      // word's selection sits on that word, however the photograph spaces them.
+      const words = Array.isArray(r.words) && r.words.length ? r.words : [[r.text, 0, 1]];
+      const cells = words.map(([t, from, to], k) => {
+        const last = k === words.length - 1;
+        const text = last ? t : `${t} `;
+        const room = Math.max(0.5, ((last ? to : words[k + 1][1]) - from) * length);
+        const natural = (textWidthAt100(text) * thick) / 100;
+        return { text, room, stretch: natural > 0 ? room / natural : 1 };
+      });
+      return {
+        cx: (r.x + r.w / 2) * box.width,
+        cy: (r.y + r.h / 2) * box.height,
+        length,
+        thick,
+        lead: Math.max(0, (words[0][1] || 0) * length),
+        cells,
+      };
+    });
+  }, [regions, box, side]);
+  const shapePath = useMemo(() => {
+    if (!box?.width) return '';
+    // A reading with no shapes of its own (an older one): its line boxes.
+    const shapes = reading?.shapes?.length
+      ? reading.shapes
+      : regions.map((r) => [[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]]);
+    const sorted = lines.map((l) => l.thick).sort((m, n) => m - n);
+    const letter = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 12;
+    return textShapesPath(shapes, box, Math.max(2, Math.min(10, letter * 0.42)));
+  }, [reading, regions, lines, box]);
+  if (!box || !box.width) return null;
+  // The piece pointed at in the side panel's Extracted text list comes FORWARD:
+  // everything behind it dims (a veil far larger than the layer, so the whole
+  // stage dims whatever the pan / zoom — no blur), and its own snippet — the same
+  // crop the list shows, upright — stands over where it is in the picture,
+  // slightly enlarged. `bare` = Extract text is off: only this shows.
+  const hot = active >= 0 ? regions[active] : null;
+  const spot = hot && (() => {
+    const w = hot.w * box.width; const h = hot.h * box.height;
+    const length = side ? h : w; const thick = Math.max(1, side ? w : h);
+    const margin = Math.min(w, h) * 0.3;               // what `cropTextPiece` leaves round the text
+    // Subtle: it lifts off the picture rather than jumping at the viewer — barely
+    // larger (8%), a little more only for print too small to read (capped at 25%).
+    const grow = Math.min(Math.min(1.25, Math.max(1.08, 20 / thick)), (box.width * 0.92) / (length + margin * 2));
+    const sw = (length + margin * 2) * grow; const sh = (thick + margin * 2) * grow;
+    const cx = Math.min(box.width - sw / 2, Math.max(sw / 2, (hot.x + hot.w / 2) * box.width));
+    const cy = Math.min(box.height - sh / 2, Math.max(sh / 2, (hot.y + hot.h / 2) * box.height));
+    return (
+      <>
+        <div className="dv-textveil" />
+        <div className="dv-textpop" style={{ left: `${cx - sw / 2}px`, top: `${cy - sh / 2}px`, width: `${sw}px`, height: `${sh}px` }}>
+          {activeSrc ? <img src={activeSrc} alt="" draggable={false} /> : null}
+        </div>
+      </>
+    );
+  })();
+  if (bare) return <div className="dv-textlayer" style={{ ...box, transform, transition }}>{spot}</div>;
+  return (
+    <div className="dv-textlayer" style={{ ...box, transform, transition }}>
+      {/* The dimming, with the text shapes CUT OUT of it (the layer's own frame +
+          every shape, even-odd): inside a shape the picture is untouched —
+          exactly its own pixels — and everything around it is dimmed. The rim
+          is the same shapes, stroked. */}
+      <div className="dv-textdim" style={{ clipPath: `path(evenodd, 'M0 0H${box.width}V${box.height}H0Z${shapePath}')` }} />
+      {/* The whole of every shape — not only its letters — belongs to the text:
+          a press anywhere inside one starts a selection, never a pan. */}
+      <svg className="dv-textrim" width={box.width} height={box.height} aria-hidden="true">
+        <path className="dv-texthit" d={shapePath} fillRule="evenodd" onMouseDown={(e) => e.stopPropagation()} />
+        <path d={shapePath} />
+      </svg>
+      {/* The text itself, in reading order (so a drag across lines copies them in
+          order, one per line). mousedown stops here: on the stage it starts a pan. */}
+      <div className="dv-textlines" style={{ fontFamily: TEXT_LINE_FONT }}>
+        {lines.map((l, i) => (
+          <div
+            // eslint-disable-next-line react/no-array-index-key
+            key={i}
+            className="dv-textline"
+            style={{
+              width: `${l.length}px`,
+              height: `${l.thick}px`,
+              fontSize: `${l.thick}px`,
+              lineHeight: `${l.thick}px`,
+              transform: `translate(${l.cx - l.length / 2}px, ${l.cy - l.thick / 2}px) rotate(${-90 * turns}deg)`,
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            {l.cells.map((c, k) => (
+              // eslint-disable-next-line react/no-array-index-key
+              <span className="dv-textword" key={k} style={{ width: `${c.room}px`, marginLeft: k === 0 && l.lead ? `${l.lead}px` : undefined }}>
+                <span style={{ transform: `scaleX(${c.stretch})` }}>{c.text}</span>
+              </span>
+            ))}
+          </div>
+        ))}
+      </div>
+      {spot}
+    </div>
+  );
+}
+
+// The reading as a LIST (the image side panel's **Extracted text** tab): every
+// piece cropped out of the picture — turned upright when the text runs sideways
+// — on the left, the text read from it on the right. HOVERING a row brings that
+// piece forward over the picture, the rest blurred (`onHover` → the layer's
+// `active` + `activeSrc`, this list's own crop); CLICKING it copies
+// its text. The crops are cut from the full-resolution picture when shown.
+function cropTextPiece(img, r, turns) {
+  const W = img.naturalWidth; const H = img.naturalHeight;
+  // A little of the surroundings, so a crop doesn't shave its letters.
+  const m = Math.min(r.w * W, r.h * H) * 0.3;
+  const sx = Math.max(0, r.x * W - m); const sy = Math.max(0, r.y * H - m);
+  const sw = Math.min(W - sx, r.w * W + m * 2); const sh = Math.min(H - sy, r.h * H + m * 2);
+  if (!(sw >= 1) || !(sh >= 1)) return null;
+  const k = Math.min(1, 900 / Math.max(sw, sh));
+  const w = Math.max(1, Math.round(sw * k)); const h = Math.max(1, Math.round(sh * k));
+  const canvas = document.createElement('canvas');
+  const odd = turns % 2 === 1;
+  canvas.width = odd ? h : w; canvas.height = odd ? w : h;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate((turns * Math.PI) / 2);
+  ctx.drawImage(img, sx, sy, sw, sh, -w / 2, -h / 2, w, h);
+  return canvas.toDataURL('image/jpeg', 0.9);
+}
+function TextPiecesList({ mediaRef, reading, busy, onExtract, onHover }) {
+  const [crops, setCrops] = useState([]);
+  const [copied, setCopied] = useState(-1);
+  useEffect(() => {
+    if (copied < 0) return undefined;
+    const t = window.setTimeout(() => setCopied(-1), 1200);
+    return () => window.clearTimeout(t);
+  }, [copied]);
+  // Leaving the tab (or the list going away) must not leave a ring on the picture.
+  useEffect(() => () => onHover?.(-1), [onHover]);
+  // The click itself: a quick press (fuller background, the border pulsing
+  // inward) — `pressed` lasts only as long as that animation, so the next click
+  // on the same row plays it again. `copied` just keeps the tooltip saying so.
+  const [pressed, setPressed] = useState(-1);
+  useEffect(() => {
+    if (pressed < 0) return undefined;
+    const t = window.setTimeout(() => setPressed(-1), 260);
+    return () => window.clearTimeout(t);
+  }, [pressed]);
+  const copy = async (text, i) => {
+    setPressed(i);
+    try { await navigator.clipboard.writeText(text); setCopied(i); } catch { /* clipboard unavailable */ }
+  };
+  useEffect(() => {
+    const img = mediaRef.current;
+    if (!reading || !img) { setCrops([]); return undefined; }
+    const cut = () => {
+      if (!img.naturalWidth) return;
+      const turns = reading.turns || 0;
+      setCrops((reading.regions || []).map((r) => {
+        try { return cropTextPiece(img, r, turns); } catch { return null; }
+      }));
+    };
+    cut();
+    img.addEventListener('load', cut);
+    return () => img.removeEventListener('load', cut);
+  }, [mediaRef, reading]);
+  const regions = reading?.regions || [];
+  return (
+    <div className="dv-ocr-history-scroll dv-textlist">
+      {regions.length === 0 ? (
+        <>
+          <p className="dv-ocr-history-empty">
+            {reading ? 'Nothing readable was found in this picture.' : 'Nothing extracted from this picture yet. Extract its text and every piece is listed here, beside its crop of the picture.'}
+          </p>
+          {!reading && (
+            <div className="dv-meta-actions">
+              <button type="button" className="dv-doc-extract-btn" onClick={onExtract} disabled={busy}>
+                {MetaGlyph}
+                <span>{busy ? 'Reading…' : 'Extract text'}</span>
+              </button>
+            </div>
+          )}
+        </>
+      ) : (
+        <ol className="dv-textlist-rows">
+          {regions.map((r, i) => (
+            // eslint-disable-next-line react/no-array-index-key
+            <li key={i}>
+              <Tooltip content={copied === i ? 'Copied' : 'Copy'}>
+                <button
+                  type="button"
+                  className={`dv-textlist-row${pressed === i ? ' is-pressed' : ''}`}
+                  onMouseEnter={() => onHover?.(i, crops[i])}
+                  onMouseLeave={() => onHover?.(-1)}
+                  onFocus={() => onHover?.(i, crops[i])}
+                  onBlur={() => onHover?.(-1)}
+                  onClick={() => copy(r.text, i)}
+                >
+                  <span className="dv-textlist-crop">{crops[i] ? <img src={crops[i]} alt="" draggable={false} /> : null}</span>
+                  <span className="dv-textlist-text">{r.text}</span>
+                </button>
+              </Tooltip>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+// The image pane's quick actions (the card above the side panel).
+const ExtractTextGlyph = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 8V6a2 2 0 0 1 2-2h2M17 4h2a2 2 0 0 1 2 2v2M21 16v2a2 2 0 0 1-2 2h-2M7 20H5a2 2 0 0 1-2-2v-2" />
+    <path d="M8 9h8M12 9v7" />
+  </svg>
+);
+const EditPhotoGlyph = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 2v16h16" /><path d="M2 6h16v16" />
+  </svg>
+);
+
 function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = null }) {
   const { notify } = useNotifications();
+  // ── Photo editing (images only) ─────────────────────────────────────────
+  // "Edit photo" in the Quick actions card swaps this pane for the editor
+  // (`components/PhotoEditor`: rotate, straighten, rectangle or four-point
+  // perspective crop). Saving writes a copy beside the picture, or — asked for
+  // twice — over it; `photoBust` then re-requests the image past the cache.
+  const quickAdv = useMultitoolAdvisor();
+  const [editingPhoto, setEditingPhoto] = useState(false);
+  const photoFromRef = useRef(null);   // the picture's rect when the editor opened
+  const [photoBust, setPhotoBust] = useState(0);
+  // ── Extract text (images only) ──────────────────────────────────────────
+  // The other quick action: detect the picture's text WITH its positions
+  // (`lib/textRegions`), light it up where it is and make it SELECTABLE. A
+  // picture is read ONCE: the reading is saved as the file's AI data (`lib/aiData`
+  // — the Data tab shows it and can refresh it; the rest of the project reads it
+  // from there), stamped with the file's size + mtime so an edited picture is
+  // read again. Pressing again hides the highlights.
+  const { selectedProjectId: textProjectId } = useSelectedProject();
+  const [textMode, setTextMode] = useState('off');     // 'off' | 'loading' | 'on'
+  const [textReading, setTextReading] = useState(null);   // { regions, shapes, turns }
+  const [textHot, setTextHot] = useState(-1);             // the list row pointed at → brought forward in the picture
+  const [textHotSrc, setTextHotSrc] = useState('');
+  const hoverTextPiece = useCallback((i, src = '') => { setTextHot(i); setTextHotSrc(i >= 0 ? src || '' : ''); }, []);
+  const textPath = file.path || file.storage_path || '';
+  useEffect(() => { setTextMode('off'); setTextReading(null); setTextHot(-1); }, [textPath, photoBust]);
+  // For handlers that outlive a render (the stage's mousedown → mouseup).
+  const textModeRef = useRef(textMode);
+  textModeRef.current = textMode;
+  // A Refresh pressed in the Data tab (or in another window) replaces the
+  // reading under the highlights that are on screen.
+  useEffect(() => subscribeAiData(async (changed) => {
+    if (!textPath || changed !== textPath) return;
+    const facet = await loadImageText(textPath);
+    // No CURRENT reading = one is still being composed (a reader saving its part,
+    // the debug mode just switched): keep what is on screen until it lands.
+    if (!facet) return;
+    const next = facet.data?.regions?.length ? facet.data : null;
+    setTextReading(next);
+    if (!next) setTextMode((m) => (m === 'on' ? 'off' : m));
+  }), [textPath]);
+  const toggleTextRegions = useCallback(async () => {
+    if (textMode === 'loading') return;
+    if (textMode === 'on') { setTextMode('off'); return; }
+    if (textReading) { setTextMode('on'); return; }
+    setTextMode('loading');
+    const res = await extractImageText(
+      { path: textPath, name: file.name, projectId: textProjectId },
+      { el: mediaRef.current },
+    );
+    const regions = res?.data?.regions || [];
+    if (res.error || !regions.length) {
+      setTextMode('off');
+      notify({
+        category: 'file',
+        variant: res.error ? 'error' : 'info',
+        title: res.error ? 'Couldn’t extract the text' : 'No text found',
+        body: res.error || 'Nothing readable was found in this picture.',
+        dedupeKey: `text-regions:${textPath}`,
+      });
+      return;
+    }
+    setTextReading(res.data);
+    setTextMode('on');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [textMode, textReading, textPath, file.name, textProjectId, notify]);
+  const photoActions = useMemo(() => (kind === 'image' ? [{
+    id: 'extract-text',
+    label: textMode === 'loading' ? 'Reading…' : 'Extract text',
+    tooltip: textMode === 'on'
+      ? 'Hide the highlighted text'
+      : 'Read this picture’s text with the AI and light it up where it is — then select it like any other text',
+    icon: ExtractTextGlyph,
+    pressed: textMode !== 'off',
+    onClick: toggleTextRegions,
+  }, {
+    id: 'edit-photo',
+    label: 'Edit',
+    tooltip: 'Rotate, straighten and crop — including a four-point crop that corrects the angle a page was photographed at',
+    icon: EditPhotoGlyph,
+    pressed: editingPhoto,
+    onClick: () => setEditingPhoto((on) => {
+      // Where the picture is on screen right now: the editor opens it there, so
+      // pressing Edit changes nothing about how it is being viewed.
+      if (!on) {
+        const r = mediaRef.current?.getBoundingClientRect();
+        photoFromRef.current = r?.width ? { left: r.left, top: r.top, width: r.width, height: r.height } : null;
+      }
+      return !on;
+    }),
+  }] : []), [kind, editingPhoto, textMode, toggleTextRegions]);
+  const saveEditedPhoto = useCallback(async ({ blob, ext, replace }) => {
+    const full = file.path || file.storage_path || '';
+    const sep = full.includes('\\') ? '\\' : '/';
+    const dir = full.slice(0, full.lastIndexOf(sep));
+    if (!dir) throw new Error('This picture isn’t in a project folder, so there is nowhere to save it.');
+    let target = file.name;
+    if (!replace) {
+      // "photo (edited).jpg", then "(edited 2)"… — never over something there.
+      const stem = String(file.name || 'photo').replace(/\.[^./\\]+$/, '');
+      let taken = new Set();
+      try {
+        const listing = await localFolderApi.list(dir);
+        taken = new Set((listing?.files || []).map((f) => String(f.name || '').toLowerCase()));
+      } catch { /* an unlistable folder: the first name it is */ }
+      for (let n = 1; n < 500; n += 1) {
+        target = `${stem} (edited${n > 1 ? ` ${n}` : ''}).${ext}`;
+        if (!taken.has(target.toLowerCase())) break;
+      }
+    }
+    const wr = await localFolderApi.writeFiles({ dir, files: [{ filename: target, blob }] });
+    if (wr?.error || !wr?.results?.[0]?.ok) throw new Error(wr?.error || wr?.results?.[0]?.error || 'The picture couldn’t be written.');
+    notifyFilesChanged();
+    notify({
+      category: 'file',
+      variant: 'success',
+      icon: 'file',
+      title: replace ? 'Photo replaced' : 'Edited copy saved',
+      body: replace ? `“${target}” was overwritten with the edited picture.` : `“${target}” written next to the original.`,
+      silent: true,
+      dedupeKey: `photo-edit:${dir}${sep}${target}`,
+      payload: { activity: { action: 'edit-photo', fileName: target, filePath: `${dir}${sep}${target}` } },
+    });
+    if (replace) setPhotoBust(Date.now());
+    setEditingPhoto(false);
+  }, [file.path, file.storage_path, file.name, notify]);
+  const mediaUrl = photoBust && url ? `${url}${url.includes('?') ? '&' : '?'}v=${photoBust}` : url;
   const stageRef = useRef(null);
   const mediaRef = useRef(null);
   const clipIdRef = useRef(`dvocr-${Math.random().toString(36).slice(2)}`);
@@ -5513,8 +6108,20 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  // Right sidebar tab (video only): 'extract' (OCR snippets) | 'captions'.
-  const [rightTab, setRightTab] = useState('extract');
+  // Right sidebar tab. A picture only has Advisor + Data (`sideTabsForKind`);
+  // video adds 'extract' (OCR snippets) and 'captions'.
+  const [rightTab, setRightTab] = useState(kind === 'image' ? 'advisor' : 'extract');
+  useEffect(() => {
+    setRightTab((tab) => (sideTabsForKind(kind).includes(tab) ? tab : sideTabsForKind(kind)[0]));
+  }, [kind]);
+  // The Extracted text tab lists the SAVED reading too — a picture read on an
+  // earlier day shows its pieces without the highlights being switched on.
+  useEffect(() => {
+    if (rightTab !== 'extracted' || kind !== 'image' || textReading || !textPath) return undefined;
+    let alive = true;
+    loadImageText(textPath).then((facet) => { if (alive && facet?.data?.regions) setTextReading(facet.data); });
+    return () => { alive = false; };
+  }, [rightTab, kind, textReading, textPath]);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [controlsShown, setControlsShown] = useState(true);
@@ -5866,12 +6473,14 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     e.preventDefault();
     const startX = e.clientX;
     const startY = e.clientY;
+    // Pressed on the stage's own background — the spotlight around the picture,
+    // not the picture (nor the text on it, which never gets here).
+    const onBackdrop = !e.target.closest('.dv-media-el');
     const { x: startPanX, y: startPanY } = panStateRef.current;
-    // Only pan when actually zoomed IN — at fit (zoom 1) the media already
-    // fills the stage, so a drag must not accumulate a pan offset (a bogus
-    // offset here would get multiplied by reanchorPan on the next zoom and make
-    // the zoom jump). Captured at mousedown; zoom can't change mid-drag.
-    const canPan = zoom > 1;
+    // Panning works at ANY zoom, 100% included. (It used to be refused at fit for
+    // fear of the next zoom jumping — but `applyZoom` scales the pan by the same
+    // factor as the zoom, which keeps whatever is at the stage's centre where it
+    // is, whatever the offset. Zooming OUT at 100% re-centres, as before.)
     let moved = false;
     setIsDragging(true);
     const onMove = (ev) => {
@@ -5879,7 +6488,6 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       const dy = ev.clientY - startY;
       if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return;
       moved = true;
-      if (!canPan) return;
       document.body.classList.add('dv-media-panning');
       setPanX(startPanX + dx);
       setPanY(startPanY + dy);
@@ -5890,6 +6498,13 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       document.body.classList.remove('dv-media-panning');
       setIsDragging(false);
       if (moved) return;
+      // A plain click on the backdrop leaves Extract-text mode (a drag there
+      // still pans; a click on the picture does nothing).
+      if (kind === 'image' && onBackdrop && textModeRef.current === 'on') {
+        try { window.getSelection()?.removeAllRanges(); } catch { /* nothing selected */ }
+        setTextMode('off');
+        return;
+      }
       // A plain click dismisses an active "locate selection" highlight;
       // otherwise it falls through to the video's click-to-play.
       if (highlightIdRef.current) setHighlightId(null);
@@ -6220,6 +6835,9 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
 
   const clipBase = clipIdRef.current;
 
+  const photoQuick = photoActions.length > 0 && quickAdv?.quickSlot
+    ? createPortal(<DocQuickActions actions={photoActions} catalogue={QUICK_ACTIONS_ALL} />, quickAdv.quickSlot)
+    : null;
   if (failed) {
     return (
       <div className="dv-noview">
@@ -6234,9 +6852,24 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
 
   return (
     <>
+    {photoQuick}
+    {/* The editor takes the STAGE's place (the stage stays mounted but hidden, so
+        the OCR state survives; the side panel beside it is untouched). */}
+    {editingPhoto && kind === 'image' && (
+      <div className="dv-photo-edit">
+        <PhotoEditor
+          url={mediaUrl}
+          name={file.name}
+          fromRect={photoFromRef.current}
+          onCancel={() => setEditingPhoto(false)}
+          onSave={saveEditedPhoto}
+        />
+      </div>
+    )}
     <div
       ref={stageRef}
-      className={`dv-media-stage${kind === 'video' ? ' is-floating' : ''}`}
+      aria-hidden={(editingPhoto && kind === 'image') || undefined}
+      className={`dv-media-stage${kind === 'video' ? ' is-floating' : ''}${editingPhoto && kind === 'image' ? ' is-editing' : ''}`}
       onMouseMove={kind === 'video' ? bumpControls : undefined}
       onMouseLeave={kind === 'video' && playing ? () => setControlsShown(false) : undefined}
       onMouseDown={onStageMouseDown}
@@ -6267,9 +6900,22 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
         />
       ) : (
         <img
-          ref={mediaRef} className="dv-media-el" src={url} alt={file.name}
+          ref={mediaRef} className="dv-media-el" src={mediaUrl} alt={file.name}
           crossOrigin="anonymous" onError={() => setFailed(true)}
           style={{ transform: `translate(${panX}px, ${panY}px) scale(${zoom})`, transition: isDragging ? 'none' : 'transform 120ms ease' }}
+        />
+      )}
+
+      {kind === 'image' && textReading && (textMode === 'on' || textHot >= 0) && (
+        <TextRegionsLayer
+          active={textHot}
+          activeSrc={textHotSrc}
+          bare={textMode !== 'on'}
+          mediaRef={mediaRef}
+          stageRef={stageRef}
+          reading={textReading}
+          transform={`translate(${panX}px, ${panY}px) scale(${zoom})`}
+          transition={isDragging ? 'none' : 'transform 120ms ease'}
         />
       )}
 
@@ -6383,8 +7029,11 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       {/* Selection-tool pill — top-centre over the media, Extract Tool style
           (replaces the old sidebar tool row + footer "Extract text" button).
           Only while the Extract-text side tab is active. Clicking a tool arms
-          it; clicking the armed tool again cancels the selection mode. */}
-      {rightTab === 'extract' && (
+          it; clicking the armed tool again cancels the selection mode.
+          VIDEO ONLY: on a picture the Quick actions' Extract text does this job
+          (every piece of text highlighted, click to copy), so the pill is gone
+          there; a video frame still has only the drag-to-read tools. */}
+      {rightTab === 'extract' && kind === 'video' && (
         <div className="dv-tool-pill-wrap">
           <div className="dv-tool-pill" onMouseDown={(e) => e.stopPropagation()}>
             {OCR_TOOLS.map((t) => (
@@ -6544,6 +7193,8 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
         <AdvisorPanel file={file} />
       ) : rightTab === 'metadata' ? (
         <MetadataPanel file={file} />
+      ) : rightTab === 'extracted' ? (
+        <TextPiecesList mediaRef={mediaRef} reading={textReading} busy={textMode === 'loading'} onExtract={toggleTextRegions} onHover={hoverTextPiece} />
       ) : rightTab === 'captions' ? (
         <CaptionsPanel file={file} url={url} currentTime={currentTime} onSeek={seekTo} onCaptionsChange={setCaptions} />
       ) : (
@@ -7793,7 +8444,6 @@ function SpreadsheetPane({ file, url, onExportPdf, onOpenNative }) {
             </div>
           ) : <span className="dv-sheet-bar-spacer" />}
           <OpenNativeButton onOpen={onOpenNative} kind="xlsx" />
-          {onExportPdf && <ExportPdfButton getRoot={() => tableRef.current} kind="xlsx" onExport={onExportPdf} />}
         </div>
       )}
       <div className="dv-sheet-scroll">
@@ -7843,10 +8493,34 @@ function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = 
   // Document / Paragraph sub-tab row INSIDE the advisor, because what it really
   // selects is which conversation you are in. Landing on Metadata when you
   // clicked a paragraph would be the wrong answer, so pull focus back.
-  const paraPicked = !!useMultitoolAdvisor()?.paraPicked;
+  const panelAdv = useMultitoolAdvisor();
+  const paraPicked = !!panelAdv?.paraPicked;
   useEffect(() => {
-    if (paraPicked) setRightTab((cur) => (cur === 'metadata' ? 'advisor' : cur));
+    if (paraPicked) setRightTab((cur) => (cur === 'advisor' ? cur : 'advisor'));
   }, [paraPicked]);
+  // A Word document brings two more tabs — **Theme** and **Add** — and a Quick
+  // actions section under the tab strip; all of it comes from the preview pane
+  // (`docTools`). Any other file has neither, and a tab that went away with the
+  // file must not stay selected.
+  const docTools = panelAdv?.docTools || null;
+  // An identity record brings **Sources** — the documents behind it and its
+  // history — published by IdentityPane (`recordPanel`).
+  const recordPanel = panelAdv?.recordPanel || null;
+  const panelTabs = docTools ? ['advisor', 'metadata', 'theme', 'add']
+    : recordPanel ? ['advisor', 'sources', 'metadata']
+      : ['advisor', 'metadata'];
+  useEffect(() => {
+    if (!docTools) setRightTab((cur) => (cur === 'theme' || cur === 'add' ? 'advisor' : cur));
+  }, [docTools]);
+  // …and it is the tab a record's panel OPENS on: what the record was read
+  // from, and the way more gets in, is what is wanted beside it first.
+  const hadRecordPanel = useRef(false);
+  useEffect(() => {
+    const has = !!recordPanel;
+    if (has && !hadRecordPanel.current) setRightTab('sources');
+    if (!has) setRightTab((cur) => (cur === 'sources' ? 'advisor' : cur));
+    hadRecordPanel.current = has;
+  }, [recordPanel]);
 
   useEffect(() => { setHistory(loadOcrHistory(file.storage_path)); }, [file.storage_path]);
   useEffect(() => { saveOcrHistory(file.storage_path, history); }, [file.storage_path, history]);
@@ -7903,8 +8577,84 @@ function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = 
     <aside className={`dv-ocr-history dv-doc-extract${fill ? ' dv-side-portal' : ''}`} style={fill ? undefined : { width: `${width}px` }}>
       {/* Documents get two panes: the Generate (AI) advisor and Metadata. Text
           extraction lives in the Multitool footer, not a tab. */}
-      <SidePanelTabs tabs={['advisor', 'metadata']} active={rightTab} onChange={setRightTab} slot={sideTabsSlot} />
-      {rightTab === 'metadata' ? <MetadataPanel file={file} /> : <AdvisorPanel file={file} />}
+      <SidePanelTabs tabs={panelTabs} active={rightTab} onChange={setRightTab} slot={sideTabsSlot} />
+      {/* Quick actions live in their own card above the panel (the viewer's
+          `quickSlot`); inline only if that card isn't there. */}
+      {docTools && (panelAdv?.quickSlot
+        ? createPortal(<DocQuickActions actions={docTools.actions} disabled={docTools.disabled} catalogue={QUICK_ACTIONS_ALL} />, panelAdv.quickSlot)
+        : <DocQuickActions actions={docTools.actions} disabled={docTools.disabled} catalogue={QUICK_ACTIONS_ALL} />)}
+      {rightTab === 'metadata' && <MetadataPanel file={file} />}
+      {rightTab === 'theme' && docTools && (
+        <div className="dv-ocr-history-scroll drb-panel">
+          {docTools.themeLockReason && <p className="drb-panel-note">{docTools.themeLockReason}.</p>}
+          <DocThemeGrid
+            themes={docTools.themes}
+            themeId={docTools.themeId}
+            onPickTheme={docTools.pickTheme}
+            lockReason={docTools.themeLockReason}
+          />
+        </div>
+      )}
+      {/* Add — intentionally empty for now. */}
+      {rightTab === 'add' && docTools && <div className="dv-ocr-history-scroll drb-panel" />}
+      {rightTab === 'sources' && recordPanel && (
+        <div className={`dv-ocr-history-scroll dvr-side${recordPanel.sources.length ? '' : ' is-empty'}`}>
+          {recordPanel.sources.length > 0 && <span className="dvr-side-title">Taken from</span>}
+          {recordPanel.sources.map((src) => (
+            <div className={`dvr-side-doc is-${src.state}`} key={src.name}>
+              <button type="button" className="dvr-side-docmain" onClick={() => recordPanel.pick(src.name)}>
+                <span className="dvr-side-thumb" aria-hidden="true">
+                  <FileThumbnail descriptor={src.descriptor} />
+                </span>
+                <span className="dvr-side-doctext">
+                  <span>{src.name}</span>
+                  <span>
+                    {src.state === 'reading' ? 'Reading…'
+                      : src.state === 'showing' ? 'Its data is under the fields'
+                        : src.state === 'error' ? 'Couldn’t be read — click to try again'
+                          : src.state === 'unread' ? 'Not read yet — click to read it'
+                            : src.fields ? `${src.fields} fields filled · click to see its data` : 'Click to see its data'}
+                  </span>
+                </span>
+              </button>
+              <div className="dvr-side-acts">
+                {src.canOpen && (
+                  <Tooltip content="Open the document">
+                    <button type="button" className="dvr-side-remove" aria-label={`Open ${src.name}`} onClick={() => recordPanel.open(src.name)}>
+                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M14 4h6v6" /><path d="M20 4l-9 9" /><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
+                      </svg>
+                    </button>
+                  </Tooltip>
+                )}
+                <Tooltip content="Remove from this record — the file itself is kept">
+                  <button
+                    type="button"
+                    className="dvr-side-remove is-danger"
+                    aria-label={`Remove ${src.name} from this record`}
+                    onClick={() => recordPanel.remove(src.name)}
+                  >
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M4 7h16" /><path d="M10 11v6M14 11v6" /><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" /><path d="M9 7V4h6v3" />
+                    </svg>
+                  </button>
+                </Tooltip>
+              </div>
+            </div>
+          ))}
+          {/* Nothing attached yet: the drop zone IS the tab — centred, no words
+              around it. With sources it becomes the tab's footer (below). */}
+          {!recordPanel.sources.length && (
+            <RecordDropZone centered onFiles={recordPanel.readFiles} onBrowse={recordPanel.browse} />
+          )}
+        </div>
+      )}
+      {rightTab === 'sources' && recordPanel && recordPanel.sources.length > 0 && (
+        <RecordDropZone onFiles={recordPanel.readFiles} onBrowse={recordPanel.browse} />
+      )}
+      {(rightTab === 'advisor'
+        || (rightTab === 'sources' && !recordPanel)
+        || ((rightTab === 'theme' || rightTab === 'add') && !docTools)) && <AdvisorPanel file={file} />}
       {false && (
       <>
       {/* "Extract text" lives in the shared Multitool footer. */}
@@ -8190,6 +8940,42 @@ function locateInSegments(segs, pos) {
 // Collapsing the range's original runs into one span means a placeholder split
 // mid-word by a formatting change comes out uniformly styled, which is what it
 // should have been.
+// A DocVex blank — `[[seller.legalName]]`, `[[the agreed price]]` — is shown the
+// way a printed form shows one: a ruled gap, "__________", about as long as what
+// goes there (a name gets a long one, a flat number a short one), instead of
+// the raw token, which is unreadable in running text.
+//
+// The token itself stays in the DOM as the span's text: everything that reads
+// the document — edit tracking, the markdown a save is diffed against, matching
+// a paragraph to its source piece, find — reads text, and must keep seeing
+// `[[…]]`. The dots are painted by CSS over it (`.dv-field.is-chip`: the token
+// at font-size 0, the rule as `::before`), which is why the rule and the size
+// to paint it at travel as attributes.
+//
+// Lengths are in dots (the rule is drawn with underscores, scaled to match —
+// see fieldChipLabel), by what the record field usually holds.
+const FIELD_DOTS = {
+  legalName: 42, aka: 30, representative: 38, repCapacity: 24,
+  nationalId: 22, taxId: 16, regNo: 22, legalForm: 12,
+  dateOfBirth: 18, idIssuedAt: 18, placeOfBirth: 28, nationality: 18,
+  idType: 8, idDocument: 22, idSeries: 6, idNumber: 12, idIssuer: 28,
+  address: 56, addressStreet: 34, addressNumber: 6, addressBlock: 6, addressStair: 5,
+  addressFloor: 5, addressApartment: 6, addressLocality: 26, addressCounty: 22,
+  addressSector: 6, addressCountyOrSector: 22, addressPostalCode: 10,
+  city: 26, county: 22, country: 20,
+  iban: 40, bank: 30, email: 32, phone: 18,
+};
+function fieldChipLabel(raw) {
+  const m = /^\[\[([\s\S]+)\]\]$/.exec(String(raw || ''));
+  if (!m) return '';
+  const info = constructorFieldInfo(m[1].trim());
+  // A free-text blank says what it wants in its own words; how long those are
+  // is the only hint there is to how long the answer will be.
+  const n = (info.key && FIELD_DOTS[info.key])
+    || Math.max(14, Math.min(44, Math.round(String(info.label || '').length * 1.1)));
+  return '_'.repeat(Math.round(n * 0.6)); // an underscore is about twice a dot's width
+}
+
 function wrapFieldRange(segs, hit, id) {
   const from = locateInSegments(segs, hit.start);
   const to = locateInSegments(segs, hit.start + hit.raw.length);
@@ -8203,6 +8989,13 @@ function wrapFieldRange(segs, hit, id) {
     span.dataset.dvfield = id;
     span.dataset.dvfieldRaw = hit.raw;
     span.textContent = hit.raw;
+    const chip = fieldChipLabel(hit.raw);
+    if (chip) {
+      span.classList.add('is-chip');
+      span.dataset.label = chip;
+      const host = from.node.parentElement;
+      if (host) span.style.setProperty('--dvf-size', getComputedStyle(host).fontSize);
+    }
     range.deleteContents();
     range.insertNode(span);
     return true;
@@ -8333,6 +9126,199 @@ function clearDocFields(host) {
 }
 
 const PARA_BLOCK_TAGS = /^(P|H[1-6]|LI)$/;
+const pickedKeyForVersions = (paras) => (paras || []).map((pp) => pp.index).join(',');
+
+// ── A piece's text, as markup for the rendered paragraph ─────────────────
+// While the Constructor panel is open under a picked paragraph, the paragraph
+// shows what the clause reads as NOW — the value being typed, the party being
+// hovered — instead of what the file says. The piece's source text is the same
+// markdown-ish shape the builder reads (`**bold**`, `*italic*`, `[[blanks]]`),
+// so it is turned into the same few inline elements, inside one span carrying
+// the run formatting the paragraph already had (docx-preview puts font, size
+// and colour on the runs, not the paragraph — bare text would fall back to the
+// page's defaults and visibly change face).
+const escHtml = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function constructorTextToHtml(text, runStyle, fontSize) {
+  const size = fontSize ? ` style="--dvf-size:${fontSize}"` : '';
+  const html = escHtml(text)
+    .replace(/\[\[([^[\]]+?)\]\]/g, (all, raw) => (
+      `<span class="dv-field is-chip" data-label="${escHtml(fieldChipLabel(all)).replace(/"/g, '&quot;')}"${size}>[[${raw}]]</span>`
+    ))
+    .replace(/(\*\*|__)(.+?)\1/g, '<strong>$2</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/`([^`\n]+)`/g, '$1');
+  return `<span style="${escHtml(runStyle || '').replace(/"/g, '&quot;')}">${html}</span>`;
+}
+// The formatting of the paragraph's main run: the styled leaf span holding the
+// most text (so a bold clause number up front doesn't make the whole line bold).
+function mainRunStyle(block) {
+  let best = null;
+  block.querySelectorAll('span[style]').forEach((sp) => {
+    if (sp.querySelector('span[style]')) return;
+    const n = (sp.textContent || '').length;
+    if (!best || n > best.n) best = { n, css: sp.style.cssText, size: getComputedStyle(sp).fontSize };
+  });
+  return { css: best?.css || '', size: best?.size || getComputedStyle(block).fontSize };
+}
+
+// ── Splitting a block at the bottom margin ───────────────────────────────
+// Word never pushes a whole paragraph to the next page just because its last
+// line doesn't fit: it breaks between two lines and carries the rest over. These
+// do the same to the rendered flow. `avail` is the height (layout px) left for
+// the block's border box on the current page. On success the block is cut down
+// IN PLACE to the part that fits and the remainder is returned, already inserted
+// right after it in the flow (so it can be measured like any other block);
+// null means "can't be split here" and the caller moves the block whole.
+let docxSplitSeq = 0;
+
+function splitDocxBlock(block, avail, cs) {
+  if (!(avail > 0)) return null;
+  try {
+    if (block.tagName === 'TABLE') return splitDocxTable(block, avail);
+    if (PARA_BLOCK_TAGS.test(block.tagName)) return splitDocxParagraph(block, avail, cs);
+  } catch (err) {
+    console.error('[doc-viewer] could not split a block across pages', err);
+  }
+  return null;
+}
+
+function splitDocxParagraph(block, avail, cs) {
+  const boxH = block.offsetHeight;
+  if (!boxH) return null;
+  const pRect = block.getBoundingClientRect();
+  // Client rects are in viewport px, offsets in layout px — the pane's
+  // fit-to-width scaling sits between the two.
+  const scale = pRect.height / boxH || 1;
+  const padB = (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+  const limit = pRect.top + (avail - padB) * scale + 0.5;
+
+  // The paragraph's line boxes, read off its text: a Range over one text node
+  // yields a rect per line it touches; merged by vertical overlap they are the
+  // lines, whatever mix of runs and font sizes each is made of.
+  const doc = block.ownerDocument;
+  const walker = doc.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.data.length) nodes.push(n);
+  if (!nodes.length) return null;
+  const range = doc.createRange();
+  const lines = [];
+  for (const n of nodes) {
+    range.selectNodeContents(n);
+    for (const r of range.getClientRects()) {
+      if (!r.height || !r.width) continue;
+      const last = lines[lines.length - 1];
+      if (last && r.top < last.bottom - Math.min(r.height, last.bottom - last.top) / 2) {
+        last.top = Math.min(last.top, r.top);
+        last.bottom = Math.max(last.bottom, r.bottom);
+      } else {
+        lines.push({ top: r.top, bottom: r.bottom });
+      }
+    }
+  }
+  // Widow / orphan control, on by default in Word: never fewer than two lines
+  // of a paragraph on either side of the break.
+  let keep = 0;
+  while (keep < lines.length && lines[keep].bottom <= limit) keep += 1;
+  if (lines.length - keep < 2) keep = lines.length - 2;
+  if (keep < 2) return null;
+
+  // First character of the first carried-over line. Monotonic in document
+  // order, so bisect; whitespace swallowed by the wrap has no rect of its own
+  // and takes its answer from the next character that does.
+  const startY = lines[keep].top - 0.5;
+  const starts = [];
+  let total = 0;
+  for (const n of nodes) { starts.push(total); total += n.data.length; }
+  const locate = (k) => {
+    let i = starts.length - 1;
+    while (i > 0 && starts[i] > k) i -= 1;
+    return [nodes[i], k - starts[i]];
+  };
+  const isCarried = (k) => {
+    for (let j = k; j < total; j += 1) {
+      const [n, o] = locate(j);
+      range.setStart(n, o); range.setEnd(n, o + 1);
+      const r = range.getClientRects()[0];
+      if (r && r.height) return (r.top + r.bottom) / 2 > startY;
+    }
+    return true;
+  };
+  let lo = 0;
+  let hi = total;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (isCarried(mid)) hi = mid; else lo = mid + 1;
+  }
+  if (lo <= 0 || lo >= total) return null;
+
+  const [cutNode, cutOffset] = locate(lo);
+  const spaced = cutOffset === 0
+    || /\s$/.test(cutNode.data.slice(0, cutOffset))
+    || /^\s/.test(cutNode.data.slice(cutOffset));
+  const fullText = block.dataset.splitFull || block.textContent.trim();
+  range.setStart(cutNode, cutOffset);
+  range.setEndAfter(block.lastChild);
+  const rest = block.cloneNode(false);
+  rest.removeAttribute('id');
+  rest.appendChild(range.extractContents());
+  if (!rest.textContent.trim() || !block.textContent.trim()) {
+    // Degenerate cut — put it back rather than leave an empty half behind.
+    block.append(...Array.from(rest.childNodes));
+    return null;
+  }
+
+  // The halves are ONE paragraph of the document. They share an id and the
+  // paragraph's full text, and each remembers how it joins the next, so an
+  // edit made to either half is saved as an edit of the whole paragraph (see
+  // syncEdits) instead of overwriting it with half of itself.
+  const splitId = block.dataset.splitId || `s${docxSplitSeq += 1}`;
+  for (const el of [block, rest]) {
+    el.dataset.splitId = splitId;
+    el.dataset.splitFull = fullText;
+  }
+  block.dataset.splitJoin = spaced ? ' ' : '';
+  // No paragraph spacing at the break, and a justified paragraph stays
+  // justified through the line it was cut at — that line is no longer its last.
+  block.style.marginBottom = '0px';
+  if (cs.textAlign === 'justify') block.style.textAlignLast = 'justify';
+  // The remainder is a continuation: no space before, no first-line indent, and
+  // no second bullet / number (`.dv-docx-cont` in DocViewer.css).
+  rest.classList.add('dv-docx-cont');
+  rest.style.marginTop = '0px';
+  rest.style.textIndent = '0px';
+  block.after(rest);
+  return rest;
+}
+
+function splitDocxTable(table, avail) {
+  const rows = Array.from(table.rows).filter((r) => r.closest('table') === table);
+  if (rows.length < 2) return null;
+  const tRect = table.getBoundingClientRect();
+  const scale = tRect.height / (table.offsetHeight || 1) || 1;
+  const limit = tRect.top + avail * scale + 0.5;
+  let keep = 0;
+  while (keep < rows.length && rows[keep].getBoundingClientRect().bottom <= limit) keep += 1;
+  // Never cut through a vertically merged cell.
+  while (keep > 0 && Array.from(rows[keep - 1].cells).some((c) => c.rowSpan > 1)) keep -= 1;
+  if (keep <= 0 || keep >= rows.length) return null;
+
+  const rest = table.cloneNode(false);
+  rest.removeAttribute('id');
+  const cols = table.querySelector(':scope > colgroup');
+  if (cols) rest.appendChild(cols.cloneNode(true));
+  let group = null;     // the carried rows' <tbody>, when the table has one
+  let groupFor = null;
+  for (const row of rows.slice(keep)) {
+    const parent = row.parentNode;
+    if (parent === table) { rest.appendChild(row); continue; }
+    if (parent !== groupFor) { groupFor = parent; group = parent.cloneNode(false); rest.appendChild(group); }
+    group.appendChild(row);
+  }
+  table.style.marginBottom = '0px';
+  rest.style.marginTop = '0px';
+  table.after(rest);
+  return rest;
+}
 
 function paginateDocx(host) {
   const wrapper = host?.querySelector('.docx-wrapper');
@@ -8346,7 +9332,13 @@ function paginateDocx(host) {
   for (const section of sections) {
     const cs = getComputedStyle(section);
     const padTop = parseFloat(cs.paddingTop) || 0;
-    const padBottom = parseFloat(cs.paddingBottom) || 0;
+    // The bottom margin is the document's own (Word's is whatever the section
+    // says). A document that defines none still gets one — Word's default, one
+    // inch — because a sheet whose text runs to its edge is not a page. It is
+    // written onto every sheet explicitly below, so it never depends on which
+    // stylesheet happens to reach the clone.
+    const docPadBottom = parseFloat(cs.paddingBottom) || 0;
+    const padBottom = docPadBottom >= 1 ? docPadBottom : DOCX_DEFAULT_BOTTOM_MARGIN;
     const width = section.offsetWidth;
     if (width > pageWidth) pageWidth = width;
     // Page height: docx-preview sets the section's min-height to the page height.
@@ -8373,69 +9365,221 @@ function paginateDocx(host) {
       pg.classList.add('dv-docx-page');
       pg.style.minHeight = `${pageH}px`;
       pg.style.height = `${pageH}px`;
+      pg.style.boxSizing = 'border-box';
+      pg.style.paddingBottom = `${padBottom}px`;
+      // Opened by overflow (not by the section itself) — settleDocxPages may
+      // flow text into the top of a sheet like this, never into a section's
+      // first page.
+      if (pages.length > 0 || cur) pg.dataset.dvCont = '1';
       const art = articleTemplate.cloneNode(false);
       pg.appendChild(art);
       return { pg, art };
     };
 
+    // A multi-column article lays its blocks out side by side, so "how far down
+    // the page are we" can't be read off a running height — leave those whole.
+    const canSplit = !(parseInt(getComputedStyle(articleTemplate).columnCount, 10) > 1);
+
+    // Fill each page the way Word does: down to the bottom margin and no
+    // further. `y` is the bottom edge of the last placed block's border box,
+    // measured from the top of the text area; the gap to the next block is the
+    // LARGER of the two facing margins, because that is what the browser will
+    // actually lay out (adjacent vertical margins collapse). A block that would
+    // cross the bottom margin is split there — a paragraph between two lines, a
+    // table between two rows — and the remainder carries on at the top of the
+    // next page. So the distance from the last line to the page's edge is the
+    // document's bottom margin on every page, not whatever was left over after
+    // the last whole paragraph that happened to fit.
     const pages = [];
-    let cur = makePage();
-    let used = 0;
-    for (const block of blocks) {
+    let cur = null;
+    cur = makePage();
+    let y = 0;
+    let prevMb = 0;
+    let placed = 0;        // blocks on the current page
+    let continued = false; // this page was opened by overflow, not by the section
+    const newPage = () => {
+      pages.push(cur);
+      cur = makePage();
+      y = 0; prevMb = 0; placed = 0; continued = true;
+    };
+    // Stamp a text block as a selectable paragraph (see below).
+    const stampPara = (block) => {
+      if (!(PARA_BLOCK_TAGS.test(block.tagName) && block.textContent.trim())) return;
+      block.classList.add('dv-docx-para');
+      block.dataset.paraIndex = String(paraIndex++);
+      const pcs = getComputedStyle(block);
+      const overhang = -(parseFloat(pcs.textIndent) || 0);
+      if (overhang > 0) {
+        block.style.paddingLeft = `${(parseFloat(pcs.paddingLeft) || 0) + overhang}px`;
+        block.style.marginLeft = `${(parseFloat(pcs.marginLeft) || 0) - overhang}px`;
+      }
+    };
+    for (let bi = 0; bi < blocks.length; bi += 1) {
+      const block = blocks[bi];
+      // Hidden under a folded heading (applyDocFolds ran on this flow already):
+      // it takes no room, so it rides along on the open sheet without touching
+      // the running height — but it is still a paragraph of the document, in
+      // order, with its index.
+      if (block.classList.contains('dv-folded')) {
+        stampPara(block);
+        cur.art.appendChild(block);
+        continue;
+      }
       // Measure BEFORE moving it (still laid out at full page width here).
       const ccs = getComputedStyle(block);
       const mt = parseFloat(ccs.marginTop) || 0;
-      const mb = parseFloat(ccs.marginBottom) || 0;
-      const h = block.offsetHeight + mt + mb;
-      if (used > 0 && used + h > contentH) {
-        pages.push(cur);
-        cur = makePage();
-        used = 0;
+      // Word drops a paragraph's "space before" at the top of a page it broke
+      // onto by itself; only a section's own first page keeps it.
+      const gapNow = () => (placed === 0 ? (continued ? 0 : mt) : Math.max(prevMb, mt));
+      let gap = gapNow();
+      if (y + gap + block.offsetHeight > contentH + 0.5) {
+        let rest = canSplit ? splitDocxBlock(block, contentH - y - gap, ccs) : null;
+        if (!rest && placed > 0) {
+          // Nothing of it fits in what's left — try again with a whole page.
+          newPage();
+          gap = gapNow();
+          if (canSplit && gap + block.offsetHeight > contentH + 0.5) {
+            rest = splitDocxBlock(block, contentH - gap, ccs);
+          }
+        }
+        if (rest) blocks.splice(bi + 1, 0, rest);
       }
+      if (placed === 0 && continued && mt > 0) { block.dataset.dvMt = block.style.marginTop || ''; block.style.marginTop = '0px'; }
+      const h = block.offsetHeight;
+      const mb = parseFloat(ccs.marginBottom) || 0;
       // Paragraph-level affordance: every block that actually carries text gets
       // a document-order index so the pane can hover-highlight it and toggle it
       // into a selection. Empty spacer paragraphs stay inert (Word documents are
       // full of them and highlighting blank strips reads as noise).
-      if (PARA_BLOCK_TAGS.test(block.tagName) && block.textContent.trim()) {
-        block.classList.add('dv-docx-para');
-        block.dataset.paraIndex = String(paraIndex++);
-        // Word list items hang their bullet / number to the LEFT of the text
-        // box (docx-preview renders them as `display:list-item` with a negative
-        // text-indent), so a highlight painted on the box alone leaves the dot
-        // stranded outside it. Grow the box leftwards by exactly the overhang
-        // and pull the margin back by the same amount: the content box width —
-        // and therefore the line wrapping and the measured height — is
-        // unchanged, but the marker is now inside the paint area.
-        const pcs = getComputedStyle(block);
-        const overhang = -(parseFloat(pcs.textIndent) || 0);
-        if (overhang > 0) {
-          block.style.paddingLeft = `${(parseFloat(pcs.paddingLeft) || 0) + overhang}px`;
-          block.style.marginLeft = `${(parseFloat(pcs.marginLeft) || 0) - overhang}px`;
-        }
-      }
+      // Word list items hang their bullet / number to the LEFT of the text
+      // box (docx-preview renders them as `display:list-item` with a negative
+      // text-indent), so a highlight painted on the box alone leaves the dot
+      // stranded outside it. stampPara grows the box leftwards by exactly the
+      // overhang and pulls the margin back by the same amount: the content box
+      // width — and therefore the line wrapping and the measured height — is
+      // unchanged, but the marker is now inside the paint area.
+      stampPara(block);
       cur.art.appendChild(block); // moves the node out of its original article
-      used += h;
+      y += gap + h;
+      prevMb = mb;
+      placed += 1;
     }
     pages.push(cur);
     for (const { pg } of pages) { wrapper.insertBefore(pg, section); allPages.push(pg); }
     section.remove();
   }
 
-  // Stamp each page with its number (toggled visible via the host's
-  // `show-pagenums` class). Sits in the bottom margin like a Word footer.
-  allPages.forEach((pg, i) => {
-    const label = host.ownerDocument.createElement('div');
-    label.className = 'dv-docx-pagenum';
-    label.textContent = `${i + 1} / ${allPages.length}`;
-    pg.appendChild(label);
-  });
+  // The running heights above are arithmetic; this checks them against what
+  // the browser actually laid out and moves anything that crossed the margin.
+  settleDocxPages(host);
+  numberDocxPages(host);
   return pageWidth;
 }
 
-// Renders a .docx with a Render / Plain text toggle (the same two views Claude
-// "Convert to PDF" / "Export PDF" — captures the live rendered preview (`getRoot`)
-// to a PDF and hands the Blob to `onExport` (which saves it next to the original).
-// Shown on every office preview's toolbar. Reports working / done / failed inline.
+// Word's default bottom margin — one inch.
+const DOCX_DEFAULT_BOTTOM_MARGIN = 96;
+
+// Stamp each page with its number (toggled visible via the host's
+// `show-pagenums` class). Sits in the bottom margin like a Word footer.
+function numberDocxPages(host) {
+  const pages = Array.from(host?.querySelectorAll('.docx-wrapper > .dv-docx-page') || []);
+  pages.forEach((pg, i) => {
+    let label = pg.querySelector(':scope > .dv-docx-pagenum');
+    if (!label) {
+      label = host.ownerDocument.createElement('div');
+      label.className = 'dv-docx-pagenum';
+      pg.appendChild(label);
+    }
+    label.textContent = `${i + 1} / ${pages.length}`;
+  });
+}
+
+// Keep every sheet's bottom margin CLEAR, measured rather than assumed.
+//
+// paginateDocx fills pages from block heights taken before the blocks were
+// moved. That is right at the moment it runs and wrong a moment later, because
+// the document keeps changing under it: blanks get wrapped in markers, a web
+// font lands, docx-preview positions its tab stops — each can re-wrap a line,
+// and a page that was exactly full now runs into its bottom margin (the sheet
+// clips at its EDGE, so the text simply sits where the margin should be).
+//
+// So this looks at the real layout: on each sheet, anything whose bottom edge is
+// past the margin line goes to the top of the next sheet — the block that
+// straddles the line is split there first, the way paginateDocx would have — and
+// the walk carries on through the following sheets, which may now overflow in
+// turn. Cheap when nothing moved (one rect per sheet), and safe to call again
+// whenever the layout may have shifted. Returns true if anything moved.
+function settleDocxPages(host) {
+  const wrapper = host?.querySelector('.docx-wrapper');
+  if (!wrapper) return false;
+  // Never while a paragraph is lifted out of its page — its box is elsewhere.
+  if (host.querySelector('.dv-docx-para.is-lifted, .dv-docx-para.is-landing')) return false;
+  const pages = Array.from(wrapper.querySelectorAll(':scope > .dv-docx-page'));
+  let changed = false;
+  for (let i = 0; i < pages.length; i += 1) {
+    const pg = pages[i];
+    const art = pg.querySelector(':scope > article');
+    if (!art || art.children.length === 0) continue;
+    if (parseInt(getComputedStyle(art).columnCount, 10) > 1) continue;
+    const pr = pg.getBoundingClientRect();
+    const scale = (pg.offsetHeight ? pr.height / pg.offsetHeight : 1) || 1;
+    const pcs = getComputedStyle(pg);
+    const limit = pr.bottom - ((parseFloat(pcs.paddingBottom) || 0) + (parseFloat(pcs.borderBottomWidth) || 0)) * scale + 0.75;
+    // (By its last VISIBLE block: one hidden under a folded heading has no box.)
+    const lastShown = Array.from(art.children).reverse().find((el) => !el.classList.contains('dv-folded'));
+    if (!lastShown || lastShown.getBoundingClientRect().bottom <= limit) continue;
+
+    // First block that crosses the line. The first block of a sheet always
+    // stays (split if it can be): a sheet has to hold something, or a block
+    // taller than a page would be passed down the document for ever.
+    const kids = Array.from(art.children);
+    let k = kids.findIndex((el) => el.getBoundingClientRect().bottom > limit);
+    if (k < 0) continue;
+    const straddler = kids[k];
+    const room = (limit - straddler.getBoundingClientRect().top) / scale;
+    const rest = splitDocxBlock(straddler, room, getComputedStyle(straddler));
+    let moving;
+    if (rest) {
+      // A half cloned from a block that had already been picked must not carry
+      // that paragraph's edit bookkeeping with it.
+      ['originalText', 'originalHtml', 'originalMd', 'ctorText'].forEach((key) => { delete rest.dataset[key]; });
+      rest.classList.remove('is-selected', 'is-edited', 'is-ctor');
+      rest.removeAttribute('contenteditable');
+      moving = [rest, ...kids.slice(k + 1)];
+    } else {
+      if (k === 0) k = 1;
+      moving = kids.slice(k);
+    }
+    if (!moving.length) continue;
+
+    let next = pages[i + 1];
+    if (!next || next.dataset.dvCont !== '1') {
+      next = pg.cloneNode(false);
+      next.dataset.dvCont = '1';
+      next.appendChild(art.cloneNode(false));
+      pg.after(next);
+      pages.splice(i + 1, 0, next);
+    }
+    const nextArt = next.querySelector(':scope > article');
+    // The block that led the next sheet had its space-before dropped for being
+    // first; it isn't first any more.
+    const oldFirst = nextArt.firstElementChild;
+    if (oldFirst && oldFirst.dataset.dvMt != null) {
+      oldFirst.style.marginTop = oldFirst.dataset.dvMt;
+      delete oldFirst.dataset.dvMt;
+    }
+    nextArt.prepend(...moving);
+    const newFirst = nextArt.firstElementChild;
+    if (newFirst && (parseFloat(getComputedStyle(newFirst).marginTop) || 0) > 0) {
+      newFirst.dataset.dvMt = newFirst.style.marginTop || '';
+      newFirst.style.marginTop = '0px';
+    }
+    changed = true;
+  }
+  if (changed) numberDocxPages(host);
+  return changed;
+}
+
 // "Open in Word / PowerPoint / Excel" — hands the file to the OS default app
 // for its type. The in-app preview is a reconstruction of the file; this is
 // the escape hatch to the real thing. Electron only — `openPath` is a no-op
@@ -8453,41 +9597,6 @@ function OpenNativeButton({ onOpen, kind }) {
           <path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
         </svg>
         Open in {app}
-      </button>
-    </Tooltip>
-  );
-}
-
-// `makeBlob` replaces the default capture of the rendered pages — the
-// Constructor has no rendered pages to capture, so it builds the PDF from the
-// document's source instead.
-function ExportPdfButton({ getRoot, kind, onExport, makeBlob = null, label = 'Convert to PDF' }) {
-  const [state, setState] = useState('idle'); // idle | working | done | error
-  const run = async () => {
-    if (state === 'working') return;
-    const root = makeBlob ? null : getRoot?.();
-    if (!makeBlob && !root) { setState('error'); window.setTimeout(() => setState('idle'), 2200); return; }
-    setState('working');
-    try {
-      const blob = makeBlob ? await makeBlob() : await renderedOfficeToPdfBlob(root, kind);
-      await onExport?.(blob);
-      setState('done');
-      window.setTimeout(() => setState((s) => (s === 'done' ? 'idle' : s)), 2200);
-    } catch {
-      setState('error');
-      window.setTimeout(() => setState((s) => (s === 'error' ? 'idle' : s)), 2600);
-    }
-  };
-  return (
-    <Tooltip content="Save this document as a PDF next to the original">
-      <button
-        type="button"
-        className={`dv-pdf-export is-${state}`}
-        onClick={run}
-        disabled={state === 'working'}
-      >
-        <span className="dv-pdf-export-dot" aria-hidden="true" />
-        {state === 'working' ? 'Converting…' : state === 'done' ? 'Saved PDF ✓' : state === 'error' ? 'Couldn’t convert' : label}
       </button>
     </Tooltip>
   );
@@ -8577,8 +9686,382 @@ function serializeParagraphMarkdown(el) {
 // Renders a .docx as the formatted final product via docx-preview, re-paginated
 // into Word-like page sheets. Toolbar carries the reconstruction notice, a
 // per-page page-number toggle, Open-in-Word and Convert-to-PDF.
-function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
+// ── Collapsible headings (Word's "collapse / expand") ────────────────────
+// In Word a heading carries a small triangle; folding it hides everything under
+// it, down to the next heading of the same or a higher level. Same here, for
+// every heading of the preview — the document's styled ones (Heading 1…9) and,
+// because legal drafts so often fake theirs, a paragraph that merely READS as
+// one: short, set all in bold, and either numbered ("3. OBIECTUL") or in
+// capitals. The document's Title is not foldable (it isn't in Word either).
+//
+// State lives on the DOM like everything else in this pane (the nodes are
+// docx-preview's): `.dv-fold-head` + `data-fold-level` on a heading,
+// `.is-collapsed` on a folded one, `.dv-folded` on every block a fold hides.
+//
+// A fold RE-PAGINATES, the way Word does: the sheets keep their size and the
+// text is dealt out across them again. Nothing in this pane can flow text back
+// UP across sheets that are already sliced (paragraphs are cut in two at page
+// breaks, and the halves can't be rejoined), so the document is rendered again
+// instead — the folds are marked and applied on the off-stage flow BEFORE
+// paginateDocx slices it, and a hidden block takes no room on a page (it just
+// rides along on whichever sheet is open, so document order and the paragraph
+// indices stay what they were). See the render effect in DocxRenderPane.
+//
+// The one exception is a document holding typed-in edits that aren't saved yet:
+// a re-render would drop them, so there the fold is applied in place and the
+// sheets that lose blocks get shorter (`shrinkPages`) until the next render.
+//
+// The selector fits both shapes of the flow: docx-preview's sections before
+// pagination, and the page sheets (clones of those sections) after it.
+const FOLD_BLOCKS = '.docx-wrapper > section > article > *';
+function docFoldLevel(block) {
+  if (!PARA_BLOCK_TAGS.test(block.tagName) || block.classList.contains('dv-docx-cont')) return 0;
+  const text = (block.dataset.splitFull || block.textContent || '').trim();
+  if (!text) return 0;
+  const tag = /^H([1-6])$/.exec(block.tagName);
+  if (tag) return Number(tag[1]);
+  const cls = String(block.className || '');
+  if (/_title|subtitle/i.test(cls)) return 0;
+  const styled = /heading\s*_?(\d)/i.exec(cls);
+  if (styled) return Number(styled[1]) || 1;
+  // A paragraph that only reads as a heading.
+  // (A blank is tested for by its TOKEN, not its marker span: this runs on the
+  // flow before the blanks are wrapped and again after, and must agree.)
+  if (text.length > 90 || /[.;,:]$/.test(text) || /\[\[/.test(text) || block.querySelector('table, img')) return 0;
+  const numbered = /^(\d{1,3}(?:\.\d{1,3}){0,3})\.?\s+\S/.exec(text);
+  const letters = text.replace(/[^\p{L}]/gu, '');
+  const capitals = letters.length >= 4 && letters === letters.toUpperCase();
+  if (!numbered && !capitals) return 0;
+  const runs = Array.from(block.querySelectorAll('span')).filter((sp) => !sp.children.length && sp.textContent.trim());
+  if (!runs.length) return 0;
+  const bold = runs.every((sp) => (parseInt(getComputedStyle(sp).fontWeight, 10) || 400) >= 600);
+  if (!bold) return 0;
+  // Below every styled heading, and one deeper per dotted part ("2" < "2.1").
+  return 9 + (numbered ? numbered[1].split('.').length : 1);
+}
+const docFoldKey = (block) => (block.dataset.splitFull || block.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+function markDocFolds(host) {
+  const blocks = Array.from(host?.querySelectorAll(FOLD_BLOCKS) || []);
+  const levels = blocks.map((block) => docFoldLevel(block));
+  blocks.forEach((block, i) => {
+    const level = levels[i];
+    // A heading with nothing under it (the last block, or one straight before
+    // its own sibling heading) has nothing to fold.
+    let n = i + 1;
+    while (n < blocks.length && !(blocks[n].textContent || '').trim()) n += 1;
+    const foldable = level > 0 && n < blocks.length && !(levels[n] > 0 && levels[n] <= level);
+    block.classList.toggle('dv-fold-head', foldable);
+    if (foldable) block.dataset.foldLevel = String(level); else delete block.dataset.foldLevel;
+  });
+}
+function applyDocFolds(host, folded, { shrinkPages = false } = {}) {
+  if (!host) return;
+  let hideBelow = 0; // level of the collapsed heading everything is currently hidden under
+  for (const block of Array.from(host.querySelectorAll(FOLD_BLOCKS))) {
+    if (block.classList.contains('dv-docx-livecard') || block.classList.contains('dv-docx-livehead')) continue;
+    const isHead = block.classList.contains('dv-fold-head');
+    const level = isHead ? Number(block.dataset.foldLevel) || 0 : 0;
+    if (isHead && hideBelow && level <= hideBelow) hideBelow = 0;
+    block.classList.toggle('dv-folded', hideBelow > 0);
+    if (isHead) {
+      const collapsed = folded.has(docFoldKey(block));
+      block.classList.toggle('is-collapsed', collapsed);
+      if (collapsed && !hideBelow) hideBelow = level;
+    }
+  }
+  host.querySelectorAll('.docx-wrapper > .dv-docx-page').forEach((pg) => {
+    const kids = Array.from(pg.querySelectorAll(':scope > article > *'));
+    const hidden = kids.filter((el) => el.classList.contains('dv-folded')).length;
+    pg.classList.toggle('has-folded', shrinkPages && hidden > 0);
+    pg.classList.toggle('is-all-folded', shrinkPages && kids.length > 0 && hidden === kids.length);
+  });
+}
+
+// ── The paragraphs' hover pill ───────────────────────────────────────────
+// Every paragraph of the Word preview gets the app's morph pill (the Files
+// tiles' — components/useMorphPill): hovering shows a cursor-following tooltip
+// that names the block, right-clicking morphs that same pill into a dropdown
+// with **Open** (the pick-and-zoom a plain click makes).
+//
+// The paragraphs are docx-preview's nodes, not React's, so the pill is fed by
+// NATIVE listeners delegated on the host. It lives in its own component because
+// the hook re-renders on every mouse move, and the pane it serves is far too
+// big to re-render at that rate. The handlers are read through a ref: they are
+// bound once, and the hook's own are re-made (with fresh state) every render.
+const PARA_BLOCKS = '.dv-docx-page :is(p, h1, h2, h3, h4, h5, h6, li)';
+function DocParaPill({ hostRef, onOpen, onToggleFold }) {
+  const targetRef = useRef(null); // the block the pill is about
+  const [label, setLabel] = useState('Paragraph');
+  // Whether the block is a foldable heading, and folded — read when the pill
+  // turns to a block and again when its menu opens.
+  const [fold, setFold] = useState(null); // null | 'open' | 'collapsed'
+  const morph = useMorphPill({
+    hoverContent: label,
+    menuItems: [
+      {
+        key: 'open',
+        label: 'Open',
+        onClick: () => { const el = targetRef.current; if (el?.isConnected) onOpen?.(el); },
+      },
+      fold && {
+        key: 'fold',
+        label: fold === 'collapsed' ? 'Expand' : 'Collapse',
+        onClick: () => { const el = targetRef.current; if (el?.isConnected) onToggleFold?.(el); },
+      },
+    ],
+  });
+  const morphRef = useRef(morph);
+  morphRef.current = morph;
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+    // The block under the pointer that the pill may speak for: not while the
+    // document is zoomed in on a paragraph (the veil makes that state modal),
+    // not the picked paragraph's own preview copy / heading card, not the
+    // picked paragraph itself, and not text-less blocks (spacers).
+    const blockUnder = (e) => {
+      if (host.parentElement?.classList.contains('is-zoom-live')) return null;
+      if (e.target.closest?.('.dv-docx-livecard, .dv-docx-livehead')) return null;
+      const el = e.target.closest?.(PARA_BLOCKS);
+      if (!el || !host.contains(el) || el.classList.contains('is-selected')) return null;
+      return (el.textContent || '').trim() ? el : null;
+    };
+    const nameOf = (el) => {
+      if (/^H[1-6]$/.test(el.tagName) || /heading|_title|subtitle/i.test(el.className || '')) return 'Heading';
+      const m = /^\s*((?:\d{1,3}(?:\.\d{1,3}){0,4}\.?)|(?:\(?[a-z]\))|(?:\(?[ivx]{1,5}\))|(?:\(\d{1,3}\)))(?=\s)/i
+        .exec((el.dataset.splitFull || el.textContent || '').slice(0, 24));
+      return m ? `Paragraph ${m[1].replace(/\.$/, '')}` : 'Paragraph';
+    };
+    const foldOf = (el) => (!el.classList.contains('dv-fold-head') ? null
+      : (el.classList.contains('is-collapsed') ? 'collapsed' : 'open'));
+    const onMove = (e) => {
+      const m = morphRef.current;
+      if (m.isMenuOpen) return;
+      // A button held down is a drag-select in progress, not a hover.
+      const el = e.buttons ? null : blockUnder(e);
+      if (!el) { targetRef.current = null; m.handleMouseLeave(); return; }
+      if (targetRef.current !== el) { targetRef.current = el; setLabel(nameOf(el)); setFold(foldOf(el)); }
+      m.handleMouseMove(e);
+    };
+    const onLeave = () => {
+      const m = morphRef.current;
+      if (m.isMenuOpen) return;
+      targetRef.current = null;
+      m.handleMouseLeave();
+    };
+    const onMenu = (e) => {
+      const el = blockUnder(e);
+      if (!el) return; // the page margin keeps the system's menu
+      targetRef.current = el;
+      setLabel(nameOf(el));
+      setFold(foldOf(el));
+      morphRef.current.handleContextMenu(e);
+    };
+    // A LEFT click picks the paragraph — the tooltip has said its piece. Only
+    // the left button: a right-click's mousedown comes before its contextmenu,
+    // and taking the tooltip down here would leave the menu nothing to morph
+    // OUT of (the FLIP scales up from the tooltip's rect — no tooltip, no morph,
+    // the menu just appears).
+    const onDown = (e) => {
+      if (e.button !== 0 || morphRef.current.isMenuOpen) return;
+      morphRef.current.handleMouseLeave();
+    };
+    host.addEventListener('mousemove', onMove);
+    host.addEventListener('mouseleave', onLeave);
+    host.addEventListener('contextmenu', onMenu);
+    host.addEventListener('mousedown', onDown);
+    return () => {
+      host.removeEventListener('mousemove', onMove);
+      host.removeEventListener('mouseleave', onLeave);
+      host.removeEventListener('contextmenu', onMenu);
+      host.removeEventListener('mousedown', onDown);
+    };
+  }, [hostRef]);
+
+  return morph.node;
+}
+
+// Icons for the Word ribbon's quick actions (components/DocRibbon). Authored at 20px like
+// the sidebar's; the ribbon sets them at 18.
+const PageNumbersGlyph = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+    <path d="M14 3v5h5" />
+    <path d="M10.5 12.5l-.8 5M13.8 12.5l-.8 5M9 14.2h5.4M8.6 16h5.4" />
+  </svg>
+);
+const FoldAllGlyph = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 6h16M4 18h16" />
+    <path d="m9 9.5 3 2.5 3-2.5M9 14.5l3-2.5 3 2.5" />
+  </svg>
+);
+const OpenExternalGlyph = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14 4h6v6M20 4l-8.5 8.5" />
+    <path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
+  </svg>
+);
+
+// ── The page rail (Word files) ──────────────────────────────────────────
+// A vertical strip of every page, just right of the side panel: click one to go
+// to it; the page being read is marked and kept in view. A thumbnail is the
+// page's OWN DOM, cloned and shrunk (`zoom`) inside a stand-in `.dv-docx` host —
+// docx-preview's styles are document-wide and the theme rides on the host's
+// attributes, so the copy looks like the page, fonts, theme and blanks included,
+// with nothing rasterised. Clones are made LAZILY (as a slot nears the rail's
+// viewport) and rebuilt whenever the document is re-rendered (`tick`) or
+// re-themed — not on every keystroke: a page being typed in catches up at the
+// next render. Built imperatively: its content is DOM the pane already owns.
+const PAGE_RAIL_THUMB_W = 104;
+// Document view controls (Word + PDF quick actions): the page list, zoom, fit.
+const PagesRailGlyph = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="3" width="6" height="7" rx="1.2" /><rect x="3" y="14" width="6" height="7" rx="1.2" /><rect x="12" y="3" width="9" height="18" rx="1.6" />
+  </svg>
+);
+const FitViewGlyph = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" /><rect x="8.5" y="8.5" width="7" height="7" rx="1" />
+  </svg>
+);
+// The image pane's zoom pill (− 100% +), for documents: it stands at the top of
+// the document area, just right of the page list (`left` = the list's footprint,
+// 0 when the list is off), level with the side panel like the list is. The
+// percentage is the zoom against fit-to-width; pressing it goes back to 100%.
+function DocZoomPill({ zoom, onStep, onReset, left = 0, disabled = false }) {
+  const ref = useRef(null);
+  useEffect(() => alignWithSidePanel(ref.current), []);
+  return (
+    <div className={`dv-docpill${disabled ? ' is-disabled' : ''}`} ref={ref} style={{ left: `${left}px` }}>
+      <div className="dv-zoom-controls is-doc">
+        <button type="button" className="dv-zoom-btn" onClick={() => onStep('out')} disabled={disabled} aria-label="Zoom out">−</button>
+        <Tooltip content="Back to 100% (the page as wide as the window) — Ctrl + scroll zooms too">
+          <button type="button" className="dv-zoom-pct" onClick={onReset} disabled={disabled}>{Math.round(zoom * 100)}%</button>
+        </Tooltip>
+        <button type="button" className="dv-zoom-btn" onClick={() => onStep('in')} disabled={disabled} aria-label="Zoom in">+</button>
+      </div>
+    </div>
+  );
+}
+// Whether the page list is shown — one preference for Word files and PDFs.
+const PAGE_RAIL_PREF = 'docvex:doc-viewer:page-rail';
+const loadPageRailPref = () => { try { return localStorage.getItem(PAGE_RAIL_PREF) !== '0'; } catch { return true; } };
+const savePageRailPref = (on) => { try { localStorage.setItem(PAGE_RAIL_PREF, on ? '1' : '0'); } catch { /* unavailable */ } };
+// Document zoom steps like the image pane's (× ZOOM_STEP), between these.
+const DOC_ZOOM_MIN = 0.1;
+const DOC_ZOOM_MAX = 5;
+const stepDocZoom = (z, dir) => Math.max(DOC_ZOOM_MIN, Math.min(DOC_ZOOM_MAX, +(dir === 'in' ? z * ZOOM_STEP : z / ZOOM_STEP).toFixed(3)));
+function DocPageRail({ hostRef, tick, themeId, locked, hidden = false }) {
+  const railRef = useRef(null);
+  const [count, setCount] = useState(0);
+  // Level with the floating side panel beside it, top and bottom.
+  useEffect(() => alignWithSidePanel(railRef.current), [hidden, count]);
+
+  useEffect(() => {
+    const rail = railRef.current;
+    const host = hostRef.current;
+    if (!rail || !host) return undefined;
+    const pages = Array.from(host.querySelectorAll('.docx-wrapper > .dv-docx-page'));
+    rail.replaceChildren();
+    setCount(pages.length);
+    if (pages.length < 1) return undefined;
+    const scroller = host.parentElement;
+    const wrapperZoom = Number(host.querySelector('.docx-wrapper')?.style.zoom) || 1;
+
+    const fill = (slot, pg) => {
+      if (slot.dataset.filled) return;
+      slot.dataset.filled = '1';
+      const mini = document.createElement('div');
+      mini.className = 'dv-docx dv-docx-thumb';
+      // The theme lives on the host: its data attribute and its --dt-* variables.
+      if (host.dataset.docTheme) mini.dataset.docTheme = host.dataset.docTheme;
+      for (const name of Array.from(host.style)) if (name.startsWith('--')) mini.style.setProperty(name, host.style.getPropertyValue(name));
+      const wrap = document.createElement('div');
+      wrap.className = 'docx-wrapper';
+      const copy = pg.cloneNode(true);
+      copy.removeAttribute('id');
+      copy.querySelectorAll('[id]').forEach((n) => n.removeAttribute('id'));
+      copy.querySelectorAll('[contenteditable]').forEach((n) => n.removeAttribute('contenteditable'));
+      copy.querySelectorAll('input, textarea, button').forEach((n) => { n.tabIndex = -1; });
+      const pageW = pg.offsetWidth || 794;
+      wrap.style.zoom = String(PAGE_RAIL_THUMB_W / pageW);
+      wrap.appendChild(copy);
+      mini.appendChild(wrap);
+      slot.querySelector('.dv-pagerail-sheet').appendChild(mini);
+    };
+
+    const io = typeof IntersectionObserver === 'undefined' ? null
+      : new IntersectionObserver((entries) => {
+        for (const e of entries) if (e.isIntersecting) fill(e.target, pages[Number(e.target.dataset.index)]);
+      }, { root: rail, rootMargin: '600px 0px' });
+
+    const slots = pages.map((pg, i) => {
+      const slot = document.createElement('button');
+      slot.type = 'button';
+      slot.className = 'dv-pagerail-item';
+      slot.dataset.index = String(i);
+      slot.setAttribute('aria-label', `Go to page ${i + 1}`);
+      const sheet = document.createElement('span');
+      sheet.className = 'dv-pagerail-sheet';
+      // The slot has the page's proportions before its copy is made.
+      sheet.style.height = `${Math.round(PAGE_RAIL_THUMB_W * ((pg.offsetHeight || 1123) / (pg.offsetWidth || 794)))}px`;
+      const num = document.createElement('span');
+      num.className = 'dv-pagerail-num';
+      num.textContent = String(i + 1);
+      slot.append(sheet, num);
+      slot.addEventListener('click', () => {
+        if (!scroller) return;
+        const top = pg.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+        scroller.scrollTo({ top: Math.max(0, top - 10), behavior: 'smooth' });
+      });
+      rail.appendChild(slot);
+      if (io) io.observe(slot); else fill(slot, pg);
+      return slot;
+    });
+
+    // Which page is being read: the first one still crossing the upper third.
+    let raf = 0;
+    let current = -1;
+    const mark = () => {
+      raf = 0;
+      if (!scroller) return;
+      const line = scroller.getBoundingClientRect().top + scroller.clientHeight / 3;
+      let found = pages.length - 1;
+      for (let i = 0; i < pages.length; i += 1) { if (pages[i].getBoundingClientRect().bottom > line) { found = i; break; } }
+      if (found === current) return;
+      if (current >= 0) slots[current]?.classList.remove('is-current');
+      current = found;
+      slots[current]?.classList.add('is-current');
+      slots[current]?.scrollIntoView({ block: 'nearest' });
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(mark); };
+    scroller?.addEventListener('scroll', onScroll, { passive: true });
+    mark();
+    // The copies were sized against the page as it was; a re-fit of the pane
+    // doesn't change a page's own width, only the wrapper's zoom — nothing to do.
+    void wrapperZoom;
+    return () => {
+      io?.disconnect();
+      scroller?.removeEventListener('scroll', onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [hostRef, tick, themeId]);
+
+  // Switched off = HIDDEN, not unmounted: the copies it has made stay made, so
+  // switching it back on shows them at once.
+  return <nav className={`dv-pagerail${count > 0 ? '' : ' is-empty'}${locked ? ' is-locked' : ''}${hidden ? ' is-hidden' : ''}`} ref={railRef} aria-label="Pages" aria-hidden={hidden || undefined} />;
+}
+
+function DocxRenderPane({ url, regenTick = 0, ctor = null, onExportPdf, onOpenNative }) {
   const hostRef = useRef(null);
+  const ctorRef = useRef(ctor);
+  ctorRef.current = ctor;
+  // Would mark a close as an explicit save (the only way a file NOT written
+  // here is ever written). Nothing sets it now that the panel has no Save
+  // button, so such a file is never rewritten — see the pick watcher below.
+  const explicitSaveRef = useRef(false);
   const pageWidthRef = useRef(0);
   const [showPageNumbers, setShowPageNumbers] = useState(true);
   const adv = useMultitoolAdvisor();
@@ -8596,6 +10079,8 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
   // rich text), the markdown is what a save is diffed against.
   const [paras, setParas] = useState([]);   // picked: [{ index, text }]
   const [edits, setEdits] = useState([]);   // changed: [{ index, before, after }]
+  const editsRef = useRef(edits);
+  editsRef.current = edits;
   const [saveState, setSaveState] = useState(null); // null | 'saving' | error string
   const [prompt, setPrompt] = useState('');
   const lastParaRef = useRef(null);  // anchor index for shift-click ranges
@@ -8616,6 +10101,28 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
     setRenderErr(null);
     setReloadKey((k) => k + 1);
   }, []);
+  // The document theme (the ribbon's Theme tab — lib/docThemes.js), remembered
+  // per file. It restyles the PREVIEW, fonts included, and a font change moves
+  // every line — so picking one re-renders the document: the off-stage render
+  // is laid out and paginated under the new theme, and the host takes the theme
+  // in the same step it takes the new pages (see the render effect).
+  const [docTheme, setDocTheme] = useState(() => loadDocTheme(url));
+  const docThemeRef = useRef(docTheme);
+  docThemeRef.current = docTheme;
+  // (The ref is set here too: the render effect below runs in this same pass,
+  // before the state lands.)
+  useEffect(() => {
+    const id = loadDocTheme(url);
+    docThemeRef.current = id;
+    setDocTheme(id);
+  }, [url]);
+  const pickDocTheme = useCallback((id) => {
+    if (id === docThemeRef.current) return;
+    docThemeRef.current = id;
+    setDocTheme(id);
+    saveDocTheme(url, id);
+    setReloadKey((k) => k + 1);
+  }, [url]);
 
   const paraNodes = useCallback(
     () => Array.from(hostRef.current?.querySelectorAll('.dv-docx-para') || []),
@@ -8655,20 +10162,43 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
     setParas(
       paraNodes()
         .filter((el) => el.classList.contains('is-selected'))
-        .map((el) => ({ index: Number(el.dataset.paraIndex), text: el.textContent.trim() }))
+        .map((el) => ({
+          index: Number(el.dataset.paraIndex),
+          text: el.textContent.trim(),
+          full: el.dataset.ctorText || el.dataset.splitFull || el.dataset.originalText || el.textContent.trim(),
+        }))
         .sort((a, b) => a.index - b.index),
     );
   }, [paraNodes]);
 
   const syncEdits = useCallback(() => {
     const list = [];
+    const splitDone = new Set();
     paraNodes().forEach((el) => {
       const before = el.dataset.originalText;
       if (before == null) return;
       const after = serializeParagraphMarkdown(el);
       const changed = after !== el.dataset.originalMd;
       el.classList.toggle('is-edited', changed);
-      if (changed) list.push({ index: Number(el.dataset.paraIndex), before, after });
+      if (!changed) return;
+      // A paragraph pagination cut across two pages is still ONE paragraph of
+      // the source: save it whole (every half, in order), once — a half saved
+      // on its own would overwrite the paragraph with half of itself.
+      const splitId = el.dataset.splitId;
+      if (splitId) {
+        if (splitDone.has(splitId)) return;
+        splitDone.add(splitId);
+        const halves = Array.from(hostRef.current?.querySelectorAll(`[data-split-id="${splitId}"]`) || []);
+        const whole = halves.reduce((acc, half, i) => {
+          const md = serializeParagraphMarkdown(half);
+          if (i === 0) return md;
+          const join = halves[i - 1].dataset.splitJoin ?? ' ';
+          return join ? `${acc.trimEnd()} ${md.trimStart()}` : `${acc}${md}`;
+        }, '');
+        list.push({ index: Number(el.dataset.paraIndex), before: el.dataset.splitFull || before, after: whole });
+        return;
+      }
+      list.push({ index: Number(el.dataset.paraIndex), before, after });
     });
     setEdits(list);
   }, [paraNodes]);
@@ -8676,8 +10206,19 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
   const applyEditable = useCallback(() => {
     paraNodes().forEach((el) => {
       const picked = el.classList.contains('is-selected');
-      if (!picked) { el.removeAttribute('contenteditable'); return; }
-      if (el.getAttribute('contenteditable') === 'true') return;
+      if (!picked) { el.removeAttribute('contenteditable'); el.classList.remove('is-ctor'); return; }
+      // A paragraph that carries a party or a blank is filled
+      // in through the panel docked under it, not typed over: both would be
+      // changes to the same line of the source, saved by two different paths,
+      // and the second would not find the text the first had just rewritten.
+      // The text it was matched by is pinned, because the panel rewrites what
+      // the paragraph shows while it is open.
+      const asPicked = el.dataset.ctorText || el.dataset.splitFull || el.textContent.trim();
+      if (ctorRef.current?.match?.(asPicked)) {
+        el.dataset.ctorText = asPicked;
+        el.classList.add('is-ctor');
+        return;
+      }
       // Remember the paragraph exactly as the AI wrote it: the HTML is what
       // Revert restores (so undo keeps the rich text), the markdown is what a
       // save is diffed against.
@@ -8686,8 +10227,12 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
         el.dataset.originalHtml = el.innerHTML;
         el.dataset.originalMd = serializeParagraphMarkdown(el);
       }
-      el.setAttribute('contenteditable', 'true');
-      el.setAttribute('spellcheck', 'true');
+      // A picked paragraph's TEXT is not editable — picking is for filling in a
+      // paragraph's blanks (the inputs in its preview copy), reading it up close
+      // and going back through its versions. The baseline above is still taken:
+      // putting a paragraph back to an earlier version changes its text, and
+      // that is saved by diffing against it.
+      el.removeAttribute('contenteditable');
     });
   }, [paraNodes]);
 
@@ -8704,6 +10249,624 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
     lastParaRef.current = null;
     setParas([]);
   }, [paraNodes]);
+
+  // ── Pick spotlight ───────────────────────────────────────────────────────
+  // Picking a paragraph ZOOMS IN on it: the whole document scales up and slides
+  // until the paragraph sits in the middle of the preview, and everything else
+  // — the rest of the text and the page sheets themselves — goes out of focus
+  // under a veil. The paragraph is never moved: it stays where it is on its
+  // page, and the camera comes to it. (It used to be lifted out and flown to the
+  // centre on its own.)
+  //
+  // The camera is a transform on the host (`.dv-docx`). That makes the host a
+  // stacking context, so the veil has to live INSIDE it for the paragraph to get
+  // above it — it is a plain div appended to the host here (the host's children
+  // belong to docx-preview, and are wiped on every render), not a React element.
+  // The veil is also what makes the state modal: it takes the pointer, so no
+  // other paragraph can be hovered or picked, and a click on it lands in the
+  // host's own click handler as a click on nothing — which drops the pick.
+  //
+  // State classes go on the scroller (`.dv-docview-body`), whose className is a
+  // constant and so never rewritten by React; the host's is rewritten on every
+  // pick change. `is-zoom-live` spans the whole episode INCLUDING the way back
+  // out; `is-zoom-on` is the veil's visibility.
+  //
+  // Only direct children of a page's article are zoomed to: a block nested in a
+  // table sits inside a dimmed (opacity ⇒ stacking context) ancestor and could
+  // never rise above the veil.
+  const liftCloseRef = useRef(null);
+  const liftNavRef = useRef(null);
+  const liftDotsRef = useRef(null);
+  const liveHeadRef = useRef(null); // { el, node } — the heading card over the picked paragraph
+  const paraHeadingRef = useRef({ title: '', full: '' });
+  const liftCamRef = useRef(null); // the frame the camera was set to, per picked paragraph
+  const liveSnapRef = useRef(null); // { el, clone, run } — the picked paragraph's preview copy
+  const liveTextRef = useRef(null); // what it reads as, when that differs from the file
+  const [liveEl, setLiveEl] = useState(null); // the copy, as the panel's portal target
+  const liftTrackTimer = useRef(null);
+  const liftLandTimer = useRef(null);
+  const liftPanelRef = useRef(null);
+  // The panel RIDES THE CAMERA like the heading card does — in with the
+  // paragraph, across to the next one, and back out — but it lives outside the
+  // zoomed host (it is React's, and isn't scaled by the zoom at rest), so the
+  // motion is matched instead of inherited: a point inside the host moves
+  // linearly in the transition's eased progress (translate and scale both
+  // interpolate linearly), so a transform on the panel from "where the card is
+  // now" to "where it will be", on the host's own duration and easing, keeps it
+  // glued under the card the whole way. On the way out the panel itself is
+  // already unmounted, so a lifeless copy of its last markup flies out instead.
+  const liftPanelLastRef = useRef(null); // the panel's node, kept past its unmount (for that copy)
+  const liftPanelFlipRef = useRef(null); // { el, node } — the ride that was last started
+  const liftGhostRef = useRef(null);
+  const liftRideTimer = useRef(null);
+  const setLiftPanel = useCallback((node) => {
+    liftPanelRef.current = node;
+    if (node) liftPanelLastRef.current = node;
+  }, []);
+  const liftRoRef = useRef(null);
+  const liftFlightUntil = useRef(0);
+  const LIFT_FLIGHT_MS = 420; // the CSS transform transition, plus a frame or two
+  // Take the preview copy away. `closing` = the paragraph is being left: if the
+  // panel's changes are about to be saved, the copy's text is written into the
+  // real paragraph first, so the page shows the change at once instead of
+  // waiting for the file to be rewritten and rendered again. A file that wasn't
+  // written here is only saved from the panel's Save (`explicitSaveRef`).
+  const dropLiveCopy = useCallback((closing) => {
+    const snap = liveSnapRef.current;
+    if (!snap) return;
+    const c = ctorRef.current;
+    const apply = closing && !!c?.dirty && (!c.foreign || explicitSaveRef.current);
+    const text = liveTextRef.current;
+    if (apply && text != null && snap.el.isConnected) {
+      snap.el.innerHTML = constructorTextToHtml(text, snap.run.css, snap.run.size);
+    }
+    snap.clone.remove();
+    snap.el.classList.remove('is-shadowed');
+    liveSnapRef.current = null;
+    liveTextRef.current = null;
+    setLiveEl(null);
+  }, []);
+  const layoutLift = useCallback((tracking = false) => {
+    const host = hostRef.current;
+    const body = host?.parentElement;
+    if (!host || !body) return;
+    let target = null;
+    let landing = false;
+    paraNodes().forEach((el) => {
+      const on = !target && el.classList.contains('is-selected') && el.parentElement?.tagName === 'ARTICLE';
+      if (on) { el.classList.remove('is-landing'); target = el; return; }
+      if (el.classList.contains('is-lifted')) {
+        // Still the subject — above the veil — until the camera is back out.
+        el.classList.remove('is-lifted');
+        el.classList.add('is-landing');
+        landing = true;
+      }
+    });
+    const on = !!target;
+    if (on && landing) {
+      // Stepped from one paragraph to another: the one left behind goes straight
+      // back under the veil (it is only kept above it for the zoom OUT), and its
+      // preview copy goes with it — unapplied; nothing is written until exit.
+      paraNodes().forEach((el) => el.classList.remove('is-landing'));
+      landing = false;
+    }
+    if (on && liveSnapRef.current && liveSnapRef.current.el !== target) dropLiveCopy(false);
+    if (on && !body.classList.contains('is-zoom-live')) {
+      // The scaled document would stretch the scroll range (and could summon a
+      // scrollbar the pane didn't have, shifting everything sideways). The pane
+      // stops scrolling for the duration; the space its scrollbar took is kept.
+      const bar = body.offsetWidth - body.clientWidth;
+      body.style.paddingRight = bar > 0 ? `${bar}px` : '';
+      body.classList.add('is-zoom-live');
+    }
+    // The veil only EXISTS (display) while the zoom is live — it is far larger
+    // than the document, and left in the flow it would stretch the scroll range
+    // the moment the pane scrolls again. So: live first, then a reflow, THEN the
+    // state flips — that way its fade-in has a "from" to start at.
+    if (on) {
+      let veil = host.querySelector(':scope > .dv-docx-veil');
+      if (!veil) {
+        veil = host.ownerDocument.createElement('div');
+        veil.className = 'dv-docx-veil';
+        veil.setAttribute('aria-hidden', 'true');
+        host.appendChild(veil);
+      }
+      void veil.offsetWidth;
+    }
+    body.classList.toggle('is-zoom-on', on);
+    liftCloseRef.current?.classList.toggle('is-on', on);
+    liftNavRef.current?.classList.toggle('is-on', on);
+    if (!on) liftCamRef.current = null;
+    // A copy still on its way out from the last paragraph has no place next to
+    // a new pick; and a panel that went away without the paragraph closing (a
+    // step to a paragraph with nothing to supply) leaves no copy behind.
+    if (on) {
+      liftGhostRef.current?.remove();
+      liftGhostRef.current = null;
+      if (!liftPanelRef.current) liftPanelLastRef.current = null;
+    }
+    if (landing && !on) {
+      // The panel leaves WITH the paragraph. It is unmounted by now, so a copy
+      // of its last markup takes its place and rides the camera out: measured
+      // before anything moves, sent to where the card's underside will be at
+      // rest, shrinking by the zoom — the host's own path (see liftPanelLastRef).
+      const last = liftPanelLastRef.current;
+      liftPanelLastRef.current = null;
+      liftPanelFlipRef.current = null;
+      const landEl = paraNodes().find((el) => el.classList.contains('is-landing'));
+      const frameEl = host.closest('.dv-docview');
+      if (last && !last.isConnected && landEl && frameEl) {
+        const ghost = last.cloneNode(true);
+        ghost.className = 'dv-docx-liftpanel is-on is-ghost';
+        delete ghost.dataset.dvObserved;
+        ghost.setAttribute('aria-hidden', 'true');
+        ghost.inert = true;
+        ghost.style.transform = '';
+        frameEl.appendChild(ghost);
+        liftGhostRef.current = ghost;
+        const gbr = body.getBoundingClientRect();
+        const gUnit = (body.offsetWidth ? gbr.width / body.offsetWidth : 1) || 1;
+        const ghr = host.getBoundingClientRect();
+        const gk = (host.offsetWidth ? ghr.width / (host.offsetWidth * gUnit) : 1) || 1;
+        const rest = {
+          x: gbr.left + (body.clientLeft + host.offsetLeft - body.scrollLeft) * gUnit,
+          y: gbr.top + (body.clientTop + host.offsetTop - body.scrollTop) * gUnit,
+        };
+        const lr = landEl.getBoundingClientRect();
+        const snapCopy = liveSnapRef.current?.el === landEl ? liveSnapRef.current.clone : null;
+        const cardR = snapCopy && snapCopy.childNodes.length ? snapCopy.getBoundingClientRect() : lr;
+        const spreadNow = 16 * ((landEl.offsetWidth ? lr.width / landEl.offsetWidth : gk) || gk);
+        const cn = { x: lr.left + lr.width / 2, y: cardR.bottom + spreadNow }; // the card's underside, now
+        const gr = ghost.getBoundingClientRect();
+        const g = { x: gr.left + gr.width / 2, y: gr.top };
+        const to = {
+          x: rest.x + (cn.x - ghr.left) / gk + (g.x - cn.x) / gk,
+          y: rest.y + (cn.y - ghr.top) / gk + (g.y - cn.y) / gk,
+        };
+        void ghost.offsetWidth;
+        ghost.style.transform = `translate(${toLayoutPx(to.x - g.x).toFixed(2)}px, ${toLayoutPx(to.y - g.y).toFixed(2)}px) scale(${(1 / gk).toFixed(4)})`;
+        ghost.style.opacity = '0';
+      }
+      host.style.transform = '';
+      // The heading card leaves WITH the paragraph's card — it fades as that
+      // one lets go of its ground and shadow, instead of sitting there at full
+      // strength until the camera is back out and then vanishing.
+      liveHeadRef.current?.node.classList.add('is-leaving');
+      // The paragraph is closing: its preview copy goes, and — if there are
+      // changes on their way to being saved — this is the moment they reach the
+      // document. (This runs before the panel's own unmount gets to say so.)
+      dropLiveCopy(true);
+      if (liftLandTimer.current) window.clearTimeout(liftLandTimer.current);
+      liftLandTimer.current = window.setTimeout(() => {
+        paraNodes().forEach((el) => el.classList.remove('is-landing'));
+        liftGhostRef.current?.remove();
+        liftGhostRef.current = null;
+        if (!body.classList.contains('is-zoom-on')) {
+          liveHeadRef.current?.node.remove();
+          liveHeadRef.current = null;
+          body.classList.remove('is-zoom-live');
+          body.style.paddingRight = '';
+        }
+      }, LIFT_FLIGHT_MS);
+    }
+    if (!target) return;
+
+    // While the pane resizes or the paragraph is typed into, the camera follows
+    // 1:1 — but never while a zoom is still under way: picking a paragraph also
+    // focuses it, and the events that can come with that would otherwise cut
+    // the easing off and snap the view into place. A new target mid-zoom just
+    // retargets the running transition.
+    const now = performance.now();
+    if (!tracking) liftFlightUntil.current = now + LIFT_FLIGHT_MS;
+    const follow = tracking && now >= liftFlightUntil.current;
+    body.classList.toggle('is-zoom-tracking', follow);
+    if (follow) {
+      if (liftTrackTimer.current) window.clearTimeout(liftTrackTimer.current);
+      liftTrackTimer.current = window.setTimeout(() => body.classList.remove('is-zoom-tracking'), 160);
+    }
+
+    // Where things are with the camera at rest. The host may be mid-zoom, so
+    // nothing is read at face value: the host's own rect gives the transform's
+    // current translation (its top-left) and scale (its width against its
+    // layout width), and every point inside it is taken back through that.
+    const br = body.getBoundingClientRect();
+    const unit = (body.offsetWidth ? br.width / body.offsetWidth : 1) || 1; // viewport px per layout px
+    const hr = host.getBoundingClientRect();
+    const kNow = (host.offsetWidth ? hr.width / (host.offsetWidth * unit) : 1) || 1;
+    // The camera is aimed at the REAL paragraph — never at its preview copy.
+    // The copy's size changes with every keystroke and every hovered identity,
+    // and a camera that followed it would move the whole document each time;
+    // the real paragraph doesn't change while it is open, so neither does the
+    // view. The copy only decides where the panel under it sits (below).
+    const copy = liveSnapRef.current?.el === target ? liveSnapRef.current.clone : null;
+    const tr = target.getBoundingClientRect();
+    const rel = { x: (tr.left - hr.left) / kNow, y: (tr.top - hr.top) / kNow }; // from the host's corner
+    const w = tr.width / kNow;
+    const h = tr.height / kNow;
+    const spread = 16 * ((target.offsetWidth ? w / target.offsetWidth : 1) || 1); // the card's painted border
+    // The host's corner at rest: the scroller's padding box, less how far it is
+    // scrolled. (The scroller is the host's offsetParent — see DocViewer.css.)
+    const origin = {
+      x: br.left + (body.clientLeft + host.offsetLeft - body.scrollLeft) * unit,
+      y: br.top + (body.clientTop + host.offsetTop - body.scrollTop) * unit,
+    };
+
+    // The Constructor panel docks under the paragraph and the two are centred
+    // as one group; it scrolls inside whatever height it is given.
+    const panel = liftPanelRef.current;
+    let panelH = 0;
+    let panelW = 0;
+    if (panel) {
+      // As wide as the paragraph's card and centred like it, so the first option
+      // starts exactly on the card's left edge. The zoom isn't settled the first
+      // time through (it depends on this panel's height), so that pass goes by
+      // the width-limited zoom; the panel reporting its new size brings it round
+      // again with the real one.
+      const kFor = (liftCamRef.current?.el === target ? liftCamRef.current.k : null)
+        || Math.max(0.7, Math.min(2.4, (Math.min(br.width * 0.8, 980) - spread * 2) / w));
+      panelW = Math.max(280, Math.min(br.width - 24, (w + spread * 2) * kFor));
+      panel.style.width = `${toLayoutPx(panelW)}px`;
+      panel.style.maxHeight = `${toLayoutPx(Math.max(220, br.height * 0.52))}px`;
+      panelH = panel.offsetHeight * unit; // not its rect: mid-ride the panel is scaled
+      if (liftRoRef.current && !panel.dataset.dvObserved) {
+        panel.dataset.dvObserved = '1';
+        liftRoRef.current.observe(panel);
+      }
+    }
+
+    // How far in: until the paragraph spans most of the pane — or as far as its
+    // height (and the panel's) allows, whichever comes first.
+    const AIR = 18;
+    const dots = liftDotsRef.current;
+    // The heading the paragraph sits under, as a card directly over it. It is a
+    // node IN THE PAGE — a copy of the document's real heading (the nearest block
+    // before the paragraph that reads as the section's title), laid out of flow
+    // above the paragraph — so it is the heading exactly as the Word preview sets
+    // it, and it rides the camera with the paragraph: same zoom, same motion, in
+    // and out. Made once per paragraph; taken away when the camera is back out.
+    const unitPx = (target.offsetWidth ? w / target.offsetWidth : 1) || 1; // document px → viewport px, unzoomed
+    const HEAD_AIR = 10; // document px between the two cards' painted grounds
+    let headNode = liveHeadRef.current?.el === target ? liveHeadRef.current.node : null;
+    if (!headNode) {
+      liveHeadRef.current?.node.remove();
+      liveHeadRef.current = null;
+      const { title, full } = paraHeadingRef.current || {};
+      if (full && target.parentElement) {
+        const want = normaliseParagraphText(title);
+        const blocks = Array.from(host.querySelectorAll('.dv-docx-page > article > *'));
+        let src = null;
+        for (let i = blocks.indexOf(target) - 1; i >= 0 && !src && want; i -= 1) {
+          const txt = normaliseParagraphText(blocks[i].textContent);
+          if (txt && (txt === want || txt.endsWith(want) || want.endsWith(txt))) src = blocks[i];
+        }
+        headNode = (src || target).cloneNode(!!src);
+        if (!src) { headNode.textContent = full; headNode.style.fontWeight = '700'; headNode.style.textIndent = '0'; }
+        headNode.removeAttribute('id');
+        headNode.removeAttribute('contenteditable');
+        Object.keys(headNode.dataset).forEach((key) => { delete headNode.dataset[key]; });
+        headNode.classList.remove('dv-docx-para', 'is-selected', 'is-lifted', 'is-landing', 'is-ctor', 'is-edited', 'is-shadowed', 'dv-docx-cont');
+        headNode.classList.add('dv-docx-livehead');
+        headNode.setAttribute('aria-hidden', 'true');
+        headNode.style.position = 'absolute';
+        headNode.style.left = `${target.offsetLeft}px`;
+        headNode.style.width = getComputedStyle(target).width;
+        headNode.style.margin = '0';
+        headNode.style.transform = '';
+        target.parentElement.appendChild(headNode);
+        liveHeadRef.current = { el: target, node: headNode };
+      }
+    }
+    if (headNode) {
+      // Its ground ends HEAD_AIR above where the paragraph's begins (each is
+      // grown 16px by its spread).
+      headNode.style.top = `${target.offsetTop - headNode.offsetHeight - 32 - HEAD_AIR}px`;
+    }
+    const headU = headNode ? headNode.offsetHeight * unitPx + spread * 2 + HEAD_AIR * unitPx : 0; // viewport px at zoom 1
+    const dotsH = dots ? dots.getBoundingClientRect().height + 10 : 0;
+    // …and it is aimed ONCE per paragraph (and again only if the pane itself is
+    // resized). The panel growing a row, the version dots appearing, a value
+    // being typed — none of that re-frames the document; things around the
+    // paragraph take their places from the frame that was set.
+    let cam = liftCamRef.current;
+    const sameFrame = cam && cam.el === target
+      && Math.abs(cam.bw - br.width) < 1 && Math.abs(cam.bh - br.height) < 1;
+    if (!sameFrame) {
+      const roomW = Math.min(br.width * 0.8, 980) - spread * 2;
+      const roomH = br.height - 64 - dotsH - (panelH ? panelH + AIR : 0);
+      const k = Math.max(0.7, Math.min(2.4, roomW / w, roomH / (h + spread * 2 + headU)));
+      const group = dotsH + (headU + h + spread * 2) * k + (panelH ? AIR + panelH : 0);
+      const cardTop = br.top + Math.max(24, (br.height - group) / 2) + dotsH + headU * k - br.top;
+      const left = br.left + (br.width - w * k) / 2;
+      const top = br.top + cardTop + spread * k;
+      cam = {
+        el: target, bw: br.width, bh: br.height, k, cardTop,
+        tx: left - origin.x - rel.x * k,
+        ty: top - origin.y - rel.y * k,
+      };
+      liftCamRef.current = cam;
+    }
+    const { k } = cam;
+    const cardTop = br.top + cam.cardTop;
+    // The card as it is on screen: the copy when there is one with content.
+    const shownH = copy && copy.childNodes.length ? copy.getBoundingClientRect().height / kNow : h;
+    const cardH = (shownH + spread * 2) * k;
+    target.classList.add('is-lifted');
+    host.style.setProperty('--dv-zoom-k', k.toFixed(4));
+
+    // The panel takes its place under the card — and, when this is a new flight
+    // (a pick, a step to another paragraph, or the panel only just arriving),
+    // starts from under the card as it is ON SCREEN NOW, at the scale the card
+    // has now, and rides to its place on the host's own clock. Set up before the
+    // host's transform changes, so both transitions start in the same frame.
+    const frame = panel?.offsetParent;
+    let riding = false;
+    if (frame) {
+      const fr = frame.getBoundingClientRect();
+      const flip = liftPanelFlipRef.current;
+      const fresh = !tracking && !(flip && flip.el === target && flip.node === panel);
+      if (fresh) {
+        panel.classList.remove('is-riding');
+        panel.classList.add('is-snap');
+        panel.style.transform = '';
+      }
+      panel.style.left = `${toLayoutPx(br.left + (br.width - panelW) / 2 - fr.left)}px`;
+      panel.style.top = `${toLayoutPx(cardTop + cardH + AIR - fr.top)}px`;
+      panel.classList.add('is-on');
+      if (fresh) {
+        const s0 = kNow / k;
+        const cardNow = copy && copy.childNodes.length ? copy.getBoundingClientRect() : tr;
+        const dx = tr.left + tr.width / 2 - (br.left + br.width / 2);
+        const dy = cardNow.bottom + spread * kNow + AIR * s0 - (cardTop + cardH + AIR);
+        panel.style.transform = `translate(${toLayoutPx(dx).toFixed(2)}px, ${toLayoutPx(dy).toFixed(2)}px) scale(${s0.toFixed(4)})`;
+        void panel.offsetWidth;
+        panel.classList.remove('is-snap');
+        panel.classList.add('is-riding');
+        liftPanelFlipRef.current = { el: target, node: panel };
+        riding = true;
+      }
+    }
+    host.style.transform = `translate(${toLayoutPx(cam.tx).toFixed(2)}px, ${toLayoutPx(cam.ty).toFixed(2)}px) scale(${k.toFixed(4)})`;
+    if (riding) {
+      panel.style.transform = 'translate(0px, 0px) scale(1)';
+      // Landed: the transform comes off altogether (a transformed box would be
+      // the containing block of anything fixed inside it), and `top` eases again.
+      if (liftRideTimer.current) window.clearTimeout(liftRideTimer.current);
+      liftRideTimer.current = window.setTimeout(() => {
+        panel.classList.remove('is-riding');
+        panel.style.transform = '';
+      }, LIFT_FLIGHT_MS);
+    }
+
+    // (The close button is not placed here: it is pinned to the top-right
+    // corner of the window by CSS, wherever the paragraph ends up.)
+    if (dots?.offsetParent) {
+      const fr = dots.offsetParent.getBoundingClientRect();
+      dots.style.left = `${toLayoutPx(br.left + br.width / 2 - fr.left)}px`;
+      dots.style.top = `${toLayoutPx(cardTop - headU * k - dotsH - fr.top)}px`;
+      dots.classList.add('is-on');
+    }
+  }, [paraNodes, dropLiveCopy]);
+  // ── The picked paragraph's Constructor ─────────────────────────────────
+  // One paragraph picked, and the document's source has a piece for it with
+  // something to supply: that piece's controls dock under the lifted card.
+  const pickedFull = paras.length === 1 ? (paras[0].full || '') : '';
+  const ctorMatch = ctor?.match;
+  const requestCtorSource = ctor?.requestSource;
+  const ctorHit = useMemo(
+    () => (pickedFull && ctorMatch ? ctorMatch(pickedFull) : null),
+    [pickedFull, ctorMatch],
+  );
+  // A file that wasn't written here has no source until one is read for it.
+  useEffect(() => { if (pickedFull) requestCtorSource?.(); }, [pickedFull, requestCtorSource]);
+  // …which can arrive after the click made the paragraph editable. Hand it over
+  // to the panel then, the same way applyEditable would have.
+  useLayoutEffect(() => {
+    if (!ctorHit) return;
+    const el = hostRef.current?.querySelector('.dv-docx-para.is-selected');
+    if (!el || el.classList.contains('is-ctor')) return;
+    el.dataset.ctorText = el.dataset.ctorText || pickedFull;
+    el.removeAttribute('contenteditable');
+    el.classList.add('is-ctor');
+  }, [ctorHit, pickedFull]);
+
+  // ── The picked paragraph's PREVIEW COPY ────────────────────────────────
+  // A paragraph with a panel is shown through a copy of itself laid exactly
+  // over the real one, which is hidden under it. The copy is where its blanks
+  // become INPUTS (the panel component renders into it through a portal, so
+  // typing never loses focus to a re-render) and where a hovered or picked
+  // identity shows; the real paragraph keeps its text — and its height, so
+  // nothing behind the veil reflows — for as long as the paragraph is open.
+  //
+  // It sits in the same article, so the document's paragraph styles reach it and
+  // it rides the same zoom, but out of flow. It is made here, the moment the
+  // pick resolves to a piece, and taken away by dropLiveCopy — which is also
+  // where, on the way out, the changes finally reach the document.
+  useLayoutEffect(() => {
+    if (!ctorHit) return;
+    const el = hostRef.current?.querySelector('.dv-docx-para.is-selected.is-ctor');
+    if (!el || !el.parentElement || liveSnapRef.current?.el === el) return;
+    dropLiveCopy(false);
+    const clone = el.cloneNode(false);
+    clone.removeAttribute('id');
+    clone.removeAttribute('contenteditable');
+    Object.keys(clone.dataset).forEach((key) => { delete clone.dataset[key]; });
+    clone.classList.remove('dv-docx-para', 'is-selected', 'is-lifted', 'is-landing', 'is-ctor', 'is-edited');
+    clone.classList.add('dv-docx-livecard');
+    // Exactly over the original. Both offsets are from the page sheet (the
+    // nearest positioned ancestor of each); the width is the content width,
+    // because the copy carries the original's padding too.
+    clone.style.position = 'absolute';
+    clone.style.left = `${el.offsetLeft}px`;
+    clone.style.top = `${el.offsetTop}px`;
+    clone.style.width = getComputedStyle(el).width;
+    clone.style.margin = '0';
+    clone.style.transform = '';
+    el.parentElement.appendChild(clone);
+    el.classList.add('is-shadowed');
+    liveSnapRef.current = { el, clone, run: mainRunStyle(el) };
+    setLiveEl(clone);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctorHit]);
+  // What the paragraph reads as now, reported by the panel (null = exactly what
+  // the file says). Kept for the way out; the copy's height may have changed.
+  const onCtorLive = useCallback((text) => {
+    liveTextRef.current = text;
+    if (liveSnapRef.current) layoutLift(true);
+  }, [layoutLift]);
+
+  // ── The picked paragraph's versions ────────────────────────────────────
+  // A row of dots over the paragraph: one per state this paragraph has been
+  // saved in, oldest first, plus a hollow one while it holds changes that are
+  // not saved yet. Clicking a dot puts the paragraph back the way that version
+  // had it — as a change like any other: shown now, written on the way out.
+  const ctorParaHistory = ctor?.paraHistory;
+  const paraHist = useMemo(
+    () => (pickedFull && ctorParaHistory ? ctorParaHistory(pickedFull) : null),
+    [pickedFull, ctorParaHistory],
+  );
+  // What the paragraph reads as right now: through the draft when it has a
+  // panel, straight off the page when it is typed into.
+  const paraNow = (() => {
+    if (!paraHist) return '';
+    if (ctorHit && ctor?.draft) {
+      const pc = ctorHit.piece;
+      const tpl = ctor.draft.edits?.[pc.id] !== undefined ? ctor.draft.edits[pc.id] : pc.text;
+      return pieceDisplayText(pc, fillConstructorText(tpl, ctor.draft.values || {}));
+    }
+    return paras[0]?.text || '';
+  })();
+  const paraDots = (() => {
+    if (!paraHist) return [];
+    const now = normaliseParagraphText(paraNow);
+    let active = -1;
+    paraHist.entries.forEach((en, i) => { if (normaliseParagraphText(en.shown) === now) active = i; });
+    const dots = paraHist.entries.map((en, i) => ({ ...en, key: `v${en.n}`, active: i === active }));
+    // The "not saved yet" circle is for something the user WROTE. A suggested
+    // answer being picked (an identity) changes the paragraph without earning
+    // it a circle, now or once it is saved.
+    const wrote = ctorHit ? !!ctor?.draft?.typed : true;
+    if (active < 0 && wrote) dots.push({ key: 'unsaved', unsaved: true, active: true });
+    return dots.length > 1 ? dots : [];
+  })();
+  // The heading the paragraph sits under — "1. PĂRȚILE CONTRACTANTE" over clause
+  // 1.1 — shown above it, because zoomed in on one clause the heading that says
+  // what it is a clause OF is off screen (and blurred). The preamble has none.
+  const paraHeading = (() => {
+    const sec = paraHist?.section;
+    if (!sec || sec.preamble || !sec.title) return '';
+    return `${sec.num ? `${sec.num}. ` : ''}${sec.title}`;
+  })();
+  paraHeadingRef.current = { title: paraHeading ? (paraHist?.section?.title || '') : '', full: paraHeading };
+  // Hovering a dot PREVIEWS that version inside the paragraph; leaving puts
+  // back what was there; clicking keeps it. A paragraph with a panel previews
+  // through its copy (the component is handed the version and shows it, inputs
+  // read-only, without touching the draft). One that is typed into has no copy,
+  // so its own markup is swapped — kept in a snapshot, and restored verbatim —
+  // and none of that goes through the edit tracking until a click commits it.
+  const [hoverVer, setHoverVer] = useState(null);
+  const verSnapRef = useRef(null); // { el, html, run } — a typed-into paragraph under preview
+  useEffect(() => { setHoverVer(null); verSnapRef.current = null; }, [pickedKeyForVersions(paras)]);
+  // The previewed version may wrap to a different height — the panel under the
+  // paragraph takes its place again (the document itself never moves).
+  useEffect(() => { layoutLift(true); }, [hoverVer, layoutLift]);
+  const previewParaVersion = useCallback((entry) => {
+    const show = entry && !entry.unsaved ? entry : null;
+    if (ctorHit) { setHoverVer(show); return; }
+    const el = hostRef.current?.querySelector('.dv-docx-para.is-selected');
+    if (!el) return;
+    if (!verSnapRef.current || verSnapRef.current.el !== el) {
+      verSnapRef.current = { el, html: el.innerHTML, run: mainRunStyle(el) };
+    }
+    const snap = verSnapRef.current;
+    el.innerHTML = show ? constructorTextToHtml(show.shown, snap.run.css, snap.run.size) : snap.html;
+  }, [ctorHit]);
+  const endParaVersionPreview = useCallback(() => {
+    setHoverVer(null);
+    const snap = verSnapRef.current;
+    verSnapRef.current = null;
+    if (snap?.el?.isConnected) snap.el.innerHTML = snap.html;
+  }, []);
+  const restoreParaVersion = useCallback((entry) => {
+    if (!entry || entry.unsaved) return;
+    setHoverVer(null);
+    if (ctorHit) { ctorRef.current?.restorePiece?.(ctorHit.piece, entry); return; }
+    // A paragraph that is typed into: put the text on the page for good and let
+    // the edit tracking see it, exactly as if it had been typed. The preview's
+    // snapshot is dropped, not restored — the mouse leaving the dot after this
+    // click must not undo it.
+    const el = hostRef.current?.querySelector('.dv-docx-para.is-selected');
+    if (!el) return;
+    const run = verSnapRef.current?.el === el ? verSnapRef.current.run : mainRunStyle(el);
+    verSnapRef.current = null;
+    el.innerHTML = constructorTextToHtml(entry.shown, run.css, run.size);
+    syncEdits();
+    syncParas();
+    layoutLift(true);
+  }, [ctorHit, syncEdits, syncParas, layoutLift]);
+
+  // The pick changed (or the document re-rendered under it, or its panel came).
+  useLayoutEffect(() => { layoutLift(false); }, [layoutLift, paras, renderTick, ctorHit, paraDots.length, paraHeading]);
+  useEffect(() => {
+    const host = hostRef.current;
+    const body = host?.parentElement;
+    if (!host || !body) return undefined;
+    const follow = () => layoutLift(true);
+    // The document doesn't scroll while it is zoomed in on a paragraph: the
+    // scroller's overflow is off (CSS), and the wheel is cancelled outright — a
+    // native non-passive listener is the only kind that may do that.
+    // …and turned into steps instead: a notch (or a swipe's worth) of wheel moves
+    // to the next / previous paragraph, straight away — it never waits for the
+    // zoom to arrive (a new target simply retargets the running transition), so
+    // turning the wheel quickly walks the document as fast as it is turned. The
+    // deltas are added up to a threshold so a trackpad's stream of tiny events
+    // is one step per ~notch rather than one per event, and a short pause after
+    // each step keeps a single notch from counting twice.
+    let wheelSum = 0;
+    let wheelQuietUntil = 0;
+    // Listened for on the whole preview frame, not just the scroller: the
+    // identity cards under the paragraph sit OUTSIDE the scroller, and a wheel
+    // over them used to go nowhere. The one thing that keeps the wheel is a list
+    // inside the frame that can itself still scroll that way (a long grid of
+    // identities) — it scrolls first, and steps once it has reached its end.
+    const frame = body.parentElement || body;
+    const lockWheel = (e) => {
+      if (!body.classList.contains('is-zoom-live')) return;
+      for (let n = e.target; n && n !== frame && n.nodeType === 1; n = n.parentElement) {
+        if (n === body || n.scrollHeight <= n.clientHeight + 1) continue;
+        const oy = getComputedStyle(n).overflowY;
+        if (oy !== 'auto' && oy !== 'scroll') continue;
+        const room = e.deltaY > 0 ? n.scrollTop + n.clientHeight < n.scrollHeight - 1 : n.scrollTop > 0;
+        if (room) return;
+      }
+      e.preventDefault();
+      if (!body.classList.contains('is-zoom-on') || e.ctrlKey) return;
+      const now = performance.now();
+      if (now < wheelQuietUntil) { wheelSum = 0; return; }
+      wheelSum += e.deltaMode === 1 ? e.deltaY * 32 : e.deltaY;
+      if (Math.abs(wheelSum) < 36) return;
+      const dir = wheelSum > 0 ? 1 : -1;
+      wheelSum = 0;
+      wheelQuietUntil = now + 70;
+      stepPickRef.current?.(dir);
+    };
+    frame.addEventListener('wheel', lockWheel, { passive: false });
+    body.addEventListener('scroll', follow, { passive: true });
+    host.addEventListener('input', follow);
+    let ro;
+    if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(follow); ro.observe(body); ro.observe(host); liftRoRef.current = ro; }
+    return () => {
+      frame.removeEventListener('wheel', lockWheel);
+      body.removeEventListener('scroll', follow);
+      host.removeEventListener('input', follow);
+      ro?.disconnect();
+      liftRoRef.current = null;
+      if (liftTrackTimer.current) window.clearTimeout(liftTrackTimer.current);
+      if (liftLandTimer.current) window.clearTimeout(liftLandTimer.current);
+      if (liftRideTimer.current) window.clearTimeout(liftRideTimer.current);
+      liftGhostRef.current?.remove();
+      liftGhostRef.current = null;
+    };
+  }, [layoutLift]);
 
   // Commit the manual edits: the advisor patches them into the active version's
   // source, rebuilds the file, and drops a version card in the thread. The
@@ -8826,6 +10989,181 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
     rewritePickedText((t) => applyLocalityToText(t, hasSectors), opts);
   }, [rewritePickedText]);
 
+  // ── Stepping from one paragraph to the next ────────────────────────────
+  // While zoomed in on a paragraph: ↑ / ↓ (and PageUp / PageDown), the two
+  // buttons under the close button, and the scroll wheel all move the pick to
+  // the previous / next paragraph, and the camera follows. It is the same pick
+  // a plain click makes, so everything that hangs off a pick — the panel, the
+  // advisor's paragraph thread, editability — comes with it.
+  //
+  // Only paragraphs the camera can go to (direct children of a page's article),
+  // and a paragraph pagination cut in two counts once, at its first half.
+  const stepTargets = useCallback(() => paraNodes()
+    .filter((el) => el.parentElement?.tagName === 'ARTICLE' && !el.classList.contains('dv-docx-cont') && !el.classList.contains('dv-folded'))
+    .sort((a, b) => Number(a.dataset.paraIndex) - Number(b.dataset.paraIndex)), [paraNodes]);
+  // The rail on the left: every paragraph the camera can go to, as a short
+  // label (the clause's own number when it has one — "1.1", "a)" — else its
+  // place in the document), and which of them is picked.
+  const [stepList, setStepList] = useState({ labels: [], index: -1 });
+  const stepPick = useCallback((dir, toIndex = null) => {
+    const nodes = stepTargets();
+    const i = nodes.findIndex((el) => el.classList.contains('is-selected'));
+    if (i < 0) return false;
+    const next = toIndex != null ? nodes[toIndex] : nodes[i + dir];
+    if (!next || next === nodes[i]) return false;
+    paraNodes().forEach((el) => el.classList.remove('is-selected'));
+    next.classList.add('is-selected');
+    lastParaRef.current = Number(next.dataset.paraIndex);
+    window.getSelection()?.removeAllRanges();
+    syncParas();
+    applyEditable();
+    // A paragraph that can be typed into takes the caret — at its END going
+    // down and its START going up, which is also the edge the next ↓ / ↑ steps
+    // from, so holding the key walks the document.
+    if (next.getAttribute('contenteditable') === 'true') {
+      next.focus({ preventScroll: true });
+      const range = document.createRange();
+      range.selectNodeContents(next);
+      range.collapse(dir < 0);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    } else if (document.activeElement && hostRef.current?.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
+    return true;
+  }, [stepTargets, paraNodes, syncParas, applyEditable]);
+  const stepPickRef = useRef(stepPick);
+  stepPickRef.current = stepPick;
+  // "Open" from a paragraph's right-click menu (DocParaPill): the pick a plain
+  // click makes — this paragraph and only this one — so the zoom, the panel and
+  // editability all follow. `blockAt` tags a block pagination didn't (a
+  // paragraph in a table cell), as the click path does.
+  const openPara = useCallback((el) => {
+    const para = blockAt(el);
+    if (!para) return;
+    paraNodes().forEach((node) => node.classList.remove('is-selected'));
+    para.classList.add('is-selected');
+    lastParaRef.current = Number(para.dataset.paraIndex);
+    window.getSelection()?.removeAllRanges();
+    syncParas();
+    applyEditable();
+    if (para.getAttribute('contenteditable') === 'true') para.focus({ preventScroll: true });
+  }, [blockAt, paraNodes, syncParas, applyEditable]);
+
+  // ── Collapsible headings ───────────────────────────────────────────────
+  // Which headings are folded, by what they say — so a fold survives the
+  // document being re-rendered under it (a save, a theme switch), and because
+  // re-rendering is HOW a fold takes effect: the render effect applies the set
+  // to the flow before it paginates. Marked again after every render; toggled from the heading's triangle (a click in
+  // the gutter left of it — the triangle is a pseudo-element, so the click
+  // arrives on the heading itself, left of its box) or its right-click menu.
+  const foldedRef = useRef(new Set());
+  // For the side panel's "Collapse all" toggle: are there headings to fold, and
+  // is every one of them folded? Read off the DOM whenever the folds change.
+  const [foldState, setFoldState] = useState({ any: false, all: false });
+  const readFoldState = useCallback(() => {
+    const heads = Array.from(hostRef.current?.querySelectorAll('.dv-fold-head') || []);
+    const all = heads.length > 0 && heads.every((el) => foldedRef.current.has(docFoldKey(el)));
+    setFoldState((cur) => (cur.any === heads.length > 0 && cur.all === all ? cur : { any: heads.length > 0, all }));
+  }, []);
+  useEffect(() => { foldedRef.current = new Set(); }, [url]);
+  // The fold set changed: show it. Typed-in edits that aren't saved yet would be
+  // lost to a re-render, so with those the folds are applied in place (the
+  // sheets shorten) and the next render deals the pages out; otherwise the
+  // document is re-rendered and re-paginated around the folds.
+  const commitFolds = useCallback(() => {
+    readFoldState();
+    if (editsRef.current.length) { applyDocFolds(hostRef.current, foldedRef.current, { shrinkPages: true }); return; }
+    setReloadKey((k) => k + 1);
+  }, [readFoldState]);
+  const toggleFold = useCallback((el) => {
+    if (!el?.classList.contains('dv-fold-head')) return;
+    const key = docFoldKey(el);
+    const set = foldedRef.current;
+    if (set.has(key)) set.delete(key); else set.add(key);
+    // The triangle answers at once; the re-paginated pages follow in one swap.
+    el.classList.toggle('is-collapsed', set.has(key));
+    commitFolds();
+  }, [commitFolds]);
+  // Collapse every heading — or, when they all are, expand them all again.
+  const toggleAllFolds = useCallback(() => {
+    const heads = Array.from(hostRef.current?.querySelectorAll('.dv-fold-head') || []);
+    if (!heads.length) return;
+    const set = foldedRef.current;
+    const expand = heads.every((el) => set.has(docFoldKey(el)));
+    heads.forEach((el) => {
+      if (expand) set.delete(docFoldKey(el)); else set.add(docFoldKey(el));
+      el.classList.toggle('is-collapsed', !expand);
+    });
+    commitFolds();
+  }, [commitFolds]);
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    markDocFolds(host);
+    applyDocFolds(host, foldedRef.current);
+    readFoldState();
+  }, [renderTick, readFoldState]);
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+    // Capture phase: ahead of the pick handler, which would otherwise read the
+    // click as "pick this heading".
+    const onFoldClick = (e) => {
+      const head = e.target.closest?.('.dv-fold-head');
+      if (!head || head.classList.contains('is-selected')) return;
+      if (host.parentElement?.classList.contains('is-zoom-live')) return;
+      if (e.clientX >= head.getBoundingClientRect().left) return; // on the text, not the triangle
+      e.preventDefault();
+      e.stopPropagation();
+      toggleFold(head);
+    };
+    host.addEventListener('click', onFoldClick, true);
+    return () => host.removeEventListener('click', onFoldClick, true);
+  }, [toggleFold]);
+  useEffect(() => {
+    const nodes = stepTargets();
+    const index = nodes.findIndex((el) => el.classList.contains('is-selected'));
+    const labels = index < 0 ? [] : nodes.map((el, n) => {
+      const m = /^\s*((?:\d{1,3}(?:\.\d{1,3}){0,4}\.?)|(?:\(?[a-z]\))|(?:\(?[ivx]{1,5}\))|(?:\(\d{1,3}\)))(?=\s)/i
+        .exec((el.dataset.splitFull || el.textContent || '').slice(0, 24));
+      return m ? m[1].replace(/\.$/, '') : String(n + 1);
+    });
+    setStepList((cur) => (cur.index === index && cur.labels.length === labels.length
+      && cur.labels.every((l, n) => l === labels[n]) ? cur : { labels, index }));
+  }, [paras, renderTick, stepTargets]);
+  // ↑ / ↓ / PageUp / PageDown. Typing comes first: never from a form field, and
+  // inside a paragraph being edited the arrows move the caret as usual — they
+  // only step once the caret is already at the paragraph's first / last
+  // position, where they would otherwise do nothing.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      const dir = (e.key === 'ArrowDown' || e.key === 'PageDown') ? 1
+        : (e.key === 'ArrowUp' || e.key === 'PageUp') ? -1 : 0;
+      if (!dir) return;
+      const host = hostRef.current;
+      if (!host?.parentElement?.classList.contains('is-zoom-on')) return;
+      const t = e.target?.nodeType === 1 ? e.target : e.target?.parentElement;
+      if (t?.closest?.('input, textarea, select')) return;
+      const editing = t?.closest?.('[contenteditable="true"]');
+      if (editing && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+        if (e.shiftKey) return; // extending a selection
+        const sel = window.getSelection();
+        if (!sel || !sel.isCollapsed || !sel.rangeCount) return;
+        const probe = document.createRange();
+        probe.selectNodeContents(editing);
+        if (dir < 0) probe.setEnd(sel.anchorNode, sel.anchorOffset);
+        else probe.setStart(sel.anchorNode, sel.anchorOffset);
+        if (probe.toString().trim()) return; // text between the caret and that edge
+      }
+      if (stepPickRef.current?.(dir)) e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const previewSnapRef = useRef(null);
   const clearParasRef = useRef(clearParas);
   useEffect(() => { clearParasRef.current = clearParas; }, [clearParas]);
@@ -8850,35 +11188,12 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
     return sig;
   }, [renderTick]);
 
-  // Hover, both directions. Pointing at a marked gap tells the fields panel
-  // which card to light; the panel pointing at a card comes back as
-  // `hoverField` and lights the gap. One state, two publishers, so the pair can
-  // never disagree about what is lit.
-  const setHoverField = adv?.setHoverField;
+  // A blank does NOT react to the pointer: no hover styling in the document.
+  // (It used to publish the gap under the cursor as `hoverField`, which lit it
+  // up — and re-rendered everything reading the advisor context on every
+  // mouse-over.) `hoverField` is still honoured when something else sets it —
+  // a fields card pointing at its gap.
   const hoverField = adv?.hoverField || null;
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host || !setHoverField) return undefined;
-    const idAt = (node) => (node?.nodeType === 1 ? node : node?.parentElement)
-      ?.closest?.('.dv-field')?.dataset?.dvfield || null;
-    // `mouseover`/`mouseout` bubble (unlike enter/leave), so one pair of
-    // listeners on the host covers every gap, including ones added by a
-    // re-render.
-    const onOver = (e) => { const id = idAt(e.target); if (id) setHoverField(id); };
-    const onOut = (e) => {
-      // Ignore moves WITHIN one gap (between its own text nodes) — only a move
-      // that actually leaves it counts.
-      if (idAt(e.target) && idAt(e.relatedTarget) === idAt(e.target)) return;
-      if (idAt(e.target)) setHoverField(null);
-    };
-    host.addEventListener('mouseover', onOver);
-    host.addEventListener('mouseout', onOut);
-    return () => {
-      host.removeEventListener('mouseover', onOver);
-      host.removeEventListener('mouseout', onOut);
-    };
-  }, [setHoverField, renderTick]);
-  // Paint whatever is hovered, from whichever side it was hovered on.
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return undefined;
@@ -8920,7 +11235,23 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
   useEffect(() => {
     const was = lastPickRef.current;
     lastPickRef.current = pickedKey;
-    if (was && was !== pickedKey) saveRef.current?.();
+    if (!was || was === pickedKey) return;
+    // Stepping to another paragraph is still selection mode — the panel's draft
+    // is the workspace's, not the paragraph's, so it simply carries over and is
+    // written once, on the way out. The exception is text typed straight into a
+    // paragraph: that is saved as it is left, as it always was (which rewrites
+    // the file and so ends the zoom).
+    if (pickedKey) { if (editsRef.current.length) saveRef.current?.(); return; }
+    // Nothing the panel changes reaches the document WHILE a paragraph is
+    // picked — it shows in the picked paragraph only. This, the moment the pick
+    // is dropped, is where it is written: the panel's draft becomes a new
+    // version, which rewrites the file and remounts this pane. (A paragraph
+    // with a panel is not typed into, so there is never a manual edit waiting
+    // behind it.)
+    const explicit = explicitSaveRef.current;
+    explicitSaveRef.current = false;
+    if (ctorRef.current?.saveOnClose?.(explicit)) return;
+    saveRef.current?.();
   }, [pickedKey]);
   useEffect(() => () => { setParaKeyOut?.(''); setParaTextOut?.(''); }, [setParaKeyOut, setParaTextOut]);
   // Leaving the document (a new file, a version switch) takes the tab with it —
@@ -8949,12 +11280,30 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
       const found = scanDocFields(host);
       allFieldsRef.current = found;
       publishFields([], sig, found);
+      // The markers can re-wrap the lines they sit in — put back whatever that
+      // pushed across a bottom margin.
+      settleDocxPages(host);
       // No suggestion warm-up: the blanks side panel that showed them is gone
       // (blanks are filled in the Constructor now), and that was an AI call
       // paid for on every render of a document with a blank in it.
     }, 0);
     return () => { cancelled = true; window.clearTimeout(id); };
   }, [renderTick, publishFields, documentSignature]);
+
+  // …and again as the late arrivals land: docx-preview positions its tab stops
+  // on a timer, and a web font can finish loading after `fonts.ready` resolved
+  // for the faces known at the time.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !renderTick) return undefined;
+    const settle = () => { try { settleDocxPages(host); } catch { /* presentation only */ } };
+    const timers = [250, 1200].map((ms) => window.setTimeout(settle, ms));
+    document.fonts?.addEventListener?.('loadingdone', settle);
+    return () => {
+      timers.forEach((id) => window.clearTimeout(id));
+      document.fonts?.removeEventListener?.('loadingdone', settle);
+    };
+  }, [renderTick]);
 
   // The markup belongs to one rendered document: drop it when a new version
   // replaces it, and when the pane goes away.
@@ -9074,6 +11423,7 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
     if (!host) return undefined;
 
     const onClick = (e) => {
+      if (e.target.closest?.('.dv-docx-livecard, .dv-docx-livehead')) return; // the preview copy's inputs / the heading card
       const para = blockAt(e.target);
       // A click that lands with text still highlighted is the tail of a drag-
       // select, not a paragraph pick — that's the selection gesture, handled on
@@ -9128,13 +11478,14 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
     // non-collapsed selection and make the click handler bail out — suppress the
     // native gesture so it means "extend the paragraph range" instead.
     const onDown = (e) => {
+      if (e.target.closest?.('.dv-docx-livecard, .dv-docx-livehead')) return;
       if (e.shiftKey && blockAt(e.target)) {
         e.preventDefault();
         window.getSelection()?.removeAllRanges();
       }
     };
 
-    const onInput = () => { syncEdits(); syncParas(); };
+    const onInput = (e) => { if (e.target.closest?.('.dv-docx-livecard')) return; syncEdits(); syncParas(); };
 
     // Rich paste would drop foreign markup (and foreign fonts) into a paragraph
     // whose formatting we re-read from computed style — paste the text only.
@@ -9200,14 +11551,34 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
 
   // Scale the page stack down to fit the pane width (Word's "fit to width"), so
   // an 8.5"/A4 sheet is readable without horizontal scrolling on a narrow pane.
+  // ── View: the page list, and zoom (quick actions) ────────────────────────
+  // `userZoom` multiplies the fit (1 = the page fitted to the pane). It steps
+  // like the image pane's zoom; here the WHEEL scrolls the pages, so zooming by
+  // wheel takes Ctrl. Refused while a paragraph is open — that view is a camera
+  // move over these same pages.
+  const [showRail, setShowRail] = useState(loadPageRailPref);
+  const [userZoom, setUserZoom] = useState(1);
+  const userZoomRef = useRef(1);
   const fitWidth = useCallback(() => {
     const host = hostRef.current;
     const wrapper = host?.querySelector('.docx-wrapper');
     if (!host || !wrapper || !pageWidthRef.current) return;
     const avail = host.clientWidth - 44; // wrapper h-padding (36) + breathing room
     if (avail <= 0) return;
-    const z = Math.max(0.35, Math.min(1, avail / pageWidthRef.current));
+    // FIT (the page's width in the pane, never above life size) × the user's
+    // own zoom on top of it (1 = fit; the quick actions / Ctrl + wheel).
+    const fit = Math.max(0.35, Math.min(1, avail / pageWidthRef.current));
+    const z = Math.max(0.15, Math.min(6, fit * userZoomRef.current));
+    // Keep what is at the middle of the view in the middle while the pages grow
+    // or shrink around it.
+    const scroller = host.parentElement;
+    const before = Number(wrapper.style.zoom) || z;
     wrapper.style.zoom = String(z);
+    if (scroller && before !== z) {
+      const k = z / before;
+      scroller.scrollTop = (scroller.scrollTop + scroller.clientHeight / 2) * k - scroller.clientHeight / 2;
+      scroller.scrollLeft = (scroller.scrollLeft + scroller.clientWidth / 2) * k - scroller.clientWidth / 2;
+    }
   }, []);
 
   useEffect(() => {
@@ -9217,6 +11588,7 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
     if (!host) return undefined;
     pageWidthRef.current = 0;
     let retryTimer = null;
+    let dropStage = null; // removes the off-stage render if this run is abandoned
     (async () => {
       try {
         const resp = await fetch(url, { cache: 'no-store' });
@@ -9232,10 +11604,25 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
         if (!blob.size) throw new Error('empty');
         const { renderAsync } = await import('docx-preview');
         if (cancelled) return;
-        host.innerHTML = '';
+        // Rendered OFF STAGE, then swapped in whole. Rendering straight into the
+        // live host meant emptying it first: a blank pane, then an unpaginated
+        // flow, then the pages, then the blanks being marked — every save (every
+        // paragraph closed with a change in it) flashed the whole window. The
+        // stage is a second host beside the real one — same width and the same
+        // `.dv-docx` rules, so everything measured on it holds — laid out but
+        // never painted, and the finished pages are moved across in one step.
+        const stage = document.createElement('div');
+        stage.className = 'dv-docx dv-docx-stage';
+        stage.setAttribute('aria-hidden', 'true');
+        // Under the document theme from the start, so the pages are measured
+        // and sliced in the fonts they will be shown in.
+        const themeId = docThemeRef.current;
+        applyDocTheme(stage, themeId);
+        host.after(stage);
+        dropStage = () => stage.remove();
         // breakPages:false → continuous flow we paginate ourselves (docx-preview's
         // own breakPages only splits on explicit breaks, not on content overflow).
-        await renderAsync(blob, host, undefined, {
+        await renderAsync(blob, stage, undefined, {
           className: 'docx', inWrapper: true, breakPages: false,
           ignoreLastRenderedPageBreak: true, experimental: true, useBase64URL: true,
           // We re-paginate the flow ourselves; per-page headers/footers would be
@@ -9250,11 +11637,40 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
         // Pagination is presentation, not content: if it throws, the document
         // is already rendered as a continuous flow, and keeping that beats
         // replacing a readable document with an error screen.
+        let nextPageWidth = 0;
         try {
-          pageWidthRef.current = paginateDocx(host);
+          // Folded headings first: what they hide takes no room on a page, so
+          // the sheets are dealt out around it (see markDocFolds).
+          markDocFolds(stage);
+          applyDocFolds(stage, foldedRef.current);
+          nextPageWidth = paginateDocx(stage);
+          // The blanks too, so the swap doesn't show a frame of raw `[[tokens]]`
+          // before they are marked (the fields effect re-does this for the
+          // record — in one task, so nothing is painted in between).
+          scanDocFields(stage);
+          settleDocxPages(stage);
         } catch (err) {
           console.error('[doc-viewer] could not paginate the document', err);
         }
+        // Not under an open paragraph: nothing reaches the document while one is
+        // picked, and the zoom back out finishes on the pages it started on. (A
+        // save is what brings us here, and a save only happens on the way out —
+        // so this is normally a wait of a few hundred ms, for the landing.)
+        const scroller = host.parentElement;
+        while (!cancelled && scroller?.classList.contains('is-zoom-live')) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => { window.setTimeout(resolve, 60); });
+        }
+        if (cancelled) { stage.remove(); return; }
+        // The swap: one synchronous step — new pages in, fitted, scrolled to
+        // where the old ones were — so there is no frame in between to see.
+        const keepTop = scroller ? scroller.scrollTop : 0;
+        const keepLeft = scroller ? scroller.scrollLeft : 0;
+        host.replaceChildren(...Array.from(stage.childNodes));
+        applyDocTheme(host, themeId); // with the pages that were laid out under it
+        stage.remove();
+        dropStage = null;
+        pageWidthRef.current = nextPageWidth;
         lastParaRef.current = null;
         setParas([]);
         // Fresh DOM: any unsaved edit belonged to the previous render (and a
@@ -9264,6 +11680,7 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
         setRenderErr(null);
         attemptRef.current = { url, n: 0 };
         fitWidth();
+        if (scroller) { scroller.scrollTop = keepTop; scroller.scrollLeft = keepLeft; }
         // Tells the "Complete data" scan that there is fresh DOM to look at —
         // every new version replaces the whole document, blanks included.
         setRenderTick((t) => t + 1);
@@ -9283,6 +11700,7 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
           retryTimer = window.setTimeout(() => setReloadKey((k) => k + 1), 400 * a.n);
           return;
         }
+        dropStage?.();
         if (host) host.innerHTML = '';
         setRenderErr(
           code === 'http_403'
@@ -9299,8 +11717,8 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
         );
       }
     })();
-    return () => { cancelled = true; if (retryTimer) window.clearTimeout(retryTimer); };
-  }, [url, fitWidth, reloadKey]);
+    return () => { cancelled = true; dropStage?.(); if (retryTimer) window.clearTimeout(retryTimer); };
+  }, [url, fitWidth, reloadKey, regenTick]);
 
   // Re-fit on pane resize.
   useEffect(() => {
@@ -9311,8 +11729,248 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
     return () => ro.disconnect();
   }, [fitWidth]);
 
+  // ── The document's tools, published to the side panel ──────────────────
+  // Themes and the whole-document actions (page numbers, Open in Word) are shown
+  // in the side panel — the **Theme** tab and the Quick actions section under
+  // its tabs (DocExtractPanel) — not in this pane. The state is here, so it is
+  // handed over through the advisor context as ONE memoised object: it changes
+  // only when something the panel shows changes, because publishing re-renders
+  // the provider, and with it this pane.
+  const setDocTools = adv?.setDocTools;
+  const openNativeRef = useRef(onOpenNative);
+  openNativeRef.current = onOpenNative;
+  const canOpenNative = !!onOpenNative && isElectron;
+  const hasTypedEdits = edits.length > 0;
+  const paraOpen = paras.length > 0;
+  // The user's zoom → the pages; Ctrl + wheel over the document steps it.
+  // EASED: the zoom glides to its new value (~200ms, geometric so it feels even
+  // at every level) — `fitWidth` is run each frame and keeps the middle of the
+  // view in place. A new step mid-glide starts from wherever the last one got to.
+  useEffect(() => {
+    const from = userZoomRef.current;
+    const to = userZoom;
+    const still = document.documentElement.dataset.reduceMotion === 'true';
+    if (from === to || still) { userZoomRef.current = to; fitWidth(); return undefined; }
+    const t0 = performance.now();
+    let raf = requestAnimationFrame(function tick(now) {
+      const p = Math.min(1, (now - t0) / 200);
+      const e = 1 - (1 - p) ** 3;
+      userZoomRef.current = p >= 1 ? to : from * (to / from) ** e;
+      fitWidth();
+      if (p < 1) raf = requestAnimationFrame(tick);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [userZoom, fitWidth]);
+  const paraOpenRef = useRef(false);
+  paraOpenRef.current = paraOpen;
+  useEffect(() => {
+    const scroller = hostRef.current?.parentElement;
+    if (!scroller) return undefined;
+    // A Word file is a document to be read, like a PDF of several pages: the
+    // plain wheel scrolls it and zooming is CTRL + wheel (held down). Never
+    // while a paragraph is open — that view is a camera move of its own.
+    const onWheel = (e) => {
+      if (!e.ctrlKey || paraOpenRef.current) return;
+      e.preventDefault();
+      setUserZoom((z) => stepDocZoom(z, e.deltaY < 0 ? 'in' : 'out'));
+    };
+    scroller.addEventListener('wheel', onWheel, { passive: false });
+    return () => scroller.removeEventListener('wheel', onWheel);
+  }, []);
+  const toggleRail = useCallback(() => setShowRail((on) => { savePageRailPref(!on); return !on; }), []);
+  // FIT: a whole page inside the window's height (never wider than the pane).
+  // Worked out from the page as it is on screen now: its height at zoom 1 is
+  // what it measures ÷ the zoom it is under.
+  const fitPage = useCallback(() => {
+    const host = hostRef.current;
+    const wrapper = host?.querySelector('.docx-wrapper');
+    const scroller = host?.parentElement;
+    const pages = Array.from(host?.querySelectorAll('.docx-wrapper > .dv-docx-page') || []);
+    const zNow = Number(wrapper?.style.zoom) || 0;
+    if (!scroller || !pages.length || !zNow) return;
+    // The page being read: the first still crossing the upper third.
+    const line = scroller.getBoundingClientRect().top + scroller.clientHeight / 3;
+    const pg = pages.find((el) => el.getBoundingClientRect().bottom > line) || pages[0];
+    const pageH = pg.getBoundingClientRect().height / zNow;
+    const fit = zNow / userZoomRef.current;               // what fit-to-width alone gives
+    const next = Math.max(0.1, Math.min(1, (scroller.clientHeight - 28) / pageH / fit));
+    setUserZoom(+next.toFixed(3));
+    window.setTimeout(() => {
+      const top = pg.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+      scroller.scrollTo({ top: Math.max(0, top - 14), behavior: 'smooth' });
+    }, 260);
+  }, []);
+
+  const docTools = useMemo(() => ({
+    themes: DOC_THEMES,
+    themeId: docTheme,
+    pickTheme: pickDocTheme,
+    // A theme switch re-renders the document, which would drop typed-in edits
+    // that aren't saved yet, so it waits for those.
+    themeLockReason: hasTypedEdits ? 'Save your edits to switch theme' : '',
+    // None of it is about a picked paragraph.
+    disabled: paraOpen,
+    actions: [
+      {
+        id: 'page-rail',
+        label: 'Pages',
+        tooltip: showRail ? 'Hide the list of pages' : 'Show every page in a list beside the document',
+        icon: PagesRailGlyph,
+        pressed: showRail,
+        onClick: toggleRail,
+      },
+      {
+        id: 'zoom-fit',
+        label: 'Fit',
+        tooltip: 'Scale the page so all of it fits in the window’s height',
+        icon: FitViewGlyph,
+        pressed: false,
+        onClick: fitPage,
+      },
+      {
+        id: 'pagenums',
+        label: 'Page numbers',
+        tooltip: showPageNumbers ? 'Hide the page numbers' : 'Show the page numbers',
+        icon: PageNumbersGlyph,
+        pressed: showPageNumbers,
+        onClick: () => setShowPageNumbers((v) => !v),
+      },
+      foldState.any ? {
+        id: 'fold-all',
+        label: foldState.all ? 'Expand all' : 'Collapse all',
+        tooltip: foldState.all ? 'Expand every heading' : 'Collapse every heading',
+        icon: FoldAllGlyph,
+        pressed: foldState.all,
+        onClick: toggleAllFolds,
+      } : null,
+      canOpenNative ? {
+        id: 'open-word',
+        label: 'Open in Word',
+        tooltip: 'Open this file in Word on your computer',
+        icon: OpenExternalGlyph,
+        onClick: () => openNativeRef.current?.(),
+      } : null,
+    ].filter(Boolean),
+  }), [docTheme, pickDocTheme, hasTypedEdits, paraOpen, showPageNumbers, canOpenNative, foldState, toggleAllFolds, showRail, toggleRail, fitPage]);
+  useEffect(() => { setDocTools?.(docTools); }, [docTools, setDocTools]);
+  useEffect(() => () => setDocTools?.(null), [setDocTools]);
+
   return (
     <div className="dv-docview">
+      <Tooltip content="Close (Esc)">
+        <button
+          type="button"
+          className="dv-docx-liftclose"
+          ref={liftCloseRef}
+          onClick={clearParas}
+          aria-label="Close paragraph"
+        >
+          <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+            <line x1="2.5" y1="2.5" x2="9.5" y2="9.5" /><line x1="9.5" y1="2.5" x2="2.5" y2="9.5" />
+          </svg>
+        </button>
+      </Tooltip>
+      {/* Over the picked paragraph (placed by layoutLift): this paragraph's
+          versions as a row of dots. (The heading it sits under is a card INSIDE
+          the zoomed page — see layoutLift.) */}
+      {paraDots.length > 0 && (
+        <div className="dv-docx-lifttop" ref={liftDotsRef}>
+          {paraDots.length > 0 && (
+            <div className="dv-docx-liftdots" role="group" aria-label="Versions of this paragraph">
+              {paraDots.map((d, i) => (
+                <button
+                  key={d.key}
+                  type="button"
+                  className={`dv-docx-liftdot${d.active ? ' is-active' : ''}${d.unsaved ? ' is-unsaved' : ''}${hoverVer && hoverVer.n === d.n ? ' is-hover' : ''}`}
+                  onMouseEnter={() => previewParaVersion(d)}
+                  onMouseLeave={endParaVersionPreview}
+                  onFocus={() => previewParaVersion(d)}
+                  onBlur={endParaVersionPreview}
+                  onClick={() => restoreParaVersion(d)}
+                  aria-label={d.unsaved ? 'Unsaved changes' : `Version ${i + 1} of this paragraph`}
+                  aria-current={d.active ? 'true' : undefined}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {/* Paragraph rail — left edge of the preview: ▲, a window of pills around
+          the picked paragraph (the picked one marked), ▼. A pill jumps straight
+          to its paragraph. */}
+      <div className="dv-docx-liftnav" ref={liftNavRef} role="group" aria-label="Move between paragraphs">
+        <button type="button" className="dv-docx-liftnav-btn" onClick={() => stepPick(-1)} disabled={stepList.index <= 0} aria-label="Previous paragraph">
+          <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="2.5 7.5 6 4 9.5 7.5" />
+          </svg>
+        </button>
+        <div className="dv-docx-liftnav-pills">
+          {(() => {
+            const { labels, index } = stepList;
+            const SPAN = 4; // pills either side of the picked one
+            const from = Math.max(0, Math.min(index - SPAN, labels.length - (SPAN * 2 + 1)));
+            const to = Math.min(labels.length, from + SPAN * 2 + 1);
+            const out = [];
+            for (let n = from; n < to; n += 1) {
+              const dist = Math.abs(n - index);
+              out.push(
+                <button
+                  key={n}
+                  type="button"
+                  className={`dv-docx-liftnav-pill${n === index ? ' is-active' : ''}${dist >= 3 ? ' is-far' : ''}`}
+                  onClick={() => stepPick(0, n)}
+                  aria-label={`Paragraph ${labels[n]}`}
+                  aria-current={n === index ? 'true' : undefined}
+                >
+                  {labels[n]}
+                </button>,
+              );
+            }
+            return out;
+          })()}
+        </div>
+        <button type="button" className="dv-docx-liftnav-btn" onClick={() => stepPick(1)} disabled={stepList.index < 0 || stepList.index >= stepList.labels.length - 1} aria-label="Next paragraph">
+          <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="2.5 4.5 6 8 9.5 4.5" />
+          </svg>
+        </button>
+      </div>
+      {/* The Constructor's controls for the picked paragraph — its party,
+          its blanks — docked under the lifted card by layoutLift.
+          Outside the scroller and above the veil, like the close button. */}
+      {ctorHit && ctor && (
+        <div className="dv-docx-liftpanel" ref={setLiftPanel}>
+          <DocParagraphConstructor
+            model={ctor.model}
+            section={ctorHit.section}
+            piece={ctorHit.piece}
+            draft={ctor.draft}
+            setDraft={ctor.setDraft}
+            baseValues={ctor.baseValues}
+            records={ctor.records}
+            foreign={ctor.foreign}
+            saveError={ctor.saveError}
+            onLive={onCtorLive}
+            previewEl={liveEl}
+            runStyle={liveSnapRef.current?.run || null}
+            versionPreview={hoverVer}
+            optionsSlot={adv?.ctorSlot || null}
+            originalHtml={liveSnapRef.current?.el?.innerHTML || ''}
+            onCreateIdentity={ctor.createIdentity}
+          />
+        </div>
+      )}
+      <DocParaPill hostRef={hostRef} onOpen={openPara} onToggleFold={toggleFold} />
+      {!renderErr && <DocPageRail hostRef={hostRef} tick={renderTick} themeId={docTheme} locked={paras.length > 0} hidden={!showRail} />}
+      {!renderErr && (
+        <DocZoomPill
+          zoom={userZoom}
+          onStep={(dir) => setUserZoom((z) => stepDocZoom(z, dir))}
+          onReset={() => setUserZoom(1)}
+          left={showRail ? 126 : 8}
+          disabled={paras.length > 0}
+        />
+      )}
       <div className="dv-docview-body">
         <div
           ref={hostRef}
@@ -9385,80 +12043,50 @@ function DocxRenderPane({ url, onExportPdf, onOpenNative }) {
       {/* Why a save didn't go through — sits under the bar rather than as a
           toast, because it's about the paragraph you're looking at, so it
           follows the bar into the panel. */}
+      {/* Closing a paragraph saves what its panel changed; if that save fails the
+          panel — which is where the error normally shows — is already gone. */}
+      {ctor?.saveError && !ctorHit && (
+        <div className="dv-docx-parabar-err" role="alert">{ctor.saveError}</div>
+      )}
       {saveState && saveState !== 'saving' && renderParaBar(
         <div className={`dv-docx-parabar-err${paraSlot ? ' is-docked' : ''}`} role="alert">{saveState}</div>,
-      )}
-      {/* Page-numbers toggle, Complete data + Convert-to-PDF docked at the
-          bottom of the pane. */}
-      {/* Whole-document actions — page numbers, Open in Word, Convert to PDF.
-          They go away while a paragraph is picked: none of them is about the
-          paragraph, and offering "convert the whole file to PDF" next to a
-          passage you are mid-edit on is an invitation to lose the edit. They
-          come back the moment the pick is dropped. */}
-      {!hasPick && (
-        <div className="dv-docview-toolbar dv-docview-toolbar--foot">
-          <button
-            type="button"
-            className={`dv-docview-pgtoggle${showPageNumbers ? ' is-active' : ''}`}
-            onClick={() => setShowPageNumbers((v) => !v)}
-            aria-pressed={showPageNumbers}
-          >
-            <span className="dv-pgtoggle-hash" aria-hidden="true">#</span>
-            Page numbers
-          </button>
-          {onExportPdf && (
-            <>
-              <div className="dv-docview-spacer" />
-              <OpenNativeButton onOpen={onOpenNative} kind="docx" />
-              <ExportPdfButton getRoot={() => hostRef.current} kind="docx" onExport={onExportPdf} />
-            </>
-          )}
-        </div>
       )}
     </div>
   );
 }
 
-// ── A Word document's two views ──────────────────────────────────────────
-// CONSTRUCTOR shows what the document is made of — sections, pieces, blanks,
-// parties (components/DocConstructor). WORD PREVIEW shows the file itself,
-// rendered from disk. The switch between them sits top-right of the document.
+// ── A Word document ──────────────────────────────────────────────────────
+// One view: the file itself, rendered from disk (DocxRenderPane). What used to
+// be a second view — the Constructor, an outline of the data a document needs —
+// now opens PER PARAGRAPH: pick a paragraph in the preview and the controls for
+// what that paragraph carries (its party, its blanks) dock under
+// it (components/DocConstructor).
 //
-// The Constructor reads the active version's SOURCE (its `template` when it has
-// one, so filled blanks stay chips) and edits a draft held HERE — not in the
-// Constructor — so flipping to the preview and back loses nothing, and so the
-// preview pane can be unmounted rather than hidden (a hidden docx host has no
-// width to fit its pages to, and its text would still answer the find bar).
+// Those controls work on the active version's SOURCE (its `template` when it
+// has one, so filled blanks are still blanks) through a DRAFT held HERE — not
+// in the panel, which exists only while a paragraph is picked, and not in the
+// preview pane, which is remounted every time the file is rewritten. This
+// component outlives both, so a value typed under one paragraph is still there
+// under the next.
 //
-// Going to the preview with unsaved Constructor changes saves them first: the
-// preview renders the FILE, so without that it would show a stale document and
-// the two views would disagree. A file that wasn't written in DocVex is the
-// exception — saving rebuilds it from text, which costs it formatting, so that
-// only ever happens on an explicit "Save to document".
-function DocxWorkspace({ file, url, regenTick = 0, startInBuilder = false, onExportPdf, onOpenNative }) {
+// Closing a paragraph with unsaved changes saves them: the preview renders the
+// FILE, so until then it would show a stale document. A file that wasn't
+// written in DocVex is the exception — saving rebuilds it from text, which
+// costs it formatting, so that only ever happens on the panel's explicit Save.
+function DocxWorkspace({ file, url, regenTick = 0, onExportPdf, onOpenNative }) {
   const adv = useMultitoolAdvisor();
   const versions = adv?.versions || [];
   const active = versions.find((v) => v.n === adv?.activeVersion)
     || (versions.length ? versions[versions.length - 1] : null);
   const foreign = !active;
 
-  // A document with a DocVex source — or one about to get one — opens on the
-  // Constructor. Read from storage so the answer is there on the first render;
-  // the provider's own copy arrives an effect later, by which time the preview
-  // would already have started rendering a document nobody asked to see.
-  const [view, setView] = useState(() => (
-    startInBuilder || (loadConversation(file.path)?.versions || []).length ? 'builder' : 'word'
-  ));
-  const choseViewRef = useRef(false);
-  const hasVersions = versions.length > 0;
-  useEffect(() => {
-    if (hasVersions && !choseViewRef.current) setView('builder');
-  }, [hasVersions]);
-
-  // A foreign file has no source, so its text stands in for one.
+  // A foreign file has no source, so its text stands in for one. Read only once
+  // a paragraph is actually picked — it means rendering the document a second
+  // time, off-screen, and most files that are opened are only read.
+  const [wantSource, setWantSource] = useState(false);
   const [foreignText, setForeignText] = useState(null);
   useEffect(() => {
-    if (!foreign || view !== 'builder') return undefined;
+    if (!foreign || !wantSource) return undefined;
     let cancelled = false;
     (async () => {
       try {
@@ -9470,10 +12098,12 @@ function DocxWorkspace({ file, url, regenTick = 0, startInBuilder = false, onExp
       }
     })();
     return () => { cancelled = true; };
-  }, [foreign, view, file.path, file.name, regenTick]);
+  }, [foreign, wantSource, file.path, file.name, regenTick]);
 
   const source = active ? (active.template ?? active.text ?? '') : (foreignText || '');
   const sourceKey = active ? `v${active.n}` : 'foreign';
+  const model = useMemo(() => parseConstructorSource(source), [source]);
+  const baseValues = active?.values || null;
 
   // A new source starts a new draft. Values already typed are carried across
   // when the blank they answer still exists — a revision from the advisor
@@ -9486,10 +12116,22 @@ function DocxWorkspace({ file, url, regenTick = 0, startInBuilder = false, onExp
       const pool = { ...(d?.values || {}), ...(active?.values || {}) };
       const values = {};
       for (const [k, v] of Object.entries(pool)) if (ids.has(k)) values[k] = v;
-      return { edits: {}, values, assigned: active?.assigned || d?.assigned || {}, open: null, plain: {} };
+      return { edits: {}, values, assigned: active?.assigned || d?.assigned || {} };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKey, source]);
+
+  // Dirty against what the open version already holds — a saved document
+  // reopens with its blanks filled, and that alone is not a change.
+  const dirty = useMemo(() => {
+    if (!draft) return false;
+    if (Object.keys(draft.edits || {}).length > 0) return true;
+    const base = baseValues || {};
+    const vals = draft.values || {};
+    const keys = new Set([...Object.keys(vals), ...Object.keys(base)]);
+    for (const k of keys) if ((vals[k] || '').trim() !== (base[k] || '').trim()) return true;
+    return false;
+  }, [draft, baseValues]);
 
   const [records, setRecords] = useState([]);
   const loadIdentities = adv?.loadIdentities;
@@ -9499,16 +12141,10 @@ function DocxWorkspace({ file, url, regenTick = 0, startInBuilder = false, onExp
     return () => { cancelled = true; };
   }, [loadIdentities]);
 
-  // The Constructor's two doors into the identity feature. A record opens where
-  // every record opens — its own Doc Viewer window, as the form it is — and a
-  // party typed in by hand can be saved as a new record in the project's
-  // Identities folder, which is where the Files tab and the Timeline keep them.
+  // A party typed in by hand can be saved as a new identity record, written to
+  // the project folder — which is where the Files tab and the Timeline find them.
   const { selectedProject } = useSelectedProject();
   const { session } = useAuth();
-  const openIdentity = useCallback((rec) => {
-    if (!rec?._path) return;
-    openDocViewerWindow({ path: rec._path, name: rec._fileName || `${rec.name || 'Identity'}.dvx`, mime: 'application/json' });
-  }, []);
   const createIdentity = useCallback(async (fromValues) => {
     try {
       const projectId = selectedProject?.id;
@@ -9529,12 +12165,17 @@ function DocxWorkspace({ file, url, regenTick = 0, startInBuilder = false, onExp
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
-  const apiRef = useRef(null);   // { compose(), isDirty() } — set by the Constructor
   const saveVersion = adv?.saveConstructorVersion;
-  const save = useCallback(async (payload) => {
-    if (!saveVersion) return false;
+  // Read through a ref by `save`, so the preview can call it from an effect that
+  // fires as the paragraph closes without holding a stale draft.
+  const liveRef = useRef(null);
+  liveRef.current = { model, draft, dirty, foreign, saving };
+  const save = useCallback(async () => {
+    const cur = liveRef.current;
+    if (!saveVersion || !cur?.draft || !cur.dirty || cur.saving) return false;
+    const { template, text } = composeConstructorSource(cur.model, cur.draft.edits, cur.draft.values);
     setSaving(true); setSaveError(null);
-    const res = await saveVersion(payload);
+    const res = await saveVersion({ template, text, values: cur.draft.values, assigned: cur.draft.assigned, quiet: !cur.draft.typed });
     setSaving(false);
     if (res?.error) {
       setSaveError(res.error === 'empty'
@@ -9544,70 +12185,67 @@ function DocxWorkspace({ file, url, regenTick = 0, startInBuilder = false, onExp
     }
     return true;
   }, [saveVersion]);
+  // What closing a paragraph does — the ONLY time the draft is written: while a
+  // paragraph is open its changes show in that paragraph and nowhere else. A
+  // foreign file is only written when the close came from the panel's Save
+  // (`explicit`), never from Esc or a click away (see above).
+  const saveOnClose = useCallback((explicit = false) => {
+    const cur = liveRef.current;
+    if (!cur?.dirty || (cur.foreign && !explicit)) return false;
+    save();
+    return true;
+  }, [save]);
 
-  const switchTo = async (next) => {
-    if (next === view || saving) return;
-    choseViewRef.current = true;
-    if (next === 'word' && !foreign && apiRef.current?.isDirty?.()) {
-      const ok = await save(apiRef.current.compose());
-      if (!ok) return;
-    }
-    setView(next);
-  };
+  // The piece a rendered paragraph came from, when it has anything to offer.
+  // Matched against the text AS SAVED — that is what the file, and so the
+  // paragraph on screen, was built from.
+  // EVERY paragraph that can be tied to a piece gets the paragraph tools — the
+  // AI prompt under it works on plain wording as much as on a clause with
+  // blanks; the identity options only show for the pieces that have a party.
+  const match = useCallback((paraText) => findPieceForText(model, baseValues, paraText), [model, baseValues]);
+  const requestSource = useCallback(() => setWantSource(true), []);
 
-  const docLabel = String(file.name || '').replace(/\.[^./\\]+$/, '');
+  // A paragraph's OWN history, read out of the document's versions (every save
+  // is a version of the whole document; what a person wants back is one
+  // paragraph as it was). Any paragraph, not only one with a panel. The parsed
+  // sources are cached per version — a version never changes once written.
+  const parsedRef = useRef(new Map());
+  const paraHistory = useCallback((paraText) => {
+    const hit = findPieceForText(model, baseValues, paraText);
+    if (!hit) return null;
+    const parse = (v) => {
+      const cache = parsedRef.current;
+      if (!cache.has(v.n)) cache.set(v.n, parseConstructorSource(v.template ?? v.text ?? ''));
+      return cache.get(v.n);
+    };
+    return { piece: hit.piece, section: hit.section, entries: paragraphHistory(versions, hit.piece, parse) };
+  }, [model, baseValues, versions]);
+  useEffect(() => { parsedRef.current = new Map(); }, [file.path]);
+  // Put ONE paragraph back the way a version had it: that version's wording for
+  // the piece, and its values for the piece's blanks. It lands in the draft like
+  // any other change — shown in the paragraph now, written on the way out.
+  const restorePiece = useCallback((piece, entry) => {
+    if (!piece || !entry) return;
+    setDraft((d) => {
+      const edits = { ...(d?.edits || {}) };
+      if (entry.text === piece.text) delete edits[piece.id]; else edits[piece.id] = entry.text;
+      return { ...(d || {}), edits, values: { ...(d?.values || {}), ...entry.values }, assigned: d?.assigned || {}, typed: true };
+    });
+  }, []);
+
+  const ctor = useMemo(() => ({
+    model, draft, setDraft, baseValues, records, dirty, foreign,
+    busy: !!adv?.busy, saving, saveError,
+    match, requestSource, save, saveOnClose, createIdentity, paraHistory, restorePiece,
+  }), [model, draft, baseValues, records, dirty, foreign, adv?.busy, saving, saveError, match, requestSource, save, saveOnClose, createIdentity, paraHistory, restorePiece]);
 
   return (
     <div className="dcx-workspace">
-      <div className="dcx-viewtoggle" role="radiogroup" aria-label="Document view">
-        <button type="button" role="radio" aria-checked={view === 'builder'} className={view === 'builder' ? 'is-on' : ''} disabled={saving} onClick={() => switchTo('builder')}>
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" />
-          </svg>
-          Constructor
-        </button>
-        <button type="button" role="radio" aria-checked={view === 'word'} className={view === 'word' ? 'is-on' : ''} disabled={saving} onClick={() => switchTo('word')}>
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" />
-          </svg>
-          {saving ? 'Saving…' : 'Word preview'}
-        </button>
-      </div>
-
-      {view === 'builder' ? (
-        <>
-          <DocConstructor
-            source={source}
-            fileName={file.name}
-            docLabel={docLabel}
-            draft={draft}
-            setDraft={setDraft}
-            baseValues={active?.values || null}
-            records={records}
-            busy={!!adv?.busy || (foreign && foreignText === null)}
-            saving={saving}
-            saveError={saveError}
-            foreign={foreign && !adv?.busy}
-            apiRef={apiRef}
-            onAskAi={adv?.rewritePiece}
-            onSave={save}
-            onOpenIdentity={openIdentity}
-            onCreateIdentity={createIdentity}
-          />
-          <div className="dcx-foot">
-            <OpenNativeButton onOpen={onOpenNative} kind="docx" />
-            {onExportPdf && (
-              <ExportPdfButton
-                kind="docx"
-                onExport={onExportPdf}
-                makeBlob={async () => buildDocumentBlob('pdf', apiRef.current?.compose?.().text || source)}
-              />
-            )}
-          </div>
-        </>
-      ) : (
-        <DocxRenderPane key={`pv-${regenTick}`} url={url} onExportPdf={onExportPdf} onOpenNative={onOpenNative} />
-      )}
+      {/* NOT keyed by regenTick any more: a save re-renders the document inside the
+          same pane (off stage, then swapped in — see its render effect) instead of
+          tearing the pane down, which is what made the window flash and lose its
+          scroll position. */}
+      <DocxRenderPane url={url} regenTick={regenTick} ctor={ctor} onExportPdf={onExportPdf} onOpenNative={onOpenNative} />
     </div>
   );
 }
@@ -9990,6 +12628,25 @@ const PICKER_MODES = {
       : 'Audio and video have no text to read'),
     readable: (ext) => canScanForIdentity(`f.${ext}`),
   },
+  // The identity record's Import: choose the documents the record is read FROM.
+  // Nothing is read here — the chosen files go to the record's "Taken from"
+  // list (`onChosen`), and each is read there, when it is clicked.
+  attach: {
+    eyebrow: 'Add source documents',
+    hint: 'Choose one or more files above — a photo, a PDF, a Word document…',
+    actionLabel: 'Add',
+    busyLabel: 'Adding…',
+    accept: '',
+    multi: true,
+    importTip: 'Add files from this computer — they are not copied into the project',
+    pickLabel: 'Select',
+    unpickLabel: 'Deselect',
+    hoverWhy: 'can’t be read for a record',
+    whyNot: (ext) => (identitySourceKind(`f.${ext}`) === 'identity'
+      ? 'Already an identity record'
+      : 'Audio and video have no text to read'),
+    readable: (ext) => canScanForIdentity(`f.${ext}`),
+  },
   pdf: {
     eyebrow: 'Convert to PDF',
     hint: 'Choose the document to convert.',
@@ -10141,7 +12798,7 @@ function AutofillTile({
 // `mode` is what the picker is FOR (see PICKER_MODES). Reading a picture into a
 // record is the default; 'pdf' chooses the document a new PDF is made from, and
 // hands the chosen file to `onConvert(file, blob)` instead of to the OCR.
-function IdentityAutofillModal({ open, onClose, record, onFilled, mode: modeId = 'scan', onConvert }) {
+function IdentityAutofillModal({ open, onClose, record, onFilled, mode: modeId = 'scan', onConvert, onChosen }) {
   const mode = PICKER_MODES[modeId] || PICKER_MODES.scan;
   const { selectedProject } = useSelectedProject();
   const { session } = useAuth();
@@ -10280,6 +12937,8 @@ function IdentityAutofillModal({ open, onClose, record, onFilled, mode: modeId =
   const runOn = useCallback(async (list) => {
     const chosen = (list || []).filter(Boolean);
     if (!chosen.length) return;
+    // 'attach' only chooses: hand the files back, unread.
+    if (modeId === 'attach') { setPicked([]); onChosen?.(chosen); return; }
     setBusyPath(chosen[0].path || chosen[0].name); setNote(null);
     try {
       const files = [];
@@ -10340,7 +12999,7 @@ function IdentityAutofillModal({ open, onClose, record, onFilled, mode: modeId =
     } finally {
       setBusyPath(null);
     }
-  }, [record, onFilled, selectedProject?.id, modeId, onConvert]);
+  }, [record, onFilled, selectedProject?.id, modeId, onConvert, onChosen]);
 
   const scan = useCallback(() => {
     if (picked.length && !busyPath) runOn(picked);
@@ -10716,11 +13375,420 @@ function IdentityAutofillModal({ open, onClose, record, onFilled, mode: modeId =
 //
 // Saves in place, and repoints the window's tab when the party is renamed (the
 // filename follows the name), exactly as the AI document generator does.
+// ── The record, as a dossier ─────────────────────────────────────────────
+// The pane is laid out as the "Entity dossier" design: a header (kind tile, the
+// name as a heading you type into, what the file is, and a drop zone that reads
+// documents into the record), the kinds as a row of pills, then the record's
+// fields as SECTIONS of two-column rows — each row its label, where the value
+// came from, the value itself, and any reading still waiting under it — custom
+// entries for whatever the form has no field for, and the documents it was
+// taken from. Which fields go in which section, per kind; a field the model
+// gains later and nobody files here lands in the last section rather than
+// vanishing.
+const IDENTITY_SECTIONS = {
+  person: [
+    { title: 'Identification', keys: ['firstName', 'lastName', 'nationalId', 'dateOfBirth', 'placeOfBirth', 'nationality', 'gender', 'idType', 'idSeries', 'idNumber', 'idIssuer', 'idIssuedAt'] },
+    { title: 'Address & contact', keys: ['address', 'city', 'county', 'email', 'phone'] },
+  ],
+  org: [
+    { title: 'Registration', keys: ['legalName', 'legalForm', 'taxId', 'regNo'] },
+    { title: 'Representation', keys: ['representative', 'repCapacity'] },
+    { title: 'Registered office & bank', keys: ['address', 'city', 'county', 'iban', 'bank', 'email', 'phone'] },
+  ],
+};
+// The kinds of record the design lays out. Only a person and an organisation
+// exist in the record format today (lib/identities.js — the field set, the
+// splitters and the clause transforms are built for parties); the rest are shown
+// so the row reads as designed, and say "not yet" instead of pretending.
+const IDENTITY_KIND_PILLS = [
+  { id: 'person', label: 'Individual', short: 'PF' },
+  { id: 'org', label: 'Organisation', short: 'PJ' },
+  { id: 'property', label: 'Property', short: 'IM', soon: true },
+  { id: 'vehicle', label: 'Vehicle', short: 'AU', soon: true },
+  { id: 'case', label: 'Court file', short: 'DS', soon: true },
+  { id: 'contract', label: 'Contract', short: 'CT', soon: true },
+  { id: 'bank', label: 'Bank account', short: 'CB', soon: true },
+  { id: 'object', label: 'Object', short: 'OB', soon: true },
+];
+
+// The country flags (SVG, lazily imported — `loadPhoneFlags`): a function from
+// a country code to an image URL, or null until they have arrived.
+function usePhoneFlags() {
+  const [flagOf, setFlagOf] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    loadPhoneFlags().then((fn) => { if (alive) setFlagOf(() => fn); });
+    return () => { alive = false; };
+  }, []);
+  return flagOf;
+}
+
+function PhoneFlag({ code, flagOf }) {
+  const url = flagOf?.(code) || null;
+  return url
+    ? <img className="dvr-flag" src={url} alt="" draggable={false} />
+    : <span className="dvr-flag is-blank" aria-hidden="true" />;
+}
+
+// A record's searchable PICKER: a button that opens a search box over a list.
+// Three fields use it — the phone prefix (245 countries, with flags), County /
+// sector, and City (13,851 localities) — none of which a native <select> can
+// serve: its options can't carry a flag or a second column, and lists this long
+// are searched, not scrolled. `rows(query)` returns what to show —
+// `[{ key, value, label, note?, lead?, group? }]` — and the caller caps it.
+// The list is PORTALLED to <body> and placed from the button's rect (through
+// toLayoutPx): the section card the row sits in clips its overflow.
+function RecordComboPicker({
+  className, ariaLabel, tooltip, current, rows, onPick, children,
+  searchPlaceholder = 'Search', emptyText = 'Nothing matches.', footer = null, width = 280,
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [active, setActive] = useState(0);
+  const [place, setPlace] = useState(null);
+  const chipRef = useRef(null);
+  const panelRef = useRef(null);
+  const listRef = useRef(null);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const shown = useMemo(() => (open ? rows(query) : []), [open, query, rows]);
+
+  const openList = () => {
+    const rect = chipRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const PANEL_H = 320;
+    const below = window.innerHeight - rect.bottom;
+    setPlace({
+      width,
+      left: toLayoutPx(Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))),
+      ...(below < PANEL_H + 12 && rect.top > below
+        ? { bottom: toLayoutPx(window.innerHeight - rect.top + 4) }
+        : { top: toLayoutPx(rect.bottom + 4) }),
+    });
+    setQuery('');
+    setActive(Math.max(0, rows('').findIndex((r) => r.value === current)));
+    setOpen(true);
+  };
+  const close = useCallback((refocus) => {
+    setOpen(false);
+    if (refocus) chipRef.current?.focus();
+  }, []);
+  const pick = (row) => { onPick(row); close(true); };
+
+  // Dismissal: a press outside, a scroll of anything but the list, a resize.
+  useEffect(() => {
+    if (!open) return undefined;
+    const inside = (t) => panelRef.current?.contains(t) || chipRef.current?.contains(t);
+    const onDown = (e) => { if (!inside(e.target)) close(false); };
+    const onScroll = (e) => { if (!panelRef.current?.contains(e.target)) close(false); };
+    const onResize = () => close(false);
+    document.addEventListener('mousedown', onDown, true);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+    return () => {
+      document.removeEventListener('mousedown', onDown, true);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [open, close]);
+  // Keep the highlighted row in view (arrow keys, and the current value on open).
+  useEffect(() => {
+    if (!open) return;
+    listRef.current?.querySelector('.is-active')?.scrollIntoView({ block: 'nearest' });
+  }, [open, active, shown]);
+
+  const onKey = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => Math.min(shown.length - 1, i + 1)); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => Math.max(0, i - 1)); return; }
+    if (e.key === 'Enter') { e.preventDefault(); if (shown[active]) pick(shown[active]); }
+  };
+
+  const button = (
+    <button
+      type="button"
+      ref={chipRef}
+      className={`${className}${open ? ' is-open' : ''}`}
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      aria-label={ariaLabel}
+      onClick={() => (open ? close(false) : openList())}
+    >
+      {children}
+      <svg className="dvr-pick-caret" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="m6 9 6 6 6-6" />
+      </svg>
+    </button>
+  );
+
+  return (
+    <>
+      {tooltip ? <Tooltip content={tooltip}>{button}</Tooltip> : button}
+      {open && place && createPortal(
+        <div className="dvr-cc-panel" ref={panelRef} style={place} onKeyDown={onKey}>
+          <input
+            className="dvr-cc-search"
+            value={query}
+            placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
+            autoFocus
+            onChange={(e) => { setQuery(e.target.value); setActive(0); }}
+          />
+          <div className="dvr-cc-list" role="listbox" aria-label={ariaLabel} ref={listRef}>
+            {shown.map((row, i) => (
+              <React.Fragment key={row.key}>
+                {row.group && row.group !== shown[i - 1]?.group && (
+                  <span className="dvr-cc-group">{row.group}</span>
+                )}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={row.value === current}
+                  className={`dvr-cc-row${i === active ? ' is-active' : ''}${row.value === current ? ' is-on' : ''}`}
+                  onMouseMove={() => { if (i !== active) setActive(i); }}
+                  onClick={() => pick(row)}
+                >
+                  {row.lead || null}
+                  <span className="dvr-cc-name">{row.label}</span>
+                  {row.note ? <span className="dvr-cc-dial">{row.note}</span> : null}
+                </button>
+              </React.Fragment>
+            ))}
+            {!shown.length && <span className="dvr-cc-none">{emptyText}</span>}
+            {footer ? <span className="dvr-cc-none">{footer}</span> : null}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+// The phone prefix: a chip (flag + "+40") over the list of every country.
+function PhoneCountryPicker({ country, label, onPick }) {
+  const countries = useMemo(() => phoneCountries(), []);
+  const flagOf = usePhoneFlags();
+  const rows = useCallback((query) => {
+    const q = query.trim().toLowerCase();
+    const digits = q.replace(/[^0-9]/g, '');
+    return countries
+      .filter((c) => !q || c.name.toLowerCase().includes(q) || c.code.toLowerCase() === q
+        || (digits && c.dial.slice(1).startsWith(digits)))
+      .map((c) => ({
+        key: c.code, value: c.code, label: c.name, note: c.dial,
+        lead: <PhoneFlag code={c.code} flagOf={flagOf} />,
+      }));
+  }, [countries, flagOf]);
+  return (
+    <RecordComboPicker
+      className="dvr-phone-cc"
+      ariaLabel={`${label} — country prefix, ${dialCodeOf(country)}`}
+      tooltip="Country prefix"
+      current={country}
+      rows={rows}
+      onPick={(row) => onPick(row.value)}
+      searchPlaceholder="Search a country or prefix"
+      emptyText="No country matches."
+    >
+      <PhoneFlag code={country} flagOf={flagOf} />
+      <span>{dialCodeOf(country)}</span>
+    </RecordComboPicker>
+  );
+}
+
+// A record's date, written the ROMANIAN way — day, month, year: DD.MM.YYYY — both
+// on screen and in the file (it goes into a clause as it stands). A native
+// <input type="date"> can't promise that: it displays in the OS's regional
+// format, which on an English Windows is month-first. So the visible field is
+// text, masked to zz.ll.aaaa as it is typed (digits only; the dots put
+// themselves in), and the calendar button opens the native picker off a hidden
+// date input (`showPicker`). Whatever comes out of either is normalised by
+// `normalizeRoDate`; a half-typed or impossible date (31.02) is never stored —
+// leaving the field puts back what the record has. A value from before this
+// that can't be read as a date is shown as written until it is replaced.
+function RecordDateField({ value, label, onChange }) {
+  const [text, setText] = useState(value || '');
+  const [focused, setFocused] = useState(false);
+  const pickerRef = useRef(null);
+  // The record changed from elsewhere (a reading, the picker): follow it —
+  // unless it is being typed into right now.
+  useEffect(() => { if (!focused) setText(value || ''); }, [value, focused]);
+
+  const onType = (e) => {
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 8);
+    const shown = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)].filter(Boolean).join('.');
+    setText(shown);
+    if (!digits) { onChange(''); return; }
+    if (digits.length === 8) {
+      const ok = normalizeRoDate(shown);
+      if (ok) onChange(ok);
+    }
+  };
+  const complete = text.replace(/\D/g, '').length === 8;
+  const impossible = focused && complete && !normalizeRoDate(text);
+  const legacy = !!value && !roDateToIso(value);
+
+  return (
+    <>
+      <div className="dvr-datefield">
+        <input
+          className={`dvr-input${text ? '' : ' is-blank'}${impossible ? ' is-bad' : ''}`}
+          value={text}
+          placeholder="zz.ll.aaaa"
+          inputMode="numeric"
+          autoComplete="off"
+          aria-label={`${label} — day, month, year`}
+          aria-invalid={impossible || undefined}
+          onFocus={() => setFocused(true)}
+          onBlur={() => { setFocused(false); setText(value || ''); }}
+          onChange={onType}
+        />
+        <Tooltip content="Pick from a calendar">
+          <button
+            type="button"
+            className="dvr-date-btn"
+            aria-label={`${label} — open the calendar`}
+            onClick={() => {
+              const el = pickerRef.current;
+              if (!el) return;
+              try { el.showPicker(); } catch { el.focus(); el.click(); }
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" />
+            </svg>
+          </button>
+        </Tooltip>
+        {/* The native calendar's anchor: present for showPicker, never seen. */}
+        <input
+          ref={pickerRef}
+          type="date"
+          className="dvr-date-native"
+          tabIndex={-1}
+          aria-hidden="true"
+          value={roDateToIso(value)}
+          max="9999-12-31"
+          onChange={(e) => { const ok = normalizeRoDate(e.target.value); onChange(ok); setText(ok); }}
+        />
+      </div>
+      {impossible && <span className="dvr-date-raw">That date doesn’t exist.</span>}
+      {!focused && legacy && (
+        <span className="dvr-date-raw">Not a date DocVex can read — type it as day.month.year to replace it</span>
+      )}
+    </>
+  );
+}
+
+// "County / sector" and "City": pickers over what exists in Romania (`lib/
+// roPlaces.js`) — the 41 counties + București's six sectors, and every locality
+// in the country. The city list is the picked county's (biggest places first);
+// with no county it searches the whole country and picking a place fills the
+// county in too. A value from before this (or from a reading) that isn't in the
+// list is still shown as written; the first row clears the field.
+const CLEAR_ROW = { key: '__clear', value: '', label: '—' };
+// Stable (the picker memoises on it): the fixed list, under a row that clears.
+const nationalityRows = (query) => (query.trim() ? searchNationalities(query) : [CLEAR_ROW, ...searchNationalities('')]);
+function RecordPlacePicker({ kind, value, label, county, onPick }) {
+  const [index, setIndex] = useState(null);
+  useEffect(() => {
+    if (kind !== 'city') return undefined;
+    let alive = true;
+    loadLocalities().then((data) => { if (alive) setIndex(data); });
+    return () => { alive = false; };
+  }, [kind]);
+  const plate = kind === 'city' ? plateForCountyValue(county) : '';
+  const [more, setMore] = useState(false);
+  const moreRef = useRef(false);
+
+  const rows = useCallback((query) => {
+    if (kind === 'county') return [CLEAR_ROW, ...searchCounties(query)];
+    const found = searchLocalities(index, plate, query);
+    moreRef.current = found.more;
+    return query.trim() ? found.rows : [CLEAR_ROW, ...found.rows];
+  }, [kind, index, plate]);
+  // `rows` runs during the picker's render, so what it learnt is read after.
+  useEffect(() => { setMore(moreRef.current); });
+
+  return (
+    <RecordComboPicker
+      className={`dvr-input dvr-pick${value ? '' : ' is-blank'}`}
+      ariaLabel={label}
+      current={value}
+      rows={rows}
+      onPick={onPick}
+      width={300}
+      searchPlaceholder={kind === 'county' ? 'Search a county or sector' : plate ? 'Search a city, town or village' : 'Search all of Romania'}
+      emptyText={kind === 'city' && !index ? 'Loading places…' : kind === 'city' && !plate ? 'Type a name to search the whole country.' : 'Nothing matches.'}
+      footer={kind === 'city' && more && index ? 'Keep typing to narrow the list.' : null}
+    >
+      <span className="dvr-pick-text">{value || '—'}</span>
+    </RecordComboPicker>
+  );
+}
+
+// A record's phone number: a country PREFIX (`PhoneCountryPicker` — a flag and
+// "+40", every country: `lib/phone.js`, libphonenumber) and, beside it, the rest
+// of the number, grouped as that country groups it while it is typed and without
+// the trunk zero the prefix stands in for ("0721…" typed shows as "721 …"). What
+// is stored is one string in international form ("+40 721 234 567"), so a number
+// reads the same however it was typed or read. A number typed or pasted WITH
+// its prefix moves the picker to its country.
+function RecordPhoneField({ value, label, onChange }) {
+  // The last value this field wrote, so an echo of it isn't re-parsed over what
+  // is being typed — only a value from elsewhere (an accepted reading) is.
+  const emitted = useRef(value);
+  const [country, setCountry] = useState(() => splitPhone(value).country || DEFAULT_PHONE_COUNTRY);
+  const [text, setText] = useState(() => splitPhone(value).national);
+  useEffect(() => {
+    if (value === emitted.current) return;
+    emitted.current = value;
+    const parts = splitPhone(value, country);
+    if (parts.country) setCountry(parts.country);
+    setText(parts.national);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  const emit = (stored) => { emitted.current = stored; onChange(stored); };
+
+  const onType = (e) => {
+    const raw = e.target.value;
+    const typed = typePhone(raw, country);
+    if (typed.country) setCountry(typed.country);
+    // Deleting a bracket or a space: the formatter would put it straight back.
+    const shown = raw.length < text.length && typed.national === text ? raw : typed.national;
+    setText(shown);
+    emit(typed.stored || raw.trim());
+  };
+  const onCountry = (next) => {
+    setCountry(next);
+    if (!text.trim()) return;
+    const typed = typePhone(text, next);
+    setText(typed.national);
+    emit(typed.stored || text.trim());
+  };
+
+  return (
+    <div className="dvr-phone">
+      <PhoneCountryPicker country={country} label={label} onPick={onCountry} />
+      <input
+        type="tel"
+        inputMode="tel"
+        autoComplete="off"
+        className={`dvr-input${text ? '' : ' is-blank'}`}
+        value={text}
+        placeholder="—"
+        aria-label={label}
+        onChange={onType}
+      />
+    </div>
+  );
+}
+
 function IdentityPane({ file, onRenamed }) {
+  const { selectedProject } = useSelectedProject();
+  const panelAdv = useMultitoolAdvisor();
   const [record, setRecord] = useState(null);
   const [err, setErr] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState(0);
   // What is on disk, so "unsaved changes" is a real comparison rather than a
   // flag that every keystroke sets and nothing ever clears.
   const cleanRef = useRef('');
@@ -10746,80 +13814,276 @@ function IdentityPane({ file, onRenamed }) {
 
   // Fill-from-a-picture drawer.
   const [autofillOpen, setAutofillOpen] = useState(false);
-  // What the picture said, waiting to be judged: { fields, source }. NOT applied
-  // — a record is evidence about a person, and a machine reading of a photograph
-  // is a claim about it. The claim is shown under the field it concerns, in the
-  // record's own form, and the person decides. That is also why the picker
-  // closes the moment it has something: the answer is behind it.
+  // What ONE source document said, waiting to be judged: { fields, source }.
+  // NOT applied — a record is evidence about a person, and a machine reading of
+  // a photograph is a claim about it. Each reading is shown under the field it
+  // concerns with a CHECKBOX (`checks`), and only the ticked ones are filled in.
   const [suggest, setSuggest] = useState(null);
-  const receiveAutofill = useCallback((fields, source) => {
-    setSuggest({ fields, source });
+  const [checks, setChecks] = useState({});
+  // The readings are drawn like the app sidebar's tabs, cursor-following wash
+  // and all (re-bound once the sheet exists — it isn't there while loading).
+  const sheetRef = useItemSpots('.dvr-pickrow', !!record);
+  // Accepting a reading also writes down WHERE it was read: the field's source
+  // (shown as a chip on its row) and the record's list of documents. A flash on
+  // the row says which one just changed.
+  const [flash, setFlash] = useState({});
+  const acceptInto = (r, fields, source) => {
+    if (!r) return r;
+    const names = String(source || '').split(', ').filter(Boolean);
+    const fieldSources = { ...(r.fieldSources || {}) };
+    Object.keys(fields).forEach((k) => { if (source) fieldSources[k] = source; });
+    // Dates go in in the record's one written form; the title follows the name.
+    const clean = { ...fields };
+    IDENTITY_DATE_KEYS.forEach((k) => { if (clean[k]) clean[k] = normalizeRoDate(clean[k]) || clean[k]; });
+    if (clean.nationality) clean.nationality = normalizeNationality(clean.nationality) || clean.nationality;
+    // A person's name: the parts decide the full name (with whatever part was
+    // NOT in this batch kept from the record).
+    if (r.kind !== 'org' && ('lastName' in clean || 'firstName' in clean)) {
+      clean.legalName = joinPersonName(clean.lastName ?? r.lastName, clean.firstName ?? r.firstName);
+    }
+    if (String(clean.legalName || '').trim()) clean.name = String(clean.legalName).trim();
+    if (clean.phone) clean.phone = formatPhoneIntl(clean.phone) || clean.phone;
+    return {
+      ...r, ...clean, fieldSources,
+      sources: Array.from(new Set([...(r.sources || []), ...names])),
+    };
+  };
+  const flashRows = useCallback((keys) => {
+    setFlash((f) => ({ ...f, ...Object.fromEntries(keys.map((k) => [k, true])) }));
+    window.setTimeout(() => setFlash((f) => {
+      const next = { ...f };
+      keys.forEach((k) => { delete next[k]; });
+      return next;
+    }), 700);
+  }, []);
+  // Fill in what is ticked — and only that.
+  const fillChecked = useCallback(() => {
+    if (!suggest) return;
+    const fields = Object.fromEntries(Object.entries(suggest.fields).filter(([k]) => checks[k]));
+    if (!Object.keys(fields).length) return;
+    setRecord((r) => acceptInto(r, fields, suggest.source));
+    flashRows(Object.keys(fields));
+    setSuggest(null);
+    setChecks({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggest, checks, flashRows]);
+
+  // ── Source documents ───────────────────────────────────────────────────
+  // Importing (the picker modal, or a drop on the Sources tab's zone) only
+  // ATTACHES: the file appears under "Taken from", unread. CLICKING it there
+  // reads it — text layer / OCR, then the AI matching what it found to fields —
+  // and lays its data out under the fields as readings with checkboxes. A
+  // document is read once per session (`fields` is kept), so clicking between
+  // two sources compares them for free.
+  //   attached: { [name]: { name, path?, blob?, url?, status, fields? } }
+  // Session-only: a file joins the RECORD's `sources` when something read from
+  // it is actually filled in (`acceptInto`), not by being attached.
+  const [attached, setAttached] = useState({});
+  const attachedRef = useRef(attached);
+  attachedRef.current = attached;
+  useEffect(() => () => {
+    Object.values(attachedRef.current).forEach((a) => { if (a.url) URL.revokeObjectURL(a.url); });
+  }, []);
+  const [scan, setScan] = useState(null);      // { name, step, pct }
+  const [scanNote, setScanNote] = useState(null); // { tone, text } — how the last read went
+  const recordRef = useRef(record);
+  recordRef.current = record;
+
+  // `list`: File objects (a drop) or the picker's `{ name, path, blob? }`.
+  const attachFiles = useCallback((list) => {
+    const entries = Array.from(list || []).map((f) => {
+      const isFile = typeof File !== 'undefined' && f instanceof File;
+      return isFile ? { name: f.name, blob: f, type: f.type } : { name: f.name, path: f.imported ? null : (f.path || null), blob: f.blob || null, type: f.mimeType || '' };
+    }).filter((f) => f.name);
+    const ok = entries.filter((f) => canScanForIdentity(f.name, f.type));
+    if (!ok.length) {
+      setScanNote({ tone: 'error', text: 'That kind of file can’t be read for a record — try a photo, a PDF or a Word document.' });
+      return;
+    }
+    setScanNote(null);
+    setAttached((cur) => {
+      const next = { ...cur };
+      ok.forEach((f) => {
+        if (next[f.name]?.url) URL.revokeObjectURL(next[f.name].url);
+        next[f.name] = {
+          name: f.name, path: f.path || null, blob: f.blob || null,
+          // A file from the computer has no path to thumbnail from — its bytes do.
+          url: !f.path && f.blob ? URL.createObjectURL(f.blob) : null,
+          status: 'new',
+        };
+      });
+      return next;
+    });
     setAutofillOpen(false);
   }, []);
-  // Taking one reading, or putting it aside. Dropping the last one drops the
-  // whole banner with it — an empty "read 0 details" strip is just clutter.
-  const dropSuggestion = useCallback((key) => {
-    setSuggest((sg) => {
-      if (!sg) return sg;
-      const rest = { ...sg.fields };
-      delete rest[key];
-      return Object.keys(rest).length ? { ...sg, fields: rest } : null;
-    });
-  }, []);
-  const useSuggestion = useCallback((key, value) => {
-    setRecord((r) => (r ? { ...r, [key]: value } : r));
-    dropSuggestion(key);
-  }, [dropSuggestion]);
-  const useAllSuggestions = useCallback((fields) => {
-    setRecord((r) => (r ? { ...r, ...fields } : r));
-    setSuggest(null);
+
+  // Where a source named in the record lives: beside the record.
+  const pathBeside = useCallback((name) => {
+    if (!file.path || !name) return null;
+    const sep = file.path.includes('\\') ? '\\' : '/';
+    return `${file.path.slice(0, file.path.lastIndexOf(sep))}${sep}${name}`;
+  }, [file.path]);
+
+  const showReadings = useCallback((name, fields) => {
+    const rec = recordRef.current || {};
+    const known = new Set(fieldsFor(rec.kind || 'person').map((f) => f.key));
+    // A reader that gave a person's full name but not its parts: read them out
+    // of it, so the two name rows have something to show.
+    let read = { ...(fields || {}) };
+    if (rec.kind !== 'org' && read.legalName && !read.lastName && !read.firstName) {
+      read = { ...read, ...splitPersonName(read.legalName) };
+    }
+    if (read.nationality) read.nationality = normalizeNationality(read.nationality) || read.nationality;
+    const differing = Object.fromEntries(Object.entries(read)
+      .filter(([k, v]) => known.has(k) && String(rec[k] ?? '').trim() !== v));
+    if (!Object.keys(differing).length) {
+      setSuggest(null); setChecks({});
+      setScanNote({ tone: 'ok', text: `Nothing new in ${name} — everything it says is already in the record.` });
+      return;
+    }
+    setScanNote(null);
+    setSuggest({ fields: differing, source: name });
+    // Ticked where the field is empty; a reading that would REPLACE something
+    // already there starts unticked — overwriting is a decision, not a default.
+    setChecks(Object.fromEntries(Object.keys(differing).map((k) => [k, !String(rec[k] ?? '').trim()])));
   }, []);
 
-  // "Saved" is worth a moment's confirmation, not a permanent label — so it
-  // clears itself, while an error waits to be dealt with.
-  const [settled, setSettled] = useState(false);
-  useEffect(() => {
-    if (!savedAt) return undefined;
-    setSettled(false);
-    const t = window.setTimeout(() => setSettled(true), 2200);
-    return () => window.clearTimeout(t);
-  }, [savedAt]);
+  const readSource = useCallback(async (name) => {
+    const entry = attachedRef.current[name] || { name, path: pathBeside(name), blob: null };
+    if (entry.status === 'reading') return;
+    if (entry.fields) { showReadings(name, entry.fields); return; }
+    const mark = (patch) => setAttached((cur) => ({ ...cur, [name]: { ...(cur[name] || entry), ...patch } }));
+    const rec = recordRef.current;
+    mark({ status: 'reading' });
+    setScanNote(null); setSuggest(null); setChecks({});
+    setScan({ name, step: 'Opening', pct: 8 });
+    try {
+      const blob = entry.blob || (entry.path ? await readLocalBlob(entry.path) : null);
+      if (!blob) {
+        mark({ status: 'error' });
+        setScanNote({ tone: 'error', text: `Couldn’t find ${name} — it isn’t beside this record any more. Import it again to read it.` });
+        return;
+      }
+      // Whatever this file has already given up is in its AI data (the Data tab):
+      // the reader takes that and only scans when there is nothing saved.
+      setScan({ name, step: 'Reading the text', pct: 40 });
+      const res = await readIdentityFromFiles([{ blob, name, path: entry.path || null }], rec, {
+        jurisdiction: rec?.jurisdiction,
+        projectId: selectedProject?.id,
+      });
+      if (res.error) {
+        mark({ status: 'error' });
+        setScanNote({ tone: 'error', text: (res.error === 'ocr_failed' && res.detail) || AUTOFILL_ERRORS[res.error] || AUTOFILL_ERRORS.ocr_failed });
+        return;
+      }
+      mark({ status: 'read', fields: res.fields || {} });
+      showReadings(name, res.fields || {});
+      if (res.cached) setScanNote({ tone: 'info', text: `${name} had already been read — this is what was saved for it. Use Recapture in the Data tab to read it again.` });
+    } catch {
+      mark({ status: 'error' });
+      setScanNote({ tone: 'error', text: AUTOFILL_ERRORS.ocr_failed });
+    } finally {
+      setScan(null);
+    }
+  }, [pathBeside, showReadings, selectedProject?.id]);
+
+  const openSource = useCallback((name) => {
+    const path = attachedRef.current[name]?.path || pathBeside(name);
+    if (path) openDocViewerWindow({ path, name, mime: '' });
+  }, [pathBeside]);
+
+  // The side panel's **Sources** tab (DocExtractPanel): the documents behind the
+  // record, and what is known of its history. Published as one memoised object
+  // — publishing re-renders the provider, and this pane with it.
+  const setRecordPanel = panelAdv?.setRecordPanel;
+  // What the tab's drop zone calls — through a ref, so the published object
+  // stays the same one from render to render.
+  const dropRef = useRef(null);
+  dropRef.current = { attach: attachFiles, browse: () => setAutofillOpen(true), read: readSource, open: openSource };
+  const attachedKey = Object.values(attached).map((a) => `${a.name}:${a.status}`).join('\u0001');
+  const sourcesKey = (record?.sources || []).join('\u0001');
+  const fieldSourcesKey = JSON.stringify(record?.fieldSources || {});
+  const recordPanel = useMemo(() => {
+    if (!record) return null;
+    const count = (name) => Object.values(record.fieldSources || {})
+      .filter((v) => String(v).split(', ').includes(name)).length;
+    // The record's own sources, then what has been attached this session and
+    // not filled from yet. A record's source is looked for beside the record
+    // (that is where a record is written); an attached one knows its own path,
+    // or — from the computer — carries its bytes.
+    const names = Array.from(new Set([...(record.sources || []), ...Object.keys(attached)]));
+    const sources = names.map((name) => {
+      const entry = attached[name] || null;
+      const path = entry?.path || (entry ? null : pathBeside(name));
+      const inRecord = (record.sources || []).includes(name);
+      return {
+        name,
+        fields: count(name),
+        // unread | reading | showing | error | read (in the record, or read and put aside)
+        state: entry?.status === 'reading' ? 'reading'
+          : suggest?.source === name ? 'showing'
+            : entry?.status === 'error' ? 'error'
+              : (inRecord || entry?.status === 'read') ? 'read' : 'unread',
+        canOpen: !!path,
+        descriptor: describeLooseFile({ name, path, url: path ? null : (entry?.url || null) }),
+      };
+    });
+    return {
+      sources,
+      // Click = read it (once) and show its data under the fields.
+      pick: (name) => dropRef.current?.read(name),
+      open: (name) => dropRef.current?.open(name),
+      // Unlink a document from the record. The FILE is not touched, and neither
+      // are the values read from it — they just stop claiming it as their source
+      // (no entry = "unknown", which is the truth once the link is gone).
+      remove: (name) => {
+        setRecord((r) => {
+          if (!r) return r;
+          const fieldSources = {};
+          Object.entries(r.fieldSources || {}).forEach(([key, from]) => {
+            const left = String(from).split(', ').filter((n) => n && n !== name);
+            if (from === '') fieldSources[key] = '';
+            else if (left.length) fieldSources[key] = left.join(', ');
+          });
+          return { ...r, sources: (r.sources || []).filter((n) => n !== name), fieldSources };
+        });
+        setAttached((cur) => {
+          if (!cur[name]) return cur;
+          if (cur[name].url) URL.revokeObjectURL(cur[name].url);
+          const next = { ...cur };
+          delete next[name];
+          return next;
+        });
+        setSuggest((cur) => (cur && cur.source === name ? null : cur));
+      },
+      readFiles: (files) => dropRef.current?.attach(files),
+      browse: () => dropRef.current?.browse(),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourcesKey, fieldSourcesKey, attachedKey, suggest?.source, file.path, !record]);
+  useEffect(() => { setRecordPanel?.(recordPanel); }, [recordPanel, setRecordPanel]);
+  useEffect(() => () => setRecordPanel?.(null), [setRecordPanel]);
 
   const rows = useMemo(() => fieldsFor(record?.kind || 'person'), [record?.kind]);
-  // What the card prints, in the order a real document prints it — a short,
-  // fixed set, unlike the form's full field list. Blank ones still get their
-  // line (an ID card with a missing field shows the missing field).
-  const cardRows = useMemo(() => {
-    if (!record) return [];
-    if (record.kind === 'org') {
-      return [
-        ['Legal name', record.legalName || record.name],
-        ['Legal form', record.legalForm],
-        ['CUI / VAT', record.taxId],
-        ['Trade register', record.regNo],
-        ['Represented by', record.representative],
-        ['Contact', [record.email, record.phone].filter(Boolean).join(' · ')],
-      ];
+  // A field typed into is no longer "read from" anything: its source becomes ''
+  // ("typed"), or goes altogether when the field is emptied.
+  const set = (key, v) => setRecord((r) => {
+    const next = { ...r, [key]: v };
+    // A person's full legal name is DERIVED from the two parts (surname first)…
+    if (key === 'lastName' || key === 'firstName') next.legalName = joinPersonName(next.lastName, next.firstName);
+    // …and the record's title IS its full legal name (the header only shows it).
+    if (String(next.legalName || '').trim() && (key === 'legalName' || key === 'lastName' || key === 'firstName')) {
+      next.name = String(next.legalName).trim();
     }
-    const { surname, given } = identityNameParts(record);
-    return [
-      ['Surname', surname],
-      ['Given names', given],
-      ['CNP', record.nationalId],
-      ['Date of birth', record.dateOfBirth],
-      ['Nationality', record.nationality],
-      ['ID document', identityValueForField(record, 'idDocument')],
-      ['Contact', [record.email, record.phone].filter(Boolean).join(' · ')],
-    ];
-  }, [record]);
-  const set = (key, v) => setRecord((r) => ({ ...r, [key]: v }));
+    if (rows.some((f) => f.key === key)) {
+      const fieldSources = { ...(r.fieldSources || {}) };
+      if (String(v).trim()) fieldSources[key] = ''; else delete fieldSources[key];
+      next.fieldSources = fieldSources;
+    }
+    return next;
+  });
+  const setCustom = (fn) => setRecord((r) => ({ ...r, custom: fn(r.custom || []) }));
   const dirty = record ? JSON.stringify(record) !== cleanRef.current : false;
-  const saveState = err ? { tone: 'error', text: err }
-    : saving ? { tone: 'busy', text: 'Saving…' }
-      : dirty ? { tone: 'busy', text: 'Saving shortly…' }
-        : (savedAt && !settled) ? { tone: 'ok', text: 'Saved' }
-          : null;
-
   const save = useCallback(async () => {
     if (!record || saving) return;
     setSaving(true);
@@ -10828,7 +14092,6 @@ function IdentityPane({ file, onRenamed }) {
     if (res.error) { setErr('Couldn’t save this identity record.'); return; }
     cleanRef.current = JSON.stringify(res.identity);
     setRecord(res.identity);
-    setSavedAt(Date.now());
     setErr(null);
     notifyFilesChanged();
     if (res.renamed) onRenamed?.(res.filename);
@@ -10882,26 +14145,15 @@ function IdentityPane({ file, onRenamed }) {
     const current = String(record[key] ?? '').trim();
     if (current === value) return null;
     return (
-      <span className={`dvi-sugg${current ? ' is-conflict' : ''}`}>
-        <span className="dvi-sugg-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 9V7a2 2 0 0 1 2-2h2M17 5h2a2 2 0 0 1 2 2v2M21 15v2a2 2 0 0 1-2 2h-2M7 19H5a2 2 0 0 1-2-2v-2" />
-            <path d="M7 12h10" />
-          </svg>
-        </span>
-        <span className="dvi-sugg-body">
-          <span className="dvi-sugg-value">{render ? render(value) : value}</span>
-          {current && <span className="dvi-sugg-note">replaces “{current}”</span>}
-        </span>
-        <button type="button" className="dvi-sugg-use" onClick={() => useSuggestion(key, value)}>Use</button>
-        <Tooltip content="Not this one">
-          <button type="button" className="dvi-sugg-drop" aria-label="Dismiss this reading" onClick={() => dropSuggestion(key)}>
-            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          </button>
-        </Tooltip>
-      </span>
+      <label className={`dvr-pickrow${checks[key] ? ' is-checked' : ''}`}>
+        <input
+          type="checkbox"
+          className="dvr-check"
+          checked={!!checks[key]}
+          onChange={(e) => setChecks((c) => ({ ...c, [key]: e.target.checked }))}
+        />
+        <span className="dvr-pickrow-value">{render ? render(value) : value}</span>
+      </label>
     );
   };
   // Only the readings that still differ decide whether the banner has anything
@@ -10909,103 +14161,264 @@ function IdentityPane({ file, onRenamed }) {
   const suggestKeys = Object.keys(suggest?.fields || {})
     .filter((k) => String(record[k] ?? '').trim() !== suggest.fields[k]);
 
-  return (
-    <div className="dvi-pane">
-      {/* The card sits OUTSIDE the scroller: it is the record's identity, so it
-          should stay put while the form under it is worked through, and being a
-          flex item in the scroller was letting it be squeezed below its own
-          content height and clipped by its rounded frame. */}
-      <div className="dvi-cardwrap">
-        {/* The record as a document rather than a heading: a data page in the
-            shape of an ID card / passport, showing the fields that identify the
-            party at a glance. It is a READ-OUT of the form below — every value
-            comes straight from `record`, so typing in the form updates the card
-            live and there is no second source of truth. */}
-        <section className={`dvi-card${record.kind === 'org' ? ' is-org' : ''}`}>
-          <div className="dvi-card-guilloche" aria-hidden="true" />
-          <header className="dvi-card-band">
-            <span className="dvi-card-issuer">DocVex · Case file</span>
-            <span className="dvi-card-doc">{record.kind === 'org' ? 'Entity record' : 'Identity record'}</span>
-            {record.origin === 'timeline' && <span className="dvi-card-origin">From the timeline</span>}
-          </header>
+  const conflictCount = suggestKeys.filter((k) => String(record[k] ?? '').trim()).length;
+  const checkedCount = suggestKeys.filter((k) => checks[k]).length;
 
-          <div className="dvi-card-body">
-            {/* No portrait panel. A monogram in a photo-shaped frame was
-                standing in for a photograph the record does not have and cannot
-                get — it reserved the space a picture would take to say nothing,
-                and the width is better spent on the data. */}
-            <div className="dvi-card-main">
-              <div className="dvi-card-heading">
-                <h1 className="dvi-card-name">{record.name || 'Unnamed'}</h1>
-                {record.role && <span className="dvi-card-role">{record.role}</span>}
-              </div>
+  // ── The record, read for the layout ────────────────────────────────────
+  const kindPill = IDENTITY_KIND_PILLS.find((k) => k.id === record.kind) || IDENTITY_KIND_PILLS[0];
+  const fieldByKey = new Map(rows.map((f) => [f.key, f]));
+  const layout = IDENTITY_SECTIONS[record.kind] || IDENTITY_SECTIONS.person;
+  const filed = new Set(layout.flatMap((sec) => sec.keys));
+  const stray = rows.filter((f) => !filed.has(f.key)).map((f) => f.key);
+  const sections = layout.map((sec, n) => ({
+    title: sec.title,
+    fields: [...sec.keys, ...(n === layout.length - 1 ? stray : [])].map((k) => fieldByKey.get(k)).filter(Boolean),
+  }));
+  const originName = IDENTITY_ORIGINS.find((o) => o.code === (record.jurisdiction || 'RO'))?.name || 'Romanian';
+  const fieldSources = record.fieldSources || {};
 
-              <dl className="dvi-card-data">
-                {cardRows.map(([label, value]) => (
-                  <div className="dvi-card-datum" key={label}>
-                    <dt>{label}</dt>
-                    <dd className={value ? undefined : 'is-blank'}>{value || '—'}</dd>
-                  </div>
-                ))}
-                {record.address && (
-                  <div className="dvi-card-datum is-wide">
-                    <dt>{record.kind === 'org' ? 'Registered office' : 'Address'}</dt>
-                    <dd>{record.address}</dd>
-                  </div>
-                )}
-              </dl>
-            </div>
+  // One row of a section: label + where the value came from, the value, what the
+  // parse made of it, and a reading still waiting to be judged.
+  const renderRow = (f) => {
+    const value = record[f.key] || '';
+    const source = fieldSources[f.key];
+    const choices = f.choices === 'legalForm' ? IDENTITY_LEGAL_FORMS : null;
+    return (
+      <div className={`dvr-row${f.multiline ? ' is-wide' : ''}${flash[f.key] ? ' is-flash' : ''}`} key={f.key}>
+        <div className="dvr-row-head">
+          <span className="dvr-label">{f.label}</span>
+          {(source === '' && value) ? <span className="dvr-typed">typed</span> : null}
+        </div>
+        {f.choices === 'gender' ? (
+          /* Three states, all of them short — buttons say what the options ARE.
+             Clicking the chosen one again clears it: "not specified" has to be
+             reachable, and a fourth button for it would read as a fourth kind
+             of person. */
+          <div className="dvi-choice dvr-choice" role="radiogroup" aria-label={f.label}>
+            {IDENTITY_GENDERS.filter((g) => g.id).map((g) => {
+              const on = value === g.id;
+              return (
+                <button
+                  type="button"
+                  key={g.id}
+                  role="radio"
+                  aria-checked={on}
+                  className={`dvi-choice-opt${on ? ' is-on' : ''}`}
+                  onClick={() => set(f.key, on ? '' : g.id)}
+                >
+                  {g.label}
+                </button>
+              );
+            })}
           </div>
+        ) : (f.key === 'city' || f.key === 'county') ? (
+          <RecordPlacePicker
+            kind={f.key}
+            value={value}
+            label={f.label}
+            county={record.county}
+            onPick={(row) => {
+              set(f.key, row.value);
+              // A place found by searching the whole country names its county.
+              if (f.key === 'city' && row.countyName && row.countyName !== 'București'
+                && !classifyCounty(record.county, row.value).kind) set('county', row.countyName);
+            }}
+          />
+        ) : f.key === 'nationality' ? (
+          /* A fixed list (`lib/nationalities.js`) — the value goes into a clause
+             as "cetățenie …". One from before this that isn't in the list is
+             still shown as written. */
+          <RecordComboPicker
+            className={`dvr-input dvr-pick${value ? '' : ' is-blank'}`}
+            ariaLabel={f.label}
+            current={value}
+            rows={nationalityRows}
+            onPick={(row) => set(f.key, row.value)}
+            width={300}
+            searchPlaceholder="Search a citizenship or country"
+          >
+            <span className="dvr-pick-text">{value || '—'}</span>
+          </RecordComboPicker>
+        ) : f.key === 'phone' ? (
+          <RecordPhoneField value={value} label={f.label} onChange={(v) => set(f.key, v)} />
+        ) : IDENTITY_DATE_KEYS.includes(f.key) ? (
+          <RecordDateField value={value} label={f.label} onChange={(v) => set(f.key, v)} />
+        ) : f.choices === 'idType' ? (
+          /* A PICKER, not free text: only the acts Romania issues are supported
+             (`IDENTITY_ID_TYPES`). A record that holds anything else — the old
+             buletin — shows it, marked, until another is picked. */
+          <select
+            className={`dvr-input dvr-select${value ? '' : ' is-blank'}`}
+            value={value}
+            aria-label={f.label}
+            onChange={(e) => set(f.key, e.target.value)}
+          >
+            <option value="">—</option>
+            {value && !IDENTITY_ID_TYPES.some((t) => t.id === value) && (
+              <option value={value} disabled>{value} — not a supported document</option>
+            )}
+            {[...new Set(IDENTITY_ID_TYPES.map((t) => t.group))].map((group) => (
+              <optgroup label={group} key={group}>
+                {IDENTITY_ID_TYPES.filter((t) => t.group === group).map((t) => (
+                  <option value={t.id} key={t.id}>{t.ro} · {t.label}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        ) : (
+          <>
+            <input
+              className={`dvr-input${value ? '' : ' is-blank'}`}
+              value={value}
+              placeholder="—"
+              aria-label={f.label}
+              list={choices ? `dvi-choices-${f.key}` : undefined}
+              onChange={(e) => set(f.key, e.target.value)}
+            />
+            {choices && (
+              <datalist id={`dvi-choices-${f.key}`}>
+                {choices.map((c) => <option value={c} key={c} />)}
+              </datalist>
+            )}
+          </>
+        )}
+        {suggestionFor(f.key, f.choices === 'gender'
+          ? (v) => IDENTITY_GENDERS.find((g) => g.id === v)?.label || v
+          : f.choices === 'idType'
+            ? (v) => IDENTITY_ID_TYPES.find((t) => t.id === v)?.ro || v
+            : IDENTITY_DATE_KEYS.includes(f.key)
+              ? (v) => normalizeRoDate(v) || v
+              : f.key === 'phone'
+                ? (v) => formatPhoneIntl(v) || v
+                : undefined)}
+        {/* Which of the two the typed value turned out to be. It decides how the
+            document reads — "județul X" everywhere, "sectorul N" in București
+            alone — so it is shown rather than assumed. */}
+        {f.parsed === 'county' && value.trim() && (() => {
+          const seen = classifyCounty(value, record.city);
+          return (
+            <span className="dvi-parsed">
+              <span className={`dvi-parsed-bit${seen.kind ? '' : ' is-unknown'}`}>
+                <span className="dvi-parsed-key">{seen.kind ? 'Read as' : '?'}</span>
+                {seen.kind ? `${seen.label} · ${seen.value}` : 'Not a Romanian county or sector'}
+              </span>
+            </span>
+          );
+        })()}
+        {/* What the parse understood, part by part: the address is one field,
+            but a clause asks for it five blanks at a time — so the split has to
+            be visible, or a line it reads wrongly quietly mis-fills a document. */}
+        {f.parsed === 'address' && value.trim() && (
+          <span className="dvi-parsed">
+            {ADDRESS_PART_LABELS.map(([key, label]) => {
+              let part = identityValueForField(record, key);
+              if (key === 'addressLocality') {
+                const sector = identityValueForField(record, 'addressSector');
+                const tidy = sector ? classifyCounty(sector, part).value || sector : '';
+                if (tidy) part = part ? `${part} · ${tidy}` : tidy;
+              }
+              if (!part) return null;
+              return (
+                <span className="dvi-parsed-bit" key={key}>
+                  <span className="dvi-parsed-key">{label}</span>
+                  {part}
+                </span>
+              );
+            })}
+          </span>
+        )}
+      </div>
+    );
+  };
 
-          {/* The strip a passport's data page ends on. Generated from the
-              fields above on every render, so it can never disagree with them;
-              hidden from assistive tech, which already read the real values. */}
-          <footer className="dvi-card-mrz" aria-hidden="true">
-            {identityMrz(record).map((line, i) => <span key={i}>{line}</span>)}
-          </footer>
-
-          {/* Bottom-left of the card, over the machine strip: the details on
-              this record are already written on a document somewhere, and
-              typing them again is work a computer should be doing. */}
-          <Tooltip content="Read the details off the ID or certificate — a photo, a PDF, a Word file, or several at once">
+  return (
+    <div className="dvi-pane dvr">
+      {/* ── Header: what this record is ── */}
+      <div className="dvr-top">
+        <div className="dvr-head">
+          <span className="dvr-tile" aria-hidden="true">{kindPill.short}</span>
+          <div className="dvr-head-main">
+            {/* Not typed here: the record is called what its Full legal name
+                says (`set` keeps `name` in step with it). */}
+            <h1 className={`dvr-name${(record.legalName || record.name) ? '' : ' is-blank'}`}>
+              {record.legalName || record.name || 'Unnamed record'}
+            </h1>
+            <span className="dvr-sub">
+              {kindPill.label} · {originName} format · {file.name}
+              {record.origin === 'timeline' ? ' · from the timeline' : ''}
+            </span>
+          </div>
+        </div>
+        <div className="dvr-kinds" role="radiogroup" aria-label="Kind of record">
+          {IDENTITY_KIND_PILLS.map((k) => (k.soon ? (
+            <Tooltip content="Not available yet — records are people and organisations for now" key={k.id}>
+              <button type="button" role="radio" aria-checked={false} aria-disabled="true" className="dvr-kind is-soon">{k.label}</button>
+            </Tooltip>
+          ) : (
             <button
               type="button"
-              className={`dvi-card-action${autofillOpen ? ' is-on' : ''}`}
-              onClick={() => setAutofillOpen((v) => !v)}
-              aria-expanded={autofillOpen}
+              key={k.id}
+              role="radio"
+              aria-checked={record.kind === k.id}
+              className={`dvr-kind${record.kind === k.id ? ' is-on' : ''}`}
+              onClick={() => set('kind', k.id)}
             >
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 3v4M12 17v4M3 12h4M17 12h4" />
-                <circle cx="12" cy="12" r="3.2" />
-              </svg>
-              Auto-complete
+              {k.label}
             </button>
-          </Tooltip>
-        </section>
+          )))}
+        </div>
       </div>
 
-      {/* Everything that is edited, scrolling under the card. */}
-      <div className="dvi-sheet">
-        {/* The picture has been read and the picker is gone; this is what it
-            found. Nothing is in the record yet — each reading sits under its own
-            field below, and this is the shortcut for when they are all right. */}
-        {suggestKeys.length > 0 && (
+      {/* ── Everything that is edited, scrolling under the header ── */}
+      <div className="dvr-sheet" ref={sheetRef}>
+        {scan && (
+          <div className="dvr-scan" role="status">
+            <span className="dvr-scan-page" aria-hidden="true"><i /><i /><i /><b /></span>
+            <span className="dvr-scan-text">
+              <span className="dvr-scan-title">Reading {scan.name}…</span>
+              <span className="dvr-scan-step">{scan.step}</span>
+            </span>
+            <span className="dvr-scan-pct">{scan.pct}%</span>
+          </div>
+        )}
+        {!scan && scanNote && (
+          <div className={`dvr-note is-${scanNote.tone}`} role={scanNote.tone === 'error' ? 'alert' : 'status'}>
+            <span>{scanNote.text}</span>
+            <button type="button" aria-label="Dismiss" onClick={() => setScanNote(null)}>
+              <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+            </button>
+          </div>
+        )}
+
+        {/* A source has been read; this is what it said. Nothing is in the record
+            yet — each reading sits under its own field below with a checkbox,
+            and this fills in the ticked ones. */}
+        {!scan && suggestKeys.length > 0 && (
           <div className="dvi-suggbar" role="status">
             <span className="dvi-suggbar-text">
               <strong>{suggestKeys.length}</strong>
               {suggestKeys.length === 1 ? ' detail read from ' : ' details read from '}
-              <span className="dvi-suggbar-src">{suggest.source || 'the picture'}</span>
-              {' — each one is waiting under its field.'}
+              <span className="dvi-suggbar-src">{suggest.source}</span>
+              {' — tick the ones to fill in.'}
+              {conflictCount > 0 && (
+                <> <span className="dvr-conflicts">{conflictCount} would replace</span> what’s already here.</>
+              )}
             </span>
             <button
               type="button"
-              className="dvi-suggbar-all"
-              onClick={() => useAllSuggestions(Object.fromEntries(suggestKeys.map((k) => [k, suggest.fields[k]])))}
+              className="dvr-suggbar-toggle"
+              onClick={() => {
+                const all = checkedCount === suggestKeys.length;
+                setChecks(Object.fromEntries(suggestKeys.map((k) => [k, !all])));
+              }}
             >
-              Use all
+              {checkedCount === suggestKeys.length ? 'Untick all' : 'Tick all'}
             </button>
-            <Tooltip content="Discard everything it read">
-              <button type="button" className="dvi-suggbar-drop" onClick={() => setSuggest(null)} aria-label="Discard all readings">
+            <button type="button" className="dvi-suggbar-all" disabled={!checkedCount} onClick={fillChecked}>
+              {checkedCount ? `Fill in ${checkedCount}` : 'Fill in'}
+            </button>
+            <Tooltip content="Put this document’s data aside">
+              <button type="button" className="dvi-suggbar-drop" onClick={() => { setSuggest(null); setChecks({}); }} aria-label="Put the readings aside">
                 <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
                   <path d="M6 6l12 12M18 6L6 18" />
                 </svg>
@@ -11014,218 +14427,79 @@ function IdentityPane({ file, onRenamed }) {
           </div>
         )}
 
-        <div className="dvi-kinds" role="radiogroup" aria-label="Kind of party">
-          {IDENTITY_KINDS.map((k) => (
+        {sections.map((sec) => (
+          <section className="dvr-sec" key={sec.title}>
+            <header className="dvr-sec-head">
+              <span className="dvr-sec-title">{sec.title}</span>
+            </header>
+            <div className="dvr-grid">{sec.fields.map(renderRow)}</div>
+          </section>
+        ))}
+
+        {/* Custom entries — a label and a value, saved into the record. */}
+        <section className="dvr-sec">
+          <header className="dvr-sec-head">
+            <span className="dvr-sec-title">Custom entries</span>
+            <span className="dvr-sec-sub">Anything about this {kindPill.label.toLowerCase()} the form has no field for</span>
+            <span className="dvr-sec-meta">
+              {(record.custom || []).length ? `${record.custom.length} ${record.custom.length === 1 ? 'entry' : 'entries'}` : ''}
+            </span>
+          </header>
+          <div className="dvr-grid">
+            {(record.custom || []).map((c) => (
+              <div className="dvr-row dvr-custom" key={c.id}>
+                <div className="dvr-row-head">
+                  <input
+                    className="dvr-custom-label"
+                    value={c.label}
+                    placeholder="Label"
+                    aria-label="Custom entry label"
+                    onChange={(e) => { const v = e.target.value; setCustom((l) => l.map((x) => (x.id === c.id ? { ...x, label: v } : x))); }}
+                  />
+                  <button type="button" className="dvr-custom-remove" aria-label="Remove entry" onClick={() => setCustom((l) => l.filter((x) => x.id !== c.id))}>
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                  </button>
+                </div>
+                <input
+                  className={`dvr-input${c.value ? '' : ' is-blank'}`}
+                  value={c.value}
+                  placeholder="—"
+                  aria-label="Custom entry value"
+                  onChange={(e) => { const v = e.target.value; setCustom((l) => l.map((x) => (x.id === c.id ? { ...x, value: v } : x))); }}
+                />
+              </div>
+            ))}
             <button
               type="button"
-              key={k.id}
-              role="radio"
-              aria-checked={record.kind === k.id}
-              className={`dvi-kind${record.kind === k.id ? ' is-on' : ''}`}
-              onClick={() => set('kind', k.id)}
+              className="dvr-custom-add"
+              onClick={() => setCustom((l) => [...l, { id: `c_${Date.now().toString(36)}`, label: '', value: '' }])}
             >
-              <span className="dvi-kind-label">{k.label}</span>
-              <span className="dvi-kind-hint">{k.hint}</span>
+              <span className="dvr-custom-plus" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+              </span>
+              <span className="dvr-custom-addtext">
+                <span>Add an entry</span>
+                <span>A label and a value — it saves into the record</span>
+              </span>
             </button>
-          ))}
-        </div>
-
-        <label className="dvi-field">
-          <span className="dvi-label">Name</span>
-          <input
-            className="dvi-input"
-            value={record.name}
-            placeholder={record.kind === 'org' ? 'Acme SRL' : 'Ionescu Maria'}
-            onChange={(e) => set('name', e.target.value)}
-          />
-          <span className="dvi-hint">Renaming the party renames this file too, once you stop typing.</span>
-        </label>
-
-        <label className="dvi-field">
-          <span className="dvi-label">Role in the case</span>
-          <input
-            className="dvi-input"
-            list="dvi-roles"
-            value={record.role}
-            placeholder="Client, opposing party, witness…"
-            onChange={(e) => set('role', e.target.value)}
-          />
-          <datalist id="dvi-roles">
-            {IDENTITY_ROLES.map((r) => <option value={r} key={r} />)}
-          </datalist>
-        </label>
-
-        {/* Origin — which country's format this record follows. Everything the
-            app knows is listed, but only Romania can be picked: the field set
-            below, the address and ID splitters, and the Romanian clause
-            transforms are all built to that practice. Greying the rest out is
-            the honest version of "not yet"; hiding them would suggest the
-            question had never been asked. */}
-        <label className="dvi-field">
-          <span className="dvi-label">Origin</span>
-          <select
-            className="dvi-input dvi-select"
-            value={record.jurisdiction || 'RO'}
-            onChange={(e) => set('jurisdiction', e.target.value)}
-          >
-            {IDENTITY_ORIGINS.map((o) => (
-              <option key={o.code} value={o.code} disabled={!o.available}>
-                {o.flag} {o.name}{o.available ? '' : ' — not supported yet'}
-              </option>
-            ))}
-          </select>
-          <span className="dvi-hint">
-            Romanian format: CNP and act of identity for a person, CUI and Trade
-            Register number for a company.
-          </span>
-        </label>
-
-        <div className="dvi-grid">
-          {rows.map((f) => (
-            f.choices === 'gender' ? (
-              /* Three states, all of them short — buttons say what the options
-                 ARE, where a text field would have made the user guess and
-                 typed answers would never have matched. */
-              <div className="dvi-field" key={f.key}>
-                <span className="dvi-label">{f.label}</span>
-                <div className="dvi-choice" role="radiogroup" aria-label={f.label}>
-                  {IDENTITY_GENDERS.filter((g) => g.id).map((g) => {
-                    const on = (record[f.key] || '') === g.id;
-                    return (
-                      <button
-                        type="button"
-                        key={g.id}
-                        role="radio"
-                        aria-checked={on}
-                        className={`dvi-choice-opt${on ? ' is-on' : ''}`}
-                        // Clicking the chosen one again clears it: "not
-                        // specified" has to be reachable, and a fourth button
-                        // for it would read as a fourth kind of person.
-                        onClick={() => set(f.key, on ? '' : g.id)}
-                      >
-                        {g.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                {suggestionFor(f.key, (v) => IDENTITY_GENDERS.find((g) => g.id === v)?.label || v)}
-                {f.hint && <span className="dvi-hint">{f.hint}</span>}
-              </div>
-            ) : (
-            <label className={`dvi-field${f.multiline ? ' is-wide' : ''}`} key={f.key}>
-              <span className="dvi-label">{f.label}</span>
-              {f.choices === 'idType' || f.choices === 'legalForm' ? (
-                /* The common answers offered, but still an input: a form or an
-                   act type nobody listed has to remain typeable. */
-                <>
-                  <input
-                    className="dvi-input"
-                    list={`dvi-choices-${f.key}`}
-                    value={record[f.key] || ''}
-                    onChange={(e) => set(f.key, e.target.value)}
-                  />
-                  <datalist id={`dvi-choices-${f.key}`}>
-                    {(f.choices === 'idType' ? IDENTITY_ID_TYPES : IDENTITY_LEGAL_FORMS)
-                      .map((c) => <option value={c} key={c} />)}
-                  </datalist>
-                </>
-              ) : f.multiline ? (
-                <textarea className="dvi-input dvi-textarea" rows={2} value={record[f.key] || ''} onChange={(e) => set(f.key, e.target.value)} />
-              ) : (
-                <input className="dvi-input" value={record[f.key] || ''} onChange={(e) => set(f.key, e.target.value)} />
-              )}
-              {suggestionFor(f.key)}
-              {/* What the parse understood, part by part. The address is one
-                  field, but a clause asks for it five blanks at a time — so the
-                  split has to be visible, or a line it reads wrongly quietly
-                  mis-fills the document. Shown only once something is typed. */}
-              {/* Which of the two the typed value turned out to be. It decides
-                  how the document reads — "județul X" everywhere in the country,
-                  "sectorul N" in București alone — so it is shown rather than
-                  assumed. "Not recognised" is a real answer: the clause then
-                  keeps its both-form rather than being made to pick a half. */}
-              {f.parsed === 'county' && (record[f.key] || '').trim() && (() => {
-                const seen = classifyCounty(record[f.key], record.city);
-                return (
-                  <span className="dvi-parsed">
-                    <span className={`dvi-parsed-bit${seen.kind ? '' : ' is-unknown'}`}>
-                      <span className="dvi-parsed-key">{seen.kind ? 'Read as' : '?'}</span>
-                      {seen.kind ? `${seen.label} · ${seen.value}` : 'Not a Romanian county or sector'}
-                    </span>
-                  </span>
-                );
-              })()}
-              {f.parsed === 'address' && (record[f.key] || '').trim() && (
-                <span className="dvi-parsed">
-                  {ADDRESS_PART_LABELS.map(([key, label]) => {
-                    let value = identityValueForField(record, key);
-                    if (key === 'addressLocality') {
-                      // A sector is read as part of its city, not beside it:
-                      // "Sector 2" alone could be any of six in one town, and
-                      // the two are always written together in an address.
-                      const sector = identityValueForField(record, 'addressSector');
-                      const tidy = sector ? classifyCounty(sector, value).value || sector : '';
-                      if (tidy) value = value ? `${value} · ${tidy}` : tidy;
-                    }
-                    if (!value) return null;
-                    return (
-                      <span className="dvi-parsed-bit" key={key}>
-                        <span className="dvi-parsed-key">{label}</span>
-                        {value}
-                      </span>
-                    );
-                  })}
-                </span>
-              )}
-              {f.hint && <span className="dvi-hint">{f.hint}</span>}
-            </label>
-            )
-          ))}
-        </div>
-
-        <label className="dvi-field">
-          <span className="dvi-label">Notes</span>
-          <textarea
-            className="dvi-input dvi-textarea"
-            rows={4}
-            value={record.notes || ''}
-            placeholder="Anything worth remembering about this party."
-            onChange={(e) => set('notes', e.target.value)}
-          />
-        </label>
-
-        {/* Where each detail was read from, so a disputed one can be traced
-            back to the document it came out of. */}
-        {record.sources?.length > 0 && (
-          <div className="dvi-field">
-            <span className="dvi-label">Taken from</span>
-            <div className="dvi-sources">
-              {record.sources.map((sname) => <span className="dvi-source" key={sname}>{sname}</span>)}
-            </div>
           </div>
-        )}
+        </section>
       </div>
 
-      {/* The record saves itself, so the footer shelf that used to hold a Save
-          button has nothing left to be. What remains is a pill that floats over
-          the corner of the sheet and says where the write got to — kept because
-          a write to disk that leaves no trace is indistinguishable from one that
-          failed. It fades out once a save has settled; an error stays. */}
       <IdentityAutofillModal
         open={autofillOpen}
         onClose={() => setAutofillOpen(false)}
         record={record}
-        onFilled={receiveAutofill}
+        mode="attach"
+        onChosen={attachFiles}
       />
 
-      {saveState && (
-        <div
-          className={`dvi-pill is-${saveState.tone}`}
-          role={saveState.tone === 'error' ? 'alert' : 'status'}
-          aria-live="polite"
-        >
+      {/* The record saves itself, silently. Only a save that FAILED says so —
+          an edit to legal data that didn't reach the disk can't pass unnoticed. */}
+      {err && (
+        <div className="dvi-pill is-error" role="alert">
           <span className="dvi-pill-dot" aria-hidden="true" />
-          <span className="dvi-pill-text">{saveState.text}</span>
+          <span className="dvi-pill-text">{err}</span>
         </div>
       )}
     </div>
@@ -11554,7 +14828,6 @@ function PptxRenderPane({ url, onExportPdf, onOpenNative }) {
           <>
             <div className="dv-docview-spacer" />
             <OpenNativeButton onOpen={onOpenNative} kind="pptx" />
-            <ExportPdfButton getRoot={() => pptxRef.current} kind="pptx" onExport={onExportPdf} />
           </>
         )}
       </div>
@@ -11626,6 +14899,20 @@ function PptxRenderPane({ url, onExportPdf, onOpenNative }) {
     </div>
   );
 }
+
+// The PDF pane's quick actions (the card above the side panel).
+const PdfToWordGlyph = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" />
+    <path d="M8.5 12.5l1.4 5 2.1-4 2.1 4 1.4-5" />
+  </svg>
+);
+const PdfToImagesGlyph = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="6" width="15" height="13" rx="2" /><path d="M7 3h12a2 2 0 0 1 2 2v11" />
+    <circle cx="8" cy="11" r="1.4" /><path d="M3.5 17l4-4 3 3 2.5-2.5 5 5" />
+  </svg>
+);
 
 function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, sideTabsSlot = null, regenTick = 0, startInBuilder = false }) {
   const { notify } = useNotifications();
@@ -11715,6 +15002,155 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
     });
   }, [file.name, dir, sep, notify]);
 
+  // ── PDF → Word / images (the Quick actions card above the side panel) ────
+  // `lib/pdfConvert` makes the blobs; here they are WRITTEN — beside the PDF and
+  // never over anything already there (a "contract.docx" next to "contract.pdf"
+  // is very likely the original it was exported from): the Word file takes the
+  // first free name, the pages go into a folder of their own.
+  const [pdfJob, setPdfJob] = useState(null);        // { what: 'word' | 'images', note }
+  const freeName = useCallback(async (stem, ext) => {
+    let taken = new Set();
+    try {
+      const listing = await localFolderApi.list(dir);
+      taken = new Set([...(listing?.files || []), ...(listing?.dirs || [])].map((f) => String(f.name || f || '').toLowerCase()));
+    } catch { /* an unlistable folder: the first name it is */ }
+    const dot = ext ? `.${ext}` : '';
+    for (let n = 1; n < 500; n += 1) {
+      const name = n === 1 ? `${stem}${dot}` : `${stem} (${n})${dot}`;
+      if (!taken.has(name.toLowerCase())) return name;
+    }
+    return `${stem} (${Date.now()})${dot}`;
+  }, [dir]);
+  const convertPdf = useCallback(async (what) => {
+    if (pdfJob || !url) return;
+    const stem = String(file.name || 'document').replace(/\.[^./\\]+$/, '');
+    const fail = (body) => notify({ category: 'file', variant: 'error', title: what === 'word' ? 'Couldn’t convert to Word' : 'Couldn’t convert to images', body, dedupeKey: `pdf-convert:${file.path}:${what}` });
+    try {
+      if (what === 'word') {
+        setPdfJob({ what, note: 'Reading…' });
+        const res = await pdfToDocx({
+          path: file.path, url, name: file.name, projectId: selectedProjectId,
+          onProgress: ({ stage, page, pages }) => setPdfJob({ what, note: stage === 'ocr' ? 'Reading the scan…' : `Page ${page} of ${pages}` }),
+        });
+        const target = await freeName(stem, 'docx');
+        const wr = await localFolderApi.writeFiles({ dir, files: [{ filename: target, blob: res.blob }] });
+        if (wr?.error || !wr?.results?.[0]?.ok) { fail('The Word file couldn’t be written — the folder may be read-only.'); return; }
+        notifyFilesChanged();
+        const scans = res.scanned.length;
+        notify({
+          category: 'file', variant: 'success', icon: 'file', silent: true,
+          title: 'Converted to Word',
+          body: `“${target}” written next to the PDF.${res.usedAi ? ' It was a scan, so its text was read by the AI.' : scans ? ` ${scans} page${scans === 1 ? ' is a scan and was' : 's are scans and were'} placed as pictures.` : ''}`,
+          dedupeKey: `pdf-convert:${dir}${sep}${target}`,
+          payload: { activity: { action: 'convert-pdf', fileName: target, filePath: `${dir}${sep}${target}` } },
+        });
+      } else {
+        setPdfJob({ what, note: 'Rendering…' });
+        const files = await pdfToImages({
+          path: file.path, url, name: file.name, format: 'png',
+          onProgress: ({ page, pages }) => setPdfJob({ what, note: `Page ${page} of ${pages}` }),
+        });
+        // One page: the picture beside the PDF. Several: a folder of their own
+        // (where folders can be made — else beside it, page-numbered as they are).
+        let into = dir;
+        let where = 'next to the PDF';
+        let list = files;
+        if (files.length === 1) {
+          list = [{ ...files[0], filename: await freeName(stem, 'png') }];
+        } else {
+          const folder = await freeName(`${stem} (pages)`, '');
+          const made = await localFolderApi.createFolder({ dir, name: folder });
+          if (made?.ok && made.path) { into = made.path; where = `in “${folder}”`; }
+        }
+        const wr = await localFolderApi.writeFiles({ dir: into, files: list });
+        if (wr?.error || (wr?.results || []).some((r) => !r.ok)) { fail('Some pages couldn’t be written — the folder may be read-only.'); return; }
+        notifyFilesChanged();
+        notify({
+          category: 'file', variant: 'success', icon: 'file', silent: true,
+          title: 'Converted to images',
+          body: `${list.length} PNG${list.length === 1 ? '' : 's'} written ${where}.`,
+          dedupeKey: `pdf-convert:${into}:images`,
+          payload: { activity: { action: 'convert-pdf', fileName: list[0].filename, filePath: `${into}${sep}${list[0].filename}` } },
+        });
+      }
+    } catch (err) {
+      console.error('[doc-viewer] PDF conversion failed', err);
+      fail('This PDF couldn’t be read — it may be damaged or password-protected.');
+    } finally {
+      setPdfJob(null);
+    }
+  }, [pdfJob, url, file.name, file.path, dir, sep, selectedProjectId, freeName, notify]);
+  // The PDF's VIEW (quick actions too): the page list, zoom, fit. Same steps
+  // and the same preference as a Word file's.
+  const [pdfRail, setPdfRail] = useState(loadPageRailPref);
+  const [pdfZoom, setPdfZoom] = useState(1);
+  // The zoom at which a whole page is in view, as the preview measures it. For a
+  // ONE-page PDF it is the floor and the 100% — the image pane's rules exactly:
+  // 100% is the fitted picture, nothing goes below it, and the reset returns
+  // there. A longer PDF keeps fit-to-WIDTH as its 100% (it is a document being
+  // read, and its pages are meant to fill the pane).
+  const [pdfFit, setPdfFit] = useState(0);
+  useEffect(() => { setPdfZoom(1); }, [file.path]);
+  const [pdfFitTick, setPdfFitTick] = useState(0);
+  // ── A one-page PDF can be EDITED like a photo ─────────────────────────────
+  // Such a file is usually a scan or the export of something that was a picture,
+  // and the photo editor is the right tool for it: rotate, straighten, crop —
+  // including the four-point crop that squares up a page photographed at an
+  // angle. It goes in as a picture and comes back out as a PDF.
+  const [pdfPageCount, setPdfPageCount] = useState(0);
+  useEffect(() => {
+    setPdfPageCount(0);
+    if (kind !== 'pdf' || !url) return undefined;
+    let alive = true;
+    getCachedPdf(file.path, url).then((doc) => { if (alive) setPdfPageCount(doc.numPages); }).catch(() => {});
+    return () => { alive = false; };
+  }, [kind, url, file.path]);
+  // 'in' / 'out' = a step; a NUMBER = the zoom the preview worked out for Fit.
+  const singlePdf = pdfPageCount === 1;
+  const zoomFloor = singlePdf && pdfFit ? pdfFit : 0.1;
+  const stepPdfZoom = useCallback((dir) => setPdfZoom((z) => {
+    if (typeof dir === 'number') return Math.max(zoomFloor, Math.min(DOC_ZOOM_MAX, dir));
+    const next = stepDocZoom(z, dir);
+    // Out and it would pass the fit: land ON the fit, as zooming a picture out
+    // lands on 100% rather than drifting under it.
+    if (dir === 'out' && next <= zoomFloor) return zoomFloor;
+    return Math.max(zoomFloor, next);
+  }), [zoomFloor]);
+  // A one-page file's zoom is scaled so the fitted page reads 100%.
+  const pdfShownZoom = singlePdf && pdfFit ? pdfZoom / pdfFit : pdfZoom;
+  const resetPdfZoom = useCallback(() => setPdfZoom(singlePdf && pdfFit ? pdfFit : 1), [singlePdf, pdfFit]);
+  const pdfView = useMemo(() => ({ zoom: pdfZoom, rail: pdfRail, fitTick: pdfFitTick }), [pdfZoom, pdfRail, pdfFitTick]);
+  const pdfActions = useMemo(() => (kind === 'pdf' ? [{
+    id: 'page-rail',
+    label: 'Pages',
+    tooltip: pdfRail ? 'Hide the list of pages' : 'Show every page in a list beside the document',
+    icon: PagesRailGlyph,
+    pressed: pdfRail,
+    onClick: () => setPdfRail((on) => { savePageRailPref(!on); return !on; }),
+  }, {
+    id: 'zoom-fit',
+    label: 'Fit',
+    tooltip: 'Scale the page so all of it fits in the window’s height',
+    icon: FitViewGlyph,
+    onClick: () => setPdfFitTick((t) => t + 1),
+  }, {
+    id: 'pdf-to-word',
+    group: 'Convert',
+    label: pdfJob?.what === 'word' ? pdfJob.note : 'To Word',
+    tooltip: 'Rebuild this PDF as an editable Word document, saved next to it',
+    icon: PdfToWordGlyph,
+    pressed: pdfJob?.what === 'word',
+    onClick: () => convertPdf('word'),
+  }, {
+    id: 'pdf-to-images',
+    group: 'Convert',
+    label: pdfJob?.what === 'images' ? pdfJob.note : 'To images',
+    tooltip: 'Save every page as a PNG picture',
+    icon: PdfToImagesGlyph,
+    pressed: pdfJob?.what === 'images',
+    onClick: () => convertPdf('images'),
+  }] : []), [kind, pdfJob, convertPdf, pdfRail, pdfZoom, stepPdfZoom, pdfPageCount]);
+
   // Extract text from a legacy .doc (binary parsed in the main process).
   useEffect(() => {
     if (kind !== 'doc') return undefined;
@@ -11748,7 +15184,7 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
 
   let content;
   if (kind === 'docx') {
-    content = <DocxWorkspace file={file} url={url} regenTick={regenTick} startInBuilder={startInBuilder} onExportPdf={exportPdfNextTo} onOpenNative={openNative} />;
+    content = <DocxWorkspace file={file} url={url} regenTick={regenTick} onExportPdf={exportPdfNextTo} onOpenNative={openNative} />;
   } else if (kind === 'pptx') {
     content = <PptxRenderPane url={url} onExportPdf={exportPdfNextTo} onOpenNative={openNative} />;
   } else if (kind === 'doc') {
@@ -11794,7 +15230,15 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
       </div>
     );
   } else {
-    content = <FilePreview file={previewFile} signedUrl={url} onOpen={null} />;
+    content = (
+      <FilePreview
+        file={previewFile} signedUrl={url} onOpen={null}
+        pdfView={kind === 'pdf' ? pdfView : null}
+        onPdfZoom={kind === 'pdf' ? stepPdfZoom : null}
+        onPdfFit={kind === 'pdf' ? setPdfFit : null}
+        pdfOverlay={kind === 'pdf' ? (left) => <DocZoomPill zoom={pdfShownZoom} onStep={stepPdfZoom} onReset={resetPdfZoom} left={left} /> : null}
+      />
+    );
   }
 
   // Re-key ONLY the preview by regenTick so saving a new version re-reads the
@@ -11808,6 +15252,7 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
 
   return (
     <div className={bodyClass}>
+      {pdfActions.length > 0 && adv?.quickSlot && createPortal(<DocQuickActions actions={pdfActions} disabled={!!pdfJob} catalogue={QUICK_ACTIONS_ALL} />, adv.quickSlot)}
       {switchingVersion && (
         <div className="dv-preview-loading" role="status" aria-label="Loading version">
           <span className="dv-preview-spinner" aria-hidden="true" />
@@ -12221,7 +15666,6 @@ function DocFieldsPanel() {
                             <span className="dv-fields-party-text">
                               <span className="dv-fields-party-name">{rec.name || 'Unnamed'}</span>
                               <span className="dv-fields-party-meta">
-                                {rec.role ? `${rec.role} \u00b7 ` : ''}
                                 fills {fills}
                                 {drops > 0 ? `, drops ${drops}` : ''}
                               </span>
@@ -12485,6 +15929,23 @@ export default function DocViewer() {
   // Single Multitool footer slot — the active tab portals its primary action
   // (Extract text / Generate captions / advisor composer) here.
   const [footSlot, setFootSlot] = useState(null);
+  // The Quick actions card — its own card ABOVE the side panel (a Word document
+  // portals its actions in; empty, and so gone, for everything else). The side
+  // panel starts below it: the card's height is measured and handed to CSS as
+  // --dv-quick-h, because both cards float (absolute) over the preview.
+  const [quickSlot, setQuickSlot] = useState(null);
+  const [quickH, setQuickH] = useState(0);
+  useEffect(() => {
+    if (!quickSlot || typeof ResizeObserver === 'undefined') return undefined;
+    const card = quickSlot.parentElement;
+    const measure = () => setQuickH(quickSlot.childElementCount ? card.offsetHeight + 8 : 0);
+    const ro = new ResizeObserver(measure);
+    ro.observe(card);
+    const mo = new MutationObserver(measure);
+    mo.observe(quickSlot, { childList: true });
+    measure();
+    return () => { ro.disconnect(); mo.disconnect(); };
+  }, [quickSlot]);
   // The document's rendered body — what the find bar searches inside.
   const docPaneRef = useRef(null);
   // Is the active document still BLANK — nothing written in it yet? A blank
@@ -12508,13 +15969,38 @@ export default function DocViewer() {
   // transition on the same padding and feel rubbery.
   const [shifting, setShifting] = useState(false);
   const shiftTimerRef = useRef(null);
-  const toggleCompleting = useCallback((next) => {
-    setCompleting((cur) => (typeof next === 'function' ? next(cur) : next));
+  const pulseShift = useCallback(() => {
     setShifting(true);
     if (shiftTimerRef.current) window.clearTimeout(shiftTimerRef.current);
     shiftTimerRef.current = window.setTimeout(() => setShifting(false), 420);
   }, []);
+  const toggleCompleting = useCallback((next) => {
+    setCompleting((cur) => (typeof next === 'function' ? next(cur) : next));
+    pulseShift();
+  }, [pulseShift]);
   useEffect(() => () => { if (shiftTimerRef.current) window.clearTimeout(shiftTimerRef.current); }, []);
+
+  // Side panel shown / hidden — toggled by the title bar's burger button. The
+  // title bar is a sibling of this page, not an ancestor, so the two talk over
+  // window events (same channel shape as `docvex:doc-viewer-file`): the bar
+  // asks for a toggle, this announces the resulting state (plus a global for a
+  // title bar that mounts after the announcement).
+  const [sideHidden, setSideHidden] = useState(() => readDvLayout().sideHidden === true);
+  useEffect(() => {
+    const onToggle = () => {
+      setSideHidden((cur) => {
+        writeDvLayout({ sideHidden: !cur });
+        return !cur;
+      });
+      pulseShift();
+    };
+    window.addEventListener('docvex:doc-viewer-toggle-side', onToggle);
+    return () => window.removeEventListener('docvex:doc-viewer-toggle-side', onToggle);
+  }, [pulseShift]);
+  useEffect(() => {
+    window.__docvexDocViewerSideHidden = sideHidden;
+    window.dispatchEvent(new CustomEvent('docvex:doc-viewer-side', { detail: { hidden: sideHidden } }));
+  }, [sideHidden]);
   const ADVISOR_MIN = 240;
   const ADVISOR_MAX = 960;
   const FIELDS_W = 380;
@@ -12850,12 +16336,15 @@ export default function DocViewer() {
   // PowerPoint and the rest. An identity record is excluded for a different
   // reason: it is a form, and every value in it is already on screen in a
   // labelled field, so there is nothing a find bar could reveal.
-  const searchable = !['audio', 'video', 'image', 'other', 'identity'].includes(activeKind);
+  // An image is searchable once its text has been extracted: the live text laid
+  // over the picture is real text, so the find bar highlights it in place.
+  const searchable = !['audio', 'video', 'other', 'identity'].includes(activeKind);
 
   return (
     <MultitoolAdvisorProvider
       file={active}
       footSlot={footSlot}
+      quickSlot={quickSlot}
       generateMode={generateArmed}
       onDocWritten={() => setRegenTick((t) => t + 1)}
       onRenameFile={(newName, newMime) => applyGeneratedRename(active.id, newName, newMime)}
@@ -12885,16 +16374,24 @@ export default function DocViewer() {
               panel FLOATS above its left side (absolute, see CSS). The var
               feeds the resize gutter's position. */}
           <div
-            className={`dv-main-row${completing ? ' is-completing' : ''}${shifting ? ' is-shifting' : ''}`}
+            className={`dv-main-row${completing ? ' is-completing' : ''}${shifting ? ' is-shifting' : ''}${sideHidden ? ' is-side-hidden' : ''}`}
             style={{
               // The advisor keeps its strip; the blanks panel reserves its own
               // on the opposite side, so the preview narrows rather than
               // sliding sideways under a vanishing sidebar.
-              '--dv-advisor-w': `${advisorW}px`,
+              // Hidden: every consumer reserves `var + 24px` on the left, so
+              // -16px collapses that footprint to the window's 8px inset.
+              '--dv-advisor-w': sideHidden ? '-16px' : `${advisorW}px`,
               '--dv-fields-w': `${FIELDS_W}px`,
+              '--dv-quick-h': `${quickH}px`,
               '--dv-fields-pad': completing ? `calc(${FIELDS_W}px + 24px)` : '0px',
             }}
           >
+            {/* Quick actions — a card of its own above the side panel. */}
+            <aside className="dv-quick-card" style={{ width: `${advisorW}px` }}>
+              <div className="dv-quick-slot" ref={setQuickSlot} />
+            </aside>
+
             {/* Multitool panel — hosts the active file's tabbed side panel,
                 portalled into the slot below by its pane. No chrome header. */}
             <aside
@@ -12952,3 +16449,23 @@ export default function DocViewer() {
     </MultitoolAdvisorProvider>
   );
 }
+
+// ── Every quick action in the viewer ─────────────────────────────────────
+// A pane only knows the actions that WORK on its kind of file, but the card
+// shows them all: the ones this file can't do are greyed out, so what the app
+// can do is visible from any document rather than being discovered by opening
+// the right kind of file. `why` is what their tooltip says instead. `also`
+// names other ids that satisfy the same entry (a PDF's page editor and a
+// picture's are one action to a reader, under different ids in the code).
+// Order here is the order on the card, so a tile doesn't move between files.
+export const QUICK_ACTIONS_ALL = [
+  { id: 'page-rail', label: 'Pages', icon: PagesRailGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
+  { id: 'zoom-fit', label: 'Fit', icon: FitViewGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
+  { id: 'edit-photo', label: 'Edit', icon: EditPhotoGlyph, why: 'Only for pictures' },
+  { id: 'extract-text', label: 'Extract text', icon: ExtractTextGlyph, why: 'Only for pictures' },
+  { id: 'pagenums', label: 'Page numbers', icon: PageNumbersGlyph, why: 'Only for Word files' },
+  { id: 'fold-all', label: 'Collapse all', icon: FoldAllGlyph, why: 'Only for Word files with headings' },
+  { id: 'open-word', label: 'Open in Word', icon: OpenExternalGlyph, why: 'Only for Word files, on a computer with Word installed' },
+  { id: 'pdf-to-word', group: 'Convert', label: 'To Word', icon: PdfToWordGlyph, why: 'Only for PDFs' },
+  { id: 'pdf-to-images', group: 'Convert', label: 'To images', icon: PdfToImagesGlyph, why: 'Only for PDFs' },
+];

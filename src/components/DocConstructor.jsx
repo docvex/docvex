@@ -1,46 +1,45 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import Tooltip from './Tooltip';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { identityInitials, identitySummary } from '../lib/identities';
+import Tooltip from './Tooltip';
 import {
-  parseSource, composeSource, fillText, fieldsOf, roleLabel, variantsFor,
-  valuesFromRecord, settleClauseFor, suggestionsFor,
-  partiesOf, partyFieldId, isSignatureTitle, signatureLinked, signatureSyncEdits, identityFromValues,
-  withEdits, partyTextFor, optionalPartsFor, setOptionalPart, clauseKind,
+  fieldsOf, roleLabel, valuesFromRecord, parseSegs,
+  partiesOf, identityFromValues,
+  withEdits, fieldInfo, fillText, pieceDisplayText,
 } from '../lib/docConstructor';
+import { constructorStrings, fieldLabelIn } from './docConstructorStrings';
 import './DocConstructor.css';
 
-// The Constructor — a Word document as sections made of pieces.
+// The Constructor, for ONE paragraph.
 //
-// The preview shows what the file IS; this shows what it is MADE OF. Each
-// section is a jigsaw block, each paragraph in it a piece that can be reworded
-// by hand, reworded by the AI, filled blank by blank, or — for an
-// identification clause — filled in one click from a party's record.
+// Picking a paragraph in the Word preview zooms in on it (DocxRenderPane). If
+// the paragraph carries data, this component is what makes it fillable, in two
+// places at once:
 //
-// It edits a DRAFT (held by the parent, so switching to the Word preview and
-// back loses nothing) on top of the document's source, and hands the composed
-// source back through `onSave`. It never touches the file itself.
+//   • IN THE PARAGRAPH — every blank of the clause becomes an inline INPUT,
+//     right where it stands in the sentence, so you type the value into the
+//     text you are reading. It is rendered through a portal into the preview
+//     copy the pane lays over the real paragraph (`previewEl`), in the run
+//     formatting the paragraph had (`runStyle`).
+//   • IN THE SIDE PANEL, above its composer (`optionsSlot`; under the paragraph
+//     only when there is no panel to go to) — the project's identity records. Hovering
+//     one shows the clause with that party in it; picking one fills the party
+//     everywhere, rewrites its clause in the person or company formula, and
+//     settles gender, county-vs-sector and house-vs-flat. "Custom" lets go of
+//     the record again.
+//
+// A paragraph with none of that has no panel at all — it is just text, and
+// stays editable in place.
+//
+// It edits a DRAFT held by the workspace on top of the document's source, and
+// reports what the paragraph now reads as (`onLive`), which the pane writes into
+// the document on the way out. Saving is the workspace's job: the Save button
+// here closes the paragraph, and closing is what saves. It never touches the
+// file.
 
-const GripGlyph = (
-  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
-    <circle cx="9" cy="6" r="1.8" /><circle cx="15" cy="6" r="1.8" />
-    <circle cx="9" cy="12" r="1.8" /><circle cx="15" cy="12" r="1.8" />
-    <circle cx="9" cy="18" r="1.8" /><circle cx="15" cy="18" r="1.8" />
-  </svg>
-);
-const LinesGlyph = (
-  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-    <path d="M4 7h16M4 12h16M4 17h10" />
-  </svg>
-);
-const ChevGlyph = (
-  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <polyline points="6 9 12 15 18 9" />
-  </svg>
-);
-const SparkGlyph = (
+const PenGlyph = (
   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M12 3l1.8 4.6L18.5 9.4l-4.7 1.8L12 16l-1.8-4.8L5.5 9.4l4.7-1.8z" />
-    <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" />
+    <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
   </svg>
 );
 const CheckGlyph = (
@@ -49,180 +48,102 @@ const CheckGlyph = (
   </svg>
 );
 
-// Outline of one section: a rounded rect with a knob on top and a matching
-// notch in the bottom edge, so stacked sections read as interlocking. The knob
-// lives in the 18px band above the box.
-function puzzlePath(w, h) {
-  const r = 14, k = 17, top = 18, cx = w / 2, b = h - 0.5, x0 = 0.5, x1 = w - 0.5, y0 = top + 0.5;
-  return `M${x0 + r},${y0} H${cx - k} A${k},${k} 0 0 1 ${cx + k},${y0} H${x1 - r} A${r},${r} 0 0 1 ${x1},${y0 + r} V${b - r} A${r},${r} 0 0 1 ${x1 - r},${b} H${cx + k} A${k},${k} 0 0 0 ${cx - k},${b} H${x0 + r} A${r},${r} 0 0 1 ${x0},${b - r} V${y0 + r} A${r},${r} 0 0 1 ${x0 + r},${y0} Z`;
-}
+const EMPTY_DRAFT = { edits: {}, values: {}, assigned: {}, open: null, collapsed: {}, custom: {} };
 
-// The shape is drawn to the section's measured size — an SVG path can't stretch
-// without distorting the knob, so it is re-cut whenever the box resizes.
-function PuzzleShape() {
-  const ref = useRef(null);
-  const [size, setSize] = useState(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || typeof ResizeObserver === 'undefined') return undefined;
-    const ro = new ResizeObserver(([entry]) => {
-      const w = Math.round(entry.contentRect.width);
-      const h = Math.round(entry.contentRect.height);
-      setSize((cur) => (cur && cur.w === w && cur.h === h ? cur : { w, h }));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  return (
-    <div className="dcx-shape" ref={ref} aria-hidden="true">
-      {size && size.w > 0 && size.h > 40 && (
-        <svg width={size.w} height={size.h} viewBox={`0 0 ${size.w} ${size.h}`}>
-          <path d={puzzlePath(size.w, size.h)} />
-        </svg>
-      )}
-    </div>
-  );
-}
-
-const EMPTY_DRAFT = { edits: {}, values: {}, assigned: {}, open: null, plain: {} };
-
-export default function DocConstructor({
-  source = '',
-  fileName = '',
-  docLabel = '',
+export default function DocParagraphConstructor({
+  model,
+  section,          // the section the picked paragraph belongs to
+  piece,            // …and the piece it is
   draft: draftProp,
   setDraft,
   baseValues = null,
-  apiRef = null,
   records = [],
-  busy = false,
-  saving = false,
   foreign = false,
   saveError = null,
-  onAskAi,
-  onSave,
-  onOpenIdentity,
+  onLive,
   onCreateIdentity,
+  previewEl = null,   // the pane's preview copy of the paragraph — the portal target
+  runStyle = null,    // { css, size } — the run formatting the paragraph had
+  versionPreview = null, // { text, values } — a saved version being hovered: shown, not applied
+  optionsSlot = null,    // where the options go: the side panel's slot above its composer (else: under the paragraph)
+  originalHtml = '',     // the real paragraph's markup, as the Word preview rendered it
 }) {
   const draft = draftProp || EMPTY_DRAFT;
-  const { edits, values, assigned, open, plain } = draft;
+  const { edits, values, assigned } = draft;
   const patch = useCallback((fn) => setDraft?.((d) => ({ ...(d || EMPTY_DRAFT), ...fn(d || EMPTY_DRAFT) })), [setDraft]);
 
-  const model = useMemo(() => parseSource(source), [source]);
+  // English or Romanian — the Constructor's own labels only, never the
+  // document's words. Remembered across documents and windows.
+  // English throughout — the labels, the placeholders in the paragraph's inputs
+  // and the panel's own wording. (The Romanian set and the EN / RO switch that
+  // chose between them are gone; a choice left over from it must not leave the
+  // panel stuck in Romanian with no way back.)
+  const lang = 'en';
+  const t = constructorStrings(lang);
+  const labelOf = (f) => fieldLabelIn(f, lang);
+
   // The parties the document identifies. They get their own rendering — a card
-  // tied to an identity record rather than a clause row — and the signature
-  // section at the end is drawn from the same list, so the two can't disagree.
-  // Read off the document AS EDITED: a clause rewritten for a company has a
-  // representative the draft never mentioned, and the signatures need it.
+  // tied to an identity record rather than a clause row. Read off the document
+  // AS EDITED: a clause rewritten for a company has a representative the draft
+  // never mentioned.
   const parties = useMemo(() => partiesOf(withEdits(model, draftProp?.edits)), [model, draftProp?.edits]);
   const ridOf = (r) => r.id || r._path || r.name;
   const [creating, setCreating] = useState({});
-  const [prompts, setPrompts] = useState({});
-  const [aiBusy, setAiBusy] = useState({});
-  const [aiErr, setAiErr] = useState({});
   // Hovering a record shows its values in the chips before anything is chosen.
   const [preview, setPreview] = useState({});
 
-  const val = useCallback(
-    (id) => (preview[id] !== undefined ? preview[id] : (values[id] || '')),
-    [preview, values],
-  );
   const textOf = useCallback((pc) => (edits[pc.id] !== undefined ? edits[pc.id] : pc.text), [edits]);
 
-  // Dirty against what the open version already holds — a saved document
-  // reopens with its blanks filled, and that alone is not a change.
-  const dirty = useMemo(() => {
-    if (Object.keys(edits).length > 0) return true;
-    const base = baseValues || {};
-    const keys = new Set([...Object.keys(values), ...Object.keys(base)]);
-    for (const k of keys) if ((values[k] || '').trim() !== (base[k] || '').trim()) return true;
-    return false;
-  }, [edits, values, baseValues]);
+  // What the picked paragraph reads as right now — hovered record included, so
+  // pointing at an identity shows the clause with that party in it. Null while
+  // it still reads exactly as the file does, which tells the preview to leave
+  // the rendered paragraph alone.
+  const liveText = useMemo(() => {
+    if (!piece) return null;
+    const merged = { ...values };
+    for (const [k, v] of Object.entries(preview)) if (!k.startsWith('__')) merged[k] = v;
+    const now = pieceDisplayText(piece, fillText(textOf(piece), merged));
+    const base = pieceDisplayText(piece, fillText(piece.text, baseValues || {}));
+    return now === base ? null : now;
+  }, [piece, values, preview, textOf, baseValues]);
+  useEffect(() => { onLive?.(liveText); }, [liveText, onLive]);
+  useEffect(() => () => onLive?.(null), [onLive]);
 
-  // The parent saves on its own schedule (leaving for the Word preview) and
-  // exports from here, so it needs the composed document on demand.
-  const compose = useCallback(() => {
-    const { template, text } = composeSource(model, edits, values);
-    return { template, text, values, assigned };
-  }, [model, edits, values, assigned]);
-  useEffect(() => {
-    if (!apiRef) return undefined;
-    apiRef.current = { compose, isDirty: () => dirty };
-    return () => { apiRef.current = null; };
-  }, [apiRef, compose, dirty]);
-
-  // If the signature section already follows the parties, keep it following:
-  // a party that became a company now signs through a representative, and one
-  // that became a person no longer does. Plain-text signatures are left alone —
-  // rewriting those is the user's call (the "Sync" button).
-  const resyncSignatures = (nextEdits) => {
-    const sigSec = model.sections.find((sec) => isSignatureTitle(sec.title));
-    if (!sigSec) return nextEdits;
-    const live = withEdits(model, nextEdits);
-    const liveParties = partiesOf(live);
-    const texts = live.sections.find((sec) => sec.id === sigSec.id).pieces.map((pc) => pc.text);
-    if (!liveParties.length || !liveParties.every((pt) => signatureLinked(texts, pt))) return nextEdits;
-    return { ...nextEdits, ...signatureSyncEdits(sigSec, liveParties) };
+  // What a party holds as CUSTOM data: the details typed by hand, set aside
+  // when a record is picked so that Custom can show them again — on hover as a
+  // preview, on click for good. A detail never typed is blank.
+  const customValuesFor = (party, d) => {
+    const kept = d.custom?.[party.roleKey] || {};
+    return Object.fromEntries(party.fields.map((f) => [f.id, kept[f.id] || '']));
   };
 
   const assign = (role, rec) => {
     patch((d) => {
-      let nextEdits = { ...d.edits };
-      for (const sec of model.sections) {
-        for (const pc of sec.pieces) {
-          if (pc.party !== role) continue;
-          // Built from the clause AS DRAFTED, never from a previous party's
-          // settled wording: picking the wrong record first has to be undoable
-          // by picking the right one. partyTextFor picks the person or company
-          // formula for this record, keeps the optional details as they are
-          // set, then settles gender, county/sector and house-vs-flat.
-          const next = partyTextFor(pc, d.edits[pc.id], role, rec);
-          if (next !== pc.text) nextEdits[pc.id] = next;
-          else delete nextEdits[pc.id];
+      const roleKey = role || '_';
+      let nextCustom = d.custom || {};
+      if (!d.assigned[roleKey]) {
+        const party = parties.find((pt) => pt.roleKey === roleKey);
+        if (party) {
+          nextCustom = {
+            ...nextCustom,
+            [roleKey]: Object.fromEntries(party.fields.map((f) => [f.id, d.values[f.id] || ''])),
+          };
         }
       }
-      nextEdits = resyncSignatures(nextEdits);
-      // Values from the document as it now reads — the new formula may have
-      // blanks (a representative, a CUI) the draft never had.
-      const filled = valuesFromRecord(withEdits(model, nextEdits), role, rec);
+      // Picking a record FILLS IN DATA and nothing else: the record's values go
+      // into the party's blanks, wherever in the document they are. The wording
+      // is not touched — the clause is not rewritten into a person or company
+      // formula, no phrase is added or dropped, no agreement is settled. What
+      // the paragraph says stays what the drafter wrote (changing it is what the
+      // AI prompt under the paragraph is for).
+      const filled = valuesFromRecord(withEdits(model, d.edits), role, rec);
       return {
-        edits: nextEdits,
         values: { ...d.values, ...filled },
-        assigned: { ...d.assigned, [role || '_']: rec.id || rec._path || rec.name },
+        assigned: { ...d.assigned, [roleKey]: rec.id || rec._path || rec.name },
+        custom: nextCustom,
       };
     });
     setPreview({});
-  };
-
-  // An optional detail switched on or off in a party's clause. On adds the
-  // phrase (its blank fills from the assigned record straight away); off cuts
-  // the phrase out of the sentence.
-  const toggleOptional = (pc, role, partId, on, rec) => patch((d) => {
-    const current = d.edits[pc.id] !== undefined ? d.edits[pc.id] : pc.text;
-    const next = setOptionalPart(current, role, partId, on);
-    let nextEdits = { ...d.edits };
-    if (next === pc.text) delete nextEdits[pc.id]; else nextEdits[pc.id] = next;
-    nextEdits = resyncSignatures(nextEdits);
-    const filled = rec ? valuesFromRecord(withEdits(model, nextEdits), role, rec) : {};
-    return { edits: nextEdits, values: { ...d.values, ...filled } };
-  });
-
-  const askAi = async (pc) => {
-    const instruction = (prompts[pc.id] || '').trim();
-    if (!instruction || aiBusy[pc.id] || !onAskAi) return;
-    setAiBusy((m) => ({ ...m, [pc.id]: true }));
-    setAiErr((m) => ({ ...m, [pc.id]: null }));
-    try {
-      const next = await onAskAi(textOf(pc), instruction);
-      if (next) {
-        patch((d) => ({ edits: { ...d.edits, [pc.id]: next } }));
-        setPrompts((m) => ({ ...m, [pc.id]: '' }));
-      } else {
-        setAiErr((m) => ({ ...m, [pc.id]: 'The AI couldn’t be reached — the piece is unchanged.' }));
-      }
-    } finally {
-      setAiBusy((m) => ({ ...m, [pc.id]: false }));
-    }
   };
 
   // A party typed in by hand becomes an identity record, and the party is then
@@ -238,485 +159,304 @@ export default function DocConstructor({
       setCreating((m) => ({ ...m, [party.roleKey]: false }));
     }
   };
-  const unlink = (party) => patch((d) => {
-    const next = { ...d.assigned };
-    delete next[party.roleKey];
-    return { assigned: next };
-  });
-
-  // Rewrite the signature section from the parties: one block each, signed
-  // under the name the document gives the party and carrying the party's own
-  // blanks. Only the lines that merely name a signatory are replaced — a date
-  // or a place in the section stays (see signatureSyncEdits).
-  const syncSignatures = (sec) => patch((d) => (
-    { edits: { ...d.edits, ...signatureSyncEdits(sec, parties) }, open: null }
-  ));
-  const restoreSignatures = (sec) => patch((d) => {
-    const next = { ...d.edits };
-    sec.pieces.forEach((pc) => { delete next[pc.id]; });
-    return { edits: next };
-  });
-
-  const save = () => {
-    if (!dirty || saving) return;
-    onSave?.(compose());
+  // Back to Custom: let go of the record and put the hand-typed details back.
+  const selectCustom = (party) => {
+    patch((d) => {
+      const next = { ...d.assigned };
+      delete next[party.roleKey];
+      return { assigned: next, values: { ...d.values, ...customValuesFor(party, d) } };
+    });
+    setPreview({});
   };
 
-  // ── Derived view ────────────────────────────────────────────────────────
-  let totalBlanks = 0;
-  let readySections = 0;
-  const sections = model.sections.map((sec) => {
-    let secBlanks = 0;
-    const pieces = sec.pieces.map((pc, k) => {
-      const text = textOf(pc);
-      // An edited piece may have lost (or gained) blanks — read them off what
-      // it says now, not what it said when the document was parsed.
-      const fields = edits[pc.id] !== undefined ? fieldsOf(text) : pc.fields;
-      const missing = fields.filter((f) => !val(f.id).trim());
-      const roleKey = pc.party == null ? null : (pc.party || '_');
-      const isParty = pc.party != null && fields.some((f) => f.key);
-      const rec = isParty ? records.find((r) => (r.id || r._path || r.name) === assigned[roleKey]) : null;
-      secBlanks += missing.length;
-      // The piece's number is the document's own — "1.1.", "(2)", "a)" — read
-      // off the source, so it is the same one the Word preview prints. A
-      // paragraph the document leaves unnumbered is unnumbered here too.
-      return { pc, k, text, fields, missing, isParty, rec, num: pc.num || '' };
-    // A piece emptied by an edit (the signature lines a sync replaced) is gone
-    // from the document, so it is gone from here too.
-    }).filter((row) => row.text.trim());
-    totalBlanks += secBlanks;
-    if (secBlanks === 0) readySections += 1;
-    return { sec, pieces };
-  });
+  // ── What this paragraph needs ───────────────────────────────────────────
+  const text = piece ? textOf(piece) : '';
+  // An edited piece may have lost (or gained) blanks — read them off what it
+  // says now, not what it said when the document was parsed.
+  const fields = !piece ? [] : (edits[piece.id] !== undefined ? fieldsOf(text) : piece.fields);
+  const ownParty = piece ? (parties.find((pt) => pt.pieceId === piece.id) || null) : null;
+  // Whose records to offer: the party this clause identifies, or — for a
+  // paragraph that merely mentions ONE party's details — that party.
+  const roles = [...new Set(fields.filter((f) => f.key).map((f) => f.role || ''))];
+  const party = ownParty || (roles.length === 1 ? (parties.find((pt) => (pt.role || '') === roles[0]) || null) : null);
+  const role = party ? party.role : null;
+  const rec = party ? (records.find((r) => ridOf(r) === assigned[party.roleKey]) || null) : null;
 
-  const title = model.title || docLabel || fileName.replace(/\.[^.]+$/, '');
-  const statusLine = busy && !sections.length
-    ? ''
-    : busy
-      ? `Drafting… ${sections.length} section${sections.length === 1 ? '' : 's'} so far`
-      : `${readySections} of ${sections.length} sections ready · ${totalBlanks} blank${totalBlanks === 1 ? '' : 's'} left`;
+  // ── The paragraph, with its blanks as inputs ───────────────────────────
+  // The clause is walked once, left to right: `**` / `__` toggle bold, a single
+  // `*` italic, and `[[…]]` is a blank — so a name the drafter wrote in bold
+  // (`**[[seller.legalName]]**`) is a bold input, and the emphasis either side
+  // of a blank survives being cut around it.
+  const tokens = useMemo(() => {
+    const out = [];
+    // A hovered version shows ITS wording; the draft is untouched underneath.
+    const src = pieceDisplayText(piece, versionPreview ? versionPreview.text : text);
+    const re = /(\*\*|__)|(\*)|\[\[([^[\]]+?)\]\]|`/g;
+    let bold = false;
+    let italic = false;
+    let last = 0;
+    let m;
+    const push = (str) => { if (str) out.push({ text: str, bold, italic }); };
+    while ((m = re.exec(src))) {
+      push(src.slice(last, m.index));
+      last = m.index + m[0].length;
+      if (m[1]) bold = !bold;
+      else if (m[2]) italic = !italic;
+      else if (m[3]) out.push({ field: m[3].trim(), bold, italic });
+    }
+    push(src.slice(last));
+    return out;
+  }, [piece, text, versionPreview]);
 
-  // Bring an opened piece into view — it can expand well past the fold.
-  const rootRef = useRef(null);
-  useEffect(() => {
-    if (!open) return;
-    const el = rootRef.current?.querySelector(`[data-piece="${open}"]`);
-    el?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
-  }, [open]);
+  // `typed` marks the draft as holding something the user WROTE. Picking a
+  // suggested identity doesn't set it — that is an answer being chosen, not a
+  // change being made, and it doesn't earn the paragraph a new version circle.
+  const setValue = (id, value) => patch((d) => ({ values: { ...d.values, [id]: value }, typed: true }));
+  const infoOf = (id) => fields.find((f) => f.id === id) || fieldInfo(id);
 
-  return (
-    <div className="dcx-scroll">
-      <div className="dcx-root" ref={rootRef}>
-        <header className="dcx-head">
-          <div className="dcx-head-titles">
-            <span className="dcx-eyebrow">Constructor · {docLabel || fileName.replace(/\.[^.]+$/, '')}</span>
-            <h1 className="dcx-title">{title}</h1>
-          </div>
-          <div className="dcx-head-row">
-            <span className="dcx-status">{statusLine}</span>
-            {(dirty || saving) && (
-              <button type="button" className="dcx-save" onClick={save} disabled={saving}>
-                {saving ? 'Saving…' : 'Save to document'}
-              </button>
-            )}
-          </div>
-          {saveError && <p className="dcx-note is-error" role="alert">{saveError}</p>}
-          {foreign && sections.length > 0 && (
-            <p className="dcx-note">
-              This file wasn’t written in DocVex. Saving from the Constructor rebuilds it from its
-              text, so Word-only formatting — tables, images, custom styles — is simplified.
-            </p>
-          )}
-        </header>
+  // One blank, as an input. `style` carries the bold / italic of the source
+  // when the paragraph is rebuilt from it; in the rich copy the input simply
+  // inherits the run it sits in.
+  // An EMPTY blank is just the slot — no placeholder words in it — and is as
+  // wide as the slot the document drew for it (`blankChars`: the underscores of
+  // the viewer's marker, less the input's own 8px of padding + margin), so
+  // picking a paragraph doesn't re-wrap it. What the blank wants is said on
+  // hover (and to a screen reader) instead.
+  const renderInput = (fieldId, key, style, blankChars = 0) => {
+    const f = infoOf(fieldId);
+    const shown = versionPreview
+      ? (versionPreview.values?.[fieldId] || '')
+      : (preview[fieldId] !== undefined ? preview[fieldId] : (values[fieldId] || ''));
+    const hint = labelOf(f);
+    const width = String(shown)
+      ? `${Math.max(4, String(shown).length + 1.5)}ch`
+      : (blankChars ? `calc(${blankChars}ch - 8px)` : `${Math.max(4, hint.length + 1.5)}ch`);
+    const tip = f.role && f.key ? `${hint} · ${roleLabel(f.role)}` : hint;
+    return (
+      <Tooltip key={key} content={tip}>
+        <input
+          className={`dcx-inline${String(shown).trim() ? ' is-filled' : ''}${versionPreview || preview[fieldId] !== undefined ? ' is-preview' : ''}`}
+          readOnly={!!versionPreview}
+          style={{ ...(style || {}), width }}
+          value={shown}
+          aria-label={tip}
+          spellCheck={false}
+          onChange={(e) => setValue(fieldId, e.target.value)}
+        />
+      </Tooltip>
+    );
+  };
 
-        {busy && !sections.length && (
-          <div className="dcx-skeleton" role="status" aria-label="Preparing the document">
-            <div className="dcx-skel-line is-head" />
-            <div className="dcx-skel-line" style={{ width: '100%' }} />
-            <div className="dcx-skel-line" style={{ width: '92%' }} />
-            <div className="dcx-skel-line" style={{ width: '60%' }} />
-          </div>
-        )}
+  // ── Two ways to show the paragraph ─────────────────────────────────────
+  // RICH: the paragraph exactly as the Word preview rendered it — every run's
+  // own font, size, colour, underline, tab — with only its blanks swapped for
+  // inputs. This is what is shown for as long as the clause's WORDING is what
+  // the file has (values may differ: they live in the inputs). The real
+  // paragraph's markup is copied, each blank is found in it — an unfilled one is
+  // the marker span the viewer wrapped it in, a filled one is its saved value in
+  // the text — and an empty mount is left in its place for an input.
+  //
+  // REBUILT: from the source text, for a clause whose wording has changed (an AI
+  // rewrite, an identity that switched the clause to the company formula, an
+  // older version's wording). There is no rendered markup for words that were
+  // never in the file, so it is set in the paragraph's main run formatting.
+  //
+  // Both live inside the preview copy, in a host each; only one is displayed.
+  const [hosts, setHosts] = useState(null);
+  useLayoutEffect(() => {
+    if (!previewEl) { setHosts(null); return; }
+    const doc = previewEl.ownerDocument;
+    const rich = doc.createElement('span');
+    const rebuilt = doc.createElement('span');
+    previewEl.replaceChildren(rich, rebuilt);
+    setHosts({ rich, rebuilt });
+  }, [previewEl]);
 
-        {!busy && !sections.length && (
-          <div className="dcx-empty">
-            <p className="dcx-empty-title">Nothing to build from yet</p>
-            <p className="dcx-empty-sub">Ask the AI advisor for a document and its sections appear here.</p>
-          </div>
-        )}
+  const [mounts, setMounts] = useState(null); // [{ id, el, key }] — null when the rich copy can't be made
+  useLayoutEffect(() => {
+    if (!hosts || !piece) { setMounts(null); return; }
+    const { rich } = hosts;
+    rich.innerHTML = originalHtml || '';
+    if (!originalHtml) { setMounts(null); return; }
+    const doc = rich.ownerDocument;
+    // Each blank with the few characters of wording that lead up to it: a saved
+    // value is found in the text by what it says, and a short one ("12", "B")
+    // could just as well be part of a clause number — so the match that also
+    // has the right words in front of it is preferred.
+    const wanted = [];
+    let lead = '';
+    for (const sg of parseSegs(piece.text)) {
+      if (sg.field) { wanted.push({ id: sg.field, lead: lead.replace(/[*_`]/g, '').slice(-8) }); lead = ''; }
+      else lead = sg.text || '';
+    }
+    const made = [];
+    const mountFor = (id, blank = 0) => {
+      const el = doc.createElement('span');
+      el.className = 'dcx-mount';
+      made.push({ id, el, key: `${id}:${made.length}`, blank });
+      return el;
+    };
+    // Walked in document order, one blank at a time, never looking back — so a
+    // value that occurs twice is matched to the right blank each time.
+    const walker = doc.createTreeWalker(rich, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    let from = 0;
+    let ok = true;
+    for (const { id, lead: before } of wanted) {
+      const raw = `[[${id}]]`;
+      const saved = String(baseValues?.[id] ?? '').trim();
+      let placed = false;
+      while (node && !placed) {
+        const marker = node.parentElement?.closest?.('.dv-field');
+        if (marker && rich.contains(marker)) {
+          // An unfilled blank: the viewer's marker span, still holding the token.
+          const after = (() => { let n = walker.nextNode(); while (n && marker.contains(n)) n = walker.nextNode(); return n; })();
+          if ((marker.dataset.dvfieldRaw || marker.textContent || '').trim() === raw) {
+            marker.replaceWith(mountFor(id, (marker.dataset.label || '').length));
+            placed = true;
+          }
+          node = after; from = 0;
+          continue;
+        }
+        const needle = saved || raw;
+        const withLead = before ? node.data.indexOf(before + needle, from) : -1;
+        const at = withLead >= 0 ? withLead + before.length : node.data.indexOf(needle, from);
+        if (at >= 0) {
+          const tail = node.splitText(at);
+          tail.data = tail.data.slice(needle.length);
+          tail.before(mountFor(id));
+          walker.currentNode = tail;
+          node = tail; from = 0;
+          placed = true;
+        } else {
+          node = walker.nextNode(); from = 0;
+        }
+      }
+      if (!placed) { ok = false; break; }
+    }
+    if (!ok) { rich.innerHTML = ''; setMounts(null); return; }
+    setMounts(made);
+  }, [hosts, originalHtml, piece, baseValues]);
 
-        <div className="dcx-sections">
-          {sections.map(({ sec, pieces }, si) => {
-            const isPlain = !!plain[sec.id];
-            return (
-              <section className="dcx-section" key={sec.id} style={{ animationDelay: `${Math.min(si, 10) * 60}ms` }}>
-                <PuzzleShape />
-                <div className="dcx-section-in">
-                  <div className="dcx-section-head">
-                    <span className="dcx-grip">{GripGlyph}</span>
-                    <span className="dcx-secnum">{sec.num || sec.n || '§'}</span>
-                    <h2 className="dcx-sectitle">{sec.title}</h2>
-                    <Tooltip content="Read this section as plain text">
-                      <button
-                        type="button"
-                        className={`dcx-plainbtn${isPlain ? ' is-on' : ''}`}
-                        aria-pressed={isPlain}
-                        onClick={() => patch((d) => ({ plain: { ...d.plain, [sec.id]: !d.plain[sec.id] } }))}
-                      >
-                        {LinesGlyph}Text
-                      </button>
-                    </Tooltip>
-                  </div>
+  const wordingNow = versionPreview ? versionPreview.text : text;
+  const showRich = !!hosts && !!mounts && !!piece && wordingNow === piece.text;
+  useLayoutEffect(() => {
+    if (!hosts) return;
+    hosts.rich.style.display = showRich ? '' : 'none';
+    hosts.rebuilt.style.display = showRich ? 'none' : '';
+  }, [hosts, showRich]);
+  // Either view can wrap to a different height — let the pane re-place what
+  // hangs under the paragraph.
+  useEffect(() => { onLive?.(liveText); }, [showRich, mounts]); // eslint-disable-line react-hooks/exhaustive-deps
 
-                  {isPlain && (
-                    <div className="dcx-plain">
-                      {pieces.map(({ text, num }) => `${num ? `${num} ` : ''}${fillText(text, values, { keep: false })}`).join('\n\n')}
-                    </div>
-                  )}
-
-                  {/* Signatures — drawn from the parties, not from the text: one
-                      card per party, showing who will sign as it stands right
-                      now. Pick an identity for a party above and its card here
-                      changes with it. */}
-                  {!isPlain && isSignatureTitle(sec.title) && parties.length > 0 && (() => {
-                    const texts = pieces.map((row) => row.text);
-                    const cards = parties.map((party) => ({
-                      party,
-                      linked: signatureLinked(texts, party),
-                      rec: records.find((r) => ridOf(r) === assigned[party.roleKey]) || null,
-                      name: val(partyFieldId(party, 'legalName')).trim(),
-                      rep: val(partyFieldId(party, 'representative')).trim(),
-                      cap: val(partyFieldId(party, 'repCapacity')).trim(),
-                    }));
-                    const allLinked = cards.every((c) => c.linked);
-                    const touched = sec.pieces.some((pc) => edits[pc.id] !== undefined);
-                    return (
-                      <div className="dcx-sign">
-                        <div className="dcx-sign-bar">
-                          <span className={`dcx-sign-state${allLinked ? ' is-on' : ''}`}>
-                            <span className="dcx-sign-state-dot" aria-hidden="true" />
-                            {allLinked
-                              ? 'In sync with the parties — whoever is named there signs here.'
-                              : 'These signatures are plain text, so they don’t follow the parties.'}
-                          </span>
-                          {!allLinked && (
-                            <button type="button" className="dcx-sign-btn is-primary" onClick={() => syncSignatures(sec)}>
-                              Sync with the parties
-                            </button>
-                          )}
-                          {touched && (
-                            <button type="button" className="dcx-sign-btn" onClick={() => restoreSignatures(sec)}>
-                              Restore original
-                            </button>
-                          )}
-                        </div>
-                        <div className="dcx-sign-grid">
-                          {cards.map(({ party, linked, rec, name, rep, cap }) => (
-                            <button
-                              type="button"
-                              key={party.roleKey}
-                              className={`dcx-sign-card${linked ? ' is-linked' : ''}${name ? ' is-named' : ''}`}
-                              onClick={() => patch(() => ({ open: party.pieceId }))}
-                            >
-                              <span className="dcx-sign-role">{party.name}</span>
-                              <span className="dcx-sign-who">
-                                <span className="dcx-party-av">{rec ? identityInitials(rec) : (name || party.name).slice(0, 1).toUpperCase()}</span>
-                                <span className="dcx-sign-name">{name || 'Not assigned yet'}</span>
-                              </span>
-                              {rep && <span className="dcx-sign-rep">prin {rep}{cap ? `, ${cap}` : ''}</span>}
-                              <span className="dcx-sign-line" aria-hidden="true" />
-                              <span className="dcx-sign-foot">
-                                {linked ? 'Follows the party' : 'Not linked'} · open party
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {!isPlain && pieces.filter(({ fields }) => {
-                    // In the signature section the cards above stand for every
-                    // line that only names a party. What stays as a row is what
-                    // they don't cover — a date, a place, a witness.
-                    if (!isSignatureTitle(sec.title) || !parties.length) return true;
-                    const roles = new Set(parties.map((pt) => pt.role || ''));
-                    return fields.some((f) => !(f.key && roles.has(f.role || '')));
-                  }).map(({ pc, k, text, fields, missing, isParty, rec, num }) => {
-                    const isOpen = open === pc.id;
-                    const party = isParty ? parties.find((pt) => pt.roleKey === (pc.party || '_')) : null;
-                    const edited = edits[pc.id] !== undefined;
-                    const variant = variantsFor(sec, k);
-                    const roleKey = pc.party || '_';
-                    const prompt = prompts[pc.id] || '';
-                    const canAsk = !!prompt.trim() && !aiBusy[pc.id];
-                    // A party has no blanks column: it is filled from its identity
-                    // record, and what the clause mentions is set by the pills.
-                    const showBlanks = fields.length > 0 && !isParty;
-
-                    let chips;
-                    const previewRec = isParty && Object.keys(preview).length
-                      ? records.find((r) => preview.__rec === (r.id || r._path || r.name) && preview.__role === roleKey)
-                      : null;
-                    if (previewRec) chips = [{ text: previewRec.name || previewRec.legalName, kind: 'filled is-preview' }];
-                    else if (isParty && rec) chips = [{ text: rec.name || rec.legalName, kind: 'filled' }];
-                    else if (isParty && missing.length) chips = [{ text: `${roleLabel(pc.party)} · not assigned`, kind: 'blank' }];
-                    else if (fields.length) chips = fields.map((f) => (val(f.id).trim() ? { text: val(f.id), kind: 'filled' } : { text: f.label, kind: 'blank' }));
-                    else if (edited) chips = [{ text: 'wording changed', kind: 'note is-accent' }];
-                    else chips = [{ text: 'standard wording', kind: 'note' }];
-
-                    return (
-                      <div
-                        className={`dcx-piece${isOpen ? ' is-open' : ''}${pc.depth ? ' is-sub' : ''}${party ? ' is-party' : ''}`}
-                        style={pc.depth ? { '--dcx-depth': Math.min(pc.depth, 3) } : undefined}
-                        data-piece={pc.id}
-                        key={pc.id}
-                      >
-                        {party && (() => {
-                          // A party is a person or a company, not a sentence —
-                          // so it is shown as one: who it is, which identity
-                          // record it is tied to, and how complete it is.
-                          const shownRec = previewRec || rec;
-                          const typedName = val(partyFieldId(party, 'legalName')).trim();
-                          const name = (shownRec && (shownRec.name || shownRec.legalName)) || typedName;
-                          const filled = fields.length - missing.length;
-                          return (
-                            <button
-                              type="button"
-                              className={`dcx-party${shownRec ? ' is-linked' : ''}${previewRec ? ' is-preview' : ''}`}
-                              aria-expanded={isOpen}
-                              onClick={() => patch(() => ({ open: isOpen ? null : pc.id }))}
-                            >
-                              <span className="dcx-party-av">
-                                {shownRec ? identityInitials(shownRec) : (name || party.name).slice(0, 1).toUpperCase()}
-                              </span>
-                              <span className="dcx-party-text">
-                                <span className="dcx-party-role">
-                                  {num && <span className="dcx-piece-num">{num}</span>}
-                                  {party.name}
-                                </span>
-                                <span className={`dcx-party-name${name ? '' : ' is-empty'}`}>{name || 'No one assigned yet'}</span>
-                                <span className="dcx-party-meta">
-                                  {shownRec
-                                    ? [shownRec.kind === 'org' ? 'Organisation' : 'Individual', identitySummary(shownRec)].filter(Boolean).join(' · ')
-                                    : `${filled} of ${fields.length} details filled in`}
-                                </span>
-                              </span>
-                              <span className={`dcx-party-state${shownRec ? ' is-on' : ''}`}>
-                                {shownRec ? 'Identity record' : (missing.length ? 'Choose an identity' : 'Filled in by hand')}
-                              </span>
-                              <span className="dcx-chev">{ChevGlyph}</span>
-                            </button>
-                          );
-                        })()}
-                        {!party && (
-                        <button
-                          type="button"
-                          className="dcx-piece-row"
-                          aria-expanded={isOpen}
-                          onClick={() => patch(() => ({ open: isOpen ? null : pc.id }))}
-                        >
-                          <span className="dcx-piece-label">
-                            {num && <span className="dcx-piece-num">{num}</span>}
-                            {/* The clause in full — filled values in place, open
-                                blanks named in brackets. Never cut short: the
-                                row grows to fit. */}
-                            <span className="dcx-piece-text">
-                              {pc.wholeLabel
-                                ? (fillText(text, values, { keep: false }).replace(/\*\*|__|`/g, '').trim() || pc.label)
-                                : pc.label}
-                            </span>
-                          </span>
-                          <span className="dcx-chips">
-                            {chips.map((c, ci) => <span className={`dcx-chip is-${c.kind}`} key={ci}>{c.text}</span>)}
-                          </span>
-                          <span className="dcx-chev">{ChevGlyph}</span>
-                        </button>
-                        )}
-
-                        {isOpen && (
-                          <div className="dcx-piece-body">
-                            {/* What this party's clause mentions. Each pill is an
-                                optional detail: on, the clause carries it; off,
-                                it is cut from the sentence. Which pills there
-                                are depends on whether the party is a person or
-                                a company. */}
-                            {party && (
-                              <div className="dcx-optional">
-                                <span className="dcx-collabel">Optional details in this clause</span>
-                                <div className="dcx-optional-pills">
-                                  {optionalPartsFor(text, pc.party, rec ? (rec.kind === 'org' ? 'org' : 'person') : clauseKind(fields)).map((part) => (
-                                    <button
-                                      type="button"
-                                      key={part.id}
-                                      role="switch"
-                                      aria-checked={part.on}
-                                      className={`dcx-pill${part.on ? ' is-on' : ''}`}
-                                      onClick={() => toggleOptional(pc, pc.party, part.id, !part.on, rec)}
-                                    >
-                                      <span className="dcx-pill-mark" aria-hidden="true">{part.on ? CheckGlyph : null}</span>
-                                      {part.label}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            {!party && (
-                            <div className="dcx-col">
-                              <span className="dcx-collabel">Text in the document</span>
-                              {variant && (
-                                <div className="dcx-variants">
-                                  <span className="dcx-variants-label">{variant.label} ·</span>
-                                  {variant.options.map((o) => (
-                                    <button
-                                      type="button"
-                                      key={o.label}
-                                      className={`dcx-variant${text.trim() === o.text ? ' is-on' : ''}`}
-                                      onClick={() => patch((d) => ({ edits: { ...d.edits, [pc.id]: o.text } }))}
-                                    >
-                                      {o.label}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                              <textarea
-                                className="dcx-textarea"
-                                rows={5}
-                                value={fillText(text, values)}
-                                onChange={(e) => patch((d) => ({ edits: { ...d.edits, [pc.id]: e.target.value } }))}
-                              />
-                              <div className="dcx-askrow">
-                                <div className="dcx-ask">
-                                  <span className="dcx-ask-glyph">{SparkGlyph}</span>
-                                  <input
-                                    value={prompt}
-                                    disabled={!onAskAi}
-                                    placeholder="Ask the AI to change this piece: “shorten”, “more formal”, “add a 30-day term”…"
-                                    onChange={(e) => setPrompts((m) => ({ ...m, [pc.id]: e.target.value }))}
-                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); askAi(pc); } }}
-                                  />
-                                  <button type="button" className={`dcx-ask-go${canAsk ? ' is-ready' : ''}`} disabled={!canAsk} onClick={() => askAi(pc)}>
-                                    {aiBusy[pc.id] ? 'Rewriting…' : 'Ask AI'}
-                                  </button>
-                                </div>
-                                {edited && (
-                                  <button
-                                    type="button"
-                                    className="dcx-reset"
-                                    onClick={() => patch((d) => { const e = { ...d.edits }; delete e[pc.id]; return { edits: e }; })}
-                                  >
-                                    Revert to original
-                                  </button>
-                                )}
-                              </div>
-                              {aiErr[pc.id] && <p className="dcx-note is-error" role="alert">{aiErr[pc.id]}</p>}
-                            </div>
-                            )}
-
-                            {isParty && (
-                              <div className="dcx-col">
-                                <span className="dcx-collabel dcx-collabel--split">
-                                  Identities
-                                  <span className="dcx-collabel-sub">{records.length} record{records.length === 1 ? '' : 's'} in this project</span>
-                                </span>
-                                {/* What ties this party to the identity feature:
-                                    open the record it is filled from, let go of
-                                    it, or turn what was typed here into one. */}
-                                {party && (
-                                  <div className="dcx-party-actions">
-                                    {rec && onOpenIdentity && (
-                                      <button type="button" className="dcx-sign-btn" onClick={() => onOpenIdentity(rec)}>Open record</button>
-                                    )}
-                                    {rec && (
-                                      <button type="button" className="dcx-sign-btn" onClick={() => unlink(party)}>Unlink</button>
-                                    )}
-                                    {!rec && onCreateIdentity && identityFromValues(party, values) && (
-                                      <Tooltip content="Save these details as an identity record, so the next document fills from it">
-                                        <button
-                                          type="button"
-                                          className="dcx-sign-btn"
-                                          disabled={!identityFromValues(party, values) || !!creating[party.roleKey]}
-                                          onClick={() => saveAsIdentity(party)}
-                                        >
-                                          {creating[party.roleKey] ? 'Saving…' : 'Save as identity'}
-                                        </button>
-                                      </Tooltip>
-                                    )}
-                                  </div>
-                                )}
-                                {records.length === 0 && (
-                                  <p className="dcx-note">No identity records in this project yet. Add one from the Files tab — Create → Identity, or right-click a document → Create identity.</p>
-                                )}
-                                {records.map((r) => {
-                                  const rid = r.id || r._path || r.name;
-                                  const on = assigned[roleKey] === rid;
-                                  return (
-                                    <button
-                                      type="button"
-                                      key={rid}
-                                      className={`dcx-identity${on ? ' is-on' : ''}`}
-                                      onClick={() => assign(pc.party, r)}
-                                      onMouseEnter={() => setPreview({ ...valuesFromRecord(model, pc.party, r), __rec: rid, __role: roleKey })}
-                                      onMouseLeave={() => setPreview({})}
-                                    >
-                                      <span className="dcx-identity-av">{identityInitials(r)}</span>
-                                      <span className="dcx-identity-text">
-                                        <span className="dcx-identity-name">{r.name || r.legalName}</span>
-                                        <span className="dcx-identity-meta">
-                                          {[r.kind === 'org' ? 'Organisation' : 'Individual', identitySummary(r), r._fileName].filter(Boolean).join(' · ')}
-                                        </span>
-                                      </span>
-                                      <span className="dcx-identity-mark">{CheckGlyph}</span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {showBlanks && (
-                              <div className="dcx-col">
-                                <span className="dcx-collabel">Blanks to fill in</span>
-                                {fields.map((f) => {
-                                  const suggs = suggestionsFor(f, records, values[f.id] || '');
-                                  return (
-                                    <div className="dcx-blank" key={f.id}>
-                                      <span className="dcx-blank-label">{f.role ? `${f.label} · ${roleLabel(f.role)}` : f.label}</span>
-                                      <input
-                                        value={values[f.id] || ''}
-                                        placeholder="Type it in…"
-                                        onChange={(e) => patch((d) => ({ values: { ...d.values, [f.id]: e.target.value } }))}
-                                      />
-                                      {suggs.length > 0 && (
-                                        <div className="dcx-suggs">
-                                          {suggs.map((sg) => (
-                                            <Tooltip content={sg.file ? `From ${sg.file}` : 'From an identity record'} key={sg.value}>
-                                              <button
-                                                type="button"
-                                                className="dcx-sugg"
-                                                onClick={() => patch((d) => ({ values: { ...d.values, [f.id]: sg.value } }))}
-                                              >
-                                                {sg.value}
-                                              </button>
-                                            </Tooltip>
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            );
+  const paragraph = hosts ? (
+    <>
+      {(mounts || []).map((m) => createPortal(renderInput(m.id, m.key, undefined, m.blank), m.el, m.key))}
+      {createPortal(
+        <span ref={(n) => { if (n) n.style.cssText = runStyle?.css || ''; }}>
+          {tokens.map((tk, i) => {
+            const style = { fontWeight: tk.bold ? 700 : undefined, fontStyle: tk.italic ? 'italic' : undefined };
+            if (tk.field == null) {
+              // eslint-disable-next-line react/no-array-index-key
+              return <span key={i} style={tk.bold || tk.italic ? style : undefined}>{tk.text}</span>;
+            }
+            return renderInput(tk.field, `${tk.field}:${i}`, style);
           })}
+        </span>,
+        hosts.rebuilt,
+      )}
+    </>
+  ) : null;
+
+  if (!piece) return null;
+  const hasOptions = !!party || !!saveError || foreign;
+
+  const canSaveIdentity = !!ownParty && !rec && !!onCreateIdentity && !!identityFromValues(ownParty, values);
+  // The options — the identity records that fill the party, and the notes that
+  // go with them. They are shown in the SIDE PANEL, above its message composer
+  // (`optionsSlot`, handed down by the pane from the advisor), so the paragraph
+  // on the page carries nothing under it; with no slot to go to (the panel is
+  // hidden) they fall back to the pane's dock under the paragraph. There is no
+  // prompt field here any more: asking the AI about the paragraph is the side
+  // panel's composer, which is aimed at the picked paragraph.
+  const optionsEl = hasOptions ? (
+      <div className={`dcx-para${optionsSlot ? ' is-docked' : ''}`}>
+        {optionsSlot && <h3 className="dcx-dock-title">{t.autofill || 'Autofill'}</h3>}
+        {(<>
+        {/* No title, no counter, no frame — just the options. (Leaving the
+            paragraph is what writes its changes, so there is no Save either.) */}
+        {saveError && <p className="dcx-note is-error" role="alert">{saveError}</p>}
+        {foreign && <p className="dcx-note">{t.foreignNote}</p>}
+
+        <div className="dcx-para-body">
+          {party && (
+            <div className="dcx-idgrid">
+              {/* Always first: the party typed in by hand — what a party is until
+                  a record is picked. Hovering it shows the hand-typed details in
+                  the paragraph, as hovering a record shows the record's; picking
+                  it lets go of the record and puts them back. */}
+              <button
+                type="button"
+                className={`dcx-identity is-custom${rec ? '' : ' is-on'}`}
+                onClick={() => { if (rec) selectCustom(party); }}
+                onMouseEnter={() => { if (rec) setPreview({ ...customValuesFor(party, draft), __custom: party.roleKey }); }}
+                onMouseLeave={() => setPreview({})}
+              >
+                <span className="dcx-identity-av">{PenGlyph}</span>
+                <span className="dcx-identity-text">
+                  <span className="dcx-identity-name">{t.custom}</span>
+                  <span className="dcx-identity-meta">{t.customMeta}</span>
+                </span>
+                <span className="dcx-identity-mark">{CheckGlyph}</span>
+              </button>
+              {records.map((r) => {
+                const rid = ridOf(r);
+                return (
+                  <button
+                    type="button"
+                    key={rid}
+                    className={`dcx-identity${assigned[party.roleKey] === rid ? ' is-on' : ''}`}
+                    onClick={() => assign(role, r)}
+                    onMouseEnter={() => setPreview({ ...valuesFromRecord(model, role, r), __rec: rid, __role: party.roleKey })}
+                    onMouseLeave={() => setPreview({})}
+                  >
+                    <span className="dcx-identity-av">{identityInitials(r)}</span>
+                    <span className="dcx-identity-text">
+                      <span className="dcx-identity-name">{r.name || r.legalName}</span>
+                      <span className="dcx-identity-meta">
+                        {[r.kind === 'org' ? t.organisation : t.individual, identitySummary(r)].filter(Boolean).join(' · ')}
+                      </span>
+                    </span>
+                    <span className="dcx-identity-mark">{CheckGlyph}</span>
+                  </button>
+                );
+              })}
+              {/* Custom details can become an identity record of their own. */}
+              {canSaveIdentity && (
+                <button
+                  type="button"
+                  className="dcx-identity is-action"
+                  disabled={!!creating[ownParty.roleKey]}
+                  onClick={() => saveAsIdentity(ownParty)}
+                >
+                  <span className="dcx-identity-av">+</span>
+                  <span className="dcx-identity-text">
+                    <span className="dcx-identity-name">{creating[ownParty.roleKey] ? t.saving : t.saveAsIdentity}</span>
+                    <span className="dcx-identity-meta">{t.saveAsIdentityTip}</span>
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
+          {party && records.length === 0 && <p className="dcx-note">{t.noRecords}</p>}
         </div>
+        </>)}
       </div>
-    </div>
+  ) : null;
+  return (
+    <>
+      {paragraph}
+      {optionsSlot ? (optionsEl && createPortal(optionsEl, optionsSlot)) : optionsEl}
+    </>
   );
 }

@@ -107,6 +107,13 @@ function TbUsageMeter({ used, total, tint }) {
   );
 }
 
+// Burger — shows / hides the doc-viewer's side panel.
+const BurgerGlyph = (
+  <svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+    <line x1="2" y1="3.5" x2="12" y2="3.5" /><line x1="2" y1="7" x2="12" y2="7" /><line x1="2" y1="10.5" x2="12" y2="10.5" />
+  </svg>
+);
+
 // ── Window-control glyphs (Windows-ish line icons) ──
 const MinimizeGlyph = (
   <svg viewBox="0 0 12 12" width="11" height="11"><rect x="1.5" y="5.5" width="9" height="1" fill="currentColor" /></svg>
@@ -146,6 +153,15 @@ export default function TitleBar() {
     const onName = (e) => setLiveDocName(String(e.detail?.name || ''));
     window.addEventListener('docvex:doc-viewer-file', onName);
     return () => window.removeEventListener('docvex:doc-viewer-file', onName);
+  }, [onDocViewer]);
+  // Side-panel burger: the viewer owns (and persists) the shown/hidden state and
+  // announces it; this only asks for a toggle and mirrors the answer.
+  const [docSideHidden, setDocSideHidden] = useState(() => window.__docvexDocViewerSideHidden === true);
+  useEffect(() => {
+    if (!onDocViewer) return undefined;
+    const onSide = (e) => setDocSideHidden(e.detail?.hidden === true);
+    window.addEventListener('docvex:doc-viewer-side', onSide);
+    return () => window.removeEventListener('docvex:doc-viewer-side', onSide);
   }, [onDocViewer]);
   const docViewerFileName = onDocViewer
     ? (liveDocName || new URLSearchParams(search).get('name') || '')
@@ -248,6 +264,21 @@ export default function TitleBar() {
           renders after a divider as a clickable chip that opens the project's
           Overview (Personal → Projects → [project], i.e. /projects/:id). */}
       <div className="tb-brand">
+        {/* Doc-viewer window: burger in the top-left corner, ahead of the
+            brand — shows / hides the side panel on the left. */}
+        {onDocViewer && (
+          <Tooltip content={docSideHidden ? 'Show sidebar' : 'Hide sidebar'}>
+            <button
+              type="button"
+              className={`tb-burger${docSideHidden ? '' : ' is-open'}`}
+              onClick={() => window.dispatchEvent(new CustomEvent('docvex:doc-viewer-toggle-side'))}
+              aria-label={docSideHidden ? 'Show sidebar' : 'Hide sidebar'}
+              aria-pressed={!docSideHidden}
+            >
+              {BurgerGlyph}
+            </button>
+          </Tooltip>
+        )}
         {/* Icon + DOCVEX — plain, non-interactive text (with a "| HUB" suffix
             on the Hub; the divider + HUB live INSIDE the static span so the
             flex `gap` spaces both sides of the "|" symmetrically). */}

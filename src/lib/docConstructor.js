@@ -20,7 +20,7 @@ export const FIELD_RE = /\[\[([^\[\]]+?)\]\]/g;
 
 // What a canonical field key reads as on a chip or above an input.
 const FIELD_LABELS = {
-  legalName: 'Name', aka: 'Also known as', nationalId: 'CNP', dateOfBirth: 'Date of birth',
+  legalName: 'Name', lastName: 'Last name', firstName: 'First name', aka: 'Also known as', nationalId: 'CNP', dateOfBirth: 'Date of birth',
   placeOfBirth: 'Place of birth', nationality: 'Nationality', idType: 'ID type',
   idDocument: 'ID document', idSeries: 'ID series', idNumber: 'ID number', idIssuer: 'Issued by',
   idIssuedAt: 'Issued on', taxId: 'CUI', regNo: 'Trade Register no.', legalForm: 'Legal form',
@@ -277,6 +277,106 @@ export function composeSource(model, edits, values) {
   return { template, text: fillText(template, values) };
 }
 
+// ── From a rendered paragraph back to its piece ─────────────────────────
+// The Word preview shows the FILE; the Constructor works on the SOURCE. A
+// picked paragraph is tied to its piece by what it says: the piece's text with
+// the saved values in its blanks is what the builder wrote into the file, give
+// or take the decoration — heading hashes and bullets become Word formatting,
+// `**` becomes bold, and the clause's own number may or may not be in the run.
+const LEAD_RE = new RegExp(`^\\s*(?:#{1,6}\\s+|[-*•]\\s+)?(?:${NUM_SRC}\\s+)?`);
+const matchNorm = (t) => String(t || '')
+  .replace(/[*_`~]/g, '')
+  .replace(LEAD_RE, '')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .toLowerCase();
+
+// What a piece reads as in the document: its number (as the document prints
+// it), then its text. Heading hashes and bullets are formatting, not text.
+export function pieceDisplayText(piece, text) {
+  const lead = String(piece?.marker || '').replace(/^\s*(?:#{1,6}\s+|[-*•]\s+)?/, '');
+  return `${lead}${text ?? piece?.text ?? ''}`;
+}
+
+// The piece a rendered paragraph came from — `{ section, piece }` or null.
+// Exact text first; failing that, containment either way (a paragraph the
+// renderer split, or one that carries a little extra), but only for text long
+// enough that a partial match can't land on the wrong clause.
+export function findPieceForText(model, values, paraText) {
+  const target = matchNorm(paraText);
+  if (!target) return null;
+  let loose = null;
+  for (const section of model?.sections || []) {
+    for (const piece of section.pieces) {
+      const cand = matchNorm(fillText(piece.text, values));
+      if (!cand) continue;
+      if (cand === target) return { section, piece };
+      if (target.length > 24 && cand.length > 24 && (cand.includes(target) || target.includes(cand))) {
+        const score = Math.min(cand.length, target.length) / Math.max(cand.length, target.length);
+        if (!loose || score > loose.score) loose = { section, piece, score };
+      }
+    }
+  }
+  return loose ? { section: loose.section, piece: loose.piece } : null;
+}
+
+// ── A paragraph's own history ───────────────────────────────────────────
+// Versions are saved per DOCUMENT, but what a person wants back is usually one
+// paragraph as it was. This reads a paragraph's history out of the document's
+// versions: the piece is found again in each version's source (same line, and
+// recognisably the same clause — an AI revision can restructure a document, and
+// a different clause that happens to land on the same line is not history), and
+// consecutive versions in which it reads the same are one entry.
+//
+// `versions` is [{ n, text, template?, values?, instructions?, manual? }];
+// `parse` lets the caller cache the parsed sources. Each entry carries what is
+// needed to put the paragraph back: its template text and the values of its
+// blanks at the time.
+export const normaliseParagraphText = (t) => matchNorm(t);
+
+const wordsOf = (t) => new Set(matchNorm(String(t || '').replace(FIELD_RE, ' ')).split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2));
+function samePiece(a, b) {
+  if (!a || !b) return false;
+  if ((a.party ?? null) !== (b.party ?? null)) return false;
+  const wa = wordsOf(a.text);
+  const wb = wordsOf(b.text);
+  if (!wa.size || !wb.size) return a.num === b.num;
+  let shared = 0;
+  for (const w of wa) if (wb.has(w)) shared += 1;
+  return shared / Math.min(wa.size, wb.size) >= 0.4;
+}
+
+export function paragraphHistory(versions, piece, parse = parseSource) {
+  const out = [];
+  for (const v of versions || []) {
+    const model = parse(v);
+    let found = null;
+    for (const sec of model?.sections || []) {
+      found = sec.pieces.find((pc) => pc.id === piece.id) || null;
+      if (found) break;
+    }
+    if (!samePiece(found, piece)) continue;
+    const values = {};
+    for (const f of found.fields) values[f.id] = String(v.values?.[f.id] ?? '');
+    const shown = pieceDisplayText(found, fillText(found.text, v.values || {}));
+    const last = out[out.length - 1];
+    if (last && matchNorm(last.shown) === matchNorm(shown)) continue;
+    // A QUIET version — one saved from nothing but a suggested answer being
+    // picked (an identity filling a party) — is not a step in the paragraph's
+    // history: it brings the latest entry up to date instead of adding one.
+    if (v.quiet && last) { Object.assign(last, { text: found.text, values, shown }); continue; }
+    out.push({ n: v.n, text: found.text, values, shown, label: v.instructions || '', manual: !!v.manual });
+  }
+  return out;
+}
+
+// Does this piece have anything the Constructor can do for it — a party to
+// identify or a blank to fill?
+export function pieceHasData(model, section, piece) {
+  if (!piece) return false;
+  return piece.party != null || piece.fields.length > 0;
+}
+
 // ── Assigning a party ───────────────────────────────────────────────────
 // What a record puts into a role's blanks, document-wide.
 export function valuesFromRecord(model, role, record) {
@@ -321,12 +421,9 @@ export function settleClauseFor(text, role, record) {
   return out;
 }
 
-// ── Parties and signatures ──────────────────────────────────────────────
-// A contract names its parties once and has them sign at the end. Those are the
-// same people, so the Constructor treats them as one thing: a party is filled
-// from an identity record, and its signature block follows from the party.
-
-export const isSignatureTitle = (title) => /semn[ăa]tur|signature/i.test(title || '');
+// ── Parties ─────────────────────────────────────────────────────────────
+// A contract names its parties once; a party is filled from an identity record.
+// (The signature section is ordinary text: nothing rewrites it from the parties.)
 
 // What the DOCUMENT calls a party — the „Prestator” of "denumită în continuare
 // „Prestator”" — which is the name to sign under. The role token is ASCII
@@ -359,74 +456,6 @@ export function partiesOf(model) {
     }
   }
   return out;
-}
-
-// The blank of a party that answers `key`, as the document spells it.
-export function partyFieldId(party, key) {
-  const own = party?.fields?.find((f) => f.key === key);
-  if (own) return own.id;
-  return party?.role ? `${party.role}.${key}` : key;
-}
-
-// Is this party's signature tied to the party — i.e. does the signature text
-// carry one of ITS blanks, so that naming the party names the signatory?
-export function signatureLinked(texts, party) {
-  for (const text of texts || []) {
-    for (const f of fieldsOf(text)) {
-      if (f.key && (f.role || '') === (party.role || '') && (f.key === 'legalName' || f.key === 'representative')) return true;
-    }
-  }
-  return false;
-}
-
-// A signature block written from the parties: each signs under the name the
-// document gives it, with its own blanks — the same ones its identification
-// clause uses, so whatever fills the party fills the signature. Only blanks the
-// party clause already has are used; a person has no representative to sign
-// through, and inventing that line would leave a hole nothing can fill.
-export function signatureBlock(parties) {
-  const lines = [];
-  for (const party of parties || []) {
-    const has = (key) => party.fields.some((f) => f.key === key);
-    lines.push(`**${String(party.name || roleLabel(party.role)).toUpperCase()}**`);
-    lines.push(`[[${partyFieldId(party, 'legalName')}]]`);
-    if (has('representative')) {
-      lines.push(has('repCapacity')
-        ? `prin [[${partyFieldId(party, 'representative')}]], în calitate de [[${partyFieldId(party, 'repCapacity')}]]`
-        : `prin [[${partyFieldId(party, 'representative')}]]`);
-    }
-    lines.push('Semnătura:');
-  }
-  return lines.join('\n');
-}
-
-// Which lines of a signature section a sync replaces, as `pieceId → text`.
-// Only the lines that merely NAME a signatory go: a bare "PRESTATOR", a line
-// made of nothing but a party's blanks. A line with anything else to say — the
-// date, the place, "încheiat în două exemplare" — is kept exactly as it is. The
-// block lands where the first replaced line was; with nothing to replace, it is
-// added after the section's last line.
-export function signatureSyncEdits(section, parties) {
-  const roles = new Set((parties || []).map((pt) => pt.role || ''));
-  const block = signatureBlock(parties);
-  const names = (pc) => {
-    const others = pc.fields.filter((f) => !(f.key && roles.has(f.role || '')));
-    if (others.length) return false;
-    if (pc.fields.length) return true;
-    return stripInline(pc.text).split(/\s+/).filter(Boolean).length <= 6;
-  };
-  const edits = {};
-  let placed = false;
-  for (const pc of section?.pieces || []) {
-    if (!names(pc)) continue;
-    edits[pc.id] = placed ? '' : block;
-    placed = true;
-  }
-  if (!placed) {
-    const last = section?.pieces?.[section.pieces.length - 1];
-    if (last) edits[last.id] = [last.text, block].join('\n');
-  }
-  return edits;
 }
 
 // The reverse of filling a party from a record: a record made from what was
@@ -557,7 +586,7 @@ export function setOptionalPart(text, role, partId, on) {
 }
 
 // A model as it stands WITH the draft's edits: texts replaced, blanks and
-// parties re-read from them. Parties, signatures and record values are worked
+// parties re-read from them. Parties and record values are worked
 // out from this — a clause rewritten for a company has a representative the
 // original never mentioned.
 export function withEdits(model, edits) {

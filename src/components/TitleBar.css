@@ -79,6 +79,30 @@
   border-color: var(--border);
 }
 
+/* Burger (doc-viewer window only) — top-left corner, ahead of the brand; shows
+   / hides the viewer's side panel. Reads "on" (accent) while the panel is open. */
+.tb-burger {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6.4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.tb-burger:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+.tb-burger.is-open { color: var(--accent); }
+
 /* Non-interactive brand — plain text, stays part of the drag region (no
    -webkit-app-region override, no hover/cursor affordance). Same 8px gap as
    the rest of the bar; no own padding/margin so the parent's 8px inset is the

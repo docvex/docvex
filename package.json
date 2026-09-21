@@ -7,6 +7,7 @@
   "private": true,
   "scripts": {
     "prestart": "node scripts/dev-rename-electron.mjs",
+    "postinstall": "node scripts/copy-ocr-assets.mjs",
     "start": "electron-forge start",
     "start:multi": "node scripts/run-many.mjs",
     "package": "electron-forge package",
@@ -55,12 +56,16 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@tesseract.js-data/ron": "^1.0.0",
+    "country-flag-icons": "^1.6.20",
     "docx": "^9.7.1",
     "docx-preview": "^0.3.7",
     "electron-squirrel-startup": "^1.0.1",
     "extract-zip": "^2.0.1",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
+    "libphonenumber-js": "^1.13.13",
     "pdfjs-dist": "^5.7.284",
     "pptxgenjs": "^4.0.1",
     "react": "^19.2.6",
@@ -68,6 +73,7 @@
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.15.0",
     "remark-gfm": "^4.0.1",
+    "tesseract.js": "^7.0.0",
     "update-electron-app": "^3.2.0",
     "word-extractor": "^1.0.4",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

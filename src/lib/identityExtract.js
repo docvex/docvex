@@ -14,12 +14,15 @@
 
 import { askProjectAi } from './projectAi';
 import { recognizeCanvas, OCR_MAX_EDGE } from './ocr';
+import { getAiFacet, saveAiFacet, stampFor, bestTextFor } from './aiData';
 import { loadPdfModule } from './pdfWorker';
 import { extractFileText } from './extractFileText';
 import { extractDocText } from './platform';
 import {
-  emptyIdentity, identityKey, mergeIdentity, listIdentities, writeIdentity, isIdentityFile,
+  emptyIdentity, identityKey, mergeIdentity, listIdentities, writeIdentity, isIdentityFile, normalizeIdType, ID_TYPE_RULE,
+  settlePersonName,
 } from './identities';
+import { normalizeNationality } from './nationalities';
 
 const EXTRACT_MODEL = 'claude-sonnet-4-6';
 
@@ -35,9 +38,8 @@ const JSON_SPEC = `Respond with ONLY a JSON object — no prose, no markdown fen
     {
       "name": "Popescu Ion",
       "kind": "person",
-      "role": "Client",
       "legalName": "Popescu Ion-Marian",
-      "aka": "",
+      "lastName": "Popescu", "firstName": "Ion-Marian",
       "nationalId": "",
       "dateOfBirth": "",
       "nationality": "",
@@ -50,7 +52,6 @@ const JSON_SPEC = `Respond with ONLY a JSON object — no prose, no markdown fen
       "address": "",
       "email": "",
       "phone": "",
-      "notes": "One or two sentences on what this party does in the story.",
       "sources": ["contract.pdf"]
     }
   ]
@@ -59,14 +60,13 @@ const JSON_SPEC = `Respond with ONLY a JSON object — no prose, no markdown fen
 Field rules:
 - "kind" is "person" for a natural person, "org" for a company, authority, court or any other legal entity.
 - "name" is how the party is referred to day to day — it becomes the record's title. Keep it short and use the same spelling throughout.
-- "role" is what they are TO THIS CASE: Client, Opposing party, Witness, Expert, Counsel, Court, Authority, Third party. One value.
 - Person-only fields (nationalId = CNP, dateOfBirth, nationality, idSeries + idNumber) stay empty for organisations; organisation-only fields (taxId = CUI/VAT, regNo = trade register number, legalForm, representative) stay empty for people.
 - An act of identity is TWO values: "seria RX nr. 456789" is idSeries "RX" and idNumber "456789". Never put both in one field.
 - Copy the address as ONE line, in the order the document writes it: "Str. Mihai Eminescu nr. 12, bl. A3, sc. B, ap. 15, București, sector 3". DocVex splits it into its parts; keeping the "str." / "nr." / "bl." markers is what makes that split reliable.
 - "sources" lists the EXACT filenames, verbatim from the set provided, that each detail was read out of.
 - Copy values VERBATIM from the documents. Leave a field as "" when the documents do not state it. Never guess a CNP, a registration number, an address or a date.
 - Include every named party that matters to the story. Skip people mentioned only in passing with no bearing on it, and skip the law firm's own software or systems.
-- Write notes and roles in English; keep names, company names and identifiers exactly as they appear in the source.
+- Keep names, company names and identifiers exactly as they appear in the source.
 - If there are no identifiable parties, return {"identities": []}.`;
 
 function excerptBlock(excerpts) {
@@ -144,10 +144,12 @@ export function parseIdentities(text) {
           if (key === 'sources') continue;
           if (typeof r[key] === 'string') out[key] = r[key].trim();
         }
+        out.idType = normalizeIdType(out.idType);
+        out.nationality = normalizeNationality(out.nationality) || out.nationality;
         out.name = r.name.trim();
         out.kind = r.kind === 'org' ? 'org' : 'person';
         out.sources = Array.isArray(r.sources) ? r.sources.filter((sv) => typeof sv === 'string') : [];
-        return out;
+        return settlePersonName(out);
       });
   }
   return [];
@@ -256,7 +258,7 @@ async function ocrImageBlob(blob) {
 // and a photograph is not grounds to replace it. What it can offer is what the
 // record is still missing, and the caller is told exactly which fields moved.
 const AUTOFILL_KEYS = [
-  'legalName', 'nationalId', 'dateOfBirth', 'placeOfBirth', 'nationality', 'gender',
+  'legalName', 'lastName', 'firstName', 'nationalId', 'dateOfBirth', 'placeOfBirth', 'nationality', 'gender',
   'idType', 'idSeries', 'idNumber', 'idIssuer', 'idIssuedAt',
   'taxId', 'regNo', 'legalForm', 'representative',
   'address', 'city', 'county', 'country',
@@ -266,7 +268,7 @@ function autofillPrompt(kind, text) {
   return [
     kind === 'org'
       ? 'The text below was read off a photograph of a Romanian company document (certificat de înregistrare, CUI certificate, or similar).'
-      : 'The text below was read off a photograph of a Romanian identity document (carte de identitate, buletin or passport).',
+      : 'The text below was read off a photograph of a Romanian identity or travel document (carte de identitate, passport, permis de ședere or similar).',
     '',
     'Return ONE JSON object, nothing else — no prose, no code fence. Use exactly these keys:',
     JSON.stringify(Object.fromEntries(AUTOFILL_KEYS.map((k) => [k, ''])), null, 0),
@@ -274,7 +276,9 @@ function autofillPrompt(kind, text) {
     'Rules:',
     '- Copy values VERBATIM. Leave a key as "" when the text does not state it. Never guess.',
     '- legalName is the full name exactly as printed (surname first, as Romanian documents write it).',
+    '- For a person also give the two parts: lastName is the surname (Nume / Nom / Last name), firstName the given names (Prenume / Prenom / First name). Leave both "" for a company.',
     '- "SERIA RX NR 456789" is idSeries "RX" and idNumber "456789" — two separate keys, never one.',
+    ID_TYPE_RULE,
     '- CNP is the 13-digit personal code. Do not confuse it with the document number.',
     '- gender: "male" for M / masculin, "female" for F / feminin, "" if not stated.',
     '- dateOfBirth and idIssuedAt in the document\'s own format (e.g. 12.04.1990).',
@@ -284,6 +288,15 @@ function autofillPrompt(kind, text) {
     'TEXT:',
     text,
   ].join('\n');
+}
+
+// One value out of a model reply. The act of identity is held to the supported
+// list (`IDENTITY_ID_TYPES`): anything else is no reading at all.
+function readValue(key, raw) {
+  const value = String(raw ?? '').trim();
+  if (key === 'idType') return normalizeIdType(value);
+  if (key === 'nationality') return normalizeNationality(value) || value;
+  return value;
 }
 
 // Pull the JSON object out of a model reply that may have wrapped it.
@@ -336,7 +349,7 @@ export async function readIdentityFromImage(imageBlob, record, { jurisdiction, p
 
   const fields = {};
   for (const key of AUTOFILL_KEYS) {
-    const value = String(parsed[key] ?? '').trim();
+    const value = readValue(key, parsed[key]);
     if (!value) continue;
     fields[key] = value;
   }
@@ -432,22 +445,36 @@ async function sniffText(blob) {
 
 // `{ text }` or `{ error, detail? }`. Errors: decode_failed, ocr_failed,
 // no_text, media, identity, unsupported.
-export async function readSourceText(blob, name, { path } = {}) {
+// WHAT IS ALREADY KNOWN COMES FIRST. Whatever has been read out of this file
+// before is in its AI data (lib/aiData) and is shown in the Doc Viewer's Data
+// tab: the `ocr` facet (this transcription) and the `text` facet (what the image
+// pane's Extract text read — the same Claude OCR, laid on the measured pieces).
+// Either answers "what does this file say", so a file on disk is transcribed
+// ONCE and every later reading — this record, another record, another window —
+// is free until the file changes. Only with nothing saved does the scan run.
+// `force` reads it again (the Data tab's Recapture).
+export async function readSourceText(blob, name, { path, force = false, projectId } = {}) {
   if (!blob) return { error: 'no_image' };
   const kind = identitySourceKind(name, blob.type || '');
   if (kind === 'media') return { error: 'media' };
   if (kind === 'identity') return { error: 'identity' };
+  const stamp = path ? await stampFor(path) : null;
+  const saved = path && !force ? bestTextFor(path, stamp) : '';
+  const keep = (text) => {
+    if (path && text.trim()) saveAiFacet({ path, name, projectId }, 'ocr', { data: { text }, engine: 'claude', stamp });
+    return text.trim() ? { text } : { error: 'no_text' };
+  };
   try {
     if (kind === 'image') {
-      const text = await ocrImageBlob(blob);
-      return text.trim() ? { text } : { error: 'no_text' };
+      if (saved) return { text: saved, cached: true };
+      return keep(await ocrImageBlob(blob));
     }
     if (kind === 'pdf') {
       const layer = await extractFileText(blob, name);
       if (layer?.text && layer.text.replace(/\s+/g, '').length > 40) return { text: layer.text };
       // No text layer worth the name: it is a scan.
-      const text = await ocrPdfPages(blob);
-      return text.trim() ? { text } : { error: 'no_text' };
+      if (saved) return { text: saved, cached: true };
+      return keep(await ocrPdfPages(blob));
     }
     if (kind === 'doc') {
       const res = path ? await extractDocText(path) : null;
@@ -470,16 +497,27 @@ export async function readSourceText(blob, name, { path } = {}) {
 // a certificate and the act that goes with it. Every file is read, the texts go
 // to the model together, and the answer comes back in the same shape as
 // readIdentityFromImage: `{ fields, text, read, skipped }`.
-export async function readIdentityFromFiles(files, record, { jurisdiction, projectId, onProgress } = {}) {
+export async function readIdentityFromFiles(files, record, { jurisdiction, projectId, force = false, onProgress } = {}) {
   const list = (files || []).filter((f) => f?.blob);
   if (!list.length) return { fields: {}, error: 'no_image' };
+  // ONE file that has been read into a record before: what it said is saved
+  // (`identity`), so showing it again costs nothing. Only the same kind of
+  // record counts — a company is read out of a document differently.
+  const only = list.length === 1 && list[0].path ? list[0] : null;
+  const kind = record?.kind || 'person';
+  if (only && !force) {
+    const known = getAiFacet(only.path, 'identity', await stampFor(only.path));
+    if (known?.data?.kind === kind && known.data.fields) {
+      return { fields: known.data.fields, read: [only.name], skipped: [], cached: true };
+    }
+  }
   const texts = [];
   const skipped = [];
   let lastError = null;
   for (let i = 0; i < list.length; i += 1) {
     const f = list[i];
     onProgress?.({ index: i, total: list.length, name: f.name });
-    const res = await readSourceText(f.blob, f.name, { path: f.path });
+    const res = await readSourceText(f.blob, f.name, { path: f.path, force, projectId });
     if (res.text) texts.push({ name: f.name, text: res.text });
     else { skipped.push({ name: f.name, error: res.error }); lastError = res; }
   }
@@ -499,8 +537,13 @@ export async function readIdentityFromFiles(files, record, { jurisdiction, proje
   if (!parsed) return { fields: {}, error: 'unreadable', text: joined, skipped };
   const fields = {};
   for (const key of AUTOFILL_KEYS) {
-    const value = String(parsed[key] ?? '').trim();
+    const value = readValue(key, parsed[key]);
     if (value) fields[key] = value;
+  }
+  // Saved for next time: this file, read into a record of this kind, said this.
+  if (only && Object.keys(fields).length) {
+    saveAiFacet({ path: only.path, name: only.name, projectId }, 'identity',
+      { data: { kind, fields }, engine: 'claude', stamp: await stampFor(only.path) });
   }
   return { fields, text: joined, read: texts.map((t) => t.name), skipped };
 }
@@ -517,15 +560,14 @@ const SCAN_SPEC = `Respond with ONLY a JSON object — no prose, no markdown fen
     {
       "name": "Popescu Ion",
       "kind": "person",
-      "role": "",
       "legalName": "Popescu Ion-Marian",
+      "lastName": "Popescu", "firstName": "Ion-Marian",
       "nationalId": "", "dateOfBirth": "", "placeOfBirth": "", "nationality": "", "gender": "",
       "idType": "", "idSeries": "", "idNumber": "", "idIssuer": "", "idIssuedAt": "",
       "taxId": "", "regNo": "", "legalForm": "", "representative": "", "repCapacity": "",
       "iban": "", "bank": "",
       "address": "", "city": "", "county": "", "country": "",
       "email": "", "phone": "",
-      "notes": "",
       "sources": ["carte-identitate.pdf"]
     }
   ]
@@ -536,9 +578,10 @@ Rules:
 - An identity document (carte de identitate, passport, certificat de înregistrare) yields exactly the person or company it belongs to — not the authority that issued it.
 - A contract, a power of attorney or a letter yields each party it identifies. Skip courts, notaries, banks and authorities unless they are a party to the act.
 - "kind" is "person" for a natural person, "org" for a company or other legal entity.
-- "name" is the short everyday name and becomes the record's title; "legalName" is the full name exactly as printed.
+- "name" is the short everyday name and becomes the record's title; "legalName" is the full name exactly as printed. For a person also give "lastName" (the surname — Nume) and "firstName" (the given names — Prenume); leave both "" for a company.
 - Person-only fields (nationalId = CNP, dateOfBirth, placeOfBirth, nationality, gender, id*) stay "" for organisations; organisation-only fields (taxId = CUI, regNo, legalForm, representative, repCapacity) stay "" for people.
 - "SERIA RX NR 456789" is idSeries "RX" and idNumber "456789" — two keys, never one.
+${ID_TYPE_RULE}
 - gender: "male" for M / masculin, "female" for F / feminin, "" if not stated.
 - address is the full line as printed, in one string, keeping its "str." / "nr." / "bl." markers; city is the locality, county the județ or sector.
 - Copy values VERBATIM. Leave a key as "" when the documents do not state it. Never guess a CNP, a number, an address or a date.
@@ -556,7 +599,7 @@ export async function createIdentitiesFromFiles(projectDir, files, { projectName
   for (let i = 0; i < list.length; i += 1) {
     const f = list[i];
     onProgress?.({ stage: 'read', index: i, total: list.length, name: f.name });
-    const res = await readSourceText(f.blob, f.name, { path: f.path });
+    const res = await readSourceText(f.blob, f.name, { path: f.path, projectId });
     if (res.text) { excerpts.push({ name: f.name, text: res.text }); out.read.push(f.name); }
     else out.skipped.push({ name: f.name, error: res.error, detail: res.detail });
   }

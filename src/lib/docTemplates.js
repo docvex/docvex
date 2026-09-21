@@ -1352,7 +1352,7 @@ export function templateById(id) {
 // scan or reads inconsistently next to the blanks that don't.
 const PLACEHOLDER_RULE_RO =
   'Nu inventa date. Scrie fiecare spațiu de completat între paranteze drepte DUBLE, iar în interior pune '
-  + 'NUMELE CÂMPULUI din această listă: legalName, aka, nationalId, dateOfBirth, nationality, idDocument, '
+  + 'NUMELE CÂMPULUI din această listă: legalName, nationalId, dateOfBirth, nationality, idDocument, '
   + 'idSeries, idNumber, idIssuer, idIssuedAt, idType, placeOfBirth, taxId, regNo, legalForm, representative, '
   + 'repCapacity, iban, bank, address, addressStreet, addressNumber, '
   + 'addressBlock, addressStair, addressFloor, addressApartment, addressLocality, addressCounty, city, county, country, email, phone. '

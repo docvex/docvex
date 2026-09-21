@@ -29,6 +29,10 @@ export default function DropZone({
   disabled = false,
   compact = false,
   onFiles,
+  // Where the button leads when it should NOT open the computer's file dialog —
+  // the identity record's zone sends it to the project's own file picker. The
+  // zone itself stays a drop target either way.
+  onButtonClick,
   zoneRef,
   children,
 }) {
@@ -53,7 +57,7 @@ export default function DropZone({
         <div className="cto-drop-title">{title}</div>
         <div className="cto-drop-sub">{sub}</div>
       </div>
-      <button type="button" className="cto-btn-accent" onClick={() => inputRef.current?.click()} disabled={disabled}>
+      <button type="button" className="cto-btn-accent" onClick={() => (onButtonClick ? onButtonClick() : inputRef.current?.click())} disabled={disabled}>
         {buttonLabel}
       </button>
       <input

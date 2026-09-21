@@ -18,6 +18,7 @@
 // automatically by the Timeline council, which knows every party in the story
 // by the time it has finished reconstructing it.
 
+import { normalizeNationality } from './nationalities';
 import { localFolderApi, readLocalBlob } from './localFolder';
 import { JURISDICTIONS, DEFAULT_JURISDICTION } from './jurisdictions';
 
@@ -34,19 +35,6 @@ export const IDENTITY_KINDS = [
   { id: 'org', label: 'Organisation', hint: 'A company, authority or other legal entity.' },
 ];
 
-// What this party is TO THE CASE. Free text is allowed; these are the common
-// ones, offered as a picker so the same role isn't spelled three ways.
-export const IDENTITY_ROLES = [
-  'Client',
-  'Opposing party',
-  'Witness',
-  'Expert',
-  'Counsel',
-  'Court',
-  'Authority',
-  'Third party',
-];
-
 // Field set, declared once so the form, the AI's output contract and the
 // summary line can't drift apart. `only` restricts a field to one kind.
 //
@@ -59,8 +47,13 @@ export const IDENTITY_ROLES = [
 // and the bank details into their own fields rather than one free-text line is
 // what lets a clause be filled blank by blank instead of by hand.
 export const IDENTITY_FIELDS = [
-  { key: 'legalName', label: 'Full legal name', hint: 'As it appears in official documents' },
-  { key: 'aka', label: 'Also known as', hint: 'Other spellings or trading names' },
+  // A person is named in two parts, as an act of identity prints them (Nume /
+  // Prenume); `legalName` is then DERIVED — surname first, the way Romanian
+  // documents write it — and stays what every clause and the record's title
+  // read (`joinPersonName`). An organisation has one name, typed whole.
+  { key: 'lastName', label: 'Last name', only: 'person', hint: 'Numele de familie' },
+  { key: 'firstName', label: 'First name', only: 'person', hint: 'Prenumele' },
+  { key: 'legalName', label: 'Full legal name', only: 'org', hint: 'As it appears in official documents' },
   // Not a detail for its own sake: it decides the agreement in every Romanian
   // clause that was drafted to cover both ("domiciliat(ă)", "Domnul/Doamna").
   { key: 'gender', label: 'Gender', only: 'person', choices: 'gender', hint: 'Sets the wording in Romanian clauses' },
@@ -111,14 +104,123 @@ export const IDENTITY_FIELDS = [
   // decides the "județul/sectorul" formula when a document is filled in.
   { key: 'county', label: 'County / sector', parsed: 'county',
     hint: 'Cluj, CJ, Sector 3 — DocVex works out which' },
-  { key: 'country', label: 'Country' },
   { key: 'email', label: 'Email' },
   { key: 'phone', label: 'Phone' },
 ];
 
-// Act of identity, as Romanian documents name them. CI is what almost every
-// adult carries; the rest are the ones a clause still has to be able to say.
-export const IDENTITY_ID_TYPES = ['CI', 'BI', 'Pașaport', 'Permis de ședere'];
+// Acts of identity — the identity and travel documents Romania issues, and
+// ONLY those: the form offers a picker, not free text, and a reading that names
+// anything else is dropped rather than stored. `id` is the stored value, and it
+// is written the way a clause says it ("identificat(ă) cu CI seria … nr. …"),
+// because it goes into the sentence as it stands; `ro` / `label` name it in the
+// picker. The old buletin (BI) is deliberately absent — it is no longer issued;
+// a record that still says so shows it as unsupported until another is picked.
+export const IDENTITY_ID_TYPES = [
+  { id: 'CI', ro: 'Carte de identitate', label: 'Identity card', group: 'Identity cards' },
+  { id: 'CEI', ro: 'Carte electronică de identitate', label: 'Electronic identity card', group: 'Identity cards' },
+  { id: 'CIP', ro: 'Carte de identitate provizorie', label: 'Provisional identity card', group: 'Identity cards' },
+  { id: 'pașaport simplu', ro: 'Pașaport simplu', label: 'Ordinary passport', group: 'Passports' },
+  { id: 'pașaport temporar', ro: 'Pașaport temporar', label: 'Temporary passport', group: 'Passports' },
+  { id: 'pașaport de serviciu / diplomatic', ro: 'Pașaport de serviciu / diplomatic', label: 'Service / diplomatic passport', group: 'Passports' },
+  { id: 'permis de ședere', ro: 'Permis de ședere', label: 'Residence permit', group: 'Foreigner & residence documents' },
+  { id: 'document de călătorie', ro: 'Document de călătorie', label: 'Travel document (beneficiaries of protection)', group: 'Foreigner & residence documents' },
+];
+
+// Dates are held in ONE written form — DD.MM.YYYY, the way a Romanian document
+// writes them, because the value goes into a clause as it stands. The form
+// offers a date picker (which speaks ISO), so these two convert between them.
+// `normalizeRoDate` takes whatever a document, a model or an older record
+// wrote — 12/04/1990, 1990-04-12, 12 aprilie 1990 — and returns '' when it
+// cannot tell, so a caller can keep the original rather than lose it.
+const RO_MONTHS = ['ian', 'feb', 'mar', 'apr', 'mai', 'iun', 'iul', 'aug', 'sep', 'oct', 'no', 'dec'];
+const EN_MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+export function normalizeRoDate(raw) {
+  const t = String(raw ?? '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().trim();
+  if (!t) return '';
+  let d; let m; let y;
+  let hit = /^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/.exec(t);
+  if (hit) [, y, m, d] = hit;
+  if (!hit) {
+    hit = /^(\d{1,2})[-./ ](\d{1,2})[-./ ](\d{4})\b/.exec(t);
+    if (hit) [, d, m, y] = hit;
+  }
+  if (!hit) {
+    hit = /^(\d{1,2})\s+([a-z]+)\.?\s+(\d{4})\b/.exec(t);
+    if (hit) {
+      const word = hit[2];
+      const at = [RO_MONTHS, EN_MONTHS]
+        .map((list) => list.findIndex((pre) => word.startsWith(pre)))
+        .find((i) => i >= 0);
+      if (at == null) return '';
+      [d, m, y] = [hit[1], at + 1, hit[3]];
+    }
+  }
+  if (!hit) return '';
+  const [dd, mm, yy] = [Number(d), Number(m), Number(y)];
+  const probe = new Date(Date.UTC(yy, mm - 1, dd));
+  if (probe.getUTCFullYear() !== yy || probe.getUTCMonth() !== mm - 1 || probe.getUTCDate() !== dd) return '';
+  return `${String(dd).padStart(2, '0')}.${String(mm).padStart(2, '0')}.${yy}`;
+}
+export function roDateToIso(raw) {
+  const n = normalizeRoDate(raw);
+  return n ? `${n.slice(6)}-${n.slice(3, 5)}-${n.slice(0, 2)}` : '';
+}
+// The record's date fields.
+export const IDENTITY_DATE_KEYS = ['dateOfBirth', 'idIssuedAt'];
+
+// A person's full name ⇄ its two parts. Romanian documents write the SURNAME
+// first ("Popescu Ion-Marian"), so that is the order both ways. Splitting is a
+// guess — the first word is taken as the surname, the rest as given names — used
+// only for a record (or a reading) that has the full name and not the parts; the
+// form shows both parts, so a wrong guess is one edit away.
+export function joinPersonName(lastName, firstName) {
+  return [lastName, firstName].map((v) => String(v ?? '').trim()).filter(Boolean).join(' ');
+}
+export function splitPersonName(full) {
+  const words = String(full ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return { lastName: '', firstName: '' };
+  return { lastName: words[0], firstName: words.slice(1).join(' ') };
+}
+// Bring a person's three name values into agreement: the parts win when there
+// are any, otherwise they are read out of the full name.
+export function settlePersonName(identity) {
+  if (!identity || identity.kind === 'org') return identity;
+  const last = String(identity.lastName || '').trim();
+  const first = String(identity.firstName || '').trim();
+  if (last || first) return { ...identity, lastName: last, firstName: first, legalName: joinPersonName(last, first) };
+  const full = String(identity.legalName || identity.name || '').trim();
+  return full ? { ...identity, ...splitPersonName(full), legalName: identity.legalName || full } : identity;
+}
+
+// The same list as one line of an AI prompt, so what the model may answer and
+// what the form can hold cannot drift apart.
+export const ID_TYPE_RULE = `- idType is the kind of identity document, as EXACTLY one of: ${
+  IDENTITY_ID_TYPES.map((t) => `"${t.id}" (${t.ro})`).join(', ')
+}. Use "" when the document is none of these or does not say.`;
+
+// Whatever a document, a model or an older record called the act → one of the
+// ids above, or '' when it is none of them.
+export function normalizeIdType(raw) {
+  const t = String(raw ?? '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[._]/g, '').replace(/\s+/g, ' ')
+    .trim();
+  if (!t) return '';
+  const pick = (id) => id;
+  if (/pasap|passport/.test(t)) {
+    if (/diplomat|servic/.test(t)) return pick('pașaport de serviciu / diplomatic');
+    if (/tempor/.test(t)) return pick('pașaport temporar');
+    return pick('pașaport simplu');
+  }
+  if (/permis de sedere|residence permit/.test(t)) return pick('permis de ședere');
+  if (/document de calatorie|travel document|titlu de calatorie/.test(t)) return pick('document de călătorie');
+  if (t === 'cip' || (/provizor|provisional/.test(t) && /identit|\bci\b/.test(t))) return pick('CIP');
+  if (t === 'cei' || (/electronic/.test(t) && /identit|\bci\b/.test(t))) return pick('CEI');
+  if (t === 'ci' || /^cart(e|ea) de identitate$|^identity card$|^id card$/.test(t)) return pick('CI');
+  return '';
+}
 
 // The legal forms a Romanian entity is registered under.
 export const IDENTITY_LEGAL_FORMS = ['SRL', 'SA', 'SRL-D', 'SCS', 'SNC', 'PFA', 'II', 'IF', 'ONG', 'Instituție publică'];
@@ -154,9 +256,9 @@ export function emptyIdentity(kind = 'person') {
     id: newId(),
     kind: kind === 'org' ? 'org' : 'person',
     name: '',
-    role: '',
     legalName: '',
-    aka: '',
+    lastName: '',
+    firstName: '',
     gender: '',
     // Which country's format this record follows. NOT `origin` — that key is
     // already taken, by where the record came from (hand-entered vs the
@@ -198,9 +300,15 @@ export function emptyIdentity(kind = 'person') {
     country: '',
     email: '',
     phone: '',
-    notes: '',
     // Filenames this was read out of, so a disputed detail can be traced back.
     sources: [],
+    // …and, per field, WHICH of them a value was read from: `{ [fieldKey]:
+    // filename }`. Written when a reading is accepted; a field the user then
+    // types over is recorded as '' ("typed"), and a field with no entry at all is
+    // simply unknown — records written before this carry none.
+    fieldSources: {},
+    // Anything about the party the form has no field for: `[{ id, label, value }]`.
+    custom: [],
     origin: 'manual',   // 'manual' | 'timeline'
     createdAt: now,
     updatedAt: now,
@@ -216,18 +324,41 @@ export function parseIdentity(text) {
   const base = emptyIdentity(raw.kind === 'org' ? 'org' : 'person');
   const out = { ...base };
   for (const key of Object.keys(base)) {
-    if (key === 'sources') continue;
+    if (key === 'sources' || key === 'fieldSources' || key === 'custom') continue;
     if (typeof raw[key] === 'string') out[key] = raw[key];
   }
+  // An older spelling of a supported act ("Pașaport", "C.I.") becomes the
+  // canonical one; one that is NOT supported (BI) is kept as written, so the
+  // form can say so instead of the value quietly vanishing.
+  out.idType = normalizeIdType(out.idType) || out.idType;
+  out.nationality = normalizeNationality(out.nationality) || out.nationality;
+  // …and a date in another notation becomes DD.MM.YYYY; one that can't be read
+  // stays as written (the form shows it beside the picker).
+  for (const key of IDENTITY_DATE_KEYS) out[key] = normalizeRoDate(out[key]) || out[key];
   out.id = typeof raw.id === 'string' && raw.id ? raw.id : base.id;
   out.kind = raw.kind === 'org' ? 'org' : 'person';
   out.version = 1;
   out.sources = Array.isArray(raw.sources) ? raw.sources.filter((s) => typeof s === 'string') : [];
+  out.fieldSources = {};
+  if (raw.fieldSources && typeof raw.fieldSources === 'object' && !Array.isArray(raw.fieldSources)) {
+    for (const [key, value] of Object.entries(raw.fieldSources)) {
+      if (typeof value === 'string' && key in base) out.fieldSources[key] = value;
+    }
+  }
+  out.custom = Array.isArray(raw.custom)
+    ? raw.custom
+      .filter((c) => c && typeof c === 'object')
+      .map((c, i) => ({
+        id: typeof c.id === 'string' && c.id ? c.id : `c${i}`,
+        label: typeof c.label === 'string' ? c.label : '',
+        value: typeof c.value === 'string' ? c.value : '',
+      }))
+    : [];
   out.origin = raw.origin === 'timeline' ? 'timeline' : 'manual';
   out.jurisdiction = IDENTITY_ORIGINS.some((o) => o.code === raw.jurisdiction)
     ? raw.jurisdiction
     : DEFAULT_JURISDICTION;
-  return out;
+  return settlePersonName(out);
 }
 
 // Read a file ONLY if it really is a record. `readIdentity` is deliberately
@@ -341,7 +472,7 @@ export const RO_COUNTIES = [
 const COUNTY_BY_FOLDED = new Map(RO_COUNTIES.map((c) => [foldLabel(c), c]));
 // The two-letter plates, which is how a county is often abbreviated in an
 // address. Only the ones that aren't already the county's first letters.
-const COUNTY_BY_PLATE = new Map(Object.entries({
+export const COUNTY_BY_PLATE = new Map(Object.entries({
   ab: 'Alba', ar: 'Arad', ag: 'Argeș', bc: 'Bacău', bh: 'Bihor', bn: 'Bistrița-Năsăud',
   bt: 'Botoșani', bv: 'Brașov', br: 'Brăila', b: 'București', bz: 'Buzău', cs: 'Caraș-Severin',
   cl: 'Călărași', cj: 'Cluj', ct: 'Constanța', cv: 'Covasna', db: 'Dâmbovița', dj: 'Dolj',
@@ -799,8 +930,6 @@ const IDENTITY_FIELD_SYNONYMS = [
   ['address', ['adresa', 'adresa completa', 'domiciliu', 'domiciliat', 'domiciliata',
     'sediul social', 'sediul', 'sediu', 'resedinta', 'address', 'full address', 'domicile',
     'registered office', 'place of residence', 'residing at', 'registered address']],
-  ['aka', ['alias', 'cunoscut ca', 'cunoscuta ca', 'also known as', 'aka',
-    'denumire comerciala', 'trading name']],
   ['legalName', ['numele complet', 'nume complet', 'numele si prenumele', 'nume si prenume',
     'denumirea completa', 'denumirea', 'denumire', 'numele', 'nume', 'prenume', 'prenumele',
     'full legal name', 'full name', 'legal name', 'company name', 'name', 'surname']],
@@ -895,7 +1024,7 @@ const NUMBER_AFTER = {
 // Romanian identification clause asks for one at a time; splitAddress and
 // splitIdDocument above compute them from the single string the record stores.
 export const IDENTITY_FIELD_KEYS = [
-  'legalName', 'aka',
+  'legalName', 'lastName', 'firstName',
   'nationalId', 'dateOfBirth', 'placeOfBirth', 'nationality',
   'idType', 'idDocument', 'idSeries', 'idNumber', 'idIssuer', 'idIssuedAt',
   'taxId', 'regNo', 'legalForm', 'representative', 'repCapacity', 'iban', 'bank',
@@ -1105,7 +1234,6 @@ export async function listProjectIdentities(projectDir) {
 export function identitySummary(identity) {
   if (!identity) return '';
   const bits = [
-    identity.role,
     identity.kind === 'org' ? identity.taxId || identity.regNo : identity.nationalId,
   ].filter(Boolean);
   return bits.join(' · ');
@@ -1203,7 +1331,7 @@ export function mergeIdentity(existing, incoming) {
   if (!existing) return incoming;
   const out = { ...existing };
   for (const key of Object.keys(incoming)) {
-    if (['id', 'createdAt', 'updatedAt', 'sources', 'origin', 'version'].includes(key)) continue;
+    if (['id', 'createdAt', 'updatedAt', 'sources', 'fieldSources', 'custom', 'origin', 'version'].includes(key)) continue;
     const cur = String(out[key] ?? '').trim();
     const next = String(incoming[key] ?? '').trim();
     if (!cur && next) out[key] = next;

@@ -1,0 +1,249 @@
+/* The Word document's tools inside the Doc Viewer's side panel
+   (components/DocRibbon.jsx): the QUICK ACTIONS section under the panel's tab
+   strip, and the THEME tab's grid of thumbnails. (They used to be a Word-style
+   ribbon floating over the preview; that is gone.) All `drb-`-prefixed. */
+
+/* ── Quick actions section ───────────────────────────────────────────────
+   The contents of the Quick actions card — its own card above the side panel
+   (`.dv-quick-card` in DocViewer.css). */
+.drb-quick {
+  flex: none;
+  /* No padding of its own: the title band spans the card, and the inset it used
+     to give everything now sits on .drb-actions. */
+  padding: 0;
+  font-family: var(--font-body);
+  transition: opacity 160ms ease;
+}
+/* A paragraph is open: none of these is about the paragraph. */
+.drb-quick.is-disabled { opacity: 0.4; pointer-events: none; }
+/* Each block's header, so it reads as a titled section of the card. */
+.drb-quick-title {
+  /* The side panel's Advisor / Data strip (.dv-advisor-slot .dv-side-tabs +
+     .dv-side-tab.is-active): a --bg-sidebar band closed by a hairline, the
+     label at a tab's size and weight, at full strength. It runs EDGE TO EDGE —
+     no inset, no gap: it is the top of the card, not a pill floating on it, so
+     the inset lives on the actions below instead. */
+  margin: 0; padding: 0.4rem 0.8rem; border-radius: 0;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+  font: inherit; font-size: 0.704rem; font-weight: 500;
+  letter-spacing: normal; text-transform: none;
+  color: var(--text-primary);
+}
+/* Blocks of actions side by side (the card's own + any named group, e.g. a
+   PDF's "Convert"), a hairline between them. One block alone = the whole row. */
+.drb-quick-row { display: flex; align-items: stretch; gap: 0; min-width: 0; }
+.drb-quick-block { flex: 1 1 0; min-width: 0; }
+.drb-quick-block + .drb-quick-block { border-left: 1px solid var(--border); }
+
+/* The Theme / Add tabs' bodies (inside the panel's own scroller). */
+.drb-panel { padding: 11.2px; }
+.drb-panel-note {
+  margin: 0 0 9.6px; padding: 7.2px 9.6px;
+  border-radius: 7.2px;
+  background: var(--warning-soft); color: var(--text-primary);
+  font-size: 10.4px; line-height: 1.4;
+}
+
+/* ── Quick actions ──────────────────────────────────────────────────────
+   The app sidebar's tab buttons (.nav-item in Sidebar.css), to the letter: a
+   tile — icon, label — with a transparent 1.5px ring reserved so
+   the selected look doesn't shift it; hover is the radial accent wash that
+   brightens at the pointer (--item-spot-x/y, written per button by
+   DocRibbon.jsx); a toggle that is ON wears the sidebar's selected tab — accent
+   tint, accent ring, accent text, and the spotlight layer that fades in on
+   hover. Laid out as a GRID of tiles — icon over label — that fills the
+   panel's width and wraps as the panel is resized. */
+.drb-actions {
+  /* As many columns as fit, wrapping onto further rows. 64px so a narrow block
+     (a two-block row: Quick actions beside Convert) still gets two. */
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 4.8px; align-content: start;
+  padding: 8px 11.2px 9.6px;   /* the card's inset, now that the band has none */
+}
+.drb-action {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 4.8px;
+  width: 100%;
+  padding: 8px 4px 6.4px;
+  border-radius: 6.4px;
+  color: var(--text-secondary);
+  font-family: inherit; font-size: 0.68rem; font-weight: 500;
+  line-height: 1.15; text-align: center;
+  background: none;
+  border: 1.5px solid transparent;
+  box-sizing: border-box;
+  cursor: pointer;
+  transition: background 150ms, color 150ms, border-color 150ms;
+}
+/* The divider between two tiles: a hairline centred in the 4.8px gap, faded out
+   at both ends so it reads as a hint rather than a rule. `is-rowend` is set by
+   DocQuickActions on the last tile of each row, which is where a divider would
+   otherwise hang in the card's margin. */
+.drb-action:not(.is-rowend)::after {
+  content: '';
+  position: absolute; top: 16%; bottom: 16%; right: -2.9px; width: 1px;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--border-strong) 42%, transparent) 30%,
+    color-mix(in srgb, var(--border-strong) 42%, transparent) 70%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+.drb-action-icon { flex: none; display: inline-flex; }
+.drb-action-icon svg { width: 20px; height: 20px; }
+.drb-action-label {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+/* An action this file can't do: shown, but plainly out of reach. Its tooltip
+   says why (DocQuickActions passes the catalogue's `why`). */
+.drb-action.is-unavailable {
+  opacity: 0.34;
+  cursor: default;
+  color: var(--text-muted);
+}
+.drb-action.is-unavailable:hover { background: none; color: var(--text-muted); }
+.drb-action:not(.is-unavailable):hover {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 100%
+  );
+  color: var(--text-primary);
+}
+.drb-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.drb-action.is-pressed {
+  position: relative;
+  isolation: isolate;
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+}
+.drb-action.is-pressed::before {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 32%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 24%, transparent) 100%
+  );
+  opacity: 0;
+  transition: opacity 220ms ease;
+  pointer-events: none;
+  z-index: -1;
+}
+.drb-action.is-pressed:hover::before { opacity: 1; }
+.drb-action.is-pressed:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Theme thumbnails ─────────────────────────────────────────────────────
+   A grid that fills the panel: as many columns as fit, each thumbnail growing
+   to its column (the little page keeps its proportions). */
+.drb-themes {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 9.6px;
+}
+.drb-theme {
+  appearance: none; background: transparent;
+  display: flex; flex-direction: column; align-items: stretch; gap: 4.8px;
+  width: 100%; min-width: 0;
+  padding: 6.4px 6.4px 5.6px;
+  border: 1.5px solid transparent; border-radius: 6.4px;
+  box-sizing: border-box;
+  font: inherit; font-size: 0.74rem; font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 150ms, color 150ms, border-color 150ms, opacity 120ms ease;
+}
+/* Hover and SELECTED are the quick-action tiles' (and so the app sidebar
+   tabs'): the radial accent wash under the pointer on hover; selected = accent
+   tint, accent ring, accent text, and the spotlight layer that fades in on
+   hover. */
+.drb-theme:hover:not(.is-locked) {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 100%
+  );
+  color: var(--text-primary);
+}
+.drb-theme.is-active {
+  position: relative;
+  isolation: isolate;
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+}
+.drb-theme.is-active::before {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 32%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 24%, transparent) 100%
+  );
+  opacity: 0;
+  transition: opacity 220ms ease;
+  pointer-events: none;
+  z-index: -1;
+}
+.drb-theme.is-active:hover::before { opacity: 1; }
+.drb-theme.is-active:hover { border-color: var(--accent); color: var(--accent); }
+.drb-theme.is-locked { opacity: 0.45; cursor: not-allowed; }
+.drb-theme:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* A little page. White like the real sheet, whatever the app's theme — the
+   colours ON it come from the document theme, inline. */
+.drb-theme-sheet {
+  position: relative;
+  width: 100%; aspect-ratio: 78 / 56;
+  box-sizing: border-box;
+  display: block;
+  /* Everything ON the page is sized off the page's width (cqw), so the
+     thumbnail is the same picture at any size. The sheet is the container; its
+     contents sit in `.drb-theme-page`, because an element's OWN lengths resolve
+     against an ancestor container, never against itself — padding in cqw on the
+     sheet would have measured the viewport. */
+  container-type: inline-size;
+  background: var(--color-white, #fff);
+  border: 1px solid var(--border);
+  border-radius: 2.4px;
+  overflow: hidden;
+  text-align: left;
+}
+.drb-theme-page {
+  position: absolute; inset: 0;
+  box-sizing: border-box;
+  padding: 6cqw 8cqw 0;
+  display: flex; flex-direction: column; gap: 3cqw;
+}
+.drb-theme-title {
+  align-self: flex-start;
+  padding-bottom: 1cqw;
+  border-bottom: 2cqw solid currentColor;
+  font-size: 16cqw; font-weight: 700; line-height: 1;
+}
+.drb-theme-heading { font-size: 8.8cqw; font-weight: 700; line-height: 1.1; }
+.drb-theme-lines { display: flex; flex-direction: column; gap: 2.6cqw; }
+.drb-theme-lines i { display: block; height: 2cqw; border-radius: 1cqw; background: currentColor; opacity: 0.55; }
+.drb-theme-lines i:nth-child(2) { width: 88%; }
+.drb-theme-lines i:nth-child(3) { width: 62%; }
+/* The palette: one band across the foot of the page, a swatch per colour. */
+.drb-theme-palette {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; height: 12cqw;
+}
+.drb-theme-palette i { flex: 1; display: block; }
+
+.drb-theme-name {
+  display: inline-flex; align-items: center; justify-content: center; gap: 3.2px;
+  white-space: nowrap;
+}
+.drb-theme-check { display: inline-flex; color: currentColor; }

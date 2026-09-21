@@ -10,6 +10,7 @@
 //   • OCR text snippets                   (lib/extractionHistory)
 //   • audio/video captions (transcripts)  (lib/captionsHistory)
 //   • extracted file metadata             (lib/metadataHistory)
+//   • saved AI data — text read off pictures / scans (lib/aiData)
 //
 // Everything is size-capped per section and overall, so the digest stays a
 // bounded prefix on the model turn rather than an unbounded dump. Sources
@@ -23,6 +24,7 @@ import { listOcrHistories } from './extractionHistory';
 import { loadCaptions } from './captionsHistory';
 import { loadMetadata } from './metadataHistory';
 import { describedText } from './aiFileIndex';
+import { bestTextFor } from './aiData';
 
 // Per-section character budgets (≈ tokens ÷ 4). Generous but bounded.
 const CAP = {
@@ -32,6 +34,7 @@ const CAP = {
   snippets: 4000,
   captions: 6000,
   metadata: 3000,
+  aiData: 6000,
   total: 28000,
 };
 
@@ -134,6 +137,21 @@ function captionsSection(projectFiles) {
   return out.length ? `AI transcripts (captions) of the project's audio/video files:\n${out.join('\n')}` : '';
 }
 
+// What has already been read off the project's pictures and scans (the Doc
+// Viewer's Extract text, the identity reader's transcriptions) — saved once in
+// lib/aiData, quoted here for free.
+function aiDataSection(projectFiles) {
+  const out = [];
+  for (const f of projectFiles) {
+    if (!f.path) continue;
+    const text = bestTextFor(f.path);
+    if (!text) continue;
+    out.push(`## ${f.name}\n${clip(text, 1200)}`);
+    if (out.length >= 12) break;
+  }
+  return out.length ? `Text already read from the project's pictures and scanned documents:\n${out.join('\n')}` : '';
+}
+
 function metadataSection(projectFiles) {
   const out = [];
   for (const f of projectFiles) {
@@ -182,6 +200,7 @@ export async function buildProjectDigest({ project, files = [] }) {
     section('Extracted text snippets (OCR)', snippetsSection(files), CAP.snippets),
     section('Audio/video captions', captionsSection(files), CAP.captions),
     section('File metadata', metadataSection(files), CAP.metadata),
+    section('Text read from pictures and scans', aiDataSection(files), CAP.aiData),
   ].filter(Boolean);
 
   const body = sections.join('\n\n');
