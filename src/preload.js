@@ -327,6 +327,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // here the renderer already has the bytes, so the IPC payload
     // carries them as an ArrayBuffer per file.
     writeFiles: (payload) => ipcRenderer.invoke('local-folder:write-files', payload),
+    // Like writeFiles, but each file carries a path RELATIVE to the folder and
+    // the subfolders on the way are made as needed — restoring a project's
+    // folder tree from the account's copy (lib/projectSync).
+    writeTree: (payload) => ipcRenderer.invoke('local-folder:write-tree', payload),
     deleteFiles: (payload) => ipcRenderer.invoke('local-folder:delete-files', payload),
     renameFile: (payload) => ipcRenderer.invoke('local-folder:rename-file', payload),
     // Folder management — create / delete a subfolder, move an entry

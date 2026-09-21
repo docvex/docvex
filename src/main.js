@@ -3163,6 +3163,53 @@ ipcMain.handle('local-folder:write-files', async (_, payload) => {
   return { results, error: null };
 });
 
+// Write files that carry a path RELATIVE to the folder, making the subfolders
+// on the way — what restoring a project from the account's copy needs
+// (lib/projectSync's pull). Separate from write-files because that one flattens
+// its filenames to a single segment on purpose; here the path is the point, so
+// every segment is sanitised individually and the result is checked to be inside
+// the folder before anything is written.
+ipcMain.handle('local-folder:write-tree', async (_, payload) => {
+  const dir = payload?.dir;
+  const files = Array.isArray(payload?.files) ? payload.files : [];
+  if (!dir) return { results: [], error: 'No directory specified' };
+  const root = path.resolve(dir);
+  try {
+    await fsp.mkdir(root, { recursive: true });
+  } catch (err) {
+    return { results: [], error: `Could not create directory: ${err?.message || err}` };
+  }
+  const results = [];
+  for (const f of files) {
+    const rel = typeof f?.relPath === 'string' ? f.relPath : '';
+    if (!rel || !f?.bytes) {
+      results.push({ relPath: rel || '?', ok: false, error: 'Missing path or bytes' });
+      continue;
+    }
+    // Sanitise each segment, drop anything that tries to walk up, then verify
+    // the resolved path really is under the folder — belt and braces, because
+    // the relative paths come from a file someone else's device wrote.
+    const parts = rel.split(/[\\/]+/).filter((s) => s && s !== '.' && s !== '..').map(sanitizeSegment).filter(Boolean);
+    if (!parts.length) {
+      results.push({ relPath: rel, ok: false, error: 'Invalid path' });
+      continue;
+    }
+    const target = path.resolve(root, ...parts);
+    if (!isInsideDir(root, target)) {
+      results.push({ relPath: rel, ok: false, error: 'Path escapes the project folder' });
+      continue;
+    }
+    try {
+      await fsp.mkdir(path.dirname(target), { recursive: true });
+      await fsp.writeFile(target, Buffer.from(f.bytes));
+      results.push({ relPath: rel, path: target, ok: true });
+    } catch (err) {
+      results.push({ relPath: rel, ok: false, error: err?.message || String(err) });
+    }
+  }
+  return { results, error: null };
+});
+
 // Rename a file inside the user's branch folder. Used when the
 // FileDetailModal name input is committed on the My branch view —
 // the metadata-rename branch_change is queued in parallel; this

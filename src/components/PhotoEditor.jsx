@@ -196,7 +196,6 @@ const ICONS = {
   right: ['M21 12a9 9 0 1 1-3-6.7', 'M21 4v5h-5'],
   rect: ['M4 5h16v14H4z'],
   points: ['M4 4h3', 'M4 4v3', 'M20 4h-3', 'M20 4v3', 'M4 20h3', 'M4 20v-3', 'M20 20h-3', 'M20 20v-3'],
-  reset: ['M3 12a9 9 0 1 0 9-9', 'M3 4v5h5'],
 };
 
 // `fromRect` — where the PREVIEW's picture was on screen (a viewport rect) the
@@ -445,15 +444,6 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
     setSpin(pendingRef.current);
     window.clearTimeout(spinTimer.current);
     spinTimer.current = window.setTimeout(land, SPIN_MS);
-  };
-  const resetAll = () => {
-    markStepRef.current?.();       // starting over is itself one step to step back from
-    window.clearTimeout(spinTimer.current);
-    pendingRef.current = 0;
-    setSpin(0); setLanding(true);
-    setTurns(0); setAngle(0); setRect(FULL_FRAME); setQuad(EDGE_QUAD); setMode('rect');
-    resetFit();
-    setError(null); setConfirmReplace(false);
   };
   const edited = turns !== 0 || angle !== 0
     || rect.x0 > 0 || rect.y0 > 0 || rect.x1 < 1 || rect.y1 < 1
@@ -807,9 +797,6 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
                   <Icon d={ICONS.rect} /><span>Result</span>
                 </button>
               </Tooltip>
-              <Tooltip content="Put everything back as it was">
-                <button type="button" className="phe-btn" onClick={resetAll} disabled={!!busy} aria-label="Reset"><Icon d={ICONS.reset} /></button>
-              </Tooltip>
             </div>
             <div className="phe-group is-end">
               <button type="button" className="phe-btn is-wide" onClick={() => onCancel?.()} disabled={!!busy}>Cancel</button>
@@ -829,22 +816,27 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
             </div>
           </div>
         </div>
-        {/* The zoom pill, under the sleeve. */}
-        {img && !loadError && (
-          <div className="phe-zoom">
-            <div className="dv-zoom-controls is-doc">
-              <Tooltip content="Zoom out"><button type="button" className="dv-zoom-btn" onClick={() => stepZoom('out')} disabled={zoom <= 1} aria-label="Zoom out">−</button></Tooltip>
-              <Tooltip content="Back to how the picture was being viewed"><button type="button" className="dv-zoom-pct" onClick={resetView}>{Math.round(zoom * 100)}%</button></Tooltip>
-              <Tooltip content="Zoom in"><button type="button" className="dv-zoom-btn" onClick={() => stepZoom('in')} aria-label="Zoom in">+</button></Tooltip>
+        {/* Under the sleeve: the zoom pill at the left, the flattened result at
+            the right, the two level with each other. The result is absolute
+            INSIDE the row so it doesn't give the row its height and push the
+            Center button down the stage. */}
+        <div className="phe-underbar">
+          {img && !loadError && (
+            <div className="phe-zoom">
+              <div className="dv-zoom-controls is-doc">
+                <Tooltip content="Zoom out"><button type="button" className="dv-zoom-btn" onClick={() => stepZoom('out')} disabled={zoom <= 1} aria-label="Zoom out">−</button></Tooltip>
+                <Tooltip content="Back to how the picture was being viewed"><button type="button" className="dv-zoom-pct" onClick={resetView}>{Math.round(zoom * 100)}%</button></Tooltip>
+                <Tooltip content="Zoom in"><button type="button" className="dv-zoom-btn" onClick={() => stepZoom('in')} aria-label="Zoom in">+</button></Tooltip>
+              </div>
             </div>
-          </div>
-        )}
-        {mode === 'points' && preview && showResult && (
-          <figure className="phe-preview">
-            <img src={preview} alt="The page pulled out flat" />
-            <figcaption>Result</figcaption>
-          </figure>
-        )}
+          )}
+          {mode === 'points' && preview && showResult && (
+            <figure className="phe-preview">
+              <img src={preview} alt="The page pulled out flat" />
+              <figcaption>Result</figcaption>
+            </figure>
+          )}
+        </div>
         {/* The image pane's own Center control, so both views offer the same. */}
         {img && !loadError && offHome ? (
           <div className="phe-tools">

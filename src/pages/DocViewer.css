@@ -2908,6 +2908,15 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 @keyframes dv-textpop-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
 :root[data-reduce-motion='true'] .dv-textveil,
 :root[data-reduce-motion='true'] .dv-textpop { animation: none; }
+/* With Extract text off there is no live text over the picture, so each piece
+   gets a transparent box of its own — purely so the pointer can find it (hover
+   brings the piece forward, as the list's rows do). It must not look
+   interactive: pressing one still pans the picture. */
+.dv-textspots { position: absolute; inset: 0; pointer-events: none; }
+.dv-textspot {
+  position: absolute; left: 0; top: 0; transform-origin: 50% 50%;
+  pointer-events: auto; background: transparent;
+}
 .dv-textlist-crop { display: flex; align-items: center; justify-content: flex-start; min-height: 24px; }
 .dv-textlist-crop img { display: block; max-width: 100%; max-height: 64px; border-radius: 5px; }
 .dv-textlist-text {

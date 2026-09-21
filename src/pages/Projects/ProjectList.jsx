@@ -15,6 +15,7 @@ import { readProjectsDir } from '../../lib/projectsDir';
 import { readCachedProjects, writeCachedProjects } from '../../lib/projectListCache';
 import { fetchProjects, peekProjects, invalidateProjects } from '../../lib/projectListPrefetch';
 import { localFolderApi, isElectronBranch } from '../../lib/localFolder';
+import { listSyncedProjectIds, countLocalFiles, pullProject } from '../../lib/projectSync';
 import {
   openExternal,
   listExternalOpens,
@@ -54,6 +55,13 @@ const SearchIcon = (
 const CaretIcon = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="9 6 15 12 9 18" />
+  </svg>
+);
+// A project synced to the account but not on this machine yet.
+const CloudIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17.5 19a4.5 4.5 0 0 0 .3-9 6 6 0 0 0-11.6-1.1A3.9 3.9 0 0 0 7 19z" />
+    <polyline points="12 11 12 16.5" /><polyline points="9.6 14.2 12 16.6 14.4 14.2" />
   </svg>
 );
 const UsersIcon = (
@@ -168,7 +176,10 @@ function projectPathFor(projectsDir, project) {
   return `${projectsDir.replace(/[\\/]+$/, '')}${sep}${project.name}`;
 }
 
-function ProjectRow({ project, lastOpened, mostRecent, projectsDir, onOpen, onRename, onDelete }) {
+function ProjectRow({
+  project, lastOpened, mostRecent, projectsDir, onOpen, onRename, onDelete,
+  cloudOnly = false, pulling = false, pullStep = null, onGetFromAccount,
+}) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -249,10 +260,24 @@ function ProjectRow({ project, lastOpened, mostRecent, projectsDir, onOpen, onRe
         ) : (
           <button type="button" className="lh-row-main" onClick={() => onOpen(project)}>
             <span className="lh-row-name-main">
+              {/* Synced to the account, not on this machine: the cloud says the
+                  work exists and where it is, so the empty Files page that
+                  opening it would otherwise show isn't a mystery. */}
+              {cloudOnly && (
+                <Tooltip content="In your account — this computer hasn’t got its files yet">
+                  <span className="lh-cloud-mark" aria-label="In your account">{CloudIcon}</span>
+                </Tooltip>
+              )}
               {project.name}
               {mostRecent && <span className="lh-recent-tag">most recent</span>}
             </span>
-            <span className="lh-row-path">{pathLine}</span>
+            <span className="lh-row-path">
+              {cloudOnly
+                ? (pulling
+                  ? `Fetching…${pullStep?.total > 1 ? ` ${pullStep.done + 1} of ${pullStep.total}` : ''}`
+                  : 'In your account · not on this computer')
+                : pathLine}
+            </span>
           </button>
         )}
 
@@ -261,6 +286,22 @@ function ProjectRow({ project, lastOpened, mostRecent, projectsDir, onOpen, onRe
           <span className="lh-row-accessed-label">last accessed</span>
           <span className="lh-row-accessed-val">{lastAccessed}</span>
         </div>
+
+        {/* In the account, not here: the one action that changes that, right on
+            the row — a project you can't open the files of is no use. */}
+        {cloudOnly && (
+          <Tooltip content="Copy this project's files from your account onto this computer">
+            <button
+              type="button"
+              className="lh-row-get"
+              onClick={() => onGetFromAccount?.(project)}
+              disabled={pulling}
+            >
+              {CloudIcon}
+              <span>{pulling ? 'Fetching…' : 'Get files'}</span>
+            </button>
+          </Tooltip>
+        )}
 
         {/* Cog — opens a Rename / Delete menu. */}
         <div className="lh-row-config-wrap" ref={menuRef}>
@@ -407,6 +448,53 @@ export default function ProjectList() {
     const off = onExternalOpensChanged(refresh);
     return () => { alive = false; off(); };
   }, []);
+
+  // Projects the ACCOUNT has a copy of (Project → Sync with account) that this
+  // machine hasn't got: they are marked with a cloud in the list and can be
+  // brought down from there. One storage call tells us which projects are synced;
+  // only those are then checked against the disk, so the usual case — nothing
+  // synced — costs one request and no folder walks.
+  const [cloudOnly, setCloudOnly] = useState(() => new Set());
+  const [pulling, setPulling] = useState('');
+  const [pullStep, setPullStep] = useState(null);
+  const probeCloud = useCallback(async () => {
+    // Desktop only: on the web there is no per-project folder to compare against
+    // (one picked directory handle at a time), so every synced project would be
+    // marked as missing here, which is worse than not marking any.
+    if (!userId || !projects.length || !isElectronBranch) { setCloudOnly(new Set()); return; }
+    const { ids, error } = await listSyncedProjectIds();
+    if (error || !ids.size) { setCloudOnly(new Set()); return; }
+    const mine = projects.filter((p) => ids.has(p.id));
+    const away = new Set();
+    for (const p of mine) {
+      const { path } = await localFolderApi.projectDir(p.id, p.name, readProjectsDir(userId) || undefined);
+      if (!path) { away.add(p.id); continue; }
+      if (await countLocalFiles(path) === 0) away.add(p.id);
+    }
+    setCloudOnly(away);
+  }, [userId, projects]);
+  useEffect(() => { probeCloud(); }, [probeCloud]);
+
+  // Bring one down. The folder is made if it isn't there yet, which is what
+  // makes the project real on this machine.
+  const getFromAccount = useCallback(async (project) => {
+    setPulling(project.id);
+    setPullStep(null);
+    setOpenMsg('');
+    const { path } = await localFolderApi.projectDir(project.id, project.name, readProjectsDir(userId) || undefined);
+    if (!path) {
+      setPulling('');
+      setOpenMsg('Could not make a folder for this project on this computer.');
+      return;
+    }
+    const res = await pullProject({ projectId: project.id, dir: path, onProgress: setPullStep });
+    setPulling('');
+    setPullStep(null);
+    setOpenMsg(res.ok
+      ? `“${project.name}” is on this computer now — ${res.pulled} ${res.pulled === 1 ? 'file' : 'files'} brought down.`
+      : `Could not fetch “${project.name}”: ${res.error}`);
+    if (res.ok) probeCloud();
+  }, [userId, probeCloud]);
 
   const ordered = useMemo(() => sortProjectsByRecent(userId, projects), [userId, projects, recencyTick]);
   const mostRecentId = useMemo(() => getMostRecentProjectId(userId), [userId, projects, recencyTick]);
@@ -586,6 +674,10 @@ export default function ProjectList() {
                         project={p}
                         lastOpened={recentMap[p.id]?.ts}
                         mostRecent={p.id === mostRecentId}
+                        cloudOnly={cloudOnly.has(p.id)}
+                        pulling={pulling === p.id}
+                        pullStep={pulling === p.id ? pullStep : null}
+                        onGetFromAccount={getFromAccount}
                         projectsDir={projectsDir}
                         onOpen={onOpen}
                         onRename={onRenameProject}

@@ -181,15 +181,20 @@
 /* The Center button, under the zoom pill — the image pane's own control
    (.dv-center-btn), so the two views offer the same things. */
 .phe-tools { display: flex; }
-/* The flattened result: what the four corners will actually produce. Stands at
-   the RIGHT, under the sleeve, out of the way of the controls — and bare, with
-   no card under it: its own white page is frame enough, and a second surface
-   only competed with the picture behind. Toggled by the sleeve's Result button.
-   `.phe-chrome` is a positioned box, so `top: 100%` is just below it. */
+/* The row under the sleeve: the zoom pill, and the result at the far right.
+   It is `position: relative` so the result can be absolute WITHIN it — level
+   with the pill, without lending the row its height (which would push the
+   Center button down the stage as soon as a result appeared). */
+.phe-underbar { position: relative; flex: none; width: 100%; display: flex; align-items: flex-start; }
+/* The flattened result: what the four corners will actually produce. Level with
+   the zoom pill at the other end of the row, out of the way of the controls —
+   and bare, with no card under it: its own white page is frame enough, and a
+   second surface only competed with the picture behind. Toggled by the sleeve's
+   Result button. */
 .phe-preview {
-  position: absolute; right: 0; top: calc(100% + 8px);
+  position: absolute; right: 0; top: 0;
   margin: 0; padding: 0; max-width: 300px;
-  display: flex; flex-direction: column; gap: 5px; align-items: flex-end;
+  display: flex; flex-direction: column; gap: 5px; align-items: center;
   animation: phe-fade-in 180ms ease-out;
 }
 .phe-preview img {
@@ -198,6 +203,7 @@
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22), 0 10px 30px rgba(0, 0, 0, 0.22);
 }
 .phe-preview figcaption {
+  text-align: center;
   font-size: 0.52rem; font-weight: 600; letter-spacing: 0.12em;
   text-transform: uppercase; color: var(--text-muted);
 }

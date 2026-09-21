@@ -5563,8 +5563,22 @@ function textWidthAt100(text) {
   } catch { return 0; }
 }
 
-function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, active = -1, activeSrc = '', bare = false }) {
+function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, active = -1, activeSrc = '', bare = false, onHoverRegion }) {
   const [box, setBox] = useState(null);
+  // Pointing at a piece of text ON THE PICTURE plays the same thing as pointing
+  // at its row in the Extracted text list: the piece comes forward, everything
+  // else dims. While the BUTTON IS DOWN it doesn't — that is a selection being
+  // dragged, and a snippet standing over the words would cover what is being
+  // selected. It stays off until the pointer enters a piece afresh.
+  const heldRef = useRef(false);
+  useEffect(() => {
+    const up = () => { heldRef.current = false; };
+    window.addEventListener('mouseup', up);
+    return () => window.removeEventListener('mouseup', up);
+  }, []);
+  const enter = onHoverRegion ? (i) => { if (!heldRef.current) onHoverRegion(i); } : undefined;
+  const leave = onHoverRegion ? () => onHoverRegion(-1) : undefined;
+  const press = onHoverRegion ? () => { heldRef.current = true; onHoverRegion(-1); } : undefined;
   useLayoutEffect(() => {
     const el = mediaRef.current;
     const stage = stageRef.current;
@@ -5645,7 +5659,29 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
       </>
     );
   })();
-  if (bare) return <div className="dv-textlayer" style={{ ...box, transform, transition }}>{spot}</div>;
+  // Extract text is OFF, so there is no live text to point at — a transparent
+  // box over each piece is what the pointer finds. It doesn't stop `mousedown`:
+  // a press on one still reaches the stage and pans the picture.
+  const spots = onHoverRegion ? (
+    <div className="dv-textspots">
+      {lines.map((l, i) => (
+        <div
+          // eslint-disable-next-line react/no-array-index-key
+          key={i}
+          className="dv-textspot"
+          style={{
+            width: `${l.length}px`,
+            height: `${l.thick}px`,
+            transform: `translate(${l.cx - l.length / 2}px, ${l.cy - l.thick / 2}px) rotate(${-90 * turns}deg)`,
+          }}
+          onMouseEnter={enter && (() => enter(i))}
+          onMouseLeave={leave}
+          onMouseDown={press}
+        />
+      ))}
+    </div>
+  ) : null;
+  if (bare) return <div className="dv-textlayer" style={{ ...box, transform, transition }}>{spots}{spot}</div>;
   return (
     <div className="dv-textlayer" style={{ ...box, transform, transition }}>
       {/* The dimming, with the text shapes CUT OUT of it (the layer's own frame +
@@ -5674,8 +5710,10 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
               lineHeight: `${l.thick}px`,
               transform: `translate(${l.cx - l.length / 2}px, ${l.cy - l.thick / 2}px) rotate(${-90 * turns}deg)`,
             }}
-            onMouseDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => { e.stopPropagation(); press?.(); }}
             onDoubleClick={(e) => e.stopPropagation()}
+            onMouseEnter={enter && (() => enter(i))}
+            onMouseLeave={leave}
           >
             {l.cells.map((c, k) => (
               // eslint-disable-next-line react/no-array-index-key
@@ -5834,6 +5872,28 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   const [textHot, setTextHot] = useState(-1);             // the list row pointed at → brought forward in the picture
   const [textHotSrc, setTextHotSrc] = useState('');
   const hoverTextPiece = useCallback((i, src = '') => { setTextHot(i); setTextHotSrc(i >= 0 ? src || '' : ''); }, []);
+  // The same, for a piece pointed at ON THE PICTURE: the list hands its crop
+  // over, the picture has none to hand, so it is cut here — once per piece, kept
+  // for as long as the reading stands.
+  const textCropsRef = useRef({ reading: null, cache: new Map() });
+  const hoverTextRegion = useCallback((i) => {
+    if (i < 0) { setTextHot(-1); setTextHotSrc(''); return; }
+    const r = textReading?.regions?.[i];
+    const img = mediaRef.current;
+    setTextHot(i);
+    if (!r || !img?.naturalWidth) { setTextHotSrc(''); return; }
+    const store = textCropsRef.current;
+    if (store.reading !== textReading) { store.reading = textReading; store.cache = new Map(); }
+    if (!store.cache.has(i)) {
+      let cut = null;
+      try { cut = cropTextPiece(img, r, textReading.turns || 0); } catch { cut = null; }
+      store.cache.set(i, cut);
+    }
+    setTextHotSrc(store.cache.get(i) || '');
+    // `mediaRef` is deliberately not a dependency: it is declared further down
+    // this component, so naming it here would be read before it exists.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [textReading]);
   const textPath = file.path || file.storage_path || '';
   useEffect(() => { setTextMode('off'); setTextReading(null); setTextHot(-1); }, [textPath, photoBust]);
   // For handlers that outlive a render (the stage's mousedown → mouseup).
@@ -6906,11 +6966,12 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
         />
       )}
 
-      {kind === 'image' && textReading && (textMode === 'on' || textHot >= 0) && (
+      {kind === 'image' && textReading && (
         <TextRegionsLayer
           active={textHot}
           activeSrc={textHotSrc}
           bare={textMode !== 'on'}
+          onHoverRegion={hoverTextRegion}
           mediaRef={mediaRef}
           stageRef={stageRef}
           reading={textReading}

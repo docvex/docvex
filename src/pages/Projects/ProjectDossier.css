@@ -684,3 +684,37 @@
 .pjd-page .pjd-panel,
 .pjd-page .project-dashboard-card,
 .pjd-page .dz-card { border-radius: 0; }
+
+/* ── Sync with account (Overview) ─────────────────────────────
+   The switch is the Settings page's own (.set-toggle), rebuilt here under this
+   page's prefix rather than reaching across into another page's stylesheet. */
+.pjd-sync-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.pjd-toggle {
+  flex: none; width: 36.8px; height: 21.6px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg-elevated);
+  cursor: pointer; padding: 0; position: relative;
+  transition: background 160ms, border-color 160ms;
+}
+.pjd-toggle.is-on { background: var(--accent); border-color: var(--accent); }
+.pjd-toggle:disabled { cursor: default; opacity: 0.5; }
+.pjd-toggle-knob {
+  position: absolute; top: 1.6px; left: 1.6px; width: 16.8px; height: 16.8px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 2.4px rgba(0, 0, 0, 0.25);
+  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.pjd-toggle.is-on .pjd-toggle-knob { transform: translateX(15.2px); }
+.pjd-sync-state { flex: 1 1 260px; min-width: 0; font-size: 12px; color: var(--text-secondary); }
+/* How far through a sync it is — the only place a long upload shows progress. */
+.pjd-sync-prog { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
+.pjd-sync-bar { height: 4px; border-radius: 999px; background: var(--bg-elevated); overflow: hidden; }
+.pjd-sync-bar span {
+  display: block; height: 100%; border-radius: 999px; background: var(--accent);
+  transition: width 200ms ease-out;
+}
+.pjd-sync-confirm {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin-top: 12px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--bg-elevated);
+  font-size: 12px; color: var(--text-secondary);
+}
+.pjd-sync-confirm > span { flex: 1 1 260px; min-width: 0; }

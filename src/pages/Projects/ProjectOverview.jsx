@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
@@ -21,6 +21,8 @@ import { deleteCustomRole } from '../../lib/customRoles';
 import { localFolderApi, isElectronBranch } from '../../lib/localFolder';
 import { readProjectsDir } from '../../lib/projectsDir';
 import { wipeProjectFiles, wipeProjectAiMemory, wipeProjectFileData } from '../../lib/projectDataWipe';
+import { syncStatus, enableSync, disableSync, syncProject, syncKeepsFolders } from '../../lib/projectSync';
+import { formatRelativeTime } from '../../lib/notifications';
 import { miniHeaderSpot } from '../../lib/miniHeaderSpot';
 import { readAiTokens, resetAiTokens, AI_TOKENS_CHANGED_EVENT } from '../../lib/aiTokenMeter';
 import MiniHeaderFade from '../../components/MiniHeaderFade';
@@ -206,6 +208,20 @@ function formatExpiry(isoString) {
   const hours = Math.floor(ms / (60 * 60 * 1000));
   if (hours >= 1) return `Expires in ${hours} hour${hours === 1 ? '' : 's'}`;
   return 'Expires soon';
+}
+
+// What a sync would do, in words. `plan` is null when the folder couldn't be
+// read — say nothing rather than claim everything is in step.
+function describeSyncPlan(sync) {
+  if (!sync?.plan) return sync?.at ? `Last synced ${formatRelativeTime(sync.at) || 'just now'}.` : 'On.';
+  const { push, pull, dropRemote, skipped } = sync.plan;
+  const bits = [];
+  if (push.length) bits.push(`${push.length} to send up`);
+  if (pull.length) bits.push(`${pull.length} to bring down`);
+  if (dropRemote.length) bits.push(`${dropRemote.length} deleted here`);
+  if (!bits.length) return `Up to date${sync.at ? ` · synced ${formatRelativeTime(sync.at) || 'just now'}` : ''}.`;
+  const tail = skipped.length ? ` (${skipped.length} too big to sync)` : '';
+  return `${bits.join(', ')}${tail}.`;
 }
 
 // The page's sections, in the order they read: what the project IS, who's on
@@ -422,6 +438,55 @@ export default function ProjectOverview() {
   // local folder — Electron only; the web build has no ambient folder and shows
   // zeros. Mirrors the count the title bar shows.
   const [fileStats, setFileStats] = useState({ count: 0, bytes: 0 });
+
+  // ── Sync with account ───────────────────────────────────────────────────
+  // Whether this project has a copy in the signed-in account, and what a sync
+  // would do right now (lib/projectSync). Read once the project's folder is
+  // known: the state line compares the account's copy against the folder, so it
+  // can't be worked out from either alone.
+  const [sync, setSync] = useState(null);
+  const [syncBusy, setSyncBusy] = useState('');       // '' | 'on' | 'off' | 'now'
+  const [syncStep, setSyncStep] = useState(null);     // { phase, done, total, name }
+  const [syncMsg, setSyncMsg] = useState(null);
+  const [confirmSyncOff, setConfirmSyncOff] = useState(false);
+  const refreshSync = useCallback(async () => {
+    if (!project?.id) return;
+    const next = await syncStatus({ projectId: project.id, dir: localFolderPath });
+    setSync(next);
+  }, [project?.id, localFolderPath]);
+  useEffect(() => { refreshSync(); }, [refreshSync]);
+  const runSync = useCallback(async (which) => {
+    if (!project?.id) return;
+    setSyncBusy(which);
+    setSyncMsg(null);
+    setSyncStep(null);
+    const run = which === 'on' ? enableSync : syncProject;
+    const res = await run({ projectId: project.id, dir: localFolderPath, onProgress: setSyncStep });
+    setSyncBusy('');
+    setSyncStep(null);
+    if (!res.ok) { setSyncMsg({ bad: true, text: res.error }); return; }
+    const parts = [];
+    if (res.pushed) parts.push(`${res.pushed} sent up`);
+    if (res.pulled) parts.push(`${res.pulled} brought down`);
+    if (res.removed) parts.push(`${res.removed} removed from the account`);
+    if (res.skipped?.length) parts.push(`${res.skipped.length} too big to sync`);
+    if (res.failed?.length) parts.push(`${res.failed.length} failed`);
+    setSyncMsg({
+      bad: Boolean(res.failed?.length),
+      text: parts.length ? `Synced \u2014 ${parts.join(', ')}.` : 'Already up to date.',
+    });
+    refreshSync();
+  }, [project?.id, localFolderPath, refreshSync]);
+  const turnSyncOff = useCallback(async () => {
+    if (!project?.id) return;
+    setSyncBusy('off');
+    setSyncMsg(null);
+    const res = await disableSync(project.id);
+    setSyncBusy('');
+    setConfirmSyncOff(false);
+    setSyncMsg(res.ok ? { bad: false, text: 'The account\u2019s copy has been removed. Your files are untouched.' } : { bad: true, text: res.error });
+    refreshSync();
+  }, [project?.id, refreshSync]);
 
   // Compact-header-on-scroll, mirroring the Versions page. The page scrolls
   // inside the single-window pane's `.sv-single-scroll` (falling back to
@@ -1093,6 +1158,90 @@ export default function ProjectOverview() {
             </div>
           </section>
         </div>
+      </div>
+
+      {/* Sync with account — the project's own setting, so it sits under the
+          Overview section with the rest of what the project IS. */}
+      <div style={{ display: section === 'overview' ? undefined : 'none', marginBottom: 24 }}>
+        <section className="pjd-panel">
+          <div className="pjd-panel-head">
+            <div className="pjd-panel-title">Sync with account</div>
+            <span className="pjd-placeholder-note">
+              {sync?.missingBucket ? 'Not set up on this server'
+                : sync?.enabled
+                  ? `${fmtCount(sync.remoteCount)} ${sync.remoteCount === 1 ? 'file' : 'files'} · ${fmtBytes(sync.remoteBytes)} in your account`
+                  : 'This project stays on this computer'}
+            </span>
+          </div>
+          <p className="pjd-ai-help">
+            Keeps a copy of this project’s files in your Docvex account, so any device you sign
+            in on can open the same documents — and a project you haven’t got on a machine yet
+            shows in the Hub with a cloud mark, ready to bring down. The folder on this computer
+            stays the original: syncing copies from it and back into it, and where the two differ
+            the newer file wins.
+            {!syncKeepsFolders && ' In the browser build there is only one folder, so files come down into it side by side rather than in their subfolders.'}
+          </p>
+          <div className="pjd-sync-row">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={Boolean(sync?.enabled)}
+              aria-label="Sync this project with your account"
+              className={`pjd-toggle${sync?.enabled ? ' is-on' : ''}`}
+              disabled={!isAdmin || !!syncBusy || !!sync?.missingBucket || !localFolderPath}
+              onClick={() => {
+                if (sync?.enabled) { setConfirmSyncOff(true); return; }
+                runSync('on');
+              }}
+            >
+              <span className="pjd-toggle-knob" />
+            </button>
+            <span className="pjd-sync-state">
+              {syncBusy === 'on' ? 'Turning on…'
+                : syncBusy === 'off' ? 'Removing the copy…'
+                  : syncBusy === 'now' ? 'Syncing…'
+                    : sync?.missingBucket ? 'The Supabase project needs migration 035 before this can be switched on.'
+                      : !localFolderPath ? 'This project has no folder on this computer yet.'
+                        : sync?.enabled ? describeSyncPlan(sync)
+                          : isAdmin ? 'Off — nothing about this project leaves this computer.'
+                            : 'Admins decide whether a project syncs.'}
+            </span>
+            {sync?.enabled && !syncBusy && (
+              <button type="button" className="pjd-btn-ghost" onClick={() => runSync('now')} disabled={!localFolderPath}>
+                Sync now
+              </button>
+            )}
+          </div>
+          {syncStep && syncStep.total > 1 && (
+            <div className="pjd-sync-prog">
+              <div className="pjd-sync-bar"><span style={{ width: `${Math.round((syncStep.done / syncStep.total) * 100)}%` }} /></div>
+              <span className="pjd-ai-stat-hint">
+                {syncStep.phase === 'up' ? 'Sending' : syncStep.phase === 'down' ? 'Bringing down' : 'Tidying'}
+                {' '}{syncStep.done + 1} of {syncStep.total}
+                {syncStep.name ? ` · ${syncStep.name}` : ''}
+              </span>
+            </div>
+          )}
+          {confirmSyncOff && (
+            <div className="pjd-sync-confirm" role="alert">
+              <span>
+                Remove this project’s copy from your account? The files on this computer are kept —
+                other devices simply stop being able to fetch them.
+              </span>
+              <div className="pjd-ai-actions">
+                <button type="button" className="pjd-btn-ghost" onClick={() => setConfirmSyncOff(false)}>Keep it</button>
+                <button type="button" className="pjd-btn-primary" onClick={turnSyncOff} disabled={!!syncBusy}>
+                  {syncBusy === 'off' ? 'Removing…' : 'Remove the copy'}
+                </button>
+              </div>
+            </div>
+          )}
+          {syncMsg && (
+            <div className={syncMsg.bad ? 'dz-error' : 'pjd-ai-stat-hint'} role={syncMsg.bad ? 'alert' : undefined}>
+              {syncMsg.text}
+            </div>
+          )}
+        </section>
       </div>
 
       {/* Project renaming lives in the hero title (click to edit, owner-only),

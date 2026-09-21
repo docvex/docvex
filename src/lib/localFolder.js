@@ -445,6 +445,30 @@ export const localFolderApi = {
   // still present locally. Both backends accept `{ dir, paths }`
   // and return per-path { ok, error? } so the caller can report
   // partial failures.
+  // Write files that carry a path RELATIVE to the folder, subfolders and all
+  // (lib/projectSync's pull). The web backend tracks ONE flat directory handle
+  // and can't make subfolders, so there a file lands under its own name at the
+  // top level — `syncKeepsFolders` is what tells the user that beforehand.
+  writeTree: async (payload) => {
+    const dir = payload?.dir;
+    const files = Array.isArray(payload?.files) ? payload.files : [];
+    if (!dir) return { results: [], error: 'No directory specified' };
+    if (hasElectron) {
+      const ipcFiles = [];
+      for (const f of files) {
+        if (!f?.relPath || !f?.blob) { ipcFiles.push({ relPath: f?.relPath || '?', bytes: null }); continue; }
+        ipcFiles.push({ relPath: f.relPath, bytes: await f.blob.arrayBuffer() });
+      }
+      return electronApi.writeTree({ dir, files: ipcFiles });
+    }
+    const flat = files.map((f) => ({ filename: String(f?.relPath || '').split('/').pop(), blob: f?.blob }));
+    const res = await localFolderApi.writeFiles({ dir, files: flat });
+    return {
+      results: (res.results || []).map((r, i) => ({ ...r, relPath: files[i]?.relPath || r.filename })),
+      error: res.error,
+    };
+  },
+
   deleteFiles: async (payload) => {
     if (hasElectron) return electronApi.deleteFiles(payload);
     const dir = webState.dirHandle;
