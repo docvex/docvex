@@ -1,4 +1,4 @@
-/* ─────────────────────────────────────────────────────────────────────
+﻿/* ─────────────────────────────────────────────────────────────────────
    Files tab redesign — File-Explorer-inspired workspace.
    Ported from the Claude Design handoff (docvex-files-redesign). All
    classes are `fx-` prefixed so the generic design names (.tile, .tab,
@@ -49,13 +49,14 @@
   --fx-rail-pad: var(--content-left-gap, 17.6px);
 }
 
-/* The sticky pathbar (Files' mini header): no left margin — the bar starts
-   flush at the rail seam and its inner content (the back/forward nav) is
-   inset by the shared content gap, so the buttons line up EXACTLY with the
-   masthead title/kicker above (both at --content-left-gap / --fx-rail-pad
-   from the frame edge). */
+/* The sticky pathbar (Files' mini header): starts one --rail-gap from the
+   rail (the gap the rail keeps from the window) and its inner content (the
+   back/forward nav) is inset by the rest of the shared content gap, so the
+   buttons line up EXACTLY with the masthead title/kicker above (both at
+   --content-left-gap / --fx-rail-pad from the frame edge). */
 .main-content--flush:has(.project-files-page.fx-root) .fx-pathbar {
-  padding-left: var(--content-left-gap, 17.6px);
+  margin-left: var(--rail-gap, 6.4px);
+  padding-left: calc(var(--content-left-gap, 17.6px) - var(--rail-gap, 6.4px));
 }
 /* Kill the two residual insets between the bar's padding edge and the first
    ‹ chevron's visible glyph: the tools row's own 3.2px left padding, and the
@@ -77,14 +78,15 @@
    FilesWorkspace.jsx) so the offset tracks row density; 24px is the shared
    fallback. */
 .main-content--flush:has(.project-files-page.fx-root) .fx-list-head--chrome {
-  margin-left: calc(-1 * var(--content-left-gap, 17.6px));
+  margin-left: calc(var(--rail-gap, 6.4px) - var(--content-left-gap, 17.6px));
   /* Also cancel the pathbar's 6.4px right padding so the header spans the
      same box as the rows — its edges then line up with the rows' inset
      selection fill. */
   margin-right: -6.4px;
   /* The rows' 9.6px content inset plus a nudge so the "Name" label reads
-     clearly indented from the selection fill's edge. */
-  padding-left: 24px;
+     clearly indented from the selection fill's edge — less the --rail-gap the
+     bar now starts from the rail. */
+  padding-left: calc(24px - var(--rail-gap, 6.4px));
 }
 
 /* Uniform dot grid across the whole surface — no edge fade/gradient band by
@@ -455,31 +457,29 @@
   padding: 5.6px 8.8px;
   border: 1px solid transparent;
   background: transparent;
-  border-radius: 6.4px;
+  border-radius: 4.8px;
   font: inherit;
   font-size: 10.4px;
   font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background 120ms, color 120ms, border-color 120ms;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
   white-space: nowrap;
 }
+/* Hover + selected match the mini header's buttons (.fx-cat-btn) so the bars
+   at the top and bottom of the page behave as one set. */
 .fx-tb-btn:hover:not(:disabled) {
-  background: var(--bg-elevated);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
 }
 .fx-tb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-/* Toggled "Select" button — accent-tinted so the active multi-select mode is
-   obvious while it's on. */
-.fx-tb-btn.is-active {
+/* Toggled "Select" button — the mini header's selected chip (accent tint, no
+   outline), so the active multi-select mode is obvious while it's on. */
+.fx-tb-btn.is-active,
+.fx-tb-btn.is-active:hover:not(:disabled) {
   background: var(--accent-tint);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   color: var(--accent);
   font-weight: 600;
-}
-.fx-tb-btn.is-active:hover:not(:disabled) {
-  background: var(--accent-soft);
-  color: var(--accent);
 }
 .fx-tb-btn.is-primary {
   background: var(--accent);
@@ -668,13 +668,20 @@
      Both the surface tint and the spotlight colour animate the morph (in both
      directions — back to bg-card + accent on exit). */
   --fx-spot-color: var(--accent);
-  transition: --fx-spot-color 340ms ease, background-color 340ms ease;
+  /* Pinning FADES the surface in (and out): fill, hairline and seam shadow
+     tween. The blur itself is `none` while in flow, NOT blur(0): any
+     backdrop-filter on the bar makes it the backdrop root for everything
+     inside, so the search field's own frost (.fx-search) would have nothing
+     behind it to blur. */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transition: --fx-spot-color 340ms ease, background-color 260ms ease, border-color 260ms ease, box-shadow 260ms ease, backdrop-filter 260ms ease, -webkit-backdrop-filter 260ms ease;
 }
 /* Pinned (acting as the mini header): a rounded section in the top bar colour. */
 /* While the bar is in-flow and transparent (not pinned, not edit-tinted)
    there's no border for the shared shine to ride — keep just the interior
    spotlight. */
-.fx-pathbar:not(.is-pinned):not(.is-editing)::after { display: none; }
+.fx-pathbar:not(.is-pinned):not(.is-editing)::after { opacity: 0; }
 .fx-pathbar.is-pinned {
   /* Pinned → the SIDEBAR's frosted surface (see styles/miniHeader.css);
      spotlight + border shine come from the shared .mini-glow class. The
@@ -796,6 +803,13 @@
   background: var(--accent); border: 1.6px solid var(--bg-card);
   box-shadow: 0 1px 2.4px rgba(0, 0, 0, 0.3); cursor: grab;
   transition: transform 120ms ease;
+}
+/* The item-view controls (size slider, view switch, categorize toggle) take
+   their colour from the button, not the glyph, so the icons-wear-Ink rule in
+   tokens.css can't reach them — give the cluster Ink's accent in Cream too. */
+[data-theme="cream"] :is(.fx-size-slider, .fx-view-btn, .fx-cat-btn) {
+  --accent: var(--color-sand);
+  --accent-tint: rgba(220, 201, 163, 0.12);
 }
 .fx-size-range::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.15); }
 .fx-size-range:focus-visible { outline: 1.6px solid var(--accent); outline-offset: 2.4px; }
@@ -1042,27 +1056,35 @@
 .fx-cat-section .fx-grid { padding: 0 11.2px 0 0; }
 
 .fx-search {
+  /* Drawn like the icon-display buttons beside it (.fx-cat-btn) but keeping
+     its own hairline frame (stronger on hover, accent on focus): no fill at rest, 24px tall with their 4.8px corners; a faint wash on
+     hover, and their selected look — the accent tint — while it is in use.
+     It still widens on focus so typing has room. */
   display: flex; align-items: center; gap: 6.4px;
-  padding: 4px 6.4px 4px 8.8px;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0 6.4px 0 7.2px;
   border: 1px solid var(--border);
-  border-radius: 5.6px;
-  background: var(--bg-input);
+  border-radius: 4.8px;
+  /* A faint wash at rest so the field reads as a field; hover deepens it and
+     the accent tint takes over while it is in use. */
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  /* Frosted, like the bars: whatever scrolls under the field is blurred. */
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
   width: 224px;
   font-size: 10.4px;
-  color: var(--text-muted);
-  /* Quiet by default; widens + lifts on focus so search feels deliberate. */
-  transition: width 220ms cubic-bezier(.16, 1, .3, 1),
-              border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+  color: var(--text-secondary);
+  transition: width 220ms cubic-bezier(.16, 1, .3, 1), background 140ms ease, color 140ms ease, border-color 140ms ease;
 }
-.fx-search:hover { border-color: var(--border-strong); }
-.fx-search:focus-within {
-  width: 288px;
-  border-color: var(--accent);
-  background: var(--bg-card);
-  box-shadow: 0 0 0 2.4px var(--accent-tint);
+.fx-search:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); border-color: var(--border-strong); }
+.fx-search:focus-within,
+.fx-search.is-active {
+  background: var(--accent-tint);
 }
+.fx-search:focus-within { width: 288px; border-color: var(--accent); }
 /* The magnifier picks up the accent once the field is engaged. */
-.fx-search-glyph { color: var(--text-muted); flex: 0 0 auto; transition: color 140ms ease; }
+.fx-search-glyph { color: inherit; flex: 0 0 auto; transition: color 140ms ease; }
 .fx-search:focus-within .fx-search-glyph,
 .fx-search.is-active .fx-search-glyph { color: var(--accent); }
 .fx-search input {
@@ -1074,26 +1096,18 @@
    background. Fades out on focus to make room for typing. */
 .fx-search-kbd {
   flex: 0 0 auto;
-  display: inline-flex; align-items: center; gap: 2.4px;
+  display: inline-flex; align-items: center; gap: 1.6px;
   font-family: var(--font-body);
   transition: opacity 120ms ease;
 }
+/* Just the keys — plain text, no chip around each one and no + between. */
 .fx-search-kbd kbd {
-  display: inline-flex; align-items: center;
-  padding: 1px 4px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-elevated);
   font-family: inherit;
-  font-size: 8.4px; font-weight: 600; line-height: 1.5;
+  font-size: 9.6px; font-weight: 600; line-height: 1;
   letter-spacing: 0.02em;
   color: var(--text-muted);
 }
-.fx-search-kbd-plus {
-  margin: 0 2.4px;
-  font-size: 8px; font-weight: 600;
-  color: var(--text-muted);
-}
+.fx-search-kbd-plus { display: none; }
 .fx-search:focus-within .fx-search-kbd { opacity: 0; }
 /* Clear (×) button — replaces the hint once there's a query. */
 .fx-search-clear {
@@ -1233,13 +1247,17 @@
   text-align: center;
   font: inherit;
 }
+/* Hover / selected fill of a file item: a faint neutral wash of the text
+   colour (no blue on Ink, no white slab on Cream); the border and selected
+   ring do the rest. */
+:root { --fx-item-fill: color-mix(in srgb, var(--text-primary) 5%, transparent); }
 .fx-tile:hover {
-  background: var(--bg-card);
+  background: var(--fx-item-fill);
   box-shadow: var(--shadow-card);
   border-color: var(--border-strong);
 }
 .fx-tile.is-selected {
-  background: var(--bg-card);
+  background: var(--fx-item-fill);
   border-color: var(--accent);
   box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
@@ -1303,6 +1321,8 @@
    don't need the grey thumb box behind them — let the badge sit directly on the
    page (like folder glyphs already do). */
 .fx-tile-thumb:has(.fx-glyph) { background: transparent; }
+/* Ink: the elevated slate read as a blue box behind every preview — none. */
+[data-theme="ink"] .fx-tile-thumb { background: transparent; }
 /* The embedded FileThumbnail fills the box. */
 .fx-tile-thumb .project-files-thumb,
 .fx-tile-thumb img { width: 100%; height: 100%; object-fit: contain; }
@@ -1434,7 +1454,6 @@
 .fx-glyph-whatsapp { background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); border-radius: 26%; }
 .fx-glyph-whatsapp .fx-glyph-wa-logo {
   width: 64%; height: 64%; color: #fff;
-  filter: drop-shadow(0 1px 1.6px rgba(0, 0, 0, 0.35));
 }
 /* The shared `.fx-tile-thumb .fx-glyph` footprint (0.65 × tile) is TALLER than
    the thumb box (0.58 × tile), so a solid badge gets clipped top/bottom. Size the
@@ -1803,6 +1822,9 @@
   padding-top: 0;
   padding-bottom: 0;
 }
+/* …and no extra right padding: the search field sits the bar's own 6.4px
+   inset from its right edge, the same as its top and bottom. */
+.fx-pathbar .fx-chrome-tools { padding-right: 0; }
 .fx-list-row {
   /* Row density follows the icon-size slider via vars published on .fx-canvas
      (--fx-row-pad / --fx-row-thumb / --fx-row-font, computed in FilesWorkspace.jsx
@@ -1849,12 +1871,12 @@
    card fill + strong border on hover; card fill + accent border + soft
    accent ring when selected. */
 .fx-list-row:hover::before {
-  background: var(--bg-card);
+  background: var(--fx-item-fill);
   box-shadow: var(--shadow-card);
   border-color: var(--border-strong);
 }
 .fx-list-row.is-selected::before {
-  background: var(--bg-card);
+  background: var(--fx-item-fill);
   border-color: var(--accent);
   box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
@@ -2051,6 +2073,12 @@
   -webkit-backdrop-filter: blur(6.4px);
   box-shadow: var(--mini-seam-shadow-down);
   transition: background-color 340ms ease, border-color 340ms ease;
+}
+/* Files main window: the bottom bar starts one --rail-gap from the sidebar
+   rail, like the pathbar above; its left padding gives the same amount back. */
+.main-content--flush:has(.project-files-page.fx-root) .fx-bottombar {
+  margin-left: var(--rail-gap, 6.4px);
+  padding-left: max(8px, calc(var(--fx-rail-pad, 17.6px) - 9.6px - var(--rail-gap, 6.4px)));
 }
 /* Team edit mode → red-tinted footer, matching the toolbar + canvas wash so
    the whole workspace reads as "editing the main branch". */
@@ -2542,3 +2570,62 @@
 /* List rows are ~20px tall — no room for a pill, and the Type column already
    spells the extension out. */
 .fx-list-thumb .fx-ext-pill { display: none !important; }
+
+/* A file's extension, shown after its name on tiles and rows — styled as
+   the name itself (its own span only so it can be told apart in markup). */
+.fx-name-ext { color: inherit; font: inherit; }
+
+/* Office files and PDFs (Word / Excel / PowerPoint / PDF): a stripe in the app's brand
+   colour (--fx-office, set inline) down the left edge of the rendered
+   PREVIEW. The picture is shrunk to its own proportions (not letterboxed in
+   the box) so the stripe sits on the page's edge; the type glyph fallback
+   already carries the colour in its badge, so it gets none. */
+.fx-tile-thumb[data-office] img,
+.fx-list-thumb[data-office] img {
+  width: auto; height: auto;
+  max-width: 100%; max-height: 100%;
+  object-fit: contain;
+  box-sizing: border-box;
+  border-left: 6px solid var(--fx-office);
+  border-radius: 2px;
+}
+.fx-list-thumb[data-office] img { border-left-width: 3px; }
+.fx-tile-thumb[data-office]:has(.fx-glyph) img,
+.fx-list-thumb[data-office]:has(.fx-glyph) img { border-left: 0; }
+
+/* ── Sidebar-tab hover + selected, on the Files FOOTER buttons ───────────
+   The bottom bar's buttons wear the app sidebar's tab look (.nav-item in
+   Sidebar.css): hover = an accent wash that brightens at the pointer
+   (--item-spot-x/y, fed by FilesWorkspace.jsx); selected = accent tint + an
+   accent ring + accent text, brightening under the pointer too. The ring is
+   an inset shadow, not a border, so no button changes size. The coloured
+   actions (primary / update / waiting / Create) keep their own fills. The
+   mini header's buttons keep their own look. */
+.fx-tb-btn:not(.is-primary, .is-update, .is-waiting, .fx-create-btn, :disabled):hover {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 100%
+  );
+  color: var(--text-primary);
+}
+.fx-tb-btn.is-active,
+.fx-tb-btn.is-active:hover:not(:disabled) {
+  background: var(--accent-tint);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+}
+.fx-tb-btn.is-active:hover:not(:disabled) {
+  background:
+    radial-gradient(
+      112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+      color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+      color-mix(in srgb, var(--accent) 32%, transparent) 55%,
+      color-mix(in srgb, var(--accent) 24%, transparent) 100%
+    ),
+    var(--accent-tint);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--accent);
+}

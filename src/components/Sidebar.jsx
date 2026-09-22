@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useUpdates } from '../context/UpdatesContext';
+import { accountIdentity } from '../lib/account';
+import { AiUsageBar } from './AiUsageMeter';
+import { useAccountMenu } from './AccountMenu';
 import { isElectron, isLocalhostWeb, openExternal, listDocViewerTabs, onDocViewerTabs, focusDocViewerTab, closeDocViewerTab } from '../lib/platform';
 import { supabase } from '../lib/supabaseClient';
 import { toLayoutPx } from '../lib/appZoom';
@@ -12,8 +14,6 @@ import { hasNewBrief, onNewsletterChanged } from '../lib/legalFeed';
 import { prefetchProjects } from '../lib/projectListPrefetch';
 import { preloadProjectList } from '../AppRoutes';
 import Tooltip from './Tooltip';
-import ConfirmModal from './ConfirmModal';
-import SecurityInfoModal from './SecurityInfoModal';
 import FileThumbnail from './FileThumbnail';
 import { glyphForFile } from './fileGlyph';
 import './Sidebar.css';
@@ -31,22 +31,8 @@ function docTabLocalUrl(path) {
 // launch hub's "Documentation" footer link).
 const DOCS_URL = 'https://docvex.ro/';
 
-// The marketing site's account dashboard. The footer account button opens this
-// in the user's browser, handing the current Supabase session across in the URL
-// fragment (dvx_at / dvx_rt) so the site adopts it and lands on the dashboard.
-const ACCOUNT_DASHBOARD_URL = 'https://docvex.ro/account.html';
-
-// Display-name resolution — same precedence used across the app.
-function getDisplayName(user) {
-  const meta = user?.user_metadata;
-  if (meta?.full_name) return meta.full_name;
-  if (meta?.name) return meta.name;
-  if (user?.email) {
-    const at = user.email.indexOf('@');
-    return at > 0 ? user.email.slice(0, at) : user.email;
-  }
-  return 'Account';
-}
+// Account identity + the account dashboard: lib/account.js (shared with the
+// Doc Viewer's title bar).
 
 // App nav — a horizontal bar pinned directly under the frameless title bar.
 // (Formerly a vertical left rail; moved to the top per product direction.)
@@ -111,12 +97,13 @@ const PlaybookIcon = (
   </svg>
 );
 
-// Milestone flag on a path — the Roadmap destination.
+// A winding route between two stops (start → where it's headed) — the Roadmap
+// destination.
 const RoadmapIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M4 21V4" />
-    <path d="M4 5h11l-1.6 3L15 11H4" />
-    <circle cx="4" cy="21" r="0.5" />
+    <circle cx="6" cy="19" r="3" />
+    <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" />
+    <circle cx="18" cy="5" r="3" />
   </svg>
 );
 
@@ -161,29 +148,12 @@ const SignInIcon = (
   </svg>
 );
 
-// Sign-out glyph — door + arrow leaving (the footer account row's sign-out).
-const SignOutIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-    <polyline points="16 17 21 12 16 7"/>
-    <line x1="21" y1="12" x2="9" y2="12"/>
-  </svg>
-);
 
 // Shield glyph — the Developer Console (Admin) destination. Only shown to
 // app admins (the `app_admins` allowlist, probed via the is_app_admin RPC).
 const AdminIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-  </svg>
-);
-
-// Info glyph — the Privacy & security notice at the foot of the rail.
-const InfoIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="9" />
-    <path d="M12 16v-4" />
-    <path d="M12 8h.01" />
   </svg>
 );
 
@@ -236,13 +206,15 @@ const ChatIcon = (
   </svg>
 );
 
-// Winding-path glyph (two endpoint nodes joined by an S-curve) — the project
-// Timeline surface (case-timeline onboarding), from the design bundle.
+// A vertical timeline — a rail with two event nodes, each with its entry
+// beside it — the project Timeline surface. (Keep in step with SplitView's
+// NAV_ICONS.events.)
 const TimelineIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="6" cy="19" r="3"/>
-    <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/>
-    <circle cx="18" cy="5" r="3"/>
+    <path d="M6 3v2M6 9v6M6 19v2"/>
+    <circle cx="6" cy="7" r="2"/>
+    <circle cx="6" cy="17" r="2"/>
+    <path d="M11 7h9M11 17h6"/>
   </svg>
 );
 
@@ -261,19 +233,6 @@ const ProjectSettingsIcon = (
   </svg>
 );
 
-// Panel glyph — the sidebar's own show/hide toggle. It draws the thing it acts
-// on: the app window with its left rail filled in. A pair of chevrons said
-// "something moves left" without saying what; this says "this is the sidebar".
-// The filled rail is the state being toggled, and the CSS flips the glyph
-// horizontally when collapsed so the solid column sits where the rail would
-// reappear.
-const CollapseIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="4" width="18" height="16" rx="2.5" />
-    <path d="M9 4v16" />
-    <path d="M3.2 6.5h5.6M3.2 10h5.6M3.2 13.5h5.6" strokeWidth="1.4" opacity="0.55" />
-  </svg>
-);
 
 // Spark glyph — the project AI surface.
 const AiIcon = (
@@ -283,22 +242,18 @@ const AiIcon = (
   </svg>
 );
 
-export default function Sidebar({ collapsed = false, onToggleCollapse, offstage = false, onHubNav }) {
+export default function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   const { session, signOut } = useAuth();
   const navigate = useNavigate();
-  // Signing out is one click next to the account row, so it asks first.
-  // Note this uses signOut(), NOT AuthContext's logout() — logout quits the
-  // desktop app entirely, whereas here we want to land on the auth screen so
-  // the user can sign back in (or into another account) straight away.
-  const [confirmSignOut, setConfirmSignOut] = useState(false);
-  // Privacy & security notice (the ⓘ item in the System section).
-  const [securityOpen, setSecurityOpen] = useState(false);
+  // Log out is in the account row's menu, behind a confirm step (the morph
+  // pill's own). Note this uses signOut(), NOT AuthContext's logout() — logout
+  // quits the desktop app entirely, whereas here we want to land on the auth
+  // screen so the user can sign back in (or into another account) straight away.
   const [signingOut, setSigningOut] = useState(false);
   const doSignOut = async () => {
     if (signingOut) return;
     setSigningOut(true);
     try { await signOut(); } catch { /* the local session is cleared regardless */ }
-    setConfirmSignOut(false);
     setSigningOut(false);
     // Explicit: only the protected routes bounce to /auth on their own, so a
     // sign-out from a public page (Activity, Versions…) would otherwise leave
@@ -346,24 +301,19 @@ export default function Sidebar({ collapsed = false, onToggleCollapse, offstage 
   }, [session?.user?.id]);
 
   // Account identity for the footer row (avatar + name + email).
-  const user = session?.user || null;
-  const accountAvatarUrl = user?.user_metadata?.avatar_url || null;
-  const accountName = getDisplayName(user);
-  const accountEmail = user?.email || '';
-  const accountInitial = (user?.email || '?').charAt(0).toUpperCase();
+  const {
+    name: accountName, email: accountEmail, avatarUrl: accountAvatarUrl, initial: accountInitial,
+  } = accountIdentity(session);
 
-  // Open the marketing-site account dashboard in the browser, handing the
-  // session across in the URL fragment (same flow the title bar used before
-  // the account control moved here).
-  const openAccount = () => {
-    let url = ACCOUNT_DASHBOARD_URL;
-    const at = session?.access_token;
-    const rt = session?.refresh_token;
-    if (at && rt) {
-      url += '#dvx_at=' + encodeURIComponent(at) + '&dvx_rt=' + encodeURIComponent(rt);
-    }
-    openExternal(url);
-  };
+  // The account row: HOVER shows a card with the account and the selected
+  // project's AI usage this month; CLICK morphs that card into a menu — Account
+  // settings, Log out (which asks first, in the same pill). Shared with the Doc
+  // Viewer's title-bar avatar (components/AccountMenu).
+  const { aiUsage, pill: accountPill } = useAccountMenu({
+    onSettings: () => navigate('/account'),
+    onLogout: doSignOut,
+    loggingOut: signingOut,
+  });
 
   // Whether the signed-in user is an app admin (the `app_admins` allowlist) —
   // gates the Developer Console (Admin) tab. Probed once per session via the
@@ -584,7 +534,8 @@ export default function Sidebar({ collapsed = false, onToggleCollapse, offstage 
     // stays immediate (no easing) so the hovered item reads as responsive. When
     // the cursor moves off a button, reset that button so its fill recenters
     // (falls back to the 50% default) instead of freezing at the last position.
-    const item = e.target.closest('.nav-item');
+    // (The account row at the foot takes the same hover as the tabs.)
+    const item = e.target.closest('.nav-item, .sidebar-account-main');
     if (item !== lastItemRef.current) {
       clearItemSpot(lastItemRef.current);
       lastItemRef.current = item;
@@ -768,58 +719,29 @@ export default function Sidebar({ collapsed = false, onToggleCollapse, offstage 
                 <span className="label">Docs</span>
               </button>
             </Tooltip>}
-            {/* Privacy & security — where the files live, what reaches the AI
-                providers, which models those are, and the legal pages. A firm
-                has to be able to answer this for its clients, so it's one
-                click from anywhere rather than buried in Settings. */}
-            {systemOpen && <Tooltip content="Privacy, security and AI">
-              <button
-                type="button"
-                className="nav-item"
-                onClick={() => setSecurityOpen(true)}
-              >
-                <span className="icon">{InfoIcon}</span>
-                <span className="label">Privacy &amp; security</span>
-              </button>
-            </Tooltip>}
-            {/* Collapse / expand the rail. It used to ride on the Personal
-                divider at the top; it lives here now, last item in the rail,
-                behind its own hairline — a control ABOUT the sidebar rather
-                than a place to navigate to, so it's set apart from the rows
-                above it. The chevron flips to point right when collapsed. */}
-            <span className="sidebar-rail-rule" aria-hidden="true" />
-            <Tooltip content={collapsed ? 'Widen the sidebar back out' : 'Shrink the sidebar to icons'}>
-              <button
-                type="button"
-                className="nav-item sidebar-collapse-item"
-                onClick={onToggleCollapse}
-                aria-label={collapsed ? 'Widen sidebar' : 'Shrink sidebar to icons'}
-                aria-pressed={collapsed}
-              >
-                <span className="icon">{CollapseIcon}</span>
-                {/* Names the RESULT, not the mechanic: the rail never goes
-                    away, it narrows to its icons. "Collapse" read as "hide". */}
-                <span className="label">{collapsed ? 'Widen sidebar' : 'Narrow sidebar'}</span>
-              </button>
-            </Tooltip>
           </div>
         </li>
       </ul>
 
       <div className="sidebar-footer">
-        {/* Account — moved here from the title bar. Avatar + name + email,
-            with a sign-out button. The main button opens the account
-            dashboard. The signed-out "Sign in" CTA shows when there's no
-            session. */}
+        {/* Account — avatar + name + email + the selected project's AI usage
+            bar, one hover area. Hover: a card with the account and the AI
+            usage numbers. Click: that card morphs into a menu (Account
+            settings, Log out). The signed-out "Sign in" CTA shows when
+            there's no session. */}
         {session ? (
           <div className="sidebar-account">
-            <Tooltip content="Open account">
-              <button
-                type="button"
-                className="sidebar-account-main"
-                onClick={openAccount}
-              >
-                <span className="sidebar-avatar-wrap">
+            <button
+              type="button"
+              className={`sidebar-account-main${accountPill.isMenuOpen ? ' is-open' : ''}`}
+              onMouseMove={accountPill.handleMouseMove}
+              onMouseLeave={accountPill.handleMouseLeave}
+              onClick={accountPill.handleOpenMenu}
+              aria-haspopup="menu"
+              aria-expanded={accountPill.isMenuOpen}
+              aria-label={`${accountName} — account menu`}
+            >
+              <span className="sidebar-avatar-wrap">
                 {accountAvatarUrl
                   ? <img className="sidebar-avatar" src={accountAvatarUrl} alt="" referrerPolicy="no-referrer" />
                   : <span className="sidebar-avatar sidebar-avatar-fallback">{accountInitial}</span>}
@@ -827,19 +749,12 @@ export default function Sidebar({ collapsed = false, onToggleCollapse, offstage 
               <span className="sidebar-account-id">
                 <span className="sidebar-account-name">{accountName}</span>
                 {accountEmail && <span className="sidebar-account-email">{accountEmail}</span>}
+                {/* The selected project's AI usage this month — the numbers are
+                    in the hover card. */}
+                {selectedProjectId && <AiUsageBar usage={aiUsage} className="sidebar-account-usage" />}
               </span>
-              </button>
-            </Tooltip>
-            <Tooltip content="Sign out">
-              <button
-                type="button"
-                className="sidebar-account-signout"
-                onClick={() => setConfirmSignOut(true)}
-                aria-label="Sign out"
-              >
-                {SignOutIcon}
-              </button>
-            </Tooltip>
+            </button>
+            {accountPill.node}
           </div>
         ) : (
           <NavLink to="/auth" className="nav-item signin-btn">
@@ -849,30 +764,6 @@ export default function Sidebar({ collapsed = false, onToggleCollapse, offstage 
         )}
       </div>
 
-      {/* Sign-out confirmation. PORTALLED to <body>: the rail sets
-          `isolation: isolate` + a backdrop-filter and animates a transform, all
-          of which would contain a position:fixed child and clip the modal to
-          the 192px rail. Confirming ends the session and lands on /auth. */}
-      {createPortal(
-        <ConfirmModal
-          open={confirmSignOut}
-          title="Sign out of DocVex?"
-          message="You'll be taken to the sign-in screen. Your files stay on this computer — signing back in picks up where you left off."
-          confirmLabel={signingOut ? 'Signing out…' : 'Sign out'}
-          cancelLabel="Stay signed in"
-          destructive
-          onConfirm={doSignOut}
-          onCancel={() => { if (!signingOut) setConfirmSignOut(false); }}
-        />,
-        document.body,
-      )}
-      {/* Portalled for the same reason as the sign-out confirm above: the rail
-          sets `isolation: isolate` + a backdrop-filter, which would trap a
-          fixed-position child inside its 192px column. */}
-      {securityOpen && createPortal(
-        <SecurityInfoModal onClose={() => setSecurityOpen(false)} />,
-        document.body,
-      )}
     </nav>
   );
 }

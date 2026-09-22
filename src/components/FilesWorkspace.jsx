@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import FileThumbnail from './FileThumbnail';
 import { ExtGlyph, extCategory } from './fileGlyph';
@@ -356,6 +356,16 @@ export function ItemGlyph({ item }) {
 // is CSS-hidden when no real poster resolved (the type-glyph badge — which
 // already shows its own play triangle — is showing). See .fx-video-play in
 // FilesWorkspace.css.
+// Word / Excel / PowerPoint / PDF → the brand colour of the stripe drawn down
+// the left edge of the file's preview (Office: fileGlyph's OFFICE_SPECS
+// colours; PDF: a muted brick red — Acrobat's own #E1251B shouted), so a rendered page still says what it is.
+const OFFICE_STRIPE = { doc: '#185ABD', xls: '#107C41', ppt: '#C43E1C', pdf: '#B5473F' };
+function officeStripe(item) {
+  if (!item || item.kind === 'folder' || item.binEntry) return undefined;
+  const c = OFFICE_STRIPE[extCategory(item.ext)];
+  return c ? { '--fx-office': c } : undefined;
+}
+
 export function ItemThumbnail({ item }) {
   const isVideo = extCategory(item.ext) === 'vid';
   return (
@@ -564,6 +574,14 @@ function displayBaseName(item) {
   if (!item || item.kind === 'folder') return item?.name || '';
   return splitNameExt(item.name).base || item.name;
 }
+// The name as shown on a tile / row: the base name, then the extension in a
+// quieter span (the rename field still edits only the base — see renamedName).
+function DisplayName({ item }) {
+  const base = displayBaseName(item);
+  if (!item || item.kind === 'folder' || item.binEntry) return base;
+  const { ext } = splitNameExt(item.name);
+  return <>{base}{ext && <span className="fx-name-ext">{ext}</span>}</>;
+}
 function joinBaseExt(base, originalName) {
   const { ext } = splitNameExt(originalName);
   const b = String(base || '').trim();
@@ -639,7 +657,7 @@ function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, 
   if (renaming) {
     return (
       <div className={`fx-tile${isFolder ? ' is-folder' : ''} is-renaming`}>
-        <span className="fx-tile-thumb">
+        <span className="fx-tile-thumb" data-office={officeStripe(item) ? "" : undefined} style={officeStripe(item)}>
           {isFolder ? <FolderGlyph filled={!item.empty} color={folderColor} /> : <ItemThumbnail item={item} />}
         </span>
         <span>
@@ -668,12 +686,12 @@ function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, 
       >
         {/* Bin items show a circular elapsed-time countdown; drafts carry no ribbon. */}
         {tab === 'trash' && <CountdownRing days={item.deletesInDays} size={20} className="fx-tile-countdown" />}
-        <span className="fx-tile-thumb">
+        <span className="fx-tile-thumb" data-office={officeStripe(item) ? "" : undefined} style={officeStripe(item)}>
           {isFolder ? <FolderOrBinGlyph item={item} color={folderColor} /> : <ItemThumbnail item={item} />}
         </span>
         <span>
           <span className="fx-tile-name">
-            {displayBaseName(item)}
+            <DisplayName item={item} />
             {/* The Recycle bin entry shows how many items are inside —
                 inline, right of the label (not a corner badge). */}
             {item.binEntry && item.binCount > 0 && <span className="fx-bin-count is-inline">{item.binCount}</span>}
@@ -730,7 +748,7 @@ function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, o
     return (
       <div className="fx-list-row is-renaming">
         <span className="fx-list-name">
-          <span className="fx-list-thumb">
+          <span className="fx-list-thumb" data-office={officeStripe(item) ? "" : undefined} style={officeStripe(item)}>
             {isFolder ? <FolderGlyph filled={!item.empty} size={20} color={folderColor} /> : <ItemThumbnail item={item} />}
           </span>
           <InlineNameInput className="fx-name" initial={displayBaseName(item)} onCommit={(name) => onCommitName(renamedName(item, name))} onCancel={onCancelName} />
@@ -759,11 +777,11 @@ function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, o
       >
         <span className="fx-list-name">
           {isBin && <CountdownRing days={item.deletesInDays} size={18} className="fx-row-countdown" />}
-          <span className="fx-list-thumb">
+          <span className="fx-list-thumb" data-office={officeStripe(item) ? "" : undefined} style={officeStripe(item)}>
             {isFolder ? <FolderOrBinGlyph item={item} size={20} color={folderColor} /> : <ItemThumbnail item={item} />}
           </span>
           <span className="fx-name">
-            {displayBaseName(item)}
+            <DisplayName item={item} />
             {/* Bin count pill INSIDE the name span so it hugs the label text
                 (the span stretches flex:1 — a sibling pill would be pushed to
                 the column's far edge, next to the Date column). */}
@@ -807,6 +825,10 @@ function NewFileRow({ onCommit, onCancel }) {
 }
 
 // ── Main workspace ────────────────────────────────────────────────────
+// The Files page's buttons that take the sidebar-tab hover / selected look
+// (the footer's — the mini header keeps its own).
+const FILES_TAB_BUTTONS = '.fx-tb-btn';
+
 export default function FilesWorkspace({
   projectId,
   // Versions-style hero for the top of the canvas: { eyebrow, access, title,
@@ -939,6 +961,22 @@ export default function FilesWorkspace({
   const createMenuRef = useRef(null);
   const canvasRef = useRef(null);
   const pageRef = useRef(null);   // root, used to scope shortcuts to this pane
+  // The Files buttons wear the app sidebar's tab look (FilesWorkspace.css →
+  // FILES_TAB_BUTTONS): a hover / selected fill that brightens where the
+  // pointer is. Feed the button under the cursor its own --item-spot-x/y, as
+  // the Sidebar does for its tabs. Bound on the document because the toolbar
+  // may be portalled into the window chrome, outside this page's element.
+  useEffect(() => {
+    const onMove = (e) => {
+      const btn = e.target?.closest?.(FILES_TAB_BUTTONS);
+      if (!btn) return;
+      const r = btn.getBoundingClientRect();
+      btn.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
+      btn.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
+    };
+    document.addEventListener('mousemove', onMove, { passive: true });
+    return () => document.removeEventListener('mousemove', onMove);
+  }, []);
   const searchRef = useRef(null);
   const actionsRef = useRef({});  // latest copy/paste handlers for the key listener
   const kbdRef = useRef({});      // latest selection/nav handlers for the key listener
@@ -2212,7 +2250,9 @@ export default function FilesWorkspace({
                   <div className="fx-cat-head">
                     <Icon name={g.icon} className="fx-cat-head-ico" size={13} />
                     <span className="fx-cat-head-label">{g.label}</span>
-                    <span className="fx-cat-head-count">{g.items.length}</span>
+                    {/* No count on the Trash divider — its tile already says how
+                        many items it holds. */}
+                    {g.key !== 'trash' && <span className="fx-cat-head-count">{g.items.length}</span>}
                   </div>
                   {view === 'tiles'
                     ? <div className="fx-grid">{g.items.map(renderTile)}</div>
@@ -2245,7 +2285,7 @@ export default function FilesWorkspace({
         {/* Bottom action bar — file operations on the left, item count on the
             right. My drafts shows the full toolset; the bin shows
             Open / Restore / Delete-forever. */}
-        <div className="fx-bottombar">
+        <div className="fx-bottombar mini-glow" onMouseMove={miniHeaderSpot}>
           <div className="fx-bottombar-actions">
             {(onUndo || onRedo) && (
               <>

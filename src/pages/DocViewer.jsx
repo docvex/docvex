@@ -27,6 +27,7 @@ import TokenUsagePill from '../components/TokenUsagePill';
 import { docKindFromName, buildDocumentBlob, buildDocumentBlobSmart, mimeForKind, inferDocKind, withKindExtension, labelForKind } from '../lib/documentGen';
 import { renderedOfficeToPdfBlob } from '../lib/exportPdf';
 import { loadConversation, saveConversation, clearConversation } from '../lib/conversationHistory';
+import { embedDocxSource, readDocxSource, sourcePayload } from '../lib/docxSource';
 import { withStyleSteer } from '../lib/writingStyle';
 import { isElectron, extractDocText, openExternal, onFilesRemoved, notifyFilesChanged, openDocViewerWindow, setDocViewerAiStatus, onDocViewerOpenFile, notifyDocViewerWarmReady, notifyDocViewerFilePainted } from '../lib/platform';
 import { useSelectedProject } from '../context/SelectedProjectContext';
@@ -66,6 +67,7 @@ import {
   listProjectIdentities, resolveIdentityFields, identityValueForField, classifyCounty,
   APARTMENT_ONLY_FIELDS, addressIsApartment, applyGenderToText, IDENTITY_GENDERS,
   addressHasSectors, applyLocalityToText,
+  relativeSourcePath, resolveSourcePath,
 } from '../lib/identities';
 import { extractFileMetadata } from '../lib/fileMetadata';
 import { loadMetadata, saveMetadata } from '../lib/metadataHistory';
@@ -3643,6 +3645,10 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   const [versions, setVersions] = useState([]); // [{ n, text, instructions }]
   const [activeVersion, setActiveVersion] = useState(null);
   const versionCountRef = useRef(0);
+  // The versions as of the last render — for callbacks that build the next list
+  // without holding `versions` in their deps.
+  const versionsRef = useRef(versions);
+  versionsRef.current = versions;
   // Clarifying questions the model asked before it can write the document — shown
   // as an interactive Q&A panel over the document pane (not in the chat). Each is
   // { q, a }. Empty when nothing is pending.
@@ -3741,6 +3747,78 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     // mirror and persist effects below wait for it, and so never write an empty
     // thread over the one just read off disk.
     setHydratedId(file?.id || null);
+
+    // A Word file written by DocVex carries its versions INSIDE it
+    // (lib/docxSource), which is what makes its paragraph tools work on a
+    // device that has no conversation record for it — another computer, a
+    // teammate, a fresh install. The file is the authority on what it holds:
+    // when it says something different from this device's record (rewritten
+    // elsewhere and synced here), its versions replace the record's. And a file
+    // written before sources were embedded gets its record's versions written
+    // into it, once, by the device that has them.
+    let cancelled = false;
+    const baseCount = versionCountRef.current;
+    const path = file?.path;
+    if (path && /\.docx$/i.test(file?.name || path)) {
+      (async () => {
+        let blob;
+        try { blob = await readLocalBlob(path); } catch { return; }
+        if (cancelled || !blob) return;
+        const embedded = await readDocxSource(blob);
+        // Something was generated or saved meanwhile — that wins.
+        if (cancelled || versionCountRef.current !== baseCount) return;
+        if (embedded) {
+          const onDisk = embedded.versions.find((v) => v.n === embedded.active);
+          const mine = vers.find((v) => v.n === embedded.active);
+          if (mine && mine.text === onDisk?.text && (mine.template ?? null) === (onDisk?.template ?? null)) {
+            // Same document; the file only knows better which version is on disk.
+            setActiveVersion(embedded.active);
+            return;
+          }
+          // Keep what this device knows beyond the file (an AI version's label)
+          // where the two agree on a version.
+          const byN = new Map(vers.map((v) => [v.n, v]));
+          const next = embedded.versions.map((v) => {
+            const local = byN.get(v.n);
+            return local && local.text === v.text ? { ...local, ...v, instructions: local.instructions ?? v.instructions } : v;
+          });
+          setVersions(next);
+          versionCountRef.current = next.reduce((mx, v) => Math.max(mx, v.n || 0), 0);
+          setActiveVersion(embedded.active);
+          return;
+        }
+        if (!vers.length) return;
+        // Which version the file on disk IS — normally the last, but a past one
+        // may have been brought back, and the file may have been edited in Word
+        // since. A file that reads like none of them is left alone: attaching a
+        // source it wasn't built from would put the wrong clauses under it.
+        let extracted = '';
+        try { extracted = (await extractFileText(blob, file?.name || 'document.docx'))?.text || ''; } catch { /* unreadable */ }
+        if (cancelled || !extracted) return;
+        const words = (t) => new Set(String(t).toLowerCase().match(/[\p{L}\p{N}]+/gu) || []);
+        const onDisk = words(extracted);
+        let best = null;
+        for (const v of vers) {
+          const w = words(v.text);
+          let common = 0;
+          for (const x of w) if (onDisk.has(x)) common += 1;
+          const score = common / Math.max(1, w.size + onDisk.size - common);
+          if (!best || score >= best.score) best = { n: v.n, score };
+        }
+        if (!best || best.score < 0.6) return;
+        const payload = sourcePayload(vers, best.n);
+        const withSource = await embedDocxSource(blob, payload);
+        if (cancelled || withSource === blob || versionCountRef.current !== baseCount) return;
+        const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        try {
+          await localFolderApi.writeFiles({
+            dir: cut >= 0 ? path.slice(0, cut) : '',
+            files: [{ filename: cut >= 0 ? path.slice(cut + 1) : path, blob: withSource }],
+          });
+        } catch { /* open in Word, read-only… — tried again next time it opens */ }
+      })();
+    }
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file?.id]);
 
@@ -3797,7 +3875,9 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   // a kind change), rename it first — preserving the sidecar id — and tell the
   // parent so the tab re-labels. Shared by a fresh generation and re-selecting a
   // past version.
-  const writeDoc = useCallback(async (text, kindArg) => {
+  // `source` = { versions, active } — for a Word file, the versions are written
+  // INTO the file (lib/docxSource) so its paragraph tools work on any device.
+  const writeDoc = useCallback(async (text, kindArg, source = null) => {
     const p = String(file?.path || '');
     const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
     const dir = cut >= 0 ? p.slice(0, cut) : '';
@@ -3807,7 +3887,8 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     // Build with the selected engine: 'skills' prefers Anthropic's Office Skills
     // (high-fidelity, auto-falls back to the local builder if unavailable),
     // 'local' goes straight to the themed local builder.
-    const blob = await buildDocumentBlobSmart(kind, text, { engine, model });
+    let blob = await buildDocumentBlobSmart(kind, text, { engine, model });
+    if (kind === 'docx' && source) blob = await embedDocxSource(blob, sourcePayload(source.versions, source.active));
     if (targetName !== curName) {
       // Rename the wildcard/placeholder to its real extension before filling it.
       await localFolderApi.renameFile({ dir, fromName: curName, toName: targetName });
@@ -3853,10 +3934,11 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
         || (versionCountRef.current ? 'Here’s an updated version.' : 'Here’s your document.');
       setMessages((m) => [...m, { role: 'assistant', content: note, at: Date.now(), usage: res.usage }]);
       try {
-        await writeDoc(String(input.content || ''), kind);
         const n = versionCountRef.current + 1;
+        const version = { n, text: String(input.content || ''), instructions: lastUserText, kind };
+        await writeDoc(version.text, kind, { versions: [...versionsRef.current, version], active: n });
         versionCountRef.current = n;
-        setVersions((v) => [...v, { n, text: String(input.content || ''), instructions: lastUserText, kind }]);
+        setVersions((v) => [...v, version]);
         setActiveVersion(n);
         setMessages((m) => [...m, { role: 'artifact', version: n, instructions: lastUserText, at: Date.now() }]);
       } catch (e) {
@@ -3903,15 +3985,16 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     if (!applied) return { error: 'not_found', missed };
 
     const kind = active.kind || docKindFromName(file?.name || '') || 'docx';
+    const n = versionCountRef.current + 1;
+    const label = applied === 1 ? 'Your edit to one paragraph' : `Your edits to ${applied} paragraphs`;
+    const version = { n, text, instructions: label, kind, manual: true };
     try {
-      await writeDoc(text, kind);
+      await writeDoc(text, kind, { versions: [...versions, version], active: n });
     } catch {
       return { error: 'write_failed' };
     }
-    const n = versionCountRef.current + 1;
     versionCountRef.current = n;
-    const label = applied === 1 ? 'Your edit to one paragraph' : `Your edits to ${applied} paragraphs`;
-    setVersions((v) => [...v, { n, text, instructions: label, kind, manual: true }]);
+    setVersions((v) => [...v, version]);
     setActiveVersion(n);
     setMessages((m) => [...m, { role: 'artifact', version: n, instructions: label, at: Date.now(), manual: true }]);
     return { ok: true, version: n, applied, missed };
@@ -3933,20 +4016,21 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     const active = versions.find((v) => v.n === activeVersion)
       || (versions.length ? versions[versions.length - 1] : null);
     const kind = active?.kind || docKindFromName(file?.name || '') || 'docx';
+    const n = versionCountRef.current + 1;
+    const label = 'Your changes in the Constructor';
+    // `quiet`: saved from a suggested answer alone — kept as a version of the
+    // document, but not a step in any paragraph's own history (paragraphHistory).
+    const version = { n, text, template, values, assigned, instructions: label, kind, manual: true, quiet };
     setSwitching(true);
     try {
-      await writeDoc(text, kind);
+      await writeDoc(text, kind, { versions: [...versions, version], active: n });
     } catch {
       return { error: 'write_failed' };
     } finally {
       setSwitching(false);
     }
-    const n = versionCountRef.current + 1;
     versionCountRef.current = n;
-    const label = 'Your changes in the Constructor';
-    // `quiet`: saved from a suggested answer alone — kept as a version of the
-    // document, but not a step in any paragraph's own history (paragraphHistory).
-    setVersions((v) => [...v, { n, text, template, values, assigned, instructions: label, kind, manual: true, quiet }]);
+    setVersions((v) => [...v, version]);
     setActiveVersion(n);
     setMessages((m) => [...m, { role: 'artifact', version: n, instructions: label, at: Date.now(), manual: true }]);
     return { ok: true, version: n };
@@ -4332,7 +4416,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     const v = versions.find((x) => x.n === n);
     if (!v) return;
     setSwitching(true); setError(null);
-    try { await writeDoc(v.text, v.kind || docKindFromName(file?.name || '')); setActiveVersion(n); }
+    try { await writeDoc(v.text, v.kind || docKindFromName(file?.name || ''), { versions, active: n }); setActiveVersion(n); }
     catch (e) { setError('Couldn’t load that version.'); }
     setSwitching(false);
   }, [busy, switching, versions, writeDoc, file?.name]);
@@ -4346,7 +4430,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     setSwitching(true); setError(null);
     try {
       const kind = v.kind || docKindFromName(file?.name || '') || 'docx';
-      await writeDoc(v.text, kind);
+      await writeDoc(v.text, kind, { versions, active: n });
       setActiveVersion(n);
       // Resolve the on-disk path (writeDoc may have renamed to the real extension).
       const p = String(file?.path || '');
@@ -13907,6 +13991,7 @@ function IdentityPane({ file, onRenamed }) {
     return {
       ...r, ...clean, fieldSources,
       sources: Array.from(new Set([...(r.sources || []), ...names])),
+      pending: (r.pending || []).filter((n) => !names.includes(n)),
     };
   };
   const flashRows = useCallback((keys) => {
@@ -13936,9 +14021,14 @@ function IdentityPane({ file, onRenamed }) {
   // and lays its data out under the fields as readings with checkboxes. A
   // document is read once per session (`fields` is kept), so clicking between
   // two sources compares them for free.
-  //   attached: { [name]: { name, path?, blob?, url?, status, fields? } }
-  // Session-only: a file joins the RECORD's `sources` when something read from
-  // it is actually filled in (`acceptInto`), not by being attached.
+  //   attached: { [name]: { name, path?, blob?, url?, status, fields? } } —
+  // this session's state of each document (reading, read, what it gave).
+  // The record itself remembers them too, so they survive closing it and reach
+  // the project's other devices: an attached document is in `pending` until
+  // something read from it is filled in (`acceptInto` moves it to `sources`),
+  // and `sourceLinks` says where each one is, relative to the record. A file
+  // imported FROM THE COMPUTER is copied into the project beside the record
+  // first — otherwise it would exist only in this window.
   const [attached, setAttached] = useState({});
   const attachedRef = useRef(attached);
   attachedRef.current = attached;
@@ -13951,7 +14041,7 @@ function IdentityPane({ file, onRenamed }) {
   recordRef.current = record;
 
   // `list`: File objects (a drop) or the picker's `{ name, path, blob? }`.
-  const attachFiles = useCallback((list) => {
+  const attachFiles = useCallback(async (list) => {
     const entries = Array.from(list || []).map((f) => {
       const isFile = typeof File !== 'undefined' && f instanceof File;
       return isFile ? { name: f.name, blob: f, type: f.type } : { name: f.name, path: f.imported ? null : (f.path || null), blob: f.blob || null, type: f.mimeType || '' };
@@ -13962,25 +14052,73 @@ function IdentityPane({ file, onRenamed }) {
       return;
     }
     setScanNote(null);
+
+    // From the computer: into the project, beside the record, under a free name.
+    const loose = ok.filter((f) => !f.path && f.blob);
+    if (loose.length && file.path) {
+      const cut = Math.max(file.path.lastIndexOf('/'), file.path.lastIndexOf('\\'));
+      const dir = file.path.slice(0, cut);
+      const sep = file.path.includes('\\') ? '\\' : '/';
+      let taken = new Set();
+      try {
+        const { files: here } = await localFolderApi.list(dir);
+        taken = new Set((here || []).map((x) => String(x.name).toLowerCase()));
+      } catch { /* the write below reports a real problem */ }
+      for (const f of loose) {
+        const dot = f.name.lastIndexOf('.');
+        const stem = dot > 0 ? f.name.slice(0, dot) : f.name;
+        const ext = dot > 0 ? f.name.slice(dot) : '';
+        let name = f.name;
+        for (let i = 2; taken.has(name.toLowerCase()); i += 1) name = `${stem} (${i})${ext}`;
+        try {
+          const wr = await localFolderApi.writeFiles({ dir, files: [{ filename: name, blob: f.blob }] });
+          const res = wr?.results?.[0];
+          if (!res?.ok) continue;
+          taken.add(name.toLowerCase());
+          // The name as written (the write sanitises it), taken from the path.
+          f.path = res.path || `${dir}${sep}${name}`;
+          f.name = f.path.split(/[\\/]/).pop() || name;
+        } catch { /* stays attached for this session only */ }
+      }
+      notifyFilesChanged();
+    }
+
     setAttached((cur) => {
       const next = { ...cur };
       ok.forEach((f) => {
         if (next[f.name]?.url) URL.revokeObjectURL(next[f.name].url);
         next[f.name] = {
           name: f.name, path: f.path || null, blob: f.blob || null,
-          // A file from the computer has no path to thumbnail from — its bytes do.
+          // A file that couldn't be copied has no path to thumbnail from — its bytes do.
           url: !f.path && f.blob ? URL.createObjectURL(f.blob) : null,
           status: 'new',
         };
       });
       return next;
     });
+    // …and into the record, so it is there next time and on other devices.
+    setRecord((r) => {
+      if (!r) return r;
+      const sourceLinks = { ...(r.sourceLinks || {}) };
+      const pending = [...(r.pending || [])];
+      ok.forEach((f) => {
+        if (!f.path) return;
+        const rel = relativeSourcePath(file.path, f.path);
+        if (rel) sourceLinks[f.name] = rel;
+        if (!(r.sources || []).includes(f.name) && !pending.includes(f.name)) pending.push(f.name);
+      });
+      return { ...r, sourceLinks, pending };
+    });
     setAutofillOpen(false);
-  }, []);
+  }, [file.path]);
 
-  // Where a source named in the record lives: beside the record.
+  // Where a source named in the record lives: where its link says, else
+  // beside the record (records written before links).
   const pathBeside = useCallback((name) => {
     if (!file.path || !name) return null;
+    const rel = recordRef.current?.sourceLinks?.[name];
+    const linked = rel ? resolveSourcePath(file.path, rel) : null;
+    if (linked) return linked;
     const sep = file.path.includes('\\') ? '\\' : '/';
     return `${file.path.slice(0, file.path.lastIndexOf(sep))}${sep}${name}`;
   }, [file.path]);
@@ -14062,7 +14200,7 @@ function IdentityPane({ file, onRenamed }) {
   const dropRef = useRef(null);
   dropRef.current = { attach: attachFiles, browse: () => setAutofillOpen(true), read: readSource, open: openSource };
   const attachedKey = Object.values(attached).map((a) => `${a.name}:${a.status}`).join('\u0001');
-  const sourcesKey = (record?.sources || []).join('\u0001');
+  const sourcesKey = [...(record?.sources || []), '|', ...(record?.pending || []), '|', JSON.stringify(record?.sourceLinks || {})].join('\u0001');
   const fieldSourcesKey = JSON.stringify(record?.fieldSources || {});
   const recordPanel = useMemo(() => {
     if (!record) return null;
@@ -14072,10 +14210,10 @@ function IdentityPane({ file, onRenamed }) {
     // not filled from yet. A record's source is looked for beside the record
     // (that is where a record is written); an attached one knows its own path,
     // or — from the computer — carries its bytes.
-    const names = Array.from(new Set([...(record.sources || []), ...Object.keys(attached)]));
+    const names = Array.from(new Set([...(record.sources || []), ...(record.pending || []), ...Object.keys(attached)]));
     const sources = names.map((name) => {
       const entry = attached[name] || null;
-      const path = entry?.path || (entry ? null : pathBeside(name));
+      const path = entry?.path || (entry?.blob ? null : pathBeside(name));
       const inRecord = (record.sources || []).includes(name);
       return {
         name,
@@ -14106,7 +14244,15 @@ function IdentityPane({ file, onRenamed }) {
             if (from === '') fieldSources[key] = '';
             else if (left.length) fieldSources[key] = left.join(', ');
           });
-          return { ...r, sources: (r.sources || []).filter((n) => n !== name), fieldSources };
+          const sourceLinks = { ...(r.sourceLinks || {}) };
+          delete sourceLinks[name];
+          return {
+            ...r,
+            sources: (r.sources || []).filter((n) => n !== name),
+            pending: (r.pending || []).filter((n) => n !== name),
+            sourceLinks,
+            fieldSources,
+          };
         });
         setAttached((cur) => {
           if (!cur[name]) return cur;

@@ -10,6 +10,8 @@
 // Events reference files by EXACT filename; `fileRefs` maps each filename to
 // the on-disk path captured when the timeline was built.
 
+import { setIfChanged } from './syncClock';
+
 const TIMELINE_KEY_PREFIX = 'docvex:case-timeline:v1:';
 
 export function timelineKeyFor(projectId) {
@@ -33,6 +35,6 @@ export function loadCaseTimeline(projectId) {
 export function saveCaseTimeline(projectId, timeline) {
   if (!projectId) return;
   try {
-    localStorage.setItem(timelineKeyFor(projectId), JSON.stringify(timeline));
+    setIfChanged(timelineKeyFor(projectId), JSON.stringify(timeline));
   } catch { /* quota — best-effort */ }
 }

@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
+import { loadIconCatalogue } from '../lib/iconCatalogue';
+import { ItemGlyph, FolderOrBinGlyph } from '../components/FilesWorkspace';
+import { extCategory } from '../components/fileGlyph';
 import { useNotifications } from '../context/NotificationsContext';
 import { useUpdates } from '../context/UpdatesContext';
 import { clearThumbnailCache } from '../lib/thumbnailEngine';
@@ -234,6 +237,161 @@ const ACTIONS = [
   },
 ];
 
+// Every file-type icon the Files tab (and the sidebar's open-files list) can
+// paint, drawn by the REAL components (ItemGlyph / FolderOrBinGlyph), grouped
+// the way extCategory groups extensions. Keep FILE_TYPES in step with
+// extCategory in components/fileGlyph.jsx when a format is added there.
+const FILE_TYPES = [
+  { title: 'PDF', exts: ['pdf'] },
+  { title: 'Word', exts: ['doc', 'docx', 'docm', 'dot', 'dotx', 'dotm', 'rtf', 'odt', 'pages'] },
+  { title: 'Excel', exts: ['xls', 'xlsx', 'xlsm', 'xlsb', 'xlt', 'xltx', 'xltm', 'csv', 'ods', 'numbers'] },
+  { title: 'PowerPoint', exts: ['ppt', 'pptx', 'pptm', 'pps', 'ppsx', 'ppsm', 'pot', 'potx', 'potm', 'odp', 'key'] },
+  { title: 'Images', exts: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'heic', 'bmp', 'tif', 'tiff', 'psd', 'ai'] },
+  { title: 'Video', exts: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v'] },
+  { title: 'Audio', exts: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus', 'wma', 'aif', 'aiff'] },
+  { title: 'Text', exts: ['txt', 'md', 'log'] },
+  { title: 'Archives', exts: ['zip', 'rar', '7z', 'tar', 'gz'] },
+  { title: 'DocVex records', exts: ['dvx', 'identity-org'] },
+  { title: 'Anything else', exts: ['xyz', ''] },
+];
+const SPECIAL_TYPES = [
+  { label: 'Folder (empty)', folder: { kind: 'folder', name: 'Folder', empty: true } },
+  { label: 'Folder (with files)', folder: { kind: 'folder', name: 'Folder', empty: false } },
+  { label: 'WhatsApp folder', folder: { kind: 'folder', name: 'Chat', empty: false, isWhatsApp: true } },
+  { label: 'Trash (empty)', folder: { kind: 'folder', name: 'Trash', binEntry: true, binCount: 0 } },
+  { label: 'Trash (full)', folder: { kind: 'folder', name: 'Trash', binEntry: true, binCount: 3 } },
+  { label: 'WhatsApp export (.zip)', file: { kind: 'file', name: 'WhatsApp Chat.zip', ext: 'zip', isWhatsApp: true } },
+];
+
+function FileTypeTile({ label, sub, children }) {
+  return (
+    <div className="debug-icon">
+      <span className="debug-ftype-art fx-tile-thumb" style={{ '--fx-tile': '88px' }}>{children}</span>
+      <span className="debug-icon-name">{label}</span>
+      {sub && <span className="debug-icon-where">{sub}</span>}
+    </div>
+  );
+}
+
+function FileTypeIcons() {
+  return (
+    <section className="debug-icons">
+      <div className="debug-icons-head">
+        <div>
+          <h2 className="debug-card-title">File type icons</h2>
+          <p className="debug-card-body">
+            Every icon a file or folder can wear in the Files tab, drawn by the
+            real components, for each extension the app recognises.
+          </p>
+        </div>
+      </div>
+      <div className="debug-icons-group">
+        <h3 className="debug-icons-file">Folders and special items</h3>
+        <div className="debug-icons-grid">
+          {SPECIAL_TYPES.map((t) => (
+            <FileTypeTile key={t.label} label={t.label}>
+              {t.folder ? <FolderOrBinGlyph item={t.folder} size={48} /> : <ItemGlyph item={t.file} />}
+            </FileTypeTile>
+          ))}
+        </div>
+      </div>
+      {FILE_TYPES.map((g) => (
+        <div key={g.title} className="debug-icons-group">
+          <h3 className="debug-icons-file">{g.title} <span>{g.exts.length}</span></h3>
+          <div className="debug-icons-grid">
+            {g.exts.map((ext) => (
+              <FileTypeTile
+                key={ext || '(none)'}
+                label={ext === 'identity-org' ? 'Organisation record' : ext === 'dvx' ? 'Person record (.dvx)' : ext ? `.${ext}` : '(no extension)'}
+                sub={extCategory(ext)}
+              >
+                <ItemGlyph item={{ kind: 'file', name: ext ? `file.${ext}` : 'file', ext }} />
+              </FileTypeTile>
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+// Every icon in the app, read out of the source (lib/iconCatalogue) — what it
+// is called in code, where it lives, and the comment written above it.
+function IconCatalogue() {
+  const [icons, setIcons] = useState(null);
+  const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    let alive = true;
+    loadIconCatalogue()
+      .then((list) => { if (alive) setIcons(list); })
+      .catch((e) => { if (alive) setError(String(e?.message || e)); });
+    return () => { alive = false; };
+  }, []);
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!icons || !q) return icons || [];
+    return icons.filter((i) => `${i.name} ${i.file} ${i.note}`.toLowerCase().includes(q));
+  }, [icons, query]);
+  // Grouped by file, in source order.
+  const groups = useMemo(() => {
+    const m = new Map();
+    for (const i of shown) {
+      if (!m.has(i.file)) m.set(i.file, []);
+      m.get(i.file).push(i);
+    }
+    return [...m.entries()];
+  }, [shown]);
+
+  return (
+    <section className="debug-icons">
+      <div className="debug-icons-head">
+        <div>
+          <h2 className="debug-card-title">All icons</h2>
+          <p className="debug-card-body">
+            Every icon in the app, found in the source code: its name in code,
+            the file and line it lives on, and what the comment above it says.
+            Icons drawn from runtime values show their fixed parts only.
+          </p>
+        </div>
+        <input
+          className="debug-icons-search"
+          type="search"
+          placeholder="Search icons"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      {error && <p className="debug-card-body">Couldn’t read the icons: {error}</p>}
+      {!icons && !error && <p className="debug-card-body">Reading the source…</p>}
+      {icons && (
+        <p className="debug-icons-count">
+          {shown.length === icons.length ? `${icons.length} icons` : `${shown.length} of ${icons.length} icons`}
+          {' '}in {groups.length} files
+        </p>
+      )}
+      {groups.map(([file, list]) => (
+        <div key={file} className="debug-icons-group">
+          <h3 className="debug-icons-file">{file} <span>{list.length}</span></h3>
+          <div className="debug-icons-grid">
+            {list.map((i) => (
+              <div key={i.id} className="debug-icon">
+                {i.url
+                  ? <img className="debug-icon-art" src={i.url} alt="" />
+                  // Markup made from this app's own source, not user content.
+                  : <span className="debug-icon-art" dangerouslySetInnerHTML={{ __html: i.html }} />}
+                <span className="debug-icon-name">{i.name}</span>
+                <span className="debug-icon-where">{i.line ? `line ${i.line}` : 'file'}</span>
+                {i.note && <span className="debug-icon-note">{i.note}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 export default function Debug() {
   const { notify } = useNotifications();
   const { session } = useAuth();
@@ -323,6 +481,9 @@ export default function Debug() {
           </section>
         ))}
       </div>
+
+      <FileTypeIcons />
+      <IconCatalogue />
     </div>
   );
 }

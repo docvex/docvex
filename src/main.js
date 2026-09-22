@@ -865,7 +865,14 @@ function registerDocViewerWindow(win, file) {
   });
 }
 
-function scheduleWarmDocViewer(delayMs = 1200) {
+// The replacement boots a WHOLE renderer (process spawn, bundle parse, every
+// provider mounted, then pdf.js / docx-preview / SheetJS preloaded). Started
+// 1.2s after an open it landed exactly on the new document's own decode and
+// first render, and the two together were the CPU spike on every open. So it
+// waits until the file that was just opened has long settled; a second open
+// inside that window takes the cold path (a moment slower, no spike).
+const WARM_REPLACEMENT_DELAY_MS = 12000;
+function scheduleWarmDocViewer(delayMs = WARM_REPLACEMENT_DELAY_MS) {
   clearTimeout(warmViewerTimer);
   warmViewerTimer = setTimeout(() => {
     if (warmViewer && !warmViewer.isDestroyed()) return;
@@ -1556,6 +1563,13 @@ ipcMain.on('doc-viewer:close', (_e, id) => {
 });
 // "Back to app" from a doc-viewer window — surface the main app window (restore
 // if minimized, raise it to the front). The viewer window stays open behind it.
+// A secondary window (the Doc Viewer) asks the MAIN window to go somewhere — an
+// in-app route ('/account'), or '@logout' (TrayNavigation in App.jsx signs out
+// there). Anything else is ignored.
+ipcMain.on('window:navigate-main', (_e, dest) => {
+  if (typeof dest !== 'string' || !(dest.startsWith('/') || dest === '@logout')) return;
+  navigateMainWindow(dest);
+});
 ipcMain.on('window:focus-main', () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -2872,7 +2886,9 @@ ipcMain.handle('local-folder:stat', async (_, filePath) => {
 // '' for root). This is the SYNC source: the branch flow needs to see
 // files in subfolders so the folder structure can sync to the team.
 // Dotfolders + noise files are skipped, same as the flat list.
-async function walkLocalDir(root, rel, out) {
+// `dirsOut` (optional) collects every subfolder's relative path — account sync
+// needs them, or an empty folder would never reach another device.
+async function walkLocalDir(root, rel, out, dirsOut = null) {
   const dir = rel ? path.join(root, rel) : root;
   let entries;
   try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
@@ -2881,7 +2897,8 @@ async function walkLocalDir(root, rel, out) {
     if (entry.isDirectory()) {
       if (entry.name.startsWith('.')) continue;
       const childRel = rel ? `${rel}/${entry.name}` : entry.name;
-      await walkLocalDir(root, childRel, out);
+      if (dirsOut) dirsOut.push(childRel);
+      await walkLocalDir(root, childRel, out, dirsOut);
       continue;
     }
     if (!entry.isFile()) continue;
@@ -2906,9 +2923,10 @@ ipcMain.handle('local-folder:list-recursive', async (_, dir) => {
   registerLocalfileRoot(dir); // recursive listing → the whole subtree is serveable
   try {
     const files = [];
-    await walkLocalDir(dir, '', files);
+    const dirs = [];
+    await walkLocalDir(dir, '', files, dirs);
     files.sort((a, b) => (a.mtimeIso < b.mtimeIso ? 1 : -1));
-    return { files, error: null };
+    return { files, dirs, error: null };
   } catch (err) {
     return { files: [], error: err?.message || 'Could not read directory' };
   }
@@ -3179,6 +3197,15 @@ ipcMain.handle('local-folder:write-tree', async (_, payload) => {
   } catch (err) {
     return { results: [], error: `Could not create directory: ${err?.message || err}` };
   }
+  // Folders to make even when nothing is written into them (an empty folder
+  // is part of the project's structure too). Same guards as the files below.
+  for (const d of Array.isArray(payload?.dirs) ? payload.dirs : []) {
+    const parts = String(d || '').split(/[\\/]+/).filter((s) => s && s !== '.' && s !== '..').map(sanitizeSegment).filter(Boolean);
+    if (!parts.length) continue;
+    const target = path.resolve(root, ...parts);
+    if (!isInsideDir(root, target)) continue;
+    try { await fsp.mkdir(target, { recursive: true }); } catch { /* reported by the next sync's listing */ }
+  }
   const results = [];
   for (const f of files) {
     const rel = typeof f?.relPath === 'string' ? f.relPath : '';
@@ -3202,12 +3229,39 @@ ipcMain.handle('local-folder:write-tree', async (_, payload) => {
     try {
       await fsp.mkdir(path.dirname(target), { recursive: true });
       await fsp.writeFile(target, Buffer.from(f.bytes));
+      // Keep the copy's modified time: sync decides which copy is newer by it,
+      // and everything saved about a file is stamped with it — a pulled file
+      // dated "now" would be sent straight back up and orphan its synced data.
+      const mtime = f.mtime ? new Date(f.mtime) : null;
+      if (mtime && !Number.isNaN(mtime.getTime())) {
+        try { await fsp.utimes(target, new Date(), mtime); } catch { /* keeps today's date */ }
+      }
       results.push({ relPath: rel, path: target, ok: true });
     } catch (err) {
       results.push({ relPath: rel, ok: false, error: err?.message || String(err) });
     }
   }
   return { results, error: null };
+});
+
+// Remove folders that were deleted on another device — ONLY when they are empty
+// here (`rmdir` refuses otherwise), so nothing on this machine is ever lost
+// because a folder went away elsewhere. Deepest first, so a nested pair goes.
+ipcMain.handle('local-folder:remove-empty-dirs', async (_, payload) => {
+  const dir = payload?.dir;
+  const rels = Array.isArray(payload?.rels) ? payload.rels : [];
+  if (!dir) return { removed: [], error: 'No directory specified' };
+  const root = path.resolve(dir);
+  const removed = [];
+  const sorted = [...rels].sort((a, b) => String(b).split('/').length - String(a).split('/').length);
+  for (const rel of sorted) {
+    const parts = String(rel || '').split(/[\\/]+/).filter((s) => s && s !== '.' && s !== '..');
+    if (!parts.length) continue;
+    const target = path.resolve(root, ...parts);
+    if (!isInsideDir(root, target)) continue;
+    try { await fsp.rmdir(target); removed.push(rel); } catch { /* not empty, or gone */ }
+  }
+  return { removed, error: null };
 });
 
 // Rename a file inside the user's branch folder. Used when the

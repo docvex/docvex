@@ -307,6 +307,14 @@ export function emptyIdentity(kind = 'person') {
     // types over is recorded as '' ("typed"), and a field with no entry at all is
     // simply unknown — records written before this carry none.
     fieldSources: {},
+    // WHERE each source document is: `{ [filename]: path }`, the path RELATIVE
+    // TO THE RECORD's folder ("Acte/ci.jpg", "../Scans/ci.jpg") — so it resolves
+    // on any computer the project is synced to, wherever its folder lives. A
+    // name with no entry is looked for beside the record (older records).
+    sourceLinks: {},
+    // Documents attached in the Sources tab and not read from yet — kept in the
+    // record so they are still there after closing it, and on other devices.
+    pending: [],
     // Anything about the party the form has no field for: `[{ id, label, value }]`.
     custom: [],
     origin: 'manual',   // 'manual' | 'timeline'
@@ -324,7 +332,7 @@ export function parseIdentity(text) {
   const base = emptyIdentity(raw.kind === 'org' ? 'org' : 'person');
   const out = { ...base };
   for (const key of Object.keys(base)) {
-    if (key === 'sources' || key === 'fieldSources' || key === 'custom') continue;
+    if (['sources', 'fieldSources', 'custom', 'sourceLinks', 'pending'].includes(key)) continue;
     if (typeof raw[key] === 'string') out[key] = raw[key];
   }
   // An older spelling of a supported act ("Pașaport", "C.I.") becomes the
@@ -345,6 +353,15 @@ export function parseIdentity(text) {
       if (typeof value === 'string' && key in base) out.fieldSources[key] = value;
     }
   }
+  out.sourceLinks = {};
+  if (raw.sourceLinks && typeof raw.sourceLinks === 'object' && !Array.isArray(raw.sourceLinks)) {
+    for (const [name, rel] of Object.entries(raw.sourceLinks)) {
+      if (typeof rel === 'string' && rel) out.sourceLinks[name] = rel;
+    }
+  }
+  out.pending = Array.isArray(raw.pending)
+    ? raw.pending.filter((s) => typeof s === 'string' && s && !out.sources.includes(s))
+    : [];
   out.custom = Array.isArray(raw.custom)
     ? raw.custom
       .filter((c) => c && typeof c === 'object')
@@ -1331,12 +1348,15 @@ export function mergeIdentity(existing, incoming) {
   if (!existing) return incoming;
   const out = { ...existing };
   for (const key of Object.keys(incoming)) {
-    if (['id', 'createdAt', 'updatedAt', 'sources', 'fieldSources', 'custom', 'origin', 'version'].includes(key)) continue;
+    if (['id', 'createdAt', 'updatedAt', 'sources', 'fieldSources', 'custom', 'origin', 'version', 'sourceLinks', 'pending'].includes(key)) continue;
     const cur = String(out[key] ?? '').trim();
     const next = String(incoming[key] ?? '').trim();
     if (!cur && next) out[key] = next;
   }
   out.sources = Array.from(new Set([...(existing.sources || []), ...(incoming.sources || [])]));
+  out.sourceLinks = { ...(incoming.sourceLinks || {}), ...(existing.sourceLinks || {}) };
+  out.pending = Array.from(new Set([...(existing.pending || []), ...(incoming.pending || [])]))
+    .filter((n) => !out.sources.includes(n));
   return out;
 }
 
@@ -1344,4 +1364,35 @@ export function mergeIdentity(existing, incoming) {
 // where the user typed "ion  popescu".
 export function identityKey(identity) {
   return String(identity?.name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+// ── Where a record's source documents are ──────────────────────────────────
+// A source is stored as a path RELATIVE to the record's folder, so the record
+// finds it on any computer the project is synced to. Windows and macOS paths
+// both work; the result uses the record's own separator.
+const segs = (p) => String(p || '').split(/[\\/]+/).filter(Boolean);
+const folderOf = (p) => { const s = segs(p); s.pop(); return s; };
+
+export function relativeSourcePath(recordPath, sourcePath) {
+  if (!recordPath || !sourcePath) return null;
+  const from = folderOf(recordPath);
+  const to = segs(sourcePath);
+  const fold = /\\/.test(recordPath) || /^[a-z]:/i.test(recordPath) ? (x) => x.toLowerCase() : (x) => x;
+  let i = 0;
+  while (i < from.length && i < to.length - 1 && fold(from[i]) === fold(to[i])) i += 1;
+  if (i === 0 && from.length) return null;   // a different drive / root — nothing portable
+  return [...from.slice(i).map(() => '..'), ...to.slice(i)].join('/');
+}
+
+export function resolveSourcePath(recordPath, rel) {
+  if (!recordPath || !rel) return null;
+  const sep = String(recordPath).includes('\\') ? '\\' : '/';
+  const cut = Math.max(recordPath.lastIndexOf('/'), recordPath.lastIndexOf('\\'));
+  const out = segs(recordPath.slice(0, cut));
+  for (const part of segs(rel)) {
+    if (part === '..') out.pop();
+    else if (part !== '.') out.push(part);
+  }
+  const lead = recordPath.startsWith('/') ? '/' : (recordPath.startsWith('\\\\') ? '\\\\' : '');
+  return lead + out.join(sep);
 }

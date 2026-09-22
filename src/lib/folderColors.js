@@ -1,6 +1,7 @@
-// Per-folder icon colour, a local UI preference (like Finder tags). Keyed by
-// project + folder id and persisted to localStorage so a chosen colour survives
-// reloads. Purely cosmetic — never synced to Supabase.
+// Per-folder icon colour, like Finder tags. Keyed by project + folder id and
+// persisted to localStorage so a chosen colour survives reloads; a project
+// synced with the account carries them to its other devices (lib/projectSyncData).
+import { setIfChanged } from './syncClock';
 
 // Swatches offered in the folder context menu. `value: null` is the "Default"
 // entry that clears the override and falls back to the theme accent.
@@ -16,7 +17,8 @@ export const FOLDER_COLOR_PRESETS = [
   { id: 'pink', label: 'Pink', value: '#ec4899' },
 ];
 
-const keyFor = (projectId) => `docvex.folderColors.${projectId || '_'}`;
+export const folderColorsKey = (projectId) => `docvex.folderColors.${projectId || '_'}`;
+const keyFor = folderColorsKey;
 
 export function loadFolderColors(projectId) {
   try {
@@ -29,5 +31,5 @@ export function loadFolderColors(projectId) {
 }
 
 export function persistFolderColors(projectId, map) {
-  try { localStorage.setItem(keyFor(projectId), JSON.stringify(map || {})); } catch { /* ignore quota / private mode */ }
+  setIfChanged(keyFor(projectId), JSON.stringify(map || {}));
 }

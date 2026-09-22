@@ -1,4 +1,4 @@
-/* Document viewer window: a Chrome-style tab strip + the active file's
+﻿/* Document viewer window: a Chrome-style tab strip + the active file's
    preview, full width. Sits below the custom title bar. dv-prefixed; reads
    only theme tokens. */
 
@@ -49,9 +49,11 @@
      bar; the floating side panel carries its own 8px offsets instead. */
   padding: 0;
   box-sizing: border-box;
-  /* Fixed dark neutral-gray backdrop with white dot circles (user-requested,
-     theme-independent) — same gray the old media stage used (#16181a). */
-  background: #16181a;
+  /* The window backdrop follows the theme (--bg-backdrop: near-black #16181a
+     on Ink, the cream on Cream — the same as the main app's), and the dot
+     grid + cursor spotlight below are drawn in the text colour so they read
+     on either. */
+  background: var(--bg-backdrop, #16181a);
   color: var(--text-primary);
 }
 
@@ -461,7 +463,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
   background-image: radial-gradient(
     circle at center,
-    rgba(255, 255, 255, 0.10) 0.96px,
+    color-mix(in srgb, var(--text-primary) 10%, transparent) 0.96px,
     transparent 1.28px
   );
   background-size: 19.2px 19.2px; background-position: 0 0;
@@ -473,7 +475,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   pointer-events: none; z-index: 0; will-change: transform;
   background-image: radial-gradient(
     circle at center,
-    rgba(255, 255, 255, 0.24) 1.16px,
+    color-mix(in srgb, var(--text-primary) 24%, transparent) 1.16px,
     transparent 1.48px
   );
   background-size: 19.2px 19.2px;

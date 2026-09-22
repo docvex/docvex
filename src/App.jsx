@@ -196,11 +196,17 @@ function DemoSeedFiles() {
 function TrayNavigation() {
   const navigate = useNavigate();
   const { captureAndOpen } = useReportProblem();
+  const { signOut } = useAuth();
   useEffect(() => {
     if (!isElectron || isAuxWindow) return undefined;
     const go = (dest) => {
       if (typeof dest !== 'string' || !dest) return;
       if (dest === '@report') { captureAndOpen(); return; }
+      // Log out asked for from a Doc Viewer window (its account menu).
+      if (dest === '@logout') {
+        signOut().catch(() => {}).finally(() => navigate('/auth', { replace: true }));
+        return;
+      }
       navigate(dest);
     };
     const off = window.electronAPI?.onAppNavigate?.(go);
@@ -215,7 +221,7 @@ function TrayNavigation() {
       off?.();
       window.removeEventListener('keydown', onKey);
     };
-  }, [navigate, captureAndOpen]);
+  }, [navigate, captureAndOpen, signOut]);
   return null;
 }
 

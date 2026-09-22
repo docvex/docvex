@@ -1,4 +1,4 @@
-*, *::before, *::after {
+﻿*, *::before, *::after {
   box-sizing: border-box;
 }
 
@@ -42,7 +42,7 @@ body {
      here just so the page paints with a system stack if tokens.css fails
      to load. */
   font-family: var(--font-body, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif);
-  background: var(--bg-page);
+  background: var(--bg-backdrop, var(--bg-page));
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
 }

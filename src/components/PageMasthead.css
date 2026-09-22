@@ -57,14 +57,17 @@
      these in lock-step: a divergent inset makes the bars sit at different
      heights as the user switches tabs. */
   top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px) + var(--sv-chrome-h, 0px));
-  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px) + var(--content-left-gap, 0px));
+  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px) + var(--rail-gap, 6.4px));
   right: var(--chrome-inset, 6.4px);
   z-index: 30;
   height: 40px;
   display: flex;
   align-items: center;
   gap: 6.4px;
-  padding: 0 17.6px;
+  /* The bar sits one --rail-gap off the rail (the gap the rail keeps from the
+     window) instead of a whole content gap; the difference goes into its left
+     padding, so the text keeps its place. */
+  padding: 0 17.6px 0 calc(17.6px + var(--content-left-gap, 17.6px) - var(--rail-gap, 6.4px));
   /* Tight line boxes so the mixed-size title + eyebrow optically center in
      the bar (inheriting the page's 1.5+ line-height pushes the text low) —
      same as .versions-compact / .mx-compact, keeping every mini header's

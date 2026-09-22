@@ -326,6 +326,12 @@ export function closeDocViewerTab(id) {
 }
 // "Back to app" from a doc-viewer window — raise the main app window (no-op on
 // web, where there's only one surface).
+// Send the MAIN window to an in-app route (or '@logout') and bring it forward —
+// for secondary windows (the Doc Viewer), which have no app shell of their own.
+export function navigateMainWindow(dest) {
+  electronAPI?.navigateMainWindow?.(dest);
+}
+
 export function focusMainWindow() {
   electronAPI?.focusMainWindow?.();
 }

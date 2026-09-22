@@ -46,6 +46,10 @@
   transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
               opacity 200ms ease;
 }
+/* Light theme: white (--bg-sidebar), like the window top bar (.tb-bar,
+   TitleBar.css) — still frosted glass (the blur above), but only lightly
+   see-through, so over the grey backdrop it reads as the bar's white. */
+:root[data-theme="cream"] .sidebar { background: color-mix(in srgb, var(--bg-sidebar) 90%, transparent); }
 [data-reduce-motion='true'] .sidebar { transition: none; }
 
 /* Strip the rail down to a flat, static layer for the ride.
@@ -775,7 +779,9 @@
   width: 6.4px;
   height: 6.4px;
   border-radius: 50%;
-  background: var(--warning-soft);
+  /* The selected tab's colour (.nav-item.active → --accent). Update dots
+     override it by release kind (.is-major / .is-minor / .is-patch). */
+  background: var(--accent);
   border: 1.6px solid var(--bg-page);
   box-sizing: content-box;
 }
@@ -813,17 +819,17 @@
   .nav-dot.is-busy { animation: none; opacity: 0.7; }
 }
 
+/* Unread count (Activity) — just the number, no pill: the row's own text
+   colour at a quieter strength, figures of equal width so 9 → 9+ doesn't
+   jostle. The corner dot on the icon still marks it in the collapsed rail. */
 .nav-badge-text {
-  font-size: 0.52rem;
+  font-size: 0.6rem;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--warning-soft);
-  background: color-mix(in srgb, var(--warning-soft) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--warning-soft) 35%, transparent);
-  border-radius: 999px;
-  padding: 0.08rem 0.4rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
 }
+.nav-item:hover .nav-badge-text,
+.nav-item.active .nav-badge-text { color: inherit; }
 
 /* Update-available pill on the Versions item — colored by the pending
    release's semver bump, matching the Versions page's .kind-* pills exactly:
@@ -893,21 +899,34 @@
   align-items: center;
   gap: 8px;
   padding: 4.8px 6.4px;
-  border: none;
-  border-radius: 7.2px;
+  /* The tab buttons' shape: their radius and their reserved transparent ring,
+     so the hover below looks the same on both. */
+  border: 1.5px solid transparent;
+  border-radius: 6.4px;
+  box-sizing: border-box;
   background: none;
   cursor: pointer;
   font-family: inherit;
   text-align: left;
   color: var(--text-primary);
-  transition: background 150ms ease;
+  transition: background 150ms, color 150ms, border-color 150ms;
 }
-.sidebar-account-main:hover {
-  background: var(--bg-elevated);
+/* The tab buttons' hover (.nav-item:hover): an accent wash brightening where
+   the pointer is (--item-spot-x/y, fed by the rail's mousemove in Sidebar.jsx).
+   Kept while the row's menu is open. */
+.sidebar-account-main:hover,
+.sidebar-account-main.is-open {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 100%
+  );
 }
 .sidebar-account-id {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;   /* full width, so the AI usage bar under the email is too */
   min-width: 0;
   gap: 1px;
 }
@@ -926,25 +945,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sidebar-account-signout {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 6.4px;
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background 150ms ease, color 150ms ease;
-}
-.sidebar-account-signout:hover {
-  background: var(--danger-soft);
-  color: var(--danger-text);
-}
-.sidebar-account-signout svg { width: 13.6px; height: 13.6px; }
+/* The selected project's AI usage, under the email — a hairline bar; the
+   numbers are in the row's hover card. */
+.sidebar-account-usage { margin-top: 3.2px; }
+
+/* The account row's hover card + menu: components/AccountMenu.css. */
 
 /* "Report a problem" â€” sits BELOW the Account row in the footer.
    Intentionally low-key: the button is a fallback affordance, not a
@@ -1747,27 +1752,7 @@
    `.sidebar-collapsed` on `.app-shell`, set from the same AppShell state).
    ════════════════════════════════════════════════════════════════════════ */
 
-/* Collapse/expand toggle — the last row in the rail, under Privacy & security
-   and behind its own hairline. It's an ordinary .nav-item so it lines up with
-   every row above it (same icon inset, same label fade on collapse); only the
-   chevron is special, flipping to point right when the rail is collapsed. */
-.sidebar-rail-rule {
-  display: block;
-  height: 1px;
-  margin: 6.4px 6.4px 2.4px;
-  background: var(--border);
-}
-.sidebar.is-collapsed .sidebar-rail-rule { margin-left: 3.2px; margin-right: 3.2px; }
-
-.sidebar-collapse-item .icon {
-  /* The glyph alone flips — transforming the whole row would take the label
-     with it. 250ms matches the rail's own width transition. */
-  transition: transform 250ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-/* Mirrored, not rotated: rotating would turn the panel upside down. Flipping
-   moves the filled rail to the right edge, so the glyph reads as "the panel
-   opens back out from this side". */
-.sidebar.is-collapsed .sidebar-collapse-item .icon { transform: scaleX(-1); }
+/* (The narrow / widen toggle lives in the title bar — TitleBar's burger.) */
 
 /* Category header text — wrapped in its own span so it can fade + collapse to
    zero width independently of the toggle button beside it. */
@@ -1822,8 +1807,7 @@
    the nav icons); the name/email block and sign-out button fold away to its
    right. gap:0 closes the slack the collapsed sign-out would otherwise leave. */
 .sidebar.is-collapsed .sidebar-account { gap: 0; }
-.sidebar.is-collapsed .sidebar-account-id,
-.sidebar.is-collapsed .sidebar-account-signout {
+.sidebar.is-collapsed .sidebar-account-id {
   opacity: 0;
   max-width: 0;
   overflow: hidden;
@@ -1831,15 +1815,57 @@
   border: none;
   transition: opacity 160ms ease, max-width 250ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-.sidebar-account-id,
-.sidebar-account-signout {
+.sidebar-account-id {
   transition: opacity 160ms ease, max-width 250ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-collapse-item .icon,
   .sidebar .label,
   .sidebar-cat-text,
-  .sidebar-account-id,
-  .sidebar-account-signout { transition: none; }
+  .sidebar-account-id { transition: none; }
+}
+
+/* Light theme: the selected tab is filled with the palette's BROWN (cognac),
+   cream text and icon — a solid pill rather than the faint tint + ring. Under
+   the pointer it brightens with a soft light wash (the ::before layer). */
+:root[data-theme="cream"] .sidebar .nav-item.active {
+  background: var(--color-cognac);
+  border-color: var(--color-cognac);
+  color: var(--color-cream);
+  /* Floats off the rail: a lift of a pixel, a brown-tinted drop shadow under
+     it and a faint light edge along its top. */
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--color-cognac) 35%, transparent),
+    0 6px 16px -4px color-mix(in srgb, var(--color-cognac) 55%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent);
+  transition: background 150ms, color 150ms, border-color 150ms, transform 150ms, box-shadow 150ms;
+}
+:root[data-theme="cream"] .sidebar .nav-item.active:hover {
+  border-color: var(--color-cognac);
+  color: var(--color-cream);
+}
+:root[data-theme="cream"] .sidebar .nav-item.active::before {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, #fff 16%, transparent) 0%,
+    color-mix(in srgb, #fff 6%, transparent) 55%,
+    transparent 100%
+  );
+}
+
+/* …and a hover that belongs with it: a quiet NEUTRAL wash, brightening where
+   the pointer is, with the text going to full strength — a lighter step
+   toward the white card rather than the cognac tint. No outline, no shadow:
+   those are what mark the selected tab. The account row wears the same. */
+:root[data-theme="cream"] .sidebar .nav-item:not(.active):hover,
+:root[data-theme="cream"] .sidebar-account-main:hover,
+:root[data-theme="cream"] .sidebar-account-main.is-open {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--text-primary) 7%, transparent) 0%,
+    color-mix(in srgb, var(--text-primary) 5%, transparent) 55%,
+    color-mix(in srgb, var(--text-primary) 4%, transparent) 100%
+  );
+  color: var(--text-primary);
 }

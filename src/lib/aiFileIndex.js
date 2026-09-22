@@ -120,6 +120,26 @@ function putDescription(file, desc) {
   saveStore();
 }
 
+// For account sync (lib/projectSyncData): the file's description with when it
+// was written — only when it describes the file as it is now.
+export function fileIndexRecord(file) {
+  if (!file?.path) return null;
+  const hit = loadStore()[file.path];
+  return hit && hit.key === versionKey(file) && hit.desc ? { desc: hit.desc, at: hit.at || 0 } : null;
+}
+
+// Take a description written on another device for the same version of this
+// file. Kept only when it is newer than what this device has.
+export function adoptFileIndexRecord(file, rec) {
+  if (!file?.path || !rec?.desc) return false;
+  const cur = fileIndexRecord(file);
+  if (cur && (cur.at || 0) >= (rec.at || 0)) return false;
+  const s = loadStore();
+  s[file.path] = { key: versionKey(file), desc: String(rec.desc).slice(0, DESC_CHARS), at: rec.at || Date.now() };
+  saveStore();
+  return true;
+}
+
 // How much of a folder is already described — drives the "first search costs
 // more" hint in the UI.
 export function indexCoverage(files) {

@@ -3,7 +3,8 @@ import { openExternal } from '../lib/platform';
 import './SecurityInfoModal.css';
 
 // "How your data is handled" — the answer a firm has to be able to give its
-// clients, in one place. Opened from the ⓘ item at the bottom of the rail.
+// clients, in one place. Opened from the ⓘ button in the title bar (main
+// window and Doc Viewer).
 //
 // Everything in here is a statement about the SHIPPED app, so it has to track
 // the code. When a provider, model or storage location changes, this is the

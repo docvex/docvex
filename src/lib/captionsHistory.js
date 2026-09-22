@@ -54,6 +54,9 @@ export function saveCaptions(filePath, data) {
     segments: Array.isArray(data.segments) ? data.segments : [],
     language: data.language || null,
     createdAt: data.createdAt || Date.now(),
+    // When it was last written (an edit keeps createdAt) — what account sync
+    // compares to pick the newer copy.
+    updatedAt: Date.now(),
     original: data.original && typeof data.original.text === 'string'
       ? {
           text: data.original.text,

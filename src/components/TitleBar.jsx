@@ -1,20 +1,23 @@
+import { createPortal } from 'react-dom';
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useUpdates } from '../context/UpdatesContext';
 import { useReportProblem } from '../context/ReportProblemContext';
+import { useTheme } from '../context/ThemeContext';
 import Tooltip, { useTooltip } from './Tooltip';
 import FpsMeter from './FpsMeter';
 import { useMorphPill } from './useMorphPill';
 import { listMembers } from '../lib/projects';
-import { localFolderApi, isElectronBranch } from '../lib/localFolder';
-import { readProjectsDir } from '../lib/projectsDir';
+import { useAccountMenu } from './AccountMenu';
+import SecurityInfoModal from './SecurityInfoModal';
 import {
   isMac,
   windowMinimize,
   windowToggleMaximize,
   windowClose,
+  navigateMainWindow,
   windowIsMaximized,
   onWindowMaximizedChanged,
   windowIsFullscreen,
@@ -46,6 +49,29 @@ const ReportIcon = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
     <line x1="4" y1="22" x2="4" y2="15" />
+  </svg>
+);
+
+// Privacy & security — an "i" in a circle.
+const InfoIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 16v-4" />
+    <path d="M12 8h.01" />
+  </svg>
+);
+
+// Theme toggle — shows the theme a click switches TO: a sun on Ink (go light),
+// a moon on Cream (go dark).
+const SunIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+  </svg>
+);
+const MoonIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
   </svg>
 );
 
@@ -96,16 +122,6 @@ function TbMemberAvatar({ member }) {
 // "Usage" panel). A short label over a thin bar; the full label + value lives
 // in the cursor tooltip. Most values are static placeholders (no data source
 // yet) — only the seat count is real, off the selected project's member_count.
-function TbUsageMeter({ used, total, tint }) {
-  const pct = total ? Math.max(0, Math.min(100, (used / total) * 100)) : 0;
-  return (
-    <div className="tb-usage-meter">
-      <span className="tb-usage-track">
-        <span className="tb-usage-fill" style={{ width: `${pct}%`, background: tint }} />
-      </span>
-    </div>
-  );
-}
 
 // Burger — shows / hides the doc-viewer's side panel.
 const BurgerGlyph = (
@@ -137,6 +153,19 @@ export default function TitleBar() {
   const { selectedProject } = useSelectedProject();
   const { hasUpdate, latestVersion, currentVersion } = useUpdates();
   const { captureAndOpen: openReportProblem, capturing: reportCapturing } = useReportProblem();
+  const { theme, setTheme } = useTheme();
+  // Privacy & security notice (SecurityInfoModal) — opened from the bar, in the
+  // main window and in every Doc Viewer window.
+  const [securityOpen, setSecurityOpen] = useState(false);
+  // The Doc Viewer's account menu — the main window's, shared. This window has
+  // no app shell, so both actions are handed to the main window; logging out
+  // closes this one (it is signed out along with it).
+  const accountMenu = useAccountMenu({
+    placement: 'left',
+    onSettings: () => navigateMainWindow('/account'),
+    onLogout: () => { navigateMainWindow('@logout'); windowClose(); },
+  });
+  const nextTheme = theme === 'ink' ? 'cream' : 'ink';
   const { pathname, search } = useLocation();
   const navigate = useNavigate();
   // The doc-viewer is a secondary window (boots at /doc-viewer); it's a plain
@@ -163,18 +192,20 @@ export default function TitleBar() {
     window.addEventListener('docvex:doc-viewer-side', onSide);
     return () => window.removeEventListener('docvex:doc-viewer-side', onSide);
   }, [onDocViewer]);
+  // Main window: the same burger narrows / widens the app's sidebar (AppShell
+  // owns the state and announces it).
+  const [railCollapsed, setRailCollapsed] = useState(() => window.__docvexSidebarCollapsed === true);
+  useEffect(() => {
+    if (onDocViewer) return undefined;
+    const onRail = (e) => setRailCollapsed(e.detail?.collapsed === true);
+    window.addEventListener('docvex:sidebar-state', onRail);
+    return () => window.removeEventListener('docvex:sidebar-state', onRail);
+  }, [onDocViewer]);
   const docViewerFileName = onDocViewer
     ? (liveDocName || new URLSearchParams(search).get('name') || '')
     : null;
-  // Shown as "<name> (.<format>)" — the name says what the file is, the suffix
-  // what it's stored as. A new document that has no type yet is just its name.
-  const docViewerTitle = (() => {
-    const name = docViewerFileName || '';
-    const dot = name.lastIndexOf('.');
-    const ext = dot > 0 ? name.slice(dot + 1) : '';
-    if (!ext || ext.length > 8 || /\s/.test(ext)) return name;
-    return `${name.slice(0, dot)} (.${ext.toLowerCase()})`;
-  })();
+  // The bar reads "DOCVEX | <name>.<ext>" — the file's name as it is on disk.
+  const docViewerTitle = docViewerFileName || '';
   // The Hub is the projects launcher (/projects). There the brand reads
   // "DOCVEX | HUB" and ALL selected-project chrome (name chip + member avatars
   // + file count + usage meters) is hidden — you're between projects, not in one.
@@ -196,33 +227,6 @@ export default function TitleBar() {
     return () => { alive = false; };
   }, [projectId, onHub]);
 
-  // Real local file count for the selected project (matches the Files page).
-  // Electron only — the web build has no ambient folder, so it stays null.
-  const userId = session?.user?.id || null;
-  const [fileCount, setFileCount] = useState(null);
-  useEffect(() => {
-    if (onHub || !projectId || !isElectronBranch) { setFileCount(null); return undefined; }
-    let alive = true;
-    (async () => {
-      try {
-        const { path } = await localFolderApi.projectDir(projectId, selectedProject?.name, readProjectsDir(userId) || undefined);
-        if (!path) { if (alive) setFileCount(null); return; }
-        const { files, error } = await localFolderApi.listAll(path);
-        if (alive) setFileCount(error ? null : (files || []).length);
-      } catch { if (alive) setFileCount(null); }
-    })();
-    return () => { alive = false; };
-  }, [projectId, onHub, selectedProject?.name, userId]);
-
-  // Usage meters shown next to the project name (moved here from the Project
-  // Overview). Seats is real (member_count); the rest are placeholders that
-  // mirror the old Overview gauges until real data sources land.
-  const usageMeters = selectedProject ? [
-    { key: 'seats', short: 'Seats',   label: 'Active members',    used: selectedProject.member_count ?? 1, total: 10,   unit: 'seats',      tint: 'var(--cat-file)' },
-    { key: 'mem',   short: 'Storage', label: 'Project memory',    used: 2.4,                               total: 5,    unit: 'GB',         tint: 'var(--accent)' },
-    { key: 'req',   short: 'AI req',  label: 'AI requests',       used: 418,                               total: 1000, unit: 'this month', tint: 'var(--cat-update)' },
-    { key: 'tok',   short: 'Tokens',  label: 'AI context tokens', used: 6.2,                               total: 12,   unit: 'K tokens',   tint: 'var(--cat-member)' },
-  ] : [];
 
   const [maximized, setMaximized] = useState(false);
 
@@ -279,6 +283,22 @@ export default function TitleBar() {
             </button>
           </Tooltip>
         )}
+        {/* Main window: the same burger, for the app's sidebar — it narrows the
+            rail to its icons and widens it back (the rail never goes away).
+            Not on the Hub, where the rail is off stage, nor signed out. */}
+        {!onDocViewer && !onAuth && !onHub && signedIn && (
+          <Tooltip content={railCollapsed ? 'Widen sidebar' : 'Narrow sidebar'}>
+            <button
+              type="button"
+              className={`tb-burger${railCollapsed ? '' : ' is-open'}`}
+              onClick={() => window.dispatchEvent(new CustomEvent('docvex:sidebar-toggle'))}
+              aria-label={railCollapsed ? 'Widen sidebar' : 'Narrow sidebar to icons'}
+              aria-pressed={!railCollapsed}
+            >
+              {BurgerGlyph}
+            </button>
+          </Tooltip>
+        )}
         {/* Icon + DOCVEX — plain, non-interactive text (with a "| HUB" suffix
             on the Hub; the divider + HUB live INSIDE the static span so the
             flex `gap` spaces both sides of the "|" symmetrically). */}
@@ -292,12 +312,6 @@ export default function TitleBar() {
               <>
                 <span className="tb-brand-sep" aria-hidden="true">|</span>
                 <span className="tb-brand-suffix">HUB</span>
-              </>
-            )}
-            {onDocViewer && (
-              <>
-                <span className="tb-brand-sep tb-brand-sep--solid" aria-hidden="true">-</span>
-                <span className="tb-brand-suffix tb-brand-suffix--solid">FILE VIEWER</span>
               </>
             )}
           </span>
@@ -348,9 +362,8 @@ export default function TitleBar() {
         )}
       </div>
 
-      {/* Project meta next to the name: member avatars (max 5, +N) · files
-          count · usage bars, dot-separated. Only with a project selected and
-          not on the Hub. */}
+      {/* Project meta next to the name: member avatars (max 5, +N). Only with a
+          project selected and not on the Hub. */}
       {!onHub && !onDocViewer && signedIn && selectedProject && (
         <div className="tb-meta">
           {members.length > 1 && (
@@ -367,44 +380,6 @@ export default function TitleBar() {
             </>
           )}
 
-          {fileCount != null && (
-            <>
-              <span className="tb-meta-sep" aria-hidden="true">·</span>
-              <span className="tb-meta-files">{fileCount} {fileCount === 1 ? 'file' : 'files'}</span>
-            </>
-          )}
-
-          {usageMeters.length > 0 && (
-            <>
-              <span className="tb-meta-sep" aria-hidden="true">·</span>
-              {/* Hovering the bars shows all metrics as a color-coded list. */}
-              <Tooltip
-                className="tb-usage-tip-pill"
-                content={(
-                  <span className="tb-usage-tip-list">
-                    {usageMeters.map((m) => {
-                      const pct = m.total ? Math.round(Math.max(0, Math.min(100, (m.used / m.total) * 100))) : 0;
-                      return (
-                        <span key={m.key} className="tb-usage-tip-row">
-                          <span className="tb-usage-tip-dot" style={{ background: m.tint }} />
-                          <span className="tb-usage-tip-label">{m.label}</span>
-                          <span className="tb-usage-tip-value" style={{ color: m.tint }}>
-                            {m.used} / {m.total} {m.unit} · {pct}%
-                          </span>
-                        </span>
-                      );
-                    })}
-                  </span>
-                )}
-              >
-                <div className="tb-usage">
-                  {usageMeters.map(({ key, ...m }) => (
-                    <TbUsageMeter key={key} {...m} />
-                  ))}
-                </div>
-              </Tooltip>
-            </>
-          )}
         </div>
       )}
 
@@ -417,6 +392,40 @@ export default function TitleBar() {
               sit tightly together (the container's small gap is the only
               spacing between them). */}
           <div className="tb-actions">
+            {/* Doc Viewer: the account as its avatar alone — the window has no
+                sidebar. Same hover card + menu as the main window's account row
+                (components/AccountMenu); its actions go to the main window. */}
+            {onDocViewer && (
+              <button
+                type="button"
+                className={`tb-account${accountMenu.pill.isMenuOpen ? ' is-open' : ''}`}
+                onMouseMove={accountMenu.pill.handleMouseMove}
+                onMouseLeave={accountMenu.pill.handleMouseLeave}
+                onClick={accountMenu.pill.handleOpenMenu}
+                aria-haspopup="menu"
+                aria-expanded={accountMenu.pill.isMenuOpen}
+                aria-label={`${accountMenu.identity.name} — account menu`}
+              >
+                {accountMenu.identity.avatarUrl
+                  ? <img className="tb-account-avatar" src={accountMenu.identity.avatarUrl} alt="" referrerPolicy="no-referrer" />
+                  : <span className="tb-account-avatar tb-account-avatar--fallback" style={{ background: avatarColor(session?.user?.id || accountMenu.identity.email) }}>{accountMenu.identity.initial}</span>}
+              </button>
+            )}
+            {onDocViewer && accountMenu.pill.node}
+            {/* Privacy & security — where the files live, what reaches the AI
+                providers, which models those are, and the legal pages. A firm
+                has to be able to answer this for its clients, so it's one click
+                from anywhere (it used to be a row at the foot of the sidebar). */}
+            <Tooltip content="Privacy, security and AI">
+              <button
+                type="button"
+                className="tb-btn tb-btn-icon-only"
+                onClick={() => setSecurityOpen(true)}
+                aria-label="Privacy, security and AI"
+              >
+                <span className="tb-btn-icon">{InfoIcon}</span>
+              </button>
+            </Tooltip>
             {/* Report a problem — captures a screenshot (html2canvas) and
                 opens the report modal. Moved here from the sidebar. */}
             <Tooltip content={reportCapturing ? 'Capturing screenshot…' : 'Report a problem'}>
@@ -428,6 +437,18 @@ export default function TitleBar() {
                 aria-label="Report a problem"
               >
                 <span className="tb-btn-icon">{ReportIcon}</span>
+              </button>
+            </Tooltip>
+            {/* Light / dark. A click picks the other theme outright (so it also
+                leaves "follow the system"); every open window follows. */}
+            <Tooltip content={nextTheme === 'cream' ? 'Switch to light theme' : 'Switch to dark theme'}>
+              <button
+                type="button"
+                className="tb-btn tb-btn-icon-only"
+                onClick={() => setTheme(nextTheme)}
+                aria-label={nextTheme === 'cream' ? 'Switch to light theme' : 'Switch to dark theme'}
+              >
+                <span className="tb-btn-icon">{nextTheme === 'cream' ? SunIcon : MoonIcon}</span>
               </button>
             </Tooltip>
             {/* The account control moved to the bottom of the Sidebar. */}
@@ -468,6 +489,11 @@ export default function TitleBar() {
         </div>
       )}
 
+      {/* Portalled to <body>, above everything in the window. */}
+      {securityOpen && createPortal(
+        <SecurityInfoModal onClose={() => setSecurityOpen(false)} />,
+        document.body,
+      )}
     </div>
   );
 }

@@ -149,6 +149,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeDocViewerTab: (id) => ipcRenderer.send('doc-viewer:close', id),
   // "Back to app" from a doc-viewer window — raise the main app window.
   focusMainWindow: () => ipcRenderer.send('window:focus-main'),
+  navigateMainWindow: (dest) => ipcRenderer.send('window:navigate-main', dest),
 
   // ── Pre-warmed doc-viewer window ────────────────────────────────────────
   // A viewer window boots hidden and empty (?warm=1), says it's ready, and is
@@ -331,6 +332,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // the subfolders on the way are made as needed — restoring a project's
     // folder tree from the account's copy (lib/projectSync).
     writeTree: (payload) => ipcRenderer.invoke('local-folder:write-tree', payload),
+    removeEmptyDirs: (payload) => ipcRenderer.invoke('local-folder:remove-empty-dirs', payload),
     deleteFiles: (payload) => ipcRenderer.invoke('local-folder:delete-files', payload),
     renameFile: (payload) => ipcRenderer.invoke('local-folder:rename-file', payload),
     // Folder management — create / delete a subfolder, move an entry

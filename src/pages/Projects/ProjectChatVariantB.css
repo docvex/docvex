@@ -1,4 +1,4 @@
-/* Chat tab — Variant B "Split Pane".
+﻿/* Chat tab — Variant B "Split Pane".
    Ported from the Claude Design handoff (docvex-chat-redesign):
    chat-shared.css (the dvx- primitives) + chat-variant-b.css (the vb-
    layout) merged here, plus the docvex page-frame integration and a
@@ -135,13 +135,13 @@
   top: var(--chrome-inset, 6.4px);
   z-index: 30;
   flex: 0 0 auto;
-  /* Surface flush against the sidebar rail: pull the left edge out by the
-     full content gap, and re-inset the content by the same amount so the
-     tabs keep their exact x position at the content edge (same recipe as
+  /* Surface one --rail-gap from the sidebar rail: pull the left edge out by
+     the content gap less that, and re-inset the content by the same amount so
+     the tabs keep their exact x position at the content edge (same recipe as
      the Activity toolbar). The clip chain above (.dvx-chat + .dvx-scroll-
      area) is padding-shifted to the rail so this overhang stays visible. */
-  margin-left: calc(-1 * var(--content-left-gap, 17.6px));
-  padding-left: var(--content-left-gap, 17.6px);
+  margin-left: calc(var(--rail-gap, 6.4px) - var(--content-left-gap, 17.6px));
+  padding-left: calc(var(--content-left-gap, 17.6px) - var(--rail-gap, 6.4px));
   /* Single row, same height as the Hub button (40px): tabs left, tools right. */
   display: flex;
   flex-direction: row;
@@ -158,7 +158,10 @@
      would change the bar's box and nudge its content. */
   border: 1.5px solid transparent;
   background: transparent;
-  transition: background-color 200ms ease, box-shadow 240ms ease;
+  /* Pinning fades the surface in / out (blur from blur(0) so it tweens). */
+  backdrop-filter: blur(0px);
+  -webkit-backdrop-filter: blur(0px);
+  transition: background-color 260ms ease, border-color 260ms ease, box-shadow 260ms ease, backdrop-filter 260ms ease, -webkit-backdrop-filter 260ms ease;
 }
 .dvx-toolbar > .dvx-tabs { flex: 1 1 auto; border-bottom: none; align-items: stretch; }
 .dvx-toolbar > .dvx-chrome-tools { flex: 0 0 auto; height: auto; align-self: center; }
@@ -175,7 +178,7 @@
   box-shadow: var(--mini-seam-shadow);
 }
 /* Transparent in-flow (not pinned) → no border for the shared shine to ride. */
-.dvx-toolbar:not(.is-pinned)::after { display: none; }
+.dvx-toolbar:not(.is-pinned)::after { opacity: 0; }
 
 /* ═══════════════════════════════════════════════════════════════════
    Shared primitives (from chat-shared.css)
@@ -578,19 +581,20 @@
   gap: 4.8px;
   width: 25.6px;
   height: 25.6px;
-  border-radius: 6.4px;
+  border-radius: 4.8px;
   background: transparent;
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 120ms, color 120ms;
+  transition: background 140ms ease, color 140ms ease;
 }
+/* Hover + selected match the mini header's buttons (.fx-cat-btn). */
 .dvx-composer-btn:hover {
-  background: var(--bg-elevated);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
 }
 .dvx-composer-btn.is-active {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  background: var(--accent-tint);
   color: var(--accent);
 }
 .dvx-composer-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -1655,13 +1659,13 @@
 .sv-pane-inner:has(> .sv-footer .dvx-composer) > .sv-footer,
 .sv-single-body:has(> .sv-footer .dvx-composer) > .sv-footer {
   position: absolute;
-  /* Flush against the sidebar rail (matches the toolbar above); the width
-     gains the gap the left inset gave up, so the RIGHT edge — and the
-     content cap — stay exactly where they were. */
-  left: 0;
+  /* One --rail-gap from the sidebar rail (matches the toolbar above); the
+     width gains the rest of the gap the left inset gave up, so the RIGHT
+     edge — and the content cap — stay exactly where they were. */
+  left: var(--rail-gap, 6.4px);
   right: auto;
   bottom: 6.4px;
-  width: min(calc(100% - 17.6px), calc(var(--content-max-width, 1280px) + var(--content-left-gap, 17.6px)));
+  width: min(calc(100% - 17.6px - var(--rail-gap, 6.4px)), calc(var(--content-max-width, 1280px) + var(--content-left-gap, 17.6px) - var(--rail-gap, 6.4px)));
   z-index: 6;
 }
 

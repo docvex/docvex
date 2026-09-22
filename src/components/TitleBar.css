@@ -1,4 +1,4 @@
-/* Custom frameless title bar. Fixed at the very top, full width, above the
+﻿/* Custom frameless title bar. Fixed at the very top, full width, above the
    sidebar (z 50) but below toasts (z 9999). Height is the global
    --titlebar-h. The whole bar is a drag region; interactive children opt out
    with -webkit-app-region: no-drag. */
@@ -18,6 +18,8 @@
   app-region: drag;
   user-select: none;
 }
+/* Light theme: white (--bg-sidebar), the same as the sidebar (Sidebar.css). */
+:root[data-theme="cream"] .tb-bar:not(.is-auth) { background: var(--bg-sidebar); }
 
 /* Signed-out screen (/auth): the bar goes transparent (and loses its hairline)
    so the full-bleed auth window shows through it, with only the window controls
@@ -247,16 +249,6 @@
   color: var(--border-strong);
   margin: 0;
 }
-/* Doc-viewer brand: "DOCVEX - FILE VIEWER" — separator + suffix painted in the
-   same colour/weight as the DOCVEX wordmark so the whole title reads as one. */
-.tb-brand-sep--solid {
-  color: var(--text-primary);
-  font-weight: 700;
-}
-.tb-brand-suffix--solid {
-  color: var(--text-primary);
-}
-
 /* Selected-project name — clickable, opens the project dashboard. Opts out
    of the drag region so the click registers. */
 /* Project name — plain, non-interactive label (the clickable chip moved to the
@@ -327,84 +319,42 @@
   font-weight: 600;
   color: var(--text-secondary);
 }
-.tb-meta-files {
-  font-size: 9.6px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
 
-/* ── Usage meters (next to the project name) ── */
-/* Four bars laid out 2 rows × 2 columns. They carry no visible labels — the
-   info lives in the color-coded cursor tooltip on hover. */
-.tb-usage {
-  /* Center the grid in the bar instead of stretching to the full 44px height
-     (the flex parent is align-items:stretch), and pin the rows to a fixed
-     height so the bars never overflow downward. */
-  align-self: center;
+/* ── Account (Doc Viewer window only — it has no sidebar) ── the avatar
+   alone; hover shows the account card, a click its menu (AccountMenu). */
+.tb-account {
   display: grid;
-  grid-template-columns: repeat(2, 83.2px);
-  grid-template-rows: repeat(2, 5.6px);
-  gap: 2.4px 3.2px;
-  padding: 3.2px 6.4px;
-  border-radius: 6.4px;
-  cursor: default;
-  flex-shrink: 0;
-  transition: background 140ms ease;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
   -webkit-app-region: no-drag;
   app-region: no-drag;
+  transition: background 150ms ease, border-color 150ms ease;
 }
-/* Hover the whole progress-bar section (a subtle tint that won't blend into
-   the track's own --bg-elevated colour). */
-.tb-usage:hover { background: color-mix(in srgb, var(--text-primary) 9%, transparent); }
-.tb-usage-meter {
-  width: 83.2px;
-  height: 5.6px;
-  cursor: default;
+.tb-account:hover,
+.tb-account.is-open {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
 }
-.tb-usage-track {
-  /* The track is a <span>; without display:block its height/width are ignored
-     and it renders at the font line-height (tall bars overflowing the bar). */
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  height: 5.6px;
-  border-radius: 2.4px;
-  background: var(--bg-elevated);
-  overflow: hidden;
-}
-.tb-usage-fill {
-  display: block;
-  height: 100%;
-  border-radius: 2.4px;
-  min-width: 1.6px;
-}
-/* Hovering the usage section shows all metrics as a color-coded VERTICAL
-   list. Override the pill's nowrap/stadium look for the multi-row list. */
-.tb-usage-tip-pill {
-  border-radius: 8px;
-  white-space: normal;
-  text-align: left;
-}
-.tb-usage-tip-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2.4px;
-}
-.tb-usage-tip-row {
-  display: flex;
-  align-items: center;
-  gap: 6.4px;
-  white-space: nowrap;
-}
-.tb-usage-tip-dot {
-  width: 6.4px;
-  height: 6.4px;
+.tb-account-avatar {
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  flex-shrink: 0;
+  object-fit: cover;
 }
-.tb-usage-tip-label { font-weight: 600; }
-.tb-usage-tip-value { font-weight: 600; margin-left: auto; }
+.tb-account-avatar--fallback {
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: 10.4px;
+  font-weight: 700;
+  color: #fff;
+}
 
 /* ── App actions cluster ── */
 /* Report / Split / Theme / Account live in one cluster. A tight 4px gap

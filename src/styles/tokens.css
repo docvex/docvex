@@ -1,4 +1,4 @@
-/* DocVex theme system — brand palette + semantic aliases for two themes.
+﻿/* DocVex theme system — brand palette + semantic aliases for two themes.
  *
  * Imported once globally from src/renderer.jsx + src/web.jsx after index.css.
  * Selectors are scoped via [data-theme="…"] on <html>, set by ThemeContext.
@@ -59,6 +59,11 @@
   --cat-system:  #475569;  /* slate 600 — neutral / fallback */
 
   --bg-page:        var(--color-cream);
+  /* The window BACKDROP (the spotlight behind the content, the seams and fades
+     that must match it): neutral white, a shade under pure white — no cream
+     cast. The top bar and sidebar take --bg-bars. */
+  --bg-backdrop:    #F9F9FA;
+  --bg-bars:        #F4F4F5;
   --bg-card:        #FFFFFF;
   --bg-elevated:    #FAF7F0;
   --bg-sidebar:     #FFFFFF;
@@ -115,14 +120,19 @@
   --cat-support: var(--color-sand);  /* brand on dark */
   --cat-system:  #94A3B8;  /* slate 400 */
 
-  --bg-page:        var(--color-ink);
+  /* The page behind everything — the backdrop the dot grid and the cursor
+     spotlight are drawn on. Near-black, the same as the Doc Viewer's
+     (#16181a), rather than the brand ink; cards, sidebar and inputs keep
+     their own blues. */
+  --bg-page:        #16181A;
+  --bg-backdrop:    var(--bg-page);
   --bg-card:        var(--color-slate);
   --bg-elevated:    #2A3548;
   --bg-sidebar:     #15213A;
   --bg-input:       #15213A;
   --border:         rgba(245, 242, 234, 0.10);
   --border-strong:  rgba(245, 242, 234, 0.20);
-  --border-flat:    color-mix(in srgb, var(--color-cream) 10%, var(--color-ink));
+  --border-flat:    color-mix(in srgb, var(--color-cream) 10%, #16181A);
   --text-primary:   var(--color-cream);
   --text-secondary: #C9CEDC;
   --text-muted:     #8A93A8;
@@ -148,6 +158,42 @@
   --scrollbar-thumb: rgba(245, 242, 234, 0.35);
 }
 
+/* ── Icons wear the Ink palette in every theme ────────────────────────────
+ * Icons are drawn in ONE set of colours: the dark theme's. In Cream, every
+ * SVG (and the icon/glyph wrappers that colour one through currentColor) gets
+ * Ink's accent, category and status colours, so a folder, a crumb or a
+ * category mark is the same sand / pastel it is on Ink instead of switching to
+ * the cognac-brown and deeper shades the Cream TEXT uses. Text colours
+ * (--text-*) are not touched: an icon drawn in the text colour still follows
+ * the text, or it would vanish on the light surfaces. */
+:root[data-theme="cream"] svg,
+[data-theme="cream"] svg,
+[data-theme="cream"] :is([class*="-icon"], [class*="glyph"], .icon):not(button, a, input, [role="button"]) {
+  --cat-auth:    #34D399;
+  --cat-project: #A5B4FC;
+  --cat-member:  #67E8F9;
+  --cat-file:    #FCD34D;
+  --cat-role:    #F9A8D4;
+  --cat-update:  #C4B5FD;
+  --cat-support: var(--color-sand);
+  --cat-system:  #94A3B8;
+  --accent:      var(--color-sand);
+  --accent-hover: #C8B58E;
+  --accent-soft: var(--color-cognac);
+  --accent-tint: rgba(220, 201, 163, 0.12);
+  --danger:      #EF4444;
+  --danger-soft: #F87171;
+  --danger-text: #FCA5A5;
+  --success:     #22C55E;
+  --success-soft: #4ADE80;
+  --warning:     #F59E0B;
+  --warning-soft: #FBBF24;
+  --info:        #38BDF8;
+  --info-soft:   #7DD3FC;
+  --teal:        #2DD4BF;
+  --teal-soft:   #5EEAD4;
+}
+
 /* Global typography defaults. Per-component stylesheets can override on
    specific elements, but the body / heading defaults route through tokens
    so a future font swap is a one-line change. */
@@ -158,3 +204,10 @@ body {
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
 }
+
+/* Theme switch — every transition suspended for the frame the colours change
+   in (ThemeContext's applyThemeAttribute), so nothing eases from the old
+   theme's colour to the new one. */
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after { transition: none !important; }

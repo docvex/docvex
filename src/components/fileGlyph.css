@@ -30,6 +30,9 @@
 .fx-glyph-icon .fx-type-icon { width: 100%; height: 100%; display: block; }
 .fx-type-base { fill: currentColor; }
 .fx-type-detail { fill: color-mix(in srgb, var(--accent) 52%, #000); }
+/* Text files: a WHITE page with a hairline edge, like the Office icons'
+   pages, instead of the accent-filled one; the lines keep the darker accent. */
+.fx-glyph-txt .fx-type-base { fill: #fff; stroke: rgba(0, 0, 0, 0.16); stroke-width: 0.8; }
 
 /* Zipped-folder archive icon — the zipper teeth are a thick dashed line in a
    darker accent down the folder's middle. */
@@ -44,7 +47,6 @@
 .fx-glyph-vid .fx-glyph-play {
   width: 100%;
   height: 100%;
-  filter: drop-shadow(0 1px 2.4px rgba(0, 0, 0, 0.45));
 }
 .fx-glyph-vid-tag {
   position: absolute;
@@ -54,7 +56,6 @@
   font-weight: 800;
   letter-spacing: 0.04em;
   line-height: 1;
-  text-shadow: 0 1px 1.6px rgba(0, 0, 0, 0.5);
 }
 
 /* Audio — a decibel line (equalizer bars), mirroring the video badge. */
@@ -62,7 +63,6 @@
 .fx-glyph-aud .fx-glyph-audio {
   width: 100%;
   height: 100%;
-  filter: drop-shadow(0 1px 2.4px rgba(0, 0, 0, 0.45));
 }
 
 /* ── Unified file-type glyphs ──────────────────────────────────────────

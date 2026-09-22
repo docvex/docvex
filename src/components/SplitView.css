@@ -1,4 +1,4 @@
-/* Single-pane content shell. One pane fills the main content area, with the
+﻿/* Single-pane content shell. One pane fills the main content area, with the
    in-pane nav chrome (left rail + header) pinned around an independently-
    scrolling content surface. (The former multi-pane split-view tiling — grid,
    resize gutters, vertical/horizontal/T/quad layouts and custom layouts — was
@@ -90,7 +90,7 @@
   background: linear-gradient(
     to bottom,
     transparent,
-    var(--bg-page) calc(100% - var(--chrome-inset, 6.4px))
+    var(--bg-backdrop) calc(100% - var(--chrome-inset, 6.4px))
   );
 }
 /* Floating-footer pages (Files action bar / Chat composer): the tall

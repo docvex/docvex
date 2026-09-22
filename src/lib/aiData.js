@@ -28,6 +28,8 @@
 import { localFolderApi } from './localFolder';
 
 const PREFIX = 'docvex:ai-data:v1:';
+// Exposed for account sync (lib/projectSyncData), which carries these records.
+export const AI_DATA_PREFIX = PREFIX;
 const CHANGE_EVENT = 'docvex:ai-data-changed';
 
 // The catalogue. `paid` = making it costs AI tokens (what the cache is saving).

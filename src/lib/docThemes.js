@@ -13,6 +13,7 @@
 // white in both app themes, exactly like the BRAND palette in documentGen.js —
 // which is what the `docvex` theme mirrors, so `docvex` overrides nothing and
 // shows the document as it was written.
+import { setIfChanged, removeAndTouch } from './syncClock';
 
 export const DOC_THEMES = [
   {
@@ -77,6 +78,7 @@ export function applyDocTheme(el, id) {
 
 // Remembered per file (the preview's url, less any query).
 const KEY_PREFIX = 'docvex:doc-viewer:doc-theme:';
+export const DOC_THEME_PREFIX = KEY_PREFIX;
 const keyFor = (url) => KEY_PREFIX + String(url || '').split('?')[0];
 
 export function loadDocTheme(url) {
@@ -90,7 +92,7 @@ export function loadDocTheme(url) {
 
 export function saveDocTheme(url, id) {
   try {
-    if (id === DEFAULT_DOC_THEME) window.localStorage.removeItem(keyFor(url));
-    else window.localStorage.setItem(keyFor(url), id);
+    if (id === DEFAULT_DOC_THEME) removeAndTouch(keyFor(url));
+    else setIfChanged(keyFor(url), id);
   } catch { /* storage full / unavailable — the theme just isn't remembered */ }
 }

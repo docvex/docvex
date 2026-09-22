@@ -41,6 +41,7 @@ import Tooltip from '../../components/Tooltip';
 import StatusBadge from '../../components/StatusBadge';
 import './ProjectDashboard.css';
 import './ProjectDossier.css';
+import { AI_MONTHLY_TOKENS } from '../../lib/plan';
 
 // Plus glyph for the "Invite member" CTA. Same stroke recipe as the
 // PlusIcon constant in ProjectList.jsx so the two CTAs read as siblings.
@@ -113,7 +114,7 @@ function UsageGauge({ label, used, total, unit, tint, hint, fmt }) {
 // `tokens` is the combined allowance the merged "AI tokens" gauge on the
 // Overview fills against — input + output, since that's the single number the
 // gauge reports. The split caps stay for the AI tab's per-direction cells.
-const AI_MONTHLY_CAPS = { requests: 1000, tokens: 750000, inputTokens: 500000, outputTokens: 250000, sessions: 50 };
+const AI_MONTHLY_CAPS = { requests: 1000, tokens: AI_MONTHLY_TOKENS, inputTokens: 500000, outputTokens: 250000, sessions: 50 };
 
 // "1,240" for small counts, "214K" / "2.1M" for large ones — keeps the stat
 // values compact without losing the order of magnitude.
@@ -214,11 +215,14 @@ function formatExpiry(isoString) {
 // read — say nothing rather than claim everything is in step.
 function describeSyncPlan(sync) {
   if (!sync?.plan) return sync?.at ? `Last synced ${formatRelativeTime(sync.at) || 'just now'}.` : 'On.';
-  const { push, pull, dropRemote, skipped } = sync.plan;
+  const { push, pull, dropRemote, dropLocal = [], skipped, folders } = sync.plan;
   const bits = [];
   if (push.length) bits.push(`${push.length} to send up`);
   if (pull.length) bits.push(`${pull.length} to bring down`);
   if (dropRemote.length) bits.push(`${dropRemote.length} deleted here`);
+  if (dropLocal.length) bits.push(`${dropLocal.length} deleted on another device`);
+  const newFolders = (folders?.add?.length || 0) + (folders?.create?.length || 0);
+  if (newFolders) bits.push(`${newFolders} ${newFolders === 1 ? 'folder' : 'folders'} to match`);
   if (!bits.length) return `Up to date${sync.at ? ` · synced ${formatRelativeTime(sync.at) || 'just now'}` : ''}.`;
   const tail = skipped.length ? ` (${skipped.length} too big to sync)` : '';
   return `${bits.join(', ')}${tail}.`;
@@ -469,11 +473,19 @@ export default function ProjectOverview() {
     if (res.pushed) parts.push(`${res.pushed} sent up`);
     if (res.pulled) parts.push(`${res.pulled} brought down`);
     if (res.removed) parts.push(`${res.removed} removed from the account`);
+    if (res.trashed) parts.push(`${res.trashed} deleted on another device (moved to the Trash here)`);
+    if (res.folders) parts.push(`${res.folders} ${res.folders === 1 ? 'folder' : 'folders'} matched`);
     if (res.skipped?.length) parts.push(`${res.skipped.length} too big to sync`);
     if (res.failed?.length) parts.push(`${res.failed.length} failed`);
+    // The data about the files (lib/projectSyncData) — reported beside them.
+    const data = res.data;
+    if (data?.applied) parts.push(`${data.applied} ${data.applied === 1 ? 'piece' : 'pieces'} of project data updated`);
+    const notes = [];
+    if (data && !data.ok) notes.push(`Project data didn\u2019t sync: ${data.error}`);
+    if (data?.privateError) notes.push('Your own chats stay on this computer until the Supabase project has migration 036.');
     setSyncMsg({
-      bad: Boolean(res.failed?.length),
-      text: parts.length ? `Synced \u2014 ${parts.join(', ')}.` : 'Already up to date.',
+      bad: Boolean(res.failed?.length) || Boolean(data && !data.ok),
+      text: `${parts.length ? `Synced \u2014 ${parts.join(', ')}.` : 'Already up to date.'}${notes.length ? ` ${notes.join(' ')}` : ''}`,
     });
     refreshSync();
   }, [project?.id, localFolderPath, refreshSync]);
@@ -1178,7 +1190,9 @@ export default function ProjectOverview() {
             in on can open the same documents — and a project you haven’t got on a machine yet
             shows in the Hub with a cloud mark, ready to bring down. The folder on this computer
             stays the original: syncing copies from it and back into it, and where the two differ
-            the newer file wins.
+            the newer file wins. Everything Docvex keeps about the files travels with them too —
+            extracted text, metadata, captions, AI data, folder colours, the timeline — and your
+            own advisor chats go to a private copy only you can read.
             {!syncKeepsFolders && ' In the browser build there is only one folder, so files come down into it side by side rather than in their subfolders.'}
           </p>
           <div className="pjd-sync-row">

@@ -1,4 +1,4 @@
-.debug-page {
+﻿.debug-page {
   width: 100%;
   margin: 0;
   padding: 0 0 51.2px;
@@ -207,4 +207,59 @@
 }
 .debug-switch.is-on .debug-switch-label {
   color: var(--accent);
+}
+
+/* ── All icons (IconCatalogue) ─────────────────────────────────────────── */
+.debug-icons { margin-top: 32px; }
+.debug-icons-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+.debug-icons-search {
+  flex: 0 0 240px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit; font-size: 12px;
+}
+.debug-icons-search:focus { outline: none; border-color: var(--accent); }
+.debug-icons-count { margin: 0 0 16px; font-size: 11px; color: var(--text-muted); }
+.debug-icons-group { margin-bottom: 22px; }
+.debug-icons-file {
+  margin: 0 0 8px;
+  font-family: var(--font-body);
+  font-size: 11px; font-weight: 600;
+  color: var(--text-secondary);
+}
+.debug-icons-file span { color: var(--text-muted); font-weight: 400; margin-left: 4px; }
+.debug-icons-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.debug-icon {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 12px 8px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  text-align: center;
+  min-width: 0;
+}
+.debug-icon-art {
+  display: grid; place-items: center;
+  width: 32px; height: 32px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.debug-icon-art svg { width: 28px; height: 28px; overflow: visible; }
+img.debug-icon-art { object-fit: contain; }
+.debug-icon-name { font-size: 11px; font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
+.debug-icon-where { font-size: 10px; color: var(--text-muted); }
+.debug-icon-note {
+  font-size: 10px; line-height: 1.35; color: var(--text-secondary);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* File type icons — each glyph in a Files-tile-sized box so the tile rules
+   (.fx-tile-thumb .fx-glyph…) size it exactly as the Files tab does. */
+.debug-ftype-art {
+  width: 100%;
+  background: transparent;
+  margin-bottom: 4px;
 }

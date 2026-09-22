@@ -1,4 +1,4 @@
-import React, { startTransition, useEffect, useLayoutEffect, useRef, useState } from 'react';
+﻿import React, { startTransition, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { RouteFallback, preloadProjectList } from '../AppRoutes';
 import { prefetchProjects } from '../lib/projectListPrefetch';
@@ -92,13 +92,41 @@ export default function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'; } catch { return false; }
   });
+  // Narrowing / widening the rail. The content column RESIZES with the rail
+  // the whole way (it is re-laid-out each frame — the price of text that
+  // re-flows as it goes; freezing its width and only sliding it made the
+  // content change size in one jump). What keeps that affordable: the shared
+  // --sidebar-width does NOT tween (tweening it restyled the whole document
+  // every frame — the old stutter); it flips once, and only the slot's width
+  // (which the content column is flexed against) and the rail's own width
+  // tween, on the same curve (`rail-toggling`, AppShell.css). The rail's blur
+  // is off for the ride.
+  const [railToggling, setRailToggling] = useState(false);
+  const railToggleTimer = useRef(0);
   const toggleSidebar = () => {
     setSidebarCollapsed((c) => {
       const next = !c;
       try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0'); } catch { /* ignore */ }
       return next;
     });
+    clearTimeout(railToggleTimer.current);
+    setRailToggling(true);
+    railToggleTimer.current = setTimeout(() => setRailToggling(false), 300);
   };
+
+  // The toggle itself is in the title bar (TitleBar's burger — the same control
+  // the Doc Viewer uses for its side panel), which lives outside this shell:
+  // it asks by event, and the shell announces the state back (also on a global,
+  // so a title bar mounting later starts right).
+  useEffect(() => {
+    const onToggle = () => toggleSidebar();
+    window.addEventListener('docvex:sidebar-toggle', onToggle);
+    return () => window.removeEventListener('docvex:sidebar-toggle', onToggle);
+  }, []);
+  useEffect(() => {
+    window.__docvexSidebarCollapsed = sidebarCollapsed;
+    window.dispatchEvent(new CustomEvent('docvex:sidebar-state', { detail: { collapsed: sidebarCollapsed } }));
+  }, [sidebarCollapsed]);
 
   // Drag-to-resize the expanded rail. The width is remembered across collapse /
   // expand (and across sessions) — collapsing parks the rail at the collapsed
@@ -111,11 +139,19 @@ export default function AppShell() {
     } catch { return SIDEBAR_WIDTH_DEFAULT; }
   });
   const [resizingSidebar, setResizingSidebar] = useState(false);
+  const shellRef = useRef(null);
   const startSidebarResize = (e) => {
     if (sidebarCollapsed || e.button !== 0) return;
     e.preventDefault();
     const startX = e.clientX;
     const startWidth = sidebarWidth;
+    const shell = shellRef.current;
+    let width = startWidth;
+    // While dragging only the RAIL follows the pointer (--rail-live-width,
+    // written straight onto the shell — no React render per move); the
+    // content column keeps its place and moves once, on release, when the
+    // width is committed (the slot's width tween carries it there).
+    shell?.style.setProperty('--rail-live-width', `${width}px`);
     setResizingSidebar(true);
     // Pointer capture on the handle would be lost the moment React re-rendered
     // it, so track on the window instead — that also keeps the drag alive when
@@ -123,18 +159,15 @@ export default function AppShell() {
     const onMove = (ev) => {
       // clientX is viewport px and the width we write is a CSS length; the
       // DELTA still has to be converted under the display-scale zoom.
-      setSidebarWidth(clampSidebarWidth(startWidth + toLayoutPx(ev.clientX - startX)));
+      width = clampSidebarWidth(startWidth + toLayoutPx(ev.clientX - startX));
+      shell?.style.setProperty('--rail-live-width', `${width}px`);
     };
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       setResizingSidebar(false);
-      // Read the committed value out of state on the next tick rather than
-      // threading it through — onMove has already clamped it.
-      setSidebarWidth((w) => {
-        try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w)); } catch { /* ignore */ }
-        return w;
-      });
+      setSidebarWidth(width);
+      try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width)); } catch { /* ignore */ }
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -273,7 +306,8 @@ export default function AppShell() {
 
   return (
       <div
-        className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}${resizingSidebar ? ' sidebar-resizing' : ''}${railOffstage ? ' on-hub' : ''}${hubLeaving ? ' hub-leaving' : ''}${onHub ? ' hub-collapsed' : ''}`}
+        ref={shellRef}
+        className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}${resizingSidebar ? ' sidebar-resizing' : ''}${railOffstage ? ' on-hub' : ''}${hubLeaving ? ' hub-leaving' : ''}${onHub ? ' hub-collapsed' : ''}${railToggling ? ' rail-toggling' : ''}`}
         style={{ '--sidebar-width': sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : `${sidebarWidth}px` }}
       >
         {/* App chrome — a single bordered, rounded frame that wraps the vertical

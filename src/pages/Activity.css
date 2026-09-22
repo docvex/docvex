@@ -1,4 +1,4 @@
-/* Activity feed — restyled to mirror the Events timeline tab (ProjectEvents):
+﻿/* Activity feed — restyled to mirror the Events timeline tab (ProjectEvents):
    the same editorial masthead, the same frosted sticky 40px toolbar that pins
    as the mini header, and the same day-grouped vertical-rail timeline. The
    one deliberate divergence: each row's rail marker is the NOTIFICATION'S OWN
@@ -75,19 +75,21 @@
   gap: 6.4px;
   height: 40px;
   box-sizing: border-box;
-  /* Pull the bar's LEFT EDGE out past the whole content inset so its surface
-     sits FLUSH against the sidebar rail (no seam), then re-inset the content
-     by the same amount — the tabs keep their exact x position at the content
-     edge while the frosted surface fills the gap to the rail. */
-  margin-left: calc(-1 * var(--content-left-gap, 17.6px));
-  padding: 0 12px 0 var(--content-left-gap, 17.6px);
+  /* Pull the bar's LEFT EDGE out to one --rail-gap from the sidebar rail (the
+     gap the rail keeps from the window), then re-inset the content by the same
+     amount — the tabs keep their exact x position at the content edge. */
+  margin-left: calc(var(--rail-gap, 6.4px) - var(--content-left-gap, 17.6px));
+  padding: 0 12px 0 calc(var(--content-left-gap, 17.6px) - var(--rail-gap, 6.4px));
   border-radius: 9.6px;
   /* Constant transparent border so gaining the pinned hairline doesn't
      shift the row's height. */
   border: 1.5px solid transparent;
   background: transparent;
   line-height: 1;
-  transition: background-color 200ms ease, box-shadow 240ms ease, border-color 200ms ease;
+  /* Pinning fades the surface in / out (blur from blur(0) so it tweens). */
+  backdrop-filter: blur(0px);
+  -webkit-backdrop-filter: blur(0px);
+  transition: background-color 260ms ease, border-color 260ms ease, box-shadow 260ms ease, backdrop-filter 260ms ease, -webkit-backdrop-filter 260ms ease;
 }
 .avt-toolbar.is-pinned {
   /* No padding change on pin — the tabs keep the exact same x position

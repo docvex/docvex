@@ -1,4 +1,4 @@
-import React, {
+﻿import React, {
   createContext,
   useCallback,
   useContext,
@@ -100,9 +100,23 @@ function resolvePref(pref) {
 
 // Apply the data-theme attribute to <html>. Pulled out so it runs in both
 // the initial hydration effect AND the setTheme path without duplication.
+//
+// A theme switch is instant: `theme-switching` on <html> suspends every
+// transition (tokens.css) for the frame the colours change in, and is lifted
+// two frames later. Without it, surfaces that ease their background — the
+// mini headers, the footers — tweened from the old theme's colour to the new
+// one and read as a flash.
+let themeSwitchFrame = 0;
 function applyThemeAttribute(theme) {
   if (typeof document === 'undefined') return;
-  document.documentElement.setAttribute('data-theme', theme);
+  const root = document.documentElement;
+  if (root.getAttribute('data-theme') === theme) return;
+  root.classList.add('theme-switching');
+  root.setAttribute('data-theme', theme);
+  cancelAnimationFrame(themeSwitchFrame);
+  themeSwitchFrame = requestAnimationFrame(() => {
+    themeSwitchFrame = requestAnimationFrame(() => root.classList.remove('theme-switching'));
+  });
 }
 
 export function ThemeProvider({ children }) {
@@ -170,6 +184,23 @@ export function ThemeProvider({ children }) {
     } catch {
       /* private mode / quota — non-fatal */
     }
+  }, [userId]);
+
+  // Every window follows a pick made in another one (the main window and each
+  // Doc Viewer window share this localStorage but not this React state): the
+  // `storage` event fires in the OTHER windows when the key is written.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const key = storageKey(userId);
+    const onStorage = (e) => {
+      if (e.key !== key || !VALID_PREFS.has(e.newValue)) return;
+      _setPref(e.newValue);
+      const resolved = resolvePref(e.newValue);
+      _setTheme(resolved);
+      applyThemeAttribute(resolved);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, [userId]);
 
   // While the preference is 'system', track OS dark-mode changes live so the

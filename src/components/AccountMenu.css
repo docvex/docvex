@@ -1,0 +1,32 @@
+/* components/AccountMenu — the account hover card. A card, not a one-line
+   pill: soft corners, a little room. In menu mode the pill's own menu styles
+   take over. */
+.acm-pill:not(.is-menu) {
+  padding: 8px 10.4px;
+  border-radius: 10px;
+  white-space: normal;
+  min-width: 208px;
+  max-width: 260px;
+}
+.acm-card { display: flex; flex-direction: column; gap: 2px; }
+.acm-name { font-weight: 600; font-size: 12px; }
+.acm-email,
+.acm-plan,
+.acm-sub {
+  font-size: 10.4px;
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acm-rule {
+  display: block;
+  height: 1px;
+  margin: 6.4px 0 5.6px;
+  background: currentColor;
+  opacity: 0.15;
+}
+.acm-row { display: flex; align-items: baseline; gap: 8px; }
+.acm-label { font-weight: 600; font-size: 11.2px; }
+.acm-value { margin-left: auto; font-weight: 700; font-size: 11.2px; font-variant-numeric: tabular-nums; }
+.acm-bar { margin: 3.2px 0 2.4px; }

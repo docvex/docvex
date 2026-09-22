@@ -104,16 +104,17 @@
      past the sidebar with a matching right gap, seated flush under the title bar
      (the chromeless Versions route has --sv-chrome-h = 0). */
   top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px) + var(--sv-chrome-h, 0px));
-  /* No --content-left-gap term: the bar sits flush against the sidebar rail
-     (its title lands at the content edge), matching Activity / Newsletter. */
-  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px));
+  /* No --content-left-gap term: the bar sits one --rail-gap off the sidebar
+     rail (its title lands at the content edge — see padding-left below),
+     matching Activity / Newsletter. */
+  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px) + var(--rail-gap, 6.4px));
   right: var(--chrome-inset, 6.4px);
   z-index: 30;
   height: 40px;
   display: flex;
   align-items: center;
   gap: 6.4px;
-  padding: 0 17.6px;
+  padding: 0 17.6px 0 calc(17.6px - var(--rail-gap, 6.4px));
   overflow: hidden;
   /* Tight line boxes so the mixed-size title + eyebrow optically center in the
      bar (inheriting the page's 1.5+ line-height pushed the text low, reading as

@@ -1,5 +1,6 @@
 import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import ProjectVersionGate from './components/ProjectVersionGate';
 import { useAuth } from './context/AuthContext';
 import { isElectron, isLocalhostWeb } from './lib/platform';
 
@@ -107,18 +108,22 @@ export default function AppRoutes({ Shell, ProjectShell }) {
             <Route path="admin" element={<Admin />} />
             <Route path="projects" element={<ProjectList />} />
             <Route path="projects/new" element={<ProjectCreate />} />
-            <Route path="projects/:projectId" element={<ProjectShell />}>
-              <Route index element={<ProjectOverview />} />
-              <Route path="dashboard" element={<ProjectDashboard />} />
+            {/* Everything that opens ONE project: shut to an app older than the
+                version that last synced it (components/ProjectVersionGate). */}
+            <Route element={<ProjectVersionGate />}>
+              <Route path="projects/:projectId" element={<ProjectShell />}>
+                <Route index element={<ProjectOverview />} />
+                <Route path="dashboard" element={<ProjectDashboard />} />
+              </Route>
+              <Route path="files" element={<ProjectFiles />} />
+              <Route path="clients" element={<ProjectClients />} />
+              <Route path="todos" element={<ProjectTodos />} />
+              <Route path="chat" element={<ProjectChat />} />
+              <Route path="events" element={<ProjectEvents />} />
+              <Route path="generate" element={<ProjectGenerate />} />
+              <Route path="automate" element={<ProjectAutomate />} />
+              <Route path="ai" element={<ProjectAI />} />
             </Route>
-            <Route path="files" element={<ProjectFiles />} />
-            <Route path="clients" element={<ProjectClients />} />
-            <Route path="todos" element={<ProjectTodos />} />
-            <Route path="chat" element={<ProjectChat />} />
-            <Route path="events" element={<ProjectEvents />} />
-            <Route path="generate" element={<ProjectGenerate />} />
-            <Route path="automate" element={<ProjectAutomate />} />
-            <Route path="ai" element={<ProjectAI />} />
             <Route path="roadmap" element={<Roadmap />} />
             <Route path="mail" element={<Mail />} />
           </Route>

@@ -53,16 +53,29 @@ const OFFICE_SPECS = {
       </>
     ),
   },
+  // PDF — the same white page + badge, the badge a wider one reading "PDF"
+  // in the muted red the Files preview stripe uses (FilesWorkspace
+  // OFFICE_STRIPE), not Acrobat's shouting #E1251B.
+  pdf: {
+    color: '#B5473F',
+    letter: 'PDF',
+    badgeW: 13.4,
+    fontSize: 4,
+    content: (
+      <path d="M6.8 5.9h10.4M6.8 8.5h10.4M14.8 11.1h2.4M14.8 13.7h2.4" stroke="#B5473F" strokeOpacity="0.5" strokeWidth="1.25" strokeLinecap="round" />
+    ),
+  },
 };
 
 export function OfficeFileIcon({ kind, className }) {
   const s = OFFICE_SPECS[kind] || OFFICE_SPECS.word;
+  const w = s.badgeW || 11;
   return (
     <svg className={className} viewBox="0 0 24 24" aria-hidden="true" style={{ width: '100%', height: '100%' }}>
       <rect x="4.6" y="2.5" width="14.8" height="19" rx="1.7" fill="#fff" stroke="rgba(0,0,0,0.16)" strokeWidth="0.8" />
       {s.content}
-      <rect x="1.8" y="11.4" width="11" height="10.1" rx="1.8" fill={s.color} />
-      <text x="7.3" y="19.3" textAnchor="middle" fontFamily="var(--font-display, sans-serif)" fontSize="8.6" fontWeight="700" fill="#fff">{s.letter}</text>
+      <rect x="1.8" y="11.4" width={w} height="10.1" rx="1.8" fill={s.color} />
+      <text x={1.8 + w / 2} y={s.fontSize ? 17.9 : 18.35} textAnchor="middle" fontFamily="var(--font-display, sans-serif)" fontSize={s.fontSize || 5.8} fontWeight="800" letterSpacing={s.fontSize ? 0.2 : undefined} fill="#fff" stroke="#fff" strokeWidth="0.35" strokeLinejoin="round" paintOrder="stroke">{s.letter}</text>
     </svg>
   );
 }
@@ -221,21 +234,33 @@ export function ExtGlyph({ ext }) {
       </span>
     );
   }
+  // PDF — the same page-with-badge icon as the Office files.
+  if (cat === 'pdf') {
+    return <span className="fx-glyph fx-glyph-icon"><OfficeFileIcon kind="pdf" className="fx-type-icon" /></span>;
+  }
   // PowerPoint — authentic Office file icon (see doc/xls above).
   if (cat === 'ppt') {
     return <span className="fx-glyph fx-glyph-icon"><OfficeFileIcon kind="ppt" className="fx-type-icon" /></span>;
   }
-  // Everything else (doc / txt / pdf / ai / generic) — a document with text
+  // Everything else (txt / ai / generic) — a document with text
   // lines. This is the "we have no icon for this type" case, so the tile also
   // gets a corner pill naming the extension (see .fx-ext-pill, shown by CSS
   // only when this generic glyph is what's painted).
   return (
-    <span className="fx-glyph fx-glyph-icon fx-glyph-generic">
+    <span className={`fx-glyph fx-glyph-icon fx-glyph-generic${cat === 'txt' ? ' fx-glyph-txt' : ''}`}>
       <svg className="fx-type-icon" viewBox="0 0 24 24" aria-hidden="true">
         <rect className="fx-type-base" x="4" y="2.5" width="16" height="19" rx="2.6" />
-        <rect className="fx-type-detail" x="7" y="7" width="10" height="1.8" rx="0.9" />
-        <rect className="fx-type-detail" x="7" y="11" width="10" height="1.8" rx="0.9" />
-        <rect className="fx-type-detail" x="7" y="15" width="7" height="1.8" rx="0.9" />
+        {cat === 'gen' ? (
+          // A format the app doesn't know: a question mark on the page rather
+          // than the text lines, which would claim it's a document.
+          <text className="fx-type-detail" x="12" y="16.2" textAnchor="middle" fontFamily="var(--font-display, sans-serif)" fontSize="11" fontWeight="800">?</text>
+        ) : (
+          <>
+            <rect className="fx-type-detail" x="7" y="7" width="10" height="1.8" rx="0.9" />
+            <rect className="fx-type-detail" x="7" y="11" width="10" height="1.8" rx="0.9" />
+            <rect className="fx-type-detail" x="7" y="15" width="7" height="1.8" rx="0.9" />
+          </>
+        )}
       </svg>
     </span>
   );

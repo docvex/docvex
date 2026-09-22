@@ -20,15 +20,15 @@
 .app-shell {
   position: relative;   /* anchors the sidebar resize handle */
   display: flex;
-  /* Collapse / expand tween. Short and eased-out so the rail settles quickly —
-     every frame of this re-lays-out the app row (see the note above). */
-  transition: --sidebar-width 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  /* No tween on --sidebar-width: animating the shared var re-laid-out the
+     whole app row every frame (the collapse stutter). The collapse / expand
+     animation is the rail's own width instead — see .rail-toggling below. */
   /* Reserve room for the custom frameless title bar (--titlebar-h; 0 on web)
      so the shell sits below it. */
   height: calc(100 * var(--vh1) - var(--titlebar-h));
   margin-top: var(--titlebar-h);
   overflow: hidden;
-  background: var(--bg-page);
+  background: var(--bg-backdrop);
   /* Width of the vertical app-nav rail (Sidebar.jsx). Also read by
      SwitchProjectLoader.css, ProjectBanner, the file detail modal, the tree
      viewports, etc. */
@@ -44,6 +44,12 @@
      workspace (--fx-rail-pad), the chat frame, and every fixed/sticky
      mini header — change it HERE so all tabs move in lock-step. */
   --content-left-gap: 17.6px;
+  /* Gap between the sidebar rail and every floating bar beside it — the mini
+     headers (fixed or pinned) and the footers — the SAME gap the rail keeps
+     from the window edge. Each bar that used to sit flush against the rail
+     now starts this far from it and trims its own inner padding by the same
+     amount, so its text still lands on the content edge. */
+  --rail-gap: var(--chrome-inset);
   /* Fixed ceiling for every tab's content column (Activity / Newsletter /
      Versions / Settings / Debug / Mail / Account / Files / Chat / Events).
      Replaces the old proportional `width: 75%` recipe: content renders at up
@@ -62,7 +68,28 @@
 /* Mid-drag the width IS the pointer, so tweening toward it would just lag
    behind the cursor. Same for a reduce-motion preference. */
 .app-shell.sidebar-resizing { transition: none; }
+/* Mid-drag only the rail (and its grab strip) follow the pointer, via
+   --rail-live-width (AppShell.jsx); the slot — and with it the content
+   column — keeps the committed width until the pointer is released. */
+.app-shell.sidebar-resizing .sidebar { width: var(--rail-live-width, var(--sidebar-width, 192px)); }
+.app-shell.sidebar-resizing .sidebar-resize-handle {
+  left: calc(var(--chrome-inset, 6.4px) + var(--rail-live-width, var(--sidebar-width, 192px)));
+}
 [data-reduce-motion='true'] .app-shell { transition: none; }
+
+/* Collapse / expand (AppShell's `rail-toggling`, ~300ms). The slot's width
+   tween (base .sidebar-slot rule, 260ms) resizes the content column beside it
+   frame by frame, and the absolutely-positioned rail tweens its own width on
+   the same curve, so the rail's edge and the content's stay together. The
+   rail's blur is dropped for the ride (it would be re-sampled every frame). */
+.app-shell.rail-toggling .sidebar {
+  transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1),
+              transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 200ms ease;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+[data-reduce-motion='true'] .app-shell.rail-toggling .sidebar { transition: none; }
 
 /* ── Sidebar resize handle ──────────────────────────────────────────────
    A grab strip straddling the rail's right edge. Lives on the shell rather
@@ -205,7 +232,7 @@
      title + content line up at the same distance from the edge. */
   padding: 1.6rem 17.6px;
   min-width: 0;
-  background-color: var(--bg-page);
+  background-color: var(--bg-backdrop);
   /* Own chrome frame — separate from the sidebar's. */
   border: 1px solid var(--border);
   border-radius: 9.6px;
@@ -305,8 +332,8 @@
      curve a contrasting edge that traces the panel's corner shape. */
   background: linear-gradient(
     to bottom,
-    var(--bg-page) 0,
-    var(--bg-page) 0.9rem,
+    var(--bg-backdrop) 0,
+    var(--bg-backdrop) 0.9rem,
     transparent 0.9rem
   );
   border-radius: 14.4px 14.4px 0 0;

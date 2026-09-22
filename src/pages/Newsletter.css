@@ -46,12 +46,15 @@
   .ed-page { width: min(100%, var(--content-max-width, 1280px)); }
 }
 
-/* Mini header flush against the sidebar rail (Newsletter only) — drop the
-   --content-left-gap term from the shared .pmh-compact left inset so the
-   bar's surface starts at the rail's edge; its title then lands at the
+/* Mini header close to the sidebar rail (Newsletter only) — the shared
+   .pmh-compact left inset without its --content-left-gap term, so the bar's
+   surface starts one --rail-gap from the rail; its title then lands at the
    content edge, matching the Activity toolbar. */
 .ed-page .pmh-compact {
-  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px));
+  /* One --rail-gap off the rail (the gap the rail keeps from the window), the
+     title still on the content edge. */
+  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px) + var(--rail-gap, 6.4px));
+  padding-left: calc(17.6px - var(--rail-gap, 6.4px));
 }
 /* ...and grown 11.2px past the content column's right edge on wide screens
    (clamped at one --chrome-inset from the window edge), overriding the

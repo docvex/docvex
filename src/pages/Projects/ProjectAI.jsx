@@ -27,6 +27,8 @@ import Tooltip from '../../components/Tooltip';
 import gavelLoader from '../../gavel-loader.svg';
 import '../../lib/useChatFind.css'; // the search box's "N chats" count chip
 import './ProjectScoped.css';
+import { markGone } from '../../lib/syncClock';
+import { embedDocxSource, sourcePayload } from '../../lib/docxSource';
 import './ProjectAI.css';
 import './ProjectChatVariantB.css';
 import './ProjectAIChat.css';
@@ -41,6 +43,7 @@ import './ProjectAIChat.css';
 // their names ground every answer, and any file the user attaches (paperclip /
 // drag from Files) or mentions by name gets its text extracted and inlined.
 
+// Also read by lib/projectSyncData — keep the two in step.
 const STORAGE_PREFIX = 'docvex.aichat.v3.';
 
 // Steer note appended (transiently) to each turn: the model may CREATE real
@@ -722,7 +725,9 @@ export default function ProjectAI() {
       const { text, error } = await askProjectAi({ messages: [{ role: 'user', content: prompt }], projectName: '', fileNames: [], tools: false, usageAction: 'chat' });
       if (error) return;
       const title = (text || '').split('\n')[0].trim().replace(/^["'“”\s]+|["'“”.\s]+$/g, '').slice(0, 48);
-      if (title) setThreads((ts) => ts.map((t) => (t.id === threadId ? { ...t, title } : t)));
+      // `updatedAt` too: account sync keeps the newer copy of a chat, and a title
+      // that lands without it would never reach a device that already has the chat.
+      if (title) setThreads((ts) => ts.map((t) => (t.id === threadId ? { ...t, title, updatedAt: Date.now() } : t)));
     } catch { /* keep placeholder title */ }
   };
 
@@ -773,7 +778,10 @@ export default function ProjectAI() {
     try {
       // 'skills' prefers Anthropic's Office Skills builder (high fidelity) and
       // auto-falls back to the local docx/pptx/xlsx/pdf builders.
-      const blob = await buildDocumentBlobSmart(kind, text, { engine: 'skills' });
+      let blob = await buildDocumentBlobSmart(kind, text, { engine: 'skills' });
+      // A Word file carries its source (lib/docxSource), so the Doc Viewer's
+      // paragraph tools work on it — on this device and on any other.
+      if (kind === 'docx') blob = await embedDocxSource(blob, sourcePayload([{ n: 1, text, kind }], 1));
       const wr = await localFolderApi.writeFiles({ dir, files: [{ filename: name, blob }] });
       if (wr?.error || !wr?.results?.[0]?.ok) throw new Error(wr?.error || wr?.results?.[0]?.error || 'write_failed');
       notifyFilesChanged(); // other windows (the Files tab) refresh their listings
@@ -1041,7 +1049,7 @@ export default function ProjectAI() {
     const current = threads.find((t) => t.id === threadId);
     const convo = (current?.messages || []).slice(0, index);
     if (!convo.length) return;
-    setThreads((ts) => ts.map((t) => (t.id === threadId ? { ...t, messages: convo } : t)));
+    setThreads((ts) => ts.map((t) => (t.id === threadId ? { ...t, messages: convo, updatedAt: Date.now() } : t)));
     beginStreaming(threadId);
     const seq = ++turnSeqRef.current;
     const digest = await getProjectDigest();
@@ -1079,6 +1087,9 @@ export default function ProjectAI() {
   };
   const deleteThread = (id) => {
     const next = threads.filter((t) => t.id !== id);
+    // Remembered so account sync (lib/projectSyncData) doesn't bring the chat
+    // back from another device's copy.
+    markGone(storageKey, id);
     setThreads(next);
     if (id === activeId) setActiveId(next[0]?.id ?? null);
   };

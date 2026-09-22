@@ -329,7 +329,7 @@ export const localFolderApi = {
   listAll: async (dir) => {
     if (hasElectron) return electronApi.listRecursive(dir);
     const res = await listWeb();
-    return { files: (res.files || []).map((f) => ({ ...f, folderPath: '' })), error: res.error };
+    return { files: (res.files || []).map((f) => ({ ...f, folderPath: '' })), dirs: [], error: res.error };
   },
 
   // ── Folder management (Electron only) ─────────────────────────────
@@ -457,9 +457,9 @@ export const localFolderApi = {
       const ipcFiles = [];
       for (const f of files) {
         if (!f?.relPath || !f?.blob) { ipcFiles.push({ relPath: f?.relPath || '?', bytes: null }); continue; }
-        ipcFiles.push({ relPath: f.relPath, bytes: await f.blob.arrayBuffer() });
+        ipcFiles.push({ relPath: f.relPath, bytes: await f.blob.arrayBuffer(), mtime: f.mtime || null });
       }
-      return electronApi.writeTree({ dir, files: ipcFiles });
+      return electronApi.writeTree({ dir, files: ipcFiles, dirs: Array.isArray(payload?.dirs) ? payload.dirs : [] });
     }
     const flat = files.map((f) => ({ filename: String(f?.relPath || '').split('/').pop(), blob: f?.blob }));
     const res = await localFolderApi.writeFiles({ dir, files: flat });
@@ -467,6 +467,12 @@ export const localFolderApi = {
       results: (res.results || []).map((r, i) => ({ ...r, relPath: files[i]?.relPath || r.filename })),
       error: res.error,
     };
+  },
+
+  // Account sync: remove folders deleted on another device, only if empty here.
+  removeEmptyDirs: async (payload) => {
+    if (hasElectron && electronApi.removeEmptyDirs) return electronApi.removeEmptyDirs(payload);
+    return { removed: [], error: null };
   },
 
   deleteFiles: async (payload) => {

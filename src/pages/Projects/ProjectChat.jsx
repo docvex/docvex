@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 // Cursor coords are viewport px; the CSS lengths we set (--spot-x/y, the rail
@@ -595,7 +595,7 @@ const TeamComposer = React.memo(function TeamComposer({
   return (
     <div className="vb-composer-wrap" onDragOver={handleFilesDragOver} onDrop={handleFilesDrop}>
       <div
-        className="dvx-composer vb-composer"
+        className="dvx-composer vb-composer mini-glow"
         onMouseMove={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           e.currentTarget.style.setProperty('--spot-x', `${toLayoutPx(e.clientX - r.left)}px`);

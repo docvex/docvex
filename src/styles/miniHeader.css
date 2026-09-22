@@ -1,4 +1,4 @@
-/* Shared mini-header glow — the SIDEBAR's cursor-following spotlight + border
+﻿/* Shared mini-header glow — the SIDEBAR's cursor-following spotlight + border
    shine, extracted so every compact bar in the app (pmh-compact, pjd-compact,
    dc-compact, versions-compact, mx-compact, fx-pathbar, dvx-toolbar) reads as
    the same surface.
@@ -24,19 +24,76 @@
    strip can't reach, i.e. the fade follows the mini header's own radius.
    Every pinned bar sets `box-shadow: var(--mini-seam-shadow)`. */
 :root {
-  --mini-seam-shadow: 0 calc(-1 * var(--chrome-inset, 6.4px)) 0 0 var(--bg-page);
+  --mini-seam-shadow: 0 calc(-1 * var(--chrome-inset, 6.4px)) 0 0 var(--bg-backdrop);
   /* Mirrored variant for the floating BOTTOM bars (the Files action bar +
      the chat composer footer): paints the seam BELOW the bar and around its
      rounded bottom corners, so scrolling content can't peek through the
      corner crescents in the gap under the bar. */
-  --mini-seam-shadow-down: 0 var(--chrome-inset, 6.4px) 0 0 var(--bg-page);
+  --mini-seam-shadow-down: 0 var(--chrome-inset, 6.4px) 0 0 var(--bg-backdrop);
 }
 
-/* The cursor-following interior spotlight + border shine that used to ride
-   on .mini-glow::before/::after were REMOVED (product decision: mini headers
-   render without the spotlight). The .mini-glow class and the miniHeaderSpot
-   mousemove wiring on the bars are now inert — kept so surfaces don't need
-   churn and the effect can be restored from git history if wanted. */
+/* The SIDEBAR's cursor-following spotlight (.sidebar::before / ::after in
+   Sidebar.css, same values): a soft accent glow inside the bar and a bright
+   accent shine on its border, both following --spot-x/--spot-y and fading in
+   while the pointer is over the bar. Worn by every mini header and by the two
+   footers (the Files action bar, the Chat composer when it is the footer).
+   Bars that are transparent in flow already hide the border shine
+   (.fx-pathbar / .dvx-toolbar :not(.is-pinned)::after). */
+.mini-glow::before,
+.sv-footer .dvx-composer.mini-glow::before {
+  content: '';
+  display: block;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 4.5%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 1.5%, transparent) 38%,
+    transparent 68%
+  );
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.mini-glow::after,
+.sv-footer .dvx-composer.mini-glow::after {
+  content: '';
+  display: block;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  pointer-events: none;
+  z-index: 2;
+  background: radial-gradient(
+    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 12%, transparent) 34%,
+    transparent 62%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.mini-glow:hover::before,
+.mini-glow:hover::after { opacity: 0.7; }
+/* Only while the bar has its background: a mini header scrolled back into
+   the page (not pinned / not shown) is transparent, and a glow on nothing
+   reads as a stray light. The footers always carry their fill; the Files bar
+   keeps it in its tinted edit mode. */
+.mini-glow:not(.is-pinned, .is-visible, .is-editing, .fx-bottombar, .dvx-composer)::before,
+.mini-glow:not(.is-pinned, .is-visible, .is-editing, .fx-bottombar, .dvx-composer)::after { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .mini-glow::before,
+  .mini-glow::after { display: none; }
+}
 
 /* Lift the bar's content above the (former) glow layer — kept so the bars'
    internal stacking doesn't shift. */
@@ -69,8 +126,22 @@
      the bar's top border, so a gradient tail here just lets scrolling rows
      poke through the gap. Content still reads as dissolving: it passes
      blurred behind the frosted bar, then disappears under this strip. */
-  background: var(--bg-page);
+  background: var(--bg-backdrop);
   opacity: 0;
   transition: opacity 240ms ease;
 }
 .mini-fade.is-visible { opacity: 1; }
+
+/* Light theme: the mini headers and the footers wear the SIDEBAR's glass
+   exactly (Sidebar.css, cream theme): white (--bg-sidebar) at 90% + the same
+   6.4px blur. Only the states that HAVE a surface — a bar in flow under the
+   masthead stays transparent. */
+:root[data-theme="cream"] :is(
+  .pmh-compact, .pjd-compact, .dc-compact, .versions-compact, .mx-compact,
+  .fx-pathbar.is-pinned:not(.is-editing), .dvx-toolbar.is-pinned, .avt-toolbar.is-pinned,
+  .fx-bottombar:not(.is-editing), .sv-footer .dvx-composer
+) {
+  background: color-mix(in srgb, var(--bg-sidebar) 90%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+}
