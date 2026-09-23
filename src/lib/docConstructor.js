@@ -16,7 +16,105 @@ import {
   applyGenderToText, applyLocalityToText, APARTMENT_ONLY_FIELDS,
 } from './identities';
 
-export const FIELD_RE = /\[\[([^\[\]]+?)\]\]/g;
+// ── What a blank looks like ─────────────────────────────────────────────────
+// ONE list of shapes, and one judgement about them, for EVERYTHING in the app
+// that has to find a gap in a document: this model (which fills blanks in and
+// writes them back) and the Word preview's chips (pages/DocViewer). They used
+// to keep separate lists and disagreed — the preview drew a chip on
+// "[Client name]", "{{x}}" and a dotted rule that the panel could not fill, so
+// a blank you could see was not always a blank you could answer.
+//
+// Single brackets are ambiguous — "[3]" is a footnote, "[sic]" an editorial
+// note — so a delimited shape is judged by what is inside it (looksLikeBlank).
+// "[[…]]" needs no judgement: nothing else in a legal document is written that
+// way, which is why it is what DocVex writes and what the drafter is told to
+// use. A rule of underscores or dots is always a blank.
+export const BLANK_PATTERNS = [
+  /\[\[[^\]\n]{1,120}\]\]/g,              // [[the seller's full name]]
+  /\[[^\][\n]{0,80}\]/g,                   // [Client name] — and the bare "[...]" rule
+  /\{\{[^{}\n]{1,80}\}\}/g,                // {{client_name}}
+  /\{[^{}\n]{1,80}\}/g,                    // {client_name}
+  /<[^<>\n]{1,80}>/g,                      // <client name>
+  /\u27E8[^\u27E8\u27E9\n]{1,80}\u27E9/g,   // ⟨client name⟩
+  /_{3,}/g,                                // ________ (signature / fill-in rule)
+  /\.{4,}/g,                               // ......... (dotted rule, NOT an ellipsis)
+  /\u2026{2,}/g,                            // …… (repeated ellipsis characters)
+];
+
+const OPENERS = /^[[{<\u27E8]+/;
+const CLOSERS = /[\]}>\u27E9]+$/;
+
+// A rule (underscores / dots) always counts. A delimited placeholder counts
+// only when what is inside it reads like a label — at least one letter, so
+// citation and footnote markers such as "[3]" or "[2020]" are left alone.
+export function looksLikeBlank(raw) {
+  if (/^\[\[[\s\S]*\]\]$/.test(raw)) return true;   // ours by construction
+  if (/^[_.\u2026]+$/.test(raw)) return true;
+  // A bracketed rule — "[...]", "[…]", "[___]", "[ ]". Romanian formulas write
+  // whole identification clauses this way, labelling each gap in the prose
+  // BEFORE it ("str. [...], nr. [...]") rather than inside it.
+  if (/^[[{<\u27E8][\s._\u2026-]*[\]}>\u27E9]$/.test(raw)) return true;
+  const inner = raw.replace(OPENERS, '').replace(CLOSERS, '').trim();
+  if (!inner || inner.length > 80) return false;
+  // A brace group holding declarations is a CSS rule, not a blank — no
+  // placeholder a person writes contains a semicolon or a property colon.
+  if (/^[{<\u27E8]/.test(raw) && /[;:]/.test(inner)) return false;
+  return /[A-Za-z\u00C0-\u024F]/.test(inner);
+}
+
+// Every blank in one string, left to right, without overlaps. The patterns are
+// run independently and merged, so the longest match wins where two shapes
+// start at the same spot ("{{x}}" beats the inner "{x}").
+// Each hit: { start, end, raw, id } — `id` is what the blank is CALLED, which
+// is its inner text where it has one and its position where it has not (a rule
+// of underscores says nothing about itself).
+export function scanBlanks(text) {
+  const src = String(text || '');
+  const hits = [];
+  for (const re of BLANK_PATTERNS) {
+    re.lastIndex = 0;
+    let m = re.exec(src);
+    while (m) {
+      if (looksLikeBlank(m[0])) hits.push({ start: m.index, raw: m[0] });
+      m = re.exec(src);
+    }
+  }
+  hits.sort((a, b) => a.start - b.start || b.raw.length - a.raw.length);
+  const out = [];
+  let end = -1;
+  for (const h of hits) {
+    if (h.start < end) continue;
+    const inner = h.raw.replace(OPENERS, '').replace(CLOSERS, '').trim();
+    out.push({
+      start: h.start,
+      end: h.start + h.raw.length,
+      raw: h.raw,
+      id: /[A-Za-z\u00C0-\u024F]/.test(inner) ? inner : `blank${out.length + 1}`,
+    });
+    end = h.start + h.raw.length;
+  }
+  return out;
+}
+
+// `fn({ all, id, offset })` per blank; what it returns replaces the blank.
+export function replaceFields(text, fn) {
+  const src = String(text || '');
+  const hits = scanBlanks(src);
+  if (!hits.length) return src;
+  let out = '';
+  let at = 0;
+  for (const h of hits) {
+    out += src.slice(at, h.start) + fn({ all: h.raw, id: h.id, offset: h.start });
+    at = h.end;
+  }
+  return out + src.slice(at);
+}
+
+// The text with its blanks taken out — for reading a piece's words rather than
+// its gaps (a label, the likeness test that tracks a paragraph across versions).
+export function stripBlanks(text, to = ' ') {
+  return replaceFields(text, () => to);
+}
 
 // What a canonical field key reads as on a chip or above an input.
 const FIELD_LABELS = {
@@ -53,13 +151,11 @@ export function fieldInfo(id) {
 export function parseSegs(text) {
   const out = [];
   let last = 0;
-  let m;
-  FIELD_RE.lastIndex = 0;
   const src = String(text || '');
-  while ((m = FIELD_RE.exec(src))) {
-    if (m.index > last) out.push({ text: src.slice(last, m.index) });
-    out.push({ field: m[1].trim() });
-    last = m.index + m[0].length;
+  for (const h of scanBlanks(src)) {
+    if (h.start > last) out.push({ text: src.slice(last, h.start) });
+    out.push({ field: h.id });
+    last = h.end;
   }
   if (last < src.length) out.push({ text: src.slice(last) });
   return out;
@@ -80,10 +176,11 @@ export function fieldsOf(text) {
 // (`keep`) or reads as its label in brackets, which is how a plain-text read-out
 // shows what is still missing.
 export function fillText(text, values, { keep = true } = {}) {
-  return String(text || '').replace(FIELD_RE, (all, raw) => {
-    const id = raw.trim();
+  return replaceFields(text, ({ all, id }) => {
     const v = String(values?.[id] ?? '').trim();
     if (v) return v;
+    // `keep` hands back the blank EXACTLY as the document writes it — which is
+    // what lets a foreign file still be found by its own text when it is saved.
     return keep ? all : `[${fieldInfo(id).label.toLowerCase()}]`;
   });
 }
@@ -104,7 +201,14 @@ const stripInline = (s) => String(s || '').replace(/\*\*|__|`/g, '').trim();
 //                          is a name, not a list)
 //   i)  (ii)  iv)          lower-case roman sub-points
 // and any of them wrapped in bold, which is how the drafter often writes them.
-const NUM_SRC = '(?:\\d{1,3}(?:\\.\\d{1,3}){1,4}\\.?|\\d{1,3}[.)]|\\(\\d{1,3}\\)|\\([a-z]\\)|[a-z][.)]|\\((?:[ivx]{1,5})\\)|(?:[ivx]{1,5})\\))';
+// The headings a document gives its sections are markers too — "Art. 1",
+// "CAPITOLUL I", "Secțiunea 1", "I." — so that a line keeps its number even
+// where headings are NOT being read as headings: a document DocVex did not
+// write is parsed flat (every line a piece), and without these its articles
+// arrived numberless. Capitalised on purpose: "conform art. 1270 Cod civil" is
+// a citation in the middle of a sentence, not a heading.
+const HEAD_SRC = '(?:Art(?:icolul|\\.)?\\s*\\d{1,3}|CAP(?:ITOLUL|\\.)?\\s*[IVXLC]{1,5}|Capitolul\\s*[IVXLC]{1,5}|Sec[țt]iunea\\s*\\d{1,3}\\.?|[IVXLC]{1,5}\\.)';
+const NUM_SRC = `(?:${HEAD_SRC}|\\d{1,3}(?:\\.\\d{1,3}){1,4}\\.?|\\d{1,3}[.)]|\\(\\d{1,3}\\)|\\([a-z]\\)|[a-z][.)]|\\((?:[ivx]{1,5})\\)|(?:[ivx]{1,5})\\))`;
 const MARKER_RE = new RegExp(
   `^(\\s*(?:#{1,6}\\s+|[-*•]\\s+)?(?:(?:\\*\\*|__)${NUM_SRC}(?:\\*\\*|__)\\s+|${NUM_SRC}\\s+)?)([\\s\\S]*)$`,
 );
@@ -115,6 +219,10 @@ const MARKER_RE = new RegExp(
 function numberingOf(marker, prevDepth) {
   const raw = String(marker || '').replace(/^\s*#{1,6}\s+/, '').replace(/\*\*|__/g, '').trim();
   if (!raw) return { num: '', depth: 0, numeric: false };
+  // A section heading sits at the top and reads as its own number.
+  const head = /^(?:art(?:icolul|\.)?\s*(\d{1,3})|cap(?:itolul|\.)?\s*([IVXLC]{1,5})|sec[țt]iunea\s*(\d{1,3}))\.?$/i.exec(raw);
+  if (head) return { num: head[1] || head[2] || head[3], depth: 0, numeric: true };
+  if (/^[IVXLC]{1,5}\.$/.test(raw)) return { num: raw.replace(/\.$/, ''), depth: 0, numeric: true };
   if (/^[-*•]$/.test(raw)) return { num: '•', depth: prevDepth + 1, numeric: false };
   const bullet = /^[-*•]\s+(.*)$/.exec(raw);
   const num = bullet ? bullet[1] : raw;
@@ -142,6 +250,18 @@ function headingOf(line) {
     const shouty = bare === bare.toUpperCase();
     if (words <= 10 && (shouty || /^\*\*.*\*\*$/.test(line.trim()))) return { level: 2, title: bare };
   }
+  // A section named but NOT numbered — "OBIECTUL CONTRACTULUI" standing alone.
+  // Documents written that way (the Playbook's "No number" rule) had no
+  // sections at all before this: every heading fell in with the prose under it.
+  // Short, shouty, unpunctuated and carrying a letter is the whole test — the
+  // FIRST such line is still the document's title, which is settled by the
+  // caller, not here.
+  if (bare.length <= 60 && /\p{Lu}/u.test(bare) && bare === bare.toUpperCase()
+    && bare.split(/\s+/).length <= 6 && !/\d/.test(bare)) {
+    // `bare`: the caller needs to tell this from a numbered heading, because
+    // the FIRST such line in a document is its title, not its first section.
+    return { level: 2, title: bare, bare: true };
+  }
   return null;
 }
 
@@ -155,6 +275,8 @@ const headingNumber = (t) => {
 // Strip a heading's own numbering from its title — the badge carries it.
 const unNumber = (t) => String(t || '')
   .replace(/^(?:art(?:icolul|\.)?\s*|cap(?:itolul|\.)?\s*|sec[țt]iunea\s*)?(?:\d{1,2}|[IVXLC]{1,5})(?=[\s.):\-–])[\s.):\-–]*/i, '')
+  // …including the dash a heading puts between its number and its name.
+  .replace(/^[—–-]\s*/, '')
   .trim() || String(t || '').trim();
 
 // A short name for a piece, from whatever it has: the party it identifies, or
@@ -173,7 +295,7 @@ function pieceLabel(body, fields) {
   const bare = stripInline(body);
   const lead = bare.split('[[')[0].replace(/[\s,;:.(]+$/, '');
   const useLead = bare.includes('[[') && lead.split(/\s+/).filter(Boolean).length >= 2;
-  const plain = (useLead ? lead : bare.replace(FIELD_RE, ' '))
+  const plain = (useLead ? lead : stripBlanks(bare))
     .replace(/\s+([,;:.])/g, '$1')
     .replace(/([,;:.])(?:\s*[,;:.])+/g, '$1');
   const words = plain.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
@@ -195,7 +317,13 @@ function partyOf(fields) {
 }
 
 // Read a document source into { title, sections, lines }.
-export function parseSource(source) {
+// `flat`: every non-blank line is a piece — no line is read as a heading or as
+// the document's title. That is how a file DocVex did NOT write is parsed: its
+// source is its own paragraphs, read out of the .docx, and the structure lives
+// in Word's styles, not in the text. Reading "Art. 1 Obiectul contractului" as
+// a section heading there would leave that paragraph belonging to no piece, so
+// clicking it would open nothing — and every paragraph has to be pickable.
+export function parseSource(source, { flat = false } = {}) {
   const lines = String(source || '').replace(/\r\n?/g, '\n').split('\n');
   let title = '';
   const sections = [];
@@ -217,10 +345,13 @@ export function parseSource(source) {
   lines.forEach((raw, i) => {
     const line = raw.replace(/\s+$/, '');
     if (!line.trim() || /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) return;
-    const h = headingOf(line);
+    const h = flat ? null : headingOf(line);
     // The first `#` line is the document's title, not a section.
     if (h && h.level === 1 && !title && !sections.length) { title = h.title; seenContent = true; return; }
-    if (!seenContent && !h && !title && stripInline(line).length <= 90 && !/\[\[/.test(line)
+    // …and so is a bare name standing at the very top, which is what a document
+    // whose sections are unnumbered opens with.
+    if (h?.bare && !seenContent && !title && !sections.length) { title = h.title; seenContent = true; return; }
+    if (!flat && !seenContent && !h && !title && stripInline(line).length <= 90 && !/\[\[/.test(line)
       && stripInline(line) === stripInline(line).toUpperCase() && /\p{L}/u.test(line)) {
       title = stripInline(line); seenContent = true; return;
     }
@@ -302,6 +433,9 @@ export function pieceDisplayText(piece, text) {
 // Exact text first; failing that, containment either way (a paragraph the
 // renderer split, or one that carries a little extra), but only for text long
 // enough that a partial match can't land on the wrong clause.
+// How alike a paragraph and a piece must be to match on containment alone.
+const LOOSE_MATCH_MIN = 0.6;
+
 export function findPieceForText(model, values, paraText) {
   const target = matchNorm(paraText);
   if (!target) return null;
@@ -312,8 +446,14 @@ export function findPieceForText(model, values, paraText) {
       if (!cand) continue;
       if (cand === target) return { section, piece };
       if (target.length > 24 && cand.length > 24 && (cand.includes(target) || target.includes(cand))) {
+        // One containing the other is not enough on its own: a piece far longer
+        // than the paragraph contains it the way a chapter contains a sentence,
+        // and answering with that piece opens the whole of it. A loose match is
+        // for the small differences between what the file says and what the
+        // page shows — a list number the renderer adds, a trailing space — so
+        // the two have to be nearly the same length to count.
         const score = Math.min(cand.length, target.length) / Math.max(cand.length, target.length);
-        if (!loose || score > loose.score) loose = { section, piece, score };
+        if (score >= LOOSE_MATCH_MIN && (!loose || score > loose.score)) loose = { section, piece, score };
       }
     }
   }
@@ -334,7 +474,7 @@ export function findPieceForText(model, values, paraText) {
 // blanks at the time.
 export const normaliseParagraphText = (t) => matchNorm(t);
 
-const wordsOf = (t) => new Set(matchNorm(String(t || '').replace(FIELD_RE, ' ')).split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2));
+const wordsOf = (t) => new Set(matchNorm(stripBlanks(String(t || ''))).split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2));
 function samePiece(a, b) {
   if (!a || !b) return false;
   if ((a.party ?? null) !== (b.party ?? null)) return false;
@@ -406,8 +546,8 @@ const locationKnown = (rec) => !!String(
 export function settleClauseFor(text, role, record) {
   let out = String(text || '');
   if (addressKnown(record) && !addressIsApartment(record)) {
-    out = out.replace(FIELD_RE, (all, raw, offset) => {
-      const f = fieldInfo(raw.trim());
+    out = replaceFields(out, ({ all, id, offset }) => {
+      const f = fieldInfo(id);
       if ((f.role || '') !== (role || '') || !APARTMENT_ONLY_FIELDS.includes(f.key)) return all;
       return `\u0000DROP${offset}\u0000`;
     });
@@ -562,8 +702,8 @@ export function optionalPartsFor(text, role, kind) {
 // back to the separator before each. (The same cut settleClauseFor makes for a
 // house address.)
 function dropBlanks(text, shouldDrop) {
-  const marked = String(text || '').replace(FIELD_RE, (all, raw, offset) => (
-    shouldDrop(fieldInfo(raw.trim())) ? `\u0000DROP${offset}\u0000` : all
+  const marked = replaceFields(text, ({ all, id, offset }) => (
+    shouldDrop(fieldInfo(id)) ? `\u0000DROP${offset}\u0000` : all
   ));
   // eslint-disable-next-line no-control-regex
   return marked.replace(/[,;]?[^,;\u0000]*\u0000DROP\d+\u0000/g, '');
@@ -666,4 +806,25 @@ export const CLAUSE_VARIANTS = [
 export function variantsFor(section, pieceIndex) {
   if (pieceIndex !== 0) return null;
   return CLAUSE_VARIANTS.find((v) => v.match.test(section.title)) || null;
+}
+
+// ── The paragraphs an edit actually changes ────────────────────────────────
+// For a file DocVex did NOT write, saving cannot rebuild the document (that
+// would throw its Word formatting away — see lib/docxRewrite): the file is
+// edited in place, paragraph by paragraph. This says which paragraphs those
+// are, as `{ before, after }` — the wording the file has now, and the wording
+// it should have — for every piece whose text was edited or whose blanks were
+// filled differently from what the document already said.
+export function changedParagraphs(model, edits, values, baseValues) {
+  const out = [];
+  for (const sec of model?.sections || []) {
+    for (const pc of sec.pieces) {
+      const editedText = edits?.[pc.id];
+      const nextText = editedText === undefined ? pc.text : editedText;
+      const before = pieceDisplayText(pc, fillText(pc.text, baseValues));
+      const after = pieceDisplayText(pc, fillText(nextText, values));
+      if (before !== after) out.push({ before, after, pieceId: pc.id });
+    }
+  }
+  return out;
 }

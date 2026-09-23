@@ -96,7 +96,7 @@
    which occupy the same slot the clear button does over there. */
 .dv-find {
   position: absolute;
-  top: 9.6px;
+  top: 6.4px;
   /* Top-LEFT of the document area, just past the floating side panel's
      footprint (8px inset + --dv-advisor-w + 8px gutter) — the same left edge
      the zoom pill, the tool stack and the document itself line up on, so the
@@ -127,14 +127,17 @@
    a paragraph is picked (28px at right 16px). */
 .dv-section-body:has(.dcx-workspace) .dv-find {
   left: auto;
-  right: calc(var(--dv-fields-pad, 0px) + 56px);
+  /* 6.4px from the right edge — the same gap it keeps from the top. NOTE:
+     while a paragraph is picked the round Close button takes that same corner
+     (28px at right 16px), so the two meet. */
+  right: calc(var(--dv-fields-pad, 0px) + 6.4px);
 }
 /* A PDF and a PICTURE too: top-RIGHT — a PDF's top-left is where the page list
    stands, a picture's is the zoom pill; both are kept clear of the window edge. */
 .dv-section-body:has(.file-preview-pdf-shell) .dv-find,
 .dv-section-body:has(.dv-media-stage) .dv-find {
   left: auto;
-  right: 24px;
+  right: 6.4px;
 }
 /* Nothing to search while the photo editor has the pane: the field FADES out
    (and stops taking the pointer) rather than vanishing under the bar sliding in. */
@@ -161,7 +164,10 @@
 .dv-textline::highlight(docfind-find-active),
 .dv-textline *::highlight(docfind-find-active) {
   color: transparent;
-  background-color: color-mix(in srgb, var(--warning) 88%, transparent);
+  /* The match you are standing on: solid amber and underlined, so it is
+     obvious among the other matches even over a canvas or a photograph. */
+  background-color: #f59e0b;
+  text-decoration: underline 2px solid #7c4a03;
 }
 .dv-find:hover { border-color: var(--border-strong); }
 .dv-find:focus-within {
@@ -188,22 +194,18 @@
    background. Fades out on focus to make room for typing. */
 .dv-find-kbd {
   flex: 0 0 auto;
-  display: inline-flex; align-items: center; gap: 2.4px;
+  display: inline-flex; align-items: center; gap: 1.6px;
   font-family: var(--font-body);
   transition: opacity 120ms ease;
 }
+/* Just the keys — no chip around each one and no + between them. */
 .dv-find-kbd kbd {
-  display: inline-flex; align-items: center;
-  padding: 1px 4px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-elevated);
   font-family: inherit;
-  font-size: 8.4px; font-weight: 600; line-height: 1.5;
+  font-size: 9.6px; font-weight: 600; line-height: 1;
   letter-spacing: 0.02em;
   color: var(--text-muted);
 }
-.dv-find-kbd-plus { margin: 0 2.4px; font-size: 8px; font-weight: 600; color: var(--text-muted); }
+.dv-find-kbd-plus { display: none; }
 .dv-find:focus-within .dv-find-kbd { opacity: 0; }
 
 /* Match position — "3/17", or the honest answer when there isn't one. */
@@ -651,11 +653,13 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 }
 .file-preview-pdf-scroll.is-dragging { cursor: grabbing; }
 .file-preview-pdf-scroll.is-single .file-preview-pdf-text { cursor: text; }
-.dv-pagerail.is-inline {
-  position: static; flex: none; box-sizing: border-box;
-  margin: calc(var(--rail-top, 8px) - 4px) 4px calc(var(--rail-bottom, 8px) - 4px) -8px;
-  height: calc(100% - var(--rail-top, 8px) - var(--rail-bottom, 8px) + 8px);
+/* A PDF's card is a flex SIBLING of the page scroller, not absolutely placed. */
+.dv-pagerail-card.is-inline {
+  position: static; flex: none;
+  margin: var(--rail-top, 8px) 8px var(--rail-bottom, 8px) 0.8px;
+  height: calc(100% - var(--rail-top, 8px) - var(--rail-bottom, 8px));
 }
+.dv-pagerail.is-inline { position: static; }
 /* `safe`: zoomed past the pane's width the pages start at its left edge and
    scroll — plain centring would push their left half out of reach. A little air
    above the first page and under the last (inline — the fit's own gap). */
@@ -2144,7 +2148,6 @@ img.dv-wa-media { cursor: pointer; }
 /* Not on the picked paragraph's copies, and not while the document is zoomed in
    on one (the veil makes that state modal). */
 .dv-docx .dv-docx-livecard::after,
-.dv-docx .dv-docx-livehead::after,
 .dv-docview-body.is-zoom-live .dv-fold-head::after { display: none; }
 .dv-docx .dv-folded { display: none !important; }
 .dv-docx .docx-wrapper > .dv-docx-page.has-folded { height: auto !important; min-height: 0 !important; }
@@ -2252,24 +2255,41 @@ img.dv-wa-media { cursor: pointer; }
    scroller makes room for it. It stands 8px clear of the pane's top and bottom —
    the floating side panel's own inset — so the two columns start and end level,
    however far the list is scrolled. */
-.dv-pagerail {
-  /* 4px off the edge + 4px of padding INSIDE the scroller = the 8px inset: the
-     padding is room for the first / last thumbnail's outline and shadow, which
-     a scroller clips at its edge. */
-  /* --rail-top / --rail-bottom: MEASURED against the side panel's cards
-     (lib/sidePanelEdges) so the list starts and ends level with them. */
-  position: absolute; left: -8px; top: calc(var(--rail-top, 8px) - 4px); bottom: calc(var(--rail-bottom, 8px) - 4px); z-index: 3; width: 126px;
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  /* Pulled 8px toward the side panel (into the document area's left inset), so
-     the thumbnails stand ~14px from it. */
-  /* …and 16px between the thumbnails and the list's own scrollbar. */
-  padding: 4px 16px 6px 6px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
-  /* …and the same room when the list scrolls the current page into view. */
-  scroll-padding: 6px 0;
+/* The page list's CARD — the Quick actions card's material and its title band
+   (.dv-quick-card here, .drb-quick-title in DocRibbon.css), so the column
+   beside the document reads as a titled section like the panel's, not a bare
+   strip of thumbnails. The card owns the placing; the list inside it is just
+   the scroller.
+   --rail-top / --rail-bottom: MEASURED against the side panel's cards
+   (lib/sidePanelEdges) so the card starts and ends level with them. */
+.dv-pagerail-card {
+  /* All but touching the side panel's cards (the Quick actions / advisor
+     column to its left) — a tenth of the gap those cards keep from the
+     window. */
+  position: absolute; left: 0.8px; top: var(--rail-top, 8px); bottom: var(--rail-bottom, 8px); z-index: 3;
+  width: 126px;
+  box-sizing: border-box;
+  display: flex; flex-direction: column; min-height: 0;
+  background: color-mix(in srgb, var(--bg-page) 90%, transparent);
+  backdrop-filter: blur(32px) saturate(1.4);
+  -webkit-backdrop-filter: blur(32px) saturate(1.4);
+  border: 1px solid var(--border);
+  border-radius: 11.2px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
 }
-.dv-pagerail.is-empty, .dv-pagerail.is-hidden { display: none; }
-.dv-pagerail.is-inline.is-hidden { display: none; }
-.dv-docview:has(> .dv-pagerail:not(.is-empty):not(.is-hidden)) > .dv-docview-body { margin-left: 122px; }
+.dv-pagerail-card.is-empty, .dv-pagerail-card.is-hidden { display: none; }
+.dv-docview:has(> .dv-pagerail-card:not(.is-empty):not(.is-hidden)) > .dv-docview-body { margin-left: 134px; }
+
+.dv-pagerail {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  /* Room for the first / last thumbnail's outline and shadow, which a scroller
+     clips at its edge, and 10px between the thumbnails and the scrollbar. */
+  padding: 8px 10px 8px 8px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
+  /* …and the same room when the list scrolls the current page into view. */
+  scroll-padding: 8px 0;
+}
 /* A paragraph is open (the document is zoomed on it): the rail waits. */
 .dv-pagerail.is-locked { pointer-events: none; opacity: 0.45; transition: opacity 160ms ease; }
 .dv-pagerail-item {
@@ -2354,7 +2374,7 @@ img.dv-wa-media { cursor: pointer; }
 .dv-docx.has-pick .dv-docx-page > article > .dv-docx-para {
   transition: background 160ms ease, box-shadow 320ms ease, opacity 160ms ease;
 }
-/* Stacking above the veil (z 4): the heading card lowest, so its shadow falls
+/* Stacking above the veil (z 4): the paragraph's own card lowest, so its shadow falls
    UNDER the paragraph's card rather than across it; then the paragraph; then
    the paragraph's preview copy, which covers it. */
 .dv-docx-para.is-lifted,
@@ -2393,37 +2413,7 @@ img.dv-wa-media { cursor: pointer; }
 .dv-docx .dv-docx-livecard * { cursor: default; }
 .dv-docx-para.is-shadowed { visibility: hidden; }
 
-/* The HEADING CARD over the picked paragraph (layoutLift in DocViewer.jsx): a
-   copy of the document's real heading, laid out of flow directly above the
-   paragraph in the same page — so it is set exactly as the Word preview sets
-   it, and it moves with the paragraph through the zoom, in and out. The
-   paragraph card's twin: the same white ground grown by the same 16px spread
-   (which is what rounds its corners the same way), the same lift. Above the
-   veil, and exempt from the dimming like the preview copy. */
-.dv-docx .dv-docx-page > article > .dv-docx-livehead,
-.dv-docx.has-pick .dv-docx-page > article > .dv-docx-livehead {
-  z-index: 5;
-  opacity: 1;
-  box-sizing: content-box;
-  background: #fff !important;
-  box-shadow:
-    0 0 0 16px #fff,
-    0 28px 70px 16px rgba(0, 0, 0, 0.45);
-  border: 0;
-  border-radius: 1.6px;
-  outline: none;
-  pointer-events: none;
-  /* In and out on the paragraph card's own clock: that card takes its ground in
-     160ms and its shadow in 320ms (see the .dv-docx-para transition above), and
-     gives them up the same way when the paragraph is closed. */
-  animation: dv-livehead-in 200ms ease backwards; /* not `forwards`: a held end state would pin opacity at 1 and defeat .is-leaving */
-  transition: opacity 180ms ease, box-shadow 320ms ease;
-}
-.dv-docx .dv-docx-page > article > .dv-docx-livehead.is-leaving {
-  opacity: 0;
-  box-shadow: 0 0 0 16px rgba(255, 255, 255, 0), 0 28px 70px 16px rgba(0, 0, 0, 0);
-}
-@keyframes dv-livehead-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dv-card-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* Close — pinned to the top-right corner of the WINDOW (just under the title
    bar), not to the paragraph: the same place every time, whatever the zoom
@@ -2448,7 +2438,7 @@ img.dv-wa-media { cursor: pointer; }
   transition: opacity 200ms ease 340ms, transform 260ms cubic-bezier(0.16, 1, 0.3, 1) 340ms, visibility 0s 340ms,
               background 120ms ease, color 120ms ease;
 }
-/* Over the picked paragraph and its heading card (layoutLift places it; `left`
+/* Over the picked paragraph (layoutLift places it; `left`
    is its CENTRE): this paragraph's versions as a row of dots — oldest on the
    left, the filled one is the state it is in now, a hollow
    dashed one at the end is "changed, not saved yet". Not scaled with the zoom,
@@ -2469,7 +2459,7 @@ img.dv-wa-media { cursor: pointer; }
   border-radius: 999px;
   border: 1px solid var(--border-strong);
   background: var(--bg-elevated);
-  /* No shadow: the row sits just above the heading card, and a shadow would
+  /* No shadow: the row sits just above the paragraph's card, and a shadow would
      fall across it. The border is enough to hold it against the blur. */
   box-shadow: none;
 }
@@ -2537,12 +2527,12 @@ img.dv-wa-media { cursor: pointer; }
 /* The Constructor's controls for the picked paragraph, docked under the lifted
    card. layoutLift sets left / top / width / max-height and switches it on;
    the contents are components/DocConstructor (.dcx-para scrolls inside). Same
-   It RIDES THE CAMERA with the paragraph, like the heading card over it — but
+   It RIDES THE CAMERA with the paragraph — but
    from outside the zoomed host, so layoutLift matches the motion rather than
    inheriting it: an inline transform from under the card as it is on screen now
    (at the card's current scale, about the panel's top-centre) to its place,
    on the host's own duration and easing (keep `.is-riding` in step with
-   `.dv-docx`'s transition). Same fade-in as the heading card. */
+   `.dv-docx`'s transition). */
 .dv-docx-liftpanel {
   position: absolute; z-index: 6;
   left: 0; top: 0;
@@ -2568,11 +2558,11 @@ img.dv-wa-media { cursor: pointer; }
    the two would add up and pull the panel off the card). */
 .dv-docx-liftpanel.is-riding {
   transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1);
-  animation: dv-livehead-in 200ms ease backwards;
+  animation: dv-card-fade-in 200ms ease backwards;
 }
 /* The way out: a lifeless copy of the panel's last markup (the panel itself is
    unmounted with the pick) follows the paragraph back into the page, fading on
-   the heading card's clock. */
+   the paragraph card's clock. */
 .dv-docx-liftpanel.is-ghost {
   pointer-events: none;
   transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease;
@@ -5099,6 +5089,19 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   background: color-mix(in srgb, var(--color-sand) 55%, #fff);
 }
 
+/* Word's OWN blank — a gap drawn as underlined space. It already carries a
+   line, so the mark is a tint and a faint ground, never a second rule beneath
+   the first. Nothing here costs width: the run keeps exactly the spaces the
+   document measured for it, which is what lets it be marked at all. */
+.dv-docx .dv-field.is-drawn:not(.is-filled) {
+  border-bottom: 0;
+  background: color-mix(in srgb, var(--color-sand) 34%, transparent);
+  border-radius: 2px;
+}
+.dv-docx .dv-docx-para:hover .dv-field.is-drawn:not(.is-filled) {
+  background: color-mix(in srgb, var(--color-sand) 52%, transparent);
+}
+
 /* Filled: no longer an empty space but real text, so it keeps its mark down the
    whole page — that's how you see what has already been answered. */
 .dv-docx .dv-field.is-filled {
@@ -6241,6 +6244,7 @@ button.dv-snip-entry-thumb { cursor: pointer; }
 .dvt-card-blurb { font-size: 12.2px; line-height: 1.5; color: var(--text-muted); }
 .dvt-card-meta {
   margin-top: auto; padding-top: 8px;
+  display: flex; align-items: center; gap: 8px;
   font-size: 10.8px; color: var(--text-muted); opacity: 0.8;
 }
 

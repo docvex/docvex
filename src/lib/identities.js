@@ -608,6 +608,22 @@ const GENDER_WORD_PAIRS = [
   ['cetățean', 'cetățeană'], ['cetatean', 'cetateana'],
   ['fiul', 'fiica'], ['născut', 'născută'], ['nascut', 'nascuta'],
   ['VÂNZĂTOR', 'VÂNZĂTOARE'], ['CUMPĂRĂTOR', 'CUMPĂRĂTOARE'],
+  // The words an identification clause actually opens and turns on. Without
+  // these a document written in the "A/B" formula kept its slashes in exactly
+  // the places a reader looks first.
+  ['Subsemnatul', 'Subsemnata'], ['subsemnatul', 'subsemnata'],
+  ['SUBSEMNATUL', 'SUBSEMNATA'],
+  ['domiciliat', 'domiciliată'], ['domiciliat', 'domiciliata'],
+  ['identificat', 'identificată'], ['identificat', 'identificata'],
+  ['reprezentat', 'reprezentată'], ['reprezentat', 'reprezentata'],
+  ['căsătorit', 'căsătorită'], ['casatorit', 'casatorita'],
+  ['angajat', 'angajată'], ['angajat', 'angajata'],
+  ['împuternicit', 'împuternicită'], ['imputernicit', 'imputernicita'],
+  ['salariat', 'salariată'], ['salariat', 'salariata'],
+  ['titular', 'titulară'], ['titular', 'titulara'],
+  ['posesor', 'posesoare'], ['proprietar', 'proprietară'], ['proprietar', 'proprietara'],
+  ['locatar', 'locatară'], ['locatar', 'locatara'],
+  ['mandatar', 'mandatară'], ['mandatar', 'mandatara'],
 ];
 
 // Rewrite a clause for one gender: pick the right half of each "A/B" pair, and
@@ -617,12 +633,21 @@ const GENDER_WORD_PAIRS = [
 // document that nobody asked for.
 const RO_LETTER = '[A-Za-zĂÂÎȘȚăâîșț]';
 const escRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-// "Domnul/Doamna", "Dl./Dna." — an optional dot after each half, and a
-// lookahead rather than \b so a trailing dot doesn't break the match.
-const GENDER_PAIR_RES = GENDER_WORD_PAIRS.map(([m, f]) => [
-  new RegExp(`(?<!${RO_LETTER})${escRe(m)}\\.?\\s*/\\s*${escRe(f)}\\.?(?!${RO_LETTER})`, 'g'),
-  m, f,
-]);
+// "Domnul/Doamna", "Dl./Dna." — a lookahead rather than \b so a trailing dot
+// doesn't break the match.
+//
+// The optional dot is ONLY for the abbreviations, which carry one as part of
+// the word. Allowing it after any half made the pattern swallow the full stop
+// that ENDED THE SENTENCE — "…, căsătorit/căsătorită." came back as
+// "…, căsătorită" with the clause left unterminated.
+const IS_ABBREV = /^d-?(?:l|na|nul)$/i;
+const GENDER_PAIR_RES = GENDER_WORD_PAIRS.map(([m, f]) => {
+  const dot = IS_ABBREV.test(m) ? '\\.?' : '';
+  return [
+    new RegExp(`(?<!${RO_LETTER})${escRe(m)}${dot}\\s*/\\s*${escRe(f)}${dot}(?!${RO_LETTER})`, 'g'),
+    m, f,
+  ];
+});
 
 export function applyGenderToText(text, gender) {
   if (gender !== 'male' && gender !== 'female') return String(text || '');
@@ -632,7 +657,15 @@ export function applyGenderToText(text, gender) {
   // "domiciliat(ă)" → "domiciliat" / "domiciliată"; "identificat(a)" likewise.
   // The parenthetical is only ever the feminine ending, so the masculine form
   // is the word with it dropped.
-  out = out.replace(new RegExp(`(${RO_LETTER}{3,})\\(\\s*([ăa])\\s*\\)`, 'g'), (_all, stem, tail) => (fem ? stem + tail : stem));
+  //
+  // …EXCEPT after a masculine article: "Subsemnatul(a)" is not "Subsemnatul"
+  // plus "a" — the feminine REPLACES the "-ul", giving "Subsemnata". Appending
+  // produced "Subsemnatula", which is not a word, in the opening line of the
+  // clause. Same for "-lui(ei)" forms, where the ending swaps rather than adds.
+  out = out.replace(new RegExp(`(${RO_LETTER}{3,})\\(\\s*([ăa])\\s*\\)`, 'g'), (_all, stem, tail) => {
+    if (!fem) return stem;
+    return /ul$/i.test(stem) ? stem.slice(0, -2) + tail : stem + tail;
+  });
   return out;
 }
 

@@ -3,12 +3,40 @@
    documents it learned from (below, because that is the working area). All
    `pbk-`-prefixed. Every colour a token — see tokens.css. */
 
+/* The page spans the content area, left-aligned, capped at the shared content
+   ceiling on wide screens — the same width as the Newsletter (.ed-page) and
+   Activity. */
 .pbk {
   display: flex; flex-direction: column; gap: 24px;
-  max-width: 880px;
+  width: 100%;
+  margin: 0;
   padding-bottom: 64px;
 }
+@media (min-width: 1024px) { /* 1280px pre-scale */
+  /* The Versions page's rule, verbatim (.updates-page .page): the content area
+     up to the shared ceiling, left-aligned. The masthead's rule under the
+     description ends on the same line. */
+  .pbk,
+  .pbk-frame > .pmh { width: min(100%, var(--content-max-width, 1280px)); }
+}
 .pbk-signedout { color: var(--text-muted); font-size: 13px; }
+
+/* ── Mini header, the same width as the Versions tab's ──────────────────────
+   Both bars start at the same place (the shared .pmh-compact `left`), so the
+   only thing that made the Playbook's narrower was where it STOPPED. The
+   shared flush cap in AppShell.css ends the bar at the content column's right
+   edge and clamps at the scroller's 17.6px padding; Versions (and Newsletter)
+   grow 11.2px past that edge and clamp at one --chrome-inset instead, so the
+   bar reads a touch wider than the content beneath it. This page's content is
+   capped to the Versions width, so its bar is capped the same way.
+
+   The extra `.main-content--flush` ancestor is what outweighs the shared rule
+   whatever the order the stylesheets load in — the same trick Newsletter uses. */
+@media (min-width: 1024px) { /* 1280px pre-scale */
+  .main-content--flush .pbk-frame .pmh-compact {
+    right: max(6.4px, 100vw - var(--sidebar-width, 192px) - var(--chrome-inset, 6.4px) - var(--content-left-gap, 0px) - var(--content-max-width, 1280px) - 11.2px);
+  }
+}
 
 /* ── What it learned ────────────────────────────────────────────────── */
 .pbk-profile {
@@ -131,3 +159,109 @@
 @media (prefers-reduced-motion: reduce) {
   .pbk-switch-knob, .pbk-switch-track { transition: none; }
 }
+
+/* ── Document rules ─────────────────────────────────────────────────────
+   The stated half of the Playbook. Same card material as the learned voice
+   above it, but laid out as a form beside a worked example: numbering rules
+   are unreadable as words and obvious as a document, so the example is not
+   decoration — it is how the settings are read. */
+.pbk-rules {
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg-card);
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+}
+.pbk-rules-head {
+  display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+/* Switched off: the rules stay on screen and readable, but plainly not in
+   force — the same treatment the learned voice gets. */
+.pbk-rules.is-paused .pbk-rules-body { opacity: 0.55; }
+
+.pbk-rules-body {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+  gap: 22px; align-items: start;
+  border-top: 1px solid var(--border); padding-top: 16px;
+  transition: opacity 160ms ease;
+}
+/* One column under a narrow pane: the example goes below the settings rather
+   than being squeezed to a width no clause fits in. */
+@media (max-width: 900px) {
+  .pbk-rules-body { grid-template-columns: minmax(0, 1fr); }
+}
+
+.pbk-rules-sets { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.pbk-ruleset h3 {
+  margin: 0 0 3px; font-family: var(--font-display); font-size: 13px; font-weight: 600;
+  color: var(--text-primary);
+}
+.pbk-ruleset-note { margin: 0 0 12px; font-size: 11.5px; line-height: 1.5; color: var(--text-muted); }
+
+.pbk-rule {
+  display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr);
+  gap: 10px 14px; align-items: start;
+  padding: 8px 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.pbk-ruleset .pbk-rule:first-of-type { border-top: 0; }
+@media (max-width: 620px) { .pbk-rule { grid-template-columns: minmax(0, 1fr); } }
+.pbk-rule-label { display: flex; flex-direction: column; gap: 2px; padding-top: 3px; }
+.pbk-rule-label span { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+.pbk-rule-label small { font-size: 11px; line-height: 1.45; color: var(--text-muted); }
+
+.pbk-rule-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+/* The app sidebar's tab button, in miniature: bare at rest, the accent as the
+   pressed state — the same vocabulary the Doc Viewer's quick actions use. */
+.pbk-rule-opt {
+  appearance: none; border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary);
+  border-radius: 7px; padding: 4px 9px;
+  font: inherit; font-size: 12px; font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.pbk-rule-opt:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); color: var(--text-primary); }
+.pbk-rule-opt.is-on {
+  background: var(--accent); border-color: var(--accent); color: var(--text-on-accent);
+}
+.pbk-rule-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.pbk-rules-extra {
+  width: 100%; box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg-input); color: var(--text-primary);
+  padding: 9px 11px;
+  font: inherit; font-size: 12.5px; line-height: 1.6;
+  resize: vertical;
+}
+.pbk-rules-extra:focus-visible { outline: none; border-color: var(--accent); }
+.pbk-rules-extra::placeholder { color: var(--text-muted); }
+
+/* The example. A sheet, not a code block: it is a document, and it is judged
+   by whether it looks like one. */
+.pbk-rules-preview { position: sticky; top: 16px; min-width: 0; }
+.pbk-rules-preview h3 {
+  margin: 0 0 8px; font-family: var(--font-display); font-size: 13px; font-weight: 600;
+  color: var(--text-primary);
+}
+.pbk-preview-sheet {
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-elevated);
+  padding: 16px 18px;
+  font-size: 11.5px; line-height: 1.6;
+  color: var(--text-primary);
+}
+.pbk-preview-line { margin: 0 0 7px; }
+.pbk-preview-line:last-child { margin-bottom: 0; }
+/* Indented by level, as the document itself would be. */
+.pbk-preview-line.is-l0 {
+  font-weight: 700; letter-spacing: 0.01em;
+  margin-top: 12px;
+}
+.pbk-preview-line.is-l0:first-child { margin-top: 0; }
+.pbk-preview-line.is-l1 { padding-left: 10px; }
+.pbk-preview-line.is-l2 { padding-left: 26px; color: var(--text-secondary); }
+.pbk-preview-line.is-l3 { padding-left: 42px; color: var(--text-secondary); }
+.pbk-preview-foot { margin: 8px 0 0; font-size: 11px; color: var(--text-muted); }

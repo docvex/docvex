@@ -91,6 +91,16 @@ export function useChatFind({ containerRef, query, name, scope }) {
   // A fresh query resets the active match to the first hit.
   useEffect(() => { setIndex(0); navigatedRef.current = false; }, [query]);
 
+  // …and brings it into view without waiting for Enter: typing is a search,
+  // and a search that highlights something off-screen looks like no match.
+  useEffect(() => {
+    if (!query || !total) return undefined;
+    const id = requestAnimationFrame(() => scrollToIndex(Math.min(index, total - 1)));
+    return () => cancelAnimationFrame(id);
+    // Deliberately not keyed on `index`: walking matches scrolls itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, total, rebuildTick]);
+
   // Build on query change AND keep rebuilding while the thread mutates under an
   // active query (typewriter, new messages, edits). Observer only runs while a
   // query is present so idle threads pay nothing.
@@ -124,10 +134,46 @@ export function useChatFind({ containerRef, query, name, scope }) {
   // Drop the global highlights when this thread unmounts.
   useEffect(() => clearHighlights, [clearHighlights]);
 
+  // Bring a match into view. `scrollIntoView` on the match's element is not
+  // enough in the Doc Viewer: a Word page is laid out inside a host the pane
+  // SCALES (the zoom), and an element inside a scaled box reports a layout box
+  // the browser scrolls to as if it were unscaled — the view lands short of
+  // the match, or doesn't move at all. Measuring the RANGE's on-screen
+  // rectangle and scrolling its own scroller by the difference is in screen
+  // pixels throughout, so it is right at any zoom.
   const scrollToIndex = useCallback((i) => {
     const r = rangesRef.current[i];
-    const el = r?.startContainer?.parentElement;
-    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (!r) return;
+    let node = r.startContainer;
+    if (node.nodeType === 3) node = node.parentElement;
+    if (!node) return;
+    // EVERY scrollable ancestor, innermost first — a document pane scrolls its
+    // pages, the page itself may scroll, and the tab scrolls under both. Each
+    // is moved by the distance that is left after the one inside it moved, and
+    // the match's rect is re-measured between steps, which is what makes this
+    // right when a pane is ZOOMED (a scaled box's layout offsets are not screen
+    // pixels; its rect always is).
+    const centre = (el) => {
+      const rect = r.getBoundingClientRect();
+      if (!rect || (!rect.height && !rect.width)) return;
+      const box = el === document.scrollingElement
+        ? { top: 0, height: window.innerHeight }
+        : el.getBoundingClientRect();
+      const delta = (rect.top + rect.height / 2) - (box.top + box.height / 2);
+      if (Math.abs(delta) < 2) return;
+      const before = el.scrollTop;
+      // Instant, not smooth: several scrollers move in one go here, and a
+      // smooth scroll on the outer one would be measured mid-flight by the
+      // next step. The eye follows the highlight, which is already painted.
+      el.scrollTop = before + delta;
+    };
+    for (let el = node.parentElement; el; el = el.parentElement) {
+      const st = getComputedStyle(el);
+      if (/auto|scroll|overlay/.test(`${st.overflowY} ${st.overflow}`) && el.scrollHeight > el.clientHeight + 1) {
+        centre(el);
+      }
+      if (el === document.body || el === document.documentElement) break;
+    }
   }, []);
 
   const goNext = useCallback(() => {

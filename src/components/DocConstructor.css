@@ -102,9 +102,136 @@
   cursor: text;
   transition: background 120ms ease, border-color 120ms ease;
 }
+/* What the blank wants, in the blank. Quieter than an answer so a slot still
+   reads as empty at a glance; the slot is sized to fit it (see renderInput), so
+   the ellipsis is only a backstop for a label longer than the card is wide.
+   It steps aside on focus — by then you know what you are typing. */
+.dcx-inline::placeholder {
+  color: color-mix(in srgb, var(--color-ink) 42%, transparent);
+  font-style: italic;
+  opacity: 1;                 /* Firefox dims placeholders by default */
+  text-overflow: ellipsis;
+}
+.dcx-inline:focus::placeholder { color: transparent; }
 .dcx-inline:hover { background: color-mix(in srgb, var(--color-sand) 55%, #fff); }
 .dcx-inline:focus { background: #fff; border-bottom-color: var(--color-cognac); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-cognac) 28%, transparent); }
 .dcx-inline.is-filled { background: color-mix(in srgb, var(--color-sand) 22%, #fff); }
+/* ── One entry per person the clause names ───────────────────────────────
+   A vertical list, because a choice per person is read down the page: the
+   people in order, and under each the records that could fill it. The rounded
+   ground is what makes it one thing — without it two adjacent lists read as
+   one long list of records belonging to nobody in particular. */
+.dcx-people {
+  display: flex; flex-direction: column; gap: 10px;
+  margin: 8px 14px 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  /* Opaque: the list sits over the zoomed document, and a translucent ground
+     let the page's own text show through the rows. */
+  background: var(--bg-elevated);
+}
+.dcx-person { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* One person from the next. Without it two lists of the same records run
+   together and read as one long list belonging to nobody in particular. */
+.dcx-person + .dcx-person {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding-top: 10px;
+}
+.dcx-person-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
+/* The person's own colour — the same tint their blanks carry in the paragraph,
+   which is the whole point: it says which gaps this choice will fill. */
+.dcx-person-dot {
+  flex: none; width: 9px; height: 9px; border-radius: 3px;
+  background: color-mix(in srgb, var(--dcx-party) 82%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dcx-party) 95%, transparent);
+}
+.dcx-person-name {
+  font-size: 12px; font-weight: 700; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dcx-person-kind {
+  margin-left: auto; flex: none;
+  font-size: 10.5px; font-weight: 600; color: var(--text-muted);
+}
+.dcx-person-list { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.dcx-person-opt {
+  width: 100%; box-sizing: border-box;
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: var(--text-primary);
+  font: inherit; text-align: left; cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.dcx-person-opt:hover { background: color-mix(in srgb, var(--dcx-party) 10%, transparent); }
+/* Chosen: the person's colour, so the row and the blanks it filled read as one. */
+.dcx-person-opt.is-on {
+  background: color-mix(in srgb, var(--dcx-party) 14%, transparent);
+  border-color: color-mix(in srgb, var(--dcx-party) 55%, transparent);
+}
+.dcx-person-opt:focus-visible { outline: 2px solid var(--dcx-party); outline-offset: 1px; }
+.dcx-person-av {
+  flex: none; width: 22px; height: 22px; border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--dcx-party) 18%, transparent);
+  color: color-mix(in srgb, var(--dcx-party) 92%, var(--text-primary));
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.02em;
+}
+.dcx-person-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dcx-person-rec, .dcx-person-text { font-size: 11.5px; }
+.dcx-person-rec { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dcx-person-meta {
+  font-size: 10px; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* The tick only shows on the chosen row — it is a state, not an affordance. */
+.dcx-person-mark { flex: none; width: 13px; color: var(--dcx-party); opacity: 0; }
+.dcx-person-opt.is-on .dcx-person-mark { opacity: 1; }
+.dcx-person-none { padding: 4px 8px; font-size: 11px; color: var(--text-muted); }
+
+/* ── A colour per party ──────────────────────────────────────────────────
+   Only where the clause names MORE THAN ONE (see multiParty): the tint answers
+   "whose gap is this?", which is not a question a clause with one party asks.
+   Applied as a wash and an underline over the same slot — no border, no badge,
+   nothing that takes width — because the input's size is the one the document
+   drew for the blank and anything wider re-wraps the paragraph.
+   Deliberately faint: this is a legal document, and the colour is a key, not
+   an accent. */
+.dcx-inline.is-party {
+  background: color-mix(in srgb, var(--dcx-party) 11%, #fff);
+  border-bottom-color: color-mix(in srgb, var(--dcx-party) 72%, transparent);
+}
+.dcx-inline.is-party:hover { background: color-mix(in srgb, var(--dcx-party) 19%, #fff); }
+.dcx-inline.is-party:focus {
+  background: #fff;
+  border-bottom-color: var(--dcx-party);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dcx-party) 30%, transparent);
+}
+.dcx-inline.is-party.is-filled { background: color-mix(in srgb, var(--dcx-party) 7%, #fff); }
+.dcx-inline.is-party::placeholder { color: color-mix(in srgb, var(--dcx-party) 62%, transparent); }
+
+/* The key itself, under the paragraph. */
+.dcx-legend {
+  display: flex; flex-wrap: wrap; gap: 4px 14px;
+  margin: 0; padding: 8px 14px 0; list-style: none;
+}
+.dcx-legend-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; color: var(--text-secondary);
+}
+/* "Vanzator · Reprezentant" — the person is the party's representative, not a
+   party of their own, so the qualifier is set quieter than the role. */
+.dcx-legend-sub {
+  color: var(--text-muted); font-weight: 500;
+}
+.dcx-legend-sub::before { content: ' · '; }
+.dcx-legend-dot {
+  width: 9px; height: 9px; border-radius: 3px;
+  background: color-mix(in srgb, var(--dcx-party) 82%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dcx-party) 95%, transparent);
+}
+
 /* Showing a hovered identity's value, not an answer yet. */
 .dcx-inline.is-preview { font-style: italic; border-bottom-style: dashed; }
 .dv-docx .dv-docx-livecard .dcx-inline { cursor: text; }

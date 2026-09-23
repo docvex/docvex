@@ -349,6 +349,7 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
   const [current, setCurrent] = useState(1);
   const [scrollRoot, setScrollRoot] = useState(null);
   const [railRoot, setRailRoot] = useState(null);
+  const [railCard, setRailCard] = useState(null);
   // A ONE-page PDF is a picture, not a document to scroll: it is dragged around
   // like one (the image pane's pan) instead.
   const [dragging, setDragging] = useState(false);
@@ -530,7 +531,7 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
   }, [fitReady, pdf, pageWidth, firstRatio, onPdfZoom]);
 
   // The page list stands level with the floating side panel beside it.
-  useEffect(() => (railRoot ? alignWithSidePanel(railRoot) : undefined), [railRoot, showRail]);
+  useEffect(() => (railCard ? alignWithSidePanel(railCard) : undefined), [railCard, showRail]);
 
   // ── A ONE-page PDF behaves like a PICTURE ────────────────────────────────
   // Usually a scan, so it is read the way a photograph is: the page sits on a
@@ -599,7 +600,7 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
   const onPagesMouseDown = (e) => {
     const el = containerRef.current;
     if (!el || e.button !== 0) return;
-    if (e.target.closest('.dv-pagerail, .dv-docpill, .file-preview-pdf-counter')) return;
+    if (e.target.closest('.dv-pagerail-card, .dv-pagerail, .dv-docpill, .file-preview-pdf-counter')) return;
     const onText = !!e.target.closest('.file-preview-pdf-text span');
     // A press away from the text lets go of what was selected. Worth doing by
     // hand: on a one-page PDF the pan below calls preventDefault, which is
@@ -629,7 +630,7 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
   };
 
   // The page list's footprint: what the pill and the counter stand clear of.
-  const railPad = showRail && railWanted && count > 0 ? 126 : 8;
+  const railPad = showRail && railWanted && count > 0 ? 134 : 8;
 
   const goToPage = (n) => {
     const el = containerRef.current;
@@ -644,11 +645,16 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
       {/* Switched off = hidden, not unmounted — what it has painted stays. It is
           only MOUNTED once it has been wanted, so a list never shown costs nothing. */}
       {railWanted && pdf && count > 0 && (
-        <nav className={`dv-pagerail is-inline${showRail ? '' : ' is-hidden'}`} ref={setRailRoot} aria-label="Pages" aria-hidden={!showRail || undefined}>
-          {Array.from({ length: count }, (_, i) => (
-            <PdfThumb key={i + 1} pdf={pdf} n={i + 1} cacheKey={`${file.storage_path}:${i + 1}`} fallbackRatio={firstRatio} root={railRoot} current={current === i + 1} onPick={goToPage} />
-          ))}
-        </nav>
+        <div className={`dv-pagerail-card is-inline${showRail ? '' : ' is-hidden'}`} ref={setRailCard}>
+          {/* The Quick actions card's own title band (DocRibbon.css), so the
+              two cards beside the document read as one family. */}
+          <h3 className="drb-quick-title">Pages</h3>
+          <nav className="dv-pagerail is-inline" ref={setRailRoot} aria-label="Pages" aria-hidden={!showRail || undefined}>
+            {Array.from({ length: count }, (_, i) => (
+              <PdfThumb key={i + 1} pdf={pdf} n={i + 1} cacheKey={`${file.storage_path}:${i + 1}`} fallbackRatio={firstRatio} root={railRoot} current={current === i + 1} onPick={goToPage} />
+            ))}
+          </nav>
+        </div>
       )}
       {pdfOverlay && pdf ? pdfOverlay(railPad) : null}
       <div

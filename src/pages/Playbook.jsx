@@ -8,6 +8,9 @@ import {
   listSamples, addSample, removeSample,
   loadProfile, rebuildProfile, setStyleEnabled,
 } from '../lib/writingStyle';
+import {
+  RULE_GROUPS, DEFAULT_RULES, loadDocRules, saveDocRules, rulesOutline, optionFor,
+} from '../lib/docRules';
 import './Playbook.css';
 
 // Playbook — the user's own documents, and the writing voice the AI learns from
@@ -47,6 +50,132 @@ function whenLabel(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// ── Templates (NOT MOUNTED) ──────────────────────────────────────────────
+// This section was taken off the page and is kept for a rewrite: render
+// <TemplatesSection onNote={setNote} /> in the page body to bring it back. The
+// ── Document rules ─────────────────────────────────────────────────────────
+// The half of the Playbook that is STATED rather than learned: how a document
+// is numbered and laid out. A model asked twice will answer "Art. 1" once and
+// "CAPITOLUL I" the next time, so consistency between two documents from the
+// same office cannot come from a distilled description — it has to be a
+// decision the user makes once, here. See lib/docRules for what each choice
+// tells the model, and why the choices are the shapes they are (the app's own
+// paragraph parser reads them back).
+function RulesSection() {
+  const [rules, setRules] = useState(() => loadDocRules());
+  const set = useCallback((key, value) => {
+    setRules((cur) => saveDocRules({ ...cur, [key]: value }));
+  }, []);
+  const outline = rulesOutline(rules);
+  const dirty = Object.keys(DEFAULT_RULES).some((k) => rules[k] !== DEFAULT_RULES[k]);
+
+  return (
+    <section className={`pbk-rules${rules.enabled ? '' : ' is-paused'}`}>
+      <header className="pbk-rules-head">
+        <div className="pbk-profile-title">
+          <h2>Document rules</h2>
+          <p>
+            How the AI lays a document out — what a section is called, how
+            clauses are numbered, how dates and amounts are written. Set once,
+            followed by everything it drafts, so two documents from this office
+            match.
+          </p>
+        </div>
+        <div className="pbk-profile-tools">
+          {dirty && (
+            <Tooltip content="Put every rule back to the default">
+              <button type="button" className="pbk-relearn" onClick={() => setRules(saveDocRules({ ...DEFAULT_RULES, enabled: rules.enabled }))}>
+                Reset
+              </button>
+            </Tooltip>
+          )}
+          <Tooltip content={rules.enabled ? 'Stop applying these rules — nothing is lost' : 'Apply these rules again'}>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!rules.enabled}
+              className={`pbk-switch${rules.enabled ? ' is-on' : ''}`}
+              onClick={() => set('enabled', !rules.enabled)}
+            >
+              <span className="pbk-switch-track"><span className="pbk-switch-knob" /></span>
+              <span className="pbk-switch-label">{rules.enabled ? 'In use' : 'Paused'}</span>
+            </button>
+          </Tooltip>
+        </div>
+      </header>
+
+      <div className="pbk-rules-body">
+        <div className="pbk-rules-sets">
+          {RULE_GROUPS.map((group) => (
+            <div className="pbk-ruleset" key={group.id}>
+              <h3>{group.title}</h3>
+              <p className="pbk-ruleset-note">{group.note}</p>
+              {group.fields.map((f) => (
+                <div className="pbk-rule" key={f.key}>
+                  <div className="pbk-rule-label">
+                    <span>{f.label}</span>
+                    {f.hint && <small>{f.hint}</small>}
+                  </div>
+                  {/* Each choice shows what it LOOKS like, not just what it is
+                      called — "a)" means nothing until you see it in a line. */}
+                  <div className="pbk-rule-opts" role="radiogroup" aria-label={f.label}>
+                    {f.options.map((o) => (
+                      <Tooltip content={o.example || o.label} key={o.id}>
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={rules[f.key] === o.id}
+                          className={`pbk-rule-opt${rules[f.key] === o.id ? ' is-on' : ''}`}
+                          onClick={() => set(f.key, o.id)}
+                        >
+                          {o.label}
+                        </button>
+                      </Tooltip>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+
+          <div className="pbk-ruleset">
+            <h3>Anything else</h3>
+            <p className="pbk-ruleset-note">
+              Rules the settings above don’t cover, in your own words — one per
+              line. They are passed to the AI exactly as written.
+            </p>
+            <textarea
+              className="pbk-rules-extra"
+              value={rules.extra}
+              rows={5}
+              maxLength={2000}
+              placeholder={'Always cite the article of the Civil Code in brackets.\nEnd every contract with a signature block for both parties.\nNever use the word „prezentul” more than once per clause.'}
+              onChange={(e) => set('extra', e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* The settings applied to a document, which is the only way numbering
+            rules can be read at a glance. */}
+        <aside className="pbk-rules-preview" aria-label="Example">
+          <h3>What that looks like</h3>
+          <div className="pbk-preview-sheet">
+            {outline.map((line, i) => (
+              // eslint-disable-next-line react/no-array-index-key
+              <p className={`pbk-preview-line is-l${line.level}`} key={i}>{line.text}</p>
+            ))}
+          </div>
+          <p className="pbk-preview-foot">
+            {optionFor('language', rules.language)?.id === 'auto'
+              ? 'Written in whichever language you ask in.'
+              : `Written in ${rules.language === 'en' ? 'English' : 'Romanian'}.`}
+          </p>
+        </aside>
+      </div>
+    </section>
+  );
 }
 
 export default function Playbook() {
@@ -141,7 +270,7 @@ export default function Playbook() {
   const busy = learning || importing.length > 0;
 
   return (
-    <div className="page-frame">
+    <div className="page-frame pbk-frame">
       <PageMasthead
         eyebrow="DocVex"
         eyebrowMuted="Your writing"
@@ -156,6 +285,9 @@ export default function Playbook() {
         <p className="pbk-signedout">Sign in to teach the AI how you write.</p>
       ) : (
         <div className="pbk">
+          {/* ── The rules the user sets ───────────────────────────────── */}
+          <RulesSection />
+
           {/* ── What it learned ───────────────────────────────────────── */}
           <section className={`pbk-profile${hasStyle ? '' : ' is-empty'}`}>
             <header className="pbk-profile-head">

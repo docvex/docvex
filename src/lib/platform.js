@@ -225,6 +225,14 @@ export function openFileWindow(url, fileName) {
 // demo workspace's OPFS restores without any permission prompt). Returns
 // true when handled. WhatsApp-export opens stay Electron-only (the zip
 // prep that produces `chatPath` never runs on web), so they fall through.
+// Write `blob` to the OS temp folder and return its path — a document that is
+// opened without being filed in a project. Web has nowhere to put it.
+export async function writeTempFile(name, blob) {
+  if (!electronAPI?.writeTempFile) return { error: 'unsupported' };
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  return electronAPI.writeTempFile(name, bytes);
+}
+
 export function openDocViewerWindow(file) {
   if (electronAPI?.openDocViewerWindow) {
     electronAPI.openDocViewerWindow(file);

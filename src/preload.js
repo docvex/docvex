@@ -254,6 +254,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Extract text from a legacy .doc file (main process parses the binary).
   extractDocText: (filePath) => ipcRenderer.invoke('doc:extract-text', filePath),
+  // Write a file outside any project (the OS temp folder) and hand back its
+  // path — for documents that are opened but not filed.
+  writeTempFile: (name, bytes) => ipcRenderer.invoke('app:write-temp-file', { name, bytes }),
 
   // Extract a WhatsApp export .zip to a temp folder and locate its chat
   // transcript. Resolves { ok, chatPath, name } when it's a WhatsApp export

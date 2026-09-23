@@ -8,8 +8,7 @@
 
 /* All matches — soft warning tint. */
 ::highlight(aichat-find),
-::highlight(teamchat-find),
-::highlight(docfind-find) {
+::highlight(teamchat-find) {
   background-color: color-mix(in srgb, var(--warning) 38%, transparent);
   color: var(--text-primary);
 }
@@ -17,10 +16,24 @@
 /* The active match (the one Enter scrolled to) — solid, like VS Code's current
    match. */
 ::highlight(aichat-find-active),
-::highlight(teamchat-find-active),
-::highlight(docfind-find-active) {
+::highlight(teamchat-find-active) {
   background-color: var(--warning);
   color: var(--color-ink);
+}
+
+/* The Doc Viewer's document find. A document is always PAPER — a white page
+   with near-black text in both themes — so these can't follow --text-primary,
+   which on Ink is cream: the matched words turned white on a pale tint and
+   disappeared. Fixed dark ink on both, and the active match is solid amber,
+   underlined, so it is obvious which of the matches you are standing on. */
+::highlight(docfind-find) {
+  background-color: color-mix(in srgb, var(--warning) 42%, white);
+  color: #14171c;
+}
+::highlight(docfind-find-active) {
+  background-color: #f59e0b;
+  color: #14171c;
+  text-decoration: underline 2px solid #7c4a03;
 }
 
 /* "N of M" count chip shown inside the search box. */

@@ -1614,6 +1614,23 @@ ipcMain.on('files:changed', (e) => {
 // the main process — the sandboxed renderer can't parse that format. Returns
 // { text } or { error }; the doc viewer renders the text. word-extractor is
 // lazy-imported so its weight isn't paid until a .doc is actually opened.
+// A file that is NOT part of a project: written to the OS temp folder and
+// opened from there (a template previewed outside the project — opening one must
+// not put a document in someone's case folder). The temp folder is cleaned by
+// the OS; we only keep our own subfolder tidy by overwriting free names.
+ipcMain.handle('app:write-temp-file', async (_e, { name, bytes } = {}) => {
+  try {
+    const safe = String(name || 'document').replace(/[\\/:*?"<>|]/g, '-').slice(0, 120) || 'document';
+    const dir = path.join(app.getPath('temp'), 'docvex-open');
+    await fsp.mkdir(dir, { recursive: true });
+    const filePath = path.join(dir, `${Date.now().toString(36)}-${safe}`);
+    await fsp.writeFile(filePath, Buffer.from(bytes));
+    return { path: filePath };
+  } catch (err) {
+    return { error: err?.message || String(err) };
+  }
+});
+
 ipcMain.handle('doc:extract-text', async (_e, filePath) => {
   if (typeof filePath !== 'string' || !filePath) return { error: 'no_path' };
   try {

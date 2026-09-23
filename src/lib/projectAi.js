@@ -155,8 +155,11 @@ export async function generateDocument({ template, instructions, projectName, fi
   let steered = instructions;
   try {
     const { styleSteer } = await import('./writingStyle');
-    const steer = await styleSteer();
-    if (steer) steered = `${instructions || ''}\n\n${steer}`.trim();
+    const { docRulesSteer } = await import('./docRules');
+    // How they write (learned) and how they lay a document out (stated in the
+    // Playbook). Both ride on the instructions, both are optional.
+    const parts = [instructions || '', await styleSteer(), docRulesSteer()].filter((x) => String(x).trim());
+    steered = parts.join('\n\n').trim();
   } catch { /* a generic voice is a worse draft, not a failed one */ }
   const { data, error } = await supabase.functions.invoke('project-ai', {
     body: withJurisdiction({ action: 'generate', template, instructions: steered, projectName, fileNames }),

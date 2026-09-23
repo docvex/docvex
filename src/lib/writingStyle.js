@@ -249,7 +249,11 @@ export async function styleSteer() {
 // having to know about the other. Returns the array unchanged when there is no
 // style to apply.
 export async function withStyleSteer(apiMessages) {
-  const steer = await styleSteer();
+  // Two blocks travel together on a drafting turn: how this person WRITES
+  // (learned here) and how they lay a document out (stated by them in the
+  // Playbook — lib/docRules). Either may be empty.
+  const { docRulesSteer } = await import('./docRules');
+  const steer = [await styleSteer(), docRulesSteer()].filter((x) => String(x).trim()).join('\n\n');
   if (!steer || !apiMessages?.length) return apiMessages;
   const last = apiMessages[apiMessages.length - 1];
   // Only ever onto a plain-text user turn. A tool_result turn is a structured
