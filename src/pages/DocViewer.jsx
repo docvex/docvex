@@ -12,7 +12,7 @@ import { getCachedPdf } from '../lib/pdfCache';
 // Cursor coords / innerWidth / DOMRects are viewport px; the left/top/width
 // CSS we set are layout px — under the app's CSS-zoom downscale the two
 // differ (see lib/appZoom).
-import { toLayoutPx } from '../lib/appZoom';
+import { toLayoutPx, createWheelZoom, zoomFactorOf, ZOOM_SETTLE_MS } from '../lib/appZoom';
 import { recognizeCanvas, OCR_MAX_EDGE } from '../lib/ocr';
 import { loadOcrHistory, saveOcrHistory } from '../lib/extractionHistory';
 import { loadCaptions, saveCaptions, clearCaptions } from '../lib/captionsHistory';
@@ -26,10 +26,11 @@ import AskUserPanel from '../components/AskUserPanel';
 import { docKindFromName, buildDocumentBlob, buildDocumentBlobSmart, mimeForKind, inferDocKind, withKindExtension, labelForKind } from '../lib/documentGen';
 import { renderedOfficeToPdfBlob } from '../lib/exportPdf';
 import ConvertModal from '../components/ConvertModal';
+import ConfirmModal from '../components/ConfirmModal';
 import { loadConversation, saveConversation, clearConversation } from '../lib/conversationHistory';
 import { embedDocxSource, readDocxSource, sourcePayload } from '../lib/docxSource';
 import { withStyleSteer } from '../lib/writingStyle';
-import { isElectron, extractDocText, openExternal, onFilesRemoved, notifyFilesChanged, openDocViewerWindow, setDocViewerAiStatus, onDocViewerOpenFile, notifyDocViewerWarmReady, notifyDocViewerFilePainted } from '../lib/platform';
+import { isElectron, extractDocText, openExternal, onFilesRemoved, notifyFilesChanged, openDocViewerWindow, setDocViewerAiStatus, onDocViewerOpenFile, notifyDocViewerWarmReady, notifyDocViewerFilePainted, windowSetFullscreen, onWindowFullscreenChanged, windowIsFullscreen, windowClose } from '../lib/platform';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useAuth } from '../context/AuthContext';
 import { readProjectsDir } from '../lib/projectsDir';
@@ -42,7 +43,7 @@ import DropZone from '../components/DropZone';
 import PhotoEditor from '../components/PhotoEditor';
 import { extractImageText, loadImageText, loadReadingMode, saveReadingMode } from '../lib/textRegions';
 import { pdfToDocx, pdfToImages } from '../lib/pdfConvert';
-import { alignWithSidePanel } from '../lib/sidePanelEdges';
+import { alignWithSidePanel, docInset } from '../lib/sidePanelEdges';
 import { AI_FACETS, loadAiData, subscribeAiData, facetText } from '../lib/aiData';
 import {
   phoneCountries, dialCodeOf, formatPhoneIntl, splitPhone, typePhone, loadPhoneFlags, DEFAULT_PHONE_COUNTRY,
@@ -52,9 +53,12 @@ import { normalizeNationality, searchNationalities } from '../lib/nationalities'
 import { useChatFind } from '../lib/useChatFind';
 import { TEMPLATE_CATEGORIES, searchTemplates, templatePrompt, customPrompt } from '../lib/docTemplates';
 import { rewriteDocxParagraphs, readDocxParagraphs } from '../lib/docxRewrite';
+import { applyThemeToDocx } from '../lib/docxTheme';
+import { restyleDocument, restyleAvailable } from '../lib/docRestyle';
 import DocParagraphConstructor from '../components/DocConstructor';
-import { DocThemeGrid, DocQuickActions, useItemSpots } from '../components/DocRibbon';
-import { DOC_THEMES, applyDocTheme, loadDocTheme, saveDocTheme } from '../lib/docThemes';
+import FilterTabs from '../components/FilterTabs';
+import { DocThemeGrid, DocQuickActions, useItemSpots, flashQuickAction } from '../components/DocRibbon';
+import { DOC_THEMES, applyDocTheme, docThemeById, loadDocTheme, readDocSample, saveDocTheme } from '../lib/docThemes';
 import {
   replaceFields as constructorReplaceFields, scanBlanks as matchFields, parseSource as parseConstructorSource, composeSource as composeConstructorSource, changedParagraphs,
   findPieceForText, fieldInfo as constructorFieldInfo,
@@ -2971,7 +2975,16 @@ function RecordDropZone({ onFiles, onBrowse, centered = false }) {
   );
 }
 
-const SIDE_TAB_LABELS = { extracted: 'Extracted text', extract: 'Extract text', captions: 'Captions', advisor: 'Advisor', sources: 'Sources', metadata: 'Data', theme: 'Theme', add: 'Add' };
+// ONE WORD each. The strip now shows every tab the viewer has, whatever the
+// file is, so eight labels share the panel's width — "Extract text" and
+// "Extracted text" side by side would leave no room for the rest, and are hard
+// to tell apart at a glance anyway.
+const SIDE_TAB_LABELS = { extracted: 'Pieces', extract: 'Extract', captions: 'Captions', advisor: 'Advisor', sources: 'Sources', metadata: 'Data', theme: 'Theme', add: 'Structure' };
+// Every tab the viewer has, in the order the strip shows them. A pane still
+// says which of them WORK on its kind of file (sideTabsForKind / panelTabs);
+// the rest are drawn faded and inert, so what the panel can do is visible from
+// any file instead of being discovered by opening the right kind.
+const SIDE_TAB_ORDER = ['advisor', 'extract', 'extracted', 'captions', 'sources', 'theme', 'add', 'metadata'];
 // The Multitool always shows all three tools; each pane renders a graceful empty
 // state for a tool that doesn't apply to its file type. Metadata is last and
 // applies to everything — every file has facts to report.
@@ -2984,19 +2997,45 @@ function sideTabsForKind(kind) {
 
 // Tab bar shared by every file type's side panel. `tabs` is the ordered list of
 // tab ids the host wants shown (see sideTabsForKind).
-function SidePanelTabs({ tabs = ['extract', 'captions'], active, onChange, slot = null }) {
+function SidePanelTabs({ tabs = ['extract', 'captions'], order = null, active, onChange, slot = null }) {
+  // The Activity feed's strip, the component itself rather than a copy of its
+  // look — one shared underline that SLIDES to the active tab instead of a
+  // border-bottom lighting up under each one. Sharing it is what keeps the two
+  // identical rather than merely similar; the per-tab border they used to carry
+  // had already drifted to a different thickness.
+  // The tabs this file HAS come first, then the rest. Sorting them this way
+  // rather than leaving the catalogue's order means the strip opens on what can
+  // actually be pressed — with eight tabs and a strip that wraps, a live tab
+  // stranded on the second row behind three faded ones is easy to miss
+  // entirely. Within each group the catalogue's own order is kept, so a tab
+  // keeps a settled position instead of moving about between files.
+  const items = useMemo(() => {
+    const has = new Set(tabs);
+    // What the tabs are SORTED by is what the file offers (`order`), not what
+    // is available at this moment. The two part company while a paragraph is
+    // picked — the panel is the advisor and nothing else then — and sorting on
+    // that would send every other tab to the back and bring it out again as the
+    // paragraph is closed. A strip that rearranges itself is one nobody can
+    // learn. Availability still decides which are FADED.
+    const basis = new Set(order || tabs);
+    const byGroup = [
+      ...SIDE_TAB_ORDER.filter((id) => basis.has(id)),
+      ...SIDE_TAB_ORDER.filter((id) => !basis.has(id)),
+    ];
+    return byGroup.map((id) => ({
+      id,
+      label: SIDE_TAB_LABELS[id],
+      unavailable: !has.has(id),
+    }));
+  }, [tabs, order]);
   const el = (
     <div className="dv-side-tabs">
-      {tabs.map((id) => (
-        <button
-          key={id}
-          type="button"
-          className={`dv-side-tab${active === id ? ' is-active' : ''}`}
-          onClick={() => onChange(id)}
-        >
-          {SIDE_TAB_LABELS[id]}
-        </button>
-      ))}
+      <FilterTabs
+        tabs={items}
+        active={active}
+        onSelect={onChange}
+        ariaLabel="Panel section"
+      />
     </div>
   );
   // When a slot is given (the Multitool topbar), render the tabs there instead
@@ -3324,12 +3363,19 @@ function MetadataPanel({ file }) {
   );
 }
 
-// Paper-plane send glyph for the advisor composer (mirrors the main app's
-// AI-tab composer send button).
+// One row of the advisor composer — its floor however little is in it, and
+// the floor of the half-the-card cap too (a card dragged very short must still
+// leave somewhere to type). Keep in step with the textarea's CSS min-height.
+const COMPOSER_MIN_H = 19.2;
+// Send glyph for the advisor composer — an upward arrow, which is what a
+// message composer's button has come to mean. It also sits properly in the
+// round button: the paper plane it replaces is a diagonal shape with its mass
+// down in one corner, so inside a 27px circle it read as off-centre however it
+// was nudged. This one is symmetric about its own vertical axis.
 const AdvisorSendGlyph = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M22 2 11 13" />
-    <path d="M22 2 15 22l-4-9-9-4z" />
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 19V6" />
+    <path d="M5.5 12.5 12 6l6.5 6.5" />
   </svg>
 );
 // Stop glyph — a filled square, shown in place of send while the AI is thinking.
@@ -3492,12 +3538,32 @@ function mergeStringTurns(seq) {
 // version) so edits are full rewrites of it, and (2) the visible thread as plain
 // strings. The model produces/updates the file through the `write_document` tool,
 // not inline tags — so there's nothing to parse and nothing to drift.
-function buildGenMessages(displayed, file, versions, activeVersion) {
+function buildGenMessages(displayed, file, versions, activeVersion, readText = '') {
   // Seed with the version that's actually on disk right now (the user may have
   // re-selected an earlier one), falling back to the most recent.
   const active = versions.find((v) => v.n === activeVersion)
     || (versions.length ? versions[versions.length - 1] : null);
   const seq = [];
+  // A Word file DocVex did not write has no version to seed from, and used to
+  // be sent with NO document at all — so the advisor answered about a file it
+  // could not see, or invented a replacement for it. Its text is read off the
+  // rendered pane instead. It is seeded as READING, not as a draft: the text is
+  // all that survives the read (the styles, tables and numbering live in the
+  // .docx and no rebuild from this would carry them), so a change belongs in
+  // the paragraph the reader picks, where it is written into the file in place.
+  if (!active?.text && String(readText || '').trim()) {
+    seq.push({
+      role: 'user',
+      content:
+        `Here is the text of "${file?.name || 'this document'}", which I am reading. It was NOT written here, so you have its words but not its layout.\n\n` +
+        `<<<DOCUMENT>>>\n${String(readText).slice(0, FOREIGN_DOC_CHARS)}\n<<<END>>>\n\n` +
+        'Answer questions about it directly. Do NOT call write_document for it: saving a new version would rebuild the file from this plain text and throw away its formatting, tables and numbering. When I want something in it changed, tell me to click the paragraph — a paragraph I pick is edited straight inside the file, keeping everything else exactly as it is.',
+    });
+    seq.push({
+      role: 'assistant',
+      content: 'Understood — I have the document’s text. I’ll answer about it, and point you at the paragraph when you want a change made.',
+    });
+  }
   if (active?.text) {
     seq.push({
       role: 'user',
@@ -3568,11 +3634,15 @@ function patchVersionParagraph(src, before, after) {
 const MultitoolAdvisorContext = React.createContext(null);
 function useMultitoolAdvisor() { return useContext(MultitoolAdvisorContext); }
 
-function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, generateMode = false, onDocWritten, onRenameFile, completing = false, setCompleting, children }) {
+function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, generateMode = false, onDocWritten, onRenameFile, completing = false, setCompleting, focusMode = false, toggleFocus = null, children }) {
   const { notify } = useNotifications();
   const { session } = useAuth();
   const { selectedProject } = useSelectedProject();
-  const [messages, setMessages] = useState([]); // [{ role, content } | { role:'artifact', version, instructions }]
+  const [messages, setMessagesState] = useState([]); // [{ role, content } | { role:'artifact', version, instructions }]
+  // The live thread, readable without waiting for a render — switchScope has to
+  // stash what is on screen before it swaps, and a turn may still be appending.
+  const messagesRef = useRef([]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
   // Which file's saved thread is actually IN `messages` right now. Null until
   // the load effect below has run and its setState has landed. Everything that
   // writes to storage waits for this to match the open file — see the note in
@@ -3584,6 +3654,13 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   // branch's also live in `messages` (kept in sync below).
   const [branches, setBranches] = useState([{ id: 'main', label: 'Main' }]);
   const [activeBranchId, setActiveBranchId] = useState('main');
+  const activeBranchIdRef = useRef('main');
+  useEffect(() => { activeBranchIdRef.current = activeBranchId; }, [activeBranchId]);
+  // The thread a turn was SENT from, for as long as it runs. Leaving a
+  // paragraph mid-answer hands the advisor back to the document at once — the
+  // reader asked about the document, so that is what they should be talking to
+  // — but the answer still belongs to the paragraph that was asked about.
+  const turnOriginRef = useRef(null);
   const branchStoreRef = useRef({ main: [] });
   const branchSeqRef = useRef(0);
 
@@ -3602,6 +3679,12 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   // The picked paragraph's text, published by the document pane, so the
   // composer can aim a prompt at it without reaching into the document's DOM.
   const [paraText, setParaText] = useState('');
+  // The same pick as the FILE spells it, which is what a rewrite of it is
+  // matched against when it is written back (see `src` in syncParas). Kept
+  // apart from paraText because they differ exactly where it matters: a
+  // paragraph split across a page break shows half of itself and is stored
+  // whole.
+  const [paraSrc, setParaSrc] = useState('');
   // WHICH paragraph it is — its document-order index (or the joined indices of a
   // multi-paragraph pick). This is what a paragraph's conversation is filed
   // under, and it survives both a re-render and a new version of the file.
@@ -3616,13 +3699,36 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   //
   // Version cards need no special handling — they are messages, so a version
   // produced from a paragraph's thread lands in that paragraph's thread.
+  // Every append during a turn goes through this. When the turn's thread is no
+  // longer the one on screen, the message is written into that thread's STORE
+  // instead of into the visible state — so an answer about a paragraph cannot
+  // land in the middle of the document's conversation just because the reader
+  // walked away while it was being written. (switchScope and the hydration
+  // paths use setMessagesState directly: those ARE the visible thread
+  // changing, and must never be redirected.)
+  const setMessages = useCallback((updater) => {
+    const origin = turnOriginRef.current;
+    if (!origin || origin === threadScopeRef.current) { setMessagesState(updater); return; }
+    const store = origin === 'document' ? branchStoreRef.current : paraThreadsRef.current;
+    const key = origin === 'document' ? activeBranchIdRef.current : origin;
+    const cur = store[key] || [];
+    store[key] = typeof updater === 'function' ? updater(cur) : updater;
+  }, []);
+
   const [threadScope, setThreadScope] = useState('document');
+  // The thread the turn IN FLIGHT belongs to. Kept separately from threadScope
+  // because the reader may leave the paragraph while the model is still working
+  // on it — the work carries on regardless (nothing here cancels a turn), and
+  // the document marks that paragraph as busy so the work is not invisible.
+  const [busyScope, setBusyScope] = useState('');
   const paraThreadsRef = useRef({});   // 'para:<indices>' → messages[]
 
   const threadScopeRef = useRef('document');
   useEffect(() => { threadScopeRef.current = threadScope; }, [threadScope]);
   const paraTextRef = useRef('');
   useEffect(() => { paraTextRef.current = paraText; }, [paraText]);
+  const paraSrcRef = useRef('');
+  useEffect(() => { paraSrcRef.current = paraSrc; }, [paraSrc]);
 
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -3630,7 +3736,16 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   // this window's row as "AI working". Flag back to idle when the window unmounts.
   useEffect(() => {
     setDocViewerAiStatus(busy);
-    return () => setDocViewerAiStatus(false);
+    // …and to the TITLE BAR in this same window, which has to know before it
+    // closes it: a turn runs in this renderer, so the window going is the end
+    // of it. A global rather than a prop — the bar is a sibling of this page,
+    // not an ancestor — matching how the side panel and focus already talk to
+    // it (`window.__docvexDocViewerSideHidden`).
+    window.__docvexDocViewerAiBusy = busy;
+    return () => {
+      setDocViewerAiStatus(false);
+      window.__docvexDocViewerAiBusy = false;
+    };
   }, [busy]);
   // Re-selecting / opening a saved version writes it to disk — a quick file op
   // that should NOT show the chat's thinking bubble (it jitters the thread).
@@ -3833,19 +3948,35 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
 
   // Move the conversation to another scope. The mirror above already stashed the
   // outgoing thread, so this only has to swap in the incoming one.
+  // Switches AT ONCE, even mid-turn. Leaving a paragraph while the model is
+  // still writing about it hands the advisor straight back to the document:
+  // that is what the reader is looking at now, and making them wait for an
+  // answer they have already walked away from is the opposite of letting the
+  // work carry on in the background. The turn is not cancelled and its reply
+  // still goes to the paragraph's own thread (see setMessages above); the
+  // paragraph itself says it is busy, in the document (`.is-ai-busy`).
   const switchScope = useCallback((next) => {
-    if (busy || !next || next === threadScope) return;
+    if (!next || next === threadScope) return;
+    // The thread being left is mirrored before the swap — the effect that
+    // normally does it runs too late to catch a turn still appending to it.
+    if (threadScope === 'document') branchStoreRef.current[activeBranchIdRef.current] = messagesRef.current;
+    else paraThreadsRef.current[threadScope] = messagesRef.current;
     setOptions([]);
     setPendingAsk(null);
+    // Synchronously, not only through the effect that mirrors it: a turn still
+    // appending would otherwise read the OLD scope for a frame and write its
+    // message into the thread being left behind — on screen, in the document's.
+    threadScopeRef.current = next;
     setThreadScope(next);
-    setMessages(next === 'document'
-      ? (branchStoreRef.current[activeBranchId] || [])
+    setMessagesState(next === 'document'
+      ? (branchStoreRef.current[activeBranchIdRef.current] || [])
       : (paraThreadsRef.current[next] || []));
-  }, [busy, threadScope, activeBranchId]);
+  }, [threadScope]);
 
   // Picking a paragraph moves the conversation to that paragraph's thread —
   // that is what the click meant. Dropping the pick returns to the document's.
   const switchScopeRef = useRef(switchScope);
+
   useEffect(() => { switchScopeRef.current = switchScope; }, [switchScope]);
   useEffect(() => {
     switchScopeRef.current?.(paraScope || 'document');
@@ -3991,7 +4122,10 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   // saved as a new version with its own card in the thread, exactly like an AI
   // revision. Edits whose paragraph can't be located in the source are reported
   // back rather than dropped.
-  const applyManualEdit = useCallback(async (edits) => {
+  // `opts.label` names the version card. It defaults to the reader's own edit,
+  // which is what this used to be for exclusively; a paragraph the AI rewrote
+  // (runParaTurn) comes through here too and must not be filed under "Your edit".
+  const applyManualEdit = useCallback(async (edits, opts = {}) => {
     const list = (edits || []).filter((e) => e && e.before && e.after !== e.before);
     if (!list.length) return { error: 'no_edits' };
     const active = versions.find((v) => v.n === activeVersion)
@@ -4017,7 +4151,8 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
 
     const kind = active.kind || docKindFromName(file?.name || '') || 'docx';
     const n = versionCountRef.current + 1;
-    const label = applied === 1 ? 'Your edit to one paragraph' : `Your edits to ${applied} paragraphs`;
+    const label = opts.label
+      || (applied === 1 ? 'Your edit to one paragraph' : `Your edits to ${applied} paragraphs`);
     const version = { n, text, instructions: label, kind, manual: true };
     try {
       await writeDoc(text, kind, { versions: [...versions, version], active: n });
@@ -4192,9 +4327,154 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     return parts.join('\n\n');
   }, [file?.name, listProjectFiles]);
 
+  // One turn aimed at the PICKED PARAGRAPH — see the note by PARA_TURN_MARKER
+  // for why this exists at all. The model is handed that paragraph, the rest of
+  // the document as read-only background, and the paragraph's own thread, and
+  // writes back at most one paragraph. Returns true when it handled the turn.
+  const runParaTurn = useCallback(async (convo, stopped) => {
+    // The file's own spelling of the pick, so what comes back is written where
+    // the reader is looking. paraText is the fallback for a pane that hasn't
+    // published one (nothing else reads `src`, so it can only be missing).
+    const source = (paraSrcRef.current || paraTextRef.current).replace(/\r\n?/g, '\n').trim();
+    if (!source) return false;
+    // A pick can span several paragraphs (they arrive joined by a blank line).
+    const paras = source.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+    if (!paras.length) return false;
+
+    // The rendered document, for the defined terms and party names the clause
+    // has to agree with. Read straight off the pane; nothing is fetched.
+    let docText = '';
+    try { docText = String(fieldsApiRef.current?.documentText?.() || '').trim(); } catch { /* not rendered */ }
+    const context = docText && docText.length > source.length
+      ? docText.slice(0, PARA_DOC_CONTEXT_CHARS)
+      : '';
+
+    const many = paras.length > 1;
+    const frame = [
+      `You are working inside "${file?.name || 'this document'}". The reader has picked ${many ? `${paras.length} paragraphs` : 'ONE paragraph'} out of it, and everything I ask is about ${many ? 'them' : 'it'}.`,
+      '',
+      many ? `THE PICKED PARAGRAPHS, in order:` : 'THE PICKED PARAGRAPH:',
+      '<<<PASSAGE>>>',
+      source,
+      '<<<END PASSAGE>>>',
+      ...(context ? [
+        '',
+        'The rest of the document is below FOR CONTEXT ONLY — so you know the defined terms, the parties and the numbering. Never rewrite or repeat it.',
+        '<<<DOCUMENT>>>',
+        context,
+        '<<<END DOCUMENT>>>',
+      ] : []),
+      '',
+      'How to reply:',
+      `- If I am asking you to CHANGE the passage, reply with the line ${PARA_TURN_MARKER} on its own, and under it the full new text of the passage and nothing else — no quotes, no markdown fences, no commentary.`,
+      ...(many ? [`  Give exactly ${paras.length} paragraphs, in the same order, separated by one blank line.`] : []),
+      '- If I am only asking a question about it, answer in prose and do not use that line.',
+      '- Keep the language the passage is written in.',
+      '- Keep every [[placeholder]] and every blank (_____) exactly as written unless I ask you to fill it. Never invent a name, a date, a sum or an identifier.',
+      '- Change only this passage. The rest of the document stays as it is.',
+    ].join('\n');
+
+    const apiMsgs = [
+      { role: 'user', content: frame },
+      { role: 'assistant', content: `Understood — I have the passage and the document around it, and I will ${many ? 'return those paragraphs' : 'return that paragraph'} only when you ask for a change.` },
+      // The VISIBLE text of each turn: `apiText` carries a copy of the passage
+      // appended by send(), which is already in the frame above.
+      ...convo
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({ role: m.role, content: m.content })),
+    ];
+
+    const res = await askProjectAi({
+      messages: apiMsgs,
+      fileNames: [file?.name],
+      model,
+      tools: false,
+      usageAction: 'paragraph-edit',
+    });
+    if (stopped()) return true;
+    if (res.error) { setError('The AI advisor is unavailable right now.'); return true; }
+    addUsage(res.usage);
+
+    // Line endings normalised before anything is split on a blank line: a model
+    // that answers in CRLF writes "\r\n\r\n" between its paragraphs, which no
+    // \n{2,} ever matches, so a two-paragraph reply arrived as one.
+    const raw = String(res.text || '').replace(/\r\n?/g, '\n').trim();
+    const cut = raw.indexOf(PARA_TURN_MARKER);
+    if (cut < 0) {
+      // An answer, not an edit.
+      setMessages((m) => [...m, { role: 'assistant', content: raw, at: Date.now(), usage: res.usage }]);
+      return true;
+    }
+    const lead = raw.slice(0, cut).trim();
+    const body = raw.slice(cut + PARA_TURN_MARKER.length)
+      .replace(/^\s*```[a-z]*\s*\n?/i, '')
+      .replace(/\n?\s*```\s*$/i, '')
+      .trim();
+    const out = body.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+    // One paragraph goes back into one paragraph: a blank line inside the reply
+    // would otherwise be silently dropped by the rewrite, which replaces a
+    // single <w:p>. Several picked must come back one for one, or there is no
+    // way to tell which new text belongs to which paragraph — say so rather
+    // than guess and write the wrong clause.
+    const after = many ? out : [out.join(' ')];
+    if (many && after.length !== paras.length) {
+      setMessages((m) => [...m, {
+        role: 'assistant',
+        content: `${lead ? `${lead}\n\n` : ''}I rewrote the passage, but it came back as ${after.length} paragraph${after.length === 1 ? '' : 's'} instead of ${paras.length}, so I couldn’t tell which replaces which. Nothing was changed — try asking for one paragraph at a time.`,
+        at: Date.now(),
+        usage: res.usage,
+      }]);
+      return true;
+    }
+    const edits = paras
+      .map((before, i) => ({ before, after: after[i] || '' }))
+      .filter((e) => e.after && e.after !== e.before);
+    if (!edits.length) {
+      setMessages((m) => [...m, {
+        role: 'assistant',
+        content: lead || 'That already reads the way you asked — I’ve left it as it is.',
+        at: Date.now(),
+        usage: res.usage,
+      }]);
+      return true;
+    }
+    // Applied BEFORE the reply is posted so a failure is never announced as a
+    // success. applyManualEdit picks the route: patch this file's own source, or
+    // rewrite the paragraphs inside the .docx for a file DocVex didn't write.
+    const label = edits.length === 1 ? 'AI edit to one paragraph' : `AI edits to ${edits.length} paragraphs`;
+    const done = await applyManualEdit(edits, { label });
+    if (stopped()) return true;
+    if (done?.error) {
+      setMessages((m) => [...m, {
+        role: 'assistant',
+        content: `${lead ? `${lead}\n\n` : ''}${done.error === 'not_found'
+          ? 'I couldn’t find that paragraph in the file to save the change, so nothing was written. It may have been changed elsewhere since this was opened.'
+          : done.error === 'no_version'
+            ? 'This file can’t be edited a paragraph at a time, so nothing was written.'
+            : 'Saving the change to the file failed — it may be open in Word. Nothing was written.'}`,
+        at: Date.now(),
+        usage: res.usage,
+      }]);
+      return true;
+    }
+    // The new text goes in the reply as well as into the file: the pane may be
+    // scrolled elsewhere by the time this lands, and a change you cannot see is
+    // not one you can check.
+    setMessages((m) => [...m, {
+      role: 'assistant',
+      content: `${lead ? `${lead}\n\n` : ''}${edits.map((e) => e.after).join('\n\n')}`,
+      at: Date.now(),
+      usage: res.usage,
+    }]);
+    return true;
+  }, [file?.name, model, addUsage, applyManualEdit]);
+
   const runTurn = useCallback(async (convo, lastUserText) => {
     const seq = ++turnSeqRef.current;
     const stopped = () => turnSeqRef.current !== seq;
+    // A request aimed at a picked paragraph is answered as a paragraph, not as
+    // a new draft of the whole file.
+    if (threadScopeRef.current !== 'document' && await runParaTurn(convo, stopped)) return;
     // The text of a file the user named outright, if any — nothing else from
     // the project. Attached to the OUTGOING copy of the last user message only,
     // so it is never stored in the thread.
@@ -4207,7 +4487,12 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       ))
       : msgs);
     if (genMode) {
-      const baseMsgs = buildGenMessages(convo, file, versions, activeVersion);
+      // The rendered text stands in when the file has no version of its own.
+      let readText = '';
+      if (!versions.length) {
+        try { readText = String(fieldsApiRef.current?.documentText?.() || ''); } catch { /* not rendered */ }
+      }
+      const baseMsgs = buildGenMessages(convo, file, versions, activeVersion, readText);
       const k = docKindFromName(file?.name || '') || '';
       // No forced documents. The model always has BOTH tools (write_document +
       // ask_user) and decides for itself: write a new version when I clearly want
@@ -4257,14 +4542,28 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       return;
     }
     setMessages((m) => [...m, { role: 'assistant', content: res.text, at: Date.now(), usage: res.usage }]);
-  }, [genMode, file, versions, activeVersion, model, addUsage, applyGenResult, buildProjectFilesNote]);
+  }, [genMode, file, versions, activeVersion, model, addUsage, applyGenResult, buildProjectFilesNote, runParaTurn]);
 
   // Stop the in-flight turn: invalidate its result (so nothing lands in the
   // thread when the request returns) and drop the thinking state immediately.
   const stop = useCallback(() => {
     turnSeqRef.current += 1;
+    // Say so IN the thread. Stopping used to leave the question sitting there
+    // with no answer under it and nothing to explain why, which reads as the
+    // app having lost the reply rather than as the reader having stopped it.
+    // Written before the origin is cleared, so a turn stopped after its
+    // paragraph was closed is marked in that paragraph's thread, not in
+    // whatever is on screen (see setMessages).
+    setMessages((m) => {
+      const i = m.length - 1;
+      if (i < 0 || m[i].role !== 'user' || m[i].cancelled) return m;
+      const out = m.slice();
+      out[i] = { ...out[i], cancelled: true };
+      return out;
+    });
+    turnOriginRef.current = null;
     setBusy(false);
-  }, []);
+  }, [setMessages]);
 
   // Resolve a pending ask_user question. The non-generate advisor just continues
   // the conversation; in generate mode (pa.gen) the answers feed back with the doc
@@ -4370,11 +4669,17 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     setMessages(next);
     setInput('');
     setSelection(null);
+    setBusyScope(threadScopeRef.current);
+    turnOriginRef.current = threadScopeRef.current;
     setBusy(true);
     setError(null);
     setOptions([]);
-    await runTurn(next, explicitApi || q);
-    setBusy(false);
+    try {
+      await runTurn(next, explicitApi || q);
+    } finally {
+      turnOriginRef.current = null;
+      setBusy(false);
+    }
   }, [input, busy, messages, runTurn, pendingAsk, resolveAsk, selection]);
 
   // Click a decision button: send that choice as the user's reply.
@@ -4651,8 +4956,8 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   }, [addUsage, model, selectedProject?.id]);
 
   const value = useMemo(
-    () => ({ messages, input, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, quickSlot, recordPanel, setRecordPanel, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, docTools, setDocTools, paraPicked, setParaPicked, paraText, setParaText, paraKey, setParaKey, paraScope, threadScope, switchScope, paraSlot, setParaSlot, ctorSlot, setCtorSlot, hoverField, setHoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions }),
-    [messages, input, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, quickSlot, recordPanel, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, docTools, paraPicked, paraText, paraKey, paraScope, threadScope, switchScope, paraSlot, ctorSlot, hoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions],
+    () => ({ messages, input, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, quickSlot, recordPanel, setRecordPanel, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, busyScope, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, setDocTools, paraPicked, setParaPicked, paraText, setParaText, setParaSrc, paraKey, setParaKey, paraScope, threadScope, switchScope, paraSlot, setParaSlot, ctorSlot, setCtorSlot, hoverField, setHoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions }),
+    [messages, input, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, quickSlot, recordPanel, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, busyScope, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, paraPicked, paraText, paraKey, paraScope, threadScope, switchScope, paraSlot, ctorSlot, hoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions],
   );
   return <MultitoolAdvisorContext.Provider value={value}>{children}</MultitoolAdvisorContext.Provider>;
 }
@@ -4741,6 +5046,40 @@ function MultitoolComposer() {
     const t = window.setTimeout(() => { setPanelMounted(false); setPanelExiting(false); }, 480);
     return () => window.clearTimeout(t);
   }, [wantPanels, panelMounted]);
+  // The box grows with what is typed, and stops at HALF the advisor card, so a
+  // long message stays readable while it is written without swallowing the
+  // thread above it. A textarea will not do this by itself: its height is
+  // `rows`, and everything past that scrolls out of sight.
+  // A state ref, not useRef, so the effects below run when the textarea
+  // actually mounts (this component returns null until the advisor exists).
+  const [areaEl, setAreaEl] = useState(null);
+  const advInput = adv?.input;
+  const fitArea = useCallback(() => {
+    if (!areaEl) return;
+    const composer = areaEl.closest('.dv-advisor-composer');
+    const card = areaEl.closest('.dv-advisor-card');
+    // Everything in the footer that ISN'T the text — its padding, the toolbar
+    // row, a selection chip — so the half is of the whole FOOTER, which is what
+    // the reader sees taking up the panel, not of the text alone.
+    const chrome = composer ? Math.max(0, composer.offsetHeight - areaEl.offsetHeight) : 0;
+    areaEl.style.height = 'auto';        // measure the content, not the last size
+    const half = card ? card.clientHeight / 2 : 240;
+    const cap = Math.max(COMPOSER_MIN_H, half - chrome);
+    const want = areaEl.scrollHeight;
+    areaEl.style.height = `${Math.min(want, cap)}px`;
+    // It only scrolls once it has hit the cap; under that, all of it is shown.
+    areaEl.style.overflowY = want > cap ? 'auto' : 'hidden';
+  }, [areaEl]);
+  // Typing, and any change made for the user (a send clears the box).
+  useLayoutEffect(() => { fitArea(); }, [fitArea, advInput]);
+  // The cap is half the CARD, so dragging the panel taller or shorter re-fits.
+  useEffect(() => {
+    const card = areaEl?.closest('.dv-advisor-card');
+    if (!card || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => fitArea());
+    ro.observe(card);
+    return () => ro.disconnect();
+  }, [areaEl, fitArea]);
   if (!adv) return null;
   const {
     input, setInput, busy, send, stop, genMode, options = [], chooseOption,
@@ -4815,9 +5154,15 @@ function MultitoolComposer() {
       {/* The picked paragraph's autofill options (the Word pane's Constructor
           portals them in) — empty, and so collapsed, the rest of the time. */}
       <div className="dv-advisor-ctorslot" ref={adv?.setCtorSlot} />
-      {/* Frosted composer card (.dvx-composer style): textarea + send button. */}
+      {/* Frosted composer card (.dvx-composer style): textarea + send button.
+          Nothing typed: the toolbar row below holds only a Send button that
+          cannot be pressed, so the card gives that row back (is-empty) and
+          stands as the one input line it actually is. It returns the moment
+          there is something to send — and stays put whenever the row carries
+          something that is NOT about what has been typed: the ask panel's own
+          actions, or Stop while the AI is working. */}
       <div
-        className="dv-advisor-composer"
+        className={`dv-advisor-composer${!input.trim() && !asking && !busy ? ' is-empty' : ''}`}
         onMouseMove={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           // Layout-space vars (see the advisor-card handler) — divide by zoom.
@@ -4849,6 +5194,7 @@ function MultitoolComposer() {
           </Tooltip>
         )}
         <textarea
+          ref={setAreaEl}
           className="dv-advisor-composer-textarea"
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -4893,6 +5239,39 @@ function MultitoolComposer() {
       </div>
     </div>
   );
+}
+
+// ── When a message was sent ────────────────────────────────────────────────
+// The advisor's thread is a conversation that outlives the session — it is
+// saved per file and reopened days later — so "when" matters here for the same
+// reason it does in the team chat, and it is said the same way: a day divider
+// where the date turns over, and the time of day under each turn.
+// Messages carry `at` (epoch ms); older saved threads may not, and those simply
+// show nothing rather than a guess.
+function sameLocalDay(a, b) {
+  if (!a || !b) return false;
+  const x = new Date(a);
+  const y = new Date(b);
+  return x.toDateString() === y.toDateString();
+}
+function formatDayLabel(at) {
+  if (!at) return '';
+  const d = new Date(at);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return 'Today';
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return 'Yesterday';
+  // Inside the last week the weekday alone is the clearest thing to say.
+  if ((now - d) / 86400000 < 7) return d.toLocaleDateString(undefined, { weekday: 'long' });
+  return d.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+  });
+}
+function formatClock(at) {
+  if (!at) return '';
+  return new Date(at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
 // Claude-artifacts-style version card — one per generated iteration. Clicking
@@ -5447,9 +5826,29 @@ function AdvisorPanel({ file }) {
                 // it carries the usage, since that is the message the model's
                 // reply came back on.
                 const cardUsage = fileCard ? messages[i - 1]?.usage : null;
+                // The date turning over, said once, above the first message of
+                // that day — the team chat's divider, the same shape and the
+                // same words.
+                const prev = messages[i - 1];
+                const showDay = !!m.at && (!prev?.at || !sameLocalDay(prev.at, m.at));
                 return (
                   <React.Fragment key={i}>
+                    {showDay && (
+                      <div className="dv-day-divider" role="separator">
+                        <span className="dv-day-divider-label">{formatDayLabel(m.at)}</span>
+                      </div>
+                    )}
                     {inner}
+                    {/* The time under the turn, on the side the bubble sits on.
+                        A cancelled request says so here instead: the thread
+                        would otherwise show a question with no answer and no
+                        explanation, which reads as the app having lost it. */}
+                    {m.at && m.role !== 'artifact' && (
+                      <div className={`dv-msg-time${m.role === 'user' ? ' is-mine' : ''}`}>
+                        {m.cancelled && <span className="dv-msg-cancelled">Cancelled</span>}
+                        <time dateTime={new Date(m.at).toISOString()}>{formatClock(m.at)}</time>
+                      </div>
+                    )}
                     {showTokenUsage && cardUsage && <MessageTokens usage={cardUsage} tight />}
                     {splitsHere.map((s) => (
                       <Tooltip key={s.branchId} content={`You split a new conversation (${s.label}) from here — click to open it`}>
@@ -6187,6 +6586,9 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  // True for the length of a wheel/pinch gesture: the transform's easing is
+  // dropped while it runs, so the picture tracks the fingers exactly.
+  const [zooming, setZooming] = useState(false);
   const panStateRef = useRef({ x: 0, y: 0 });
 
   // ── Video player ─────────────────────────────────────────────────
@@ -6426,17 +6828,27 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   // code called setPanX from inside setZoom's updater; React (StrictMode)
   // invokes updaters twice, so the pan got re-scaled twice per step and the
   // view jumped sideways after any pan + zoom combination.
-  const applyZoom = useCallback((dir) => {
+  // 'in' / 'out' from the pill's buttons, which are discrete; `{ by: factor }`
+  // from the wheel, which is continuous (see createWheelZoom). Everything below
+  // is written against the multiplier, so both arrive at the same maths.
+  const applyZoom = useCallback((req) => {
     const z = zoomRef.current;
+    const f = zoomFactorOf(req, ZOOM_STEP);
+    const out = f < 1;
     // Zooming OUT while a snippet is focused ends the focus — the selection
     // deselects and its highlight clears.
-    if (dir === 'out' && highlightIdRef.current) setHighlightId(null);
-    const raw = dir === 'in' ? z * ZOOM_STEP : z / ZOOM_STEP;
-    if (dir === 'out' && raw <= 1) {
+    if (out && highlightIdRef.current) setHighlightId(null);
+    const raw = z * f;
+    if (out && raw <= 1) {
+      // The ZOOM floors at 100%; the pan is not touched beyond being scaled
+      // with it, as at every other step. It used to be dropped to nothing here,
+      // which is what made zooming out snap the picture back to the middle no
+      // matter where it had been dragged to.
+      const back = 1 / z;
       zoomRef.current = 1;
       setZoom(1);
-      setPanX(0);
-      setPanY(0);
+      setPanX((px) => px * back);
+      setPanY((py) => py * back);
       return;
     }
     const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +raw.toFixed(3)));
@@ -6542,13 +6954,24 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return undefined;
+    // Continuous: every event's delta is a multiplier — see createWheelZoom.
+    const zoomBy = createWheelZoom(applyZoom);
+    let settle = 0;
     const onWheel = (e) => {
       if (armed) return;
       e.preventDefault();
-      applyZoom(e.deltaY < 0 ? 'in' : 'out');
+      // The 120ms transform transition is a smoothing filter, which is right
+      // for a button's jump and wrong for a gesture: restarted by every event
+      // it never arrives, so the picture trails the fingers. Dropped while
+      // zooming, exactly as it is while dragging, and restored once the
+      // gesture goes quiet.
+      setZooming(true);
+      window.clearTimeout(settle);
+      settle = window.setTimeout(() => setZooming(false), ZOOM_SETTLE_MS);
+      zoomBy(e);
     };
     stage.addEventListener('wheel', onWheel, { passive: false });
-    return () => stage.removeEventListener('wheel', onWheel);
+    return () => { window.clearTimeout(settle); stage.removeEventListener('wheel', onWheel); };
   }, [armed, applyZoom]);
 
   // Stage mousedown: pan when zoomed, or click-to-play for video (replaces dv-player-click).
@@ -6569,8 +6992,11 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     let moved = false;
     setIsDragging(true);
     const onMove = (ev) => {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
+      // toLayoutPx: these are VIEWPORT deltas going into a CSS transform, and
+      // the two differ under a display-scale. Without it the picture drifts
+      // behind the cursor instead of tracking it exactly.
+      const dx = toLayoutPx(ev.clientX - startX);
+      const dy = toLayoutPx(ev.clientY - startY);
       if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return;
       moved = true;
       document.body.classList.add('dv-media-panning');
@@ -6981,13 +7407,13 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
           onDurationChange={() => setDuration(mediaRef.current?.duration || 0)}
           onVolumeChange={() => { const v = mediaRef.current; if (v) { setMuted(v.muted); setVolume(v.volume); } }}
           onError={() => setFailed(true)}
-          style={{ transform: `translate(${panX}px, ${panY}px) scale(${zoom})`, transition: isDragging ? 'none' : 'transform 120ms ease' }}
+          style={{ transform: `translate(${panX}px, ${panY}px) scale(${zoom})`, transition: isDragging || zooming ? 'none' : 'transform 120ms ease' }}
         />
       ) : (
         <img
           ref={mediaRef} className="dv-media-el" src={mediaUrl} alt={file.name}
           crossOrigin="anonymous" onError={() => setFailed(true)}
-          style={{ transform: `translate(${panX}px, ${panY}px) scale(${zoom})`, transition: isDragging ? 'none' : 'transform 120ms ease' }}
+          style={{ transform: `translate(${panX}px, ${panY}px) scale(${zoom})`, transition: isDragging || zooming ? 'none' : 'transform 120ms ease' }}
         />
       )}
 
@@ -7001,7 +7427,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
           stageRef={stageRef}
           reading={textReading}
           transform={`translate(${panX}px, ${panY}px) scale(${zoom})`}
-          transition={isDragging ? 'none' : 'transform 120ms ease'}
+          transition={isDragging || zooming ? 'none' : 'transform 120ms ease'}
         />
       )}
 
@@ -8595,10 +9021,45 @@ function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = 
   // A picked paragraph takes the panel over — its options and its own thread
   // live in the Advisor tab — so the rest of the strip (Data, Theme, Add) is
   // put away until the paragraph is closed.
-  const panelTabs = paraPicked ? ['advisor']
-    : docTools ? ['advisor', 'metadata', 'theme', 'add']
-      : recordPanel ? ['advisor', 'sources', 'metadata']
-        : ['advisor', 'metadata'];
+  // What this FILE offers, and what is available this instant. The two differ
+  // only while a paragraph is picked, when the panel is the advisor and nothing
+  // else — and the strip is ordered by the first, never the second, so picking
+  // a paragraph doesn't shuffle every other tab to the back and out again.
+  const fileTabs = docTools ? ['advisor', 'metadata', 'theme', 'add']
+    : recordPanel ? ['advisor', 'sources', 'metadata']
+      : ['advisor', 'metadata'];
+  const panelTabs = paraPicked ? ['advisor'] : fileTabs;
+  // The Activity feed's tab motion: its content enters from the side the
+  // underline just travelled toward. The bodies below already mount and
+  // unmount on a tab change, so a CSS animation on them replays by itself —
+  // all this has to carry is the DIRECTION. 0 = the first render, which plays
+  // nothing (a panel opening should not look like a tab being changed).
+  const tabOrder = panelTabs.join(',');
+  const [slideDir, setSlideDir] = useState(0);
+  const prevTabRef = useRef(rightTab);
+  useEffect(() => {
+    const order = tabOrder.split(',');
+    const from = order.indexOf(prevTabRef.current);
+    const to = order.indexOf(rightTab);
+    prevTabRef.current = rightTab;
+    if (from >= 0 && to >= 0 && from !== to) setSlideDir(to > from ? 1 : -1);
+  }, [rightTab, tabOrder]);
+  // The footer fades with the body. It cannot ride the same CSS rule: the
+  // composer is rendered ONCE at card level so every tab shares it, so unlike
+  // the bodies it never unmounts, and an animation that never remounts never
+  // replays. So it is restarted by hand — the class off, a forced reflow, the
+  // class on (the same restart flashQuickAction uses).
+  const panelRef = useRef(null);
+  const footSeenRef = useRef(false);
+  useEffect(() => {
+    if (!footSeenRef.current) { footSeenRef.current = true; return; }  // not on opening
+    const foot = panelRef.current?.closest('.dv-advisor-card')
+      ?.querySelector(':scope > .dv-advisor-footerslot');
+    if (!foot) return;
+    foot.classList.remove('is-enter');
+    void foot.offsetWidth;
+    foot.classList.add('is-enter');
+  }, [rightTab]);
   useEffect(() => {
     if (!docTools) setRightTab((cur) => (cur === 'theme' || cur === 'add' ? 'advisor' : cur));
   }, [docTools]);
@@ -8664,10 +9125,14 @@ function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = 
   };
 
   return (
-    <aside className={`dv-ocr-history dv-doc-extract${fill ? ' dv-side-portal' : ''}`} style={fill ? undefined : { width: `${width}px` }}>
+    <aside
+      ref={panelRef}
+      className={`dv-ocr-history dv-doc-extract${fill ? ' dv-side-portal' : ''}${slideDir > 0 ? ' is-enter-right' : slideDir < 0 ? ' is-enter-left' : ''}`}
+      style={fill ? undefined : { width: `${width}px` }}
+    >
       {/* Documents get two panes: the Generate (AI) advisor and Metadata. Text
           extraction lives in the Multitool footer, not a tab. */}
-      <SidePanelTabs tabs={panelTabs} active={rightTab} onChange={setRightTab} slot={sideTabsSlot} />
+      <SidePanelTabs tabs={panelTabs} order={fileTabs} active={rightTab} onChange={setRightTab} slot={sideTabsSlot} />
       {/* Quick actions live in their own card above the panel (the viewer's
           `quickSlot`); inline only if that card isn't there. */}
       {docTools && (panelAdv?.quickSlot
@@ -8821,10 +9286,10 @@ function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = 
 
 // Lays out a document preview. Its side panel (just the AI advisor for plain
 // documents — extraction/captions are media-only) portals into the right card.
-function DocumentWithPanel({ file, url, kind, mainClass = '', sidePanelSlot = null, sideTabsSlot = null, children }) {
+function DocumentWithPanel({ file, url, kind, mainClass = '', sidePanelSlot = null, sideTabsSlot = null, onDoubleClick = null, children }) {
   return (
     <>
-      <div className={`dv-doc-main ${mainClass}`.trim()}>{children}</div>
+      <div className={`dv-doc-main ${mainClass}`.trim()} onDoubleClick={onDoubleClick || undefined}>{children}</div>
       {sidePanelSlot && createPortal(
         <DocExtractPanel file={file} url={url} kind={kind} sideTabsSlot={sideTabsSlot} fill />,
         sidePanelSlot,
@@ -8864,6 +9329,32 @@ const PROJECT_FILE_READ_MAX = 3;
 const PROJECT_LIST_TTL_MS = 15000;
 // Identity records change far less often than the folder does.
 const IDENTITY_LIST_TTL_MS = 60000;
+
+// ── Asking about ONE paragraph ────────────────────────────────────────────
+// A request aimed at a picked paragraph is answered by a turn that writes back
+// only THAT paragraph — see runParaTurn. It used to go down the same path as
+// everything else: generate-mode handed the model the whole document and asked
+// for a complete new version through write_document, so "make this clause
+// shorter" cost a full re-emission of the file. On a contract of a few thousand
+// words that is thousands of output tokens — a minute or two of waiting for one
+// sentence — and every word of the other clauses was re-generated, so they could
+// come back subtly re-worded. On a Word file DocVex did not write it was worse
+// than slow: there is no version to seed from, so the model was handed nothing
+// at all and either answered about a document it could not see or invented a
+// replacement for it. That is the "doesn't work".
+//
+// The paragraph is instead sent on its own, with the rest of the document as
+// background it may read but must not rewrite. Input is cheap and fast; it is
+// OUTPUT that costs the wait, and the output here is one paragraph.
+const PARA_TURN_MARKER = '@@REWRITE@@';
+// How much of the document rides along as context. Enough for the defined terms,
+// the party names and the numbering a clause has to agree with; capped so a long
+// file doesn't turn a small edit back into a large request.
+const PARA_DOC_CONTEXT_CHARS = 16000;
+// How much of a file DocVex did not write is seeded into the document thread —
+// see buildGenMessages. Larger than the paragraph window: here the document IS
+// the subject, not the background.
+const FOREIGN_DOC_CHARS = 40000;
 
 // Pull the suggestions object out of a model reply. It is asked for bare JSON,
 // but a fenced block or a sentence of preamble is the usual failure mode, so
@@ -9992,6 +10483,109 @@ const OpenExternalGlyph = (
     <path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
   </svg>
 );
+// Restyle: the markers down the left are what this action touches (a clause's
+// number, a sub-point's letter), the lines beside them are the wording it
+// leaves alone, and the sparkle says the AI does the reading.
+// ── Actually going fullscreen ──────────────────────────────────────────────
+// Two routes, tried in that order, because neither covers every case.
+//
+// The NATIVE one is what focus wants: `win.setFullScreen`, which gives a real
+// macOS fullscreen space and a Windows window with no frame or taskbar. It
+// answers whether the request was accepted — NOT whether the window is
+// fullscreen yet, since on macOS that is an animation.
+//
+// It is unavailable more often than it looks: on the web build there is no
+// window to ask, a window pinned non-fullscreenable refuses, and — the case
+// that actually bites in development — a window whose PRELOAD was built before
+// this channel existed has no such method to call. Vite reloads the renderer on
+// every save but the preload is only rebuilt when Electron restarts, so a
+// renderer can easily be newer than the bridge it is talking to.
+//
+// So the fallback is the DOM's own Fullscreen API, which needs no bridge at all
+// and works inside an Electron renderer exactly as it does in a browser. It
+// fills the screen without giving up the window, which is not quite the native
+// thing but is the whole of what a presentation needs.
+async function goFullscreen(on) {
+  let native = false;
+  try {
+    native = await windowSetFullscreen(on);
+  } catch {
+    native = false;
+  }
+  if (native) return;
+  try {
+    if (on) await document.documentElement?.requestFullscreen?.();
+    else if (document.fullscreenElement) await document.exitFullscreen?.();
+  } catch {
+    // Refused (no user gesture, or the browser forbids it) — focus still takes
+    // the panels away, which is most of what it is for.
+  }
+}
+
+// ── Fitting the page when focus opens ──────────────────────────────────────
+// Focus is for showing a document to a room, so it opens on a WHOLE PAGE
+// rather than on whatever zoom it was being read at, and gives that reading
+// zoom back when it closes.
+//
+// The fit can only be measured once the window has finished becoming
+// fullscreen, and on macOS that is an animation — measuring at the moment the
+// button is pressed fits the page to the window's OLD height, which then
+// stretches. So it waits for the resizing to stop rather than guessing a delay:
+// every `resize` pushes the fit 150ms further out, and the last one wins.
+//
+// The timer is only a fallback for when nothing resizes AT ALL — the web build
+// has no fullscreen to enter, and a window the OS refuses to make fullscreen
+// stays exactly where it is. It is skipped the moment a resize is seen, so a
+// slow fullscreen animation can never have the fit taken off it early.
+function useFitForFocus(on, { read, write, fit }) {
+  const api = useRef({ read, write, fit });
+  api.current = { read, write, fit };
+  useEffect(() => {
+    if (!on) return undefined;
+    const before = api.current.read?.();
+    let done = false;
+    let sawResize = false;
+    let settle = 0;
+    const go = () => { if (done) return; done = true; api.current.fit?.(); };
+    const bump = () => {
+      if (done) return;
+      sawResize = true;
+      window.clearTimeout(settle);
+      settle = window.setTimeout(go, 150);
+    };
+    window.addEventListener('resize', bump);
+    const fallback = window.setTimeout(() => { if (!sawResize) go(); }, 800);
+    return () => {
+      done = true;
+      window.clearTimeout(settle);
+      window.clearTimeout(fallback);
+      window.removeEventListener('resize', bump);
+      // Back to the zoom the document was being READ at. A zoom changed during
+      // the presentation goes with the presentation — that is what leaving a
+      // mode means.
+      if (before != null) api.current.write?.(before);
+    };
+  }, [on]);
+}
+
+// Focus: the corners of a screen opening outwards, with the document's lines
+// alone inside them — every panel gone, the page and nothing else.
+const FocusModeGlyph = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9" />
+    <path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9" />
+    <path d="M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15" />
+    <path d="M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15" />
+    <path d="M8.5 10.5h7M8.5 13.5h4.5" />
+  </svg>
+);
+const RestyleGlyph = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3.5 7H6M3.5 12H6M3.5 17H6" />
+    <path d="M9.5 7h4M9.5 12h10M9.5 17h7.5" />
+    <path d="m18.6 3.2.9 2 2 .9-2 .9-.9 2-.9-2-2-.9 2-.9Z" />
+  </svg>
+);
 
 // ── The page rail (Word files) ──────────────────────────────────────────
 // A vertical strip of every page, just right of the side panel: click one to go
@@ -10003,6 +10597,21 @@ const OpenExternalGlyph = (
 // viewport) and rebuilt whenever the document is re-rendered (`tick`) or
 // re-themed — not on every keystroke: a page being typed in catches up at the
 // next render. Built imperatively: its content is DOM the pane already owns.
+// Bring a page's thumbnail into the list — GLIDING there, but only when it is
+// actually outside the list's view. `block: 'nearest'` on its own jumps, which
+// over a long document reads as the list flickering past while the pages are
+// scrolled; smooth on its own re-aims a running glide on every scroll frame and
+// never arrives. So: nothing at all while the thumbnail can be seen (the common
+// case, and the one where any movement is noise), and one smooth run when the
+// reader has scrolled past what the list is showing.
+function railScrollTo(slot, rail) {
+  if (!slot || !rail) return;
+  const s = slot.getBoundingClientRect();
+  const r = rail.getBoundingClientRect();
+  if (s.top >= r.top && s.bottom <= r.bottom) return;
+  slot.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
 const PAGE_RAIL_THUMB_W = 104;
 // Document view controls (Word + PDF quick actions): the page list, zoom, fit.
 const PagesRailGlyph = (
@@ -10019,11 +10628,21 @@ const FitViewGlyph = (
 // the document area, just right of the page list (`left` = the list's footprint,
 // 0 when the list is off), level with the side panel like the list is. The
 // percentage is the zoom against fit-to-width; pressing it goes back to 100%.
-function DocZoomPill({ zoom, onStep, onReset, left = 0, disabled = false }) {
+// `peeking` is focus mode's doing: there the pill is not standing chrome but
+// something that shows itself when the zoom changes and goes away again (see
+// usePeek). `peeking` drives `.is-peek`, which is what shows the pill at all —
+// in focus mode it slides down from behind the title bar, and everywhere else
+// it fades in where it stands. Either way the pill is only out while the zoom
+// is being changed.
+function DocZoomPill({ zoom, onStep, onReset, left = '0px', disabled = false, peeking = false }) {
   const ref = useRef(null);
   useEffect(() => alignWithSidePanel(ref.current), []);
   return (
-    <div className={`dv-docpill${disabled ? ' is-disabled' : ''}`} ref={ref} style={{ left: `${left}px` }}>
+    <div
+      className={`dv-docpill${disabled ? ' is-disabled' : ''}${peeking ? ' is-peek' : ''}`}
+      ref={ref}
+      style={{ left: typeof left === 'number' ? `${left}px` : left }}
+    >
       <div className="dv-zoom-controls is-doc">
         <button type="button" className="dv-zoom-btn" onClick={() => onStep('out')} disabled={disabled} aria-label="Zoom out">−</button>
         <Tooltip content="Back to 100% (the page as wide as the window) — Ctrl + scroll zooms too">
@@ -10034,6 +10653,105 @@ function DocZoomPill({ zoom, onStep, onReset, left = 0, disabled = false }) {
     </div>
   );
 }
+// How far down the window counts as "at the top" for revealing the title bar
+// in focus. Comfortably past the bar's own 35px: the pointer must trip this
+// before it reaches the bar, because over the bar — a drag region — no mouse
+// events reach the renderer at all.
+const BAR_PEEK_BAND = 72;
+
+// How far in from the document area's left edge the floating pills sit — the
+// zoom controls, the word count, and the page counter's centring origin. Two
+// values, one for each state of the page list, and they are constants rather
+// than three copies of the same two numbers because the pills have to line up
+// with each other exactly: a pill a few pixels off its neighbour reads as a
+// mistake even when nobody can say which one moved. Keep FilePreview's
+// `railPad` (a PDF's pills) in step with them.
+// Zero is the floor worth having: the pills then start exactly where the
+// DOCUMENT starts, on the content edge the pane's own left padding sets. Going
+// further would hang them left of the page they belong to.
+// The gap the page-list card keeps from the side panel — .dv-pagerail-card's
+// own `left` — so the pills begin exactly where that card begins.
+const PILL_LEFT = 0.8;
+// …measured from the SIDE PANEL, not from the pane. The document panes run
+// edge to edge under the panel now (--dv-doc-inset, DocViewer.css), so the box
+// these pills are positioned inside starts at the window's edge — a bare `0`
+// would put them underneath it.
+// With the list up the pills stand where the DOCUMENT stands, clear of the
+// card. A flat 126 put them 0.8px OVER its right border — the card's left is
+// the inset plus that 0.8, so its far edge is 126.8 — and the zoom pill sat on
+// the hairline. --dv-doc-rail is the same figure the document's own inset uses,
+// so the two line up by construction.
+const pillLeft = (rail) => (rail
+  ? 'calc(var(--dv-doc-inset, 0px) + var(--dv-doc-rail, 134px))'
+  : `calc(var(--dv-doc-inset, 0px) + ${PILL_LEFT}px)`);
+
+// ── The crossing, in order ────────────────────────────────────────────────
+// Declared in the order they happen, which is also the order they must be
+// declared in: FOCUS_MOVE_MIN_MS is built from the two above it.
+//
+// 1. The document fades out. Must outlast the CSS fade (110ms on
+//    .dv-main-row.is-focus-moving .dv-doc-card), with a frame or two in hand.
+const FOCUS_FADE_OUT_MS = 150;
+// 2. The layout changes and the window is handed to the OS, and the document
+//    stays away until that lands. This is the FLOOR on that wait — the fade
+//    plus a beat — so the document can never come back over the re-layout.
+//    (There is no separate wait for the side panel any more: it fades out with
+//    the document instead of sliding away after it.)
+const FOCUS_MOVE_MIN_MS = FOCUS_FADE_OUT_MS + 260;
+// …and the backstop, for a window transition that never reports finishing.
+// Generous on purpose: macOS's fullscreen animation alone runs close to a
+// second, and a document that comes back too EARLY is the bug being fixed,
+// while one that comes back late is only a slow-looking crossing.
+const FOCUS_MOVE_CAP_MS = 3000;
+
+// Two sheets are on the same row when their top edges agree to within this —
+// a fractional zoom leaves sub-pixel differences between siblings.
+const PAGE_ROW_TOL = 4;
+
+// What the counter says. "Page 3 of 12" when one sheet is being read, and the
+// sheets actually on screen together when the layout has put several side by
+// side — which is the normal case on a wide pane at a small zoom, where a
+// counter naming one of the two visible pages is simply wrong.
+function pageCountLabel({ from, to, of }) {
+  if (to <= from) return `Page ${from} of ${of}`;
+  if (to === from + 1) return `Pages ${from} and ${to} of ${of}`;
+  return `Pages ${from}–${to} of ${of}`;
+}
+
+// How long a piece of focus chrome stays up after the thing it reports on
+// changes. Long enough to read it and reach it; short enough that a document
+// being presented isn't showing controls most of the time.
+const PEEK_MS = 2400;
+
+// "Something just happened" — true for a moment afterwards, then false again.
+// Watches a VALUE rather than being called from each site that changes it, so
+// every route to a new one raises it: for the zoom that is the buttons,
+// Ctrl+wheel, Fit, and the fit focus runs on the way in. `arm` is there for
+// what a value cannot express — scrolling that does not happen to land on a
+// new page number.
+//
+// There is deliberately no hold-on-hover: the top-band hover
+// (html.dv-bar-peek) already keeps this chrome up for as long as the pointer is
+// near it, and a second, per-element hover rule on top of that was one
+// mechanism too many.
+function usePeek(value) {
+  const [peeking, setPeeking] = useState(false);
+  const timer = useRef(0);
+  const arm = useCallback(() => {
+    window.clearTimeout(timer.current);
+    setPeeking(true);
+    timer.current = window.setTimeout(() => setPeeking(false), PEEK_MS);
+  }, []);
+  // Not on the first render: arriving at a document is not a change to it.
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    arm();
+  }, [value, arm]);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  return { peeking, arm };
+}
+
 // Whether the page list is shown — one preference for Word files and PDFs.
 const PAGE_RAIL_PREF = 'docvex:doc-viewer:page-rail';
 const loadPageRailPref = () => { try { return localStorage.getItem(PAGE_RAIL_PREF) !== '0'; } catch { return true; } };
@@ -10041,7 +10759,8 @@ const savePageRailPref = (on) => { try { localStorage.setItem(PAGE_RAIL_PREF, on
 // Document zoom steps like the image pane's (× ZOOM_STEP), between these.
 const DOC_ZOOM_MIN = 0.1;
 const DOC_ZOOM_MAX = 5;
-const stepDocZoom = (z, dir) => Math.max(DOC_ZOOM_MIN, Math.min(DOC_ZOOM_MAX, +(dir === 'in' ? z * ZOOM_STEP : z / ZOOM_STEP).toFixed(3)));
+// `req` is 'in' / 'out' from a button, or `{ by: factor }` from the wheel.
+const stepDocZoom = (z, req) => Math.max(DOC_ZOOM_MIN, Math.min(DOC_ZOOM_MAX, +(z * zoomFactorOf(req, ZOOM_STEP)).toFixed(3)));
 function DocPageRail({ hostRef, tick, themeId, locked, hidden = false }) {
   const railRef = useRef(null);
   const [count, setCount] = useState(0);
@@ -10124,7 +10843,7 @@ function DocPageRail({ hostRef, tick, themeId, locked, hidden = false }) {
       if (current >= 0) slots[current]?.classList.remove('is-current');
       current = found;
       slots[current]?.classList.add('is-current');
-      slots[current]?.scrollIntoView({ block: 'nearest' });
+      railScrollTo(slots[current], rail);
     };
     const onScroll = () => { if (!raf) raf = requestAnimationFrame(mark); };
     scroller?.addEventListener('scroll', onScroll, { passive: true });
@@ -10152,13 +10871,16 @@ function DocPageRail({ hostRef, tick, themeId, locked, hidden = false }) {
   );
 }
 
-function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExportPdf, onOpenNative }) {
+function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docName = '', onExportPdf, onOpenNative }) {
   const hostRef = useRef(null);
   const ctorRef = useRef(ctor);
   ctorRef.current = ctor;
   const pageWidthRef = useRef(0);
   const [showPageNumbers, setShowPageNumbers] = useState(true);
   const adv = useMultitoolAdvisor();
+  // Focus turns the pane into a reader: the paragraph tools (hover pill, pick,
+  // typing, heading folds) are all off while it is on.
+  const paraOff = !!adv?.focusMode;
 
   // ── Picking, editing and selecting ───────────────────────────────────────
   // Every text block rendered by paginateDocx carries `.dv-docx-para` + a
@@ -10295,6 +11017,13 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
           index: Number(el.dataset.paraIndex),
           text: el.textContent.trim(),
           full: el.dataset.ctorText || el.dataset.splitFull || el.dataset.originalText || el.textContent.trim(),
+          // What this paragraph is called IN THE FILE — the key a rewrite is
+          // matched on. Same precedence syncEdits uses for its `before`, which
+          // is what makes an AI rewrite land exactly where a typed edit does.
+          // `text` is not it: a paragraph pagination cut across two pages has
+          // only half of itself on the picked sheet, and half is what would be
+          // looked for, and what the other half would be overwritten with.
+          src: el.dataset.splitFull || el.dataset.originalText || el.textContent.trim(),
         }))
         .sort((a, b) => a.index - b.index),
     );
@@ -10623,6 +11352,21 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
     // layout width), and every point inside it is taken back through that.
     const br = body.getBoundingClientRect();
     const unit = (body.offsetWidth ? br.width / body.offsetWidth : 1) || 1; // viewport px per layout px
+    // The side panel AND the page list are both painted OVER the pane, so the
+    // pane's own width overstates the room a paragraph has: what can actually
+    // be SEEN starts past both of them. Every framing measurement below reads
+    // the visible box rather than `br`, or the camera centres the paragraph on
+    // the whole pane and leaves it sitting half underneath them.
+    // The host's own left padding IS that footprint — DocViewer.css sets it to
+    // the panel's inset, plus the list's width whenever the list is up — so it
+    // is read back rather than recomposed here, for the same reason fitWidth
+    // reads it: two places computing the same offset drift, and this one had
+    // already drifted, knowing about the panel but not about the list.
+    // It is layout px; `unit` takes it to the viewport px used throughout.
+    const insetCss = parseFloat(getComputedStyle(host).paddingLeft);
+    const inset = (Number.isFinite(insetCss) ? insetCss : docInset(body)) * unit;
+    const viewL = br.left + inset;
+    const viewW = Math.max(120, br.width - inset);
     const hr = host.getBoundingClientRect();
     const kNow = (host.offsetWidth ? hr.width / (host.offsetWidth * unit) : 1) || 1;
     // The camera is aimed at the REAL paragraph — never at its preview copy.
@@ -10655,8 +11399,8 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
       // the width-limited zoom; the panel reporting its new size brings it round
       // again with the real one.
       const kFor = (liftCamRef.current?.el === target ? liftCamRef.current.k : null)
-        || Math.max(0.7, Math.min(2.4, (Math.min(br.width * 0.8, 980) - spread * 2) / w));
-      panelW = Math.max(280, Math.min(br.width - 24, (w + spread * 2) * kFor));
+        || Math.max(0.7, Math.min(2.4, (Math.min(viewW * 0.8, 980) - spread * 2) / w));
+      panelW = Math.max(280, Math.min(viewW - 24, (w + spread * 2) * kFor));
       panel.style.width = `${toLayoutPx(panelW)}px`;
       panel.style.maxHeight = `${toLayoutPx(Math.max(220, br.height * 0.52))}px`;
       panelH = panel.offsetHeight * unit; // not its rect: mid-ride the panel is scaled
@@ -10677,17 +11421,17 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
     // paragraph take their places from the frame that was set.
     let cam = liftCamRef.current;
     const sameFrame = cam && cam.el === target
-      && Math.abs(cam.bw - br.width) < 1 && Math.abs(cam.bh - br.height) < 1;
+      && Math.abs(cam.bw - viewW) < 1 && Math.abs(cam.bh - br.height) < 1;
     if (!sameFrame) {
-      const roomW = Math.min(br.width * 0.8, 980) - spread * 2;
+      const roomW = Math.min(viewW * 0.8, 980) - spread * 2;
       const roomH = br.height - 64 - dotsH - (panelH ? panelH + AIR : 0);
       const k = Math.max(0.7, Math.min(2.4, roomW / w, roomH / (h + spread * 2)));
       const group = dotsH + (h + spread * 2) * k + (panelH ? AIR + panelH : 0);
       const cardTop = br.top + Math.max(24, (br.height - group) / 2) + dotsH - br.top;
-      const left = br.left + (br.width - w * k) / 2;
+      const left = viewL + (viewW - w * k) / 2;
       const top = br.top + cardTop + spread * k;
       cam = {
-        el: target, bw: br.width, bh: br.height, k, cardTop,
+        el: target, bw: viewW, bh: br.height, k, cardTop,
         tx: left - origin.x - rel.x * k,
         ty: top - origin.y - rel.y * k,
       };
@@ -10717,13 +11461,13 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
         panel.classList.add('is-snap');
         panel.style.transform = '';
       }
-      panel.style.left = `${toLayoutPx(br.left + (br.width - panelW) / 2 - fr.left)}px`;
+      panel.style.left = `${toLayoutPx(viewL + (viewW - panelW) / 2 - fr.left)}px`;
       panel.style.top = `${toLayoutPx(cardTop + cardH + AIR - fr.top)}px`;
       panel.classList.add('is-on');
       if (fresh) {
         const s0 = kNow / k;
         const cardNow = copy && copy.childNodes.length ? copy.getBoundingClientRect() : tr;
-        const dx = tr.left + tr.width / 2 - (br.left + br.width / 2);
+        const dx = tr.left + tr.width / 2 - (viewL + viewW / 2);
         const dy = cardNow.bottom + spread * kNow + AIR * s0 - (cardTop + cardH + AIR);
         panel.style.transform = `translate(${toLayoutPx(dx).toFixed(2)}px, ${toLayoutPx(dy).toFixed(2)}px) scale(${s0.toFixed(4)})`;
         void panel.offsetWidth;
@@ -10749,7 +11493,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
     // corner of the window by CSS, wherever the paragraph ends up.)
     if (dots?.offsetParent) {
       const fr = dots.offsetParent.getBoundingClientRect();
-      dots.style.left = `${toLayoutPx(br.left + br.width / 2 - fr.left)}px`;
+      dots.style.left = `${toLayoutPx(viewL + viewW / 2 - fr.left)}px`;
       dots.style.top = `${toLayoutPx(cardTop - dotsH - fr.top)}px`;
       dots.classList.add('is-on');
     }
@@ -11174,6 +11918,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
   // at. (`onExportPdf` writes the blob next to the original — DocPane.)
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfAsk, setPdfAsk] = useState(false);
+  const [restyleAsk, setRestyleAsk] = useState(false);
   const toPdf = useCallback(async (name) => {
     const host = hostRef.current;
     if (!host || !onExportPdf || pdfBusy) return;
@@ -11241,6 +11986,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
     // Capture phase: ahead of the pick handler, which would otherwise read the
     // click as "pick this heading".
     const onFoldClick = (e) => {
+      if (paraOff) return;
       const head = e.target.closest?.('.dv-fold-head');
       if (!head || head.classList.contains('is-selected')) return;
       if (host.parentElement?.classList.contains('is-zoom-live')) return;
@@ -11251,7 +11997,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
     };
     host.addEventListener('click', onFoldClick, true);
     return () => host.removeEventListener('click', onFoldClick, true);
-  }, [toggleFold]);
+  }, [toggleFold, paraOff]);
   useEffect(() => {
     const nodes = stepTargets();
     const index = nodes.findIndex((el) => el.classList.contains('is-selected'));
@@ -11336,14 +12082,40 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
     return () => el.classList.remove('is-active');
   }, [hoverField, renderTick]);
 
+  // ── The paragraph the AI is working on ─────────────────────────────────
+  // Marked in the document for as long as the turn runs, whether or not it is
+  // still the picked one. Closing a paragraph does not stop the work — nothing
+  // cancels a turn in flight — so without this the reader walks away from a
+  // request with no sign that anything is still happening, and the paragraph
+  // changes under them later with no explanation.
+  // The key is the paragraph's document-order index (or indices), which is what
+  // a thread's scope is named after: `para:12` or `para:12,13`.
+  const aiBusyKey = adv?.busy ? String(adv.busyScope || '').replace(/^para:/, '') : '';
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !aiBusyKey) return undefined;
+    const marked = [];
+    for (const idx of aiBusyKey.split(',')) {
+      const el = host.querySelector(`.dv-docx-para[data-para-index="${idx.trim()}"]`);
+      if (el) { el.classList.add('is-ai-busy'); marked.push(el); }
+    }
+    // Taken off by hand: these nodes are docx-preview's, so React never
+    // rewrites their class for us. renderTick re-runs this because a re-render
+    // replaces every node in the host — the mark has to be put on the new one.
+    return () => marked.forEach((el) => el.classList.remove('is-ai-busy'));
+  }, [aiBusyKey, renderTick]);
+
   // Tell the side panel whether anything is picked — that is what makes the
   // "Selected paragraph" tab exist, and where its controls end up.
   const setParaPicked = adv?.setParaPicked;
   const setParaTextOut = adv?.setParaText;
+  const setParaSrcOut = adv?.setParaSrc;
   const setParaKeyOut = adv?.setParaKey;
   const paraSlot = adv?.paraSlot || null;
   const hasPick = paras.length > 0 || edits.length > 0;
   const pickedText = paras.map((pp) => pp.text).join('\n\n');
+  // The same pick as the FILE spells it — see `src` in syncParas.
+  const pickedSrc = paras.map((pp) => pp.src).join('\n\n');
   // Document-order indices identify the pick. They survive a re-render and a
   // new version of the file (which re-paginates but keeps the structure), so a
   // paragraph's conversation is still there after you save a change to it.
@@ -11351,6 +12123,8 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
   useEffect(() => { setParaPicked?.(hasPick); }, [hasPick, setParaPicked]);
   // What the composer aims at while a paragraph's thread is open.
   useEffect(() => { setParaTextOut?.(pickedText); }, [pickedText, setParaTextOut]);
+  // What a rewrite of it is written back against.
+  useEffect(() => { setParaSrcOut?.(pickedSrc); }, [pickedSrc, setParaSrcOut]);
   // Which thread that is.
   useEffect(() => { setParaKeyOut?.(pickedKey); }, [pickedKey, setParaKeyOut]);
   // Leaving the fill-in menu saves. There is no Save button any more: filling
@@ -11381,7 +12155,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
     if (ctorRef.current?.saveOnClose?.()) return;
     saveRef.current?.();
   }, [pickedKey]);
-  useEffect(() => () => { setParaKeyOut?.(''); setParaTextOut?.(''); }, [setParaKeyOut, setParaTextOut]);
+  useEffect(() => () => { setParaKeyOut?.(''); setParaTextOut?.(''); setParaSrcOut?.(''); }, [setParaKeyOut, setParaTextOut, setParaSrcOut]);
   // Leaving the document (a new file, a version switch) takes the tab with it —
   // otherwise it would outlive the pick it was showing.
   useEffect(() => () => setParaPicked?.(false), [setParaPicked]);
@@ -11549,6 +12323,12 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return undefined;
+    // Focus is for READING a document to a room, so none of the authoring
+    // gestures are bound at all: no picking a paragraph, no typing into one, no
+    // selection bar. Not merely ignored — the listeners are never attached, so
+    // a click behaves as a click on ordinary text and the selection it makes is
+    // the browser's own.
+    if (paraOff) return undefined;
 
     const onClick = (e) => {
       if (e.target.closest?.('.dv-docx-livecard')) return; // the preview copy's inputs
@@ -11650,7 +12430,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
       host.removeEventListener('keydown', onEditKey);
       window.removeEventListener('keydown', onKey);
     };
-  }, [applyEditable, blockAt, clearParas, paraNodes, syncEdits, syncParas]);
+  }, [applyEditable, blockAt, clearParas, paraNodes, syncEdits, syncParas, paraOff]);
 
   // What the bar acts on: the selected words if there are any, else the whole
   // picked paragraph(s).
@@ -11687,13 +12467,22 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
   const [showRail, setShowRail] = useState(loadPageRailPref);
   const [userZoom, setUserZoom] = useState(1);
   const userZoomRef = useRef(1);
+  // Set for a zoom that came from the wheel: the glide below is skipped for
+  // it, because a gesture is already continuous and easing it only adds lag.
+  const zoomLiveRef = useRef(false);
 
   // ── "Page 3 of 12" ─────────────────────────────────────────────────────
   // The same counter a PDF has, by the same rule: the page crossing the upper
   // THIRD of the pane is the one being read (the page whose top edge is at the
   // very top is only just arriving). Re-counted when the document re-renders,
   // which is when pagination can change how many pages there are.
-  const [pageAt, setPageAt] = useState({ n: 1, of: 0 });
+  const [pageAt, setPageAt] = useState({ from: 1, to: 1, of: 0 });
+  // In focus the counter is not standing chrome either: it shows itself while
+  // the document is being scrolled and goes again once it settles. Armed from
+  // the scroll handler rather than from `pageAt`, because most scrolling within
+  // a long page never changes the number — and it is the SCROLLING that wants
+  // the answer on screen.
+  const pagePeek = usePeek(pageAt.from);
   useEffect(() => {
     const host = hostRef.current;
     const scroller = host?.parentElement;
@@ -11701,26 +12490,48 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
     let raf = 0;
     const read = () => {
       raf = 0;
-      const pages = host.querySelectorAll('.dv-docx-page');
-      if (!pages.length) { setPageAt((p) => (p.of === 0 ? p : { n: 1, of: 0 })); return; }
-      const line = scroller.getBoundingClientRect().top + scroller.clientHeight / 3;
-      let n = 1;
-      for (let i = 0; i < pages.length; i += 1) {
-        if (pages[i].getBoundingClientRect().top <= line) n = i + 1; else break;
+      const pages = Array.from(host.querySelectorAll('.dv-docx-page'));
+      if (!pages.length) {
+        setPageAt((p) => (p.of === 0 ? p : { from: 1, to: 1, of: 0 }));
+        return;
       }
-      setPageAt((p) => (p.n === n && p.of === pages.length ? p : { n, of: pages.length }));
+      const rects = pages.map((el) => el.getBoundingClientRect());
+      const line = scroller.getBoundingClientRect().top + scroller.clientHeight / 3;
+      let n = 0;
+      for (let i = 0; i < rects.length; i += 1) {
+        if (rects[i].top <= line) n = i; else break;
+      }
+      // The sheets are a WRAPPING ROW outside focus, so a wide pane at a small
+      // zoom puts two or three of them side by side — and then the reader is
+      // looking at all of them at once, not at one. The row is the run of pages
+      // sharing this one's top edge; the tolerance absorbs the sub-pixel
+      // differences a fractional zoom leaves behind.
+      let from = n;
+      let to = n;
+      while (from > 0 && Math.abs(rects[from - 1].top - rects[n].top) <= PAGE_ROW_TOL) from -= 1;
+      while (to < rects.length - 1 && Math.abs(rects[to + 1].top - rects[n].top) <= PAGE_ROW_TOL) to += 1;
+      from += 1;
+      to += 1;
+      setPageAt((p) => (p.from === from && p.to === to && p.of === pages.length
+        ? p
+        : { from, to, of: pages.length }));
     };
-    const onScroll = () => { if (!raf) raf = requestAnimationFrame(read); };
+    const onScroll = () => { pagePeek.arm(); if (!raf) raf = requestAnimationFrame(read); };
     scroller.addEventListener('scroll', onScroll, { passive: true });
     read();
     return () => { scroller.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
-  }, [renderTick, userZoom]);
+  }, [renderTick, userZoom, pagePeek.arm]);
 
   const fitWidth = useCallback(() => {
     const host = hostRef.current;
     const wrapper = host?.querySelector('.docx-wrapper');
     if (!host || !wrapper || !pageWidthRef.current) return;
-    const avail = host.clientWidth - 44; // wrapper h-padding (36) + breathing room
+    // The pane runs under the side panel (and, when the page list is up, under
+    // that too), so its own width overstates the room a page has. Both gaps are
+    // the host's own left padding — read it back rather than recomposing it
+    // from the variables, so this can never disagree with the stylesheet.
+    const inset = parseFloat(getComputedStyle(host).paddingLeft) || 0;
+    const avail = host.clientWidth - inset - 44; // wrapper h-padding (36) + breathing room
     if (avail <= 0) return;
     // FIT (the page's width in the pane, never above life size) × the user's
     // own zoom on top of it (1 = fit; the quick actions / Ctrl + wheel).
@@ -11733,8 +12544,11 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
     wrapper.style.zoom = String(z);
     if (scroller && before !== z) {
       const k = z / before;
+      // The middle of the VIEW, not of the pane: the first `inset` pixels are
+      // behind the panel, so the visible centre sits that much to the right.
+      const midX = inset + (scroller.clientWidth - inset) / 2;
       scroller.scrollTop = (scroller.scrollTop + scroller.clientHeight / 2) * k - scroller.clientHeight / 2;
-      scroller.scrollLeft = (scroller.scrollLeft + scroller.clientWidth / 2) * k - scroller.clientWidth / 2;
+      scroller.scrollLeft = (scroller.scrollLeft + midX) * k - midX;
     }
   }, []);
 
@@ -11901,6 +12715,23 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
   // only when something the panel shows changes, because publishing re-renders
   // the provider, and with it this pane.
   const setDocTools = adv?.setDocTools;
+  // What this document is now, and what it can become. PDF is the only
+  // conversion the app can make FROM a Word file — the dialog still shows the
+  // flow, because saying "DOCX → PDF" is the point of the row, not the choice.
+  const docStem = String(docName || 'document').replace(/\.[^./\\]+$/, '');
+  const docFrom = useMemo(() => ({
+    label: (String(docName || '').match(/\.([^./\\]+)$/)?.[1] || 'DOC').toUpperCase(),
+    icon: WordFormatGlyph,
+  }), [docName]);
+  const docConvertTargets = useMemo(() => [{
+    id: 'pdf',
+    label: 'PDF',
+    icon: ToPdfGlyph,
+    title: 'Convert to PDF',
+    explain: 'A copy of this document as a PDF, exactly as it is shown here — the same theme, the same page breaks, the same page numbers. The Word file itself is left untouched.',
+    suffix: '.pdf',
+    name: `${docStem} (to PDF)`,
+  }], [docStem]);
   const openNativeRef = useRef(onOpenNative);
   openNativeRef.current = onOpenNative;
   const canOpenNative = !!onOpenNative && isElectron;
@@ -11914,7 +12745,14 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
     const from = userZoomRef.current;
     const to = userZoom;
     const still = document.documentElement.dataset.reduceMotion === 'true';
-    if (from === to || still) { userZoomRef.current = to; fitWidth(); return undefined; }
+    // A wheel/pinch zoom arrives as a stream and each value is already what the
+    // fingers are asking for, so it is shown at once. Easing it would put a
+    // 200ms lag filter between the hand and the page, restarted by every event
+    // and so never arriving — much of what made trackpad zoom feel unreliable.
+    if (from === to || still || zoomLiveRef.current) {
+      zoomLiveRef.current = false;
+      userZoomRef.current = to; fitWidth(); return undefined;
+    }
     const t0 = performance.now();
     let raf = requestAnimationFrame(function tick(now) {
       const p = Math.min(1, (now - t0) / 200);
@@ -11933,10 +12771,14 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
     // A Word file is a document to be read, like a PDF of several pages: the
     // plain wheel scrolls it and zooming is CTRL + wheel (held down). Never
     // while a paragraph is open — that view is a camera move of its own.
+    const zoomBy = createWheelZoom((req) => {
+      zoomLiveRef.current = true;
+      setUserZoom((z) => stepDocZoom(z, req));
+    });
     const onWheel = (e) => {
       if (!e.ctrlKey || paraOpenRef.current) return;
       e.preventDefault();
-      setUserZoom((z) => stepDocZoom(z, e.deltaY < 0 ? 'in' : 'out'));
+      zoomBy(e);
     };
     scroller.addEventListener('wheel', onWheel, { passive: false });
     return () => scroller.removeEventListener('wheel', onWheel);
@@ -11957,6 +12799,9 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
     const pg = pages.find((el) => el.getBoundingClientRect().bottom > line) || pages[0];
     const pageH = pg.getBoundingClientRect().height / zNow;
     const fit = zNow / userZoomRef.current;               // what fit-to-width alone gives
+    // Capped at 1 (fit-to-width) as before — and that 1 is now itself measured
+    // against the visible width, so a "whole page" never lands underneath the
+    // side panel.
     const next = Math.max(0.1, Math.min(1, (scroller.clientHeight - 28) / pageH / fit));
     setUserZoom(+next.toFixed(3));
     window.setTimeout(() => {
@@ -11965,8 +12810,58 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
     }, 260);
   }, []);
 
+  const zoomPeek = usePeek(userZoom);
+  // Focus opens on a whole page and hands the reading zoom back on the way out.
+  useFitForFocus(!!adv?.focusMode, {
+    read: () => userZoomRef.current,
+    write: setUserZoom,
+    fit: fitPage,
+  });
+
+  // ── How many words ────────────────────────────────────────────────────────
+  // Counted off the RENDERED document rather than the file or the source, so
+  // what the pill reports is exactly what is on the page: a restyle, a filled
+  // blank or a paragraph typed over moves it, and a document DocVex did not
+  // write needs no extra read of the .docx to have one. This pane renders
+  // neither headers nor footers (renderHeaders / renderFooters are off in its
+  // render effect), so they cannot inflate the count. Recomputed only on
+  // renderTick — the DOM it reads is committed by then, and a word count is not
+  // worth a MutationObserver.
+  const wordCount = useMemo(() => {
+    if (!renderTick) return 0;
+    const host = hostRef.current;
+    if (!host) return 0;
+    let text = '';
+    host.querySelectorAll('.docx-wrapper > .dv-docx-page').forEach((pg) => { text += ` ${pg.textContent || ''}`; });
+    // A word is a run opening on a letter or a digit — so "1.1." and "art."
+    // don't each count as words of their own, an em-dash between clauses counts
+    // as nothing, and "cost-benefit" or "d'Artagnan" count as one.
+    const found = text.match(/[\p{L}\p{N}][\p{L}\p{N}'’.-]*/gu);
+    return found ? found.length : 0;
+  }, [renderTick]);
+
+  // The Original entry's thumbnail is the DOCUMENT's own colours and faces,
+  // measured from the pages once they are laid out — see readDocSample. Read in
+  // an effect rather than a memo: this touches the DOM, and on the commit where
+  // renderTick changes the host has only just been filled.
+  const [docSample, setDocSample] = useState(null);
+  useEffect(() => {
+    // ONLY while nothing is overriding the document. With a theme applied the
+    // colours on screen are that theme's — the --dt-* rules win with
+    // !important — so measuring then would make the Original thumbnail a copy
+    // of whichever theme happens to be selected. The last reading stands
+    // meanwhile, which is right: the file's own colours have not changed.
+    if (docThemeById(docTheme).vars) return;
+    setDocSample(readDocSample(hostRef.current));
+  }, [renderTick, docTheme]);
+  // Only the entry that overrides nothing takes them; the rest know their own.
+  const themes = useMemo(
+    () => (docSample ? DOC_THEMES.map((t) => (t.vars ? t : { ...t, ...docSample })) : DOC_THEMES),
+    [docSample],
+  );
+
   const docTools = useMemo(() => ({
-    themes: DOC_THEMES,
+    themes,
     themeId: docTheme,
     pickTheme: pickDocTheme,
     // A theme switch re-renders the document, which would drop typed-in edits
@@ -11989,12 +12884,20 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
         tooltip: 'Scale the page so all of it fits in the window’s height',
         icon: FitViewGlyph,
         pressed: false,
-        onClick: fitPage,
+        // Fit leaves no state behind, so the tile flashes to say it ran —
+        // whether it was pressed or reached by double-clicking the document.
+        onClick: () => { flashQuickAction('zoom-fit'); fitPage(); },
       },
       {
+        // Both counters, not just the page one: they are a matched pair of
+        // pills along the foot of the same document, and having the word count
+        // stay behind when the page counter was switched off left a reader
+        // hunting for a second switch that did not exist.
         id: 'pagenums',
-        label: 'Page numbers',
-        tooltip: showPageNumbers ? 'Hide which page you are on' : 'Show which page you are on',
+        label: 'Counters',
+        tooltip: showPageNumbers
+          ? 'Hide the page and word counts'
+          : 'Show which page you are on, and how many words the document has',
         icon: PageNumbersGlyph,
         pressed: showPageNumbers,
         onClick: () => setShowPageNumbers((v) => !v),
@@ -12012,19 +12915,45 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
         label: 'Open in Word',
         tooltip: 'Open this file in Word on your computer',
         icon: OpenExternalGlyph,
-        onClick: () => openNativeRef.current?.(),
+        onClick: () => openNativeRef.current?.(docThemeById(docTheme)),
+      } : null,
+      adv?.toggleFocus ? {
+        id: 'focus',
+        label: adv.focusMode ? 'Leave focus' : 'Focus',
+        tooltip: adv.focusMode ? 'Bring the panels back (Esc)' : 'The document and nothing else — every panel away, full screen',
+        icon: FocusModeGlyph,
+        pressed: !!adv.focusMode,
+        onClick: adv.toggleFocus,
+      } : null,
+      // A restyle rewrites the whole document and re-lays it, which would throw
+      // away edits typed into the preview that aren't saved yet. Rather than
+      // hide the tile — which would say the file can't be restyled at all — it
+      // is passed through GREYED with its own reason, the way the theme grid
+      // explains the same lock (`unavailable` is honoured on an action the pane
+      // supplies, not only on one the catalogue fills in).
+      restyle?.available ? {
+        id: 'restyle',
+        label: restyle.busy
+          ? (restyle.step ? `Restyling ${Math.round((restyle.step.done / restyle.step.total) * 100)}%` : 'Restyling…')
+          : 'Restyle',
+        tooltip: hasTypedEdits
+          ? 'Save your edits first — a restyle lays the whole document out again'
+          : 'Lay this document out again to the Playbook’s document rules — its numbering, headings and conventions, never its wording',
+        icon: RestyleGlyph,
+        pressed: restyle.busy,
+        unavailable: hasTypedEdits || undefined,
+        onClick: () => { if (!restyle.busy && !hasTypedEdits) setRestyleAsk(true); },
       } : null,
       onExportPdf ? {
-        id: 'to-pdf',
-        group: 'Convert',
-        label: pdfBusy ? 'Converting…' : 'To PDF',
-        tooltip: 'Save this document as a PDF next to it, exactly as it is shown here',
+        id: 'convert',
+        label: pdfBusy ? 'Converting…' : 'Convert',
+        tooltip: 'Save this document in another format next to it',
         icon: ToPdfGlyph,
         pressed: pdfBusy,
         onClick: () => setPdfAsk(true),
       } : null,
     ].filter(Boolean),
-  }), [docTheme, pickDocTheme, hasTypedEdits, paraOpen, showPageNumbers, canOpenNative, foldState, toggleAllFolds, showRail, toggleRail, fitPage, onExportPdf, pdfBusy]);
+  }), [themes, docTheme, pickDocTheme, hasTypedEdits, paraOpen, showPageNumbers, canOpenNative, foldState, toggleAllFolds, showRail, toggleRail, fitPage, onExportPdf, pdfBusy, restyle, adv?.focusMode, adv?.toggleFocus]);
   useEffect(() => { setDocTools?.(docTools); }, [docTools, setDocTools]);
   useEffect(() => () => setDocTools?.(null), [setDocTools]);
 
@@ -12141,16 +13070,27 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
       )}
       <ConvertModal
         open={pdfAsk}
-        icon={ToPdfGlyph}
-        title="Convert to PDF"
-        explain="A copy of this document as a PDF, exactly as it is shown here — the same theme, the same page breaks, the same page numbers. The Word file itself is left untouched."
-        suffix=".pdf"
-        defaultName={`${String(docName || 'document').replace(/\.[^./\\]+$/, '')} (to PDF)`}
+        from={docFrom}
+        targets={docConvertTargets}
         busy={pdfBusy}
         onConfirm={toPdf}
         onCancel={() => setPdfAsk(false)}
       />
-      <DocParaPill hostRef={hostRef} onOpen={openPara} onToggleFold={toggleFold} />
+      {/* A restyle REWRITES the open document, so it is asked for rather than
+          just done — and the two routes differ in what can be taken back, which
+          is the one thing worth saying before pressing it. */}
+      <ConfirmModal
+        open={restyleAsk}
+        title="Restyle to your rules"
+        message={`This document will be laid out again to follow the Playbook’s document rules — section and clause numbering, headings, list markers, dates, amounts and the rest. Its wording is left as it stands: no fact, figure, name or obligation is changed.${restyle?.foreign ? ' It is written straight back into this Word file, keeping its styles, tables and images — there is no undo, so keep a copy if you want one.' : ' It is saved as a new version, so the version dots can put it back.'}`}
+        confirmLabel="Restyle"
+        onConfirm={() => { setRestyleAsk(false); restyle?.run?.(); }}
+        onCancel={() => setRestyleAsk(false)}
+      />
+      {/* The hover tooltip and its right-click menu are the only way into
+          picking a paragraph or collapsing a heading, so in focus the whole
+          thing simply isn't mounted. */}
+      {!paraOff && <DocParaPill hostRef={hostRef} onOpen={openPara} onToggleFold={toggleFold} />}
       {/* While a paragraph is open the view belongs to THAT paragraph: the
           document is a camera move over one clause, so the page list and the
           zoom pill — neither of which can act on it — are taken away rather
@@ -12160,18 +13100,44 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
       {!renderErr && paras.length === 0 && (
         <DocZoomPill
           zoom={userZoom}
-          onStep={(dir) => setUserZoom((z) => stepDocZoom(z, dir))}
+          onStep={(dir) => { zoomLiveRef.current = false; setUserZoom((z) => stepDocZoom(z, dir)); }}
           onReset={() => setUserZoom(1)}
-          left={showRail ? 134 : 8}
+          // In focus the page list is away, so the pill takes the pane's own
+          // top-left corner rather than standing clear of a list that isn't there.
+          left={pillLeft(showRail && !adv?.focusMode)}
+          peeking={zoomPeek.peeking}
         />
       )}
       {/* Centred on the PANE, not on the pages: at a zoom past the pane's width
           the content box is wider than the window, and a pill centred in it
           drifts off to the right. Hidden while a paragraph is open — the view
           is one clause then, not a page. */}
-      {!renderErr && showPageNumbers && pageAt.of > 1 && paras.length === 0 && (
-        <div className="dv-doc-counter" style={{ left: showRail ? 134 : 8 }} aria-live="off">
-          Page {pageAt.n} of {pageAt.of}
+      {/* Switched off with a CLASS rather than unmounted: a pill that is taken
+          out of the tree cannot animate on its way, and the Counters action
+          drops both of these down past the foot of the pane. It is inert and
+          unreadable while off (see .is-off), so nothing is left behind. */}
+      {!renderErr && pageAt.of > 1 && paras.length === 0 && (
+        <div
+          className={`dv-doc-counter${pagePeek.peeking ? ' is-peek' : ''}${showPageNumbers ? '' : ' is-off'}`}
+          style={{ left: pillLeft(showRail && !adv?.focusMode) }}
+          aria-live="off"
+          aria-hidden={!showPageNumbers || undefined}
+        >
+          {pageCountLabel(pageAt)}
+        </div>
+      )}
+      {/* How much document there is, in the corner the page counter leaves free.
+          Away while a paragraph is open: the preview copy of that paragraph is
+          laid over the real one inside the host, so the words in it would be
+          counted twice — and the view belongs to one clause then anyway. */}
+      {!renderErr && wordCount > 0 && paras.length === 0 && (
+        <div
+          className={`dv-doc-words${showPageNumbers ? '' : ' is-off'}`}
+          style={{ left: pillLeft(showRail) }}
+          aria-live="off"
+          aria-hidden={!showPageNumbers || undefined}
+        >
+          {wordCount.toLocaleString()} {wordCount === 1 ? 'word' : 'words'}
         </div>
       )}
       <div className="dv-docview-body">
@@ -12188,7 +13154,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExpor
             <div className="dv-docx-error-actions">
               <button type="button" className="dv-chip" onClick={retryRender}>Try again</button>
               {onOpenNative && (
-                <button type="button" className="dv-chip" onClick={onOpenNative}>Open in Word</button>
+                <button type="button" className="dv-chip" onClick={() => onOpenNative(docThemeById(docTheme))}>Open in Word</button>
               )}
             </div>
           </div>
@@ -12504,13 +13470,155 @@ function DocxWorkspace({ file, url, regenTick = 0, onExportPdf, onOpenNative, on
     match, requestSource, save, saveOnClose, createIdentity, paraHistory, restorePiece,
   }), [model, draft, baseValues, records, dirty, foreign, adv?.busy, saving, saveError, match, requestSource, save, saveOnClose, createIdentity, paraHistory, restorePiece]);
 
+  // ── Restyle: the document laid out again to the Playbook's rules ─────────
+  //
+  // The work itself is lib/docRestyle — paragraphs up, an edit list back. What
+  // belongs HERE is where those edits land, and that depends on whether DocVex
+  // wrote the file:
+  //
+  //   • A document DocVex wrote has a SOURCE, and the source is the thing the
+  //     paragraph tools, the blanks and the per-paragraph history all read. So
+  //     the source is restyled and saved as a new version — which is also what
+  //     makes a restyle undoable: the advisor's version dots put it back.
+  //   • A document it didn't has no source, so the .docx is patched IN PLACE
+  //     (lib/docxRewrite), exactly as typing over a paragraph already does.
+  //     Everything Word carries — styles, numbering, tables, headers, images —
+  //     comes through untouched, because only the changed paragraphs are
+  //     rewritten. There is no undo on this path, which is what the dialog says.
+  const { notify } = useNotifications();
+  const [restyleBusy, setRestyleBusy] = useState(false);
+  const [restyleStep, setRestyleStep] = useState(null);
+  const restyleModel = adv?.model;
+  const runRestyle = useCallback(async () => {
+    if (restyleBusy) return;
+    setRestyleBusy(true);
+    setRestyleStep(null);
+    const fail = (body) => notify({
+      category: 'file',
+      variant: 'error',
+      icon: 'file',
+      title: 'Couldn’t restyle the document',
+      body,
+      dedupeKey: `restyle:${file.path}`,
+    });
+    try {
+      const cur = liveRef.current;
+      const onProgress = (p) => setRestyleStep(p);
+      // A DocVex document: its source is restyled and kept as a version.
+      if (!cur.foreign) {
+        const src = active?.template ?? active?.text ?? '';
+        const lines = String(src).split('\n');
+        const res = await restyleDocument(lines, { model: restyleModel, onProgress });
+        if (res.error) {
+          fail(res.error === 'no_rules'
+            ? 'The Playbook’s document rules are paused. Switch them on and try again.'
+            : 'The AI couldn’t be reached. Check your connection and try again.');
+          return;
+        }
+        if (!res.changed) {
+          notify({ category: 'file', variant: 'success', icon: 'sparkles', title: 'Already in your style', body: 'Every paragraph already follows the Playbook’s rules.', dedupeKey: `restyle:${file.path}` });
+          return;
+        }
+        const next = lines.slice();
+        for (const e of res.edits) next[e.i] = e.after;
+        const template = next.join('\n');
+        const values = cur.baseValues || {};
+        const out = await saveVersion?.({
+          template,
+          text: fillConstructorText(template, values),
+          values,
+          assigned: active?.assigned || {},
+        });
+        if (!out || out.error) {
+          fail('Couldn’t write the document — it may be open in Word. Close it there and try again.');
+          return;
+        }
+        notify({
+          category: 'file',
+          variant: 'success',
+          icon: 'sparkles',
+          title: 'Restyled to your rules',
+          body: `${res.changed} of ${res.scanned} paragraphs laid out again. Use the version dots to put it back.`,
+          dedupeKey: `restyle:${file.path}`,
+          payload: { activity: { action: 'restyle-document', fileName: file.name, filePath: file.path } },
+        });
+        return;
+      }
+
+      // A document DocVex did not write: patched inside the .docx.
+      const blob = await readLocalBlob(file.path);
+      if (!blob || !/\.docx$/i.test(file.name || '')) {
+        fail('Only a Word (.docx) file can be restyled.');
+        return;
+      }
+      const paras = await readDocxParagraphs(blob);
+      const res = await restyleDocument(paras, { model: restyleModel, onProgress });
+      if (res.error) {
+        fail(res.error === 'no_rules'
+          ? 'The Playbook’s document rules are paused. Switch them on and try again.'
+          : res.error === 'empty'
+            ? 'There is no text in this document to restyle.'
+            : 'The AI couldn’t be reached. Check your connection and try again.');
+        return;
+      }
+      if (!res.changed) {
+        notify({ category: 'file', variant: 'success', icon: 'sparkles', title: 'Already in your style', body: 'Every paragraph already follows the Playbook’s rules.', dedupeKey: `restyle:${file.path}` });
+        return;
+      }
+      const written = await rewriteDocxParagraphs(blob, res.edits);
+      if (!written.applied) {
+        fail('None of the restyled paragraphs could be matched in the file — it may have been edited in Word since it was opened.');
+        return;
+      }
+      const cut = Math.max(file.path.lastIndexOf('/'), file.path.lastIndexOf('\\'));
+      const wr = await localFolderApi.writeFiles({
+        dir: cut >= 0 ? file.path.slice(0, cut) : '',
+        files: [{ filename: cut >= 0 ? file.path.slice(cut + 1) : file.path, blob: written.blob }],
+      });
+      if (wr?.error || wr?.results?.[0]?.ok === false) {
+        fail('Couldn’t write the document — it may be open in Word. Close it there and try again.');
+        return;
+      }
+      notifyFilesChanged();
+      // The file no longer says what the source in hand says.
+      setSourceTick((n) => n + 1);
+      onSavedForeign?.();
+      notify({
+        category: 'file',
+        variant: 'success',
+        icon: 'sparkles',
+        title: 'Restyled to your rules',
+        body: written.missed.length
+          ? `${written.applied} paragraphs laid out again; ${written.missed.length} couldn’t be matched in the file.`
+          : `${written.applied} of ${res.scanned} paragraphs laid out again.`,
+        dedupeKey: `restyle:${file.path}`,
+        payload: { activity: { action: 'restyle-document', fileName: file.name, filePath: file.path } },
+      });
+    } catch {
+      fail('Something went wrong while restyling. Nothing was written.');
+    } finally {
+      setRestyleBusy(false);
+      setRestyleStep(null);
+    }
+  }, [restyleBusy, notify, file.path, file.name, active, saveVersion, restyleModel, onSavedForeign]);
+
+  const restyle = useMemo(() => ({
+    // Nothing to apply while the Playbook's rules are paused, and nothing to
+    // restyle while a paragraph is open (its changes aren't in the file yet).
+    available: restyleAvailable() && !!file.path && /\.docx$/i.test(file.name || ''),
+    busy: restyleBusy,
+    step: restyleStep,
+    foreign,
+    run: runRestyle,
+  }), [restyleBusy, restyleStep, foreign, runRestyle, file.path, file.name]);
+
   return (
     <div className="dcx-workspace">
       {/* NOT keyed by regenTick any more: a save re-renders the document inside the
           same pane (off stage, then swapped in — see its render effect) instead of
           tearing the pane down, which is what made the window flash and lose its
           scroll position. */}
-      <DocxRenderPane url={url} regenTick={regenTick} ctor={ctor} docName={file.name} onExportPdf={onExportPdf} onOpenNative={onOpenNative} />
+      <DocxRenderPane url={url} regenTick={regenTick} ctor={ctor} restyle={restyle} docName={file.name} onExportPdf={onExportPdf} onOpenNative={onOpenNative} />
     </div>
   );
 }
@@ -15253,6 +16361,13 @@ const ToPdfGlyph = (
   </svg>
 );
 
+// The FORMATS themselves, for the Convert dialog's "this → that" row. Both
+// glyphs above already draw a page carrying the format's own mark, which is
+// exactly what a format icon is — these names say which role they play there.
+const WordFormatGlyph = PdfToWordGlyph;
+const PdfFormatGlyph = ToPdfGlyph;
+const PDF_CONVERT_FROM = { label: 'PDF', icon: PdfFormatGlyph };
+
 function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, sideTabsSlot = null, regenTick = 0, startInBuilder = false }) {
   const { notify } = useNotifications();
   const { kind: baseKind, mime } = useMemo(
@@ -15349,6 +16464,26 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
   // first free name, the pages go into a folder of their own.
   const [pdfJob, setPdfJob] = useState(null);        // { what: 'word' | 'images', note }
   const [pdfAsk, setPdfAsk] = useState(null);       // 'word' | 'images' — the dialog that is open
+  // What this PDF can become. One Convert button opens the dialog on one of
+  // these; the dialog itself is where the target is chosen (see ConvertModal).
+  const pdfStem = String(file.name || 'document').replace(/\.[^./\\]+$/, '');
+  const pdfConvertTargets = useMemo(() => [{
+    id: 'word',
+    label: 'Word',
+    icon: PdfToWordGlyph,
+    title: 'Convert to Word',
+    explain: 'This PDF rebuilt as an editable Word document. A PDF has no paragraphs — only glyphs at coordinates — so the text is reconstructed: headings, paragraphs and page breaks come across, but columns, tables and drawings do not survive as such. A page with no text is placed as its picture.',
+    suffix: '.docx',
+    name: `${pdfStem} (to Word)`,
+  }, {
+    id: 'images',
+    label: 'Images',
+    icon: PdfToImagesGlyph,
+    title: 'Convert to images',
+    explain: 'Every page saved as its own PNG picture at about 200 dpi. Several pages go into a folder of their own; a single page lands beside the PDF.',
+    suffix: '.png',
+    name: `${pdfStem} (to images)`,
+  }], [pdfStem]);
   const [pdfPageNums, setPdfPageNums] = useState(true);
   const freeName = useCallback(async (stem, ext) => {
     let taken = new Set();
@@ -15436,6 +16571,41 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
   const [pdfFit, setPdfFit] = useState(0);
   useEffect(() => { setPdfZoom(1); }, [file.path]);
   const [pdfFitTick, setPdfFitTick] = useState(0);
+  // The same presentation behaviour a Word file gets: focus opens on a whole
+  // page, and the reading zoom comes back on the way out. Read through a ref so
+  // the hook's cleanup restores the zoom that was in effect when focus OPENED,
+  // not one captured on a later render.
+  const pdfZoomRef = useRef(pdfZoom);
+  pdfZoomRef.current = pdfZoom;
+  const pdfZoomPeek = usePeek(pdfZoom);
+  // Double-clicking the document fits a whole page in the window, in focus and
+  // out of it alike.
+  //
+  // It shares the gesture with selecting a word, which is the one cost: a
+  // double-click on a word both selects it AND re-fits the page. The fit is
+  // harmless where the view is already fitted (it is idempotent) and the
+  // selection survives it, so the two coexist — but if picking words out of a
+  // contract ever starts to feel jumpy, the answer is to skip the fit when the
+  // double-click leaves a non-empty selection, which keeps the gesture on the
+  // margins where it is unambiguous.
+  //
+  // Whichever pane is showing answers it: a PDF's fit is measured by the
+  // preview and asked for with a tick, and a Word file's is the very `zoom-fit`
+  // action its own quick-actions list publishes — so there is no second copy of
+  // the arithmetic here, and a pane that gains a Fit gains this with it.
+  const fitPages = useCallback(() => {
+    // The fit itself is silent, so its TILE answers for the gesture — otherwise
+    // a double-click that lands on an already-fitted page looks like nothing
+    // happened at all.
+    flashQuickAction('zoom-fit');
+    if (kind === 'pdf') { setPdfFitTick((t) => t + 1); return; }
+    adv?.docTools?.actions?.find((a) => a.id === 'zoom-fit')?.onClick?.();
+  }, [kind, adv?.docTools]);
+  useFitForFocus(!!adv?.focusMode, {
+    read: () => pdfZoomRef.current,
+    write: setPdfZoom,
+    fit: () => setPdfFitTick((t) => t + 1),
+  });
   // ── A one-page PDF can be EDITED like a photo ─────────────────────────────
   // Such a file is usually a scan or the export of something that was a picture,
   // and the photo editor is the right tool for it: rotate, straighten, crop —
@@ -15452,12 +16622,12 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
   // 'in' / 'out' = a step; a NUMBER = the zoom the preview worked out for Fit.
   const singlePdf = pdfPageCount === 1;
   const zoomFloor = singlePdf && pdfFit ? pdfFit : 0.1;
-  const stepPdfZoom = useCallback((dir) => setPdfZoom((z) => {
-    if (typeof dir === 'number') return Math.max(zoomFloor, Math.min(DOC_ZOOM_MAX, dir));
-    const next = stepDocZoom(z, dir);
+  const stepPdfZoom = useCallback((req) => setPdfZoom((z) => {
+    if (typeof req === 'number') return Math.max(zoomFloor, Math.min(DOC_ZOOM_MAX, req));
+    const next = stepDocZoom(z, req);
     // Out and it would pass the fit: land ON the fit, as zooming a picture out
     // lands on 100% rather than drifting under it.
-    if (dir === 'out' && next <= zoomFloor) return zoomFloor;
+    if (zoomFactorOf(req) < 1 && next <= zoomFloor) return zoomFloor;
     return Math.max(zoomFloor, next);
   }), [zoomFloor]);
   // A one-page file's zoom is scaled so the fitted page reads 100%.
@@ -15476,31 +16646,32 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
     label: 'Fit',
     tooltip: 'Scale the page so all of it fits in the window’s height',
     icon: FitViewGlyph,
-    onClick: () => setPdfFitTick((t) => t + 1),
+    onClick: () => { flashQuickAction('zoom-fit'); setPdfFitTick((t) => t + 1); },
   }, {
     id: 'pagenums',
-    label: 'Page numbers',
+    label: 'Counters',
     tooltip: pdfPageNums ? 'Hide which page you are on' : 'Show which page you are on',
     icon: PageNumbersGlyph,
     pressed: pdfPageNums,
     onClick: () => setPdfPageNums((v) => !v),
   }, {
-    id: 'pdf-to-word',
-    group: 'Convert',
-    label: pdfJob?.what === 'word' ? pdfJob.note : 'To Word',
-    tooltip: 'Rebuild this PDF as an editable Word document, saved next to it',
-    icon: PdfToWordGlyph,
-    pressed: pdfJob?.what === 'word',
-    onClick: () => setPdfAsk('word'),
+    // The same mode as a Word file's, driven from the same shell state — a
+    // reader stepping between a contract and the PDF it was exported to should
+    // not find focus behaving differently in one of them.
+    id: 'focus',
+    label: adv?.focusMode ? 'Leave focus' : 'Focus',
+    tooltip: adv?.focusMode ? 'Bring the panels back (Esc)' : 'The document and nothing else — every panel away, full screen',
+    icon: FocusModeGlyph,
+    pressed: !!adv?.focusMode,
+    onClick: () => adv?.toggleFocus?.(),
   }, {
-    id: 'pdf-to-images',
-    group: 'Convert',
-    label: pdfJob?.what === 'images' ? pdfJob.note : 'To images',
-    tooltip: 'Save every page as a PNG picture',
-    icon: PdfToImagesGlyph,
-    pressed: pdfJob?.what === 'images',
-    onClick: () => setPdfAsk('images'),
-  }] : []), [kind, pdfJob, pdfRail, pdfZoom, stepPdfZoom, pdfPageCount, pdfPageNums]);
+    id: 'convert',
+    label: pdfJob ? pdfJob.note : 'Convert',
+    tooltip: 'Rebuild this PDF as an editable Word document, or save its pages as pictures',
+    icon: ToPdfGlyph,
+    pressed: !!pdfJob,
+    onClick: () => setPdfAsk('word'),
+  }] : []), [kind, pdfJob, pdfRail, pdfZoom, stepPdfZoom, pdfPageCount, pdfPageNums, adv?.focusMode, adv?.toggleFocus]);
 
   // Extract text from a legacy .doc (binary parsed in the main process).
   useEffect(() => {
@@ -15531,7 +16702,34 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
 
   // The preview is an in-app reconstruction; this opens the actual file in
   // whatever app the OS associates with it (Word, PowerPoint, Excel…).
-  const openNative = () => localFolderApi.openPath(file.path);
+  // "Open in Word" writes the chosen theme INTO the file before handing it
+  // over — see lib/docxTheme. A theme that lived only in the preview meant
+  // picking one and opening the document looked like the pick had done nothing.
+  // Picking Original puts the file back from the backup that first write left
+  // inside it.
+  // The argument is only taken as a theme when it LOOKS like one: several
+  // callers (OpenNativeButton and the inline chip) pass this straight to
+  // onClick, so what arrives is a mouse event, and an event read as a theme
+  // would have `vars: undefined` — indistinguishable from Original, which
+  // would quietly restore the file every time a slide deck was opened.
+  const openNative = useCallback(async (theme) => {
+    const wanted = theme && typeof theme === 'object' && 'vars' in theme ? theme : null;
+    if (wanted) {
+      try {
+        const blob = await readLocalBlob(file.path);
+        const res = blob ? await applyThemeToDocx(blob, wanted) : null;
+        if (res?.changed) {
+          const cut = Math.max(file.path.lastIndexOf('/'), file.path.lastIndexOf('\\'));
+          const out = await localFolderApi.writeFiles({
+            dir: cut >= 0 ? file.path.slice(0, cut) : '',
+            files: [{ filename: cut >= 0 ? file.path.slice(cut + 1) : file.path, blob: res.blob }],
+          });
+          if (!(out?.error || out?.results?.[0]?.ok === false)) notifyFilesChanged();
+        }
+      } catch { /* the theme couldn't be written — still open the document */ }
+    }
+    return localFolderApi.openPath(file.path);
+  }, [file.path]);
 
   let content;
   if (kind === 'docx') {
@@ -15587,7 +16785,18 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
         pdfView={kind === 'pdf' ? pdfView : null}
         onPdfZoom={kind === 'pdf' ? stepPdfZoom : null}
         onPdfFit={kind === 'pdf' ? setPdfFit : null}
-        pdfOverlay={kind === 'pdf' ? (left) => <DocZoomPill zoom={pdfShownZoom} onStep={stepPdfZoom} onReset={resetPdfZoom} left={left} /> : null}
+        pdfOverlay={kind === 'pdf'
+          ? (left) => (
+            <DocZoomPill
+              zoom={pdfShownZoom}
+              onStep={stepPdfZoom}
+              onReset={resetPdfZoom}
+              // Focus takes the page list away, so the pill takes its corner.
+              left={adv?.focusMode ? pillLeft(false) : left}
+              peeking={pdfZoomPeek.peeking}
+            />
+          )
+          : null}
       />
     );
   }
@@ -15604,21 +16813,17 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
   return (
     <div className={bodyClass}>
       {pdfActions.length > 0 && adv?.quickSlot && createPortal(<DocQuickActions actions={pdfActions} disabled={!!pdfJob} catalogue={QUICK_ACTIONS_ALL} />, adv.quickSlot)}
-      {/* Both PDF conversions ask first — see ConvertModal for why. The name is
-          the one thing the app cannot guess: the result lands beside the
-          original, where two files with the same stem say nothing about which
-          is which. */}
+      {/* A conversion asks first — see ConvertModal for why. The name is the one
+          thing the app cannot guess: the result lands beside the original, where
+          two files with the same stem say nothing about which is which. Which
+          FORMAT is asked here too, rather than on the Quick actions card. */}
       <ConvertModal
         open={!!pdfAsk}
-        icon={pdfAsk === 'images' ? PdfToImagesGlyph : PdfToWordGlyph}
-        title={pdfAsk === 'images' ? 'Convert to images' : 'Convert to Word'}
-        explain={pdfAsk === 'images'
-          ? 'Every page saved as its own PNG picture at about 200 dpi. Several pages go into a folder of their own; a single page lands beside the PDF.'
-          : 'This PDF rebuilt as an editable Word document. A PDF has no paragraphs — only glyphs at coordinates — so the text is reconstructed: headings, paragraphs and page breaks come across, but columns, tables and drawings do not survive as such. A page with no text is placed as its picture.'}
-        suffix={pdfAsk === 'images' ? '.png' : '.docx'}
-        defaultName={`${String(file.name || 'document').replace(/\.[^./\\]+$/, '')} (to ${pdfAsk === 'images' ? 'images' : 'Word'})`}
+        initialTarget={pdfAsk || 'word'}
+        from={PDF_CONVERT_FROM}
+        targets={pdfConvertTargets}
         busy={!!pdfJob}
-        onConfirm={(name) => { const what = pdfAsk; setPdfAsk(null); convertPdf(what, name); }}
+        onConfirm={(name, what) => { setPdfAsk(null); convertPdf(what || 'word', name); }}
         onCancel={() => setPdfAsk(null)}
       />
       {switchingVersion && (
@@ -15636,6 +16841,7 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
           url={url}
           kind={kind}
           mainClass={mainClass}
+          onDoubleClick={fitPages}
           sidePanelSlot={sidePanelSlot}
           sideTabsSlot={sideTabsSlot}
         >
@@ -16189,7 +17395,7 @@ const FIND_GLYPH = (
   </svg>
 );
 
-function DocFindBar({ containerRef }) {
+function DocFindBar({ containerRef, inBar = false }) {
   const [query, setQuery] = useState('');
   const inputRef = useRef(null);
   const find = useChatFind({ containerRef, query, name: 'docfind' });
@@ -16209,7 +17415,20 @@ function DocFindBar({ containerRef }) {
   }, []);
 
   return (
-    <div className={`dv-find${query ? ' is-active' : ''}`} role="search">
+    <div
+      className={`dv-find${query ? ' is-active' : ''}${inBar ? ' is-in-bar' : ''}`}
+      role="search"
+      // Collapsed, the pill is 27px of magnifier with the input clipped out of
+      // sight — so a press anywhere on it has to be the press that opens it.
+      // On mousedown rather than click: focusing on the way DOWN means the
+      // caret is already in the field when the button comes back up.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget || e.target.closest('.dv-find-glyph')) {
+          e.preventDefault();
+          inputRef.current?.focus();
+        }
+      }}
+    >
       <span className="dv-find-glyph" aria-hidden="true">{FIND_GLYPH}</span>
       <input
         ref={inputRef}
@@ -16302,6 +17521,16 @@ export default function DocViewer() {
   // panel starts below it: the card's height is measured and handed to CSS as
   // --dv-quick-h, because both cards float (absolute) over the preview.
   const [quickSlot, setQuickSlot] = useState(null);
+  // The title bar asks rather than closing while the AI is working (see
+  // requestClose in TitleBar): the answer being written lives in this window,
+  // so closing it loses the work — and losing it silently is the thing worth a
+  // question. Escape and Cancel both leave the window open and the turn running.
+  const [closeAsk, setCloseAsk] = useState(false);
+  useEffect(() => {
+    const onAsk = () => setCloseAsk(true);
+    window.addEventListener('docvex:doc-viewer-close-request', onAsk);
+    return () => window.removeEventListener('docvex:doc-viewer-close-request', onAsk);
+  }, []);
   const [quickH, setQuickH] = useState(0);
   useEffect(() => {
     if (!quickSlot || typeof ResizeObserver === 'undefined') return undefined;
@@ -16369,6 +17598,230 @@ export default function DocViewer() {
     window.__docvexDocViewerSideHidden = sideHidden;
     window.dispatchEvent(new CustomEvent('docvex:doc-viewer-side', { detail: { hidden: sideHidden } }));
   }, [sideHidden]);
+
+  // ── Focus — the document and nothing else ────────────────────────────────
+  // Word's Focus button, which takes every panel and toolbar away and puts the
+  // page on a plain backdrop, full screen. Here that is: both side cards slid
+  // off (the same movement the burger makes, so the two read as one idea), the
+  // page list, the zoom pill and the counters away, the document card's own
+  // frame dropped, and the window itself into native fullscreen.
+  //
+  // It is NOT `sideHidden`. That is a remembered preference — the state of the
+  // burger — and focus is a mode you step in and out of; folding them together
+  // would mean leaving focus silently re-opened a panel the user had shut, or
+  // left one closed that they had not. So focus hides the cards in CSS and
+  // `sideHidden` is left saying whatever it said.
+  //
+  // Not persisted, for the same reason: reopening the viewer in a mode with no
+  // visible controls is a window that looks broken.
+  const [focusMode, setFocusMode] = useState(false);
+  const focusRef = useRef(false);
+  focusRef.current = focusMode;
+  // ── The crossing ─────────────────────────────────────────────────────────
+  // Entering or leaving focus is not one movement but several at once: the two
+  // side cards slide out, the strip they reserved is reclaimed so the document
+  // re-centres, the sheets go from a wrapping row to a column, the window
+  // animates into fullscreen and the page is re-fitted to it. Watching a
+  // document be re-laid-out through all of that is a mess.
+  //
+  // So the document is taken off screen for the duration and only the page's
+  // own backdrop — the dot grid and the cursor spotlight — is left, then it
+  // fades back once everything has settled.
+  const [focusMoving, setFocusMoving] = useState(false);
+  // THE ORDER MATTERS, and it is the opposite of the obvious one. macOS does
+  // not composite a window while it animates into or out of its fullscreen
+  // space — it takes a snapshot and animates that — so every CSS transition
+  // running at the time is simply frozen and arrives already finished. A fade
+  // started alongside the fullscreen call is therefore never seen.
+  //
+  // So the fade is run FIRST, on its own, and only once the document is off
+  // screen are the layout change and the fullscreen command issued. Everything
+  // ugly — the cards sliding, the strip being reclaimed, the sheets turning
+  // into a column, the OS's own animation — then happens behind nothing but
+  // the backdrop, and the document fades back when it is all over.
+  const crossRef = useRef(0);
+  const toggleFocus = useCallback(() => {
+    // A second press mid-fade would flip the target and leave the first timer
+    // to apply the old one.
+    if (crossRef.current) return;
+    const next = !focusRef.current;
+    focusRef.current = next;
+    setFocusMoving(true);
+    crossRef.current = window.setTimeout(() => {
+      crossRef.current = 0;
+      // The layout change, and the window, together — there is nothing visible
+      // left to stagger them for. The side panel fades out WITH the document
+      // rather than sliding away after it, so by now everything that had to be
+      // watched has been: the cards being reclaimed, the strip going, the
+      // sheets turning into a column and the OS's own animation all happen
+      // behind the backdrop.
+      setFocusMode(next);
+      // The fullscreen call is made HERE, not inside a state updater: an
+      // updater has to be a pure function of the state it is given, and React
+      // may call it more than once.
+      goFullscreen(next);
+    }, FOCUS_FADE_OUT_MS);
+  }, []);
+  useEffect(() => () => { if (crossRef.current) window.clearTimeout(crossRef.current); }, []);
+  // The title bar is a SIBLING of this page, not an ancestor, so the two talk
+  // over window events — the same channel shape the burger already uses. The
+  // bar strips itself back to the brand and swaps its burger for a back arrow;
+  // that arrow asks for a toggle here rather than owning any state of its own.
+  useEffect(() => {
+    window.__docvexDocViewerFocus = focusMode;
+    window.dispatchEvent(new CustomEvent('docvex:doc-viewer-focus', { detail: { focus: focusMode } }));
+  }, [focusMode]);
+  useEffect(() => {
+    const onAsk = () => toggleFocus();
+    window.addEventListener('docvex:doc-viewer-toggle-focus', onAsk);
+    return () => window.removeEventListener('docvex:doc-viewer-toggle-focus', onAsk);
+  }, [toggleFocus]);
+  // ── Revealing the title bar by pointer ───────────────────────────────────
+  // This cannot be a `:hover` rule on the bar, which is what it was at first
+  // and why nothing appeared. The bar is an Electron DRAG REGION
+  // (-webkit-app-region: drag), and a drag region is handled by the OS: the
+  // renderer receives no mouse events over it at all, so `:hover` never
+  // matches there. Its buttons work only because each one opts out with
+  // `no-drag` — and opting the whole bar out would cost the window its title
+  // bar drag.
+  //
+  // So the pointer is watched on the window and the top BAND is the trigger,
+  // with a threshold set below the bar's own height: the reveal has already
+  // happened by the time the pointer crosses into the dead zone, and while it
+  // sits up there no further events arrive, which leaves the bar open — which
+  // is what is wanted anyway.
+  //
+  // The class goes on <html> rather than through React: the title bar is a
+  // different tree, and this is a pointer-rate signal that should not re-render
+  // anything.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!focusMode) { root.classList.remove('dv-bar-peek'); return undefined; }
+    const onMove = (e) => {
+      root.classList.toggle('dv-bar-peek', toLayoutPx(e.clientY) <= BAR_PEEK_BAND);
+    };
+    window.addEventListener('mousemove', onMove);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      root.classList.remove('dv-bar-peek');
+    };
+  }, [focusMode]);
+
+  // The title bar's slot for the find field. It belongs to a DIFFERENT React
+  // tree, which commits on its own schedule — so the node is waited for rather
+  // than assumed to exist by the time this tree renders.
+  const [findSlot, setFindSlot] = useState(null);
+  useEffect(() => {
+    if (!focusMode) { setFindSlot(null); return undefined; }
+    let raf = 0;
+    const look = () => {
+      const el = document.getElementById('tb-docview-find');
+      if (el) setFindSlot(el);
+      else raf = requestAnimationFrame(look);
+    };
+    look();
+    return () => { if (raf) cancelAnimationFrame(raf); setFindSlot(null); };
+  }, [focusMode]);
+
+  // When is the crossing over? The long pole is the OS: macOS animates a window
+  // into and out of its fullscreen space over the best part of a second, and
+  // that animation reports NOTHING to the renderer while it runs — it is a
+  // system-level window animation, not a stream of resizes. A settle timer on
+  // `resize` alone therefore expired early and the document came back part way
+  // through the slide, which is exactly what this was meant to prevent.
+  //
+  // So the OS is waited on by its own completion event — `enter-full-screen` /
+  // `leave-full-screen` via onWindowFullscreenChanged, which macOS fires when
+  // the animation LANDS, or `fullscreenchange` when focus fell back to the DOM
+  // Fullscreen API. Only then does the resize settle start, so any re-layout
+  // the new size causes is covered too.
+  //
+  // Three guards around it: the floor, so the document cannot return mid-slide
+  // when there is no OS transition at all; the settle, for the re-layout; and
+  // the cap, so a transition that never reports finishing still gives the
+  // document back. On the web there is no window to animate, so nothing is
+  // waited for.
+  useEffect(() => {
+    if (!focusMoving) return undefined;
+    const start = Date.now();
+    let waitingOs = isElectron;
+    let settle = 0;
+    const finish = () => {
+      if (waitingOs) return;
+      const left = FOCUS_MOVE_MIN_MS - (Date.now() - start);
+      if (left > 0) { settle = window.setTimeout(finish, left); return; }
+      setFocusMoving(false);
+    };
+    const bump = () => { window.clearTimeout(settle); settle = window.setTimeout(finish, 180); };
+    const osDone = () => { waitingOs = false; bump(); };
+    const offNative = onWindowFullscreenChanged(osDone);
+    document.addEventListener('fullscreenchange', osDone);
+    // …unless there is no transition coming. Entering focus on a window the
+    // user had ALREADY put in fullscreen animates nothing, so no completion
+    // event would ever arrive and the document would sit out the whole cap.
+    // (macOS reports the OLD state while a real transition is in flight, so
+    // this can only match when there is genuinely nothing to wait for.)
+    let dropped = false;
+    if (waitingOs) {
+      windowIsFullscreen()
+        .then((on) => { if (!dropped && on === focusRef.current) osDone(); })
+        .catch(() => { if (!dropped) osDone(); });
+    }
+    window.addEventListener('resize', bump);
+    bump();
+    const cap = window.setTimeout(() => setFocusMoving(false), FOCUS_MOVE_CAP_MS);
+    return () => {
+      dropped = true;
+      offNative?.();
+      document.removeEventListener('fullscreenchange', osDone);
+      window.removeEventListener('resize', bump);
+      window.clearTimeout(settle);
+      window.clearTimeout(cap);
+    };
+  }, [focusMoving]);
+
+  // The title bar is a separate React tree, so the crossing reaches it the same
+  // way the top-band hover does: as a class on <html>. It fades out with the
+  // document and the side panel rather than having its contents slide up at the
+  // moment focus lands — that slide would be running exactly when macOS freezes
+  // the window for its fullscreen animation, so it would never be seen.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('dv-focus-moving', focusMoving);
+    return () => root.classList.remove('dv-focus-moving');
+  }, [focusMoving]);
+
+  // Escape leaves focus BEFORE anything else reads the key — in this mode it is
+  // the only way out that needs no visible control, so it can't be spent on
+  // closing a picked paragraph behind it.
+  useEffect(() => {
+    if (!focusMode) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      e.preventDefault();
+      toggleFocus();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [focusMode, toggleFocus]);
+  // Leaving fullscreen by the OS's own route — the green button, F11, a swipe —
+  // is the user leaving focus, so the mode follows the window rather than
+  // stranding the panels off screen with nothing saying why.
+  useEffect(() => {
+    if (!focusMode) return undefined;
+    const leave = () => { focusRef.current = false; setFocusMode(false); };
+    const offNative = onWindowFullscreenChanged((on) => { if (!on) leave(); });
+    // The DOM route has its own event, and its own Escape: when focus fell back
+    // to `requestFullscreen`, the browser takes Esc itself and this is the only
+    // notice that the mode is over.
+    const onDom = () => { if (!document.fullscreenElement) leave(); };
+    document.addEventListener('fullscreenchange', onDom);
+    return () => {
+      offNative?.();
+      document.removeEventListener('fullscreenchange', onDom);
+    };
+  }, [focusMode]);
   const ADVISOR_MIN = 240;
   const ADVISOR_MAX = 960;
   const FIELDS_W = 380;
@@ -16718,9 +18171,27 @@ export default function DocViewer() {
       onRenameFile={(newName, newMime) => applyGeneratedRename(active.id, newName, newMime)}
       completing={completing}
       setCompleting={toggleCompleting}
+      focusMode={focusMode}
+      toggleFocus={toggleFocus}
     >
     <div className="dv-page" ref={pageRef}>
       <CursorSpotlight contain className="dv-cursor-spotlight" />
+
+      {/* Closing while the AI is working: asked, not done. The turn runs in
+          THIS window's renderer, so the window going is the end of it — and a
+          request that was still being answered disappearing without a word is
+          the kind of loss that reads as the app breaking. Cancel leaves the
+          window open and the work running. */}
+      <ConfirmModal
+        open={closeAsk}
+        title="Close while the AI is working?"
+        message="The AI is still working on this document. Closing this window stops it — the answer being written, and any edit it was about to make, are lost. Nothing already saved to the file is affected."
+        confirmLabel="Close anyway"
+        cancelLabel="Keep working"
+        destructive
+        onConfirm={() => { setCloseAsk(false); windowClose(); }}
+        onCancel={() => setCloseAsk(false)}
+      />
 
       {/* A blank document has nothing to preview and nothing to discuss — it
           opens on the chooser, with neither the side panel nor the preview
@@ -16742,19 +18213,38 @@ export default function DocViewer() {
               panel FLOATS above its left side (absolute, see CSS). The var
               feeds the resize gutter's position. */}
           <div
-            className={`dv-main-row${completing ? ' is-completing' : ''}${shifting ? ' is-shifting' : ''}${sideHidden ? ' is-side-hidden' : ''}`}
+            className={`dv-main-row${completing ? ' is-completing' : ''}${shifting ? ' is-shifting' : ''}${sideHidden ? ' is-side-hidden' : ''}${focusMode ? ' is-focus' : ''}${focusMoving ? ' is-focus-moving' : ''}`}
             style={{
               // The advisor keeps its strip; the blanks panel reserves its own
               // on the opposite side, so the preview narrows rather than
               // sliding sideways under a vanishing sidebar.
               // Hidden: every consumer reserves `var + 24px` on the left, so
               // -16px collapses that footprint to the window's 8px inset.
-              '--dv-advisor-w': sideHidden ? '-16px' : `${advisorW}px`,
+              // Focus reclaims the strip as well — sliding the cards away in
+              // CSS only takes them off SCREEN; every consumer still reserves
+              // `var + 24px` on the left from this variable, so without it the
+              // document stayed centred on a pane that was a panel-width too
+              // narrow and sat noticeably right of the window's middle.
+              '--dv-advisor-w': (sideHidden || focusMode) ? '-16px' : `${advisorW}px`,
               '--dv-fields-w': `${FIELDS_W}px`,
               '--dv-quick-h': `${quickH}px`,
               '--dv-fields-pad': completing ? `calc(${FIELDS_W}px + 24px)` : '0px',
             }}
           >
+            {/* The way out of focus for someone who doesn't know about Esc. It
+                only appears under the cursor (see the CSS) — a button that is
+                always lit would be the very chrome this mode takes away. */}
+            {searchable && focusMode && findSlot
+              && createPortal(<DocFindBar containerRef={docPaneRef} inBar />, findSlot)}
+
+            {focusMode && (
+              <button type="button" className="dv-focus-exit" onClick={toggleFocus}>
+                {FocusModeGlyph}
+                Leave focus
+                <kbd>Esc</kbd>
+              </button>
+            )}
+
             {/* Quick actions — a card of its own above the side panel. */}
             <aside className="dv-quick-card" style={{ width: `${advisorW}px` }}>
               <div className="dv-quick-slot" ref={setQuickSlot} />
@@ -16792,7 +18282,13 @@ export default function DocViewer() {
               <div className="dv-section-body">
                 {/* Top-left of the document area, just inside the side panel's
                     edge — the corner a find bar is expected in. */}
-                {searchable && <DocFindBar containerRef={docPaneRef} />}
+                {/* In focus the field is lifted into the title bar (see
+                    findSlot) — it is the one control that mode keeps, and the
+                    bar is the only chrome left to put it in. It REMOUNTS on the
+                    way over, so the query is cleared entering and leaving
+                    focus; the alternative is lifting the query into this
+                    component, which is a bigger change than it is worth. */}
+                {searchable && !focusMode && <DocFindBar containerRef={docPaneRef} />}
                 <div className="dv-section-pane dv-doc" ref={docPaneRef}>
                   {/* Keyed by the file id only (NOT regenTick) so writing a new
                       version doesn't remount the whole pane — that would refresh
@@ -16831,10 +18327,14 @@ export const QUICK_ACTIONS_ALL = [
   { id: 'zoom-fit', label: 'Fit', icon: FitViewGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
   { id: 'edit-photo', label: 'Edit', icon: EditPhotoGlyph, why: 'Only for pictures' },
   { id: 'extract-text', label: 'Extract text', icon: ExtractTextGlyph, why: 'Only for pictures' },
-  { id: 'pagenums', label: 'Page numbers', icon: PageNumbersGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
+  { id: 'pagenums', label: 'Counters', icon: PageNumbersGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
   { id: 'fold-all', label: 'Collapse all', icon: FoldAllGlyph, why: 'Only for Word files with headings' },
   { id: 'open-word', label: 'Open in Word', icon: OpenExternalGlyph, why: 'Only for Word files, on a computer with Word installed' },
-  { id: 'to-pdf', group: 'Convert', label: 'To PDF', icon: ToPdfGlyph, why: 'Only for files that can be drawn as pages — a Word file, a slide deck, a spreadsheet or a picture' },
-  { id: 'pdf-to-word', group: 'Convert', label: 'To Word', icon: PdfToWordGlyph, why: 'Only for PDFs' },
-  { id: 'pdf-to-images', group: 'Convert', label: 'To images', icon: PdfToImagesGlyph, why: 'Only for PDFs' },
+  { id: 'restyle', label: 'Restyle', icon: RestyleGlyph, why: 'Only for Word files, and only once the Playbook’s document rules are switched on' },
+  { id: 'focus', label: 'Focus', icon: FocusModeGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
+  // ONE tile, whatever the file can become: the target is picked in the dialog
+  // (ConvertModal's `targets`), which was already asking for the name. Three
+  // tiles under a "Convert" heading spent three slots on one verb, and a pane
+  // offering a single conversion got a titled section holding one thing.
+  { id: 'convert', label: 'Convert', icon: ToPdfGlyph, also: ['to-pdf', 'pdf-to-word', 'pdf-to-images'], why: 'Only for a Word file or a PDF' },
 ];

@@ -106,6 +106,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Native fullscreen state — the macOS title bar drops its traffic-light inset
   // when fullscreen hides the lights.
   windowIsFullscreen: () => ipcRenderer.invoke('window:is-fullscreen'),
+  // Resolves true when the request was ACCEPTED — not when the window has
+  // finished becoming fullscreen, which on macOS is an animation. A window
+  // pinned non-fullscreenable answers false, which is the caller's cue to fall
+  // back to the DOM's own Fullscreen API.
+  windowSetFullscreen: (on) => ipcRenderer.invoke('window:set-fullscreen', on),
+  // The window's own fill, painted wherever the renderer isn't — which is what
+  // macOS shows through its fullscreen animation. Pushed from the theme.
+  windowSetBackground: (color) => ipcRenderer.send('window:set-background', color),
   onWindowFullscreenChanged: (handler) => {
     const listener = (_, isFs) => handler(isFs);
     ipcRenderer.on('window:fullscreen-changed', listener);

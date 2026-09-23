@@ -55,3 +55,70 @@
   font-size: 13px; color: var(--text-muted);
   user-select: none;
 }
+
+/* ── This, into that ──────────────────────────────────────────────────────
+   The format the file IS, an arrow, and the format it becomes — with the
+   choice sitting under the arrow, so picking a target changes the thing the
+   arrow points at. Shown even where there is only one target: the row's job is
+   to say what the conversion does, not only to offer a choice. */
+.cvm-flow {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: start;
+  gap: 10px;
+  padding: 14px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+.cvm-fmt {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  min-width: 0;
+  color: var(--text-secondary);
+}
+.cvm-fmt-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px;
+  border: 1px solid var(--border); border-radius: 11px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+.cvm-fmt-label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The result carries the accent — it is the thing being decided. */
+.cvm-fmt.is-target { color: var(--accent); }
+.cvm-fmt.is-target .cvm-fmt-icon {
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+/* The arrow, and the choice under it. */
+.cvm-turn {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  min-width: 108px;
+}
+.cvm-arrow {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 46px;
+  color: var(--text-muted);
+}
+.cvm-select-wrap { display: block; width: 100%; }
+.cvm-select {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-input); color: var(--text-primary);
+  font: inherit; font-size: 12px; font-weight: 500;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.cvm-select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+/* One target: the row still SAYS what it is doing, it just isn't a choice. */
+.cvm-select:disabled { cursor: default; color: var(--text-secondary); opacity: 1; }
+:root[data-reduce-motion='true'] .cvm-select { transition: none; }

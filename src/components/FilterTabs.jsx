@@ -12,7 +12,10 @@ import './FilterTabs.css';
 // so the underline straddles the bar's bottom edge. Standalone (the Settings
 // strip), the host gives it a height and the underline rides its own bottom.
 //
-// `tabs` is [{ id, label }]. `underlineCat` tints the bar via data-cat — the
+// `tabs` is [{ id, label, unavailable? }]. A tab marked `unavailable` is still
+// SHOWN — faded and inert — so the strip says what exists rather than only
+// what applies here, the way the Quick actions card does with its catalogue.
+// `underlineCat` tints the bar via data-cat — the
 // Activity feed passes the active category so the line takes that category's
 // colour; callers with no categories leave it out and get the accent.
 export default function FilterTabs({ tabs, active, onSelect, className = '', underlineCat, ariaLabel = 'Filter' }) {
@@ -31,7 +34,21 @@ export default function FilterTabs({ tabs, active, onSelect, className = '', und
     const strip = stripRef.current;
     const bar = underlineRef.current;
     if (!strip || !bar) return undefined;
+    // Which tabs END a row. A strip that WRAPS (the Doc Viewer's side panel)
+    // draws a hairline between neighbours, and the one at the end of a row must
+    // not carry it — where the wrap fell is not something CSS can ask, so it is
+    // measured, the same way DocQuickActions marks its tiles. The mark changes
+    // nothing about layout (the divider is an absolutely-placed ::after), so
+    // this cannot feed the ResizeObserver below.
+    const markRowEnds = () => {
+      const btns = Array.from(strip.querySelectorAll('.activity-filter'));
+      btns.forEach((b, i) => {
+        const next = btns[i + 1];
+        b.classList.toggle('is-rowend', !next || next.offsetTop > b.offsetTop);
+      });
+    };
     const place = () => {
+      markRowEnds();
       const btn = strip.querySelector(`[data-tab-id="${active}"]`);
       if (!btn) { bar.style.width = '0px'; return; }
       const snap = !placedRef.current;
@@ -79,16 +96,20 @@ export default function FilterTabs({ tabs, active, onSelect, className = '', und
     >
       {tabs.map((tab) => {
         const isActive = active === tab.id;
+        // aria-disabled, not `disabled`: a disabled button fires no mouse
+        // events, so it could carry no tooltip and no hover at all.
+        const off = !!tab.unavailable;
         return (
           <button
             key={tab.id}
             type="button"
             role="tab"
             aria-selected={isActive}
+            aria-disabled={off || undefined}
             data-cat={tab.id}
             data-tab-id={tab.id}
-            className={`activity-filter${isActive ? ' is-active' : ''}`}
-            onClick={() => onSelect(tab.id)}
+            className={`activity-filter${isActive ? ' is-active' : ''}${off ? ' is-unavailable' : ''}`}
+            onClick={() => { if (!off) onSelect(tab.id); }}
           >
             <span className="activity-filter-label">{tab.label}</span>
           </button>

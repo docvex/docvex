@@ -280,10 +280,37 @@ function readWindowStateFile() {
     const s = JSON.parse(fs.readFileSync(windowStateFile(), 'utf8'));
     if (!s || typeof s !== 'object') return {};
     // Legacy flat shape → treat it as the main window's state.
-    if (isUsableRect(s) && !s.main && !s.docViewer) return { main: s };
+    if (isUsableRect(s) && !s.main && !s.docViewer) return { main: s, backgroundColor: s.backgroundColor };
     return s;
   } catch { /* no/invalid state — fall back to defaults */ }
   return {};
+}
+
+// ── The window's own background colour ────────────────────────────────────
+// Electron paints a window's `backgroundColor` wherever the renderer has not
+// painted — and the default is WHITE. That is invisible most of the time, but
+// not while macOS animates a window into or out of its fullscreen space: the
+// renderer is not compositing then, so the whole window flashes white on the
+// way out of the Doc Viewer's focus mode. In the Ink theme that is a strobe.
+//
+// The colour can only come from the renderer (it is the resolved theme's
+// backdrop, and the theme is a per-user localStorage preference the main
+// process cannot read), so it is pushed over IPC whenever the theme settles and
+// remembered here for the NEXT launch — otherwise the very first frame of every
+// cold start would flash white instead.
+const DEFAULT_WINDOW_BG = '#16181a';
+function readWindowBackground() {
+  const saved = readWindowStateFile().backgroundColor;
+  return typeof saved === 'string' && /^#[0-9a-f]{6}$/i.test(saved) ? saved : DEFAULT_WINDOW_BG;
+}
+function rememberWindowBackground(color) {
+  if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) return;
+  try {
+    const all = readWindowStateFile();
+    if (all.backgroundColor === color) return;
+    all.backgroundColor = color;
+    fs.writeFileSync(windowStateFile(), JSON.stringify(all));
+  } catch { /* best-effort */ }
 }
 
 function readWindowState(role = 'main') {
@@ -522,6 +549,9 @@ function createAppWindow({ query, openDevtools = false, bounds = null, show = tr
       ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 13, y: 10 } }
       : { frame: false }),
     icon: path.join(__dirname, 'appicon_desktop.png'),
+    // Painted wherever the renderer isn't — most visibly through macOS's
+    // fullscreen animation. Without it that is white. See readWindowBackground.
+    backgroundColor: readWindowBackground(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
@@ -2010,9 +2040,39 @@ ipcMain.handle('window:is-maximized', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   return !!(w && w.isMaximized());
 });
+// The renderer hands over its resolved theme's backdrop. Applied to EVERY open
+// window, not just the sender: the theme is per user, not per window, and a doc
+// viewer opened before the theme settled would otherwise keep the old colour.
+ipcMain.on('window:set-background', (e, color) => {
+  if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) return;
+  rememberWindowBackground(color);
+  for (const w of BrowserWindow.getAllWindows()) {
+    // The snip overlay and the tray menu are deliberately transparent.
+    if (w.isDestroyed() || w.isTransparent?.()) continue;
+    try { w.setBackgroundColor(color); } catch { /* not fatal */ }
+  }
+});
 ipcMain.handle('window:is-fullscreen', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   return !!(w && w.isFullScreen());
+});
+// Answers whether the request was ACCEPTED, not what the window is now.
+// `setFullScreen` is asynchronous on macOS — the window animates into place —
+// so reading `isFullScreen()` on the next line reports the state it is still
+// leaving, and a caller that believed it would think fullscreen had failed. The
+// state itself already has a channel of its own: `window:fullscreen-changed`.
+ipcMain.handle('window:set-fullscreen', (e, on) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w || w.isDestroyed()) return false;
+  // The sign-in window is pinned non-fullscreenable (openAuthWindow); asking it
+  // to go fullscreen would throw on macOS.
+  if (!w.isFullScreenable()) return false;
+  try {
+    w.setFullScreen(!!on);
+    return true;
+  } catch {
+    return false;
+  }
 });
 
 // (The old `window:auth-state` channel is gone. The signed-out screen used to

@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 // Cursor coords + innerWidth are viewport px; the transform we set is layout
 // px — under the app's CSS-zoom downscale the two differ (see lib/appZoom).
@@ -39,6 +39,9 @@ import './Tooltip.css';
 
 const CURSOR_OFFSET = 8;
 const EDGE_MARGIN = 8;
+// How long the pill takes to fade away when the page scrolls under it.
+// Keep in step with the .tooltip.is-out transition in Tooltip.css.
+const FADE_OUT_MS = 120;
 
 // Hook form of the tooltip — same cursor-following pill, but it attaches to an
 // element you already render instead of wrapping it. Use this when wrapping in
@@ -64,6 +67,35 @@ export function useTooltip(content, className = '') {
   // While shown, watch the pointer globally and hide once it's no longer over
   // the trigger node (DOM containment, so display:contents wrappers still work).
   const shown = pos != null;
+
+  // ── Scrolling ──────────────────────────────────────────────────────────
+  // Scrolling moves the trigger out from under a cursor that has not itself
+  // moved, so no mouseleave fires and the pill is left describing whatever
+  // has slid beneath it. It goes — but it FADES rather than vanishing, the
+  // way it does across the Doc Viewer's focus crossing, because the pointer
+  // is still where it was and a pill blinking out under a stationary cursor
+  // reads as a glitch.
+  // Capture phase, on the window: the scroller is usually a pane deep in the
+  // tree and a scroll event does not bubble.
+  const [fading, setFading] = useState(false);
+  const fadeRef = useRef(0);
+  useEffect(() => () => { if (fadeRef.current) window.clearTimeout(fadeRef.current); }, []);
+  useLayoutEffect(() => {
+    if (!shown) return undefined;
+    const onScroll = () => {
+      if (fadeRef.current) return;
+      setFading(true);
+      fadeRef.current = window.setTimeout(() => {
+        fadeRef.current = 0;
+        setFading(false);
+        hoveringRef.current = false;
+        setPos(null);
+      }, FADE_OUT_MS);
+    };
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    return () => window.removeEventListener('scroll', onScroll, { capture: true });
+  }, [shown]);
+
   useLayoutEffect(() => {
     if (!shown) return undefined;
     const onWinMove = (e) => {
@@ -100,7 +132,11 @@ export function useTooltip(content, className = '') {
   }, [pos]);
 
   const triggerProps = {
-    onMouseMove: (e) => { hoveringRef.current = true; triggerRef.current = e.currentTarget; setPos({ x: toLayoutPx(e.clientX), y: toLayoutPx(e.clientY) }); },
+    onMouseMove: (e) => {
+      if (fadeRef.current) return;   // mid-fade: let it finish leaving
+      hoveringRef.current = true; triggerRef.current = e.currentTarget;
+      setPos({ x: toLayoutPx(e.clientX), y: toLayoutPx(e.clientY) });
+    },
     onMouseLeave: () => { hoveringRef.current = false; setPos(null); },
     onFocus: (e) => {
       if (hoveringRef.current) return;
@@ -119,7 +155,7 @@ export function useTooltip(content, className = '') {
 
   const tooltip = content && pos
     ? createPortal(
-        <div ref={pillRef} className={`tooltip${className ? ` ${className}` : ''}`} role="tooltip">{content}</div>,
+        <div ref={pillRef} className={`tooltip${fading ? ' is-out' : ''}${className ? ` ${className}` : ''}`} role="tooltip">{content}</div>,
         document.body,
       )
     : null;

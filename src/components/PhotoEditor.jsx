@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import Tooltip from './Tooltip';
-import { toLayoutPx } from '../lib/appZoom';
+import { toLayoutPx, createWheelZoom, zoomFactorOf, ZOOM_SETTLE_MS } from '../lib/appZoom';
 import './PhotoEditor.css';
 
 // The Doc Viewer's photo editor — what a phone photograph of a document needs
@@ -287,6 +287,9 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
   const zoomRef = useRef(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
+  // True for the length of a wheel/pinch gesture — the transform's easing is
+  // dropped while it runs so the picture tracks the fingers exactly.
+  const [zooming, setZooming] = useState(false);
   const panRef = useRef(pan);
   panRef.current = pan;
   const viewRef = useRef(null);
@@ -314,17 +317,22 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
     setPan({ x: 0, y: 0 });
     setPlaceScale(1);
   }, []);
-  const stepZoom = useCallback((dir) => {
+  // 'in' / 'out' from the pill's buttons; `{ by: factor }` from the wheel,
+  // which is continuous (see createWheelZoom).
+  const stepZoom = useCallback((req) => {
     const z = zoomRef.current;
-    const raw = dir === 'in' ? z * ZOOM_STEP : z / ZOOM_STEP;
+    const raw = z * zoomFactorOf(req, ZOOM_STEP);
     const floor = floorRef.current;
-    if (dir === 'out' && raw <= floor) { resetView(); return; }
+    // Zooming out to the floor no longer calls resetView — that threw the pan
+    // away with the zoom. The floor below clamps the ZOOM; the pan is scaled
+    // with it like any other step, so the picture stays where it was dragged.
+    // Reset is still there as its own button.
     const next = Math.max(floor, Math.min(ZOOM_MAX, +raw.toFixed(3)));
     const f = next / z;
     zoomRef.current = next;
     setZoom(next);
     setPan((p) => (p.x || p.y ? { x: p.x * f, y: p.y * f } : p));
-  }, [resetView]);
+  }, []);
   // A DIFFERENT picture starts fresh; the one it opened with keeps the view it
   // was handed.
   const seenUrl = useRef(null);
@@ -339,12 +347,21 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
   useEffect(() => {
     const el = viewRef.current;
     if (!el) return undefined;
+    // Continuous: every event's delta is a multiplier — see createWheelZoom.
+    const zoomBy = createWheelZoom(stepZoom);
+    let settle = 0;
     const onWheel = (e) => {
       e.preventDefault();
-      stepZoom(e.deltaY < 0 ? 'in' : 'out');
+      // The 120ms transform transition smooths a button's jump; over a gesture
+      // it is restarted by every event and never arrives, so the picture trails
+      // the fingers. Dropped while zooming, as it is while dragging.
+      setZooming(true);
+      window.clearTimeout(settle);
+      settle = window.setTimeout(() => setZooming(false), ZOOM_SETTLE_MS);
+      zoomBy(e);
     };
     el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
+    return () => { window.clearTimeout(settle); el.removeEventListener('wheel', onWheel); };
   }, [stepZoom]);
   // Drag the picture about, at ANY zoom — except on the crop's own outline and
   // handles, which have their own drags.
@@ -875,7 +892,7 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
               className="phe-pan"
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${placeScale * zoom})`,
-                transition: panning || !settled ? 'none' : 'transform 120ms ease',
+                transition: panning || zooming || !settled ? 'none' : 'transform 120ms ease',
               }}
             >
               <div

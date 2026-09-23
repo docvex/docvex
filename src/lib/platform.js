@@ -123,6 +123,27 @@ export function onWindowMaximizedChanged(handler) {
 export async function windowIsFullscreen() {
   return electronAPI?.windowIsFullscreen ? electronAPI.windowIsFullscreen() : false;
 }
+// True when the native window ACCEPTED the request — not when it has finished
+// becoming fullscreen (on macOS that is an animation; listen on
+// onWindowFullscreenChanged for the state). False means the caller should reach
+// for the DOM's own Fullscreen API instead: on web, on a window pinned
+// non-fullscreenable, and in a window whose preload predates this channel.
+// Hand the native window the colour it should paint where the renderer has not
+// — through a resize, and above all through macOS's fullscreen animation, where
+// the renderer composites nothing at all and Electron's default white is what
+// the whole window flashes. No-op on web, which has no window to tell.
+export function windowSetBackground(color) {
+  try { electronAPI?.windowSetBackground?.(color); } catch { /* not fatal */ }
+}
+
+export async function windowSetFullscreen(on) {
+  if (!electronAPI?.windowSetFullscreen) return false;
+  try {
+    return !!(await electronAPI.windowSetFullscreen(on));
+  } catch {
+    return false;
+  }
+}
 
 // True in the dedicated sign-in window (main.js openAuthWindow boots the same
 // renderer with ?authWindow=1). Everything else — the app window, the doc

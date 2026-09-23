@@ -11,6 +11,23 @@
   display: contents;
 }
 
+/* ── The Doc Viewer's focus crossing ──────────────────────────────────────
+   Pressing Focus takes the button the tooltip is describing off screen, and
+   because the quick-actions card is faded rather than unmounted, no mouseleave
+   ever fires for it — so the pill was left hanging over a document with nothing
+   underneath it to explain. It goes with everything else, on the same fade
+   (html.dv-focus-moving, set from DocViewer).
+   `visibility` latches after the fade, which is also what makes the pill's own
+   window-level pointermove safety net finish the job: the next movement finds
+   the pointer outside a trigger that is no longer there and clears the state
+   properly, so this rule never has to be un-done. */
+html.dv-focus-moving .tooltip {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 110ms ease, visibility 0s 110ms;
+}
+
 .tooltip {
   position: fixed;
   /* top:0/left:0 anchors the pill at the viewport origin so the JS-set
@@ -74,3 +91,18 @@
 .tooltip.is-multiline {
   border-radius: 9.6px;
 }
+
+
+/* ── Leaving on a scroll ───────────────────────────────────────────────────
+   The page scrolled under a cursor that has not moved, so the pill is on its
+   way out (Tooltip.jsx's FADE_OUT_MS drives the unmount that follows). The
+   entry animation is cancelled outright: a scroll within the first 120ms would
+   otherwise still be running it, and an animation beats a transition on the
+   same property, so the pill would hold at full strength and then blink away.
+   Keep the duration in step with FADE_OUT_MS. */
+.tooltip.is-out {
+  animation: none;
+  opacity: 0;
+  transition: opacity 120ms ease, transform 45ms ease-out;
+}
+:root[data-reduce-motion='true'] .tooltip.is-out { transition: none; }

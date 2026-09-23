@@ -267,3 +267,24 @@
   white-space: nowrap;
 }
 .drb-theme-check { display: inline-flex; color: currentColor; }
+
+/* ── A tile answering for its own command ─────────────────────────────────
+   Fit has no state to sit in — it does its work and it is over — so pressing it
+   or double-clicking the document leaves nothing on screen to say it happened.
+   The tile therefore FADES THE SELECTED LOOK IN AND BACK OUT: the same accent
+   tint, ring and glyph colour a pressed tile wears (.is-pressed above), worn
+   for a moment. Reusing that look rather than inventing a highlight is what
+   makes it read as "this button, just now" instead of as a new state.
+   Eased in quickly and out slowly, so the acknowledgement registers and then
+   gets out of the way. */
+@keyframes drb-action-flash {
+  0%   { background: transparent; border-color: var(--border); color: var(--text-secondary); }
+  18%  { background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--accent); }
+  45%  { background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--accent); }
+  100% { background: transparent; border-color: var(--border); color: var(--text-secondary); }
+}
+.drb-action.is-flash { animation: drb-action-flash 620ms cubic-bezier(.33, 1, .68, 1); }
+/* A tile that HAS a pressed state keeps it — the flash would otherwise blink it
+   off and back on as the animation's own start and end frames take over. */
+.drb-action.is-pressed.is-flash { animation: none; }
+:root[data-reduce-motion='true'] .drb-action.is-flash { animation: none; }

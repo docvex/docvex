@@ -4,7 +4,8 @@ import remarkGfm from 'remark-gfm';
 import { getCachedPdf } from '../lib/pdfCache';
 import { loadPdfModule } from '../lib/pdfWorker';
 import Tooltip from './Tooltip';
-import { alignWithSidePanel } from '../lib/sidePanelEdges';
+import { alignWithSidePanel, docInset } from '../lib/sidePanelEdges';
+import { toLayoutPx, createWheelZoom, ZOOM_SETTLE_MS } from '../lib/appZoom';
 
 // Preview renderer for the FileDetailModal's preview pane.
 // Dispatches by MIME to one of:
@@ -318,8 +319,19 @@ function PdfThumb({ pdf, n, cacheKey, fallbackRatio, root, current, onPick }) {
     })();
     return () => { cancelled = true; };
   }, [near, pdf, n]);
-  // The page being read stays in view in the list.
-  useEffect(() => { if (current) slotRef.current?.scrollIntoView({ block: 'nearest' }); }, [current]);
+  // The page being read stays in view in the list — gliding there, but ONLY
+  // when its thumbnail has actually gone out of the list's view. Moving on
+  // every page change makes the list flicker past under the reader; a smooth
+  // scroll re-aimed every frame never arrives at all.
+  useEffect(() => {
+    const slot = slotRef.current;
+    const rail = slot?.parentElement;
+    if (!current || !slot || !rail) return;
+    const s = slot.getBoundingClientRect();
+    const r = rail.getBoundingClientRect();
+    if (s.top >= r.top && s.bottom <= r.bottom) return;
+    slot.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [current]);
   return (
     <button type="button" ref={slotRef} className={`dv-pagerail-item${current ? ' is-current' : ''}`} aria-label={`Go to page ${n}`} onClick={() => onPick(n)}>
       <span className="dv-pagerail-sheet" style={{ height: `${Math.round(PDF_THUMB_W * ratio)}px` }}>
@@ -364,7 +376,7 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
   const [fitReady, setFitReady] = useState(false);
   const zoom = Math.max(0.1, Math.min(5, Number(pdfView?.zoom) || 1));
   const showRail = !!pdfView?.rail;
-  // "Page 3 of 12" — the Page numbers quick action, the same switch a Word file
+  // "Page 3 of 12" — the Counters quick action, the same switch a Word file
   // has. Absent (an older caller, or a preview outside the viewer) it shows, as
   // it always did.
   const showPageNums = pdfView ? pdfView.pageNums !== false : true;
@@ -408,7 +420,12 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
     if (!el) return undefined;
     setScrollRoot(el);
     let timer = null;
-    const measure = (w) => setPageWidth(Math.max(200, Math.min(PDF_MAX_PAGE_WIDTH, Math.floor(w - PDF_PAGE_GUTTER * 2))));
+    // The shell runs under the floating side panel, so its width overstates the
+    // room a page has by the panel's footprint (lib/sidePanelEdges).
+    const measure = (w) => setPageWidth(Math.max(200, Math.min(
+      PDF_MAX_PAGE_WIDTH,
+      Math.floor(w - docInset(el) - PDF_PAGE_GUTTER * 2),
+    )));
     measure(el.clientWidth);
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect?.width;
@@ -442,16 +459,23 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
     return () => { el.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
   }, [pdf, animWidth > 0, paintWidth]);
 
+  // Set for a zoom that came from the wheel, and a timer for the end of that
+  // gesture: the eases below are skipped while one runs, and the page is
+  // re-laid-out and repainted once it stops rather than on every event.
+  const zoomLiveRef = useRef(false);
+  const settleRef = useRef(0);
   // A ONE-page PDF is a stage, so its plain WHEEL zooms, as a picture's does.
   // With more than one page the wheel belongs to reading them, so zooming there
   // is CTRL + wheel (held down).
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !onPdfZoom) return undefined;
+    // Continuous: every event's delta is a multiplier — see createWheelZoom.
+    const zoomBy = createWheelZoom((req) => { zoomLiveRef.current = true; onPdfZoom(req); });
     const onWheel = (e) => {
       if (count > 1 && !e.ctrlKey) return;
       e.preventDefault();
-      onPdfZoom(e.deltaY < 0 ? 'in' : 'out');
+      zoomBy(e);
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
@@ -475,6 +499,19 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
       return undefined;
     }
     if (from === zoom) return undefined;
+    // A wheel/pinch gesture is already continuous, so it is shown AT ONCE —
+    // easing it would trail the fingers by 200ms and be restarted by every
+    // event. Only the scale moves while it runs (composited, free); the page is
+    // re-laid-out and repainted once, when the gesture goes quiet.
+    if (zoomLiveRef.current) {
+      zoomLiveRef.current = false;
+      animZoomRef.current = zoom;
+      setAnimZoom(zoom);
+      window.clearTimeout(settleRef.current);
+      settleRef.current = window.setTimeout(() => setPaintZoom(zoom), ZOOM_SETTLE_MS);
+      return () => window.clearTimeout(settleRef.current);
+    }
+    window.clearTimeout(settleRef.current);   // a button's glide lands its own repaint
     const t0 = performance.now();
     let raf = requestAnimationFrame(function tick(now) {
       const p = Math.min(1, (now - t0) / 200);
@@ -502,6 +539,15 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
       animRef.current = shownWidth; setAnimWidth(shownWidth); setPaintWidth(shownWidth);
       return undefined;
     }
+    if (zoomLiveRef.current) {
+      zoomLiveRef.current = false;
+      animRef.current = shownWidth;
+      setAnimWidth(shownWidth);
+      window.clearTimeout(settleRef.current);
+      settleRef.current = window.setTimeout(() => setPaintWidth(shownWidth), ZOOM_SETTLE_MS);
+      return () => window.clearTimeout(settleRef.current);
+    }
+    window.clearTimeout(settleRef.current);
     const t0 = performance.now();
     let raf = requestAnimationFrame(function tick(now) {
       const p = Math.min(1, (now - t0) / 200);
@@ -522,8 +568,12 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
     if (!el || !before || !animWidth || before === animWidth) return;
     if (single) return;             // a one-page stage doesn't scroll; the pan is scaled instead
     const k = animWidth / before;
+    // The first `inset` pixels are behind the side panel, so the centre of what
+    // can actually be seen sits that much to the right of the pane's own.
+    const inset = docInset(el);
+    const midX = inset + (el.clientWidth - inset) / 2;
     el.scrollTop = (el.scrollTop + el.clientHeight / 2) * k - el.clientHeight / 2;
-    el.scrollLeft = (el.scrollLeft + el.clientWidth / 2) * k - el.clientWidth / 2;
+    el.scrollLeft = (el.scrollLeft + midX) * k - midX;
   }, [animWidth, single]);
 
   // The opening fit: once the document and the pane's width are known.
@@ -570,7 +620,9 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
     const prev = lastZoomRef.current;
     lastZoomRef.current = zoom;
     if (!single || !prev || prev === zoom) return;
-    if (zoom < prev && zoom <= fitZoom() + 0.001) { setPan({ x: 0, y: 0 }); return; }
+    // No reset at the fit: the pan is only ever SCALED with the zoom, so a page
+    // dragged aside stays where it was put instead of snapping back the moment
+    // the zoom returns to fitting.
     const f = zoom / prev;
     setPan((p) => (p.x || p.y ? { x: p.x * f, y: p.y * f } : p));
   }, [zoom, single, fitZoom]);
@@ -621,7 +673,9 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
     const onMove = (ev) => {
       if (!moved && Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) < 4) return;
       if (!moved) { moved = true; setDragging(true); document.body.classList.add('dv-media-panning'); }
-      setPan({ x: from.x + (ev.clientX - x0), y: from.y + (ev.clientY - y0) });
+      // Layout px, not viewport px: the pan is a CSS transform, and under a
+      // display-scale the two differ — the page would trail the cursor.
+      setPan({ x: from.x + toLayoutPx(ev.clientX - x0), y: from.y + toLayoutPx(ev.clientY - y0) });
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
@@ -634,7 +688,14 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
   };
 
   // The page list's footprint: what the pill and the counter stand clear of.
-  const railPad = showRail && railWanted && count > 0 ? 134 : 8;
+  // Keep in step with PILL_LEFT / PILL_LEFT_RAIL in pages/DocViewer.jsx — a
+  // PDF's pills must sit exactly where a Word file's do.
+  // Measured from the side panel: the PDF shell runs edge to edge under it
+  // (--dv-doc-inset, DocViewer.css), so a bare pixel value would put the pills
+  // and the counter underneath the panel. Keep in step with `pillLeft` in
+  // pages/DocViewer.jsx.
+  const railOn = showRail && railWanted && count > 0;
+  const railPad = `calc(var(--dv-doc-inset, 0px) + ${railOn ? 126 : 0}px)`;
 
   const goToPage = (n) => {
     const el = containerRef.current;
@@ -672,6 +733,15 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
             className="file-preview-pdf-pages"
             style={{
               padding: `${PDF_FIT_GAP}px ${PDF_PAGE_GUTTER}px`,
+              // The side panel's footprint, so the pages sit centred in what is
+              // visible. Written HERE because the `padding` above is inline and
+              // would beat any stylesheet rule. Left off when the page list is
+              // up (its own margin already clears the panel) and on a one-page
+              // stage (the scale() below would scale it — that stage takes the
+              // gap on its scroller instead, see DocViewer.css).
+              ...(single || railOn
+                ? null
+                : { paddingLeft: `calc(var(--dv-doc-inset, 0px) + ${PDF_PAGE_GUTTER}px)` }),
               // `translate` first, so the pan is in screen pixels and the
               // scale doesn't multiply it.
               transform: single && (pan.x || pan.y || scale !== 1)

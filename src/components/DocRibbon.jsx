@@ -8,7 +8,7 @@ import './DocRibbon.css';
 // across the top of the preview; the ribbon is gone and its contents moved in:
 //
 //  • DocQuickActions — the section under the panel's tab strip: whole-document
-//    actions (Page numbers, Open in Word) as a grid of tiles.
+//    actions (Counters, Open in Word) as a grid of tiles.
 //  • DocThemeGrid    — the body of the panel's **Theme** tab: the document
 //    themes (lib/docThemes.js) as a grid of thumbnails, each a little page set
 //    in the theme's own fonts and colours over a strip of its palette.
@@ -27,6 +27,23 @@ const CheckGlyph = (
 // gets its own --item-spot-x/y (layout px) as the pointer moves over the node. A
 // NATIVE listener, so it follows the DOM rather than the React tree (the
 // tooltips portal elsewhere).
+// Flash a quick-action tile — the answer to a command run by gesture rather
+// than by pressing it. The tile is found in the DOM rather than driven through
+// React state: the actions are memoised in the pane that owns them, and
+// re-building that list to carry a transient flag would re-render the document
+// pane on every flash.
+export function flashQuickAction(id) {
+  if (typeof document === 'undefined') return;
+  const btn = document.querySelector(`.drb-action[data-action-id="${id}"]`);
+  if (!btn) return;
+  btn.classList.remove('is-flash');
+  // Reading offsetWidth commits the removal, so a second flash inside the
+  // animation's own length restarts it instead of being swallowed.
+  void btn.offsetWidth;
+  btn.classList.add('is-flash');
+  window.setTimeout(() => btn.classList.remove('is-flash'), 640);
+}
+
 export function useItemSpots(selector, live = true) {
   const ref = useRef(null);
   useEffect(() => {
@@ -184,6 +201,10 @@ export function DocQuickActions({ actions = [], disabled = false, catalogue = []
                   <button
                     type="button"
                     className={`drb-action${a.pressed ? ' is-pressed' : ''}${a.unavailable ? ' is-unavailable' : ''}`}
+                    // Lets an action fired from ELSEWHERE — double-clicking the
+                    // document to fit it — find its own tile and flash it, so
+                    // the gesture says which command it just ran.
+                    data-action-id={a.id}
                     onClick={a.unavailable ? undefined : a.onClick}
                     // `aria-disabled`, not `disabled`: a disabled button fires no
                     // mouse events, and its tooltip is the only thing that says

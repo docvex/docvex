@@ -8,7 +8,7 @@
   useState,
 } from 'react';
 import { useAuth } from './AuthContext';
-import { isElectron } from '../lib/platform';
+import { isElectron, windowSetBackground } from '../lib/platform';
 
 // Per-user color theme — backed by localStorage, scoped per user_id so two
 // accounts on the same machine don't see each other's theme. Applies the
@@ -106,6 +106,27 @@ function resolvePref(pref) {
 // two frames later. Without it, surfaces that ease their background — the
 // mini headers, the footers — tweened from the old theme's colour to the new
 // one and read as a flash.
+// The window's own fill has to be told the theme too. Electron paints
+// `backgroundColor` wherever the renderer has not painted, and its default is
+// WHITE — harmless most of the time, but macOS composites nothing from the
+// renderer while it animates a window into or out of fullscreen, so leaving the
+// Doc Viewer's focus mode flashed the whole window white. In Ink that is a
+// strobe. The colour is only knowable here (it is the resolved theme's
+// backdrop), so it is read off the tokens and handed to the main process.
+const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+function normalizeHex(raw) {
+  const v = String(raw || '').trim();
+  if (HEX_RE.test(v)) {
+    return v.length === 4
+      ? `#${v[1]}${v[1]}${v[2]}${v[2]}${v[3]}${v[3]}`.toLowerCase()
+      : v.toLowerCase();
+  }
+  const m = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(v);
+  if (!m) return null;
+  const hex = (n) => Math.max(0, Math.min(255, Number(n))).toString(16).padStart(2, '0');
+  return `#${hex(m[1])}${hex(m[2])}${hex(m[3])}`;
+}
+
 let themeSwitchFrame = 0;
 function applyThemeAttribute(theme) {
   if (typeof document === 'undefined') return;
@@ -225,6 +246,20 @@ export function ThemeProvider({ children }) {
     setTheme,
     themes: THEMES,
   }), [theme, themePreference, setTheme]);
+
+  // Read AFTER the paint that carries the new data-theme, so the tokens being
+  // measured are the ones now in force. `--bg-backdrop` is the window backdrop
+  // proper; `--bg-page` is the fallback for a theme that doesn't split them.
+  useEffect(() => {
+    if (!isElectron || typeof window === 'undefined') return undefined;
+    const id = requestAnimationFrame(() => {
+      const cs = getComputedStyle(document.documentElement);
+      const hex = normalizeHex(cs.getPropertyValue('--bg-backdrop'))
+        || normalizeHex(cs.getPropertyValue('--bg-page'));
+      if (hex) windowSetBackground(hex);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [theme]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

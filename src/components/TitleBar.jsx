@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
@@ -23,6 +23,7 @@ import {
   windowIsFullscreen,
   onWindowFullscreenChanged,
 } from '../lib/platform';
+import { toLayoutPx } from '../lib/appZoom';
 
 import brandIcon from '../favicon.ico';
 import './TitleBar.css';
@@ -130,6 +131,14 @@ const BurgerGlyph = (
   </svg>
 );
 
+// The burger's replacement while the viewer is in focus — same box, same
+// stroke, so the swap is the icon changing rather than the corner moving.
+const BackArrowGlyph = (
+  <svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11.5 7H2.5" /><path d="M6 3.5 2.5 7 6 10.5" />
+  </svg>
+);
+
 // ── Window-control glyphs (Windows-ish line icons) ──
 const MinimizeGlyph = (
   <svg viewBox="0 0 12 12" width="11" height="11"><rect x="1.5" y="5.5" width="9" height="1" fill="currentColor" /></svg>
@@ -172,6 +181,19 @@ export default function TitleBar() {
   // file viewer, so it hides the project chrome and shows the open file's name
   // (carried in the boot query string) in its place.
   const onDocViewer = pathname === '/doc-viewer';
+  // Closing a Doc Viewer while the AI is mid-answer THROWS THAT WORK AWAY —
+  // the turn lives in this window's renderer, so the window going is the end of
+  // it. The viewer says when it is working (the global + event below, the same
+  // channel shape the side panel and focus use); this asks it to confirm rather
+  // than closing, and the viewer puts the question to the reader. If nothing is
+  // running — or this is any other window — the button closes as it always did.
+  const requestClose = useCallback(() => {
+    if (onDocViewer && window.__docvexDocViewerAiBusy) {
+      window.dispatchEvent(new CustomEvent('docvex:doc-viewer-close-request'));
+      return;
+    }
+    windowClose();
+  }, [onDocViewer]);
   // The boot query string only knows the file a COLD window was opened with. A
   // pre-warmed window boots empty and is handed its file later, and a generated
   // document is renamed when it gets its real extension — so the viewer
@@ -191,6 +213,17 @@ export default function TitleBar() {
     const onSide = (e) => setDocSideHidden(e.detail?.hidden === true);
     window.addEventListener('docvex:doc-viewer-side', onSide);
     return () => window.removeEventListener('docvex:doc-viewer-side', onSide);
+  }, [onDocViewer]);
+  // Focus (the viewer's presentation mode): the bar drops its background and
+  // everything on it but the brand and the file's name, and the burger becomes
+  // the way back out. The viewer owns the mode and announces it; this mirrors
+  // it and asks for a toggle, exactly as the burger above does with the panel.
+  const [docFocus, setDocFocus] = useState(() => window.__docvexDocViewerFocus === true);
+  useEffect(() => {
+    if (!onDocViewer) return undefined;
+    const onFocus = (e) => setDocFocus(e.detail?.focus === true);
+    window.addEventListener('docvex:doc-viewer-focus', onFocus);
+    return () => window.removeEventListener('docvex:doc-viewer-focus', onFocus);
   }, [onDocViewer]);
   // Main window: the same burger narrows / widens the app's sidebar (AppShell
   // owns the state and announces it).
@@ -257,7 +290,7 @@ export default function TitleBar() {
   const updateKind = hasUpdate ? bumpKind(currentVersion, latestVersion) : null;
 
   return (
-    <div className={`tb-bar${onAuth ? ' is-auth' : ''}`}>
+    <div className={`tb-bar${onAuth ? ' is-auth' : ''}${docFocus ? ' is-doc-focus' : ''}`}>
       {/* FPS indicator — fixed at the top-centre of the window. */}
       <FpsMeter />
       {/* Centre slot for the doc-viewer window — the office "Reconstruction"
@@ -270,16 +303,33 @@ export default function TitleBar() {
       <div className="tb-brand">
         {/* Doc-viewer window: burger in the top-left corner, ahead of the
             brand — shows / hides the side panel on the left. */}
+        {/* In focus the SAME corner is the way out — a back arrow rather than
+            the burger, because there is no panel to show while the mode is on
+            and leaving it is the only thing that corner can usefully do. */}
         {onDocViewer && (
-          <Tooltip content={docSideHidden ? 'Show sidebar' : 'Hide sidebar'}>
+          <Tooltip content={docFocus ? 'Leave focus (Esc)' : docSideHidden ? 'Show sidebar' : 'Hide sidebar'}>
             <button
               type="button"
-              className={`tb-burger${docSideHidden ? '' : ' is-open'}`}
-              onClick={() => window.dispatchEvent(new CustomEvent('docvex:doc-viewer-toggle-side'))}
-              aria-label={docSideHidden ? 'Show sidebar' : 'Hide sidebar'}
-              aria-pressed={!docSideHidden}
+              className={`tb-burger${!docFocus && !docSideHidden ? ' is-open' : ''}${docFocus ? ' is-back' : ''}`}
+              onClick={() => window.dispatchEvent(new CustomEvent(
+                docFocus ? 'docvex:doc-viewer-toggle-focus' : 'docvex:doc-viewer-toggle-side',
+              ))}
+              aria-label={docFocus ? 'Leave focus' : docSideHidden ? 'Show sidebar' : 'Hide sidebar'}
+              aria-pressed={docFocus ? undefined : !docSideHidden}
+              // The sidebar's rail buttons light up TOWARD THE CURSOR rather
+              // than filling flat (--item-spot-x/y, see .nav-item in
+              // Sidebar.css), and the back arrow borrows that. Bound on the
+              // button itself, not on a container: the bar around it is an
+              // Electron drag region, which the OS handles, so no mousemove
+              // over it ever reaches the renderer — only the button's own
+              // `no-drag` box gets events.
+              onMouseMove={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                e.currentTarget.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
+                e.currentTarget.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
+              }}
             >
-              {BurgerGlyph}
+              {docFocus ? BackArrowGlyph : BurgerGlyph}
             </button>
           </Tooltip>
         )}
@@ -308,6 +358,17 @@ export default function TitleBar() {
           <span className="tb-brand-static">
             <img src={brandIcon} alt="" className="tb-brand-icon" />
             <span className="tb-brand-name">DOCVEX</span>
+            {/* The installed version, beside the name in every window that
+                carries the brand. Quiet on purpose — it answers "which build am
+                I on?" at a glance (the first thing asked of a bug report) while
+                never competing with the name or the project beside it. Distinct
+                from the update pill further along the bar, which is about a
+                version you do NOT have yet. */}
+            {currentVersion && (
+              <Tooltip content={`Docvex ${currentVersion}`}>
+                <span className="tb-brand-version">v{currentVersion}</span>
+              </Tooltip>
+            )}
             {onHub && (
               <>
                 <span className="tb-brand-sep" aria-hidden="true">|</span>
@@ -361,6 +422,11 @@ export default function TitleBar() {
           </>
         )}
       </div>
+
+      {/* Focus: the viewer's find field is portalled in here (by id, from
+          DocViewer — a separate React tree), beside the file's name. It is the
+          only control focus keeps, and this bar is the only chrome left. */}
+      {onDocViewer && docFocus && <div id="tb-docview-find" className="tb-docview-find" />}
 
       {/* Project meta next to the name: member avatars (max 5, +N). Only with a
           project selected and not on the Hub. */}
@@ -482,7 +548,7 @@ export default function TitleBar() {
             </Tooltip>
           )}
           <Tooltip content="Close">
-            <button type="button" className="tb-win-btn tb-win-close" onClick={windowClose} aria-label="Close">
+            <button type="button" className="tb-win-btn tb-win-close" onClick={requestClose} aria-label="Close">
               {CloseGlyph}
             </button>
           </Tooltip>

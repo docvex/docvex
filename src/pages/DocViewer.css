@@ -2,6 +2,48 @@
    preview, full width. Sits below the custom title bar. dv-prefixed; reads
    only theme tokens. */
 
+/* ── The floating pills ───────────────────────────────────────────────────
+   The zoom controls, the find field, the word count and the page counter all
+   hover over the same document, so they are one family and must be one SIZE.
+   Both numbers live here rather than being written into each pill: the two had
+   already drifted apart once (27.2 against 27.6), which is exactly the kind of
+   difference nobody notices as a number and everybody notices on screen.
+   `--dv-pill-btn` is the round button inside a pill; `--dv-pill-h` is the pill
+   itself, that button between two 1px borders. */
+:root {
+  --dv-pill-btn: 25.6px;
+  --dv-pill-h: calc(var(--dv-pill-btn) + 2px);
+  /* The picked paragraph's Close button — one of the same floating pills, but
+     deliberately LARGER than the rest: it is the way out of a mode, and it is
+     aimed at in a hurry. The find bar reads this to sit clear underneath it. */
+  --dv-liftclose: 34px;
+  /* ONE clock for the page list appearing and disappearing. The card slides,
+     the document's inset opens or closes, and the zoom pill and word count
+     travel with it — four things that have to arrive together or the pills
+     look like they are chasing the list. Everything below reads this. */
+  --dv-rail-motion: 260ms cubic-bezier(.16, 1, .3, 1);
+}
+
+/* ── Under the side panel ─────────────────────────────────────────────────
+   The document panes run EDGE TO EDGE, the floating side panel painted over
+   them, the way the photo editor's stage does. What used to hold the document
+   clear of the panel was left padding on the SCROLLER, which also stopped the
+   surface reaching under it.
+   That offset now lives on the scrolling CONTENT instead. Same result at rest —
+   the pages sit centred in the space actually visible, and no text is ever
+   behind the panel — but the surface itself is full width, so zooming in or
+   scrolling sideways carries the page under the panel rather than stopping at
+   its edge.
+   `--dv-doc-inset` is that footprint: the panel's live width (set inline on
+   .dv-main-row, and -16px when it is hidden, which collapses this to zero)
+   plus the 16px gutter. Everything that must stand clear of the panel measures
+   from it — the page list, the floating pills, the pages themselves. */
+.dv-main-row {
+  --dv-doc-inset: calc(var(--dv-advisor-w, 296px) + 16px);
+  /* …and with the page list up, its card plus the air beside it. */
+  --dv-doc-rail: 134px;
+}
+
 /* ── Scroll-edge fade ────────────────────────────────────────────────────
    A scrolling panel whose content is cut off by a hard edge reads as content
    that ENDS there. Fading the two edges says the opposite — there is more, it
@@ -108,18 +150,35 @@
   left: calc(var(--dv-advisor-w, 296px) + 24px);
   z-index: 6;
   display: flex; align-items: center; gap: 6.4px;
-  padding: 4px 6.4px 4px 8.8px;
-  border: 1px solid var(--border);
-  border-radius: 5.6px;
-  background: var(--bg-input);
-  width: 224px;
+  /* One of the pane's floating pills — the same dark glass as the zoom
+     controls, the word count and the page counter (.dv-zoom-controls /
+     .dv-doc-counter): they all hover over the same document and there is no
+     reason for search to be the one that looks like a form field.
+     At rest it is JUST THE MAGNIFIER, a round 27.2px button; engaged it opens
+     into the full field. The width is the whole animation — the contents are
+     clipped until there is room for them. */
+  /* The pills' shared size. Collapsed it is a circle: one button wide. */
+  height: var(--dv-pill-h);
+  width: var(--dv-pill-h);
+  padding: 0 0.8px;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  background: rgba(10, 12, 14, 0.92);
+  backdrop-filter: blur(17.6px) saturate(1.8);
+  -webkit-backdrop-filter: blur(17.6px) saturate(1.8);
+  filter: drop-shadow(0 3.2px 12.8px rgba(0, 0, 0, 0.55));
   box-sizing: border-box;
   font-family: var(--font-body);
   font-size: 10.4px;
-  color: var(--text-muted);
-  /* Quiet by default; widens + lifts on focus so search feels deliberate. */
-  transition: width 220ms cubic-bezier(.16, 1, .3, 1),
-              border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+  /* The zoom pill's resting glyph tone (.dv-zoom-btn), inherited by the
+     magnifier and by anything else here without a colour of its own. */
+  color: rgba(255, 255, 255, 0.7);
+  cursor: text;
+  transition: width 260ms cubic-bezier(.16, 1, .3, 1),
+              padding 260ms cubic-bezier(.16, 1, .3, 1),
+              border-color 140ms ease, color 140ms ease, background 140ms ease;
 }
 /* A Word document: the field sits in the top-RIGHT corner of the pane instead —
    clear of the pages' scrollbar on the window edge, of the blanks panel when
@@ -127,21 +186,35 @@
    a paragraph is picked (28px at right 16px). */
 .dv-section-body:has(.dcx-workspace) .dv-find {
   left: auto;
-  /* 6.4px from the right edge — the same gap it keeps from the top. NOTE:
-     while a paragraph is picked the round Close button takes that same corner
-     (28px at right 16px), so the two meet. */
-  right: calc(var(--dv-fields-pad, 0px) + 6.4px);
+  /* Standing clear of the window's right edge — more room than the 6.4px it
+     keeps from the top, because the pane's scrollbar rides that edge and the
+     round Close button takes the same corner while a paragraph is picked. */
+  right: calc(var(--dv-fields-pad, 0px) + 12px);
 }
 /* A PDF and a PICTURE too: top-RIGHT — a PDF's top-left is where the page list
    stands, a picture's is the zoom pill; both are kept clear of the window edge. */
 .dv-section-body:has(.file-preview-pdf-shell) .dv-find,
 .dv-section-body:has(.dv-media-stage) .dv-find {
   left: auto;
-  right: 6.4px;
+  right: 12px;
 }
 /* Nothing to search while the photo editor has the pane: the field FADES out
    (and stops taking the pointer) rather than vanishing under the bar sliding in. */
-.dv-find { transition: width 220ms cubic-bezier(.16, 1, .3, 1), opacity 200ms ease, transform 240ms cubic-bezier(.22, 1, .36, 1), border-color 140ms ease, box-shadow 140ms ease, background 140ms ease; }
+/* THE find bar's transition — this declaration is the one that applies, so it
+   has to name everything that moves. `transition` is a single property: a later
+   rule listing one thing silently drops the rest, which is how `padding` came
+   to snap while the pill's width eased (the base rule above does list it).
+   `top` is here because picking a paragraph steps the bar down under the Close
+   button; without it, it jumped to its new place and back. */
+.dv-find {
+  transition:
+    top 260ms cubic-bezier(.16, 1, .3, 1),
+    width 220ms cubic-bezier(.16, 1, .3, 1),
+    padding 260ms cubic-bezier(.16, 1, .3, 1),
+    opacity 200ms ease,
+    transform 240ms cubic-bezier(.22, 1, .36, 1),
+    border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
 .dv-section-body:has(.phe) .dv-find,
 .dv-section-body:has(.phe) .dv-docpill {
   opacity: 0; transform: translateY(-8px); pointer-events: none;
@@ -169,25 +242,81 @@
   background-color: #f59e0b;
   text-decoration: underline 2px solid #7c4a03;
 }
-.dv-find:hover { border-color: var(--border-strong); }
-.dv-find:focus-within {
-  width: 288px;
-  border-color: var(--accent);
-  background: var(--bg-card);
-  box-shadow: 0 0 0 2.4px var(--accent-tint);
+/* A paragraph is picked: the Close button has the top of this corner, so the
+   find bar drops a pill's height plus a gap below it. Written off the same
+   variable the button is sized by, so the two cannot drift into each other. */
+.dv-section-body:has(.dv-docx.has-pick) .dv-find {
+  top: calc(6.4px + var(--dv-liftclose) + 8px);
 }
-/* A query keeps the field wide even after focus moves to an arrow. */
-.dv-find.is-active { width: 288px; }
+/* Open only when it is being USED — focused, or holding a query. Hover does
+   not open it: the pill floats over the document, and a field that unfurled
+   every time the pointer crossed it was in the way of reading.
+   The collapsed circle is still clickable into: the whole pill focuses its
+   input on mousedown (DocFindBar), since at 27px there is nothing but the
+   glyph to aim at. */
+.dv-find:focus-within,
+.dv-find.is-active {
+  width: 288px;
+  padding: 0 4px 0 8.8px;
+  justify-content: flex-start;
+  gap: 6.4px;
+}
+/* Collapsed, the glyph must be the ONLY thing in the row. Everything else is
+   taken to zero width — not `display: none`, because the input has to stay
+   focusable for the pill's own mousedown to open it, and a display-none input
+   cannot take focus. The gap goes too: five zero-width children still sat on
+   four 6.4px gaps, which was 25px of nothing inside a 27px circle.
+   This is what was wrong before — the children kept their natural widths, the
+   row overflowed many times over, and `justify-content: center` duly centred
+   THAT, pushing the magnifier clean off the left edge. The circle looked
+   empty. */
+.dv-find:not(:focus-within):not(.is-active) { gap: 0; }
+.dv-find:not(:focus-within):not(.is-active) > :not(.dv-find-glyph) {
+  flex: 0 0 0;
+  width: 0; min-width: 0;
+  padding: 0; margin: 0; border: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* `inherit`, so the magnifier follows the field's own colour as it goes from
+   rest to hover — the Files field's behaviour (.fx-search-glyph). Pinned to a
+   muted tone it stayed dim while everything around it lit up. */
 .dv-find-glyph {
-  color: var(--text-muted); flex: 0 0 auto;
+  color: inherit; flex: 0 0 auto;
   display: inline-flex; transition: color 140ms ease;
 }
 .dv-find:focus-within .dv-find-glyph,
-.dv-find.is-active .dv-find-glyph { color: var(--accent); }
+.dv-find.is-active .dv-find-glyph { color: #fff; }
+/* Everything inside the pill is set against its dark glass, not against the
+   page — the field used to be a light surface and these were theme tokens,
+   which on the pill read as dark on dark. */
 .dv-find input {
   border: 0; background: transparent; outline: none;
-  font: inherit; color: var(--text-primary); width: 100%; min-width: 0;
+  font: inherit; color: #fff; width: 100%; min-width: 0;
 }
+.dv-find input::placeholder { color: rgba(255, 255, 255, 0.45); }
+/* The match count takes the zoom percentage's exact treatment (.dv-zoom-pct):
+   same tone, same weight, same tabular figures — both are a small number read
+   off a dark pill. */
+.dv-find-count { color: rgba(255, 255, 255, 0.6); }
+.dv-find-count.is-empty { color: #ff8b8b; }
+.dv-find-kbd kbd { color: rgba(255, 255, 255, 0.45); }
+/* Prev / next / clear are the zoom pill's buttons: transparent at rest, a
+   white wash on hover, round rather than square. */
+.dv-find-btn {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  border-radius: 999px;
+}
+.dv-find-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+/* Hover brightens the glyph only, exactly as the zoom pill's buttons do — the
+   pill's own frame never changes. */
+.dv-find:hover { color: #fff; }
+.dv-find:focus-within { color: #fff; }
 .dv-find input::placeholder { color: var(--text-muted); }
 
 /* Keyboard hint — each key is its own chip; the + sits between them with no
@@ -276,7 +405,7 @@
   border-radius: 11.2px;
   box-shadow: var(--shadow-card);
   overflow: hidden;
-  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s;
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s, opacity 260ms ease;
 }
 .dv-quick-card:not(:has(.drb-quick)) { display: none; }
 .dv-main-row.is-side-hidden .dv-quick-card {
@@ -291,7 +420,7 @@
    at the same time (inline, see DocViewer.jsx), which hands the preview the
    freed width. */
 .dv-advisor-card {
-  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s;
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s, opacity 260ms ease;
 }
 .dv-main-row.is-side-hidden .dv-advisor-card {
   transform: translateX(calc(-100% - 16px));
@@ -300,6 +429,270 @@
   transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s 340ms;
 }
 .dv-main-row.is-side-hidden .dv-advisor-resize { display: none; }
+/* With the panel gone, --dv-advisor-w drops to -16px and the inset it feeds
+   collapses to nothing — so the page list, the pills and the document all ran
+   flush to the window edge, the list most visibly because it is the leftmost
+   thing there. They keep the gap the PANEL itself kept from that edge (its own
+   `left: 8px`) instead.
+   Written on the shared inset rather than on the list alone, because every one
+   of them measures from it: they gain the gap together and their spacing
+   relative to each other is untouched.
+   Not in FOCUS, where --dv-advisor-w is also -16px: that mode is the document
+   and nothing else, and an 8px margin is something else. */
+.dv-main-row.is-side-hidden:not(.is-focus) { --dv-doc-inset: 8px; }
+
+/* ── Focus ────────────────────────────────────────────────────────────────
+   Word's Focus button: the page, and nothing whatever around it. The two side
+   cards leave by the SAME movement the burger uses — the rules are shared
+   rather than copied, so the two can never drift apart — and everything that
+   is chrome rather than document goes with them: the page list, the zoom pill,
+   both corner counters. The document card itself is left exactly as it is —
+   see the note below on why touching its background breaks the spotlight.
+
+   Everything here is CSS on a class. The panes keep their state exactly as it
+   was (a page list that was open is still open, just not painted), so leaving
+   focus puts the reader back where they were instead of in a reset viewer. */
+/* The side cards FADE rather than slide. They go with the document, on the same
+   fade, because the crossing is one change of state and not a set of things
+   leaving by different routes — and because a slide has to be WATCHED, which is
+   exactly what the macOS fullscreen freeze will not allow: the window's
+   contents are snapshotted for its animation, so a slide still running when the
+   command lands finishes invisibly and the panel reads as having vanished.
+   `visibility` waits out the fade before latching, so the cards keep their
+   place in the layout while they go and leave the tab order once gone. (The
+   burger's own hiding — .is-side-hidden above — still slides: nothing is
+   freezing the window then, and there the movement is the point.) */
+.dv-main-row.is-focus .dv-quick-card,
+.dv-main-row.is-focus .dv-advisor-card {
+  transform: none;
+  opacity: 0;
+  visibility: hidden; pointer-events: none;
+  transition: opacity 110ms ease, visibility 0s 110ms;
+}
+/* Going the other way, and on the way out of focus: faded with the document. */
+.dv-main-row.is-focus-moving .dv-quick-card,
+.dv-main-row.is-focus-moving .dv-advisor-card {
+  opacity: 0; pointer-events: none;
+  transition: opacity 110ms ease;
+}
+.dv-main-row.is-focus .dv-advisor-resize { display: none; }
+/* ── The crossing ─────────────────────────────────────────────────────────
+   While focus is opening or closing, the document is taken off screen and only
+   the page's own backdrop is left — the dot grid and the cursor spotlight. Too
+   much moves at once otherwise: the side cards slide, the strip they reserved
+   is reclaimed so the document re-centres, the sheets turn from a wrapping row
+   into a column, the window animates into fullscreen and the page is re-fitted.
+   The card is transparent to begin with (that is what lets the spotlight show
+   through it), so taking it to nothing leaves exactly the backdrop and nothing
+   else. Out quickly, back slowly: the document should be gone before the
+   movement starts and return once it is unmistakably over. `is-focus-moving`
+   is set for both directions and cleared on settle — see DocViewer.jsx. */
+.dv-doc-card { transition: opacity 260ms ease; }
+.dv-main-row.is-focus-moving .dv-doc-card {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 110ms ease;
+}
+:root[data-reduce-motion='true'] .dv-doc-card { transition: none; }
+/* The page runs up BEHIND the title bar in focus, so the backdrop, the dot grid
+   and the cursor spotlight are painted the whole height of the window and show
+   through the bar, which is transparent in this mode (.tb-bar.is-doc-focus).
+   Normally the page starts below the bar — `inset: var(--titlebar-h) 0 0 0` —
+   and that gap is why a transparent bar showed the window behind it rather than
+   the spotlight.
+   No padding is put back for the bar either: in focus the bar is empty until
+   the pointer reaches the top, so reserving a strip for it would be a band of
+   nothing above every document. The document runs to the window's top edge and
+   the bar's contents fade in OVER it when called for — which is why the bar
+   sits at z-index 1000 and the page at its own default. */
+.dv-page:has(.dv-main-row.is-focus) { inset: 0; }
+/* NOTE — the document card is deliberately NOT restyled here. It is already
+   frameless and transparent (see .dv-doc-card), and that transparency is what
+   lets the dot-grid cursor spotlight painted on .dv-page, one layer below it,
+   show through. Giving it a background in focus — even the page's own backdrop
+   colour — covers the spotlight, which is how it went missing. */
+/* The zoom pill is NOT in this list — it stays mounted and fades itself in and
+   out with the zoom (see `is-peek` further down). `display: none` here would
+   win over that outright. */
+/* Neither the zoom pill nor the page counter is in this list — both stay
+   mounted and show themselves when they have something to say (see `is-peek`
+   further down). `display: none` here would win over that outright. */
+.dv-main-row.is-focus .dv-pagerail,
+.dv-main-row.is-focus .dv-doc-words { display: none; }
+
+/* ── The page counter, in focus ───────────────────────────────────────────
+   Like the zoom pill: not standing chrome, but shown when it has an answer
+   worth reading — while the document is being SCROLLED (armed from the scroll
+   handler, so it appears even when scrolling within one long page), and on the
+   top-band hover that brings the rest of the chrome down.
+   It rises from the BOTTOM edge rather than dropping from the top: it lives in
+   the bottom corner, and a thing should arrive from the side it belongs to. */
+.dv-main-row.is-focus .dv-doc-counter {
+  transform: translateY(calc(100% + 24px));
+  transition: transform 300ms cubic-bezier(.4, 0, .7, .2);
+}
+.dv-main-row.is-focus .dv-doc-counter.is-peek,
+html.dv-bar-peek .dv-main-row.is-focus .dv-doc-counter {
+  transform: none;
+  transition: transform 260ms cubic-bezier(.22, 1, .36, 1);
+}
+:root[data-reduce-motion='true'] .dv-main-row.is-focus .dv-doc-counter { transition: none; }
+/* ONE page at a time, down the middle. Normally the sheets are a wrapping ROW
+   — Word's multi-page view — which is right for reading: at a small zoom the
+   pane fits two or three side by side and you can see the shape of the whole
+   document. It is wrong for showing one to a room, where the page on screen
+   should be THE page. In focus the wrapper becomes a plain column, so the fit
+   zoom gives exactly one page in view and scrolling moves to the next.
+
+   Turning the flow to a column swaps which axis is which: the pages are now
+   centred ACROSS the wrapper by `align-items`, and `justify-content` only packs
+   them down it. `safe` is kept on the centring for the same reason the row had
+   it — focus opens fitted, but Ctrl+wheel still zooms, and past the pane's
+   width plain centring would push a page's left half out of reach. */
+.dv-main-row.is-focus .dv-docx .docx-wrapper {
+  flex-flow: column nowrap;
+  align-items: safe center;
+  justify-content: flex-start;
+}
+
+/* ── The find field, in the title bar ─────────────────────────────────────
+   In focus the field is portalled into the title bar (DocViewer → the bar's
+   #tb-docview-find slot). Everything about how it LOOKS is already in .dv-find
+   above — one field, one appearance, wherever it is standing — so all that is
+   left here is giving up the absolute placement it uses over a pane and sitting
+   in the bar's own row. */
+.dv-find.is-in-bar {
+  position: static;
+  top: auto; left: auto; right: auto;
+  transform: none;
+  opacity: 1;
+}
+:root[data-reduce-motion='true'] .dv-find.is-in-bar { transition: none; }
+
+/* ── The zoom pill, in focus ──────────────────────────────────────────────
+   Not standing chrome: it shows itself when the zoom changes and fades away
+   again a few seconds later (`is-peek`, driven by useZoomPeek), and on the
+   top-band hover that brings the title bar down, so it can also be reached
+   deliberately. Holding it open under the pointer is done in JS, not by
+   :hover here — a rule that only matches while the pill is interactive would
+   let go of it the instant the timer lapsed under the cursor.
+   Fade out slow, fade in quick: appearing should feel immediate, leaving
+   should not snatch the buttons away mid-reach.
+
+   It also FOLLOWS THE TITLE BAR. The page runs to the window's top edge in
+   focus, and the bar's 35px band is an Electron drag region — the OS takes the
+   clicks in it, so a pill sitting there has dead buttons. But it only needs to
+   clear the bar when someone is reaching for it, and that is exactly when the
+   bar reveals itself: both answer the same top-band hover. So with the bar
+   away it takes the window's own top corner, and the moment `dv-bar-peek`
+   lands — still 72px out — it slides down clear of the band, pressable before
+   the pointer arrives. A Ctrl+wheel zoom flashes it up in the corner, where it
+   is only being read. Nothing is ever clicked where the drag region would eat
+   it. (`top` is set here rather than through --rail-top, which
+   alignWithSidePanel writes inline.)
+
+   It ARRIVES FROM ABOVE rather than fading in: the pill belongs to the strip
+   of chrome at the top of the screen, and sliding in from off-screen says
+   where it came from in a way a fade cannot. Leaving is the same move
+   reversed. Off-screen is its own height plus the bar's, which clears the
+   window's top edge; the viewport clips it there, so nothing is faded.
+
+   THE MOTION IS THE TITLE BAR'S, to the millisecond — same durations, same
+   curves (see .tb-bar.is-doc-focus .tb-brand in TitleBar.css; change one and
+   change the other). They answer the same gesture and sit in the same strip,
+   so anything else reads as two things arriving at once by accident. The two
+   travel different distances, being different sizes at different heights, but
+   they leave and land together, which is what reads as together.
+
+   `top` carries the SAME timing rather than one of its own. It shifts with the
+   bar's state — the window's top corner while the bar is away, tucked under it
+   while it is there — and on a separate duration that settle was a second
+   movement finishing after the first, which is what looked out of step.
+
+   One `transition` per state, listing every property: `transition` is a single
+   declaration, so a state rule naming only `transform` would silently drop the
+   `top` animation for as long as it applied. */
+.dv-main-row.is-focus .dv-docpill {
+  top: 8px;
+  transform: translateY(calc(-100% - var(--titlebar-h, 36px)));
+  opacity: 1; pointer-events: none;
+  transition: transform 300ms cubic-bezier(.4, 0, .7, .2),
+              top 300ms cubic-bezier(.4, 0, .7, .2),
+              left 160ms ease;
+}
+.dv-main-row.is-focus .dv-docpill.is-peek,
+html.dv-bar-peek .dv-main-row.is-focus .dv-docpill {
+  transform: none; pointer-events: auto;
+  transition: transform 260ms cubic-bezier(.22, 1, .36, 1),
+              top 260ms cubic-bezier(.22, 1, .36, 1),
+              left 160ms ease;
+}
+/* Flush under the bar — no gap at all. The bar's height is the floor: its band
+   is an Electron drag region and any overlap gives the + and - dead edges. */
+html.dv-bar-peek .dv-main-row.is-focus .dv-docpill {
+  top: var(--titlebar-h, 0px);
+}
+:root[data-reduce-motion='true'] .dv-main-row.is-focus .dv-docpill { transition: none; }
+
+/* ── All the vertical space there is ──────────────────────────────────────
+   What focus reclaims at the top is the TITLE BAR's strip (see the .dv-page
+   rule above) — the bar is empty until the pointer reaches for it, so there is
+   nothing to reserve a band for.
+   The pane's own insets are deliberately LEFT ALONE, top and bottom alike:
+   .dv-doc-main's 14.4px plus the page wrapper's 20.8px give the first sheet
+   exactly the air the last one has under it. Zeroing the top ones was tried
+   and is wrong — it buys 35px of height at the cost of a document that is
+   pressed against the top edge and loose at the bottom. */
+
+/* ── The document as it actually is ───────────────────────────────────────
+   Outside focus an empty field is drawn as a rounded slot — the same shape a
+   picked paragraph's inputs use — so the gaps in a draft can be seen and
+   answered. In focus none of that is true: nothing can be filled in, and a
+   document shown to a room should look like the document, not like the app's
+   view of it. The markers stay in the DOM (they carry the original text, and
+   `dvfieldRaw` needs them to put a drawn blank's underline back) and are
+   simply drawn as the plain text they wrap. */
+.dv-main-row.is-focus .dv-docx .dv-field,
+.dv-main-row.is-focus .dv-docx .dv-field.is-chip {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+  color: inherit;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+/* Leaving focus without knowing the key. Bottom-right, the one corner the
+   counters don't use, and only under the cursor — an "exit" button that is
+   always lit is itself the chrome this mode exists to remove. */
+.dv-focus-exit {
+  position: fixed; right: 18px; bottom: 16px; z-index: 40;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 13px; border: 0; border-radius: 999px; cursor: pointer;
+  background: rgba(10, 12, 14, 0.82); color: rgba(255, 255, 255, 0.92);
+  font-family: inherit; font-size: 11.5px; font-weight: 600; letter-spacing: 0.01em;
+  opacity: 0; transition: opacity 200ms ease, background 140ms ease;
+}
+/* Shown on the SAME gesture as the title bar — the pointer in the top band
+   (html.dv-bar-peek, set from a window mousemove in DocViewer) — so the two
+   ways out of focus arrive together rather than the pill answering any stray
+   movement anywhere in the pane. */
+html.dv-bar-peek .dv-focus-exit,
+.dv-focus-exit:focus-visible { opacity: 1; }
+.dv-focus-exit:hover { background: rgba(10, 12, 14, 0.94); }
+.dv-focus-exit svg { width: 13px; height: 13px; }
+.dv-focus-exit kbd {
+  font-family: inherit; font-size: 10px; font-weight: 700;
+  padding: 1px 5px; border-radius: 4px;
+  background: rgba(255, 255, 255, 0.16); color: inherit;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dv-main-row.is-focus .dv-quick-card,
+  .dv-main-row.is-focus .dv-advisor-card { transition: none; }
+  .dv-focus-exit { transition: none; }
+}
 /* Keep the panel content lifted above the card fill (same layering the main
    app sidebar uses). */
 .dv-advisor-card > .dv-advisor-slot,
@@ -656,14 +1049,27 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 /* A PDF's card is a flex SIBLING of the page scroller, not absolutely placed. */
 .dv-pagerail-card.is-inline {
   position: static; flex: none;
-  margin: var(--rail-top, 8px) 8px var(--rail-bottom, 8px) 0.8px;
+  margin: var(--rail-top, 8px) 8px var(--rail-bottom, 8px) calc(var(--dv-doc-inset, 0px) + 0.8px);
   height: calc(100% - var(--rail-top, 8px) - var(--rail-bottom, 8px));
 }
 .dv-pagerail.is-inline { position: static; }
 /* `safe`: zoomed past the pane's width the pages start at its left edge and
    scroll — plain centring would push their left half out of reach. A little air
    above the first page and under the last (inline — the fit's own gap). */
-.file-preview-pdf-pages { display: flex; flex-direction: column; align-items: safe center; gap: 14px; width: max-content; min-width: 100%; box-sizing: border-box; }
+.file-preview-pdf-pages {
+  display: flex; flex-direction: column; align-items: safe center; gap: 14px;
+  width: max-content; min-width: 100%; box-sizing: border-box;
+}
+/* A ONE-page stage carries a scale() transform on the column, which would scale
+   an inset written on it exactly as `zoom` does over in Word. Nothing scrolls
+   on that stage, so the gap goes on the fixed scroller instead, where the
+   transform cannot reach it. (For a multi-page PDF the inset is inline on the
+   column — see FilePreview — because its own inline `padding` would beat any
+   rule written here.) */
+.file-preview-pdf-scroll.is-single {
+  padding-left: var(--dv-doc-inset, 0px);
+  box-sizing: border-box;
+}
 .file-preview-pdf-page {
   display: block; flex: none; background: white; border-radius: 3px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), 0 6px 20px rgba(0, 0, 0, 0.16);
@@ -681,15 +1087,69 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
    to the right of the middle and appeared to drift left as the page grew.
    `left` is the page list's footprint (written by PdfPreview / DocxRenderPane).
    z-index clears the pages card (3) and the zoom pill (6) in either pane. */
+/* Centred along the bottom of the DOCUMENT AREA — which is why `left` is set
+   inline rather than here: it is the page list's measured footprint, so the
+   centring is of the space the document actually has and not of the whole
+   pane, and a counter over a document with a list beside it is still centred
+   on what is being read. (`right: 0` and `margin: 0 auto` do the centring
+   between that left edge and the pane's right edge.)
+   The word count keeps the bottom-left corner, clear of it. */
 .dv-doc-counter {
-  position: absolute; bottom: 12px; right: 0; z-index: 7;
+  position: absolute; bottom: 6px; right: 0; z-index: 7;
   width: max-content; margin: 0 auto;
   padding: 5px 11px; border-radius: 999px; pointer-events: none;
-  background: rgba(10, 12, 14, 0.82); color: rgba(255, 255, 255, 0.9);
+  /* Faded to the zoom percentage's strength (.dv-zoom-pct): these report on
+     the document rather than asking to be read, and at full white they sat
+     louder than the controls beside them. */
+  background: rgba(10, 12, 14, 0.82); color: rgba(255, 255, 255, 0.6);
   font-size: 11px; font-weight: 600; line-height: 1.2; letter-spacing: 0.01em;
+  /* Steps aside with the page list, on the list's own clock — and rises from
+     the foot of the pane when the Counters action switches it on. */
+  transition: left var(--dv-rail-motion),
+              transform 300ms cubic-bezier(.16, 1, .3, 1),
+              opacity 200ms ease,
+              visibility 0s;
 }
+/* How many words the document runs to, in the corner the page counter leaves
+   free. Same pill as the counter — it reports the same kind of fact about the
+   same document — but pinned to the LEFT rather than centred, so the two never
+   collide however long either gets. Its `left` is set inline: the page list's
+   footprint is measured, not a constant. */
+.dv-doc-words {
+  position: absolute; bottom: 6px; z-index: 7;
+  width: max-content;
+  padding: 5px 11px; border-radius: 999px; pointer-events: none;
+  /* Faded to the zoom percentage's strength (.dv-zoom-pct): these report on
+     the document rather than asking to be read, and at full white they sat
+     louder than the controls beside them. */
+  background: rgba(10, 12, 14, 0.82); color: rgba(255, 255, 255, 0.6);
+  font-size: 11px; font-weight: 600; line-height: 1.2; letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  transition: left var(--dv-rail-motion),
+              transform 300ms cubic-bezier(.16, 1, .3, 1),
+              opacity 200ms ease,
+              visibility 0s;
+}
+/* Switched off: down past the foot of the pane, the way they came. The travel
+   is their own height plus the gap they sit in, so each one leaves the pane
+   completely whatever it has grown to say. `visibility` latches only once the
+   drop has finished, so they are unreachable while away without vanishing
+   mid-flight. */
+.dv-doc-counter.is-off,
+.dv-doc-words.is-off {
+  transform: translateY(calc(100% + 6px + 8px));
+  opacity: 0;
+  visibility: hidden;
+  transition: left var(--dv-rail-motion),
+              transform 300ms cubic-bezier(.16, 1, .3, 1),
+              opacity 200ms ease,
+              visibility 0s 300ms;
+}
+:root[data-reduce-motion='true'] .dv-doc-counter,
+:root[data-reduce-motion='true'] .dv-doc-words { transition: none; }
 /* Out of the way while the photo editor owns the pane. */
-.dv-section-body:has(.phe) .dv-doc-counter { opacity: 0; }
+.dv-section-body:has(.phe) .dv-doc-counter,
+.dv-section-body:has(.phe) .dv-doc-words { opacity: 0; }
 .file-preview-pdf-text {
   position: absolute; inset: 0;
   overflow: hidden;
@@ -2034,12 +2494,12 @@ img.dv-wa-media { cursor: pointer; }
    footprint adds 8px more), or at the window edge when the panel is hidden
    (--dv-advisor-w is -16px then). The extra class lifts this over the shared
    footprint rule further down the file. */
-.dv-doc-card .dv-doc-main:has(.dcx-workspace) { padding-left: calc(var(--dv-advisor-w, 296px) + 16px); }
+.dv-doc-card .dv-doc-main:has(.dcx-workspace) { padding-left: 0; }
 /* A PDF's content area reserves the SAME footprint. Left to the shared +24px
    (further down the file) its pages card sat 8px further from the side panel
    than a Word file's does, so the same document in two formats had its page
    list in two different places. */
-.dv-doc-card .dv-doc-main:has(.file-preview-pdf-shell) { padding-left: calc(var(--dv-advisor-w, 296px) + 16px); }
+.dv-doc-card .dv-doc-main:has(.file-preview-pdf-shell) { padding-left: 0; }
 .dv-doc-main:has(.dcx-workspace) .dv-docview-body { padding-bottom: 0; }
 
 /* Anchors the bar's own absolutely-positioned children. */
@@ -2252,11 +2712,25 @@ img.dv-wa-media { cursor: pointer; }
    level with the side panel (--rail-top, measured — lib/sidePanelEdges). */
 /* The same motion as the find bar when the editor takes over: fade + a small
    lift (see the `:has(.phe)` rule near the find bar's own). */
+/* The pill is there for the MOMENT you are zooming, and then gets out of the
+   way — the same as in focus mode, which is the only place this used to apply.
+   usePeek already arms it on every change of the zoom and holds it for PEEK_MS
+   (long enough to reach the buttons inside it), so all that was missing out
+   here was the hiding.
+   A fade and a short lift rather than focus mode's slide from off-screen: that
+   one travels from above the window, past the title bar it is tied to, and this
+   pill sits a few pixels inside a pane that does not clip — it would simply
+   appear over whatever is above the pane instead of disappearing. */
 .dv-docpill {
   position: absolute; top: var(--rail-top, 8px); z-index: 6;
-  transition: left 160ms ease, opacity 200ms ease, transform 240ms cubic-bezier(.22, 1, .36, 1);
+  opacity: 0; transform: translateY(-8px); pointer-events: none;
+  transition: left var(--dv-rail-motion), opacity 200ms ease, transform 240ms cubic-bezier(.22, 1, .36, 1);
 }
-.dv-docpill.is-disabled { opacity: 0.45; pointer-events: none; }
+.dv-docpill.is-peek { opacity: 1; transform: none; pointer-events: auto; }
+/* Dimmed, not shown: the disabled look only applies while the pill is out. On
+   `.is-peek` so it cannot drag the hidden state back up to 0.45 — it is the
+   more specific selector of the two. */
+.dv-docpill.is-peek.is-disabled { opacity: 0.45; pointer-events: none; }
 .dv-zoom-controls.is-doc { position: static; }
 :root[data-reduce-motion='true'] .dv-docpill { transition: none; }
 
@@ -2289,12 +2763,84 @@ img.dv-wa-media { cursor: pointer; }
   box-shadow: var(--shadow-card);
   overflow: hidden;
 }
-.dv-pagerail-card.is-empty, .dv-pagerail-card.is-hidden { display: none; }
+/* ── Following the side panel ─────────────────────────────────────────────
+   Dismissing the panel (and bringing it back) moves --dv-doc-inset, and
+   everything that stands clear of the panel travels with it instead of jumping:
+   the document's own inset, a PDF's page column, the page list's left edge, and
+   the pills (which transition their `left` where they are declared).
+   NOT while the panel is being DRAGGED, though — `body.dv-ocr-resizing` is on
+   for the length of that drag, and a transition there would leave the document
+   trailing the gutter by its whole duration. This is the same reasoning as the
+   `.is-shifting` gate on the blanks panel, borrowing a class that already
+   exists rather than adding a second one. */
+.file-preview-pdf-pages,
+.file-preview-pdf-scroll.is-single {
+  transition: padding-left var(--dv-rail-motion);
+}
+body.dv-ocr-resizing .dv-docx,
+body.dv-ocr-resizing .dv-pagerail-card,
+body.dv-ocr-resizing .file-preview-pdf-pages,
+body.dv-ocr-resizing .file-preview-pdf-scroll.is-single,
+body.dv-ocr-resizing .dv-docpill,
+body.dv-ocr-resizing .dv-doc-counter,
+body.dv-ocr-resizing .dv-doc-words { transition: none; }
+
+/* Nothing to list at all — not a state worth animating out of. */
+.dv-pagerail-card.is-empty { display: none; }
+/* Switched off: HIDDEN, never unmounted, so the thumbnails it has already
+   built stay built and switching it back on is instant. `visibility` latches
+   only once the slide has finished, which is what keeps it from vanishing
+   mid-flight. */
+.dv-pagerail-card:not(.is-inline) {
+  transition: transform var(--dv-rail-motion), opacity 180ms ease,
+              left var(--dv-rail-motion), visibility 0s;
+}
+.dv-pagerail-card:not(.is-inline).is-hidden {
+  transform: translateX(calc(-100% - 12px));
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: transform var(--dv-rail-motion), opacity 180ms ease, visibility 0s 260ms;
+}
+/* A PDF's card is IN the flow beside the pages, so it gives its width back
+   rather than sliding out of a space it would go on occupying. */
+.dv-pagerail-card.is-inline {
+  transition: width var(--dv-rail-motion), margin var(--dv-rail-motion),
+              border-width var(--dv-rail-motion), opacity 180ms ease, visibility 0s;
+}
+.dv-pagerail-card.is-inline.is-hidden {
+  width: 0; margin-left: 0; margin-right: 0; border-width: 0;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: width var(--dv-rail-motion), margin var(--dv-rail-motion),
+              border-width var(--dv-rail-motion), opacity 180ms ease, visibility 0s 260ms;
+}
+:root[data-reduce-motion='true'] .dv-pagerail-card { transition: none; }
 /* The document clears the pages card by 8px — the card's own 0.8px inset plus
    its 126px width plus the gap, which is the same arithmetic a PDF's inline
    card does with `margin-right: 8px`. At a flat 134 the Word document sat
    0.8px nearer its card than a PDF's does. */
-.dv-docview:has(> .dv-pagerail-card:not(.is-empty):not(.is-hidden)) > .dv-docview-body { margin-left: 134.8px; }
+/* The page list's room is part of the same offset now (it was a margin on the
+   scroller, which would have clipped the full-bleed surface back off). */
+/* The inset sits on .dv-docx, NOT on the wrapper inside it. The wrapper is the
+   element `fitWidth` drives with CSS `zoom`, and zoom is a LAYOUT scale: it
+   scales padding along with everything else, so an inset written there shrank
+   as the document zoomed out and the pages crept back under the side panel.
+   .dv-docx is never zoomed, so the gap it holds is a constant. */
+.dv-docview:has(> .dv-pagerail-card:not(.is-empty):not(.is-hidden)) .dv-docx:not(.dv-docx-thumb):not(.dv-docx-stage) {
+  padding-left: calc(var(--dv-doc-inset) + var(--dv-doc-rail));
+}
+/* Word: the sheets sit centred in what is visible, and scroll under the panel.
+   ONLY the real host. There are three kinds of .dv-docx and this is a
+   descendant selector, so without the exclusions the inset also landed on the
+   page list's thumbnail hosts — 376px of padding inside a 104px sheet, which
+   pushed every thumbnail's page out of sight — and on the off-stage host the
+   render effect measures and paginates in, where it took that much off the
+   width the page breaks are worked out against. */
+.dv-doc-main:has(.dcx-workspace) .dv-docx:not(.dv-docx-thumb):not(.dv-docx-stage) {
+  padding-left: var(--dv-doc-inset);
+  box-sizing: border-box;
+}
+/* Word's list is absolutely placed inside .dv-docview, which now starts at the
+   window edge — so it measures from the panel itself. */
+.dv-pagerail-card:not(.is-inline) { left: calc(var(--dv-doc-inset) + 0.8px); }
 
 .dv-pagerail {
   flex: 1 1 auto; min-height: 0;
@@ -2327,7 +2873,11 @@ img.dv-wa-media { cursor: pointer; }
 .dv-pagerail-item.is-current .dv-pagerail-num { color: var(--accent); }
 /* The copy: a stand-in host, inert, its wrapper stripped of the real one's
    padding and side-by-side layout, its page of its margins and shadow. */
-.dv-docx.dv-docx-thumb { display: block; width: auto; transform: none !important; transition: none; pointer-events: none; user-select: none; }
+/* A thumbnail is built inside the rail's <button>, and a button's UA style is
+   `text-align: center` — which inherits straight into the cloned document,
+   centring every paragraph that doesn't set its own alignment. The copy must
+   read exactly as the page does, so the button's default is undone here. */
+.dv-docx.dv-docx-thumb { display: block; width: auto; text-align: initial; transform: none !important; transition: none; pointer-events: none; user-select: none; }
 .dv-docx.dv-docx-thumb .docx-wrapper { display: block !important; padding: 0 !important; gap: 0; }
 .dv-docx.dv-docx-thumb .docx-wrapper > .dv-docx-page { margin: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
 /* The off-stage render of a new version (see DocxRenderPane's render effect):
@@ -2341,7 +2891,13 @@ img.dv-wa-media { cursor: pointer; }
 .dv-docx {
   position: relative;
   transform-origin: 0 0;
-  transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1);
+  /* `padding-left` is the room the page list takes, and it opens and closes on
+     the list's own clock so the pages travel with it. It must be named HERE:
+     `transition` is one property, and this declaration is the last one to touch
+     .dv-docx, so a transition written beside the padding rule itself would be
+     dropped on the floor. */
+  transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1),
+              padding-left var(--dv-rail-motion);
 }
 .dv-docview-body.is-zoom-tracking .dv-docx { transition: none; }
 /* No scrolling while zoomed: the scaled document would stretch the scroll range.
@@ -2434,15 +2990,26 @@ img.dv-wa-media { cursor: pointer; }
    bar), not to the paragraph: the same place every time, whatever the zoom
    landed on. `position: fixed` holds because no ancestor of the preview is
    transformed or filtered. Arrives once the zoom has landed. */
+/* One of the pane's floating pills — the same dark glass as the find bar it
+   now sits above (.dv-find), rather than the light elevated button it was: the
+   two share a corner, and one of them looking like a dialog's close box and the
+   other like a piece of the document's own chrome read as two unrelated things.
+   It takes the TOP of that corner and the find bar drops below it (see the
+   .has-pick rule by .dv-find) — before this the two were placed at the same
+   spot and simply met there. */
 .dv-docx-liftclose {
   position: fixed; z-index: 8;
-  top: calc(var(--titlebar-h, 0px) + 12px); right: 16px;
-  width: 28px; height: 28px;
+  top: calc(var(--titlebar-h, 0px) + 6.4px);
+  right: calc(var(--dv-fields-pad, 0px) + 12px);
+  width: var(--dv-liftclose); height: var(--dv-liftclose);
   padding: 0;
   display: grid; place-items: center;
-  border: 1px solid var(--border-strong); border-radius: 50%;
-  background: var(--bg-elevated); color: var(--text-secondary);
-  box-shadow: var(--shadow-elev);
+  border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 999px;
+  background: rgba(10, 12, 14, 0.92);
+  color: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(17.6px) saturate(1.8);
+  -webkit-backdrop-filter: blur(17.6px) saturate(1.8);
+  filter: drop-shadow(0 3.2px 12.8px rgba(0, 0, 0, 0.55));
   cursor: pointer;
   opacity: 0; visibility: hidden; transform: scale(0.6);
   transition: opacity 120ms ease, transform 120ms ease, visibility 0s 120ms,
@@ -2594,7 +3161,12 @@ img.dv-wa-media { cursor: pointer; }
 .dv-docx .dv-docx-para.is-selected,
 .dv-docx .dv-docx-para.is-selected * { cursor: default; }
 
-.dv-docx-liftclose:hover { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+/* The find pill's own hover, not an accent fill: these are one family. */
+.dv-docx-liftclose:hover {
+  background: rgba(22, 26, 30, 0.95);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
 
 /* ── The picked paragraph's action bar, docked ──────────────────────────
    An empty node at the head of the Paragraph sub-tab's thread: the document
@@ -2932,7 +3504,7 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 }
 .dv-zoom-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 25.6px; height: 25.6px; flex-shrink: 0;
+  width: var(--dv-pill-btn); height: var(--dv-pill-btn); flex-shrink: 0;
   border: none; background: transparent; cursor: pointer;
   font-size: 14.4px; font-weight: 400; line-height: 1;
   color: rgba(255, 255, 255, 0.7); border-radius: 999px;
@@ -3654,29 +4226,31 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 1.6px var(--accent
    (audio/video), AI advisor (all). */
 /* Underline tab bar matching the main app's AI tab strip (.dvx-tab): muted
    labels, an accent underline under the active tab, no pill fills. */
+/* The side panel's tab strip. The tabs themselves are the Activity feed's
+   shared component (components/FilterTabs) — flat labels with ONE underline
+   that slides between them — so this rule is only the HOST: the bar's fill, its
+   hairline, and the height the tabs stretch to so the underline rides its
+   bottom edge exactly as it does over there.
+
+   The strip still scrolls sideways: "Extract text · Captions · Advisor · Data"
+   overruns a panel dragged down to its 240px minimum, and a wrapped label would
+   change the bar's height. That costs the underline the ~3px that hangs below
+   the bar in Activity — `overflow-x: auto` computes `overflow-y` to `auto` too,
+   so nothing can straddle the edge — hence the padding, which gives the line
+   room inside the padding box (overflow clips at the padding box, not the
+   content box). It sits ON the hairline rather than across it. */
 .dv-side-tabs {
-  flex: none; display: flex; align-items: stretch; gap: 0; padding: 0;
+  flex: none; display: flex; align-items: stretch;
+  height: 35.2px;
+  padding: 0 0.8rem 3.2px;
+  box-sizing: border-box;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
-  /* "Selected paragraph" appears alongside the standing tabs and is long
-     enough to overrun a narrow panel — let the strip scroll rather than let a
-     label wrap and change the bar's height. */
   overflow-x: auto;
   scrollbar-width: none;
 }
 .dv-side-tabs::-webkit-scrollbar { height: 0; }
-.dv-side-tab {
-  appearance: none; flex: none; white-space: nowrap;
-  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
-  background: transparent; border: none;
-  border-bottom: 2.4px solid transparent; margin-bottom: -1px;
-  padding: 0.56rem 0.8rem;
-  font: inherit; font-size: 0.704rem; font-weight: 500;
-  color: var(--text-muted); cursor: pointer;
-  transition: color 150ms, border-color 150ms;
-}
-.dv-side-tab:hover:not(.is-active) { color: var(--text-secondary); }
-.dv-side-tab.is-active { color: var(--text-primary); border-bottom-color: var(--accent); }
+.dv-side-tabs .activity-filters { flex: 1; min-width: 0; }
 
 /* ── Section header tabs ───────────────────────────────────────────────
    Each card (Documents / Multitool / Recently open / Files) carries one of
@@ -3719,7 +4293,136 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 1.6px var(--accent
    AI captions / AI advisor tab bar below it, styled exactly like the Documents
    tab bar (.dv-text-toggle): a --bg-sidebar strip with an 8px inset. */
 .dv-advisor-card > .dv-chrome { border-bottom: none; }
-.dv-advisor-slot .dv-side-tabs { padding: 0; background: var(--bg-sidebar); }
+/* The first tab starts where the Quick actions card's title does: that band
+   insets its label 0.8rem, and a tab here carries no side padding of its own,
+   so the strip holds the whole gap and the two labels share an edge.
+   The strip WRAPS (below), so its height is whatever its rows need — the fixed
+   35.2px of the base rule would clip the second one.
+   NO vertical padding at all. The air above and below the labels is the tab's
+   own height instead, split evenly around the text by `align-items: center`,
+   so the two gaps are equal by construction rather than by two numbers kept in
+   step — which is what went wrong before: 4px on top against a bottom of 0.
+   It also keeps the last row's bottom edge ON the strip's padding box, which is
+   what lets the underline straddle the hairline (see the underline's margin).
+   Sideways, the first LABEL still has to line up with the Quick actions card's
+   title 0.8rem in — but a tab now carries 8px of its own, so the strip holds
+   only the remainder. The two numbers add up to that 0.8rem; change one and
+   the other owes the difference. */
+.dv-advisor-slot .dv-side-tabs {
+  height: auto;
+  padding: 0 4.8px;
+  background: var(--bg-sidebar);
+}
+/* The active tab's underline STRADDLES the hairline under the strip, as it does
+   in the Activity tab, rather than sitting above it — and is thicker.
+   Its lower half therefore hangs outside the strip's box, so the strip must not
+   clip: `overflow-x: auto` computes `overflow-y: auto` too, which is exactly
+   what forced the line inside the box before. The sideways scroll that gives up
+   is room this strip never needed — four short labels (Advisor · Data · Theme ·
+   Add) in a panel 296px wide. */
+.dv-advisor-slot .dv-side-tabs,
+.dv-advisor-slot .dv-side-tabs .activity-filters { overflow: visible; }
+/* Eight tabs rarely fit one line of a 296px panel, so the strip WRAPS. Every
+   label then keeps its full size and its whole word — shrinking them to fit,
+   or ellipsizing them, made "Extract" and "Extracted" indistinguishable at
+   exactly the moment telling them apart mattered. Tabs don't flex: they take
+   their natural width and move to the next row instead.
+   FilterTabs places the underline from the active button's OWN offsetTop and
+   offsetHeight, so it lands under whichever row that tab wrapped onto; the row
+   gap is what keeps it clear of the row beneath. */
+.dv-advisor-slot .dv-side-tabs .activity-filters {
+  /* One number for the air between tabs: the divider below is centred in it,
+     so the two can never drift apart. */
+  --tab-gap: 12px;
+  flex-wrap: wrap;
+  gap: 6px var(--tab-gap);
+  align-content: flex-start;
+}
+/* A hairline between neighbours, centred in the gap and faded out at both ends
+   — the Quick actions card's divider, which these tabs sit directly above.
+   It is an ABSOLUTELY placed ::after taking no width, so adding it cannot
+   change where the strip wraps (which is what FilterTabs is measuring). */
+.dv-advisor-slot .dv-side-tabs .activity-filter::after {
+  content: '';
+  position: absolute;
+  right: calc(var(--tab-gap) / -2);
+  top: 50%;
+  width: 1px; height: 14px;
+  transform: translateY(-50%);
+  background: linear-gradient(to bottom, transparent, var(--border) 24%, var(--border) 76%, transparent);
+  pointer-events: none;
+}
+/* The tab that ends a row carries none — there is no neighbour beside it to
+   divide it from, and the line would hang in the panel's right margin.
+   `is-rowend` is set by FilterTabs, which measures where the wrap fell. */
+.dv-advisor-slot .dv-side-tabs .activity-filter.is-rowend::after { display: none; }
+.dv-advisor-slot .dv-side-tabs .activity-filter {
+  flex: 0 0 auto;
+  /* Air around the word itself, so a tab reads as something to press rather
+     than as a bare label. FilterTabs draws the underline 8px past the label on
+     each side, so at this padding the line comes out the width of the tab. */
+  padding: 0 8px;
+  /* An explicit row height: `height: 100%` of a WRAPPING container is not a
+     row, so the underline's y would be measured against the whole strip.
+     This is ALSO the strip's vertical air — the label sits centred in it, so
+     what is left over falls evenly above and below. */
+  height: 34px;
+  /* The Quick actions card's title (.drb-quick-title): the same size, weight
+     and colour, so the strip and that band read as one piece of chrome.
+     Every tab a file OFFERS is drawn at full strength — which one is selected
+     is said by the underline, and saying it twice only made the rest of the
+     panel's own tabs look half-disabled. Fading is reserved for the tabs that
+     genuinely are not available here. */
+  font-size: 0.704rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  transition: opacity 150ms ease;
+}
+.dv-advisor-slot .dv-side-tabs .activity-filter-label { white-space: nowrap; }
+/* Selected, resting and hovered are ONE look: the underline is what marks the
+   selection. (These still have to be written out — FilterTabs' own rules paint
+   a resting tab `--text-muted` and a hovered one `--text-secondary`.) */
+.dv-advisor-slot .dv-side-tabs .activity-filter.is-active,
+.dv-advisor-slot .dv-side-tabs .activity-filter:hover:not(.is-unavailable) {
+  color: var(--text-primary);
+}
+/* Not available for this file: the same label again, fainter still — present,
+   so the panel says what it can do, but plainly not on offer here. */
+.dv-advisor-slot .dv-side-tabs .activity-filter.is-unavailable,
+.dv-advisor-slot .dv-side-tabs .activity-filter.is-unavailable:hover {
+  color: var(--text-primary); opacity: 0.26;
+}
+:root[data-reduce-motion='true'] .dv-advisor-slot .dv-side-tabs .activity-filter { transition: none; }
+.dv-advisor-slot .dv-side-tabs .activity-filter-underline {
+  height: 4px;
+  border-radius: 2px;
+  /* The RING a pressed Quick actions tile wears — its border, not its glyph
+     (.drb-action.is-pressed's border-color). The strip sits directly above that
+     card, so the two marks of "this one is selected" read as one colour.
+     That border is `accent 65%, transparent`, but it may NOT be copied across
+     as written: a see-through colour is only ever the colour of what it lands
+     on, and this line lands on three different things at once — it straddles
+     the strip's bottom edge, so its top half sits on the strip, its lower half
+     on the panel below, and the hairline runs through the middle of it. It came
+     out washed, and not even even along its own length. So the compositing is
+     baked in: the same 65% accent, resolved against the card the pressed tile
+     sits on, and OPAQUE, which is what makes it one solid colour wherever it
+     falls.
+     And it is the accent at FULL strength, not the border's 65%. The ring only
+     looks strong on the tile because it sits on that tile's tinted fill with
+     the accent glyph beside it; the same 65% on a bare strip reads as a washed
+     line however it is composited. Matching the pressed button means matching
+     how emphatic it looks, which is the accent itself.
+     Written out rather than left to inherit for a second reason: the strip
+     carries Activity's per-category tints through `data-cat`, which here holds
+     a TAB id — this can't rely on those never colliding. */
+  background: var(--accent);
+  /* FilterTabs puts the line's TOP 0.32px ABOVE the tabs' bottom edge, which
+     here is the padding box's; the hairline's own centre is 0.5px BELOW it
+     (a 1px border under box-sizing: border-box). This is the difference
+     between the two, so the line's centre and the hairline's coincide. */
+  margin-top: -1.18px;
+}
 .dv-chrome-row { display: flex; align-items: center; gap: 3.2px; padding: 4px 6.4px; min-height: 30.4px; box-sizing: border-box; }
 .dv-chrome-refresh {
   flex: 0 0 auto; width: 20.8px; height: 20.8px;
@@ -3746,11 +4449,10 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 1.6px var(--accent
 .dv-chrome-tabs { flex: 1 1 auto; min-width: 0; display: flex; align-items: stretch; }
 /* The portalled .dv-side-tabs sheds its own bar fill/border and fills the slot. */
 .dv-chrome-tabs .dv-side-tabs {
-  flex: 1; min-width: 0; background: transparent; border-bottom: none;
+  flex: 1; min-width: 0; height: auto; background: transparent; border-bottom: none;
   overflow-x: auto; scrollbar-width: none;
 }
 .dv-chrome-tabs .dv-side-tabs::-webkit-scrollbar { width: 0; height: 0; display: none; }
-.dv-chrome-tabs .dv-side-tab { padding-left: 0.48rem; padding-right: 0.48rem; white-space: nowrap; }
 
 /* Tab-picker dropdown in a header — IDENTICAL to the main app's SplitView
    destination dropdown (.sv-chrome-dest / .sv-chrome-menu). */
@@ -4441,7 +5143,12 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 .dv-advisor-composer-textarea {
   appearance: none; background: transparent; border: none; outline: none; resize: none;
   font: inherit; font-size: 0.736rem; line-height: 1.5; color: var(--text-primary);
-  padding: 4.8px 3.2px; min-height: 19.2px; max-height: 96px; width: 100%;
+  /* The HEIGHT is set by MultitoolComposer's fitArea: it grows with the text
+     and stops at half the advisor card, which no CSS length can express — a
+     percentage here would resolve against the composer, not the card. The
+     fixed 96px cap this replaces was the same number whatever the panel's
+     size. `overflow-y` is set with it, and is hidden until the cap is hit. */
+  padding: 4.8px 3.2px; min-height: 19.2px; width: 100%; overflow-y: hidden;
 }
 .dv-advisor-composer-textarea::placeholder { color: var(--text-muted); }
 
@@ -4522,20 +5229,47 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 }
 .dv-advisor-selchip-x:hover { background: var(--danger-soft); color: var(--danger-text); }
 
-.dv-advisor-composer-toolbar { display: flex; align-items: center; gap: 3.2px; }
+/* The row collapses when there is nothing to send (.is-empty, set in
+   MultitoolComposer) — a Send button that cannot be pressed is not worth a row
+   of the panel. max-height rather than display, so it eases open and shut
+   instead of jumping; the button inside is disabled anyway, and pointer-events
+   go with it so nothing in a zero-height row can be hit. */
+.dv-advisor-composer-toolbar {
+  display: flex; align-items: center; gap: 3.2px;
+  overflow: hidden;
+  max-height: 32px; opacity: 1;
+  transition: max-height 180ms cubic-bezier(0.16, 1, 0.3, 1), opacity 140ms ease;
+}
+.dv-advisor-composer.is-empty .dv-advisor-composer-toolbar {
+  max-height: 0; opacity: 0; pointer-events: none;
+}
+:root[data-reduce-motion='true'] .dv-advisor-composer-toolbar { transition: none; }
 .dv-advisor-composer-spacer { flex: 1; }
+/* Ready to send: a pressed Quick actions tile (.drb-action.is-pressed) — the
+   accent wash, the accent ring, the accent glyph. It used to be a solid accent
+   disc with a knocked-out glyph, which was the one control in the panel wearing
+   a look nothing else did. */
 .dv-advisor-composer-send {
   appearance: none; display: inline-flex; align-items: center; justify-content: center;
   width: 27.2px; height: 27.2px; padding: 0;
-  border: none; border-radius: 50%;
-  background: var(--accent); color: var(--text-on-accent); cursor: pointer;
-  transition: background 120ms, color 120ms, opacity 120ms;
+  border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  border-radius: 50%;
+  background: var(--accent-tint); color: var(--accent); cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms, opacity 120ms;
 }
 .dv-advisor-composer-send svg { margin: 0; }
-.dv-advisor-composer-send:hover { background: var(--accent-hover); color: var(--text-on-accent); }
+/* The tile's hover: the ring goes to full accent over a stronger wash. (The
+   tile's own glow is a cursor-tracked radial from useItemSpots; across 27px
+   there is nothing for a gradient to say, so it is a flat tint here.) */
+.dv-advisor-composer-send:hover {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-color: var(--accent); color: var(--accent);
+}
 .dv-advisor-composer-send:disabled {
-  /* No fill when there's nothing to send — just the muted icon (team-chat parity). */
-  background: transparent; color: var(--text-muted); cursor: not-allowed;
+  /* Nothing to send — no fill and no ring, just the muted icon. Rarely seen
+     now that the row collapses when the box is empty, but the row also shows
+     with the ask panel open, where Send can still be unpressable. */
+  background: transparent; border-color: transparent; color: var(--text-muted); cursor: not-allowed;
 }
 /* Stop button — same footprint as send, shown while the AI is thinking. */
 .dv-advisor-composer-stop {
@@ -6709,3 +7443,139 @@ button.dv-snip-entry-thumb { cursor: pointer; }
 .dvr-side-doctext { gap: 2px; }
 .dvr-side-doctext > span:first-child { font-size: 11.4px; line-height: 1.35; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dvr-side-doctext > span:last-child { font-size: 10px; color: var(--text-muted); }
+
+
+/* ── Entering a tab ────────────────────────────────────────────────────────
+   The Activity feed's motion, the same keyframes and the same easing: the
+   panel's body enters from the side the underline just travelled toward.
+   Nothing here needs a key — a tab change unmounts one body and mounts the
+   next, which is what replays a CSS animation; the direction class on the
+   panel (DocExtractPanel's slideDir) is all that has to be carried.
+   The tab strip itself and the Quick actions card are exempt: neither is the
+   content being changed, and animating the strip would move the underline. */
+/* Activity's motion exactly: the body enters from the side the underline just
+   travelled toward, same distance, same duration, same easing.
+   `position: relative` is what makes it safe here, and it is not decoration.
+   A transform makes an element the containing block for any absolutely placed
+   descendant, so WITHOUT this the panel's own positioned children were laid out
+   against this box for the length of the animation and then snapped back to
+   their real ancestor the instant the transform was dropped — content that had
+   just finished arriving jumped. Being relative ALWAYS means the containing
+   block is the same before, during and after, so there is nothing to snap back
+   to. */
+.dv-doc-extract.is-enter-right > :not(.dv-side-tabs):not(.drb-quick),
+.dv-doc-extract.is-enter-left > :not(.dv-side-tabs):not(.drb-quick) {
+  position: relative;
+}
+.dv-doc-extract.is-enter-right > :not(.dv-side-tabs):not(.drb-quick) {
+  animation: dv-side-in-right 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.dv-doc-extract.is-enter-left > :not(.dv-side-tabs):not(.drb-quick) {
+  animation: dv-side-in-left 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes dv-side-in-right {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes dv-side-in-left {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: none; }
+}
+/* The footer keeps a plain FADE. It is a fixed bar at the foot of the card, not
+   the content being swapped, and it holds the composer — sliding it sideways
+   would read as the box itself moving rather than as the tab changing. */
+@keyframes dv-side-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+/* The footer fades on the same motion. It is restarted from DocExtractPanel
+   rather than replaying on its own, because the composer in it is mounted once
+   for the whole card and shared by every tab — see the note there. */
+.dv-advisor-footerslot.is-enter { animation: dv-side-in 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+:root[data-reduce-motion='true'] .dv-advisor-footerslot.is-enter { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .dv-advisor-footerslot.is-enter { animation: none; }
+}
+:root[data-reduce-motion='true'] .dv-doc-extract.is-enter-right > *,
+:root[data-reduce-motion='true'] .dv-doc-extract.is-enter-left > * { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .dv-doc-extract.is-enter-right > *,
+  .dv-doc-extract.is-enter-left > * { animation: none; }
+}
+
+/* ── The paragraph the AI is working on ────────────────────────────────────
+   Set from DocxRenderPane for as long as a turn aimed at this paragraph is in
+   flight — including after the reader has closed it and moved on, which is the
+   case this exists for: the work carries on, and a paragraph that is going to
+   change ought to say so while it is being thought about.
+   Drawn as a soft accent wash with a bar down the left edge that breathes, so
+   it reads as "working" rather than as "selected" (which is a ring) or as
+   "changed" (which is the edited mark). `::after` rather than a border: a
+   border would change the paragraph's width and re-wrap its text. */
+.dv-docx .dv-docx-para.is-ai-busy {
+  position: relative;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border-radius: 3px;
+}
+.dv-docx .dv-docx-para.is-ai-busy::after {
+  content: '';
+  position: absolute;
+  left: -10px; top: 0; bottom: 0;
+  width: 3px; border-radius: 999px;
+  background: var(--accent);
+  animation: dv-ai-busy-breathe 1400ms ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes dv-ai-busy-breathe {
+  0%, 100% { opacity: 0.25; transform: scaleY(0.72); }
+  50%      { opacity: 1;    transform: scaleY(1); }
+}
+/* A paragraph dimmed behind the pick veil still shows its own mark: this is
+   the one thing in the document that must be legible while another paragraph
+   has the camera. */
+.dv-docx.has-pick .dv-docx-page > article > .dv-docx-para.is-ai-busy { opacity: 1; }
+:root[data-reduce-motion='true'] .dv-docx .dv-docx-para.is-ai-busy::after { animation: none; opacity: 0.8; }
+@media (prefers-reduced-motion: reduce) {
+  .dv-docx .dv-docx-para.is-ai-busy::after { animation: none; opacity: 0.8; }
+}
+
+/* ── When a turn happened ──────────────────────────────────────────────────
+   The advisor's thread is saved per file and reopened days later, so it says
+   when things were said — the team chat's way of saying it (.dvx-day-divider /
+   ProjectChatVariantB.css), because the two are the same kind of surface and
+   a second dialect of "yesterday" helps nobody. */
+.dv-day-divider {
+  display: flex; align-items: center; justify-content: center;
+  gap: 9.6px;
+  margin: 14.4px 0 8px;
+  user-select: none;
+}
+.dv-day-divider::before,
+.dv-day-divider::after {
+  content: ''; flex: 1; height: 1px;
+  background: var(--border);
+  max-width: 120px;
+}
+.dv-day-divider-label {
+  font-family: var(--font-display);
+  font-size: 0.544rem; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* The time under a turn, on the side its bubble sits on. */
+.dv-msg-time {
+  display: flex; align-items: center; gap: 5px;
+  margin: 2px 2px 6px;
+  font-size: 0.544rem; font-weight: 500;
+  color: var(--text-muted);
+  user-select: none;
+}
+.dv-msg-time.is-mine { justify-content: flex-end; }
+/* A request the reader stopped. Said beside the time rather than inside the
+   bubble: the message is still exactly what was asked — what changed is that
+   nothing answered it. */
+.dv-msg-cancelled {
+  padding: 1px 6px; border-radius: 999px;
+  background: var(--danger-soft); color: var(--danger-text);
+  font-weight: 600; letter-spacing: 0.02em;
+}

@@ -29,12 +29,99 @@
   background: transparent;
   border-bottom-color: transparent;
 }
+
+/* ── The focus crossing ───────────────────────────────────────────────────
+   While the viewer is entering or leaving focus, the whole bar goes — fill,
+   rule and contents together — on the same fade as the document and the side
+   panel beneath it (html.dv-focus-moving, set from DocViewer). It is one change
+   of state, so everything leaves by one route.
+   It has to be a FADE and it has to finish first: the bar's contents otherwise
+   slide up at the moment focus lands, which is exactly when macOS snapshots the
+   window for its fullscreen animation — the slide would finish behind that
+   snapshot and never be seen. */
+.tb-bar { transition: opacity 260ms ease; }
+html.dv-focus-moving .tb-bar {
+  opacity: 0;
+  transition: opacity 110ms ease;
+}
+:root[data-reduce-motion='true'] .tb-bar { transition: none; }
 /* The window controls float over the Cabinet's fixed cream form side, so pin
    their glyphs to a fixed dark tone (the auth screen isn't theme-reactive — in
    the Ink theme --text-secondary would be light and vanish on cream). */
 .tb-bar.is-auth .tb-win-btn { color: var(--color-slate); }
 .tb-bar.is-auth .tb-win-btn:hover { background: rgba(15, 23, 42, 0.08); color: var(--color-ink); }
 .tb-bar.is-auth .tb-win-close:hover { background: #e81123; color: #fff; }
+
+/* ── The viewer in focus ──────────────────────────────────────────────────
+   Presentation chrome. The bar keeps its height and its drag region — the
+   window must still be movable — but gives up its fill and its rule, so the
+   document's own backdrop runs to the top of the screen and nothing draws a
+   line across it.
+
+   What is left is only what says WHICH document this is: the mark, DOCVEX, the
+   version and the file's name. The account, the actions and the window controls
+   all go; the back arrow in the corner and Esc are the ways out. */
+.tb-bar.is-doc-focus {
+  background: transparent;
+  border-bottom-color: transparent;
+}
+/* Everything but the brand cluster. The bar's other children are the FPS meter,
+   the centre portal slot, the project meta, the drag spacer, the actions and
+   the window controls — not one of them is about the document. */
+.tb-bar.is-doc-focus > *:not(.tb-brand):not(.tb-docview-find) { display: none; }
+/* The find field's slot — pushed to the bar's right end (`auto` margin; the
+   drag spacer that normally does this job is one of the children focus hides).
+   It opts out of the drag region: the whole bar is draggable, and an input
+   inside a drag region never receives the click that would focus it. */
+.tb-docview-find {
+  display: flex; align-items: center;
+  margin-left: auto; margin-right: 12px; min-width: 0;
+  -webkit-app-region: no-drag; app-region: no-drag;
+}
+
+/* ── The bar reveals itself ───────────────────────────────────────────────
+   In focus the bar's CONTENTS are hidden until the pointer reaches the top of
+   the window, so a document being presented has nothing over it at all.
+   The trigger is `html.dv-bar-peek`, set from a window mousemove in DocViewer
+   — NOT a `:hover` rule here. The bar is an Electron drag region, which the OS
+   handles: no mouse event over it ever reaches the renderer, so `:hover` on it
+   never matches and the contents stayed invisible. Watching the pointer on the
+   window instead also lets the reveal happen just BEFORE the pointer arrives.
+   The bar keeps its drag region while faded (the window can still be moved by
+   its top edge) but its contents take no pointer, so nothing invisible can be
+   clicked by accident.
+   `:focus-within` holds it open while the find field is in use — ⌘F focuses
+   that input without the pointer ever going near the top, and a field you are
+   typing into must not be invisible.
+   The contents ARRIVE FROM ABOVE rather than fading in — they slide down out
+   of the screen's top edge and leave the same way, which is how a strip of
+   chrome at the very top of the display should behave (and how macOS's own
+   bar does it). They are lifted by the bar's full height, so they clear the
+   viewport entirely and are clipped by it while away; nothing needs to be
+   faded to hide them. */
+.tb-bar.is-doc-focus .tb-brand,
+.tb-bar.is-doc-focus .tb-docview-find {
+  transform: translateY(calc(-1 * var(--titlebar-h, 36px)));
+  pointer-events: none;
+  transition: transform 300ms cubic-bezier(.4, 0, .7, .2);
+}
+html.dv-bar-peek .tb-bar.is-doc-focus .tb-brand,
+html.dv-bar-peek .tb-bar.is-doc-focus .tb-docview-find,
+.tb-bar.is-doc-focus:focus-within .tb-brand,
+.tb-bar.is-doc-focus:focus-within .tb-docview-find {
+  transform: none;
+  pointer-events: auto;
+  transition: transform 260ms cubic-bezier(.22, 1, .36, 1);
+}
+:root[data-reduce-motion='true'] .tb-bar.is-doc-focus .tb-brand,
+:root[data-reduce-motion='true'] .tb-bar.is-doc-focus .tb-docview-find { transition: none; }
+/* Inside the brand, the update pill is the one thing that isn't identity — and
+   a version you don't have yet is exactly the wrong thing to put in front of a
+   room. */
+.tb-bar.is-doc-focus .tb-update-badge { display: none; }
+/* The back arrow is an action, not a toggle, so it carries none of the burger's
+   pressed-state colouring. */
+.tb-bar.is-doc-focus .tb-burger.is-back { color: var(--text-secondary); }
 
 .tb-drag-spacer { flex: 1; min-width: 0; }
 
@@ -105,6 +192,43 @@
 }
 .tb-burger.is-open { color: var(--accent); }
 
+/* ── The back arrow wears the sidebar's clothes ───────────────────────────
+   The main app's rail buttons don't fill flat on hover: they light up with a
+   radial accent gradient centred on the CURSOR (--item-spot-x/y, fed by the
+   button's own mousemove — see .nav-item in Sidebar.css, and the handler in
+   TitleBar.jsx). The back arrow takes the same wash, and pressing it takes the
+   rail's selected look: accent tint, accent ring, accent glyph.
+   Scoped to `.is-back` on purpose — this is the focus bar's exit, not the
+   sidebar toggle that shares the corner outside focus. */
+.tb-burger.is-back {
+  isolation: isolate;
+  transition: background 150ms, color 150ms, border-color 150ms;
+}
+.tb-burger.is-back:hover {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 100%
+  );
+  border-color: transparent;
+  color: var(--text-primary);
+}
+/* Pressed — the rail's selected tab: a ghost/outline accent look rather than a
+   solid fill, brightened toward the cursor like the hover it grows out of. */
+.tb-burger.is-back:active {
+  background:
+    radial-gradient(
+      112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+      color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+      color-mix(in srgb, var(--accent) 32%, transparent) 55%,
+      color-mix(in srgb, var(--accent) 24%, transparent) 100%
+    ),
+    var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* Non-interactive brand — plain text, stays part of the drag region (no
    -webkit-app-region override, no hover/cursor affordance). Same 8px gap as
    the rest of the bar; no own padding/margin so the parent's 8px inset is the
@@ -124,6 +248,20 @@
   font-size: 11.2px;
   letter-spacing: 0.08em;
   color: var(--text-primary);
+}
+/* The installed version, immediately after "DOCVEX". Smaller and muted, with
+   tabular figures so it doesn't jiggle the brand as the number grows, and set
+   in the body face rather than the display one — it is data beside a wordmark,
+   not part of it. */
+.tb-brand-version {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 9.6px;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: default;
 }
 /* "HUB" suffix shown after "DOCVEX |" on the Hub (/projects). */
 .tb-brand-suffix {
