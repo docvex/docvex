@@ -92,6 +92,26 @@
   );
   pointer-events: none;
 }
+/* …and the divider between two ROWS, the same hairline turned on its side: the
+   grid wraps, so tiles have neighbours below as well as beside them, and a card
+   separated in only one direction reads as columns rather than as a grid.
+   `is-lastrow` is measured beside `is-rowend`.
+
+   It hangs off the ICON's pseudo-element rather than the tile's: the tile's own
+   ::after is the vertical divider and its ::before is the pressed state, and a
+   pseudo on a child still positions against the tile (which is `relative`). */
+.drb-action:not(.is-lastrow) .drb-action-icon::before {
+  content: '';
+  position: absolute; left: 16%; right: 16%; bottom: -2.9px; height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    color-mix(in srgb, var(--border-strong) 42%, transparent) 30%,
+    color-mix(in srgb, var(--border-strong) 42%, transparent) 70%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
 .drb-action-icon { flex: none; display: inline-flex; }
 .drb-action-icon svg { width: 20px; height: 20px; }
 .drb-action-label {

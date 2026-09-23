@@ -330,7 +330,7 @@ function PdfThumb({ pdf, n, cacheKey, fallbackRatio, root, current, onPick }) {
   );
 }
 
-// `pdfView` = `{ zoom, rail, fitTick }` from the Doc Viewer's quick actions:
+// `pdfView` = `{ zoom, rail, fitTick, pageNums }` from the Doc Viewer's quick actions:
 // `zoom` multiplies the fit-to-WIDTH page size (1 = as wide as the pane), `rail`
 // shows the page list, and a bump of `fitTick` asks for FIT — a whole page
 // inside the window's height (never wider than the pane), which only this
@@ -364,6 +364,10 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
   const [fitReady, setFitReady] = useState(false);
   const zoom = Math.max(0.1, Math.min(5, Number(pdfView?.zoom) || 1));
   const showRail = !!pdfView?.rail;
+  // "Page 3 of 12" — the Page numbers quick action, the same switch a Word file
+  // has. Absent (an older caller, or a preview outside the viewer) it shows, as
+  // it always did.
+  const showPageNums = pdfView ? pdfView.pageNums !== false : true;
   const count = pdf?.numPages || 0;
   const single = count === 1;
   const [railWanted, setRailWanted] = useState(showRail);
@@ -600,7 +604,7 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
   const onPagesMouseDown = (e) => {
     const el = containerRef.current;
     if (!el || e.button !== 0) return;
-    if (e.target.closest('.dv-pagerail-card, .dv-pagerail, .dv-docpill, .file-preview-pdf-counter')) return;
+    if (e.target.closest('.dv-pagerail-card, .dv-pagerail, .dv-docpill, .dv-doc-counter')) return;
     const onText = !!e.target.closest('.file-preview-pdf-text span');
     // A press away from the text lets go of what was selected. Worth doing by
     // hand: on a one-page PDF the pan below calls preventDefault, which is
@@ -690,7 +694,7 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
           </div>
         )}
       </div>
-      {count > 1 && <div className="file-preview-pdf-counter" style={{ left: railPad }} aria-live="off">Page {current} of {count}</div>}
+      {showPageNums && count > 1 && <div className="dv-doc-counter" style={{ left: railPad }} aria-live="off">Page {current} of {count}</div>}
       </div>
     </ClickablePreview>
   );

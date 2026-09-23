@@ -671,19 +671,25 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .file-preview-pdf-canvas { display: block; width: 100%; height: 100%; opacity: 0; transition: opacity 160ms ease; }
 .file-preview-pdf-canvas.is-visible { opacity: 1; }
 :root[data-reduce-motion='true'] .file-preview-pdf-canvas { transition: none; }
-/* "Page 3 of 12" — rides the bottom of the pane while the pages scroll under it. */
+/* "Page 3 of 12" — rides the bottom of the pane while the pages scroll under
+   it. ONE rule for both kinds of document: a Word file and a PDF say where you
+   are with the same pill, so they share the class rather than each keeping a
+   copy that can drift. */
 /* Centred on what is VISIBLE, so it is a sibling of the scroller rather than a
    sticky child of it: inside the scroller `margin: auto` centres it in the
    CONTENT box, which zooming makes wider than the pane — the pill then sat off
    to the right of the middle and appeared to drift left as the page grew.
-   `left` is the page list's footprint (written by PdfPreview). */
-.file-preview-pdf-counter {
-  position: absolute; bottom: 12px; right: 0; z-index: 3;
+   `left` is the page list's footprint (written by PdfPreview / DocxRenderPane).
+   z-index clears the pages card (3) and the zoom pill (6) in either pane. */
+.dv-doc-counter {
+  position: absolute; bottom: 12px; right: 0; z-index: 7;
   width: max-content; margin: 0 auto;
   padding: 5px 11px; border-radius: 999px; pointer-events: none;
   background: rgba(10, 12, 14, 0.82); color: rgba(255, 255, 255, 0.9);
   font-size: 11px; font-weight: 600; line-height: 1.2; letter-spacing: 0.01em;
 }
+/* Out of the way while the photo editor owns the pane. */
+.dv-section-body:has(.phe) .dv-doc-counter { opacity: 0; }
 .file-preview-pdf-text {
   position: absolute; inset: 0;
   overflow: hidden;
@@ -2029,6 +2035,11 @@ img.dv-wa-media { cursor: pointer; }
    (--dv-advisor-w is -16px then). The extra class lifts this over the shared
    footprint rule further down the file. */
 .dv-doc-card .dv-doc-main:has(.dcx-workspace) { padding-left: calc(var(--dv-advisor-w, 296px) + 16px); }
+/* A PDF's content area reserves the SAME footprint. Left to the shared +24px
+   (further down the file) its pages card sat 8px further from the side panel
+   than a Word file's does, so the same document in two formats had its page
+   list in two different places. */
+.dv-doc-card .dv-doc-main:has(.file-preview-pdf-shell) { padding-left: calc(var(--dv-advisor-w, 296px) + 16px); }
 .dv-doc-main:has(.dcx-workspace) .dv-docview-body { padding-bottom: 0; }
 
 /* Anchors the bar's own absolutely-positioned children. */
@@ -2279,7 +2290,11 @@ img.dv-wa-media { cursor: pointer; }
   overflow: hidden;
 }
 .dv-pagerail-card.is-empty, .dv-pagerail-card.is-hidden { display: none; }
-.dv-docview:has(> .dv-pagerail-card:not(.is-empty):not(.is-hidden)) > .dv-docview-body { margin-left: 134px; }
+/* The document clears the pages card by 8px — the card's own 0.8px inset plus
+   its 126px width plus the gap, which is the same arithmetic a PDF's inline
+   card does with `margin-right: 8px`. At a flat 134 the Word document sat
+   0.8px nearer its card than a PDF's does. */
+.dv-docview:has(> .dv-pagerail-card:not(.is-empty):not(.is-hidden)) > .dv-docview-body { margin-left: 134.8px; }
 
 .dv-pagerail {
   flex: 1 1 auto; min-height: 0;
@@ -2700,20 +2715,6 @@ img.dv-wa-media { cursor: pointer; }
   text-align: left;
 }
 
-/* Per-page pagination chip — a black pill with white text pinned to the
-   bottom-right corner of each Word page sheet. Hidden by default; shown when the
-   host carries `show-pagenums` (toolbar toggle). */
-.dv-docx-pagenum {
-  display: none;
-  position: absolute; right: 11.2px; bottom: 11.2px;
-  padding: 2.4px 7.2px; border-radius: 4px;
-  background: transparent; color: #5f6368;
-  font-size: 8.8px; font-weight: 700; letter-spacing: 0.02em;
-  font-variant-numeric: tabular-nums;
-  font-family: var(--font-body);
-  pointer-events: none; user-select: none;
-}
-.dv-docx.show-pagenums .dv-docx-pagenum { display: block; }
 
 /* ── PowerPoint preview (parsed from the pptx zip) ───────────────────────── */
 /* A centred column of 16:9 slide cards (title + bullets). */
@@ -4470,6 +4471,12 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   font-size: 0.6rem; color: var(--text-muted);
   letter-spacing: 0.01em; cursor: default;
 }
+/* Under a VERSION CARD the chip is a row of the thread in its own right, so it
+   inherits the thread's 14.4px gap on top of its own 4px — far more air than it
+   has under a bubble, where it is inside the message. Most of that gap is taken
+   back, leaving the card and its cost reading as one thing. (The card itself
+   pulls up by 8px for the same reason.) */
+.dv-bubble-tokens.is-tight { margin-top: -7.4px; }
 .dv-bubble-tokens-n { font-variant-numeric: tabular-nums; font-weight: 600; }
 .dv-bubble-tokens-label { opacity: 0.75; }
 

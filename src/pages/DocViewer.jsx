@@ -25,6 +25,7 @@ import { useAppPrefs } from '../context/AppPrefsContext';
 import AskUserPanel from '../components/AskUserPanel';
 import { docKindFromName, buildDocumentBlob, buildDocumentBlobSmart, mimeForKind, inferDocKind, withKindExtension, labelForKind } from '../lib/documentGen';
 import { renderedOfficeToPdfBlob } from '../lib/exportPdf';
+import ConvertModal from '../components/ConvertModal';
 import { loadConversation, saveConversation, clearConversation } from '../lib/conversationHistory';
 import { embedDocxSource, readDocxSource, sourcePayload } from '../lib/docxSource';
 import { withStyleSteer } from '../lib/writingStyle';
@@ -5059,14 +5060,14 @@ function DocQuestionsPanel() {
 // file), output tokens what it WROTE — worth splitting out, because a long
 // conversation gets expensive through the input side even when the replies are
 // short. Gated on the same "Show token usage" preference as the per-chat pill.
-function MessageTokens({ usage }) {
+function MessageTokens({ usage, tight = false }) {
   const input = usage?.input_tokens || 0;
   const output = usage?.output_tokens || 0;
   if (!input && !output) return null;
   const total = input + output;
   return (
     <Tooltip content={`${input.toLocaleString()} in + ${output.toLocaleString()} out`}>
-      <div className="dv-bubble-tokens">
+      <div className={`dv-bubble-tokens${tight ? ' is-tight' : ''}`}>
         <span className="dv-bubble-tokens-n">{total.toLocaleString()}</span>
         <span className="dv-bubble-tokens-label">tokens</span>
       </div>
@@ -5400,12 +5401,15 @@ function AdvisorPanel({ file }) {
                             ? <AdvTypewriter text={m.content || ''} onTick={() => scrollToBottom(false)} onDone={() => setTyping((t) => (t === i ? null : t))} />
                             : <div className="aichat-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content || ''}</ReactMarkdown></div>}
                       </div>
-                      {/* What this turn cost, under its own bubble. Same
-                          "Show token usage" setting as the per-chat pill in the
-                          composer, so both indicators appear together or not at
-                          all. Older messages from a saved thread have no usage
-                          recorded and simply show nothing. */}
-                      {showTokenUsage && m.role === 'assistant' && m.usage && (
+                      {/* What this turn cost, under its own bubble — UNLESS the
+                          turn produced a document, in which case it belongs
+                          under the version card instead (see below): the note
+                          and the file it made are one turn, and the cost is the
+                          turn's, so it reads at the end of it rather than
+                          wedged between the two halves. Older messages from a
+                          saved thread have no usage recorded and show nothing. */}
+                      {showTokenUsage && m.role === 'assistant' && m.usage
+                        && messages[i + 1]?.role !== 'artifact' && (
                         <MessageTokens usage={m.usage} />
                       )}
                       {/* What this message was pointed at — the passage picked in
@@ -5439,9 +5443,14 @@ function AdvisorPanel({ file }) {
                   && (adv?.threadScope || 'document') === 'document';
                 // Persistent marker(s) for any branches split off at this point.
                 const splitsHere = activeSplits.filter((s) => s.afterIndex === i);
+                // The cost of the turn that WROTE this version: the note above
+                // it carries the usage, since that is the message the model's
+                // reply came back on.
+                const cardUsage = fileCard ? messages[i - 1]?.usage : null;
                 return (
                   <React.Fragment key={i}>
                     {inner}
+                    {showTokenUsage && cardUsage && <MessageTokens usage={cardUsage} tight />}
                     {splitsHere.map((s) => (
                       <Tooltip key={s.branchId} content={`You split a new conversation (${s.label}) from here — click to open it`}>
                         <button
@@ -9045,10 +9054,8 @@ function walkDocFields(host, { wrap }) {
       // docx-preview injects the document's OWN stylesheet as a <style> element
       // inside the host, and a CSS rule body ("{ margin: 0 }") matches the
       // brace-placeholder pattern perfectly — that is how stylesheet text ended
-      // up listed as blanks to fill in. Skip anything that isn't visible prose,
-      // and skip the page-number chips pagination adds.
+      // up listed as blanks to fill in. Skip anything that isn't visible prose.
       if (parent.closest('style, script, template, head')) return NodeFilter.FILTER_REJECT;
-      if (parent.closest('.dv-docx-pagenum')) return NodeFilter.FILTER_REJECT;
       return NodeFilter.FILTER_ACCEPT;
     },
   });
@@ -9143,7 +9150,7 @@ function drawnBlanks(host, { wrap }) {
     const text = el.textContent || '';
     // Words on the line mean it is underlined prose, not a gap.
     if (!text || /\S/.test(text)) continue;
-    if (el.closest('.dv-field, .dv-docx-pagenum, style, script')) continue;
+    if (el.closest('.dv-field, style, script')) continue;
     if (text.length < DRAWN_MIN && !/\t/.test(text)) continue;
     const block = el.closest(FIELD_BLOCK_SEL);
     out.push({ el, block, text });
@@ -9571,27 +9578,11 @@ function paginateDocx(host) {
   // The running heights above are arithmetic; this checks them against what
   // the browser actually laid out and moves anything that crossed the margin.
   settleDocxPages(host);
-  numberDocxPages(host);
   return pageWidth;
 }
 
 // Word's default bottom margin — one inch.
 const DOCX_DEFAULT_BOTTOM_MARGIN = 96;
-
-// Stamp each page with its number (toggled visible via the host's
-// `show-pagenums` class). Sits in the bottom margin like a Word footer.
-function numberDocxPages(host) {
-  const pages = Array.from(host?.querySelectorAll('.docx-wrapper > .dv-docx-page') || []);
-  pages.forEach((pg, i) => {
-    let label = pg.querySelector(':scope > .dv-docx-pagenum');
-    if (!label) {
-      label = host.ownerDocument.createElement('div');
-      label.className = 'dv-docx-pagenum';
-      pg.appendChild(label);
-    }
-    label.textContent = `${i + 1} / ${pages.length}`;
-  });
-}
 
 // Keep every sheet's bottom margin CLEAR, measured rather than assumed.
 //
@@ -9675,7 +9666,6 @@ function settleDocxPages(host) {
     }
     changed = true;
   }
-  if (changed) numberDocxPages(host);
   return changed;
 }
 
@@ -10162,7 +10152,7 @@ function DocPageRail({ hostRef, tick, themeId, locked, hidden = false }) {
   );
 }
 
-function DocxRenderPane({ url, regenTick = 0, ctor = null, onExportPdf, onOpenNative }) {
+function DocxRenderPane({ url, regenTick = 0, ctor = null, docName = '', onExportPdf, onOpenNative }) {
   const hostRef = useRef(null);
   const ctorRef = useRef(ctor);
   ctorRef.current = ctor;
@@ -11183,12 +11173,14 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, onExportPdf, onOpenNa
   // else would be converting a different document from the one you are looking
   // at. (`onExportPdf` writes the blob next to the original — DocPane.)
   const [pdfBusy, setPdfBusy] = useState(false);
-  const toPdf = useCallback(async () => {
+  const [pdfAsk, setPdfAsk] = useState(false);
+  const toPdf = useCallback(async (name) => {
     const host = hostRef.current;
     if (!host || !onExportPdf || pdfBusy) return;
     setPdfBusy(true);
     try {
-      await onExportPdf(await renderedOfficeToPdfBlob(host, 'docx'));
+      await onExportPdf(await renderedOfficeToPdfBlob(host, 'docx'), name);
+      setPdfAsk(false);
     } catch (e) {
       console.error('[doc-viewer] could not convert to PDF', e);
     } finally {
@@ -11695,6 +11687,35 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, onExportPdf, onOpenNa
   const [showRail, setShowRail] = useState(loadPageRailPref);
   const [userZoom, setUserZoom] = useState(1);
   const userZoomRef = useRef(1);
+
+  // ── "Page 3 of 12" ─────────────────────────────────────────────────────
+  // The same counter a PDF has, by the same rule: the page crossing the upper
+  // THIRD of the pane is the one being read (the page whose top edge is at the
+  // very top is only just arriving). Re-counted when the document re-renders,
+  // which is when pagination can change how many pages there are.
+  const [pageAt, setPageAt] = useState({ n: 1, of: 0 });
+  useEffect(() => {
+    const host = hostRef.current;
+    const scroller = host?.parentElement;
+    if (!scroller) return undefined;
+    let raf = 0;
+    const read = () => {
+      raf = 0;
+      const pages = host.querySelectorAll('.dv-docx-page');
+      if (!pages.length) { setPageAt((p) => (p.of === 0 ? p : { n: 1, of: 0 })); return; }
+      const line = scroller.getBoundingClientRect().top + scroller.clientHeight / 3;
+      let n = 1;
+      for (let i = 0; i < pages.length; i += 1) {
+        if (pages[i].getBoundingClientRect().top <= line) n = i + 1; else break;
+      }
+      setPageAt((p) => (p.n === n && p.of === pages.length ? p : { n, of: pages.length }));
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(read); };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    read();
+    return () => { scroller.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
+  }, [renderTick, userZoom]);
+
   const fitWidth = useCallback(() => {
     const host = hostRef.current;
     const wrapper = host?.querySelector('.docx-wrapper');
@@ -11973,7 +11994,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, onExportPdf, onOpenNa
       {
         id: 'pagenums',
         label: 'Page numbers',
-        tooltip: showPageNumbers ? 'Hide the page numbers' : 'Show the page numbers',
+        tooltip: showPageNumbers ? 'Hide which page you are on' : 'Show which page you are on',
         icon: PageNumbersGlyph,
         pressed: showPageNumbers,
         onClick: () => setShowPageNumbers((v) => !v),
@@ -12000,10 +12021,10 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, onExportPdf, onOpenNa
         tooltip: 'Save this document as a PDF next to it, exactly as it is shown here',
         icon: ToPdfGlyph,
         pressed: pdfBusy,
-        onClick: toPdf,
+        onClick: () => setPdfAsk(true),
       } : null,
     ].filter(Boolean),
-  }), [docTheme, pickDocTheme, hasTypedEdits, paraOpen, showPageNumbers, canOpenNative, foldState, toggleAllFolds, showRail, toggleRail, fitPage, onExportPdf, pdfBusy, toPdf]);
+  }), [docTheme, pickDocTheme, hasTypedEdits, paraOpen, showPageNumbers, canOpenNative, foldState, toggleAllFolds, showRail, toggleRail, fitPage, onExportPdf, pdfBusy]);
   useEffect(() => { setDocTools?.(docTools); }, [docTools, setDocTools]);
   useEffect(() => () => setDocTools?.(null), [setDocTools]);
 
@@ -12118,6 +12139,17 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, onExportPdf, onOpenNa
           />
         </div>
       )}
+      <ConvertModal
+        open={pdfAsk}
+        icon={ToPdfGlyph}
+        title="Convert to PDF"
+        explain="A copy of this document as a PDF, exactly as it is shown here — the same theme, the same page breaks, the same page numbers. The Word file itself is left untouched."
+        suffix=".pdf"
+        defaultName={`${String(docName || 'document').replace(/\.[^./\\]+$/, '')} (to PDF)`}
+        busy={pdfBusy}
+        onConfirm={toPdf}
+        onCancel={() => setPdfAsk(false)}
+      />
       <DocParaPill hostRef={hostRef} onOpen={openPara} onToggleFold={toggleFold} />
       {/* While a paragraph is open the view belongs to THAT paragraph: the
           document is a camera move over one clause, so the page list and the
@@ -12130,13 +12162,22 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, onExportPdf, onOpenNa
           zoom={userZoom}
           onStep={(dir) => setUserZoom((z) => stepDocZoom(z, dir))}
           onReset={() => setUserZoom(1)}
-          left={showRail ? 126 : 8}
+          left={showRail ? 134 : 8}
         />
+      )}
+      {/* Centred on the PANE, not on the pages: at a zoom past the pane's width
+          the content box is wider than the window, and a pill centred in it
+          drifts off to the right. Hidden while a paragraph is open — the view
+          is one clause then, not a page. */}
+      {!renderErr && showPageNumbers && pageAt.of > 1 && paras.length === 0 && (
+        <div className="dv-doc-counter" style={{ left: showRail ? 134 : 8 }} aria-live="off">
+          Page {pageAt.n} of {pageAt.of}
+        </div>
       )}
       <div className="dv-docview-body">
         <div
           ref={hostRef}
-          className={`dv-docx${showPageNumbers ? ' show-pagenums' : ''}${paras.length ? ' has-pick' : ''}`}
+          className={`dv-docx${paras.length ? ' has-pick' : ''}`}
         />
         {/* The host stays mounted (the render effect needs its ref) — it is just
             empty behind this. */}
@@ -12469,7 +12510,7 @@ function DocxWorkspace({ file, url, regenTick = 0, onExportPdf, onOpenNative, on
           same pane (off stage, then swapped in — see its render effect) instead of
           tearing the pane down, which is what made the window flash and lose its
           scroll position. */}
-      <DocxRenderPane url={url} regenTick={regenTick} ctor={ctor} onExportPdf={onExportPdf} onOpenNative={onOpenNative} />
+      <DocxRenderPane url={url} regenTick={regenTick} ctor={ctor} docName={file.name} onExportPdf={onExportPdf} onOpenNative={onOpenNative} />
     </div>
   );
 }
@@ -15283,8 +15324,9 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
   // "Convert to PDF" — write the captured PDF next to the original (report.docx →
   // report.pdf), overwriting a prior export. Throws on failure so the button can
   // surface it. The new file shows up via notifyFilesChanged.
-  const exportPdfNextTo = useCallback(async (blob) => {
-    const base = String(file.name || 'document').replace(/\.[^./\\]+$/, '');
+  const exportPdfNextTo = useCallback(async (blob, chosen) => {
+    // The name the dialog was left with, or the document's own.
+    const base = String(chosen || file.name || 'document').replace(/\.[^./\\]+$/, '');
     const target = `${base}.pdf`;
     const wr = await localFolderApi.writeFiles({ dir, files: [{ filename: target, blob }] });
     if (wr?.error || !wr?.results?.[0]?.ok) throw new Error(wr?.error || wr?.results?.[0]?.error || 'write_failed');
@@ -15306,6 +15348,8 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
   // is very likely the original it was exported from): the Word file takes the
   // first free name, the pages go into a folder of their own.
   const [pdfJob, setPdfJob] = useState(null);        // { what: 'word' | 'images', note }
+  const [pdfAsk, setPdfAsk] = useState(null);       // 'word' | 'images' — the dialog that is open
+  const [pdfPageNums, setPdfPageNums] = useState(true);
   const freeName = useCallback(async (stem, ext) => {
     let taken = new Set();
     try {
@@ -15319,9 +15363,11 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
     }
     return `${stem} (${Date.now()})${dot}`;
   }, [dir]);
-  const convertPdf = useCallback(async (what) => {
+  const convertPdf = useCallback(async (what, chosen) => {
     if (pdfJob || !url) return;
-    const stem = String(file.name || 'document').replace(/\.[^./\\]+$/, '');
+    // What the dialog was left with names the result; without one (an older
+    // call path) the document's own name still does.
+    const stem = String(chosen || file.name || 'document').replace(/\.[^./\\]+$/, '');
     const fail = (body) => notify({ category: 'file', variant: 'error', title: what === 'word' ? 'Couldn’t convert to Word' : 'Couldn’t convert to images', body, dedupeKey: `pdf-convert:${file.path}:${what}` });
     try {
       if (what === 'word') {
@@ -15345,7 +15391,7 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
       } else {
         setPdfJob({ what, note: 'Rendering…' });
         const files = await pdfToImages({
-          path: file.path, url, name: file.name, format: 'png',
+          path: file.path, url, name: stem, format: 'png',
           onProgress: ({ page, pages }) => setPdfJob({ what, note: `Page ${page} of ${pages}` }),
         });
         // One page: the picture beside the PDF. Several: a folder of their own
@@ -15417,7 +15463,7 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
   // A one-page file's zoom is scaled so the fitted page reads 100%.
   const pdfShownZoom = singlePdf && pdfFit ? pdfZoom / pdfFit : pdfZoom;
   const resetPdfZoom = useCallback(() => setPdfZoom(singlePdf && pdfFit ? pdfFit : 1), [singlePdf, pdfFit]);
-  const pdfView = useMemo(() => ({ zoom: pdfZoom, rail: pdfRail, fitTick: pdfFitTick }), [pdfZoom, pdfRail, pdfFitTick]);
+  const pdfView = useMemo(() => ({ zoom: pdfZoom, rail: pdfRail, fitTick: pdfFitTick, pageNums: pdfPageNums }), [pdfZoom, pdfRail, pdfFitTick, pdfPageNums]);
   const pdfActions = useMemo(() => (kind === 'pdf' ? [{
     id: 'page-rail',
     label: 'Pages',
@@ -15432,13 +15478,20 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
     icon: FitViewGlyph,
     onClick: () => setPdfFitTick((t) => t + 1),
   }, {
+    id: 'pagenums',
+    label: 'Page numbers',
+    tooltip: pdfPageNums ? 'Hide which page you are on' : 'Show which page you are on',
+    icon: PageNumbersGlyph,
+    pressed: pdfPageNums,
+    onClick: () => setPdfPageNums((v) => !v),
+  }, {
     id: 'pdf-to-word',
     group: 'Convert',
     label: pdfJob?.what === 'word' ? pdfJob.note : 'To Word',
     tooltip: 'Rebuild this PDF as an editable Word document, saved next to it',
     icon: PdfToWordGlyph,
     pressed: pdfJob?.what === 'word',
-    onClick: () => convertPdf('word'),
+    onClick: () => setPdfAsk('word'),
   }, {
     id: 'pdf-to-images',
     group: 'Convert',
@@ -15446,8 +15499,8 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
     tooltip: 'Save every page as a PNG picture',
     icon: PdfToImagesGlyph,
     pressed: pdfJob?.what === 'images',
-    onClick: () => convertPdf('images'),
-  }] : []), [kind, pdfJob, convertPdf, pdfRail, pdfZoom, stepPdfZoom, pdfPageCount]);
+    onClick: () => setPdfAsk('images'),
+  }] : []), [kind, pdfJob, pdfRail, pdfZoom, stepPdfZoom, pdfPageCount, pdfPageNums]);
 
   // Extract text from a legacy .doc (binary parsed in the main process).
   useEffect(() => {
@@ -15551,6 +15604,23 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
   return (
     <div className={bodyClass}>
       {pdfActions.length > 0 && adv?.quickSlot && createPortal(<DocQuickActions actions={pdfActions} disabled={!!pdfJob} catalogue={QUICK_ACTIONS_ALL} />, adv.quickSlot)}
+      {/* Both PDF conversions ask first — see ConvertModal for why. The name is
+          the one thing the app cannot guess: the result lands beside the
+          original, where two files with the same stem say nothing about which
+          is which. */}
+      <ConvertModal
+        open={!!pdfAsk}
+        icon={pdfAsk === 'images' ? PdfToImagesGlyph : PdfToWordGlyph}
+        title={pdfAsk === 'images' ? 'Convert to images' : 'Convert to Word'}
+        explain={pdfAsk === 'images'
+          ? 'Every page saved as its own PNG picture at about 200 dpi. Several pages go into a folder of their own; a single page lands beside the PDF.'
+          : 'This PDF rebuilt as an editable Word document. A PDF has no paragraphs — only glyphs at coordinates — so the text is reconstructed: headings, paragraphs and page breaks come across, but columns, tables and drawings do not survive as such. A page with no text is placed as its picture.'}
+        suffix={pdfAsk === 'images' ? '.png' : '.docx'}
+        defaultName={`${String(file.name || 'document').replace(/\.[^./\\]+$/, '')} (to ${pdfAsk === 'images' ? 'images' : 'Word'})`}
+        busy={!!pdfJob}
+        onConfirm={(name) => { const what = pdfAsk; setPdfAsk(null); convertPdf(what, name); }}
+        onCancel={() => setPdfAsk(null)}
+      />
       {switchingVersion && (
         <div className="dv-preview-loading" role="status" aria-label="Loading version">
           <span className="dv-preview-spinner" aria-hidden="true" />
@@ -16761,7 +16831,7 @@ export const QUICK_ACTIONS_ALL = [
   { id: 'zoom-fit', label: 'Fit', icon: FitViewGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
   { id: 'edit-photo', label: 'Edit', icon: EditPhotoGlyph, why: 'Only for pictures' },
   { id: 'extract-text', label: 'Extract text', icon: ExtractTextGlyph, why: 'Only for pictures' },
-  { id: 'pagenums', label: 'Page numbers', icon: PageNumbersGlyph, why: 'Only for Word files' },
+  { id: 'pagenums', label: 'Page numbers', icon: PageNumbersGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
   { id: 'fold-all', label: 'Collapse all', icon: FoldAllGlyph, why: 'Only for Word files with headings' },
   { id: 'open-word', label: 'Open in Word', icon: OpenExternalGlyph, why: 'Only for Word files, on a computer with Word installed' },
   { id: 'to-pdf', group: 'Convert', label: 'To PDF', icon: ToPdfGlyph, why: 'Only for files that can be drawn as pages — a Word file, a slide deck, a spreadsheet or a picture' },

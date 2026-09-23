@@ -132,9 +132,15 @@ export function DocQuickActions({ actions = [], disabled = false, catalogue = []
     const mark = () => {
       root.querySelectorAll('.drb-actions').forEach((list) => {
         const tiles = Array.from(list.querySelectorAll('.drb-action'));
+        // The grid WRAPS, so which tile ends a row and which sits on the last
+        // row are facts about the layout, not the list — CSS cannot ask either.
+        // A divider is drawn on the sides that have a neighbour: none hangs off
+        // the card's edge, and none is drawn under the bottom row.
+        const last = tiles.length ? Math.max(...tiles.map((el) => el.offsetTop)) : 0;
         tiles.forEach((el, i) => {
           const next = tiles[i + 1];
           el.classList.toggle('is-rowend', !next || next.offsetTop > el.offsetTop + 1);
+          el.classList.toggle('is-lastrow', el.offsetTop >= last - 1);
         });
       });
     };

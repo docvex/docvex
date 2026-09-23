@@ -1,0 +1,57 @@
+/* ── Convert dialog ──────────────────────────────────────────────────────
+   The shared modal card (ConfirmModal.css) with a head row: the action's own
+   glyph beside what it does, so the dialog and the button that opened it read
+   as one thing. */
+.cvm-card { width: min(92vw, 420px); }
+
+.cvm-head {
+  display: flex; align-items: flex-start; gap: 12px;
+  margin-bottom: 16px;
+}
+/* The same tile the quick action wears, at the same size — it is the SAME
+   action, now asking a question. */
+.cvm-icon {
+  flex: none;
+  width: 38px; height: 38px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.cvm-head-text { flex: 1; min-width: 0; }
+.cvm-title { margin: 1px 0 0; }
+.cvm-explain {
+  margin: 5px 0 0;
+  font-size: 12px; line-height: 1.5; color: var(--text-secondary);
+}
+
+.cvm-field { display: block; margin-bottom: 18px; }
+.cvm-label {
+  display: block; margin-bottom: 5px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* The name and its extension read as one field, but only the name is editable:
+   the extension is decided by the conversion, not by the person naming it. */
+.cvm-input-wrap {
+  display: flex; align-items: center;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg-input);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.cvm-input-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.cvm-input {
+  flex: 1; min-width: 0;
+  padding: 8px 2px 8px 11px;
+  border: 0; background: none; outline: none;
+  font: inherit; font-size: 13px; color: var(--text-primary);
+}
+.cvm-input:disabled { color: var(--text-muted); }
+.cvm-suffix {
+  flex: none; padding: 0 11px 0 1px;
+  font-size: 13px; color: var(--text-muted);
+  user-select: none;
+}
