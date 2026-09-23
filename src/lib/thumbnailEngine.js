@@ -190,6 +190,13 @@ export function refreshUnsupportedExts() {
     .finally(() => { refreshingExts = false; });
 }
 
+// Ask once at startup rather than only after a failure. The main process
+// persists its per-machine verdicts, so this answer arrives before the first
+// folder listing — which is what stops a PC with no Office (or no PDF shell
+// provider) asking for those thumbnails at all, instead of relearning it one
+// failed request per file every launch.
+refreshUnsupportedExts();
+
 export function buildCandidates(descriptor) {
   if (!descriptor) return [];
   const kind = classifyForThumb(descriptor.mime, descriptor.name);

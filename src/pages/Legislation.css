@@ -1,0 +1,261 @@
+/* Legislation — the national legislative portal, in DocVex's own typography.
+   Every value here is a semantic token: this page has to sit beside the
+   Newsletter and the Activity feed and read as one app, which is the whole
+   argument for not copying a website's look along with its data. */
+
+.lg-page { display: flex; flex-direction: column; gap: 20px; padding-bottom: 64px; }
+
+/* ── Masthead figures ─────────────────────────────────────────────────── */
+.lg-mast-meta {
+  display: flex; align-items: center; gap: 16px;
+  font-size: 9.6px; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  text-align: right;
+}
+.lg-mast-num {
+  font-family: var(--font-display);
+  font-size: 20px; font-weight: 700; letter-spacing: -0.01em;
+  color: var(--text-primary); text-transform: none;
+}
+.lg-mast-sep { width: 1px; height: 28px; background: var(--border); }
+
+.lg-main,
+.lg-reader { display: flex; flex-direction: column; gap: 16px; }
+
+/* ── The search ───────────────────────────────────────────────────────── */
+/* A form, not a single box: the service searches by number, by year, by title
+   and by full text as separate fields, and collapsing them into one query box
+   would mean guessing which the user meant. */
+.lg-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 12px;
+  align-items: end;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+}
+.lg-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.lg-field.is-num { max-width: 120px; }
+.lg-field.is-wide { grid-column: span 2; }
+.lg-field label {
+  font-size: 9.6px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.lg-input {
+  width: 100%; box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-input); color: var(--text-primary);
+  font: inherit; font-size: 13px;
+  outline: none;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.lg-input::placeholder { color: var(--text-muted); }
+.lg-input:focus { border-color: var(--accent); background: var(--bg-elevated); }
+select.lg-input { appearance: none; cursor: pointer; padding-right: 26px; }
+.lg-go {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  height: 36px; padding: 0 18px;
+  border: 0; border-radius: 8px;
+  background: var(--accent); color: var(--text-on-accent);
+  font: inherit; font-size: 13px; font-weight: 650;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.lg-go:hover { background: var(--accent-hover); }
+.lg-go:disabled { opacity: 0.55; cursor: progress; }
+.lg-ico { display: inline-flex; width: 15px; height: 15px; flex: none; }
+.lg-ico svg { width: 100%; height: 100%; }
+
+/* ── Where the answer came from ───────────────────────────────────────── */
+/* Live and offline are never allowed to look the same. A search that answered
+   from this machine's copy may simply not have seen an act that exists, which
+   is a different thing from the portal saying there is none. */
+.lg-strip {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap;
+}
+.lg-strip-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.lg-source {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 10.4px; font-weight: 650;
+}
+.lg-source::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+}
+.lg-source.is-live { background: var(--success-soft); color: var(--success); }
+.lg-source.is-archive { background: var(--warning-soft); color: var(--warning); }
+.lg-warn { font-size: 11.2px; color: var(--text-secondary); }
+
+.lg-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-card); color: var(--text-primary);
+  font: inherit; font-size: 11.2px; font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.lg-btn:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
+.lg-btn.is-on { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+.lg-btn.is-danger:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger-text); }
+.lg-icobtn {
+  display: inline-grid; place-items: center; flex: none;
+  width: 30px; height: 30px; padding: 0;
+  border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.lg-icobtn svg { width: 15px; height: 15px; }
+.lg-icobtn:hover { background: var(--bg-elevated); border-color: var(--border); color: var(--text-primary); }
+
+/* ── Results ──────────────────────────────────────────────────────────── */
+.lg-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.lg-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px 4px 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.lg-row:hover { border-color: var(--border-strong); box-shadow: var(--shadow-card); }
+.lg-row-main {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 10px 12px;
+  border: 0; border-radius: 9px;
+  background: transparent; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.lg-row-kind {
+  font-size: 9.6px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--accent);
+}
+.lg-row-title {
+  font-family: var(--font-display);
+  font-size: 15px; font-weight: 600; line-height: 1.35; color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.lg-row-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.2px; color: var(--text-muted); }
+.lg-tag {
+  padding: 0 7px; border-radius: 999px;
+  background: var(--info-soft); color: var(--info);
+  font-size: 9.6px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.lg-tag.is-kept { background: var(--success-soft); color: var(--success); }
+
+/* ── The offline library ──────────────────────────────────────────────── */
+.lg-lib {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 16px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
+}
+.lg-lib-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.lg-lib-title { margin: 0; font-family: var(--font-display); font-size: 15px; font-weight: 650; color: var(--text-primary); }
+.lg-lib-sub { margin: 3px 0 0; font-size: 11.2px; line-height: 1.5; color: var(--text-muted); max-width: 62ch; }
+.lg-lib-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow-y: auto; scrollbar-width: thin; }
+.lg-lib-row { display: flex; align-items: center; gap: 10px; border-radius: 8px; }
+.lg-lib-row:hover { background: var(--bg-elevated); }
+.lg-lib-open {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 10px; border: 0; border-radius: 8px;
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.lg-lib-kind { flex: none; font-size: 9.6px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.lg-lib-name { min-width: 0; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg-lib-state { flex: none; font-size: 9.6px; color: var(--text-muted); }
+.lg-lib-state.is-full { color: var(--success); }
+
+/* ── Reading an act ───────────────────────────────────────────────────── */
+.lg-reader-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.lg-reader-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lg-find { width: 200px; padding: 6px 10px; font-size: 11.2px; }
+.lg-kept {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px; border-radius: 8px;
+  background: var(--success-soft); color: var(--success);
+  font-size: 11.2px; font-weight: 650;
+}
+
+/* The act itself is a DOCUMENT, so it is set like one: a measure the eye can
+   follow, the app's display face for its structure and its body face for the
+   law. Nothing here imitates the portal's own page — the text is the only
+   thing worth carrying across. */
+.lg-act {
+  max-width: 78ch;
+  padding: 28px 32px 40px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+}
+.lg-act-head { padding-bottom: 18px; border-bottom: 1px solid var(--border); margin-bottom: 22px; }
+.lg-act-kind {
+  font-size: 10.4px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--accent);
+}
+.lg-act-title {
+  margin: 6px 0 10px;
+  font-family: var(--font-display);
+  font-size: 25.6px; font-weight: 700; line-height: 1.25; letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+.lg-act-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.2px; color: var(--text-muted); }
+/* The authority note. Deliberately not a dismissible banner and not a footnote:
+   a consolidated text quoted as the law is the one real risk this page
+   introduces, so it stands on every act, every time. */
+.lg-act-warn {
+  margin: 14px 0 0;
+  padding: 9px 12px;
+  border-left: 2.4px solid var(--warning);
+  border-radius: 0 8px 8px 0;
+  background: var(--warning-soft);
+  font-size: 11.2px; line-height: 1.5; color: var(--text-secondary);
+}
+.lg-body { display: flex; flex-direction: column; gap: 2px; }
+.lg-unit {
+  margin: 26px 0 8px;
+  font-family: var(--font-display);
+  font-weight: 700; line-height: 1.3; color: var(--text-primary);
+}
+.lg-unit.is-l1 { font-size: 19.2px; letter-spacing: 0.02em; text-transform: uppercase; }
+.lg-unit.is-l2 { font-size: 17.6px; }
+.lg-unit.is-l3 { font-size: 16px; }
+.lg-unit.is-l4,
+.lg-unit.is-l5 { font-size: 14.4px; color: var(--text-secondary); }
+.lg-art { margin: 16px 0 0; }
+.lg-art-label {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 13.6px; font-weight: 700; color: var(--text-primary);
+}
+.lg-para {
+  margin: 0 0 8px;
+  font-size: 14px; line-height: 1.68; color: var(--text-primary);
+  text-align: justify; hyphens: auto;
+}
+/* The paragraph number sits in the margin where the printed act puts it, so
+   the prose keeps one left edge down the page. */
+.lg-para-num { display: inline-block; min-width: 26px; font-weight: 700; color: var(--text-secondary); }
+.lg-actnote { margin: 10px 0; font-size: 12px; line-height: 1.6; color: var(--text-muted); font-style: italic; }
+
+.lg-note { margin: 0; font-size: 12px; color: var(--text-muted); }
+.lg-note.is-bad { color: var(--danger-text); }
+
+.lg-empty { padding: 48px 0; text-align: center; }
+.lg-empty-title { margin: 0; font-family: var(--font-display); font-size: 17.6px; font-weight: 650; color: var(--text-primary); }
+.lg-empty-sub { margin: 6px auto 0; max-width: 46ch; font-size: 12.8px; line-height: 1.6; color: var(--text-muted); }
+
+@media (max-width: 760px) {
+  .lg-field.is-wide { grid-column: span 1; }
+  .lg-act { padding: 20px 18px 30px; }
+}

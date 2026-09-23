@@ -11,10 +11,14 @@ import { useAuth } from '../../context/AuthContext';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { ICONS as I } from './aiHub';
 import { askProjectAi, makeAskAnswers } from '../../lib/projectAi';
-import { buildDocumentBlobSmart, withKindExtension, inferDocKind, docKindFromName, mimeForKind } from '../../lib/documentGen';
+import { buildDocumentBlobSmart, extOf, inferDocKind, mimeForKind } from '../../lib/documentGen';
+import { parseIdentity, identityBlob, fieldsFor, ID_TYPE_RULE } from '../../lib/identities';
 import { notifyFilesChanged, openDocViewerWindow } from '../../lib/platform';
 import { describeLocalFile } from '../../lib/thumbnailDescriptor';
 import FileThumbnail from '../../components/FileThumbnail';
+// The Files tab's own per-type glyph (Word blue, Excel green, PDF red…), so a
+// file the advisor made looks the same here as it does in the Files grid.
+import { ExtGlyph } from '../../components/fileGlyph';
 import { useNotifications } from '../../context/NotificationsContext';
 import AskUserPanel from '../../components/AskUserPanel';
 import { readLocalBlob, localFolderApi } from '../../lib/localFolder';
@@ -49,9 +53,51 @@ const STORAGE_PREFIX = 'docvex.aichat.v3.';
 // Steer note appended (transiently) to each turn: the model may CREATE real
 // files in the project's Files tab via write_document, must ask_user when
 // unsure, and otherwise just answers. Mirrors the Doc Viewer generate steer.
-const FILE_STEER = '[Meta: You can CREATE real files in this project\'s Files tab with the write_document tool (kinds: docx, pptx, xlsx, pdf) — give it the COMPLETE document content. Use it when the user clearly asks you to create, draft, generate or export a document/file. '
+// What a .dvx is, in the model's own terms. Built from the record definition so
+// the two can't drift: the advisor used to refuse to write identity records
+// because nothing ever told it the format — it asked to be shown an existing
+// .dvx instead of simply writing one.
+const dvxSteer = () => {
+  const keys = (k) => fieldsFor(k).map((f) => f.key).join(', ');
+  return 'A `.dvx` file is a DocVex IDENTITY RECORD — a party to the case (a person or a company) stored as ONE JSON object. '
+    + 'To create one, put the JSON in `content` and name the file `<Name>.dvx`. '
+    + '`kind` is "person" or "org". Keys for a person: ' + keys('person') + '. '
+    + 'Keys for an organisation: ' + keys('org') + '. '
+    + 'Either kind also takes: name, email, phone, addressStreet, addressNumber, addressBlock, addressStair, addressFloor, addressApartment, city, county, country, and `custom` — an array of { label, value } for anything with no field of its own. '
+    + 'Dates are written DD.MM.YYYY. Leave a key out when you do not know it, and never invent an identifier such as a CNP, CUI or IBAN unless the user asked for fictional data. ' + ID_TYPE_RULE + ' '
+    + 'The record opens in the Doc Viewer as a form, so write plain values — no markdown, and no comments in the JSON.';
+};
+
+const FILE_STEER = '[Meta: You can CREATE real files in this project\'s Files tab with the write_document tool — give it the COMPLETE file content. Use it when the user clearly asks you to create, draft, generate, convert or export a document/file. '
+  + 'ANY file type is allowed, not only Office ones: `docx`, `pptx`, `xlsx` and `pdf` are BUILT from the text you write (its headings, lists and tables become real document structure); every text-based format — `txt`, `md`, `csv`, `json`, `xml`, `html`, `dvx`, `srt`, `ics`, `yaml`, source code and so on — is written EXACTLY as you give it, so for those `content` must be the finished file, valid for that format, with nothing around it (no markdown fences, no commentary). Name the file with the extension you want and it will be written. '
+  + 'The tool\'s `kind` field only chooses the builder for the four Office/PDF kinds; for anything else it is ignored — put the extension you want in the filename and write the file\'s exact contents. Never refuse a format because the tool lists four kinds. '
+  + 'You cannot create binary media (images, audio, video, archives) — say so and offer an alternative instead. '
+  + dvxSteer() + ' '
   + 'The FIRST line of the tool\'s `summary` field MUST be a header of the exact form `[file: <filename> | folder: <folder>]`. Use the exact file name and the exact folder the user asked for; when the user did not specify a name, choose a short descriptive filename that reflects the document\'s content; when they did not specify a location, use `home` (the project\'s root Files directory). Folders are relative paths inside the project (e.g. `contracts/2026`) — never absolute paths. After that header line, write a one-sentence summary of the document. '
   + 'If you are UNSURE whether they want a file created — or which kind, or what should go in it — call ask_user FIRST instead of guessing. If they are just chatting or asking questions, answer normally in text. Never silently create a file when you are unsure.]';
+
+// ── What the advisor can write ───────────────────────────────────────────
+// The four kinds that are BUILT from the model's prose (real Office / PDF
+// files, structure and all). Everything else text-based is written verbatim.
+const BUILT_KINDS = new Set(['docx', 'pptx', 'xlsx', 'pdf']);
+// Formats whose bytes cannot come out of a language model. Refused by name so
+// the reply says why, instead of writing prose into a file called .png.
+const BINARY_ONLY_EXTS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'ico', 'heic', 'heif', 'psd', 'ai', 'eps', 'raw',
+  'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv',
+  'zip', 'rar', '7z', 'tar', 'gz', 'exe', 'msi', 'dll', 'doc', 'xls', 'ppt', 'odt', 'ods', 'odp',
+]);
+// Content types for the text formats worth naming; everything else is plain
+// UTF-8 text, which is what the remaining text formats actually are.
+const TEXT_MIMES = {
+  dvx: 'application/json', json: 'application/json', csv: 'text/csv', tsv: 'text/tab-separated-values',
+  md: 'text/markdown', markdown: 'text/markdown', txt: 'text/plain', log: 'text/plain',
+  html: 'text/html', htm: 'text/html', xml: 'application/xml', svg: 'image/svg+xml',
+  yaml: 'application/yaml', yml: 'application/yaml', ics: 'text/calendar',
+  srt: 'application/x-subrip', vtt: 'text/vtt', rtf: 'application/rtf', sql: 'application/sql',
+  js: 'text/javascript', ts: 'text/plain', css: 'text/css', py: 'text/x-python',
+};
+const mimeForExt = (ext) => TEXT_MIMES[ext] || 'text/plain;charset=utf-8';
 
 // Conversation-rail width bounds (px) for the drag resizer on its divider.
 const RAIL_WIDTH_KEY = 'docvex.aichat.railWidth';
@@ -765,7 +811,7 @@ export default function ProjectAI() {
     const dir = folder ? `${home}/${folder}` : home;
     // Filename — the user's exact name when given (its extension may also pin
     // the kind upstream), else derived from the summary/request.
-    const base = sanitizeName(String(opts.wantName || '').replace(/\.(docx|pptx|xlsx|pdf)$/i, ''))
+    const base = sanitizeName(String(opts.wantName || '').replace(new RegExp(`\\.${kind}$`, 'i'), ''))
       || sanitizeName(String(opts.fallbackHint || '').split('\n')[0])
       || 'AI document';
     // De-dupe within the TARGET folder only.
@@ -773,15 +819,40 @@ export default function ProjectAI() {
     const taken = new Set(contextFilesRef.current
       .filter((f) => norm(f.folderPath) === folder)
       .map((f) => f.name.toLowerCase()));
-    let name = withKindExtension(base, kind);
-    for (let i = 2; taken.has(name.toLowerCase()); i += 1) name = withKindExtension(`${base} (${i})`, kind);
+    const named = (b) => `${b}.${kind}`;
+    let name = named(base);
+    for (let i = 2; taken.has(name.toLowerCase()); i += 1) name = named(`${base} (${i})`);
+    // A format whose bytes can't be written from text. Refused by name rather
+    // than attempted: a .png holding the model's prose is a broken file, and
+    // the message tells the reader (and the model) what can be done instead.
+    if (BINARY_ONLY_EXTS.has(kind)) {
+      return { ok: false, error: `I can’t create ${kind.toUpperCase()} files — that format is binary (a picture, sound, video or archive). I can write Word, PowerPoint, Excel and PDF documents, and any text-based format (txt, md, csv, json, xml, html, .dvx records…).` };
+    }
     try {
-      // 'skills' prefers Anthropic's Office Skills builder (high fidelity) and
-      // auto-falls back to the local docx/pptx/xlsx/pdf builders.
-      let blob = await buildDocumentBlobSmart(kind, text, { engine: 'skills' });
-      // A Word file carries its source (lib/docxSource), so the Doc Viewer's
-      // paragraph tools work on it — on this device and on any other.
-      if (kind === 'docx') blob = await embedDocxSource(blob, sourcePayload([{ n: 1, text, kind }], 1));
+      // Three ways a file gets its bytes:
+      //   • An identity record is PARSED first (parseIdentity fills the blank
+      //     record around whatever the model wrote), so a .dvx always opens in
+      //     the record form instead of being JSON the viewer can't read.
+      //   • Office / PDF are BUILT — 'skills' prefers Anthropic's Office Skills
+      //     builder (high fidelity) and falls back to the local builders.
+      //   • Anything else is a text format: the model's content IS the file, so
+      //     it is written verbatim. This is what lets the advisor produce the
+      //     formats nothing here can build — .dvx, .csv, .json, .srt, code.
+      let blob;
+      if (kind === 'dvx') {
+        const record = parseIdentity(String(text || ''));
+        if (!record) {
+          return { ok: false, error: 'I couldn’t write that identity record — the content wasn’t valid JSON for a DocVex record. Let me try again.' };
+        }
+        blob = identityBlob(record);
+      } else if (!BUILT_KINDS.has(kind)) {
+        blob = new Blob([String(text || '')], { type: mimeForExt(kind) });
+      } else {
+        blob = await buildDocumentBlobSmart(kind, text, { engine: 'skills' });
+        // A Word file carries its source (lib/docxSource), so the Doc Viewer's
+        // paragraph tools work on it — on this device and on any other.
+        if (kind === 'docx') blob = await embedDocxSource(blob, sourcePayload([{ n: 1, text, kind }], 1));
+      }
       const wr = await localFolderApi.writeFiles({ dir, files: [{ filename: name, blob }] });
       if (wr?.error || !wr?.results?.[0]?.ok) throw new Error(wr?.error || wr?.results?.[0]?.error || 'write_failed');
       notifyFilesChanged(); // other windows (the Files tab) refresh their listings
@@ -810,7 +881,7 @@ export default function ProjectAI() {
         name,
         relPath: folder ? `${folder}/${name}` : name,
         fullPath,
-        mime: mimeForKind(kind),
+        mime: BUILT_KINDS.has(kind) ? mimeForKind(kind) : mimeForExt(kind),
       };
     } catch {
       return { ok: false, error: 'Couldn’t create the file. Please try again in a moment.' };
@@ -840,7 +911,27 @@ export default function ProjectAI() {
   // Skills engine runs remotely), so `streaming` stays ON until the file is
   // actually written — otherwise the page looks dead during the build. `seq`
   // lets a Stop pressed mid-build discard the outcome.
+  // Whatever happens in here, the thread gets a message and the thinking
+  // indicator stops. A throw used to reject the promise the turn awaits, which
+  // left the advisor spinning with nothing in the thread — a file could even be
+  // written and the conversation never say so.
   const applyAiResult = async (res, threadId, lastUserText, baseMsgs, convoLen, seq) => {
+    try {
+      await applyAiResultInner(res, threadId, lastUserText, baseMsgs, convoLen, seq);
+    } catch (err) {
+      console.error('[advisor] could not finish the turn', err);
+      if (seq != null && turnSeqRef.current !== seq) return;   // stopped — say nothing
+      endStreaming();
+      appendAiMessage(threadId, {
+        who: 'ai',
+        isError: true,
+        text: 'Something went wrong finishing that answer. Please try again — if a file was being created, check the Files tab before asking again.',
+        at: Date.now(),
+      });
+    }
+  };
+
+  const applyAiResultInner = async (res, threadId, lastUserText, baseMsgs, convoLen, seq) => {
     if (res.tool === 'write_document' && res.toolUse?.input) {
       const input = res.toolUse.input;
       // The summary's first line carries the user's exact wishes as a
@@ -850,10 +941,16 @@ export default function ProjectAI() {
       const wantName = hdr ? (hdr[1] || '').trim() : '';
       const wantFolder = hdr ? (hdr[2] || '').trim() : '';
       const cleanSummary = (hdr ? rawSummary.slice(hdr[0].length) : rawSummary).trim();
-      // Kind precedence: an extension on the requested filename wins, then
-      // the tool's declared kind, then inference from the request/content.
-      const kind = docKindFromName(wantName)
-        || (['docx', 'pptx', 'xlsx', 'pdf'].includes(input.kind) ? input.kind : null)
+      // Kind precedence: the extension on the requested filename wins — ANY
+      // extension, not only a buildable one, which is what lets a `.dvx`
+      // record, a `.csv` or a `.json` be asked for by name — then the tool's
+      // declared kind, then inference from the request/content.
+      // Alphanumeric only: the extension goes into a filename and a RegExp, and
+      // whatever the model put after the last dot is not to be trusted with
+      // either ("Contract v1.2", "report. docx").
+      const askedExt = (extOf(wantName) || '').toLowerCase();
+      const kind = (/^[a-z0-9]{1,8}$/.test(askedExt) ? askedExt : '')
+        || (BUILT_KINDS.has(input.kind) ? input.kind : null)
         || inferDocKind(`${lastUserText}\n${input.content || ''}`);
       const created = await createProjectFile(kind, String(input.content || ''), {
         wantName,
@@ -866,9 +963,17 @@ export default function ProjectAI() {
         appendAiMessage(threadId, { who: 'ai', isError: true, text: created.error, at: Date.now() });
         return;
       }
-      const note = (res.text && res.text.trim())
-        || cleanSummary
-        || 'Here’s your document — I’ve added it to the Files tab.';
+      // The reply always SAYS what was written and where. A turn that ends on
+      // the tool call carries no text of its own, and the summary is about the
+      // document rather than about the act of saving it — so the fallback
+      // names the file and its folder, which is what the reader needs to find
+      // it again. (The card under the message is the file itself.)
+      const where = created.relPath.includes('/')
+        ? ` in ${created.relPath.slice(0, created.relPath.lastIndexOf('/'))}`
+        : '';
+      const saved = `Saved “${created.name}” to your project files${where}.`;
+      const said = (res.text && res.text.trim()) || cleanSummary;
+      const note = said ? `${said}\n\n${saved}` : saved;
       appendAiMessage(threadId, {
         who: 'ai',
         text: note,
@@ -1510,7 +1615,7 @@ export default function ProjectAI() {
                                   <div className="aichat-file-card-thumb">
                                     <FileThumbnail
                                       descriptor={cf.path ? describeLocalFile({ localFile: { name: cf.name, path: cf.path, mimeType: cf.mime } }) : null}
-                                      glyph={I.file({ width: 26, height: 26 })}
+                                      glyph={<ExtGlyph ext={extOf(cf.name)} />}
                                     />
                                   </div>
                                   <Tooltip content={cf.relPath || cf.name}>

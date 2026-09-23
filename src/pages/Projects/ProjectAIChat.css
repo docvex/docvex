@@ -286,53 +286,73 @@
 }
 
 /* ── Created-file card ───────────────────────────────────────────────────
-   Shown under the AI's "I created …" message — a Files-tab-style tile: real
-   thumbnail, name, click-to-select ring, double-click opens the Doc Viewer. */
+   A file the advisor wrote, shown under its message AS A FILES-TAB TILE: the
+   same shape, thumbnail box, name and selection feel as `.fx-tile` in
+   FilesWorkspace.css, so a file reads identically wherever the app shows it.
+   Kept as its own rules rather than reusing the `fx-` classes: those carry the
+   Files page's grid, zoom variable (--fx-tile) and drag/rename affordances,
+   none of which belong in a chat bubble. If the tile is restyled there, mirror
+   it here. Click selects, double-click opens it in the Doc Viewer. */
 .ai-chat-page .aichat-created-file {
   margin-top: 8px;
 }
 .ai-chat-page .aichat-file-card {
   display: flex;
   flex-direction: column;
-  width: 128px;
-  border-radius: 9.6px;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  overflow: hidden;
+  justify-content: center;
+  gap: 6.4px;
+  width: 134.4px;                   /* the Files grid's default tile width */
+  padding: 6.4px 6.4px 7.2px;
+  /* Transparent like a Files tile — the fill belongs to hover / selection. */
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-align: center;
   cursor: pointer;
-  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
   user-select: none;
+  transition: transform 120ms, box-shadow 120ms, border-color 120ms, background 120ms;
 }
 .ai-chat-page .aichat-file-card:hover {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--fx-item-fill, color-mix(in srgb, var(--text-primary) 5%, transparent));
   box-shadow: var(--shadow-card);
-  transform: translateY(-1px);
+  border-color: var(--border-strong);
 }
 .ai-chat-page .aichat-file-card.is-selected {
+  background: var(--fx-item-fill, color-mix(in srgb, var(--text-primary) 5%, transparent));
   border-color: var(--accent);
-  box-shadow: 0 0 0 2.4px var(--accent-tint), var(--shadow-card);
-  background: color-mix(in srgb, var(--accent) 6%, var(--bg-card));
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
 }
 .ai-chat-page .aichat-file-card-thumb {
-  height: 84px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  height: 78px;                     /* 134.4 × 0.58, the Files tile's ratio */
+  border-radius: 5.6px;
   background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
+  display: grid;
+  place-items: center;
   overflow: hidden;
+  position: relative;
+}
+/* A type glyph needs no grey box behind it (nor does anything on Ink, where
+   the elevated slate read as a blue slab) — same rules as the Files tile. */
+.ai-chat-page .aichat-file-card-thumb:has(.project-files-icon) { background: transparent; }
+[data-theme="ink"] .ai-chat-page .aichat-file-card-thumb { background: transparent; }
+/* CONTAIN, not cover: a document's page is shown whole, never cropped. */
+.ai-chat-page .aichat-file-card-thumb .project-files-thumb,
+.ai-chat-page .aichat-file-card-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.ai-chat-page .aichat-file-card-thumb .project-files-icon {
+  width: 100%; height: 100%;
+  display: grid; place-items: center;
   color: var(--accent);
 }
-.ai-chat-page .aichat-file-card-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.ai-chat-page .aichat-file-card-thumb .project-files-icon { width: 40%; height: 40%; color: var(--accent); }
 .ai-chat-page .aichat-file-card-name {
-  padding: 6.4px 8px;
-  font-size: 0.64rem;
+  padding: 0;
+  font-size: 10.4px;
   font-weight: 600;
+  line-height: 1.25;
   color: var(--text-primary);
-  white-space: nowrap;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-word;
+  white-space: normal;
 }
 
 /* "Interrupted by user" marker (à la Claude Code) — a quiet danger-tinted

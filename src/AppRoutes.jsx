@@ -14,6 +14,7 @@ const Account = lazy(() => import('./pages/Account'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Updates = lazy(() => import('./pages/Updates'));
 const Newsletter = lazy(() => import('./pages/Newsletter'));
+const Legislation = lazy(() => import('./pages/Legislation'));
 const Roadmap = lazy(() => import('./pages/Roadmap'));
 const Playbook = lazy(() => import('./pages/Playbook'));
 const Admin = lazy(() => import('./pages/Admin'));
@@ -96,6 +97,10 @@ export default function AppRoutes({ Shell, ProjectShell }) {
           {/* Legacy alias — old links / stored notifications used /updates. */}
           <Route path="updates" element={<Navigate to="/versions" replace />} />
           <Route path="newsletter" element={<Newsletter />} />
+          {/* The national legislative portal, read through its own web
+              service and kept on this machine (pages/Legislation). Public,
+              like the Newsletter: the law is not project data. */}
+          <Route path="legislation" element={<Legislation />} />
           {(import.meta.env.DEV || isLocalhostWeb) && <Route path="debug" element={<Debug />} />}
           <Route path="notifications" element={<Navigate to="/" replace />} />
           <Route path="invite/:token" element={<InviteAccept />} />

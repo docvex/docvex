@@ -488,6 +488,9 @@ function samePiece(a, b) {
 
 export function paragraphHistory(versions, piece, parse = parseSource) {
   const out = [];
+  // matchNorm(shown) per entry in `out`, kept in step with it — see the
+  // same-wording rule below.
+  const seen = [];
   for (const v of versions || []) {
     const model = parse(v);
     let found = null;
@@ -499,13 +502,26 @@ export function paragraphHistory(versions, piece, parse = parseSource) {
     const values = {};
     for (const f of found.fields) values[f.id] = String(v.values?.[f.id] ?? '');
     const shown = pieceDisplayText(found, fillText(found.text, v.values || {}));
+    const norm = matchNorm(shown);
     const last = out[out.length - 1];
-    if (last && matchNorm(last.shown) === matchNorm(shown)) continue;
+    // Wording this paragraph has ALREADY been in is not a new state of it, and
+    // gets no second entry — whether it comes straight back (a version that
+    // changed other paragraphs) or later on (the reader picked an older dot,
+    // and closing the paragraph wrote the document as it always does). The dot
+    // for that wording is already in the row and lights up as the current one;
+    // without this the row grew every time someone flipped back and forth
+    // between two versions of the same clause.
+    if (seen.includes(norm)) continue;
     // A QUIET version — one saved from nothing but a suggested answer being
     // picked (an identity filling a party) — is not a step in the paragraph's
     // history: it brings the latest entry up to date instead of adding one.
-    if (v.quiet && last) { Object.assign(last, { text: found.text, values, shown }); continue; }
+    if (v.quiet && last) {
+      Object.assign(last, { text: found.text, values, shown });
+      seen[seen.length - 1] = norm;
+      continue;
+    }
     out.push({ n: v.n, text: found.text, values, shown, label: v.instructions || '', manual: !!v.manual });
+    seen.push(norm);
   }
   return out;
 }

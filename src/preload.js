@@ -103,6 +103,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Quit the whole app — used by a deliberate logout to close all windows.
   quitApp: () => ipcRenderer.send('app:quit'),
 
+  // ── The national legislation portal ──────────────────────────────────
+  // legislatie.just.ro's free web service is SOAP over a 2015-era WCF endpoint
+  // that sends no CORS headers, so it cannot be called from the window at all —
+  // main does it. The archive beside it is this machine's own copy, which is
+  // what keeps the tab working when the ministry's server is not.
+  legislationSearch: (query) => ipcRenderer.invoke('legislation:search', query),
+  legislationArchivePut: (payload) => ipcRenderer.invoke('legislation:archive-put', payload),
+  legislationArchiveList: () => ipcRenderer.invoke('legislation:archive-list'),
+  legislationArchiveGet: (id) => ipcRenderer.invoke('legislation:archive-get', id),
+  legislationArchiveRemove: (id) => ipcRenderer.invoke('legislation:archive-remove', id),
+  legislationArchiveClear: () => ipcRenderer.invoke('legislation:archive-clear'),
+
   // Native fullscreen state — the macOS title bar drops its traffic-light inset
   // when fullscreen hides the lights.
   windowIsFullscreen: () => ipcRenderer.invoke('window:is-fullscreen'),
@@ -245,7 +257,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   allowLocalFile: (p) => ipcRenderer.invoke('localfile:allow-file', p),
   // File extensions this machine has no OS thumbnail provider for (e.g. .docx
   // with no Office installed). The thumbnail engine stops requesting `?thumb=`
-  // for them instead of re-asking — and logging a 415 — per file.
+  // for them instead of re-asking the shell once per file, per launch.
   getUnsupportedThumbExts: () => ipcRenderer.invoke('thumb:unsupported-exts'),
 
   // "Opened with DocVex" — standalone files opened through the OS file

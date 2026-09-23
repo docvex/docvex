@@ -20,7 +20,7 @@ import { extractFileText } from './extractFileText';
 import { extractDocText } from './platform';
 import {
   emptyIdentity, identityKey, mergeIdentity, listIdentities, writeIdentity, isIdentityFile, normalizeIdType, ID_TYPE_RULE,
-  settlePersonName,
+  settlePersonName, normalizePeople,
 } from './identities';
 import { normalizeNationality } from './nationalities';
 
@@ -262,18 +262,38 @@ const AUTOFILL_KEYS = [
   'idType', 'idSeries', 'idNumber', 'idIssuer', 'idIssuedAt',
   'taxId', 'regNo', 'legalForm', 'representative',
   'address', 'city', 'county', 'country',
+  'email', 'phone', 'phoneLandline', 'fax', 'website',
 ];
 
+// The people behind a firm, asked for alongside its own details. A Romanian
+// company document states them in a table (asociați / acționari with their cota
+// and the value of their shares) or in a clause of the articles; either way it
+// is the part a lawyer copies out by hand today, which is exactly what is worth
+// reading for them.
+const PEOPLE_SPEC = [
+  '- people: the persons and companies BEHIND this firm, as a JSON array. One object per person:',
+  '    { "role": "", "name": "", "nationalId": "", "sharePct": "", "shareValue": "", "shares": "" }',
+  '    role is what they are to the firm, in Romanian: Asociat, Asociat unic, Acționar, Administrator, Asociat administrator, Director, Cenzor, Auditor, Împuternicit, Beneficiar real.',
+  '    name is written as the document writes it. nationalId is the CNP for a person or the CUI for a company — whichever the document gives, verbatim.',
+  '    sharePct is the participation in the capital ("cota de participare"), digits only ("60" for 60%). shareValue is the value of their shares in lei, EXACTLY as printed ("30.000"). shares is the number of părți sociale / acțiuni.',
+  '    Leave a key "" when the document does not state it, and return [] when it names nobody. Never invent a person, a CNP or a percentage.',
+  '- phone is the mobile number, phoneLandline the fixed one ("telefon fix"), fax the fax number, email the GENERAL address, website the site. Keep each number as printed.',
+  '- contacts: every OTHER way of reaching the company, as a JSON array of { "label": "", "value": "" } — a departmental e-mail ("Email departament financiar"), a second telephone ("Telefon secretariat"), another fax. label is the document\'s own wording without its letter or number, value is the address or number. Return [] when there are none, and never repeat one already given as email / phone / phoneLandline / fax / website.',
+].join('\n');
+
 function autofillPrompt(kind, text) {
+  const shape = Object.fromEntries(AUTOFILL_KEYS.map((k) => [k, '']));
+  if (kind === 'org') { shape.people = []; shape.contacts = []; }
   return [
     kind === 'org'
-      ? 'The text below was read off a photograph of a Romanian company document (certificat de înregistrare, CUI certificate, or similar).'
+      ? 'The text below was read off a Romanian company document — a certificat de înregistrare, a CUI certificate, an act constitutiv / articles of association, a trade-register extract (furnizare de informații) or similar.'
       : 'The text below was read off a photograph of a Romanian identity or travel document (carte de identitate, passport, permis de ședere or similar).',
     '',
     'Return ONE JSON object, nothing else — no prose, no code fence. Use exactly these keys:',
-    JSON.stringify(Object.fromEntries(AUTOFILL_KEYS.map((k) => [k, ''])), null, 0),
+    JSON.stringify(shape, null, 0),
     '',
     'Rules:',
+    ...(kind === 'org' ? [PEOPLE_SPEC] : []),
     '- Copy values VERBATIM. Leave a key as "" when the text does not state it. Never guess.',
     '- legalName is the full name exactly as printed (surname first, as Romanian documents write it).',
     '- For a person also give the two parts: lastName is the surname (Nume / Nom / Last name), firstName the given names (Prenume / Prenom / First name). Leave both "" for a company.',
@@ -508,7 +528,14 @@ export async function readIdentityFromFiles(files, record, { jurisdiction, proje
   if (only && !force) {
     const known = getAiFacet(only.path, 'identity', await stampFor(only.path));
     if (known?.data?.kind === kind && known.data.fields) {
-      return { fields: known.data.fields, read: [only.name], skipped: [], cached: true };
+      return {
+        fields: known.data.fields,
+        people: normalizePeople(known.data.people),
+        contacts: Array.isArray(known.data.contacts) ? known.data.contacts : [],
+        read: [only.name],
+        skipped: [],
+        cached: true,
+      };
     }
   }
   const texts = [];
@@ -540,12 +567,23 @@ export async function readIdentityFromFiles(files, record, { jurisdiction, proje
     const value = readValue(key, parsed[key]);
     if (value) fields[key] = value;
   }
+  // The firm's people come back as their own list, not as a field: they are
+  // rows of a table, and the pane offers them one by one like every other
+  // reading rather than writing them into the record behind the reader.
+  const people = kind === 'org' ? normalizePeople(parsed.people) : [];
+  // The further ways to reach them, in the document's own words.
+  const contacts = kind === 'org' && Array.isArray(parsed.contacts)
+    ? parsed.contacts
+      .filter((c) => c && typeof c === 'object')
+      .map((c, i) => ({ id: `k${i}_${Math.random().toString(36).slice(2, 7)}`, label: String(c.label || '').trim(), value: String(c.value || '').trim() }))
+      .filter((c) => c.value)
+    : [];
   // Saved for next time: this file, read into a record of this kind, said this.
-  if (only && Object.keys(fields).length) {
+  if (only && (Object.keys(fields).length || people.length || contacts.length)) {
     saveAiFacet({ path: only.path, name: only.name, projectId }, 'identity',
-      { data: { kind, fields }, engine: 'claude', stamp: await stampFor(only.path) });
+      { data: { kind, fields, people, contacts }, engine: 'claude', stamp: await stampFor(only.path) });
   }
-  return { fields, text: joined, read: texts.map((t) => t.name), skipped };
+  return { fields, people, contacts, text: joined, read: texts.map((t) => t.name), skipped };
 }
 
 // ── Files → identity records ────────────────────────────────────────────

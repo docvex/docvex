@@ -70,6 +70,17 @@ const ActivityIcon = (
 );
 
 // Newspaper glyph — folded-page outline with masthead + column lines.
+// The legislative portal: a book standing open, with the pillars of a code of
+// law under it — a shape of our own, drawn to the same 20px stroke grid as
+// every other rail icon rather than borrowed from anywhere.
+const LegislationIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 7.5C10.6 6.2 8.6 5.5 6 5.5H4v11h2c2.6 0 4.6.7 6 2" />
+    <path d="M12 7.5c1.4-1.3 3.4-2 6-2h2v11h-2c-2.6 0-4.6.7-6 2" />
+    <path d="M12 7.5v13" />
+  </svg>
+);
+
 const NewspaperIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M4 22h14a2 2 0 0 0 2-2V4a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v16a2 2 0 0 1-2-2V8"/>
@@ -381,6 +392,11 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
       // "New brief" pill — cleared when the user opens the tab.
       pill: newBrief ? { kind: 'brief', text: 'new' } : null,
     },
+    // The national legislative portal, read in the app and kept on the machine
+    // (pages/Legislation). Beside the Newsletter because the two answer the
+    // same question at different ranges: what has just changed, and what the
+    // law actually says.
+    { to: '/legislation', label: 'Legislation', icon: LegislationIcon, end: true },
     ...(session ? [{ to: '/mail', label: 'Mail', icon: MailIcon, end: true }] : []),
     { to: '/playbook', label: 'Playbook', icon: PlaybookIcon, end: true },
     {

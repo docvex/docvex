@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { Fragment, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -30,7 +30,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import { loadConversation, saveConversation, clearConversation } from '../lib/conversationHistory';
 import { embedDocxSource, readDocxSource, sourcePayload } from '../lib/docxSource';
 import { withStyleSteer } from '../lib/writingStyle';
-import { isElectron, extractDocText, openExternal, onFilesRemoved, notifyFilesChanged, openDocViewerWindow, setDocViewerAiStatus, onDocViewerOpenFile, notifyDocViewerWarmReady, notifyDocViewerFilePainted, windowSetFullscreen, onWindowFullscreenChanged, windowIsFullscreen, windowClose } from '../lib/platform';
+import { isElectron, isMac, navigateMainWindow, focusMainWindow, extractDocText, openExternal, onFilesRemoved, notifyFilesChanged, openDocViewerWindow, setDocViewerAiStatus, onDocViewerOpenFile, notifyDocViewerWarmReady, notifyDocViewerFilePainted, windowSetFullscreen, onWindowFullscreenChanged, windowIsFullscreen, windowClose } from '../lib/platform';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useAuth } from '../context/AuthContext';
 import { readProjectsDir } from '../lib/projectsDir';
@@ -59,6 +59,8 @@ import DocParagraphConstructor from '../components/DocConstructor';
 import FilterTabs from '../components/FilterTabs';
 import { DocThemeGrid, DocQuickActions, useItemSpots, flashQuickAction } from '../components/DocRibbon';
 import { DOC_THEMES, applyDocTheme, docThemeById, loadDocTheme, readDocSample, saveDocTheme } from '../lib/docThemes';
+import { findLawRefs, lawRefDetails, lawRefLookupUrl } from '../lib/lawRefs';
+import { legislationHref } from '../lib/legislation';
 import {
   replaceFields as constructorReplaceFields, scanBlanks as matchFields, parseSource as parseConstructorSource, composeSource as composeConstructorSource, changedParagraphs,
   findPieceForText, fieldInfo as constructorFieldInfo,
@@ -70,6 +72,7 @@ import {
   fieldsFor, parseIdentity, saveIdentityAt, isIdentityFile, emptyIdentity, writeIdentity,
   identityMrz, identityInitials, identityNameParts, looksLikeIdentityJson, isInIdentityFolder,
   listProjectIdentities, resolveIdentityFields, identityValueForField, classifyCounty,
+  IDENTITY_PERSON_ROLES, emptyPerson, sharePctValue, identitySummary, settleRepresentative,
   APARTMENT_ONLY_FIELDS, addressIsApartment, applyGenderToText, IDENTITY_GENDERS,
   addressHasSectors, applyLocalityToText,
   relativeSourcePath, resolveSourcePath,
@@ -5291,23 +5294,19 @@ function DocVersionCard({ fileName, version, instructions, active, onSelect, onO
   const format = ext ? ext.toUpperCase() : 'FILE';
   const software = SOFTWARE_FOR_EXT[ext] || 'default app';
   const [iconKind, iconGlyph] = VERSION_ICON[ext] || ['', DocCardGlyph];
-  const [menu, setMenu] = useState(null); // { x, y } | null while right-click menu is open
-
-  useEffect(() => {
-    if (!menu) return undefined;
-    const close = () => setMenu(null);
-    const onKey = (e) => { if (e.key === 'Escape') setMenu(null); };
-    window.addEventListener('mousedown', close);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', close);
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [menu]);
+  // Hover hint and right-click menu are ONE pill — the app's morph pill, as on
+  // a file tile: the right-click grows the tooltip already under the cursor
+  // into the menu (the FLIP in useMorphPill) instead of dismissing it and
+  // opening an unrelated panel somewhere else. Replaces this card's own
+  // cursor-positioned menu, which had to re-implement the dismissal rules
+  // (Escape / scroll / outside press) and got the morph for free here.
+  const morph = useMorphPill({
+    hoverContent: 'Select to preview it',
+    menuItems: [
+      { key: 'preview', label: 'Preview this version', onClick: onSelect, disabled },
+      { key: 'open', label: `Open in ${software}`, onClick: onOpenInApp, disabled },
+    ],
+  });
 
   return (
     <>
@@ -5316,27 +5315,27 @@ function DocVersionCard({ fileName, version, instructions, active, onSelect, onO
           the nesting and the inner control stops working). The main area keeps
           the button semantics via role + keyboard handling. */}
       <div className={`dv-doc-version${active ? ' is-active' : ''}${disabled ? ' is-disabled' : ''}`}>
-        <Tooltip content="Select to preview it">
-          <div
-            className="dv-doc-version-main"
-            role="button"
-            tabIndex={disabled ? -1 : 0}
-            aria-disabled={disabled || undefined}
-            onClick={() => { if (!disabled) onSelect?.(); }}
-            onKeyDown={(e) => {
-              if (disabled) return;
-              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(); }
-            }}
-            onContextMenu={(e) => { e.preventDefault(); setMenu({ x: toLayoutPx(e.clientX), y: toLayoutPx(e.clientY) }); }}
-          >
-            <span className={`dv-doc-version-icon${iconKind ? ` is-${iconKind}` : ''}`}>{iconGlyph}</span>
-            <span className="dv-doc-version-body">
-              <span className="dv-doc-version-name">Version {version}</span>
-              <span className="dv-doc-version-format">{format}</span>
-            </span>
-            {active && <span className="dv-doc-version-dot" aria-hidden="true" />}
-          </div>
-        </Tooltip>
+        <div
+          className="dv-doc-version-main"
+          role="button"
+          tabIndex={disabled ? -1 : 0}
+          aria-disabled={disabled || undefined}
+          onClick={() => { if (!disabled) onSelect?.(); }}
+          onKeyDown={(e) => {
+            if (disabled) return;
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(); }
+          }}
+          onMouseMove={morph.handleMouseMove}
+          onMouseLeave={morph.handleMouseLeave}
+          onContextMenu={morph.handleContextMenu}
+        >
+          <span className={`dv-doc-version-icon${iconKind ? ` is-${iconKind}` : ''}`}>{iconGlyph}</span>
+          <span className="dv-doc-version-body">
+            <span className="dv-doc-version-name">Version {version}</span>
+            <span className="dv-doc-version-format">{format}</span>
+          </span>
+          {active && <span className="dv-doc-version-dot" aria-hidden="true" />}
+        </div>
         {/* Footer actions. Named after the real application the file belongs to
             (Word / PowerPoint / Excel) rather than a generic "open", so it is
             obvious what is about to launch. */}
@@ -5352,26 +5351,7 @@ function DocVersionCard({ fileName, version, instructions, active, onSelect, onO
           </button>
         </div>
       </div>
-      {menu && createPortal(
-        <div
-          className="dv-ver-menu"
-          role="menu"
-          style={{ left: `${menu.x}px`, top: `${menu.y}px` }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            className="dv-ver-menu-item"
-            role="menuitem"
-            onClick={() => { setMenu(null); onOpenInApp?.(); }}
-            disabled={disabled}
-          >
-            {OpenInAppGlyph}
-            <span>Open in {software}</span>
-          </button>
-        </div>,
-        document.body,
-      )}
+      {morph.node}
     </>
   );
 }
@@ -5826,6 +5806,14 @@ function AdvisorPanel({ file }) {
                 // it carries the usage, since that is the message the model's
                 // reply came back on.
                 const cardUsage = fileCard ? messages[i - 1]?.usage : null;
+                // ...and its TIME, for the same reason: a note that produced a
+                // document is one turn with the card below it, so the stamp
+                // goes at the end of the turn — under the card and under its
+                // cost — instead of being wedged between the note and the file
+                // it made. The card carries no time of its own in older saved
+                // threads, so fall back to the note's.
+                const noteBeforeCard = m.role === 'assistant' && messages[i + 1]?.role === 'artifact';
+                const cardTime = fileCard ? (m.at || messages[i - 1]?.at) : null;
                 // The date turning over, said once, above the first message of
                 // that day — the team chat's divider, the same shape and the
                 // same words.
@@ -5843,13 +5831,18 @@ function AdvisorPanel({ file }) {
                         A cancelled request says so here instead: the thread
                         would otherwise show a question with no answer and no
                         explanation, which reads as the app having lost it. */}
-                    {m.at && m.role !== 'artifact' && (
+                    {m.at && m.role !== 'artifact' && !noteBeforeCard && (
                       <div className={`dv-msg-time${m.role === 'user' ? ' is-mine' : ''}`}>
                         {m.cancelled && <span className="dv-msg-cancelled">Cancelled</span>}
                         <time dateTime={new Date(m.at).toISOString()}>{formatClock(m.at)}</time>
                       </div>
                     )}
                     {showTokenUsage && cardUsage && <MessageTokens usage={cardUsage} tight />}
+                    {cardTime && (
+                      <div className="dv-msg-time">
+                        <time dateTime={new Date(cardTime).toISOString()}>{formatClock(cardTime)}</time>
+                      </div>
+                    )}
                     {splitsHere.map((s) => (
                       <Tooltip key={s.branchId} content={`You split a new conversation (${s.label}) from here — click to open it`}>
                         <button
@@ -9155,48 +9148,79 @@ function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = 
       {rightTab === 'sources' && recordPanel && (
         <div className={`dv-ocr-history-scroll dvr-side${recordPanel.sources.length ? '' : ' is-empty'}`}>
           {recordPanel.sources.length > 0 && <span className="dvr-side-title">Taken from</span>}
-          {recordPanel.sources.map((src) => (
-            <div className={`dvr-side-doc is-${src.state}`} key={src.name}>
-              <button type="button" className="dvr-side-docmain" onClick={() => recordPanel.pick(src.name)}>
-                <span className="dvr-side-thumb" aria-hidden="true">
-                  <FileThumbnail descriptor={src.descriptor} />
-                </span>
-                <span className="dvr-side-doctext">
-                  <span>{src.name}</span>
-                  <span>
-                    {src.state === 'reading' ? 'Reading…'
-                      : src.state === 'showing' ? 'Its data is under the fields'
-                        : src.state === 'error' ? 'Couldn’t be read — click to try again'
-                          : src.state === 'unread' ? 'Not read yet — click to read it'
-                            : src.fields ? `${src.fields} fields filled · click to see its data` : 'Click to see its data'}
-                  </span>
-                </span>
-              </button>
-              <div className="dvr-side-acts">
-                {src.canOpen && (
-                  <Tooltip content="Open the document">
-                    <button type="button" className="dvr-side-remove" aria-label={`Open ${src.name}`} onClick={() => recordPanel.open(src.name)}>
-                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M14 4h6v6" /><path d="M20 4l-9 9" /><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
-                      </svg>
-                    </button>
-                  </Tooltip>
-                )}
-                <Tooltip content="Remove from this record — the file itself is kept">
-                  <button
-                    type="button"
-                    className="dvr-side-remove is-danger"
-                    aria-label={`Remove ${src.name} from this record`}
-                    onClick={() => recordPanel.remove(src.name)}
+          {/* The documents behind the record, as a GRID of the same tiles the
+              Files tab draws — a source is a file, and it should look like one
+              wherever the app shows it. Reading happens by itself (see the
+              automatic pass in IdentityPane); a click SELECTS, and what the
+              selected documents read is offered underneath. */}
+          {recordPanel.sources.length > 0 && (
+            <div className="dvr-side-grid">
+              {recordPanel.sources.map((src) => {
+                const on = recordPanel.selected.includes(src.name);
+                return (
+                  <div
+                    className={`dvr-sgrid-tile is-${src.state}${on ? ' is-selected' : ''}`}
+                    key={src.name}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={on}
+                    onClick={(e) => recordPanel.select(src.name, e.ctrlKey || e.metaKey || e.shiftKey)}
+                    onDoubleClick={() => recordPanel.open(src.name)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); recordPanel.select(src.name, e.ctrlKey || e.metaKey); } }}
                   >
-                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M4 7h16" /><path d="M10 11v6M14 11v6" /><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" /><path d="M9 7V4h6v3" />
-                    </svg>
-                  </button>
-                </Tooltip>
-              </div>
+                    <span className="dvr-sgrid-thumb" aria-hidden="true">
+                      <FileThumbnail descriptor={src.descriptor} />
+                      {src.state === 'reading' && <span className="dvr-sgrid-scan" aria-hidden="true" />}
+                    </span>
+                    <Tooltip content={src.name}>
+                      <span className="dvr-sgrid-name">{src.name}</span>
+                    </Tooltip>
+                    <span className="dvr-sgrid-state">
+                      {src.state === 'reading' ? 'Reading…'
+                        : src.state === 'error' ? 'Couldn’t be read'
+                          : src.fields ? `${src.fields} filled` : 'Read'}
+                    </span>
+                    <span className="dvr-sgrid-acts">
+                      {src.state === 'error' && (
+                        <Tooltip content="Read it again">
+                          <button type="button" className="dvr-side-remove" aria-label={`Read ${src.name} again`} onClick={(e) => { e.stopPropagation(); recordPanel.retry(src.name); }}>
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" />
+                            </svg>
+                          </button>
+                        </Tooltip>
+                      )}
+                      {src.canOpen && (
+                        <Tooltip content="Open the document">
+                          <button type="button" className="dvr-side-remove" aria-label={`Open ${src.name}`} onClick={(e) => { e.stopPropagation(); recordPanel.open(src.name); }}>
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M14 4h6v6" /><path d="M20 4l-9 9" /><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
+                            </svg>
+                          </button>
+                        </Tooltip>
+                      )}
+                      <Tooltip content="Remove from this record — the file itself is kept">
+                        <button
+                          type="button"
+                          className="dvr-side-remove is-danger"
+                          aria-label={`Remove ${src.name} from this record`}
+                          onClick={(e) => { e.stopPropagation(); recordPanel.remove(src.name); }}
+                        >
+                          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M4 7h16" /><path d="M10 11v6M14 11v6" /><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" /><path d="M9 7V4h6v3" />
+                          </svg>
+                        </button>
+                      </Tooltip>
+                    </span>
+                  </div>
+                );
+              })}
             </div>
-          ))}
+          )}
+          {/* A reading is shown ONE place: under the field it belongs to, in
+              the record sheet itself. This panel repeated the whole set as a
+              second list of inputs — two places to tick, two places to correct
+              a character, and nothing saying which of them had the last word. */}
           {/* Nothing attached yet: the drop zone IS the tab — centred, no words
               around it. With sources it becomes the tab's footer (below). */}
           {!recordPanel.sources.length && (
@@ -10369,8 +10393,103 @@ function applyDocFolds(host, folded, { shrinkPages = false } = {}) {
 // big to re-render at that rate. The handlers are read through a ref: they are
 // bound once, and the hook's own are re-made (with fresh state) every render.
 const PARA_BLOCKS = '.dv-docx-page :is(p, h1, h2, h3, h4, h5, h6, li)';
+// ── The acts a picked paragraph cites ────────────────────────────────
+// A clause that turns on "art. 12 alin. (1) lit. b) din Legea nr. 24/2000" is
+// a clause nobody can check without that act in front of them, and the marks
+// in the text can only say WHERE a citation is. So a paragraph opened for work
+// lists what it cites, under it, in the same dock as its other controls:
+// what the act is, which part of it the clause points at, the title it was
+// given on first mention and whether the citation says it has been republished
+// or amended — all read back out of the citation itself (`lawRefDetails`), so
+// the list can never claim something the document does not say.
+//
+// The link is a SEARCH of the official portal, not a link into it: the
+// Ministry of Justice's legislative portal reaches a document by an internal
+// id and searches by form POST, so there is no address for "Legea 24/2000" to
+// send anyone to. Better an honest search than an invented URL that 404s.
+//
+// Internal cross-references are deliberately not here: they point INSIDE this
+// document, they already have a button of their own in the text, and a list of
+// them would be a table of contents nobody asked for.
+function ParaLawRefs({ hits }) {
+  // The Doc Viewer is its own window with no sidebar, so “in the app” means the
+  // MAIN window: it is sent to the tab and brought forward, the same channel
+  // the viewer's account menu uses for Account settings. The document stays
+  // open behind it, which is the point — the clause and the act it turns on are
+  // meant to be read against each other.
+  const openInApp = useCallback((href) => {
+    navigateMainWindow(href);
+    focusMainWindow();
+  }, []);
+  if (!hits.length) return null;
+  return (
+    <section className="dv-paralaw">
+      <header className="dv-paralaw-head">
+        <span className="dv-paralaw-title">{hits.length === 1 ? 'The act this clause cites' : 'The acts this clause cites'}</span>
+        <span className="dv-paralaw-sub">Read out of the citation itself — open one to read the act</span>
+      </header>
+      <ul className="dv-paralaw-list">
+        {hits.map((hit, i) => {
+          const d = lawRefDetails(hit);
+          const url = lawRefLookupUrl(hit);
+          const caen = hit.kind === 'caen';
+          // A CAEN code is a nomenclature entry, not an act — the legislative
+          // portal has nothing to show for it, so it keeps the web lookup only.
+          const inApp = caen ? '' : legislationHref(d);
+          return (
+            <li className={`dv-paralaw-row${caen ? ' is-caen' : ''}`} key={`${hit.start}-${i}`}>
+              <div className="dv-paralaw-main">
+                <span className="dv-paralaw-name">
+                  {caen ? `CAEN ${(d.codes || []).join(', ')}` : d.heading}
+                </span>
+                {d.title ? <span className="dv-paralaw-of">{d.title}</span> : null}
+                <span className="dv-paralaw-meta">
+                  {/* The part of the act the clause actually points at — the
+                      one line of this that is about THIS paragraph. */}
+                  {d.element ? <span className="dv-paralaw-part">{d.element}</span> : null}
+                  {d.notes.map((n) => <span className="dv-paralaw-note" key={n}>{n}</span>)}
+                  {caen ? <span className="dv-paralaw-note">Nomenclature of activities</span> : null}
+                </span>
+              </div>
+              <div className="dv-paralaw-acts">
+                {/* The act itself, WITHOUT leaving the app: the Legislation tab
+                    reads it from the ministry's own service, or from this
+                    machine's copy when the portal is down. A citation in a
+                    contract is a question about an act, and the answer is two
+                    windows away at most — not in a browser, where the case being
+                    read is not. */}
+                {inApp ? (
+                  <Tooltip content="Read this act in DocVex — Legislation, in the main window">
+                    <button type="button" className="dv-paralaw-open is-primary" onClick={() => openInApp(inApp)}>
+                      <span>Read here</span>
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M5 12h13" /><path d="M13 6l6 6-6 6" />
+                      </svg>
+                    </button>
+                  </Tooltip>
+                ) : null}
+                <Tooltip content={caen ? 'Look this code up on the web' : `Search ${LAW_PORTAL_NAME} for this act`}>
+                  <button type="button" className="dv-paralaw-open" onClick={() => openExternal(url)}>
+                    <span>Look it up</span>
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M14 4h6v6" /><path d="M20 4l-8.5 8.5" /><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+                    </svg>
+                  </button>
+                </Tooltip>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+// Named where a reader of the tooltip would expect the source to be named.
+const LAW_PORTAL_NAME = 'legislatie.just.ro';
+
 function DocParaPill({ hostRef, onOpen, onToggleFold }) {
   const targetRef = useRef(null); // the block the pill is about
+  const xrefRef = useRef(null);   // …or the cross-reference inside it
   const [label, setLabel] = useState('Paragraph');
   // Whether the block is a foldable heading, and folded — read when the pill
   // turns to a block and again when its menu opens.
@@ -10415,19 +10534,34 @@ function DocParaPill({ hostRef, onOpen, onToggleFold }) {
     };
     const foldOf = (el) => (!el.classList.contains('dv-fold-head') ? null
       : (el.classList.contains('is-collapsed') ? 'collapsed' : 'open'));
+    // Over an internal cross-reference the pill stops naming the paragraph the
+    // pointer is in and says what pressing the mark will DO, since that is the
+    // only question a reader has there.
+    const xrefUnder = (e) => e.target?.closest?.('.dv-xref[data-xref]') || null;
+    const jumpLabel = (x) => {
+      const letter = x.dataset.xrefLetter;
+      return `Go to ${x.dataset.xref}${letter ? ` lit. ${letter})` : ''}`;
+    };
     const onMove = (e) => {
       const m = morphRef.current;
       if (m.isMenuOpen) return;
       // A button held down is a drag-select in progress, not a hover.
       const el = e.buttons ? null : blockUnder(e);
-      if (!el) { targetRef.current = null; m.handleMouseLeave(); return; }
-      if (targetRef.current !== el) { targetRef.current = el; setLabel(nameOf(el)); setFold(foldOf(el)); }
+      if (!el) { targetRef.current = null; xrefRef.current = null; m.handleMouseLeave(); return; }
+      const x = e.buttons ? null : xrefUnder(e);
+      if (targetRef.current !== el || xrefRef.current !== x) {
+        targetRef.current = el;
+        xrefRef.current = x;
+        setLabel(x ? jumpLabel(x) : nameOf(el));
+        setFold(foldOf(el));
+      }
       m.handleMouseMove(e);
     };
     const onLeave = () => {
       const m = morphRef.current;
       if (m.isMenuOpen) return;
       targetRef.current = null;
+      xrefRef.current = null;
       m.handleMouseLeave();
     };
     const onMenu = (e) => {
@@ -10619,6 +10753,12 @@ const PagesRailGlyph = (
     <rect x="3" y="3" width="6" height="7" rx="1.2" /><rect x="3" y="14" width="6" height="7" rx="1.2" /><rect x="12" y="3" width="9" height="18" rx="1.6" />
   </svg>
 );
+// A pair of scales — the law, not a document about it.
+const LawRefsGlyph = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 4v16M8 20h8M6 7h12M6 7l-3 6h6L6 7ZM18 7l-3 6h6l-3-6Z" />
+  </svg>
+);
 const FitViewGlyph = (
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" /><rect x="8.5" y="8.5" width="7" height="7" rx="1" />
@@ -10756,6 +10896,154 @@ function usePeek(value) {
 const PAGE_RAIL_PREF = 'docvex:doc-viewer:page-rail';
 const loadPageRailPref = () => { try { return localStorage.getItem(PAGE_RAIL_PREF) !== '0'; } catch { return true; } };
 const savePageRailPref = (on) => { try { localStorage.setItem(PAGE_RAIL_PREF, on ? '1' : '0'); } catch { /* unavailable */ } };
+// ── References in the rendered document ─────────────────────────────────
+// `lib/lawRefs` finds a citation in TEXT; this is what puts it on the page.
+// THREE kinds, and only one of them is a preference:
+//   · an ACT cited from outside the document (a law, an ordinance, a code) —
+//     the gradient mark, switched by the Laws quick action, because on a
+//     document that cites a statute in every clause it can be a lot of colour;
+//   · a CAEN code — always marked. A company's object of activity is written
+//     as a code and nothing else, so hiding it hides the fact itself;
+//   · an INTERNAL cross-reference — always marked, because it is not a
+//     highlight but a CONTROL: it is how the reader gets to the clause it
+//     names, and a control that only exists while a highlighting preference is
+//     on is not a control anyone can rely on.
+const LAW_REFS_PREF = 'docvex:doc-viewer:law-refs';
+const loadLawRefsPref = () => { try { return localStorage.getItem(LAW_REFS_PREF) !== '0'; } catch { return true; } };
+const saveLawRefsPref = (on) => { try { localStorage.setItem(LAW_REFS_PREF, on ? '1' : '0'); } catch { /* unavailable */ } };
+const LAW_BLOCK_SEL = '.dv-docx-para, p, h1, h2, h3, h4, h5, h6, li, td, th';
+// How long the clause a jump landed on keeps pulsing when nobody goes near
+// it. Long enough to read the page down to it, short enough that a document
+// left open is not a document with something blinking in it.
+const XREF_LIT_MS = 12000;
+
+// One reference, wrapped WHERE IT LIES: a span per text node it covers, never
+// one span across several. Word splits a run at every formatting change (and
+// often at nothing at all), so a citation regularly straddles two or three
+// nodes — wrapping the whole range in one element would pull that text out of
+// its own `<b>`/`<i>` and flatten formatting the save path serialises back
+// into the file. Per-node spans leave the document's markup exactly as it was
+// and only add a class, so `serializeParagraphMarkdown` sees the same runs.
+// Which mark a hit gets. The three are deliberately unlike each other: the
+// act's travelling gradient says "an authority outside this document", the
+// code's flat stamp says "a classification", and the cross-reference's dashed
+// underline and hand say "press me".
+function refClassFor(hit) {
+  if (hit.kind === 'caen') return 'dv-caenref';
+  if (hit.kind === 'element' && hit.target) return 'dv-xref';
+  return 'dv-lawref';
+}
+
+function wrapLawRange(segs, hit, refId) {
+  const made = [];
+  // Back to front: splitting a node only ever affects text AFTER the cut, so
+  // the offsets of everything earlier stay valid.
+  for (let i = segs.length - 1; i >= 0; i -= 1) {
+    const seg = segs[i];
+    const from = Math.max(hit.start, seg.start);
+    const to = Math.min(hit.end, seg.end);
+    if (to <= from) continue;
+    const node = seg.node;
+    if (!node.parentNode) continue;
+    try {
+      const localStart = from - seg.start;
+      const localEnd = to - seg.start;
+      if (localEnd < node.nodeValue.length) node.splitText(localEnd);
+      const target = localStart > 0 ? node.splitText(localStart) : node;
+      const span = node.ownerDocument.createElement('span');
+      // `dv-ref` is what every mark shares — it is what the clean-up removes
+      // and what carries the rounded outer ends — and the second class is what
+      // the kind looks like.
+      span.className = `dv-ref ${refClassFor(hit)}`;
+      span.dataset.lawKind = hit.kind;
+      // Word splits a citation across runs, so one reference is several spans.
+      // They share an id, which is what lets the whole mark light up together
+      // rather than the one piece under the pointer.
+      span.dataset.refId = refId;
+      // An internal cross-reference carries what it points at, so a click can
+      // be taken there (see the jump handler in DocxRenderPane).
+      if (hit.kind === 'element' && hit.target) {
+        span.dataset.xref = hit.target;
+        if (hit.letter) span.dataset.xrefLetter = hit.letter;
+        // Not a native `title` (the app's hover hints are the Tooltip
+        // component, and these nodes are docx-preview's, not React's) — the
+        // dashed underline and the hand say it is pressable, and the label is
+        // there for anything reading the document aloud.
+        span.setAttribute('role', 'link');
+        span.setAttribute('aria-label', `${span.textContent || 'Reference'} — go to ${hit.target}`);
+      }
+      target.parentNode.insertBefore(span, target);
+      span.appendChild(target);
+      made.push(span);
+    } catch { /* a node detached mid-walk costs one reference, not the scan */ }
+  }
+  // The pieces of one citation read as a single mark: only the outer ends are
+  // rounded and lit, the seams in between run straight through.
+  if (made.length) {
+    made[made.length - 1].classList.add('is-head');
+    made[0].classList.add('is-tail');
+  }
+  return made.length;
+}
+
+function clearLawRefs(host) {
+  if (!host) return;
+  host.querySelectorAll('.dv-ref').forEach((el) => {
+    el.replaceWith(...Array.from(el.childNodes));
+  });
+  // The split text nodes are joined back up, or the markdown serializer the
+  // save path runs would see a paragraph cut into pieces.
+  try { host.normalize(); } catch { /* detached — nothing to clean up */ }
+}
+
+// `laws` is the Laws quick action. It governs the ACT marks only: CAEN codes
+// and internal cross-references are marked either way, so a document always
+// shows its codes and is always navigable by its own pointers.
+function markLawRefs(host, { laws = true } = {}) {
+  if (!host) return 0;
+  clearLawRefs(host);
+  let count = 0;
+  let seq = 0;
+  host.querySelectorAll(LAW_BLOCK_SEL).forEach((block) => {
+    // Leaf blocks only — an <li> wrapping a <p> would otherwise be scanned
+    // twice and the inner pass would find the marks of the outer one.
+    if (block.querySelector(LAW_BLOCK_SEL)) return;
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (
+        n.nodeValue && !n.parentElement?.closest('style, script, template')
+          ? NodeFilter.FILTER_ACCEPT
+          : NodeFilter.FILTER_REJECT
+      ),
+    });
+    // The block's text as the reader sees it, scanned in one piece: a citation
+    // Word happened to split across runs is still one string here.
+    const segs = [];
+    let joined = '';
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      segs.push({ node: n, start: joined.length, end: joined.length + n.nodeValue.length });
+      joined += n.nodeValue;
+    }
+    if (joined.length < 6) return;
+    // A block that OPENS with a structural element is naming ITSELF, not
+    // pointing anywhere: "Art. 2 OBIECTUL DE ACTIVITATE", "Cap. III …",
+    // "Secțiunea 1 …" are the document's own numbering, and marking them turned
+    // every article heading in the file into a button that goes to itself. A
+    // real cross-reference is always mid-sentence — "…indicată la pct. 6.1",
+    // "…prevederile clauzei 4.3" — because it is something the sentence SAYS.
+    // Only `element` hits are judged this way: a paragraph may perfectly well
+    // begin by citing an act ("Legea nr. 24/2000 prevede …").
+    const opensTheBlock = (h) => h.kind === 'element' && !joined.slice(0, h.start).trim();
+    const hits = findLawRefs(joined)
+      .filter((h) => !opensTheBlock(h))
+      .filter((h) => laws || refClassFor(h) !== 'dv-lawref');
+    for (let i = hits.length - 1; i >= 0; i -= 1) {
+      count += wrapLawRange(segs, hits[i], `r${seq}_${i}`) ? 1 : 0;
+    }
+    seq += 1;
+  });
+  return count;
+}
+
 // Document zoom steps like the image pane's (× ZOOM_STEP), between these.
 const DOC_ZOOM_MIN = 0.1;
 const DOC_ZOOM_MAX = 5;
@@ -10907,6 +11195,11 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
   // Bumped once every time the document finishes rendering — the blanks scan
   // keys off it so a new version is re-scanned rather than left stale.
   const [renderTick, setRenderTick] = useState(0);
+  // Whether the acts this document cites are marked (the Laws quick action).
+  // Declared HERE, with the render state, because the effect that paints them
+  // runs far above the view block where the page-list toggle lives — and a
+  // `const` read before its own line is a TDZ error, not an undefined.
+  const [lawRefs, setLawRefs] = useState(loadLawRefsPref);
   // Bumped to re-run the render effect: by the automatic retry below and by the
   // user's "Try again". `attemptRef` counts retries PER URL, so switching files
   // always starts from a clean budget without racing a reset effect.
@@ -11508,6 +11801,15 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
     () => (pickedFull && ctorMatch ? ctorMatch(pickedFull) : null),
     [pickedFull, ctorMatch],
   );
+  // …and what it CITES. Acts and codes only: an internal cross-reference points
+  // inside this document and already has its own button in the text, and
+  // "the act mentioned above" (`back`) names nothing that could be opened.
+  const paraLawRefs = useMemo(
+    () => (pickedFull
+      ? findLawRefs(pickedFull).filter((h) => h.kind === 'act' || h.kind === 'code' || h.kind === 'caen')
+      : []),
+    [pickedFull],
+  );
   // A file that wasn't written here has no source until one is read for it.
   useEffect(() => { if (pickedFull) requestCtorSource?.(); }, [pickedFull, requestCtorSource]);
   // …which can arrive after the click made the paragraph editable. Hand it over
@@ -11652,7 +11954,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
   }, [ctorHit, syncEdits, syncParas, layoutLift]);
 
   // The pick changed (or the document re-rendered under it, or its panel came).
-  useLayoutEffect(() => { layoutLift(false); }, [layoutLift, paras, renderTick, ctorHit, paraDots.length]);
+  useLayoutEffect(() => { layoutLift(false); }, [layoutLift, paras, renderTick, ctorHit, paraDots.length, paraLawRefs.length]);
   useEffect(() => {
     const host = hostRef.current;
     const body = host?.parentElement;
@@ -12191,6 +12493,171 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
     }, 0);
     return () => { cancelled = true; window.clearTimeout(id); };
   }, [renderTick, publishFields, documentSignature]);
+
+  // The references this document makes. Marked after the render has settled
+  // (the same beat as the blanks, so the walk sees the paginated DOM) and again
+  // whenever the Laws preference is switched — which re-marks rather than
+  // clears, since CAEN codes and cross-references are not the preference's to
+  // take away. Nothing here changes a text metric — no padding, no font — so
+  // marking cannot re-wrap a line, which is why it needs no re-pagination
+  // afterwards.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !renderTick) return undefined;
+    const id = window.setTimeout(() => { markLawRefs(host, { laws: lawRefs }); }, 0);
+    return () => window.clearTimeout(id);
+  }, [renderTick, lawRefs]);
+  // ── Going to the clause a reference points at ──────────────────────────
+  // "…indicată la pct. 6.1. lit. d)" is a pointer INSIDE the document, and the
+  // reader's next move is always the same: find 6.1. The mark is a button, in
+  // effect — one delegated listener on the host (docx-preview's nodes are not
+  // React's), a paragraph found by its own number, and the page taken there and
+  // set pulsing until the reader's eye lands on it.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !renderTick) return undefined;
+    // The clause number a block OPENS with: "6.1." / "6.1)" / "6.1" alone on
+    // its line, and the same behind the word that introduces it ("Art. 6",
+    // "pct. 2.1"), since a document may number its own paragraphs either way.
+    const NUM_RE = /^\s*(?:(?:art|pct|punctul|alin|paragr)\.?\s*)?(\d+(?:\.\d+)*)\s*[.)]?(?=\s|$)/i;
+    // …and the letter an ENUMERATED item opens with: "d)", "d.", "(d)".
+    const LETTER_RE = /^\s*\(?([a-zșşțţăâî])\s*[).](?=\s|$)/i;
+    const opener = (re, el) => {
+      const m = re.exec((el.textContent || '').slice(0, 40));
+      return m ? m[1].toLowerCase() : '';
+    };
+    const numberOf = (el) => opener(NUM_RE, el);
+    const letterOf = (el) => opener(LETTER_RE, el);
+    const go = (e) => {
+      const mark = e.target?.closest?.('.dv-xref[data-xref]');
+      if (!mark) return;
+      const want = mark.dataset.xref;
+      if (!want) return;
+      const letter = (mark.dataset.xrefLetter || '').toLowerCase();
+      // LEAF blocks only. A wrapper's `textContent` begins with the text of its
+      // first child, so a container holding clause 6.1 answers to "6.1" as
+      // readily as the clause itself does — and, standing earlier in document
+      // order, wins. Then the whole of it lights up instead of the one
+      // paragraph, which is not an answer to "where is 6.1".
+      const blocks = Array.from(host.querySelectorAll(LAW_BLOCK_SEL))
+        .filter((el) => !el.querySelector(LAW_BLOCK_SEL));
+      const at = blocks.findIndex((el) => numberOf(el) === want);
+      const clause = at === -1 ? null : blocks[at];
+      let dest = clause;
+      // "pct. 6.1. lit. d)" names an ITEM, not a clause: the reader wants the
+      // line beginning "d)", not the seven-line clause that contains it. It is
+      // looked for BELOW the clause and only as far as the next numbered one,
+      // so a "d)" belonging to some later clause can never be mistaken for this
+      // one. A document that runs its items inside the clause's own paragraph
+      // has no such line, and the clause itself stays the answer.
+      if (dest && letter) {
+        for (let i = at + 1; i < blocks.length; i += 1) {
+          if (numberOf(blocks[i])) break;
+          if (letterOf(blocks[i]) === letter) { dest = blocks[i]; break; }
+        }
+      }
+      // Failing all that, the paragraph that OPENS the section it belongs to
+      // ("6.1" → "6"), which is where a reader would look next when the clause
+      // itself is numbered differently.
+      if (!dest && want.includes('.')) {
+        const top = want.split('.')[0];
+        dest = blocks.find((el) => numberOf(el) === top) || null;
+      }
+      if (!dest) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // BOTH are lit: the clause, which is what "6.1" means, and the item, which
+      // is what "lit. d)" means. One without the other is half the reference —
+      // the item alone is a line reading "d) Email general: …" with nothing
+      // saying what it is an item OF, and the clause alone is the seven lines
+      // the reader was trying to avoid reading. The one the reference actually
+      // NAMED burns brighter (`is-xref-exact`), so which is which is never a
+      // guess. The view is centred on that one; the clause sits a few lines
+      // above it and comes along.
+      dest.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      light(clause && clause !== dest ? [clause, dest] : [dest], dest);
+    };
+    // A mark is a BUTTON, so it answers the pointer like one: the whole
+    // reference lights on hover and darkens while it is held down, however many
+    // runs Word cut it into. Done in JS rather than `:hover` because CSS can
+    // only reach the piece under the pointer, and a reference lighting up by
+    // halves reads as two references.
+    //
+    // Arriving somewhere is the other half of pressing it. The clause is lit
+    // and PULSES (`.is-xref-target`, the keyframes in DocViewer.css), because a
+    // page of legal prose gives the eye nothing to land on and a smooth scroll
+    // ends without saying where. The pulse is answered by the reader, not by a
+    // timer: hovering the clause stops it dead (pure CSS) and moving away again
+    // puts the page back as it was — they have found it, so there is nothing
+    // left to point at. A reader who never goes near it is not left with a
+    // paragraph breathing at them for ever either; `XREF_LIT_MS` gives up.
+    const paint = (from, cls, on) => {
+      const id = from?.dataset?.refId;
+      if (!id) return;
+      host.querySelectorAll(`.dv-xref[data-ref-id="${id}"]`).forEach((el) => el.classList.toggle(cls, on));
+    };
+    let hot = null;
+    let held = null;
+    let lit = [];        // what a jump landed on — the clause and its item
+    let litSeen = false; // …and whether the reader has been over any of it since
+    let litTimer = 0;
+    const unlight = () => {
+      if (litTimer) { window.clearTimeout(litTimer); litTimer = 0; }
+      for (const el of lit) el.classList.remove('is-xref-target', 'is-xref-exact');
+      lit = [];
+      litSeen = false;
+    };
+    const light = (els, exact) => {
+      unlight();
+      lit = els;
+      for (const el of els) {
+        el.classList.add('is-xref-target');
+        if (el === exact) el.classList.add('is-xref-exact');
+      }
+      litTimer = window.setTimeout(unlight, XREF_LIT_MS);
+    };
+    const over = (e) => {
+      // Over the clause that was jumped to, then away from it: found, and done.
+      if (lit.length) {
+        if (lit.some((el) => el.contains(e.target))) litSeen = true;
+        else if (litSeen) unlight();
+      }
+      const mark = e.target?.closest?.('.dv-xref[data-xref]') || null;
+      if (mark === hot) return;
+      paint(hot, 'is-hot', false);
+      hot = mark;
+      paint(hot, 'is-hot', true);
+    };
+    const out = () => { paint(hot, 'is-hot', false); hot = null; };
+    const down = (e) => {
+      if (e.button !== 0) return;
+      held = e.target?.closest?.('.dv-xref[data-xref]') || null;
+      paint(held, 'is-press', true);
+    };
+    const up = () => { paint(held, 'is-press', false); held = null; };
+    host.addEventListener('click', go, true);
+    host.addEventListener('mousemove', over);
+    host.addEventListener('mouseleave', out);
+    host.addEventListener('mousedown', down, true);
+    window.addEventListener('mouseup', up, true);
+    return () => {
+      host.removeEventListener('click', go, true);
+      host.removeEventListener('mousemove', over);
+      host.removeEventListener('mouseleave', out);
+      host.removeEventListener('mousedown', down, true);
+      window.removeEventListener('mouseup', up, true);
+      paint(hot, 'is-hot', false);
+      paint(held, 'is-press', false);
+      unlight();
+    };
+  }, [renderTick]);
+
+  // The marks belong to one rendered document — and a paragraph is saved from
+  // the DOM, so they must not be in it when this pane goes away mid-edit.
+  useEffect(() => {
+    const host = hostRef.current;
+    return () => { if (host) clearLawRefs(host); };
+  }, [renderTick]);
 
   // …and again as the late arrivals land: docx-preview positions its tab stops
   // on a timer, and a web font can finish loading after `fonts.ready` resolved
@@ -12784,6 +13251,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
     return () => scroller.removeEventListener('wheel', onWheel);
   }, []);
   const toggleRail = useCallback(() => setShowRail((on) => { savePageRailPref(!on); return !on; }), []);
+  const toggleLawRefs = useCallback(() => setLawRefs((on) => { saveLawRefsPref(!on); return !on; }), []);
   // FIT: a whole page inside the window's height (never wider than the pane).
   // Worked out from the page as it is on screen now: its height at zoom 1 is
   // what it measures ÷ the zoom it is under.
@@ -12879,6 +13347,16 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
         onClick: toggleRail,
       },
       {
+        id: 'law-refs',
+        label: 'Laws',
+        tooltip: lawRefs
+          ? 'Stop marking the acts this document cites (CAEN codes and cross-references stay marked)'
+          : 'Mark every law, ordinance and article this document cites',
+        icon: LawRefsGlyph,
+        pressed: lawRefs,
+        onClick: toggleLawRefs,
+      },
+      {
         id: 'zoom-fit',
         label: 'Fit',
         tooltip: 'Scale the page so all of it fits in the window’s height',
@@ -12953,7 +13431,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
         onClick: () => setPdfAsk(true),
       } : null,
     ].filter(Boolean),
-  }), [themes, docTheme, pickDocTheme, hasTypedEdits, paraOpen, showPageNumbers, canOpenNative, foldState, toggleAllFolds, showRail, toggleRail, fitPage, onExportPdf, pdfBusy, restyle, adv?.focusMode, adv?.toggleFocus]);
+  }), [themes, docTheme, pickDocTheme, hasTypedEdits, paraOpen, showPageNumbers, canOpenNative, foldState, toggleAllFolds, showRail, toggleRail, lawRefs, toggleLawRefs, fitPage, onExportPdf, pdfBusy, restyle, adv?.focusMode, adv?.toggleFocus]);
   useEffect(() => { setDocTools?.(docTools); }, [docTools, setDocTools]);
   useEffect(() => () => setDocTools?.(null), [setDocTools]);
 
@@ -13047,8 +13525,9 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
           clause it rewrites are then one thing to look at, and the dock rides
           the camera with the paragraph. The side panel's slot collapses when
           nothing is portalled into it (`.dv-advisor-ctorslot:empty`). */}
-      {ctorHit && ctor && (
+      {((ctorHit && ctor) || paraLawRefs.length > 0) && (
         <div className="dv-docx-liftpanel" ref={setLiftPanel}>
+          {ctorHit && ctor && (
           <DocParagraphConstructor
             model={ctor.model}
             section={ctorHit.section}
@@ -13066,6 +13545,8 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
             originalHtml={liveSnapRef.current?.el?.innerHTML || ''}
             onCreateIdentity={ctor.createIdentity}
           />
+          )}
+          <ParaLawRefs hits={paraLawRefs} />
         </div>
       )}
       <ConvertModal
@@ -13096,7 +13577,22 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
           zoom pill — neither of which can act on it — are taken away rather
           than left standing greyed out. Both come back when it is closed; the
           list keeps the thumbnails it has already made. */}
-      {!renderErr && <DocPageRail hostRef={hostRef} tick={renderTick} themeId={docTheme} locked={paras.length > 0} hidden={!showRail || paras.length > 0} />}
+      {/* Focus counts as "the list is off". It is hidden rather than
+          display:none'd, because `is-hidden` is what the rest of the layout
+          reads: the CSS that reserves the document's left inset asks
+          `:has(> .dv-pagerail-card:not(.is-hidden))`, so a list merely made
+          invisible would still have its 126px strip held open for it and the
+          page would sit off-centre in the one mode that is all about the
+          page. */}
+      {!renderErr && (
+        <DocPageRail
+          hostRef={hostRef}
+          tick={renderTick}
+          themeId={docTheme}
+          locked={paras.length > 0}
+          hidden={!showRail || paras.length > 0 || !!adv?.focusMode}
+        />
+      )}
       {!renderErr && paras.length === 0 && (
         <DocZoomPill
           zoom={userZoom}
@@ -14763,6 +15259,9 @@ function IdentityAutofillModal({ open, onClose, record, onFilled, mode: modeId =
 // taken from. Which fields go in which section, per kind; a field the model
 // gains later and nobody files here lands in the last section rather than
 // vanishing.
+// Every field that holds a telephone number, so all of them get the prefix +
+// grouping control rather than only the first one to have existed.
+const PHONE_KEYS = new Set(['phone', 'phoneLandline', 'fax']);
 const IDENTITY_SECTIONS = {
   person: [
     { title: 'Identification', keys: ['firstName', 'lastName', 'nationalId', 'dateOfBirth', 'placeOfBirth', 'nationality', 'gender', 'idType', 'idSeries', 'idNumber', 'idIssuer', 'idIssuedAt'] },
@@ -14770,10 +15269,18 @@ const IDENTITY_SECTIONS = {
   ],
   org: [
     { title: 'Registration', keys: ['legalName', 'legalForm', 'taxId', 'regNo'] },
-    { title: 'Representation', keys: ['representative', 'repCapacity'] },
-    { title: 'Registered office & bank', keys: ['address', 'city', 'county', 'iban', 'bank', 'email', 'phone'] },
+    { title: 'Registered office & bank', keys: ['address', 'city', 'county', 'iban', 'bank'] },
+    { title: 'Contact', keys: ['email', 'phone', 'phoneLandline', 'fax', 'website'] },
   ],
 };
+// Fields the FORM no longer shows, because another part of the record owns
+// them. "Represented by" / "Acting as" were two lone rows saying what the
+// people table now says properly — with that person's capacity, their CNP,
+// their share and the record they point at — so the record asked for one fact
+// twice and let the two answers disagree. The KEYS stay (a clause still fills
+// `[[vanzator.representative]]`): `settleRepresentative` in lib/identities
+// keeps them in step with whoever the table names as running the firm.
+const IDENTITY_HIDDEN_KEYS = new Set(['representative', 'repCapacity']);
 // The kinds of record the design lays out. Only a person and an organisation
 // exist in the record format today (lib/identities.js — the field set, the
 // splitters and the clause transforms are built for parties); the rest are shown
@@ -15161,6 +15668,202 @@ function RecordPhoneField({ value, label, onChange }) {
   );
 }
 
+// ── The people behind a firm ─────────────────────────────────────────────
+// An organisation's record gains a table of the people in it — the associates
+// and shareholders with their cota and the value of their shares, the
+// administrator, a censor. It is the table an act constitutiv or a trade
+// register extract states, and the one a lawyer copies out by hand today.
+//
+// A row is EITHER a pointer at another record in this project (the party has a
+// record of their own; `link` holds its filename, the row can open it, and
+// their details stay in one place) OR typed in here. Both live in one list
+// because a shareholder table mixes them: of two associates, one may be a party
+// with a record in the case and the other only ever a line in this table.
+//
+// Amounts are kept AS TYPED — "30.000" is how a Romanian document writes thirty
+// thousand lei, and rounding that through a float is how a capital figure goes
+// wrong. Only the percentages are read as numbers, and only to total them.
+function IdentityPeopleSection({ people, records, readings, checks, setChecks, onChange, onOpen }) {
+  const rows = people || [];
+  const patch = (id, next) => onChange((list) => list.map((p) => (p.id === id ? { ...p, ...next } : p)));
+  const remove = (id) => onChange((list) => list.filter((p) => p.id !== id));
+
+  const roleRows = useCallback((query) => {
+    const q = query.trim().toLowerCase();
+    return IDENTITY_PERSON_ROLES
+      .filter((r) => !q || r.toLowerCase().includes(q))
+      .map((r) => ({ key: r, value: r, label: r }));
+  }, []);
+  // The project's own records, to point a row at one.
+  const linkRows = useCallback((query) => {
+    const q = query.trim().toLowerCase();
+    const list = (records || [])
+      .filter((r) => r._fileName)
+      .filter((r) => !q || `${r.name || ''} ${r.legalName || ''} ${r.nationalId || ''} ${r.taxId || ''}`.toLowerCase().includes(q))
+      .map((r) => ({
+        key: r._fileName,
+        value: r._fileName,
+        label: r.name || r.legalName || r._fileName,
+        record: r,
+      }));
+    return q ? list : [{ key: '__none', value: '', label: 'Not linked — typed in here' }, ...list];
+  }, [records]);
+  // Pointing a row at a record fills what the table shows FROM that record, so
+  // the two never disagree on screen. The values stay editable: a shareholder
+  // table sometimes states a party as they were on the day it was signed.
+  const link = (person, row) => {
+    const rec = row?.record;
+    if (!rec) { patch(person.id, { link: '' }); return; }
+    patch(person.id, {
+      link: row.value,
+      name: rec.name || rec.legalName || person.name,
+      nationalId: rec.kind === 'org'
+        ? (rec.taxId || rec.regNo || person.nationalId)
+        : (rec.nationalId || person.nationalId),
+    });
+  };
+
+  // The percentages, totalled. A shareholder table that does not add up to 100
+  // is either incomplete or wrong, and saying so is the whole value of having
+  // the column — but only once there is something to total.
+  const pcts = rows.map((r) => sharePctValue(r.sharePct)).filter((n) => n != null);
+  const total = pcts.reduce((a, b) => a + b, 0);
+  const off = Math.abs(total - 100) > 0.01;
+  const totalNote = pcts.length
+    ? (off ? `${String(Math.round(total * 100) / 100).replace('.', ',')}% of the capital accounted for` : '100% accounted for')
+    : '';
+
+  return (
+    <section className="dvr-sec dvr-people">
+      <header className="dvr-sec-head">
+        <span className="dvr-sec-title">People in the firm</span>
+        <span className="dvr-sec-sub">Associates, shareholders and officers — point a row at a record in this project, or type it in</span>
+        <span className="dvr-sec-meta">{rows.length ? `${rows.length} ${rows.length === 1 ? 'person' : 'people'}` : ''}</span>
+      </header>
+      <div className="dvr-ppl">
+        <div className="dvr-ppl-head" aria-hidden="true">
+          <span>Person</span><span>Role</span><span>CNP / CUI</span><span>Share (%)</span><span>Value (lei)</span><span>Shares</span><span />
+        </div>
+        {rows.map((person) => (
+          <div className="dvr-ppl-row" key={person.id}>
+            <div className="dvr-ppl-person">
+              <RecordComboPicker
+                className={`dvr-ppl-link${person.link ? ' is-linked' : ''}`}
+                ariaLabel="Link this person to a record in the project"
+                tooltip={person.link ? `Linked to ${person.link}` : 'Link to a record in this project'}
+                current={person.link || ''}
+                rows={linkRows}
+                onPick={(row) => link(person, row)}
+                width={300}
+                searchPlaceholder="Search this project’s records"
+                emptyText="No record in this project matches."
+              >
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M10 13a5 5 0 0 0 7.1 0l2.9-2.9a5 5 0 0 0-7.1-7.1L11.5 4.3M14 11a5 5 0 0 0-7.1 0L4 13.9a5 5 0 0 0 7.1 7.1l1.3-1.3" />
+                </svg>
+              </RecordComboPicker>
+              <input
+                className={`dvr-input${person.name ? '' : ' is-blank'}`}
+                value={person.name}
+                placeholder="Name"
+                aria-label="Name"
+                onChange={(e) => patch(person.id, { name: e.target.value })}
+              />
+              {person.link && (
+                <Tooltip content={`Open ${person.link}`}>
+                  <button type="button" className="dvr-ppl-open" aria-label={`Open ${person.link}`} onClick={() => onOpen?.(person.link)}>
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M14 4h6v6M20 4l-8.5 8.5M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+                    </svg>
+                  </button>
+                </Tooltip>
+              )}
+            </div>
+            <RecordComboPicker
+              className={`dvr-input dvr-pick${person.role ? '' : ' is-blank'}`}
+              ariaLabel="Role in the firm"
+              current={person.role || ''}
+              rows={roleRows}
+              onPick={(row) => patch(person.id, { role: row.value })}
+              width={240}
+              searchPlaceholder="Search a role"
+              emptyText="No role matches."
+            >
+              <span className="dvr-pick-text">{person.role || '—'}</span>
+            </RecordComboPicker>
+            <input
+              className={`dvr-input${person.nationalId ? '' : ' is-blank'}`}
+              value={person.nationalId}
+              placeholder="—"
+              aria-label="CNP or CUI"
+              onChange={(e) => patch(person.id, { nationalId: e.target.value })}
+            />
+            <input
+              className={`dvr-input dvr-num${person.sharePct ? '' : ' is-blank'}`}
+              value={person.sharePct}
+              placeholder="—"
+              aria-label="Share of the capital, per cent"
+              inputMode="decimal"
+              onChange={(e) => patch(person.id, { sharePct: e.target.value })}
+            />
+            <input
+              className={`dvr-input dvr-num${person.shareValue ? '' : ' is-blank'}`}
+              value={person.shareValue}
+              placeholder="—"
+              aria-label="Value of the shares, in lei"
+              inputMode="decimal"
+              onChange={(e) => patch(person.id, { shareValue: e.target.value })}
+            />
+            <input
+              className={`dvr-input dvr-num${person.shares ? '' : ' is-blank'}`}
+              value={person.shares}
+              placeholder="—"
+              aria-label="Number of shares"
+              inputMode="numeric"
+              onChange={(e) => patch(person.id, { shares: e.target.value })}
+            />
+            <button type="button" className="dvr-custom-remove" aria-label="Remove this person" onClick={() => remove(person.id)}>
+              <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+            </button>
+          </div>
+        ))}
+        {/* What a document said about the firm's people, waiting to be judged —
+            the same rule as every other reading: nothing reaches the record
+            until it is ticked and filled in. */}
+        {(readings || []).map((person, i) => (
+          <label className={`dvr-pickrow dvr-ppl-read${checks[`people:${i}`] ? ' is-checked' : ''}`} key={`read-${person.id || i}`}>
+            <input
+              type="checkbox"
+              className="dvr-check"
+              checked={!!checks[`people:${i}`]}
+              onChange={(e) => setChecks((c) => ({ ...c, [`people:${i}`]: e.target.checked }))}
+            />
+            <span className="dvr-pickrow-value">
+              <strong>{person.name || 'Unnamed'}</strong>
+              {person.role ? ` · ${person.role}` : ''}
+              {person.nationalId ? ` · ${person.nationalId}` : ''}
+              {person.sharePct ? ` · ${person.sharePct}%` : ''}
+              {person.shareValue ? ` · ${person.shareValue} lei` : ''}
+            </span>
+          </label>
+        ))}
+        <div className="dvr-ppl-foot">
+          <button type="button" className="dvr-custom-add" onClick={() => onChange((list) => [...list, emptyPerson()])}>
+            <span className="dvr-custom-plus" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+            </span>
+            <span className="dvr-custom-addtext">
+              <span>Add a person</span>
+              <span>Link a record in this project, or type the details</span>
+            </span>
+          </button>
+          {totalNote && <span className={`dvr-ppl-total${off ? ' is-off' : ''}`}>{totalNote}</span>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function IdentityPane({ file, onRenamed }) {
   const { selectedProject } = useSelectedProject();
   const panelAdv = useMultitoolAdvisor();
@@ -15189,6 +15892,22 @@ function IdentityPane({ file, onRenamed }) {
     })();
     return () => { cancelled = true; };
   }, [file.url]);
+
+  // The project's other records, so a person in the firm can point at one.
+  // Only an organisation has the table, so nothing is listed for a person.
+  const [projectRecords, setProjectRecords] = useState([]);
+  const loadIdentities = panelAdv?.loadIdentities;
+  const isOrg = record?.kind === 'org';
+  useEffect(() => {
+    if (!isOrg || !loadIdentities) { setProjectRecords([]); return undefined; }
+    let cancelled = false;
+    loadIdentities().then((list) => {
+      if (cancelled) return;
+      // A record can't be a person in its own firm.
+      setProjectRecords((list || []).filter((r) => r._path !== file.path));
+    }).catch(() => { /* the table still works typed in */ });
+    return () => { cancelled = true; };
+  }, [isOrg, loadIdentities, file.path]);
 
   // Fill-from-a-picture drawer.
   const [autofillOpen, setAutofillOpen] = useState(false);
@@ -15236,16 +15955,47 @@ function IdentityPane({ file, onRenamed }) {
     }), 700);
   }, []);
   // Fill in what is ticked — and only that.
+  // Held in a ref so the published panel object can call it without listing it
+  // as a dependency (the object is memoised; re-publishing re-renders the pane).
+  const fillCheckedRef = useRef(null);
   const fillChecked = useCallback(() => {
     if (!suggest) return;
     const fields = Object.fromEntries(Object.entries(suggest.fields).filter(([k]) => checks[k]));
-    if (!Object.keys(fields).length) return;
-    setRecord((r) => acceptInto(r, fields, suggest.source));
+    // The firm's people are a list, not fields: the ticked ones are APPENDED to
+    // the table. Matched on who they are (the national id, else the name) so
+    // reading the same document twice doesn't put anybody in twice — a second
+    // reading updates the row it already has instead.
+    const people = (suggest.people || []).filter((_, i) => checks[`people:${i}`]);
+    if (!Object.keys(fields).length && !people.length) return;
+    setRecord((r) => {
+      let next = acceptInto(r, fields, suggest.source);
+      if (people.length) {
+        const list = [...(next.people || [])];
+        const keyOf = (x) => (x.nationalId || x.name || '').trim().toLowerCase();
+        for (const person of people) {
+          const at = list.findIndex((x) => keyOf(x) && keyOf(x) === keyOf(person));
+          if (at >= 0) list[at] = { ...list[at], ...person, id: list[at].id, link: list[at].link };
+          else list.push(person);
+        }
+        next = { ...next, people: list };
+      }
+      const takenContacts = (suggest.contacts || []).filter((_, i) => checks[`contact:${i}`]);
+      if (takenContacts.length) {
+        const have = new Set((next.contacts || []).map((c) => String(c.value || '').trim().toLowerCase()));
+        next = {
+          ...next,
+          contacts: [...(next.contacts || []), ...takenContacts.filter((c) => !have.has(c.value.trim().toLowerCase()))],
+        };
+      }
+      return next;
+    });
     flashRows(Object.keys(fields));
     setSuggest(null);
     setChecks({});
+    setSelected([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggest, checks, flashRows]);
+  fillCheckedRef.current = fillChecked;
 
   // ── Source documents ───────────────────────────────────────────────────
   // Importing (the picker modal, or a drop on the Sources tab's zone) only
@@ -15262,6 +16012,12 @@ function IdentityPane({ file, onRenamed }) {
   // and `sourceLinks` says where each one is, relative to the record. A file
   // imported FROM THE COMPUTER is copied into the project beside the record
   // first — otherwise it would exist only in this window.
+  // Which source documents are SELECTED in the Sources tab. Selection is what
+  // decides whose readings the record offers: one tile shows what that document
+  // said, several merge (the first selected wins a field two of them read), and
+  // none shows nothing. Reading itself no longer waits for a click — see the
+  // auto-scan effect below.
+  const [selected, setSelected] = useState([]);
   const [attached, setAttached] = useState({});
   const attachedRef = useRef(attached);
   attachedRef.current = attached;
@@ -15356,7 +16112,7 @@ function IdentityPane({ file, onRenamed }) {
     return `${file.path.slice(0, file.path.lastIndexOf(sep))}${sep}${name}`;
   }, [file.path]);
 
-  const showReadings = useCallback((name, fields) => {
+  const showReadings = useCallback((name, fields, people = [], contacts = []) => {
     const rec = recordRef.current || {};
     const known = new Set(fieldsFor(rec.kind || 'person').map((f) => f.key));
     // A reader that gave a person's full name but not its parts: read them out
@@ -15368,26 +16124,54 @@ function IdentityPane({ file, onRenamed }) {
     if (read.nationality) read.nationality = normalizeNationality(read.nationality) || read.nationality;
     const differing = Object.fromEntries(Object.entries(read)
       .filter(([k, v]) => known.has(k) && String(rec[k] ?? '').trim() !== v));
-    if (!Object.keys(differing).length) {
+    // The firm's people: only the ones that would CHANGE the table — somebody
+    // already in it, stated the same way, is not news.
+    const same = (a, b) => (a.nationalId && a.nationalId === b.nationalId)
+      || (!!a.name && a.name.trim().toLowerCase() === String(b.name || '').trim().toLowerCase());
+    const here = rec.people || [];
+    const newPeople = (people || []).filter((x) => {
+      const mine = here.find((y) => same(x, y));
+      if (!mine) return true;
+      return ['role', 'nationalId', 'sharePct', 'shareValue', 'shares']
+        .some((k) => x[k] && String(mine[k] || '') !== x[k]);
+    });
+    // The other ways to reach them: only the ones the record does not already
+    // hold, matched on the VALUE — the same address labelled two ways is one
+    // address.
+    const haveContacts = new Set([
+      ...(rec.contacts || []).map((c) => String(c.value || '').trim().toLowerCase()),
+      ...['email', 'phone', 'phoneLandline', 'fax', 'website'].map((k) => String(rec[k] || '').trim().toLowerCase()),
+    ].filter(Boolean));
+    const newContacts = (contacts || []).filter((c) => c.value && !haveContacts.has(c.value.trim().toLowerCase()));
+    if (!Object.keys(differing).length && !newPeople.length && !newContacts.length) {
       setSuggest(null); setChecks({});
       setScanNote({ tone: 'ok', text: `Nothing new in ${name} — everything it says is already in the record.` });
       return;
     }
     setScanNote(null);
-    setSuggest({ fields: differing, source: name });
+    setSuggest({ fields: differing, people: newPeople, contacts: newContacts, source: name });
     // Ticked where the field is empty; a reading that would REPLACE something
     // already there starts unticked — overwriting is a decision, not a default.
-    setChecks(Object.fromEntries(Object.keys(differing).map((k) => [k, !String(rec[k] ?? '').trim()])));
+    // A person the table does not have yet is new, so it starts ticked.
+    setChecks({
+      ...Object.fromEntries(Object.keys(differing).map((k) => [k, !String(rec[k] ?? '').trim()])),
+      ...Object.fromEntries(newPeople.map((x, i) => [`people:${i}`, !here.some((y) => same(x, y))])),
+      ...Object.fromEntries(newContacts.map((_, i) => [`contact:${i}`, true])),
+    });
   }, []);
 
-  const readSource = useCallback(async (name) => {
+  // Read one document. `show` is false for the automatic pass: the reading is
+  // stored on the document and nothing on screen moves — what is SHOWN is
+  // whatever is selected (see the effect below), so a scan finishing in the
+  // background can never pull the sheet out from under the reader.
+  const readSource = useCallback(async (name, { show = true } = {}) => {
     const entry = attachedRef.current[name] || { name, path: pathBeside(name), blob: null };
     if (entry.status === 'reading') return;
-    if (entry.fields) { showReadings(name, entry.fields); return; }
+    if (entry.fields) { if (show) showReadings(name, entry.fields, entry.people || [], entry.contacts || []); return; }
     const mark = (patch) => setAttached((cur) => ({ ...cur, [name]: { ...(cur[name] || entry), ...patch } }));
     const rec = recordRef.current;
     mark({ status: 'reading' });
-    setScanNote(null); setSuggest(null); setChecks({});
+    if (show) { setScanNote(null); setSuggest(null); setChecks({}); }
     setScan({ name, step: 'Opening', pct: 8 });
     try {
       const blob = entry.blob || (entry.path ? await readLocalBlob(entry.path) : null);
@@ -15405,19 +16189,74 @@ function IdentityPane({ file, onRenamed }) {
       });
       if (res.error) {
         mark({ status: 'error' });
-        setScanNote({ tone: 'error', text: (res.error === 'ocr_failed' && res.detail) || AUTOFILL_ERRORS[res.error] || AUTOFILL_ERRORS.ocr_failed });
+        if (show) setScanNote({ tone: 'error', text: (res.error === 'ocr_failed' && res.detail) || AUTOFILL_ERRORS[res.error] || AUTOFILL_ERRORS.ocr_failed });
         return;
       }
-      mark({ status: 'read', fields: res.fields || {} });
-      showReadings(name, res.fields || {});
-      if (res.cached) setScanNote({ tone: 'info', text: `${name} had already been read — this is what was saved for it. Use Recapture in the Data tab to read it again.` });
+      mark({ status: 'read', fields: res.fields || {}, people: res.people || [], contacts: res.contacts || [] });
+      if (show) showReadings(name, res.fields || {}, res.people || [], res.contacts || []);
+      if (show && res.cached) setScanNote({ tone: 'info', text: `${name} had already been read — this is what was saved for it. Use Recapture in the Data tab to read it again.` });
     } catch {
       mark({ status: 'error' });
-      setScanNote({ tone: 'error', text: AUTOFILL_ERRORS.ocr_failed });
+      if (show) setScanNote({ tone: 'error', text: AUTOFILL_ERRORS.ocr_failed });
     } finally {
       setScan(null);
     }
   }, [pathBeside, showReadings, selectedProject?.id]);
+
+  // ── The automatic pass ─────────────────────────────────────────────────
+  // Every document attached to this record is read WITHOUT being asked to be:
+  // a source is attached in order to be read, and making that a second click
+  // only meant a reader looking at a list of files the app had already been
+  // told to look at. One at a time (each read is an OCR pass and, for a file
+  // with nothing saved, an API call), never twice for the same document, and
+  // never again for one that failed — a retry is what clicking it is for.
+  const scannedRef = useRef(new Set());
+  const sourceNames = useMemo(
+    () => Array.from(new Set([...(record?.sources || []), ...(record?.pending || []), ...Object.keys(attached)])),
+    [record?.sources, record?.pending, attached],
+  );
+  useEffect(() => {
+    if (!record) return;
+    if (Object.values(attached).some((a) => a.status === 'reading')) return;   // one at a time
+    const next = sourceNames.find((n) => !scannedRef.current.has(n) && !attached[n]?.fields && attached[n]?.status !== 'error');
+    if (!next) return;
+    scannedRef.current.add(next);
+    readSource(next, { show: false });
+  }, [record, sourceNames, attached, readSource]);
+  // A different record is a different set of documents.
+  useEffect(() => { scannedRef.current = new Set(); setSelected([]); }, [file.url]);
+
+  // ── What the selected documents said ───────────────────────────────────
+  // The readings on screen follow the SELECTION, not the last scan to finish.
+  // Selecting several merges them, earliest selection first: where two
+  // documents read the same field differently, the one picked first is the one
+  // being trusted, and the other is visible beside it in its own tile.
+  const readingsKey = sourceNames.map((n) => `${n}:${attached[n]?.fields ? Object.keys(attached[n].fields).length : 0}`).join('|');
+  useEffect(() => {
+    if (!record) return;
+    const chosen = selected.filter((n) => attachedRef.current[n]?.fields);
+    if (!chosen.length) { setSuggest(null); setChecks({}); return; }
+    const fields = {};
+    const people = [];
+    const contacts = [];
+    for (const name of chosen) {
+      const entry = attachedRef.current[name];
+      for (const [k, v] of Object.entries(entry.fields || {})) if (v && !fields[k]) fields[k] = v;
+      for (const person of entry.people || []) people.push(person);
+      for (const contact of entry.contacts || []) contacts.push(contact);
+    }
+    showReadings(chosen.join(', '), fields, people, contacts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, readingsKey, record?.kind, showReadings]);
+
+  // The record a person in the firm points at. Its FILENAME is what the row
+  // stores (a path is this machine's), so it is resolved against the project's
+  // records first and only then looked for beside this one.
+  const openLinkedRecord = useCallback((name) => {
+    const hit = projectRecords.find((r) => r._fileName === name);
+    const path = hit?._path || pathBeside(name);
+    if (path) openDocViewerWindow({ path, name, mime: '' });
+  }, [projectRecords, pathBeside]);
 
   const openSource = useCallback((name) => {
     const path = attachedRef.current[name]?.path || pathBeside(name);
@@ -15462,7 +16301,16 @@ function IdentityPane({ file, onRenamed }) {
     });
     return {
       sources,
-      // Click = read it (once) and show its data under the fields.
+      selected,
+      // Click SELECTS (and ctrl/shift-click adds) — the reading is already
+      // being done, or done, by the automatic pass.
+      select: (name, additive) => setSelected((cur) => {
+        if (!additive) return cur.length === 1 && cur[0] === name ? [] : [name];
+        return cur.includes(name) ? cur.filter((n) => n !== name) : [...cur, name];
+      }),
+      // A document that failed, or one whose reading was thrown away: read it
+      // again by hand.
+      retry: (name) => { scannedRef.current.add(name); dropRef.current?.read(name); },
       pick: (name) => dropRef.current?.read(name),
       open: (name) => dropRef.current?.open(name),
       // Unlink a document from the record. The FILE is not touched, and neither
@@ -15523,6 +16371,11 @@ function IdentityPane({ file, onRenamed }) {
     return next;
   });
   const setCustom = (fn) => setRecord((r) => ({ ...r, custom: fn(r.custom || []) }));
+  // `settleRepresentative` is what replaces the Representation section: the
+  // table is now the one place saying who signs for the firm, and the clause
+  // keys follow it.
+  const setPeople = (fn) => setRecord((r) => settleRepresentative({ ...r, people: fn(r.people || []) }));
+  const setContacts = (fn) => setRecord((r) => ({ ...r, contacts: fn(r.contacts || []) }));
   const dirty = record ? JSON.stringify(record) !== cleanRef.current : false;
   const save = useCallback(async () => {
     if (!record || saving) return;
@@ -15609,7 +16462,10 @@ function IdentityPane({ file, onRenamed }) {
   const fieldByKey = new Map(rows.map((f) => [f.key, f]));
   const layout = IDENTITY_SECTIONS[record.kind] || IDENTITY_SECTIONS.person;
   const filed = new Set(layout.flatMap((sec) => sec.keys));
-  const stray = rows.filter((f) => !filed.has(f.key)).map((f) => f.key);
+  // A field nobody filed lands in the last section rather than vanishing —
+  // unless it is one another surface owns (IDENTITY_HIDDEN_KEYS), which would
+  // otherwise come straight back as a stray at the foot of the form.
+  const stray = rows.filter((f) => !filed.has(f.key) && !IDENTITY_HIDDEN_KEYS.has(f.key)).map((f) => f.key);
   const sections = layout.map((sec, n) => ({
     title: sec.title,
     fields: [...sec.keys, ...(n === layout.length - 1 ? stray : [])].map((k) => fieldByKey.get(k)).filter(Boolean),
@@ -15679,7 +16535,7 @@ function IdentityPane({ file, onRenamed }) {
           >
             <span className="dvr-pick-text">{value || '—'}</span>
           </RecordComboPicker>
-        ) : f.key === 'phone' ? (
+        ) : PHONE_KEYS.has(f.key) ? (
           <RecordPhoneField value={value} label={f.label} onChange={(v) => set(f.key, v)} />
         ) : IDENTITY_DATE_KEYS.includes(f.key) ? (
           <RecordDateField value={value} label={f.label} onChange={(v) => set(f.key, v)} />
@@ -15728,7 +16584,7 @@ function IdentityPane({ file, onRenamed }) {
             ? (v) => IDENTITY_ID_TYPES.find((t) => t.id === v)?.ro || v
             : IDENTITY_DATE_KEYS.includes(f.key)
               ? (v) => normalizeRoDate(v) || v
-              : f.key === 'phone'
+              : PHONE_KEYS.has(f.key)
                 ? (v) => formatPhoneIntl(v) || v
                 : undefined)}
         {/* Which of the two the typed value turned out to be. It decides how the
@@ -15867,14 +16723,94 @@ function IdentityPane({ file, onRenamed }) {
           </div>
         )}
 
-        {sections.map((sec) => (
-          <section className="dvr-sec" key={sec.title}>
-            <header className="dvr-sec-head">
-              <span className="dvr-sec-title">{sec.title}</span>
-            </header>
-            <div className="dvr-grid">{sec.fields.map(renderRow)}</div>
-          </section>
+        {sections.map((sec, n) => (
+          <Fragment key={sec.title}>
+            <section className="dvr-sec">
+              <header className="dvr-sec-head">
+                <span className="dvr-sec-title">{sec.title}</span>
+              </header>
+              <div className="dvr-grid">{sec.fields.map(renderRow)}</div>
+            </section>
+            {/* Who the firm IS, then who stands behind it — ahead of the
+                registered office and the telephone lines. A reader checking a
+                company as a party looks for its associates and its
+                administrator next, not for its fax number. */}
+            {isOrg && n === 0 && (
+              <IdentityPeopleSection
+                people={record.people}
+                records={projectRecords}
+                readings={suggest?.people || []}
+                checks={checks}
+                setChecks={setChecks}
+                onChange={setPeople}
+                onOpen={openLinkedRecord}
+              />
+            )}
+          </Fragment>
         ))}
+
+        {isOrg && (
+          <section className="dvr-sec">
+            <header className="dvr-sec-head">
+              <span className="dvr-sec-title">More ways to reach them</span>
+              <span className="dvr-sec-sub">A department’s address, a second telephone, another fax — each with the wording the document gives it</span>
+              <span className="dvr-sec-meta">
+                {(record.contacts || []).length ? `${record.contacts.length} ${record.contacts.length === 1 ? 'line' : 'lines'}` : ''}
+              </span>
+            </header>
+            <div className="dvr-grid">
+              {(record.contacts || []).map((c) => (
+                <div className="dvr-row dvr-custom" key={c.id}>
+                  <div className="dvr-row-head">
+                    <input
+                      className="dvr-custom-label"
+                      value={c.label}
+                      placeholder="Email departament financiar"
+                      aria-label="What this line is"
+                      onChange={(e) => { const v = e.target.value; setContacts((l) => l.map((x) => (x.id === c.id ? { ...x, label: v } : x))); }}
+                    />
+                    <button type="button" className="dvr-custom-remove" aria-label="Remove this line" onClick={() => setContacts((l) => l.filter((x) => x.id !== c.id))}>
+                      <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                    </button>
+                  </div>
+                  <input
+                    className={`dvr-input${c.value ? '' : ' is-blank'}`}
+                    value={c.value}
+                    placeholder="—"
+                    aria-label="Address or number"
+                    onChange={(e) => { const v = e.target.value; setContacts((l) => l.map((x) => (x.id === c.id ? { ...x, value: v } : x))); }}
+                  />
+                </div>
+              ))}
+              {/* What a document said, waiting to be judged — the same rule as
+                  every other reading. */}
+              {(suggest?.contacts || []).map((c, i) => (
+                <label className={`dvr-pickrow dvr-row is-wide${checks[`contact:${i}`] ? ' is-checked' : ''}`} key={`ck-${c.id || i}`}>
+                  <input
+                    type="checkbox"
+                    className="dvr-check"
+                    checked={!!checks[`contact:${i}`]}
+                    onChange={(e) => setChecks((ch) => ({ ...ch, [`contact:${i}`]: e.target.checked }))}
+                  />
+                  <span className="dvr-pickrow-value"><strong>{c.label || 'Contact'}</strong>{` · ${c.value}`}</span>
+                </label>
+              ))}
+              <button
+                type="button"
+                className="dvr-custom-add"
+                onClick={() => setContacts((l) => [...l, { id: `k_${Date.now().toString(36)}`, label: '', value: '' }])}
+              >
+                <span className="dvr-custom-plus" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                </span>
+                <span className="dvr-custom-addtext">
+                  <span>Add a way to reach them</span>
+                  <span>A label and an address or number</span>
+                </span>
+              </button>
+            </div>
+          </section>
+        )}
 
         {/* Custom entries — a label and a value, saved into the record. */}
         <section className="dvr-sec">
@@ -16633,7 +17569,12 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
   // A one-page file's zoom is scaled so the fitted page reads 100%.
   const pdfShownZoom = singlePdf && pdfFit ? pdfZoom / pdfFit : pdfZoom;
   const resetPdfZoom = useCallback(() => setPdfZoom(singlePdf && pdfFit ? pdfFit : 1), [singlePdf, pdfFit]);
-  const pdfView = useMemo(() => ({ zoom: pdfZoom, rail: pdfRail, fitTick: pdfFitTick, pageNums: pdfPageNums }), [pdfZoom, pdfRail, pdfFitTick, pdfPageNums]);
+  // …and the same for a PDF, whose list is a flex sibling of the pages: in
+  // focus it gives its width back rather than standing there as an empty card.
+  const pdfView = useMemo(
+    () => ({ zoom: pdfZoom, rail: pdfRail && !adv?.focusMode, fitTick: pdfFitTick, pageNums: pdfPageNums }),
+    [pdfZoom, pdfRail, pdfFitTick, pdfPageNums, adv?.focusMode],
+  );
   const pdfActions = useMemo(() => (kind === 'pdf' ? [{
     id: 'page-rail',
     label: 'Pages',
@@ -17646,6 +18587,24 @@ export default function DocViewer() {
     if (crossRef.current) return;
     const next = !focusRef.current;
     focusRef.current = next;
+    // …and everything above is macOS's problem, not everyone's. The staged
+    // crossing exists for ONE reason: macOS animates a window into its
+    // fullscreen space over the best part of a second and does not composite
+    // it while it does, so anything moving at that moment is hidden from the
+    // user anyway and the document is better taken away deliberately than
+    // frozen half-way. Windows has no such animation — the window simply
+    // becomes its new size, in one frame, and on the path this app actually
+    // takes there (`manualFullscreen` in main.js) it is a `setBounds` and
+    // nothing more. There is nothing to cover, so the fade and the wait are
+    // pure latency: half a second of a blank pane before a change that had
+    // already happened. Worse, the settle below waits on a fullscreen event
+    // that the manual path never fires, so the document sat out the whole
+    // three-second cap. So: straight there.
+    if (!isMac) {
+      setFocusMode(next);
+      goFullscreen(next);
+      return;
+    }
     setFocusMoving(true);
     crossRef.current = window.setTimeout(() => {
       crossRef.current = 0;
@@ -18325,6 +19284,7 @@ export default function DocViewer() {
 export const QUICK_ACTIONS_ALL = [
   { id: 'page-rail', label: 'Pages', icon: PagesRailGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
   { id: 'zoom-fit', label: 'Fit', icon: FitViewGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
+  { id: 'law-refs', label: 'Laws', icon: LawRefsGlyph, why: 'Only for Word files' },
   { id: 'edit-photo', label: 'Edit', icon: EditPhotoGlyph, why: 'Only for pictures' },
   { id: 'extract-text', label: 'Extract text', icon: ExtractTextGlyph, why: 'Only for pictures' },
   { id: 'pagenums', label: 'Counters', icon: PageNumbersGlyph, why: 'Only for documents with pages — a Word file or a PDF' },

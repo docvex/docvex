@@ -410,6 +410,52 @@ export function onFilesChanged(cb) {
 
 // Extract readable text from a legacy .doc file (parsed in the Electron main
 // process). Resolves { text } or { error }; { error:'unsupported' } on web.
+// ── The national legislation portal ───────────────────────────────
+// Every one of these goes through main: the portal's web service sends no CORS
+// headers, and the archive is a folder on disk.
+//
+// Each one answers, never throws. Two things can leave the channel missing, and
+// neither is an error the page should show as a crash: the WEB build has no
+// bridge at all, and in DEVELOPMENT the renderer is hot-reloaded on every save
+// while main is only rebuilt when Electron restarts — so a window can be newer
+// than the process it is talking to, and `invoke` on a handler that does not
+// exist yet REJECTS. Answered as "unreachable" instead, the Legislation tab
+// does exactly what it does when the ministry's server is down: falls back to
+// this machine's copy and says so. (`goFullscreen` guards the same way, for the
+// same reason.)
+const legisCall = async (method, arg, fallback) => {
+  const fn = electronAPI?.[method];
+  if (!fn) return fallback;
+  try {
+    const res = await fn(arg);
+    return res ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+const LEGIS_DOWN = { ok: false, error: 'unreachable' };
+
+export function legislationSearch(query) {
+  return legisCall('legislationSearch', query, LEGIS_DOWN);
+}
+export function legislationArchivePut(payload) {
+  return legisCall('legislationArchivePut', payload, LEGIS_DOWN);
+}
+export function legislationArchiveList() {
+  // An archive that cannot be read is an EMPTY one, not a failure: the tab can
+  // still search the portal, and saying "0 kept here" is the truth.
+  return legisCall('legislationArchiveList', undefined, { ok: true, acts: [], bytes: 0 });
+}
+export function legislationArchiveGet(id) {
+  return legisCall('legislationArchiveGet', id, { ok: false, error: 'not_kept' });
+}
+export function legislationArchiveRemove(id) {
+  return legisCall('legislationArchiveRemove', id, LEGIS_DOWN);
+}
+export function legislationArchiveClear() {
+  return legisCall('legislationArchiveClear', undefined, LEGIS_DOWN);
+}
+
 export function extractDocText(filePath) {
   return electronAPI?.extractDocText ? electronAPI.extractDocText(filePath) : Promise.resolve({ error: 'unsupported' });
 }

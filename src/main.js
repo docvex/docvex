@@ -320,6 +320,11 @@ function readWindowState(role = 'main') {
 
 function saveWindowState(win, role = 'main') {
   if (!win || win.isDestroyed()) return;
+  // A window standing at presentation size on Windows is not at a size anybody
+  // chose — `getNormalBounds()` reports the whole monitor there, because the
+  // window is genuinely un-maximized and genuinely that big (see
+  // `manualFullscreen`). Recording it would reopen the app filling the screen.
+  if (manualFullscreen.has(win.id)) return;
   try {
     // getNormalBounds() is the restored (non-maximized) rect, so we can reopen
     // at the user's chosen size even when they quit while maximized.
@@ -572,6 +577,12 @@ function createAppWindow({ query, openDevtools = false, bounds = null, show = tr
   // macOS fullscreen hides the traffic-light buttons, so the renderer drops the
   // brand's left inset that normally clears them (is-fullscreen CSS).
   const sendFullscreenState = () => {
+    // Not while the window is being moved between the two kinds of fullscreen
+    // on Windows (`hushFullscreen`): taking a fullscreen the window never
+    // visibly entered back off it fires `leave-full-screen`, and the Doc
+    // Viewer reads that as the user leaving Focus — so Focus would switch
+    // itself off in the same breath as it was switched on.
+    if (hushFullscreen.has(win.id)) return;
     if (!win.isDestroyed()) {
       win.webContents.send('window:fullscreen-changed', win.isFullScreen());
     }
@@ -2061,6 +2072,54 @@ ipcMain.handle('window:is-fullscreen', (e) => {
 // so reading `isFullScreen()` on the next line reports the state it is still
 // leaving, and a caller that believed it would think fullscreen had failed. The
 // state itself already has a channel of its own: `window:fullscreen-changed`.
+// ── Presentation fullscreen, and why Windows needs its own ───────────────
+// `setFullScreen` is the right call, and on macOS it is the whole story: the
+// window is given a real fullscreen space and the OS animates it there.
+//
+// On Windows it does not always take. Every window in this app is FRAMELESS
+// (`frame: false` in createAppWindow) — there is no OS frame to strip — and a
+// frameless window can accept the call and then sit exactly where it was,
+// which is what made the Doc Viewer's Focus button look dead there while
+// working on a Mac. So on Windows the RESULT is checked rather than assumed,
+// and when the window did not actually grow, it is taken to presentation size
+// by hand: its rect is remembered, it is un-maximized, sized to the WHOLE
+// monitor — `display.bounds`, not `workArea`, which is what puts it over the
+// taskbar — and lifted above the shell. Leaving puts all three back.
+//
+// macOS is left untouched by all of it: there the call is the answer, and
+// measuring anything at that moment would only measure the animation.
+const manualFullscreen = new Map(); // win.id → { bounds, maximized }
+// Windows a fullscreen event is not to be reported for, because the app is
+// mid-way through swapping one kind of fullscreen for the other.
+const hushFullscreen = new Set();
+
+function fillsItsDisplay(win) {
+  const b = win.getBounds();
+  const d = screen.getDisplayMatching(b).bounds;
+  // A couple of pixels of slack: Windows reports a window it has just resized
+  // a hair off now and then.
+  return Math.abs(b.width - d.width) <= 2 && Math.abs(b.height - d.height) <= 2;
+}
+
+function enterManualFullscreen(win) {
+  if (manualFullscreen.has(win.id)) return;
+  manualFullscreen.set(win.id, { bounds: win.getBounds(), maximized: win.isMaximized() });
+  win.once('closed', () => manualFullscreen.delete(win.id));
+  // Un-maximize FIRST: a maximized window ignores setBounds.
+  if (win.isMaximized()) win.unmaximize();
+  win.setBounds(screen.getDisplayMatching(win.getBounds()).bounds);
+  win.setAlwaysOnTop(true, 'screen-saver');
+}
+
+function leaveManualFullscreen(win) {
+  const was = manualFullscreen.get(win.id);
+  if (!was) return;
+  manualFullscreen.delete(win.id);
+  win.setAlwaysOnTop(false);
+  win.setBounds(was.bounds);
+  if (was.maximized) win.maximize();
+}
+
 ipcMain.handle('window:set-fullscreen', (e, on) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w || w.isDestroyed()) return false;
@@ -2068,7 +2127,26 @@ ipcMain.handle('window:set-fullscreen', (e, on) => {
   // to go fullscreen would throw on macOS.
   if (!w.isFullScreenable()) return false;
   try {
+    // Whichever way it got big, this is the way back down.
+    if (!on) leaveManualFullscreen(w);
     w.setFullScreen(!!on);
+    if (process.platform !== 'win32' || !on) return true;
+    // Windows answers in its own time, so it is given a beat before the call is
+    // declared to have done nothing.
+    setTimeout(() => {
+      // The BOUNDS are the test, not `isFullScreen()`: Electron can believe a
+      // frameless window is fullscreen while it has not moved a pixel, which is
+      // exactly the case this exists for.
+      if (w.isDestroyed() || fillsItsDisplay(w)) return;
+      if (w.isFullScreen()) {
+        // Take that belief off it first, or `setBounds` is ignored — quietly,
+        // so the renderer does not read it as the user leaving Focus.
+        hushFullscreen.add(w.id);
+        w.setFullScreen(false);
+        setTimeout(() => hushFullscreen.delete(w.id), 300);
+      }
+      enterManualFullscreen(w);
+    }, 150);
     return true;
   } catch {
     return false;
@@ -4119,21 +4197,60 @@ app.whenReady().then(() => {
 
   // Per-extension verdict on whether this machine has a thumbnail provider at
   // all. Without it, a PC with no Office installed re-asks the shell for every
-  // .docx in every folder, and the renderer logs a 415 for each. Only counted
+  // .docx in every folder, and every one of them misses. Only counted
   // from genuine "the provider returned nothing" results — a blocked path is
   // rejected long before it reaches here — and a couple of failures with zero
   // successes is what marks a format unsupported (so one corrupt file can't).
-  const thumbExtStats = new Map();   // ext → { ok, fail }
+  //
+  // PERSISTED to userData, because the verdict is a property of the MACHINE
+  // (which shell providers are installed), not of the session: kept in memory
+  // only, every launch re-learned it from scratch and paid a failed shell call
+  // — and a red console line — for the first files of each format all over
+  // again. Re-probed after THUMB_VERDICT_TTL_MS so installing Office or a PDF
+  // viewer starts producing thumbnails without anyone clearing a cache.
+  const thumbExtStats = new Map();   // ext → { ok, fail, at }
+  const THUMB_VERDICT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+  const thumbStatsFile = () => path.join(app.getPath('userData'), 'thumb-support.json');
+  let thumbStatsTimer = null;
+
+  (async () => {
+    try {
+      const raw = JSON.parse(await fsp.readFile(thumbStatsFile(), 'utf8'));
+      const now = Date.now();
+      for (const [ext, s] of Object.entries(raw || {})) {
+        if (!s || typeof s !== 'object') continue;
+        if (!Number.isFinite(s.at) || now - s.at > THUMB_VERDICT_TTL_MS) continue;
+        thumbExtStats.set(ext, { ok: s.ok | 0, fail: s.fail | 0, at: s.at });
+      }
+    } catch { /* first launch or a corrupt file — relearn from scratch */ }
+  })();
+
+  function saveThumbStats() {
+    if (thumbStatsTimer) return;
+    thumbStatsTimer = setTimeout(async () => {
+      thumbStatsTimer = null;
+      try {
+        await fsp.mkdir(path.dirname(thumbStatsFile()), { recursive: true });
+        await fsp.writeFile(thumbStatsFile(), JSON.stringify(Object.fromEntries(thumbExtStats)));
+      } catch { /* best-effort — the verdict is relearned next launch */ }
+    }, 2000);
+    thumbStatsTimer.unref?.();
+  }
+
   function noteExtResult(ext, ok) {
     if (!ext) return;
-    const s = thumbExtStats.get(ext) || { ok: 0, fail: 0 };
+    const s = thumbExtStats.get(ext) || { ok: 0, fail: 0, at: 0 };
     if (ok) s.ok += 1; else s.fail += 1;
+    s.at = Date.now();
     thumbExtStats.set(ext, s);
+    saveThumbStats();
+  }
+  function extUnsupported(ext) {
+    const s = ext ? thumbExtStats.get(ext) : null;
+    return Boolean(s && s.ok === 0 && s.fail >= 2);
   }
   ipcMain.handle('thumb:unsupported-exts', () => (
-    [...thumbExtStats.entries()]
-      .filter(([, s]) => s.ok === 0 && s.fail >= 2)
-      .map(([ext]) => ext)
+    [...thumbExtStats.keys()].filter(extUnsupported)
   ));
 
   // Returns { buffer, mime } or null when this file has no OS thumbnail.
@@ -4241,7 +4358,11 @@ app.whenReady().then(() => {
         || /^image\/(gif|webp|svg\+xml|x-icon|vnd\.microsoft\.icon)$/.test(mime);
       if (Number.isFinite(thumbW) && thumbW > 0 && !isAnimatedOrVector
           && (isBrowserImage || isOpaqueImage || isVideoThumb || isDocThumb)) {
-        const body = await thumbnailFor(filePath, stat.mtimeMs, Math.min(1024, thumbW), mime);
+        // A format this machine has already proved it can't thumbnail skips
+        // the shell call entirely — no queue slot, no provider round-trip.
+        const body = extUnsupported(thumbExt)
+          ? null
+          : await thumbnailFor(filePath, stat.mtimeMs, Math.min(1024, thumbW), mime);
         if (body) {
           return new Response(body.buffer, {
             headers: {
@@ -4259,7 +4380,12 @@ app.whenReady().then(() => {
         // format, a corrupt file). Only browser-decodable images fall through
         // to the raw stream; everything else says so plainly.
         if (!isBrowserImage) {
-          return new Response('No thumbnail', { status: 415, headers: cors });
+          // 204, NOT an error status. The <img> still fires `error` (an empty
+          // body can't decode) and the engine walks to its next candidate,
+          // but Chromium logs nothing — a 4xx here painted the console red
+          // with one line per Office/PDF file in the folder for what is the
+          // normal outcome on a PC with no shell provider for that format.
+          return new Response(null, { status: 204, headers: cors });
         }
       }
       // Honour HTTP Range requests so <audio>/<video> can seek and read
@@ -4423,6 +4549,242 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+});
+
+// ── The national legislation portal, and the copy this machine keeps ───────
+// legislatie.just.ro publishes a FREE web service (legislatie.just.ro/apiws —
+// `GetToken`, then `Search`), and it is the only lawful, complete source of
+// Romanian legislation that can be read by a program. It has to be called from
+// HERE rather than from the renderer: it is a 2015-era WCF service that sends
+// no CORS headers, so a `fetch` from the window is refused before it leaves.
+//
+// Everything it answers is also written to disk, under userData/legislation —
+// which is the whole point of the tab. A case is worked on when it is worked
+// on, not when a ministry's server happens to be up, so an act that has been
+// read once is readable for ever: the metadata of every result is folded into
+// an index (so the search still answers offline) and an act that is opened has
+// its full text saved beside it. Romanian legislative texts carry no copyright
+// (Legea nr. 8/1996 art. 9), and the portal's own terms allow their reuse, so
+// the copy is the user's to keep — with the caveat the portal itself states,
+// and which the tab repeats: only the text printed in Monitorul Oficial is
+// authentic, a consolidated version is not.
+const LEGIS_ENDPOINT = 'https://legislatie.just.ro/apiws/FreeWebService.svc/SOAP';
+const LEGIS_NS = 'http://tempuri.org/IFreeWebService';
+// A browser UA: the portal's nginx answers 403 to curl's default.
+const LEGIS_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+const LEGIS_TIMEOUT_MS = 45000;
+// The token outlives a single call, so it is kept and only asked for again when
+// the service rejects it.
+let legisToken = { key: '', at: 0 };
+const LEGIS_TOKEN_TTL_MS = 10 * 60 * 1000;
+
+const legisDir = () => path.join(app.getPath('userData'), 'legislation');
+const legisIndexFile = () => path.join(legisDir(), 'archive.json');
+const legisActFile = (id) => path.join(legisDir(), 'acts', `${String(id).replace(/[^0-9a-z_-]/gi, '')}.json`);
+
+function legisReadIndex() {
+  try {
+    const raw = fs.readFileSync(legisIndexFile(), 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && parsed.acts) return parsed;
+  } catch { /* nothing kept yet */ }
+  return { version: 1, acts: {} };
+}
+
+function legisWriteIndex(index) {
+  try {
+    fs.mkdirSync(legisDir(), { recursive: true });
+    fs.writeFileSync(legisIndexFile(), JSON.stringify(index));
+    return true;
+  } catch { return false; }
+}
+
+const XML_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+function unxml(s) {
+  return String(s || '').replace(/&(?:#(x?)([0-9a-fA-F]+)|([a-z]+));/g, (m, hex, num, name) => {
+    if (num) { try { return String.fromCodePoint(parseInt(num, hex ? 16 : 10)); } catch { return m; } }
+    return name in XML_ENTITIES ? XML_ENTITIES[name] : m;
+  });
+}
+const xmlField = (block, tag) => {
+  const m = new RegExp(`<(?:\\w+:)?${tag}[^>]*>([\\s\\S]*?)</(?:\\w+:)?${tag}>`).exec(block);
+  return m ? unxml(m[1]) : '';
+};
+
+async function legisPost(action, body) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), LEGIS_TIMEOUT_MS);
+  try {
+    const res = await fetch(LEGIS_ENDPOINT, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        SOAPAction: `"${LEGIS_NS}/${action}"`,
+        'User-Agent': LEGIS_UA,
+      },
+      body: `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body>${body}</s:Body></s:Envelope>`,
+    });
+    if (!res.ok) return { ok: false, error: `http_${res.status}` };
+    return { ok: true, xml: await res.text() };
+  } catch (e) {
+    // Offline, DNS gone, the ministry's server down, or the 45s timeout: all
+    // one answer to the caller, which is "use what we have".
+    return { ok: false, error: e?.name === 'AbortError' ? 'timeout' : 'unreachable' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function legisAuth(force = false) {
+  if (!force && legisToken.key && Date.now() - legisToken.at < LEGIS_TOKEN_TTL_MS) {
+    return { ok: true, key: legisToken.key };
+  }
+  const res = await legisPost('GetToken', '<GetToken xmlns="http://tempuri.org/"/>');
+  if (!res.ok) return res;
+  const key = xmlField(res.xml, 'GetTokenResult');
+  if (!key) return { ok: false, error: 'no_token' };
+  legisToken = { key, at: Date.now() };
+  return { ok: true, key };
+}
+
+const legisEscape = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+function legisSearchBody(q, token) {
+  const opt = (tag, value) => (value ? `<d:${tag}>${legisEscape(value)}</d:${tag}>` : '');
+  return '<Search xmlns="http://tempuri.org/">'
+    + '<SearchModel xmlns:d="http://schemas.datacontract.org/2004/07/FreeWebService">'
+    + `<d:NumarPagina>${Math.max(1, Number(q.page) || 1)}</d:NumarPagina>`
+    + `<d:RezultatePagina>${Math.min(50, Math.max(1, Number(q.perPage) || 20))}</d:RezultatePagina>`
+    + opt('SearchAn', q.an) + opt('SearchNumar', q.numar)
+    + opt('SearchText', q.text) + opt('SearchTitlu', q.titlu)
+    + '</SearchModel>'
+    + `<tokenKey>${legisEscape(token)}</tokenKey>`
+    + '</Search>';
+}
+
+function legisParse(xml) {
+  const out = [];
+  const re = /<(?:\w+:)?Legi>([\s\S]*?)<\/(?:\w+:)?Legi>/g;
+  for (let m = re.exec(xml); m; m = re.exec(xml)) {
+    const block = m[1];
+    const link = xmlField(block, 'LinkHtml');
+    // The portal's own document id, out of the link it hands back. It is the
+    // only stable identity a record has — number and year are shared by every
+    // act of that number in that year, across every issuing body.
+    const id = (/DetaliiDocument(?:Afis)?\/(\d+)/i.exec(link) || [])[1] || '';
+    out.push({
+      id,
+      tipAct: xmlField(block, 'TipAct'),
+      numar: xmlField(block, 'Numar'),
+      titlu: xmlField(block, 'Titlu'),
+      emitent: xmlField(block, 'Emitent'),
+      publicatie: xmlField(block, 'Publicatie'),
+      dataVigoare: xmlField(block, 'DataVigoare'),
+      // The portal answers http:// links; nothing in this app opens those if it
+      // can open https.
+      link: link.replace(/^http:\/\//i, 'https://'),
+      text: xmlField(block, 'Text'),
+    });
+  }
+  return out;
+}
+
+// One search against the live service. The renderer decides what to do with a
+// failure — the archive is a separate call, so a caller can show what it has
+// AND say the portal was unreachable, rather than one silently standing in for
+// the other.
+ipcMain.handle('legislation:search', async (_e, query) => {
+  const q = query && typeof query === 'object' ? query : {};
+  let auth = await legisAuth(false);
+  if (!auth.ok) return { ok: false, error: auth.error };
+  let res = await legisPost('Search', legisSearchBody(q, auth.key));
+  // An expired token comes back as a fault rather than an empty list, so it is
+  // worth exactly one retry with a fresh one.
+  if (res.ok && /<(?:\w+:)?Fault>/.test(res.xml)) {
+    auth = await legisAuth(true);
+    if (!auth.ok) return { ok: false, error: auth.error };
+    res = await legisPost('Search', legisSearchBody(q, auth.key));
+  }
+  if (!res.ok) return { ok: false, error: res.error };
+  if (/<(?:\w+:)?Fault>/.test(res.xml)) return { ok: false, error: 'service_fault' };
+  return { ok: true, records: legisParse(res.xml) };
+});
+
+// ── The archive ───────────────────────────────────────────────────────────
+// `records` is what a search answered: their metadata is indexed so the tab can
+// still find them with the portal down. `withText` marks the ones whose full
+// text is on disk — an act is only written whole when it is opened or the user
+// asks for it, since a single act runs to tens of thousands of characters.
+ipcMain.handle('legislation:archive-put', async (_e, payload) => {
+  const records = Array.isArray(payload?.records) ? payload.records : [];
+  const withText = !!payload?.withText;
+  if (!records.length) return { ok: true, saved: 0 };
+  const index = legisReadIndex();
+  let saved = 0;
+  try { fs.mkdirSync(path.join(legisDir(), 'acts'), { recursive: true }); } catch { /* checked below */ }
+  for (const rec of records) {
+    if (!rec?.id) continue;
+    const prev = index.acts[rec.id] || null;
+    const meta = {
+      id: rec.id,
+      tipAct: rec.tipAct || '',
+      numar: rec.numar || '',
+      titlu: rec.titlu || '',
+      emitent: rec.emitent || '',
+      publicatie: rec.publicatie || '',
+      dataVigoare: rec.dataVigoare || '',
+      link: rec.link || '',
+      savedAt: new Date().toISOString(),
+      hasText: prev?.hasText || false,
+      chars: prev?.chars || 0,
+    };
+    if (withText && rec.text) {
+      try {
+        fs.writeFileSync(legisActFile(rec.id), JSON.stringify({ ...meta, text: rec.text }));
+        meta.hasText = true;
+        meta.chars = rec.text.length;
+      } catch { /* the index entry still stands — it just has no text */ }
+    }
+    index.acts[rec.id] = meta;
+    saved += 1;
+  }
+  return legisWriteIndex(index) ? { ok: true, saved } : { ok: false, error: 'write_failed' };
+});
+
+ipcMain.handle('legislation:archive-list', () => {
+  const index = legisReadIndex();
+  const acts = Object.values(index.acts);
+  let bytes = 0;
+  for (const a of acts) {
+    if (!a.hasText) continue;
+    try { bytes += fs.statSync(legisActFile(a.id)).size; } catch { /* gone from disk */ }
+  }
+  return { ok: true, acts, bytes };
+});
+
+ipcMain.handle('legislation:archive-get', (_e, id) => {
+  try {
+    const raw = fs.readFileSync(legisActFile(id), 'utf8');
+    return { ok: true, act: JSON.parse(raw) };
+  } catch {
+    return { ok: false, error: 'not_kept' };
+  }
+});
+
+ipcMain.handle('legislation:archive-remove', (_e, id) => {
+  const index = legisReadIndex();
+  if (!index.acts[id]) return { ok: true };
+  delete index.acts[id];
+  try { fs.unlinkSync(legisActFile(id)); } catch { /* text was never kept */ }
+  return legisWriteIndex(index) ? { ok: true } : { ok: false, error: 'write_failed' };
+});
+
+// Everything, gone. Asked for from the tab, never done on the app's own
+// initiative: this is the copy that makes the tab work offline.
+ipcMain.handle('legislation:archive-clear', () => {
+  try { fs.rmSync(legisDir(), { recursive: true, force: true }); return { ok: true }; } catch { return { ok: false, error: 'write_failed' }; }
 });
 
 app.on('window-all-closed', () => {

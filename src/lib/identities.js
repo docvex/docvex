@@ -104,8 +104,17 @@ export const IDENTITY_FIELDS = [
   // decides the "județul/sectorul" formula when a document is filled in.
   { key: 'county', label: 'County / sector', parsed: 'county',
     hint: 'Cluj, CJ, Sector 3 — DocVex works out which' },
-  { key: 'email', label: 'Email' },
-  { key: 'phone', label: 'Phone' },
+  { key: 'email', label: 'Email', hint: 'The general address — departments go under More ways to reach them' },
+  { key: 'phone', label: 'Phone', hint: 'Mobile' },
+  // A company publishes several ways to be reached, and a Romanian act
+  // constitutiv lists them one per letter: telefon fix, telefon mobil, fax,
+  // e-mail general, an address per department, the website. The three below are
+  // the ones every firm has a line for; the departmental addresses are
+  // open-ended and live in `contacts` (see emptyIdentity), because inventing a
+  // field per department is how a form ends up with twelve empty rows.
+  { key: 'phoneLandline', label: 'Landline', only: 'org', hint: 'Telefon fix' },
+  { key: 'fax', label: 'Fax', only: 'org' },
+  { key: 'website', label: 'Website', only: 'org', hint: 'www.example.ro' },
 ];
 
 // Acts of identity — the identity and travel documents Romania issues, and
@@ -223,6 +232,97 @@ export function normalizeIdType(raw) {
 }
 
 // The legal forms a Romanian entity is registered under.
+// What a person is TO the firm. The Romanian wording is what a clause and the
+// trade-register extract use, so it is what the record stores.
+export const IDENTITY_PERSON_ROLES = [
+  'Asociat', 'Asociat unic', 'Acționar', 'Administrator', 'Asociat administrator',
+  'Director', 'Cenzor', 'Auditor', 'Împuternicit', 'Beneficiar real',
+];
+
+export function emptyPerson(role = 'Asociat') {
+  return {
+    id: newId(),
+    role,
+    name: '',
+    nationalId: '',
+    sharePct: '',
+    shareValue: '',
+    shares: '',
+    link: '',
+  };
+}
+
+// One row of the people table, from anywhere — a file, a model reply, a paste.
+// Everything is a string: see the note on `people` in emptyIdentity.
+export function normalizePerson(raw, i = 0) {
+  if (!raw || typeof raw !== 'object') return null;
+  const str = (v) => (typeof v === 'string' ? v.trim() : (typeof v === 'number' && Number.isFinite(v) ? String(v) : ''));
+  const out = {
+    id: typeof raw.id === 'string' && raw.id ? raw.id : `p${i}_${Math.random().toString(36).slice(2, 7)}`,
+    role: str(raw.role) || 'Asociat',
+    name: str(raw.name) || str(raw.legalName),
+    nationalId: str(raw.nationalId) || str(raw.cnp) || str(raw.taxId) || str(raw.cui),
+    sharePct: str(raw.sharePct) || str(raw.cota) || str(raw.percent),
+    shareValue: str(raw.shareValue) || str(raw.valoare) || str(raw.value),
+    shares: str(raw.shares) || str(raw.partiSociale),
+    link: str(raw.link),
+  };
+  // A row with nothing in it is not a row.
+  return (out.name || out.nationalId || out.sharePct || out.shareValue || out.shares || out.link) ? out : null;
+}
+
+export function normalizePeople(raw) {
+  return Array.isArray(raw) ? raw.map(normalizePerson).filter(Boolean) : [];
+}
+
+// Who SIGNS for the firm, in the order a reader would look: the roles that
+// carry legal representation, strongest first. An associate who is not also an
+// administrator does not represent the company, so plain "Asociat" is not here.
+const REP_ROLE_ORDER = [
+  'Administrator', 'Asociat administrator', 'Director', 'Împuternicit', 'Asociat unic',
+];
+
+// `representative` / `repCapacity` are no longer asked for as two rows of their
+// own — the people table already says who runs the firm, with their capacity
+// beside their name, and asking twice let the two answers disagree. They are
+// still record KEYS, because a clause fills them ("reprezentată legal prin
+// [[vanzator.representative]], în calitate de [[vanzator.repCapacity]]"), so
+// they are DERIVED here from the table, on every parse. A value already in the
+// record is left alone: a record written before the table existed, or one where
+// somebody has said who signs, is not something a derivation may overwrite.
+export function settleRepresentative(identity) {
+  if (!identity || identity.kind !== 'org') return identity;
+  const people = Array.isArray(identity.people) ? identity.people : [];
+  if (!people.length) return identity;
+  if (String(identity.representative || '').trim()) return identity;
+  let best = null;
+  let bestRank = REP_ROLE_ORDER.length;
+  for (const person of people) {
+    if (!person?.name) continue;
+    const rank = REP_ROLE_ORDER.indexOf(person.role);
+    if (rank === -1 || rank >= bestRank) continue;
+    best = person;
+    bestRank = rank;
+  }
+  if (!best) return identity;
+  return {
+    ...identity,
+    representative: best.name,
+    // The capacity is the role as the table words it, which is the wording the
+    // clause wants ("în calitate de administrator").
+    repCapacity: String(identity.repCapacity || '').trim() || best.role || '',
+  };
+}
+
+// The percentages as a number, for the section's total (a share written "60",
+// "60%" or "60,5" all read the same). Romanian writes the decimal with a comma
+// and the thousands with a dot — "1.234,5" is one thousand two hundred.
+export function sharePctValue(raw) {
+  const t = String(raw ?? '').replace(/%/g, '').replace(/\./g, '').replace(/,/g, '.').trim();
+  const n = Number.parseFloat(t);
+  return Number.isFinite(n) ? n : null;
+}
+
 export const IDENTITY_LEGAL_FORMS = ['SRL', 'SA', 'SRL-D', 'SCS', 'SNC', 'PFA', 'II', 'IF', 'ONG', 'Instituție publică'];
 
 // The origin picker. Every jurisdiction the app knows is listed so the record
@@ -300,6 +400,10 @@ export function emptyIdentity(kind = 'person') {
     country: '',
     email: '',
     phone: '',
+    // Organisations: the other ways to reach them (see IDENTITY_FIELDS).
+    phoneLandline: '',
+    fax: '',
+    website: '',
     // Filenames this was read out of, so a disputed detail can be traced back.
     sources: [],
     // …and, per field, WHICH of them a value was read from: `{ [fieldKey]:
@@ -317,6 +421,23 @@ export function emptyIdentity(kind = 'person') {
     pending: [],
     // Anything about the party the form has no field for: `[{ id, label, value }]`.
     custom: [],
+    // The further ways to reach them, each with the label the document gives
+    // it: `[{ id, label, value }]` — "Email departament financiar", "Telefon
+    // secretariat", a second fax. Separate from `custom` because these are
+    // CONTACTS: they belong in the contact section, they are what a letter or a
+    // notice clause reaches for, and the reader extracts them from the same
+    // paragraph every time.
+    contacts: [],
+    // ORGANISATIONS: the people behind the firm — associates / shareholders,
+    // the administrator, a censor — as `[{ id, role, name, nationalId,
+    // sharePct, shareValue, shares, link }]`. A row either POINTS AT another
+    // record in this project (`link` is that record's filename, so the party's
+    // own details stay in one place and are opened from here) or is typed in
+    // on its own. `nationalId` holds a CNP for a person and a CUI for a
+    // company, which is how the shareholder table of a Romanian company is
+    // written. Amounts are kept AS TYPED — legal documents write "30.000" and
+    // rounding that through a float is how a capital figure goes wrong.
+    people: [],
     origin: 'manual',   // 'manual' | 'timeline'
     createdAt: now,
     updatedAt: now,
@@ -332,7 +453,7 @@ export function parseIdentity(text) {
   const base = emptyIdentity(raw.kind === 'org' ? 'org' : 'person');
   const out = { ...base };
   for (const key of Object.keys(base)) {
-    if (['sources', 'fieldSources', 'custom', 'sourceLinks', 'pending'].includes(key)) continue;
+    if (['sources', 'fieldSources', 'custom', 'contacts', 'sourceLinks', 'pending', 'people'].includes(key)) continue;
     if (typeof raw[key] === 'string') out[key] = raw[key];
   }
   // An older spelling of a supported act ("Pașaport", "C.I.") becomes the
@@ -371,11 +492,22 @@ export function parseIdentity(text) {
         value: typeof c.value === 'string' ? c.value : '',
       }))
     : [];
+  out.contacts = Array.isArray(raw.contacts)
+    ? raw.contacts
+      .filter((c) => c && typeof c === 'object')
+      .map((c, i) => ({
+        id: typeof c.id === 'string' && c.id ? c.id : `k${i}`,
+        label: typeof c.label === 'string' ? c.label : '',
+        value: typeof c.value === 'string' ? c.value : '',
+      }))
+      .filter((c) => c.label || c.value)
+    : [];
+  out.people = normalizePeople(raw.people);
   out.origin = raw.origin === 'timeline' ? 'timeline' : 'manual';
   out.jurisdiction = IDENTITY_ORIGINS.some((o) => o.code === raw.jurisdiction)
     ? raw.jurisdiction
     : DEFAULT_JURISDICTION;
-  return settlePersonName(out);
+  return settleRepresentative(settlePersonName(out));
 }
 
 // Read a file ONLY if it really is a record. `readIdentity` is deliberately

@@ -475,6 +475,13 @@
   opacity: 0; pointer-events: none;
   transition: opacity 110ms ease;
 }
+/* …and only where the fade is needed. The whole staged crossing is macOS's
+   fullscreen animation being worked around (see toggleFocus in DocViewer.jsx);
+   off a Mac the window changes size in one frame, focus is applied straight
+   away, and a panel still fading out is the only thing left lagging behind it.
+   `html.is-mac` is set in renderer.jsx. */
+html:not(.is-mac) .dv-main-row.is-focus .dv-quick-card,
+html:not(.is-mac) .dv-main-row.is-focus .dv-advisor-card { transition: none; }
 .dv-main-row.is-focus .dv-advisor-resize { display: none; }
 /* ── The crossing ─────────────────────────────────────────────────────────
    While focus is opening or closing, the document is taken off screen and only
@@ -3115,6 +3122,108 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
    (at the card's current scale, about the panel's top-centre) to its place,
    on the host's own duration and easing (keep `.is-riding` in step with
    `.dv-docx`'s transition). */
+/* ── The acts a picked paragraph cites ──────────────────────────────
+   Docked under the paragraph, in the same panel as its other controls, so the
+   clause and what it turns on are one thing to look at. When the paragraph has
+   no Constructor piece this is the whole of the panel, which is why it carries
+   the card's own material rather than relying on something above it. */
+.dv-paralaw {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 11.2px;
+  box-shadow: var(--shadow-card);
+}
+/* Under the Constructor's own card rather than welded to it: two things about
+   the same paragraph, not one panel with a rule through it. */
+.dv-docx-liftpanel > * + .dv-paralaw { margin-top: 8px; }
+.dv-paralaw-head { display: flex; flex-direction: column; gap: 1px; }
+.dv-paralaw-title {
+  font-size: 11.2px; font-weight: 650; color: var(--text-primary);
+  letter-spacing: 0.01em;
+}
+.dv-paralaw-sub { font-size: 9.6px; color: var(--text-muted); }
+/* A clause can cite half a dozen acts; past that the list scrolls rather than
+   pushing the paragraph it belongs to off the top of the pane. */
+.dv-paralaw-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 232px; overflow-y: auto; scrollbar-width: thin;
+}
+.dv-paralaw-row {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  /* The same teal the cross-reference button uses — a citation is a citation,
+     whether it is marked in the text or listed under it. */
+  background: rgba(var(--xref, 13, 148, 136), 0.1);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.dv-paralaw-row:hover { background: rgba(var(--xref, 13, 148, 136), 0.18); border-color: rgba(var(--xref, 13, 148, 136), 0.4); }
+/* A CAEN code is not an act — it keeps the amber its mark carries. */
+.dv-paralaw-row.is-caen { background: rgba(217, 119, 6, 0.12); }
+.dv-paralaw-row.is-caen:hover { background: rgba(217, 119, 6, 0.2); border-color: rgba(217, 119, 6, 0.42); }
+:root[data-theme='ink'] .dv-paralaw-row.is-caen { background: rgba(251, 191, 36, 0.14); }
+:root[data-theme='ink'] .dv-paralaw-row.is-caen:hover { background: rgba(251, 191, 36, 0.24); border-color: rgba(251, 191, 36, 0.45); }
+.dv-paralaw-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.dv-paralaw-name {
+  font-size: 11.2px; font-weight: 650; color: var(--text-primary); line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+/* The act's own title, as the document gave it on first mention. Two lines at
+   most: it can run to two hundred characters and the dock is not a reading
+   surface. */
+.dv-paralaw-of {
+  font-size: 9.6px; color: var(--text-secondary); line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.dv-paralaw-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.dv-paralaw-part,
+.dv-paralaw-note {
+  font-size: 8.8px; line-height: 1.5;
+  padding: 0 5px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+/* WHICH PART of the act this clause points at — the one line here that is
+   about this paragraph rather than about the act, so it is the one that reads
+   strongest. */
+.dv-paralaw-part {
+  font-weight: 650;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+.dv-paralaw-note { color: var(--text-muted); background: var(--bg-sidebar); }
+.dv-paralaw-open {
+  flex: none;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--border); border-radius: 6.4px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font: inherit; font-size: 9.6px; font-weight: 650;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.dv-paralaw-open:hover { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+/* Two ways to the act, and they are not equals. "Read here" opens it in the
+   app, against the document that cites it; "Look it up" leaves for a browser,
+   where the case being read is not. So the first one is the button and the
+   second is the way out, and they stack rather than compete for one row's
+   width — the dock is as wide as a paragraph, not as wide as a page. */
+.dv-paralaw-acts { flex: none; display: flex; flex-direction: column; gap: 3px; align-items: stretch; }
+.dv-paralaw-acts .dv-paralaw-open { justify-content: center; }
+.dv-paralaw-open.is-primary {
+  background: var(--accent); border-color: var(--accent); color: var(--text-on-accent);
+}
+.dv-paralaw-open.is-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.dv-paralaw-open:active { transform: translateY(0.5px); }
+:root[data-reduce-motion='true'] .dv-paralaw-row,
+:root[data-reduce-motion='true'] .dv-paralaw-open { transition: none; }
+
 .dv-docx-liftpanel {
   position: absolute; z-index: 6;
   left: 0; top: 0;
@@ -4357,7 +4466,17 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 1.6px var(--accent
    `is-rowend` is set by FilterTabs, which measures where the wrap fell. */
 .dv-advisor-slot .dv-side-tabs .activity-filter.is-rowend::after { display: none; }
 .dv-advisor-slot .dv-side-tabs .activity-filter {
-  flex: 0 0 auto;
+  /* GROW with the panel. The side panel is drag-resizable, so tabs that kept
+     their natural width left a widening panel with a short ragged strip and a
+     pool of dead space to the right of it. They share out the row's spare width
+     instead — `1 0 auto`, so they only ever GROW: shrinking them is what made
+     "Extract" and "Extracted" indistinguishable, and the wrap above still gives
+     a narrow panel a second row rather than squeezing the words.
+     The label stays centred in the stretched tab (justify-content below), and
+     FilterTabs measures its underline from the LABEL, so the line follows the
+     word rather than spanning the whole tab. */
+  flex: 1 0 auto;
+  justify-content: center;
   /* Air around the word itself, so a tab reads as something to press rather
      than as a bare label. FilterTabs draws the underline 8px past the label on
      each side, so at this padding the line comes out the width of the tab. */
@@ -4875,24 +4994,6 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   from { opacity: 0; transform: translate(-50%, -50%) scale(0.92); }
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
-
-/* Right-click menu on a version pill — "Open in <software>". Portalled to
-   <body> and positioned at the cursor (fixed). */
-.dv-ver-menu {
-  position: fixed; z-index: 9999; min-width: 156.8px;
-  padding: 4px; border-radius: 9.6px;
-  background: var(--bg-elevated); border: 1px solid var(--border);
-  box-shadow: var(--shadow-elev);
-}
-.dv-ver-menu-item {
-  display: flex; align-items: center; gap: 7.2px; width: 100%;
-  padding: 7.2px 8.8px; border-radius: 6.4px; border: none; background: none;
-  color: var(--text-primary); font: inherit; font-size: 10.4px; font-weight: 500;
-  text-align: left; cursor: pointer; transition: background 110ms ease, color 110ms ease;
-}
-.dv-ver-menu-item:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
-.dv-ver-menu-item:disabled { opacity: 0.5; cursor: default; }
-.dv-ver-menu-item svg { flex: 0 0 auto; opacity: 0.85; }
 
 /* ── Clarifying-questions panel (over the document pane) ──────────────────── */
 /* Claude-artifact styling: a centred card with numbered questions + answer
@@ -7248,11 +7349,17 @@ button.dv-snip-entry-thumb { cursor: pointer; }
    at rest, the accent wash under the pointer on hover, and TICKED = the active
    tab (accent tint, accent border, accent text). `--item-spot-x/y` come from
    `useItemSpots` on the sheet. */
+/* A reading is drawn as the SAME pill as the banner above the sheet ("… tick
+   the ones to fill in"): both are the document's claim waiting to be judged, so
+   showing one as a tinted pill and the other as bare text made them look like
+   two different kinds of thing. Same ground, same accent edge, same radius. */
 .dvr-pickrow {
   position: relative; isolation: isolate;
   display: flex; align-items: center; gap: 8px;
   min-width: 0; margin: 3px 0 0 -6px; padding: 5px 8px 5px 6px;
-  border: 1.5px solid transparent; border-radius: 6.4px;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 9.6px;
+  background: var(--accent-tint);
   box-sizing: border-box;
   color: var(--text-secondary);
   font-size: 12px; font-weight: 500; line-height: 1.3;
@@ -7271,8 +7378,10 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   color: var(--text-primary);
 }
 .dvr-pickrow:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Ticked: the same pill, pressed. It has to out-read the resting one now that
+   both carry the accent ground, so the wash goes up and the edge with it. */
 .dvr-pickrow.is-checked {
-  background: var(--accent-tint);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
   border-color: color-mix(in srgb, var(--accent) 65%, transparent);
   color: var(--accent);
 }
@@ -7539,6 +7648,375 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   .dv-docx .dv-docx-para.is-ai-busy::after { animation: none; opacity: 0.8; }
 }
 
+/* ── Law references in the document ───────────────────────────────────────
+   Every citation lib/lawRefs finds is wrapped in the app's AI gradient — the
+   blue → violet → purple the sidebar's AI tag runs (#3b82f6 / #8b5cf6 /
+   #a855f7), sliding across the mark on the same 5.5s shimmer the Files page's
+   AI border uses, so anything the app worked out for itself reads the same
+   wherever it appears.
+
+   Drawn ENTIRELY in background layers: the gradient as a soft wash behind the
+   words and again, at full strength, as a rule under them. Nothing here
+   changes a text metric — no padding, no margin, no font-size, no
+   font-weight — because the mark is applied to a document that has already
+   been measured and sliced into pages, and a single pixel of padding would
+   re-wrap the line and shift every page after it. It is also what keeps the
+   save path honest: a paragraph is serialised from computed weight and style,
+   so a mark that changed either would turn into stray `**` in the file.
+   (Colour is safe, and stays the document's own: the point is to show where a
+   citation is, not to repaint the text of a legal document.)
+
+   A citation Word split across runs is several spans; only the outer ends are
+   rounded (`is-head` / `is-tail`) so the pieces read as one mark. */
+.dv-docx .dv-lawref {
+  /* Brand-neutral hex, like the sidebar's AI tag: these are the AI blue and
+     purple, not the document theme's palette, and they must read the same in
+     Cream and Ink. */
+  --lawref-1: 59, 130, 246;
+  --lawref-2: 139, 92, 246;
+  --lawref-3: 168, 85, 247;
+  --lawref-wash: 0.2;
+  background-image:
+    linear-gradient(
+      115deg,
+      rgba(var(--lawref-1), var(--lawref-wash)) 0%,
+      rgba(var(--lawref-2), var(--lawref-wash)) 32%,
+      rgba(var(--lawref-3), var(--lawref-wash)) 58%,
+      rgba(var(--lawref-2), var(--lawref-wash)) 80%,
+      rgba(var(--lawref-1), var(--lawref-wash)) 100%
+    ),
+    linear-gradient(
+      115deg,
+      rgb(var(--lawref-1)) 0%,
+      rgb(var(--lawref-2)) 32%,
+      rgb(var(--lawref-3)) 58%,
+      rgb(var(--lawref-2)) 80%,
+      rgb(var(--lawref-1)) 100%
+    );
+  background-size: 300% 100%, 300% 1.6px;
+  background-position: 0 0, 0 100%;
+  /* TILED, not a single pass. The gradient is three times the mark's width and
+     the animation slides it a full width along, so with `no-repeat` it walked
+     clean out of the box and the mark went blank for part of every cycle —
+     citations blinking in and out. Repeating it means the mark is painted at
+     every moment of the animation, and because the gradient opens and closes
+     on the same blue the tiles join invisibly. The size never changes: the
+     gradient only travels, so nothing about the mark appears to scale. */
+  background-repeat: repeat, repeat-x;
+  animation: dv-lawref-shimmer 5.5s linear infinite;
+}
+/* On Ink the page is dark, so the same alpha barely shows — lift it. */
+:root[data-theme='ink'] .dv-docx .dv-lawref { --lawref-wash: 0.3; }
+.dv-docx .dv-ref.is-head { border-top-left-radius: 3px; border-bottom-left-radius: 3px; }
+.dv-docx .dv-ref.is-tail { border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
+/* Both layers travel together, so the wash and the rule under it stay in step. */
+@keyframes dv-lawref-shimmer { to { background-position: -300% 0, -300% 100%; } }
+/* ── A CAEN code ──────────────────────────────────────────────────────────
+   "cod CAEN 6201" is not an act and is not a pointer — it is a CLASSIFICATION,
+   the one way a company's object of activity is ever written. So it gets a
+   flat stamp: one steady colour, a solid rule under it, and NO animation. It
+   is marked whatever the Laws action says, because hiding it would hide the
+   fact itself.
+
+   Amber, a fixed brand-neutral value like the act's blues: none of the three
+   marks may be mistaken for another, and a document theme must not be able to
+   turn one of them into a different one. Painted in background layers only,
+   for the same reason the act's mark is — the document has already been
+   measured and sliced into pages. */
+.dv-docx .dv-caenref {
+  --caenref: 217, 119, 6;
+  --caenref-wash: 0.18;
+  background-image: linear-gradient(rgb(var(--caenref)), rgb(var(--caenref)));
+  background-size: 100% 1.6px;
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  background-color: rgba(var(--caenref), var(--caenref-wash));
+}
+:root[data-theme='ink'] .dv-docx .dv-caenref { --caenref: 251, 191, 36; --caenref-wash: 0.24; }
+
+/* ── An INTERNAL cross-reference ────────────────────────────────────
+   "…indicată la pct. 6.1. lit. d)" points at a clause of THIS document, so it
+   is not a highlight at all: it is a CONTROL, and it is drawn as a button — a
+   teal face, a ring all the way round it, rounded ends and the hand cursor.
+   Clicking it takes the reader to that clause. Marked whatever the Laws action
+   says: a way of getting around the document must not depend on a highlighting
+   preference.
+
+   Every property here is one that PAINTS and nothing more. The ring is an
+   inset box-shadow rather than a border, and the press is a shadow rather than
+   a transform, because the document underneath has already been measured and
+   sliced into pages: a real border would add its width to the inline box and
+   re-wrap the line it sits on.
+
+   The ring is drawn EDGE BY EDGE because Word cuts one reference into several
+   runs: top and bottom always, the left edge only on the first piece and the
+   right edge only on the last, so a reference split across three spans is one
+   button with one outline instead of three little boxes in a row. */
+/* The cross-reference colour, on the DOCUMENT rather than on the mark: the
+   button and the clause it takes the reader to are two halves of one gesture,
+   so they are lit from one value. Fixed, brand-neutral teal — the same reason
+   the act's mark carries its own blues: a document theme must not be able to
+   turn one of the three marks into another. */
+.dv-docx { --xref: 13, 148, 136; }
+:root[data-theme='ink'] .dv-docx { --xref: 45, 212, 191; }
+.dv-docx .dv-xref {
+  --xref-wash: 0.18;
+  --xref-ring: rgba(var(--xref), 0.55);
+  --xref-ring-l: transparent;
+  --xref-ring-r: transparent;
+  --xref-inner: 0 0 0 0 transparent;
+  background-color: rgba(var(--xref), var(--xref-wash));
+  border-radius: 5.6px;
+  box-shadow:
+    inset 0 1px 0 0 var(--xref-ring),
+    inset 0 -1px 0 0 var(--xref-ring),
+    inset 1px 0 0 0 var(--xref-ring-l),
+    inset -1px 0 0 0 var(--xref-ring-r),
+    var(--xref-inner);
+  cursor: pointer;
+  animation: none;
+  transition: background-color 120ms ease-out, box-shadow 120ms ease-out;
+}
+.dv-docx .dv-xref.is-head { --xref-ring-l: var(--xref-ring); }
+.dv-docx .dv-xref.is-tail { --xref-ring-r: var(--xref-ring); }
+:root[data-theme='ink'] .dv-docx .dv-xref { --xref-wash: 0.22; }
+/* Hover and press, so it answers the pointer as a button does: the face lifts
+   and the ring firms up on hover; a held press sinks the face and puts the
+   shadow INSIDE, at the top, which is what "going in" looks like.
+
+   `.is-hot` / `.is-press` come from the pane, not from `:hover` / `:active`:
+   CSS can only reach the piece the pointer is actually over, which lit half a
+   reference and left the rest dark. The bare `:hover` stays as the fallback
+   for a reference Word did not split. */
+.dv-docx .dv-xref:hover,
+.dv-docx .dv-xref.is-hot {
+  --xref-wash: 0.32;
+  --xref-ring: rgba(var(--xref), 0.85);
+}
+.dv-docx .dv-xref.is-press {
+  --xref-wash: 0.5;
+  --xref-ring: rgba(var(--xref), 0.95);
+  --xref-inner: inset 0 2px 3px -1px rgba(var(--xref), 0.6);
+}
+/* Where the jump LANDS. The clause is not marked — it is ordinary text of the
+   document — but it does have to be FOUND, and a page of legal prose gives the
+   eye nothing to land on, so it PULSES: the tint breathes until the reader
+   goes near it. Hovering it stops the pulse dead and leaves the tint steady,
+   which is the answer to "yes, this is the one"; the pane then clears it as
+   the pointer leaves (see the jump handler). A background only — a paragraph
+   that moved or resized on arrival would undo the orientation it is there to
+   give. */
+.dv-docx .is-xref-target {
+  /* The two ends of the pulse, as variables, so the clause and the item it was
+     asked for can breathe at different strengths off ONE set of keyframes.
+     (A custom property is not itself animatable, but it is substituted before
+     the animation runs, so each keyframe holds a real colour and the two
+     interpolate normally.) */
+  --lit-lo: rgba(var(--xref), 0.12);
+  --lit-hi: rgba(var(--xref), 0.46);
+  --lit-ring-lo: rgba(var(--xref), 0.1);
+  --lit-ring-hi: rgba(var(--xref), 0.32);
+  border-radius: 4px;
+  background-color: var(--lit-hi);
+  box-shadow: 0 0 0 4px var(--lit-ring-hi);
+  animation: dv-xref-pulse 1.4s ease-in-out infinite;
+}
+/* The block the reference actually NAMED — the item under "lit. d)", or the
+   clause itself when it named no item. Both are lit, because either alone is
+   half the reference; this one burns brighter so which is which is never a
+   guess. */
+.dv-docx .is-xref-exact {
+  --lit-lo: rgba(var(--xref), 0.2);
+  --lit-hi: rgba(var(--xref), 0.66);
+  --lit-ring-lo: rgba(var(--xref), 0.16);
+  --lit-ring-hi: rgba(var(--xref), 0.46);
+}
+/* Hovering stops it dead and leaves the bright end standing: "yes, this one". */
+.dv-docx .is-xref-target:hover { animation: none; }
+@keyframes dv-xref-pulse {
+  0%, 100% { background-color: var(--lit-lo); box-shadow: 0 0 0 1px var(--lit-ring-lo); }
+  50% { background-color: var(--lit-hi); box-shadow: 0 0 0 7px var(--lit-ring-hi); }
+}
+:root[data-reduce-motion='true'] .dv-docx .is-xref-target { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .dv-docx .is-xref-target { animation: none; }
+}
+
+/* A picked paragraph keeps its marks: a citation is worth seeing most when the
+   paragraph making it is the one being worked on. */
+:root[data-reduce-motion='true'] .dv-docx .dv-lawref { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .dv-docx .dv-lawref { animation: none; }
+}
+
+
+
+/* ── Sources tab: the documents, as a file grid ───────────────────────────
+   A source IS a file, so it is drawn as one: the Files tab's tile, in a grid
+   that fills the panel's width. (The old full-width rows read as a list of
+   links; a thumbnail grid is how a reader recognises the scan they mean.)
+   The tile mirrors `.fx-tile` in FilesWorkspace.css — transparent at rest, the
+   fill on hover and selection — so both surfaces stay one design; if the tile
+   changes there, mirror it here. */
+.dvr-side-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 4px;
+  padding: 0 2px 4px;
+}
+.dvr-sgrid-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 6.4px 6.4px 7.2px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 120ms, box-shadow 120ms, border-color 120ms, background 120ms;
+}
+.dvr-sgrid-tile:hover {
+  background: var(--fx-item-fill, color-mix(in srgb, var(--text-primary) 5%, transparent));
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-card);
+}
+.dvr-sgrid-tile.is-selected {
+  background: var(--fx-item-fill, color-mix(in srgb, var(--text-primary) 5%, transparent));
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2.4px var(--accent-tint);
+}
+.dvr-sgrid-thumb {
+  position: relative;
+  height: 62px;
+  border-radius: 5.6px;
+  background: var(--bg-elevated);
+  display: grid; place-items: center;
+  overflow: hidden;
+}
+.dvr-sgrid-thumb:has(.project-files-icon) { background: transparent; }
+[data-theme="ink"] .dvr-sgrid-thumb { background: transparent; }
+/* A type badge (DOCX, PDF, a video tile) has no size of its own — `.fx-glyph`
+   fills whatever box it is given, and the Files page hands it one sized off the
+   tile-zoom variable this panel does not set, so it fell back to 0.65 × 134px
+   and overflowed a 62px-tall thumb, clipped top and bottom. Give it a SQUARE
+   that fits, as the open-files strip does. */
+.dvr-sgrid-thumb .fx-glyph { width: 40px; height: 40px; font-size: 7.2px; }
+.dvr-sgrid-thumb .project-files-thumb,
+.dvr-sgrid-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.dvr-sgrid-thumb .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent); }
+/* A document being read: the scan line that already says "working" elsewhere
+   in this pane (dvr-scan), over its thumbnail. */
+.dvr-sgrid-scan {
+  position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: dvr-scan 1.1s linear infinite;
+}
+.dvr-sgrid-name {
+  font-size: 9.6px; font-weight: 600; line-height: 1.25;
+  color: var(--text-primary);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; word-break: break-word;
+}
+.dvr-sgrid-state { font-size: 8.8px; color: var(--text-muted); }
+.dvr-sgrid-tile.is-error .dvr-sgrid-state { color: var(--danger-text); }
+.dvr-sgrid-tile.is-reading .dvr-sgrid-state { color: var(--accent); }
+/* The per-tile actions ride in its top-right corner, on hover or selection —
+   a grid tile has no room for a row of buttons of its own. */
+.dvr-sgrid-acts {
+  position: absolute; top: 3px; right: 3px;
+  display: flex; gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.dvr-sgrid-tile:hover .dvr-sgrid-acts,
+.dvr-sgrid-tile.is-selected .dvr-sgrid-acts,
+.dvr-sgrid-tile:focus-within .dvr-sgrid-acts { opacity: 1; }
+.dvr-sgrid-acts .dvr-side-remove {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+
+/* ── People in the firm (org records) ─────────────────────────────────────
+   The shareholder table an act constitutiv states: who they are, what they are
+   to the firm, their CNP/CUI, their cota, the value of their shares. Laid out
+   as a real table (a grid with a header row) rather than as field rows — the
+   columns are what make a capital structure readable, and what lets the eye
+   check that the percentages add up. It scrolls sideways on a narrow pane
+   instead of wrapping: a row that wraps stops being a row. */
+.dvr-ppl { display: flex; flex-direction: column; gap: 4px; overflow-x: auto; }
+.dvr-ppl-head,
+.dvr-ppl-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 2.2fr) minmax(112px, 1.1fr) minmax(104px, 1fr) 72px 96px 72px 22px;
+  gap: 6px;
+  align-items: center;
+  min-width: 660px;
+}
+.dvr-ppl-head {
+  padding: 2px 2px 6px;
+  font-size: 8.8px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* Each label gets its own room, and keeps the negative left margin `.dvr-input`
+   uses, so the padding is space around the word rather than a 6px shunt that
+   would leave every heading standing to the right of its own column. */
+.dvr-ppl-head > * { padding: 3px 6px; margin-left: -6px; }
+.dvr-ppl-row { padding: 2px 0; }
+/* The person cell: the link button, the name, and (when linked) a way to open
+   the record it points at. */
+.dvr-ppl-person { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.dvr-ppl-person .dvr-input { flex: 1 1 auto; min-width: 0; }
+.dvr-ppl-link,
+.dvr-ppl-open {
+  flex: none;
+  display: grid; place-items: center;
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.dvr-ppl-link:hover,
+.dvr-ppl-open:hover { color: var(--accent); border-color: var(--accent); }
+/* Linked reads as ON — the row's details come from another record. */
+.dvr-ppl-link.is-linked {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: var(--accent-tint);
+}
+/* Numbers line up on their digits, which is what makes a column of
+   percentages or amounts checkable at a glance. */
+.dvr-ppl-row .dvr-num { text-align: right; font-variant-numeric: tabular-nums; }
+.dvr-ppl-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: 2px;
+}
+.dvr-ppl-foot .dvr-custom-add { flex: 1 1 auto; }
+/* The total. Silent when the table adds up to 100% and quietly wrong-coloured
+   when it doesn't — the one number in the section that can be checked. */
+.dvr-ppl-total {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--success-soft);
+  color: var(--text-secondary);
+  font-size: 9.6px; font-weight: 600;
+  white-space: nowrap;
+}
+.dvr-ppl-total.is-off { background: var(--warning-soft); }
+/* A reading about the firm's people spans the whole table. */
+.dvr-ppl-read { min-width: 660px; }
+.dvr-ppl-read .dvr-pickrow-value strong { font-weight: 700; }
+
 /* ── When a turn happened ──────────────────────────────────────────────────
    The advisor's thread is saved per file and reopened days later, so it says
    when things were said — the team chat's way of saying it (.dvx-day-divider /
@@ -7562,10 +8040,13 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--text-muted);
 }
-/* The time under a turn, on the side its bubble sits on. */
+/* The time under a turn, on the side its bubble sits on. The negative top
+   margin is what keeps it WITH its turn: the thread is a flex column with a
+   14.4px gap, so as a plain sibling the stamp sat a full turn's distance below
+   the message it dates and read as floating between the two. */
 .dv-msg-time {
   display: flex; align-items: center; gap: 5px;
-  margin: 2px 2px 6px;
+  margin: -10.4px 2px 6px;
   font-size: 0.544rem; font-weight: 500;
   color: var(--text-muted);
   user-select: none;
