@@ -112,7 +112,7 @@ export function BarSwitch({ value, options, onChange, label }) {
  */
 // How narrow and how wide a picker's field may get as it fits its choice.
 const PICKER_MIN = 56;
-const PICKER_MAX = 300;
+const PICKER_MAX = 460;
 
 export function BarPicker({ value, onChange, options = null, groups = null, label, placeholder = '', width = 'kind', filter = null }) {
   const [open, setOpen] = useState(false);
@@ -133,14 +133,14 @@ export function BarPicker({ value, onChange, options = null, groups = null, labe
   const labelRef = useRef(null);
   const measureRef = useRef(null);
   const sized = useRef(false);
-  useLayoutEffect(() => {
+  const fit = () => {
     const btn = btnRef.current; const m = measureRef.current; const chev = btn?.querySelector('.lg-kind-chev');
     if (!btn || !m || !chev) return;
     const bs = getComputedStyle(btn); const cs = getComputedStyle(chev);
     const px = (v) => parseFloat(v) || 0;
     const chrome = (btn.offsetWidth - btn.clientWidth) + px(bs.paddingLeft) + px(bs.paddingRight)
       + px(bs.columnGap || bs.gap) + chev.offsetWidth + px(cs.marginLeft) + px(cs.marginRight);
-    const w = Math.min(PICKER_MAX, Math.max(PICKER_MIN, Math.ceil(m.offsetWidth + chrome + 1)));
+    const w = Math.min(PICKER_MAX, Math.max(PICKER_MIN, Math.ceil(m.getBoundingClientRect().width / (btn.getBoundingClientRect().width / btn.offsetWidth || 1) + chrome + 1)));
     if (!sized.current) {
       sized.current = true;
       btn.style.transition = 'none';
@@ -150,7 +150,18 @@ export function BarPicker({ value, onChange, options = null, groups = null, labe
     } else {
       btn.style.width = `${w}px`;
     }
-  }, [text]);
+  };
+  useLayoutEffect(fit, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  // …and again whenever the label's REAL width changes with no change of
+  // choice: the app's font arriving after the first paint, a larger size
+  // where the field is drawn bigger (the Legislation start screen).
+  useEffect(() => {
+    const m = measureRef.current;
+    if (!m || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => fit());
+    ro.observe(m);
+    return () => ro.disconnect();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = () => {
     if (!open && btnRef.current) { setRect(btnRef.current.getBoundingClientRect()); setQ(''); }
     setOpen((o) => !o);
@@ -248,7 +259,9 @@ export function BarPicker({ value, onChange, options = null, groups = null, labe
         <div
           ref={menuRef}
           className={`lg-menu${filtering ? ' is-long' : ''}`}
-          style={{ top: toLayoutPx(rect.bottom), left: toLayoutPx(rect.left), width: toLayoutPx(Math.max(rect.width, filtering ? 240 : 0)) }}
+          // At least the field's width, and as wide as its longest entry
+          // needs (`width: max-content` in the CSS), within the window.
+          style={{ top: toLayoutPx(rect.bottom), left: toLayoutPx(rect.left), minWidth: toLayoutPx(Math.max(rect.width, filtering ? 240 : 0)) }}
         >
           {filtering ? (
             <input

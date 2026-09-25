@@ -11,6 +11,7 @@ import './LegalSourceStub.css';
 import PageMasthead from '../components/PageMasthead';
 import FilterTabs from '../components/FilterTabs';
 import Tooltip from '../components/Tooltip';
+import { BarDatePicker, BarDateRange, isoOf } from '../components/BarCalendar';
 import {
   DS_TOKENS, DS_FAMILIES, tokenKey, currentValue, loadOverrides, saveOverrides, onDesignChange,
   overridesToCss, askDesign,
@@ -273,6 +274,8 @@ export default function DesignSystem() {
             </div>
           </Sample>
 
+          <CalendarSamples />
+
           <Sample name="Dropdown" of="components/LegalBar .lg-menu — the app’s own list, the chosen entry faded; a long list gets a narrowing box and headings">
             <div className="lg-menu is-long" style={{ position: 'static', width: 240 }}>
               <input className="lg-menu-find" placeholder="Type to narrow" readOnly aria-label="Narrow the sample list" />
@@ -410,6 +413,41 @@ export default function DesignSystem() {
         <pre className="dsg-css">{css}</pre>
       </section>
     </div>
+  );
+}
+
+// The CALENDAR (components/BarCalendar) — designed here, used by no tab yet:
+// the single-date picker and the from–to picker drawn open, and the
+// Legislation tab's bar as it would stand with a period in it (the dice,
+// Kind, Number, Year, the period, Search), live — press the fields.
+function CalendarSamples() {
+  const [day, setDay] = useState(() => isoOf(new Date()));
+  const [span, setSpan] = useState(() => {
+    const t = new Date();
+    return { from: isoOf(new Date(t.getFullYear(), t.getMonth(), 3)), to: isoOf(new Date(t.getFullYear(), t.getMonth(), 12)) };
+  });
+  const [barSpan, setBarSpan] = useState({ from: '', to: '' });
+  const [barDay, setBarDay] = useState('');
+  return (
+    <>
+      <Sample name="Date picker" of="components/BarCalendar BarDatePicker — the bar’s field, zz.ll.aaaa, the calendar hung under it (Monday first, today ringed, the day chosen filled)">
+        <BarDatePicker value={day} onChange={setDay} inline />
+      </Sample>
+      <Sample name="Date range" of="components/BarCalendar BarDateRange — from – to in one field; two presses, the span shown as it is hovered, the usual spans at the foot">
+        <BarDateRange from={span.from} to={span.to} onChange={setSpan} inline />
+      </Sample>
+      <Sample name="Legislation bar, with dates" of="the Legislation bar (components/LegalBar) with a period and a day — press the fields; not yet on the tab" wide>
+        <div className="lg-bar">
+          <button type="button" className="lg-random" aria-label="Random"><span className="lg-ico">{SearchGlyph}</span></button>
+          <button type="button" className="lg-input is-kind lg-kind"><span className="lg-kind-label">Any kind</span><span className="lg-kind-chev" aria-hidden="true" /></button>
+          <input className="lg-input is-num" placeholder="Number" readOnly aria-label="Number" />
+          <input className="lg-input is-num" placeholder="Year" readOnly aria-label="Year" />
+          <BarDateRange from={barSpan.from} to={barSpan.to} onChange={setBarSpan} label="In force between" />
+          <BarDatePicker value={barDay} onChange={setBarDay} label="Published on" placeholder="Published on" />
+          <button type="button" className="lg-go"><span className="lg-ico">{SearchGlyph}</span><span>Search</span></button>
+        </div>
+      </Sample>
+    </>
   );
 }
 

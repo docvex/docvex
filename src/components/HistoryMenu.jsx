@@ -123,7 +123,9 @@ export function HistoryMenu({ tab, anchor, onClose, onPick, renderEntry = defaul
 }
 
 /** The tool button that owns the dropdown — drop it in LegalTabs' `trailing`. */
-export default function HistoryButton({ tab, onPick, renderEntry, extra, emptyText, tip = 'Every search run and everything opened here, with the time' }) {
+// `iconOnly`: the clock alone, no "History" word (the Legislation tab's
+// rail, beside its Search item); `className` is added to the button.
+export default function HistoryButton({ tab, onPick, renderEntry, extra, emptyText, tip = 'Every search run and everything opened here, with the time', iconOnly = false, className = '' }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef(null);
   const close = useCallback(() => setOpen(false), []);
@@ -133,12 +135,13 @@ export default function HistoryButton({ tab, onPick, renderEntry, extra, emptyTe
         <button
           type="button"
           ref={btnRef}
-          className={`lgt-tool-btn${open ? ' is-open' : ''}`}
+          className={`lgt-tool-btn${open ? ' is-open' : ''}${iconOnly ? ' is-icon' : ''}${className ? ` ${className}` : ''}`}
           aria-haspopup="dialog"
           aria-expanded={open}
+          aria-label="History"
           onClick={() => setOpen((o) => !o)}
         >
-          <span className="lgt-tool-ico">{ClockIcon}</span><span>History</span>
+          <span className="lgt-tool-ico">{ClockIcon}</span>{iconOnly ? null : <span>History</span>}
         </button>
       </Tooltip>
       {open ? (

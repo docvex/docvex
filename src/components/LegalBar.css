@@ -99,7 +99,10 @@
 }
 html[data-reduce-motion="true"] .lg-kind { transition: background 140ms ease, border-color 140ms ease; }
 /* The label, measured: a hidden copy at its natural width. */
-.lg-kind-measure { position: absolute; left: 0; top: 0; visibility: hidden; white-space: nowrap; pointer-events: none; }
+/* `width: max-content` — absolutely placed inside the field, its width would
+   otherwise be capped at the FIELD's, so a longer label could never measure
+   wider than the field already was and the field never grew to fit it. */
+.lg-kind-measure { position: absolute; left: 0; top: 0; width: max-content; visibility: hidden; white-space: nowrap; pointer-events: none; }
 .lg-kind:hover { color: var(--text-primary); }
 .lg-kind.is-empty .lg-kind-label { color: var(--text-muted); }
 .lg-kind:focus-visible {
@@ -134,6 +137,9 @@ html[data-reduce-motion="true"] .lg-kind-chev { transition: none; }
    joining the open field's, its FOOT rounded. Above every floating surface. */
 .lg-menu {
   position: fixed; z-index: 10001;
+  /* As wide as the longest entry (never narrower than the field — the
+     inline min-width), within the window. */
+  width: max-content; max-width: min(520px, calc(100vw - 32px));
   /* A faint divider between the open field and the list — a hairline of
      the text colour, faded out at both ends. */
   padding: 5px 4px 4px;
@@ -185,7 +191,7 @@ html[data-reduce-motion="true"] .lg-kind-chev { transition: none; }
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
 }
-.lg-menu-item-label { flex: 1 1 auto; min-width: 0; }
+.lg-menu-item-label { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lg-menu-item:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
 /* The entry chosen: its text in full strength and a filled circle at the
    row's far right — a plain row otherwise, picked like any other. */

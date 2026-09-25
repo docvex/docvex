@@ -164,6 +164,32 @@ html[data-reduce-motion="true"] .lgt-bar.is-enter-left ~ * { animation: none; }
 .lgt-search.is-active { background: var(--accent-tint); }
 .lgt-search:focus-within { width: var(--ds-search-w-focus, 320px); border-color: var(--accent); }
 .lgt-search.is-off { opacity: 0.5; pointer-events: none; }
+/* Where the page draws its search elsewhere (`noSearch`): the box keeps its
+   place in the line — hidden, inert — so the line never changes height or
+   moves its neighbours when the box comes back. */
+.lgt-search.is-hidden { visibility: hidden; pointer-events: none; }
+/* A FIND's own controls, inside the field (the Doc Viewer's .dv-find-count /
+   .dv-find-btn): the match position in small tabular figures — red when
+   there is none — then previous, next and clear, the clear button's size. */
+.lgt-find-count {
+  flex: 0 0 auto;
+  font-size: 9.6px; font-weight: 600; font-variant-numeric: tabular-nums;
+  white-space: nowrap; user-select: none;
+  color: var(--text-muted);
+}
+.lgt-find-count.is-empty { color: var(--danger-text, var(--danger)); }
+.lgt-find-btn {
+  flex: 0 0 auto;
+  display: grid; place-items: center;
+  width: 16px; height: 16px;
+  padding: 0; border: 0; border-radius: 4px; cursor: pointer;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-secondary);
+  transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+.lgt-find-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 16%, transparent); color: var(--text-primary); }
+.lgt-find-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.lgt-find-btn svg { display: block; }
 
 /* The mini header's SECOND LINE, under the hairline: a page's own controls
    (the CAEN List / Picker switch, the courts' mode switch) at the left and

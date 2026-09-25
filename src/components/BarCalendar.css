@@ -1,0 +1,133 @@
+/* THE CALENDAR of the Legislation bar (components/BarCalendar.jsx) — the
+   field is the bar's own (.lg-input), the calendar hangs from it on the
+   Kind list's ground (.lg-menu: the tint over the page, frosted, the accent
+   hairline, the rounded foot). Semantic tokens only. */
+
+.bc-wrap { display: contents; }
+.bc-wrap.is-inline { display: inline-flex; flex-direction: column; align-items: flex-start; }
+
+/* ── The field ── a calendar mark, then the date in tabular figures — or,
+   for a span, "from – to" — in the field's own type. */
+.bc-field {
+  display: inline-flex; align-items: center; gap: 6px;
+  width: auto; min-width: 118px;
+  text-align: left; cursor: pointer;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.bc-field.is-range { min-width: 206px; }
+.bc-field.is-empty { color: var(--text-muted); }
+.bc-field-ico { display: inline-flex; width: 13px; height: 13px; flex: none; color: var(--text-muted); }
+.bc-field-ico svg { width: 100%; height: 100%; }
+.bc-field-text { white-space: nowrap; }
+.bc-field-text.is-ph { color: var(--text-muted); }
+.bc-field-dash { color: var(--text-muted); }
+/* Standing alone (the gallery draws it open, out of a bar): its own left
+   edge and top corners, the foot squared onto the calendar. */
+.bc-wrap.is-inline > .bc-field {
+  border-left: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-control-radius, 4.8px) var(--ds-control-radius, 4.8px) 0 0;
+}
+.bc-field:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; background: var(--accent-tint); border-color: var(--accent); position: relative; z-index: 1; }
+/* Open: the field and the calendar are ONE surface, as the Kind picker and
+   its list are. */
+.bc-field.is-open {
+  background: color-mix(in srgb, var(--text-primary) 4%, var(--bg-page));
+  border-color: var(--accent); border-bottom-color: transparent;
+  box-shadow: inset 1px 0 0 var(--accent);
+  position: relative; z-index: 10002;
+}
+.bc-field.is-open .bc-field-ico { color: var(--accent); }
+
+/* ── The popover ── the .lg-menu ground; drawn in place in the gallery. */
+.bc-pop { padding: 8px 8px 6px; width: auto; }
+.bc-pop.is-inline { position: static; box-shadow: var(--shadow-card); margin-top: -1px; }
+
+/* ── The calendar ── */
+.bc { width: 232px; display: flex; flex-direction: column; gap: 4px; font-size: var(--ds-control-size, 10.4px); }
+.bc-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 0 4px; }
+.bc-title { font-family: var(--font-display); font-size: 12.8px; font-weight: 650; color: var(--text-primary); }
+.bc-year { color: var(--text-muted); font-weight: 600; }
+.bc-nav {
+  display: grid; place-items: center;
+  width: 24px; height: 24px; padding: 0;
+  border: 0; border-radius: 6px;
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.bc-nav svg { width: 13px; height: 13px; }
+.bc-nav:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+.bc-nav:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.bc-week, .bc-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.bc-week span {
+  padding: 2px 0 4px; text-align: center;
+  font-size: 9.6px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.bc-week span.is-weekend { color: color-mix(in srgb, var(--text-muted) 70%, transparent); }
+.bc-grid { row-gap: 2px; }
+
+/* A day: a round button; the span between two chosen days is a continuous
+   band the chosen days cap. */
+.bc-day {
+  position: relative;
+  height: 30px; padding: 0;
+  border: 0; background: transparent;
+  font: inherit; font-size: 11.2px; font-variant-numeric: tabular-nums;
+  color: var(--text-primary); cursor: pointer;
+}
+.bc-day > span {
+  position: relative; z-index: 1;
+  display: grid; place-items: center;
+  width: 28px; height: 28px; margin: 0 auto;
+  border-radius: 50%;
+  transition: background 110ms ease, color 110ms ease;
+}
+.bc-day:hover > span { background: color-mix(in srgb, var(--text-primary) 9%, transparent); }
+.bc-day.is-weekend { color: var(--text-secondary); }
+.bc-day.is-out { color: color-mix(in srgb, var(--text-muted) 65%, transparent); }
+.bc-day.is-today > span { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent); font-weight: 700; }
+.bc-day.is-on > span,
+.bc-day.is-on:hover > span { background: var(--accent); color: var(--text-on-accent); font-weight: 700; box-shadow: none; }
+.bc-day:focus-visible { outline: none; }
+.bc-day:focus-visible > span { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The span. */
+.bc-day.is-span::before,
+.bc-day.is-start::before,
+.bc-day.is-end::before {
+  content: ''; position: absolute; top: 1px; bottom: 1px;
+  background: var(--accent-tint);
+}
+.bc-day.is-span::before { left: 0; right: 0; }
+.bc-day.is-start::before { left: 50%; right: 0; }
+.bc-day.is-end::before { left: 0; right: 50%; }
+.bc-day.is-start > span, .bc-day.is-end > span { background: var(--accent); color: var(--text-on-accent); font-weight: 700; }
+
+/* The foot: Today (or the range's usual spans) and Clear. */
+.bc-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: 4px; padding-top: 6px;
+  border-top: 1px solid var(--ds-hairline, var(--border));
+}
+.bc-presets { display: flex; flex-wrap: wrap; gap: 4px; }
+.bc-preset, .bc-link {
+  height: 22px; padding: 0 8px;
+  border: 1px solid transparent; border-radius: 999px;
+  background: transparent;
+  font: inherit; font-size: 10.4px; font-weight: 600; cursor: pointer;
+  color: var(--accent);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.bc-preset { border-color: var(--ds-hairline, var(--border)); color: var(--text-secondary); font-weight: 500; }
+.bc-preset:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); color: var(--text-primary); }
+.bc-preset.is-on { background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--accent); }
+.bc-link:hover { background: var(--accent-tint); }
+.bc-link.is-muted { color: var(--text-muted); font-weight: 500; }
+.bc-link.is-muted:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); color: var(--text-primary); }
+.bc.is-range .bc-foot { flex-direction: column; align-items: stretch; }
+.bc.is-range .bc-foot .bc-link { align-self: flex-end; }
+.bc-hint { margin: 2px 0 0; font-size: 10.4px; color: var(--text-muted); text-align: center; }
+
+html[data-reduce-motion="true"] .bc-day > span,
+html[data-reduce-motion="true"] .bc-nav { transition: none; }

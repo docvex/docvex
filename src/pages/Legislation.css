@@ -4,6 +4,9 @@
    argument for not copying a website's look along with its data. */
 
 .lg-page { --lgt-page-gap: 20px; display: flex; flex-direction: column; gap: var(--lgt-page-gap); padding-bottom: 64px; }
+/* Tighter under the tab bar on this tab: 8px to the rail and the content
+   (the shared bar keeps 19.2px on the other tabs). */
+.lg-page > .lgt-bar { margin-bottom: calc(8px - var(--lgt-page-gap, 0px)); }
 /* Capped at the shared content ceiling on wide screens, left-aligned — the
    same rule as Versions and the Newsletter. */
 @media (min-width: 1024px) { /* 1280px pre-scale */
@@ -31,6 +34,92 @@
 
 .lg-main,
 .lg-reader { display: flex; flex-direction: column; gap: 16px; }
+/* The Search item's head: the bar, the words box beside it (the tab bar's
+   search box, `LegalSearchBox`, here at the left, not pushed right), and the
+   bar's note after them — wrapping onto a second line on a narrow window. */
+.lg-searchrow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+.lg-searchrow .lg-words { margin-left: 0; }
+/* Before anything is asked: the tabs' EMPTY STATE (LegalSourceStub's
+   .lss-card, the Doc Viewer advisor's) — the mark alone, the title, the
+   muted line, centred — holding the two ways to search side by side, "or"
+   between them, each with its label over it and a hint under it. */
+.lg-start {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  /* Wide enough for the two ways side by side at their larger size. */
+  width: 100%; max-width: 1080px; margin: 0 auto;
+  padding: 16px 28px 48px;
+  text-align: center;
+}
+.lg-start-mark { display: grid; place-items: center; margin-bottom: 6px; color: var(--accent); }
+.lg-start-title {
+  margin: 0;
+  font-family: var(--font-display); font-size: 21px; font-weight: 600; letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.lg-start-sub { margin: 0; max-width: 56ch; font-size: 13.2px; line-height: 1.6; color: var(--text-muted); text-wrap: balance; }
+/* The two ways SIDE BY SIDE: by number at the left, "or", by words at the
+   right; stacked only where the window is too narrow for both. */
+.lg-start-modes {
+  /* A three-column grid — two EQUAL side columns and "or" in the middle — so
+     "or" stands at the horizontal centre whatever each side's width: the
+     left way hugs the middle from the left, the right way from the right. */
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: start; gap: 20px 56px;
+  margin-top: 22px; width: 100%;
+}
+.lg-start-mode { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; }
+.lg-start-modes > .lg-start-mode:first-child { justify-self: end; }
+.lg-start-modes > .lg-start-mode:last-child { justify-self: start; }
+/* Too narrow for both side by side: one column, "or" between them, every
+   part centred. */
+@media (max-width: 1180px) {
+  .lg-start-modes { grid-template-columns: minmax(0, 1fr); row-gap: 14px; }
+  .lg-start-modes > .lg-start-mode:first-child,
+  .lg-start-modes > .lg-start-mode:last-child { justify-self: center; }
+  .lg-start-modes > .lg-start-or { justify-self: center; padding-top: 0; }
+}
+.lg-start-label {
+  margin: 0;
+  font-size: var(--ds-eyebrow-size, 8.8px); font-weight: 700; letter-spacing: var(--ds-eyebrow-tracking, 0.22em); text-transform: uppercase;
+  color: var(--text-muted);
+}
+.lg-start-mode .lg-words { margin-left: 0; width: var(--ds-search-w, 256px); }
+.lg-start-mode .lg-words:focus-within { width: var(--ds-search-w-focus, 320px); }
+/* The two ways to search, LARGER on the start screen: the bar and the words
+   box read their height, type size, corners and the box's width from the
+   design tokens, so re-declaring those here scales every part together
+   (the Kind picker measures its own label, so it follows); the few sizes
+   the recipes write literally — the dice and Search buttons' type and
+   glyphs, the number fields' width, the key hint — are scaled beside them.
+   The compact row over the results keeps the bar's usual size. */
+.lg-start-mode {
+  --ds-control-h: 36px;
+  --ds-control-size: 13.6px;
+  --ds-control-radius: 7px;
+  --ds-search-w: 340px;
+  --ds-search-w-focus: 380px;
+}
+.lg-start-mode .lg-input { padding: 0 11px; }
+.lg-start-mode .lg-input.is-num { width: 92px; }
+.lg-start-mode .lg-random { padding: 0 12px; font-size: 13.6px; }
+.lg-start-mode .lg-random .lg-ico { width: 17px; height: 17px; }
+.lg-start-mode .lg-go { padding: 0 16px; font-size: 13.6px; gap: 8px; }
+.lg-start-mode .lg-go .lg-ico { width: 15px; height: 15px; }
+.lg-start-mode .lg-go > span:not(.lg-ico) { line-height: 15px; height: 15px; }
+.lg-start-mode .lg-kind-chev { width: 8px; height: 8px; }
+.lg-start-mode .lgt-search { padding: 0 10px 0 12px; gap: 9px; }
+.lg-start-mode .lgt-search-glyph svg { width: 17px; height: 17px; }
+.lg-start-mode .lgt-search-kbd kbd { font-size: 11.2px; }
+.lg-start-mode .lgt-search-clear { width: 20px; height: 20px; }
+.lg-start-hint { margin: 0; max-width: 30ch; font-size: 11.2px; line-height: 1.5; color: var(--text-muted); }
+/* On the fields' line: past the label (≈ 9px and the 8px gap) and half the
+   field's height, less half its own line. */
+.lg-start-or {
+  align-self: flex-start; margin: 0;
+  padding-top: calc(9px + 8px + (var(--ds-control-h-start, 36px) - 16px) / 2);
+  line-height: 16px;
+  font-family: var(--font-display); font-size: 13px; font-style: italic; color: var(--text-muted);
+}
+.lg-start-foot { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; min-height: 24px; }
 
 /* ── The rail — the Advisor's list of chats (pages/Projects/ProjectAIChat.css,
    .aichat-item — keep the two in step), for the acts open in this tab. It
@@ -47,7 +136,11 @@
   margin-right: 20px; padding-right: 14px;
   border-right: 1px solid var(--border);
 }
-.lg-rail-head { flex: none; padding: 0 0 6.4px; margin-bottom: 6.4px; border-bottom: 1px solid var(--border); }
+/* The head: the Search item, and History (the clock alone) at its right. */
+.lg-rail-head { flex: none; display: flex; align-items: center; gap: 4px; padding: 0 0 6.4px; margin-bottom: 6.4px; border-bottom: 1px solid var(--border); }
+.lg-rail-head .lg-rail-item { flex: 1 1 auto; min-width: 0; }
+.lg-rail-hist.is-icon { flex: none; width: 32px; height: 32px; padding: 0; justify-content: center; }
+.lg-rail-hist.is-icon .lgt-tool-ico { width: 15px; height: 15px; }
 .lg-rail-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 2px 0 8px; scrollbar-width: thin; }
 .lg-rail-item {
   position: relative;
@@ -73,7 +166,6 @@
 .lg-rail-ico svg { display: block; }
 .lg-rail-title { flex: 1 1 auto; min-width: 0; font-size: 0.68rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lg-rail-item.is-active .lg-rail-title { font-weight: 600; }
-.lg-rail-sub { color: var(--text-muted); font-weight: 400; }
 .lg-rail-actions { flex: 0 0 auto; display: flex; gap: 1.6px; opacity: 0; transition: opacity 120ms; }
 .lg-rail-item:hover .lg-rail-actions, .lg-rail-item:focus-within .lg-rail-actions { opacity: 1; }
 .lg-rail-actions button {
@@ -238,12 +330,8 @@
   color: inherit;
 }
 .lg-hit.is-current { background: var(--accent); color: var(--text-on-accent); }
-/* The match count with its arrows, beside the way back — the toggle's
-   field (LegalTabs.css) holding two small buttons and the count. */
-.lg-findnav { align-items: center; }
-.lg-findnav .lgt-toggle-btn { padding: 0 8px; font-size: 13px; line-height: 1; }
-.lg-findnav .lgt-toggle-btn:disabled { opacity: 0.4; cursor: default; background: transparent; }
-.lg-findnav-count { padding: 0 4px; font-size: 10.4px; color: var(--text-secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* The match count and its arrows are INSIDE the find field now
+   (LegalTabs' `search.find`, .lgt-find-count / .lgt-find-btn). */
 
 /* The act itself is a DOCUMENT, so it is set like one: the app's display
    face for its structure and its body face for the law, across the whole
@@ -266,6 +354,33 @@
   color: var(--text-primary);
 }
 .lg-act-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.2px; color: var(--text-muted); }
+/* The head AS THE PORTAL SETS IT (from the page's S_DEN / S_HDR / S_EMT /
+   S_PUB): the act's name in bold, its state in the brackets bolder; the
+   title under it; then the issuer and the gazette as label / value rows,
+   the label in a fixed column the way the portal's EMITENT table has it. */
+.lg-src-head { margin: 6px 0 2px; }
+.lg-src-den {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px; font-weight: 700; line-height: 1.3; letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.lg-src-state { font-weight: 800; }
+.lg-src-hdr {
+  margin: 4px 0 14px;
+  font-family: var(--font-display);
+  font-size: 16px; font-weight: 600; line-height: 1.45;
+  color: var(--text-primary);
+}
+.lg-src-meta { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.lg-src-metarow { display: flex; align-items: baseline; gap: 12px; }
+.lg-src-metarow dt {
+  flex: none; min-width: 84px;
+  font-size: 10.4px; font-weight: 700; letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.lg-src-metarow.is-emt dt { text-transform: uppercase; }
+.lg-src-metarow dd { margin: 0; font-size: 12.8px; font-weight: 600; color: var(--text-primary); }
 /* The authority note. Deliberately not a dismissible banner and not a footnote:
    a consolidated text quoted as the law is the one real risk this page
    introduces, so it stands on every act, every time. */
@@ -314,7 +429,9 @@
 }
 /* The paragraph number sits in the margin where the printed act puts it, so
    the prose keeps one left edge down the page. */
-.lg-para-num { display: inline-block; min-width: 26px; font-weight: 700; color: var(--text-secondary); }
+/* A number marker — "(1)", "a)", "1." — in the THEME's accent (cognac on
+   Cream, sand on Ink), not the secondary text's blue-grey. */
+.lg-para-num { display: inline-block; min-width: 26px; font-weight: 700; color: var(--accent); }
 .lg-actnote { margin: 10px 0; font-size: 12px; line-height: 1.6; color: var(--text-muted); font-style: italic; }
 /* A box-drawn table (a form, a schedule) as the act draws it: monospace,
    every space kept, the boxes lining up; wider than the page it scrolls
@@ -326,10 +443,31 @@
 .lg-art-den, .lg-unit-den { font-weight: 500; color: var(--text-secondary); }
 /* A numbered paragraph, a lettered point, a numbered point: the number in
    a fixed column, the text beside it; each level indents under the last. */
-.lg-aln, .lg-lit, .lg-pct { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0; }
-.lg-aln > .lg-para-num, .lg-lit > .lg-para-num, .lg-pct > .lg-para-num { flex: none; min-width: 30px; padding-top: 6px; font-weight: 700; color: var(--text-secondary); }
-.lg-lit > .lg-para-num { min-width: 24px; }
-.lg-lit, .lg-pct { margin-left: 14px; }
+.lg-aln, .lg-lit, .lg-pct, .lg-li { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0; }
+.lg-aln > .lg-para-num, .lg-lit > .lg-para-num, .lg-pct > .lg-para-num, .lg-li > .lg-para-num { flex: none; min-width: 30px; padding-top: 6px; font-weight: 700; color: var(--accent); }
+.lg-lit > .lg-para-num, .lg-li > .lg-para-num { min-width: 24px; }
+.lg-pct { margin-left: 14px; }
+/* NESTED LISTS hang on a GUIDE LINE: the items under a paragraph or a
+   point — the letters "a) b) c)" under "1.", a point nested in a paragraph,
+   and the lists the portal writes as plain paragraphs (a letter, a roman
+   numeral, a bullet, or text pushed in with spaces) — stand to the right of
+   a hairline in the accent. The spacing between items is PADDING, not
+   margin, so consecutive items keep one unbroken line. A list pushed in
+   further by the portal (`--li-indent`, steps of four spaces) moves in
+   with it. */
+.lg-lit,
+.lg-inner > .lg-pct,
+.lg-li.is-letter, .lg-li.is-roman, .lg-li.is-bullet, .lg-li.is-indent {
+  margin: 0 0 0 calc(14px + var(--li-indent, 0) * 18px);
+  padding: 4px 0 4px 12px;
+  border-left: 1.5px solid color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.lg-li.is-num { margin-left: calc(var(--li-indent, 0) * 18px); }
+/* The last item of a run: a little air under the line before what follows. */
+.lg-lit:not(:has(+ .lg-lit)),
+.lg-li:not(.is-num):not(:has(+ .lg-li:not(.is-num))) { margin-bottom: 8px; }
+.lg-li > .lg-inner > .lg-para, .lg-lit > .lg-inner > .lg-para, .lg-pct > .lg-inner > .lg-para { margin-bottom: 0; }
+.lg-li.is-bullet > .lg-para-num, .lg-li.is-indent > .lg-para-num { min-width: 14px; }
 .lg-inner { flex: 1 1 auto; min-width: 0; }
 .lg-inner > .lg-para:first-child { margin-top: 0; }
 /* Text an amendment quotes (the new wording it introduces): a rule at

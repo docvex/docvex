@@ -56,6 +56,16 @@ const CloseGlyph = (
     <path d="M6 6l12 12M18 6L6 18" />
   </svg>
 );
+const UpGlyph = (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="m18 15-6-6-6 6" />
+  </svg>
+);
+const DownGlyph = (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);
 const isMacPlatform = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '');
 
 // The tab the bar was on last — each tab is a route, so the bar mounts afresh
@@ -80,26 +90,23 @@ export const LEGAL_STUB_TABS = LEGAL_TABS.filter((t) => t.stub);
 // drawn at the RIGHT END of the tabs row, above the hairline.
 // `trailing`: a page's control at the FAR RIGHT of the second line, past
 // the search (Legislation's History dropdown).
-export default function LegalTabs({ search = null, tools = null, status = null, trailing = null }) {
-  const navigate = useNavigate();
-  const { pathname } = useLocation();
-  const { session } = useAuth();
-  const userId = session?.user?.id || null;
-  const active = LEGAL_TABS.find((t) => t.to === pathname)?.id ?? LEGAL_TABS[0].id;
+/**
+ * The search box itself — the Files tab's search to the letter (glyph, the
+ * field, a clear button while there is text, the Ctrl/⌘+F hint while there
+ * is none). Drawn in the tab bar by LegalTabs, and on its own by a page that
+ * puts its search elsewhere (the Legislation tab's Search item). Ctrl/⌘+F
+ * focuses it while it is mounted and enabled.
+ */
+// `search.find` — `{ current, total, prev(), next() }` — makes the box a FIND
+// (the Legislation act's "Find in this act"): the count and the arrows sit
+// inside it, and the keys work as Windows' find does.
+// `hotkey`: false leaves out Ctrl/⌘+F — the key and its hint (the
+// Legislation start screen's words box, where the key belongs to the act's find).
+export function LegalSearchBox({ search, className = '', hotkey = true }) {
   const searchRef = useRef(null);
-
-  // Where the bar came from (captured once, at mount): the underline slides
-  // from that tab, and the content under the bar enters from the side the
-  // underline travelled toward — the Activity tab's feed slide. Nothing
-  // moves on a first arrival.
-  const [from] = useState(() => lastActive);
-  useEffect(() => { lastActive = active; }, [active]);
-  const idx = (id) => LEGAL_TABS.findIndex((t) => t.id === id);
-  const dir = from && from !== active ? Math.sign(idx(active) - idx(from)) : 0;
-
-  // Ctrl/⌘+F: the field, as in Files.
+  const find = search?.find || null;
   useEffect(() => {
-    if (!search) return undefined;
+    if (!search || !hotkey) return undefined;
     const onKey = (e) => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'f') {
         e.preventDefault();
@@ -110,6 +117,81 @@ export default function LegalTabs({ search = null, tools = null, status = null, 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [!!search]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className={`lgt-search${search?.value ? ' is-active' : ''}${search ? '' : ' is-off'}${className ? ` ${className}` : ''}`}>
+      <span className="lgt-search-glyph">{SearchGlyph}</span>
+      <input
+        ref={searchRef}
+        placeholder={search?.placeholder || 'Search'}
+        value={search?.value || ''}
+        disabled={!search}
+        aria-label={search?.placeholder || 'Search'}
+        onChange={(e) => search?.onChange?.(e.target.value)}
+        onPaste={search?.onPaste}
+        onKeyDown={(e) => {
+          // A page may take a key first (the Legislation act's find:
+          // Tab / Shift+Enter step between matches).
+          search?.onKeyDown?.(e);
+          if (e.defaultPrevented) return;
+          if (find) {
+            // A FIND, Windows-style (the Doc Viewer's DocFindBar): Enter the
+            // next match, Shift+Enter the one before, Escape clears the
+            // words and leaves the field.
+            if (e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) find.prev(); else find.next(); return; }
+            if (e.key === 'Escape') { e.stopPropagation(); search.onChange?.(''); e.currentTarget.blur(); return; }
+          }
+          if (e.key === 'Escape' && search?.value) { e.stopPropagation(); search.onChange?.(''); }
+          if (e.key === 'Enter') search?.onSubmit?.();
+        }}
+      />
+      {find && search?.value ? (
+        // A find with words in it: where you are ("3/17", or "No results"),
+        // the previous / next match and clear — all INSIDE the field, as the
+        // Doc Viewer's find (and Windows') has them.
+        <>
+          <span className={`lgt-find-count${find.total ? '' : ' is-empty'}`} aria-live="polite">
+            {find.total ? `${find.current}/${find.total}` : 'No results'}
+          </span>
+          <button type="button" className="lgt-find-btn" aria-label="Previous match (Shift+Enter)" disabled={!find.total} onClick={find.prev}>{UpGlyph}</button>
+          <button type="button" className="lgt-find-btn" aria-label="Next match (Enter)" disabled={!find.total} onClick={find.next}>{DownGlyph}</button>
+          <button type="button" className="lgt-find-btn" aria-label="Clear" onClick={() => { search.onChange?.(''); searchRef.current?.focus(); }}>{CloseGlyph}</button>
+        </>
+      ) : search?.value ? (
+        <button
+          type="button"
+          className="lgt-search-clear"
+          aria-label="Clear search"
+          onClick={() => { search.onChange?.(''); searchRef.current?.focus(); }}
+        >
+          {CloseGlyph}
+        </button>
+      ) : (
+        <span className="lgt-search-kbd">
+          <kbd>{isMacPlatform ? '⌘' : 'Ctrl'}</kbd>
+          <kbd>F</kbd>
+        </span>
+      )}
+    </div>
+  );
+}
+
+// `noSearch`: the page draws its search elsewhere — the bar leaves its box
+// out altogether rather than showing it disabled.
+export default function LegalTabs({ search = null, tools = null, status = null, trailing = null, noSearch = false }) {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const { session } = useAuth();
+  const userId = session?.user?.id || null;
+  const active = LEGAL_TABS.find((t) => t.to === pathname)?.id ?? LEGAL_TABS[0].id;
+
+  // Where the bar came from (captured once, at mount): the underline slides
+  // from that tab, and the content under the bar enters from the side the
+  // underline travelled toward — the Activity tab's feed slide. Nothing
+  // moves on a first arrival.
+  const [from] = useState(() => lastActive);
+  useEffect(() => { lastActive = active; }, [active]);
+  const idx = (id) => LEGAL_TABS.findIndex((t) => t.id === id);
+  const dir = from && from !== active ? Math.sign(idx(active) - idx(from)) : 0;
 
   // The Newsletter's "new brief" mark — the same signal the sidebar shows,
   // carried on the tab so it can be seen from the other two.
@@ -171,41 +253,10 @@ export default function LegalTabs({ search = null, tools = null, status = null, 
           the Files search stands. It pins and frosts with the bar. */}
       <div className="lgt-line2">
         {tools}
-        <div className={`lgt-search${search?.value ? ' is-active' : ''}${search ? '' : ' is-off'}`}>
-          <span className="lgt-search-glyph">{SearchGlyph}</span>
-          <input
-            ref={searchRef}
-            placeholder={search?.placeholder || 'Search'}
-            value={search?.value || ''}
-            disabled={!search}
-            aria-label={search?.placeholder || 'Search'}
-            onChange={(e) => search?.onChange?.(e.target.value)}
-            onPaste={search?.onPaste}
-            onKeyDown={(e) => {
-              // A page may take a key first (the Legislation act's find:
-              // Tab / Shift+Enter step between matches).
-              search?.onKeyDown?.(e);
-              if (e.defaultPrevented) return;
-              if (e.key === 'Escape' && search?.value) { e.stopPropagation(); search.onChange?.(''); }
-              if (e.key === 'Enter') search?.onSubmit?.();
-            }}
-          />
-          {search?.value ? (
-            <button
-              type="button"
-              className="lgt-search-clear"
-              aria-label="Clear search"
-              onClick={() => { search.onChange?.(''); searchRef.current?.focus(); }}
-            >
-              {CloseGlyph}
-            </button>
-          ) : (
-            <span className="lgt-search-kbd">
-              <kbd>{isMacPlatform ? '⌘' : 'Ctrl'}</kbd>
-              <kbd>F</kbd>
-            </span>
-          )}
-        </div>
+        {/* `noSearch`: the box is still LAID OUT, hidden and inert, so the
+            line keeps its height and nothing moves when the page brings
+            its search back (the Legislation tab's find, on opening an act). */}
+        <LegalSearchBox search={noSearch ? null : search} className={noSearch ? 'is-hidden' : ''} />
         {trailing}
       </div>
       </div>

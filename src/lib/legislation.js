@@ -356,6 +356,43 @@ export async function loadActPage(rec, { fresh = true } = {}) {
   return kept?.ok ? kept : res;
 }
 
+// A LIST the portal writes as plain paragraphs. Not every list in an act is
+// marked up as one (S_LIT / S_PCT): an annex, a form's instructions or an
+// older act writes its items as ordinary S_PAR paragraphs, either OPENING
+// with their marker — "a) …", "1. …", "(ii) …", "- …" — or pushed in with
+// leading spaces to look nested. Such a paragraph becomes a list item: the
+// marker taken off into `title` (drawn in the number column, and visited
+// before the text by `actTreeStrings`, as a unit's title is), `list` saying
+// which kind ('num' · 'letter' · 'roman' · 'bullet' · 'indent') and
+// `indent` how far the portal pushed it in (0–4 steps of four spaces).
+const LIST_MARK = /^(\(?[a-zăâîșşțţ]\)|\d{1,3}[.)]|\([ivx]{1,5}\)|[ivx]{2,5}\)|[-–—•●▪■○])\s+(?=\S)/u;
+function asListItem(node, el) {
+  // The portal's amendment notes ("(la 16-11-2022, … a fost modificat …)")
+  // are asides, never items.
+  if (/^\(la \d/.test(node.text || '')) return node;
+  // Indentation is what the TEXT carries: non-breaking spaces, or plain
+  // spaces on the text's own line. Whitespace that includes a line break or
+  // a tab is the page's source formatting, which the portal never shows —
+  // only its non-breaking spaces count then.
+  const ws = /^\s*/u.exec(String(el?.textContent || ''))?.[0] || '';
+  const lead = /[\r\n\t]/.test(ws) ? (ws.match(/ /g) || []).length : ws.length;
+  const m = LIST_MARK.exec(node.text || '');
+  if (!m && lead < 2) return node;
+  const mark = m ? m[1] : '';
+  const letters = mark.replace(/[()]/g, '');
+  const list = !m ? 'indent'
+    : /^\d/.test(mark) ? 'num'
+      : /^[-–—•●▪■○]$/.test(mark) ? 'bullet'
+        : letters.length > 1 ? 'roman' : 'letter';
+  return {
+    ...node,
+    title: mark,
+    text: m ? node.text.slice(m[0].length) : node.text,
+    list,
+    indent: Math.min(4, Math.round(lead / 4)),
+  };
+}
+
 const UNIT_KINDS = new Set(['art', 'aln', 'lit', 'pct', 'anx', 'cap', 'ttl', 'sec', 'prt', 'crt', 'sbs', 'nta', 'par']);
 export function parseActHtml(html) {
   if (typeof DOMParser === 'undefined') return null;
@@ -392,7 +429,7 @@ export function parseActHtml(html) {
     }
     out.text = tidy(inline);
     // A body with only its text and a first child paragraph is that paragraph.
-    if (!out.text && out.children.length && out.children[0].kind === 'par' && !out.children[0].children.length) {
+    if (!out.text && out.children.length && out.children[0].kind === 'par' && !out.children[0].list && !out.children[0].children.length) {
       out.text = out.children[0].text; out.children.shift();
     }
     return out;
@@ -435,7 +472,7 @@ export function parseActHtml(html) {
     }
     if (k === 'par') {
       const b = body(el);
-      return [{ kind: 'par', text: b.text, children: b.children }];
+      return [asListItem({ kind: 'par', text: b.text, children: b.children }, el)];
     }
     const K = k.toUpperCase();
     if (k && (child(el, `S_${K}_TTL`) || child(el, `S_${K}_BDY`))) {
