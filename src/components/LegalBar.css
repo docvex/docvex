@@ -1,0 +1,233 @@
+/* THE SEARCH BAR of the Legislation tabs (components/LegalBar.jsx) — in the
+   tab bar's second line, left of the words box (LegalTabs' `tools` slot), and
+   drawn as that box is (.lgt-search in components/LegalTabs.css — keep the
+   two in sync): 24px tall, the same hairline, radius, frost and type. One
+   row: the dice at the left end, the fields joined by hairlines, the go
+   button as the right end; the field being typed in takes the accent tint
+   and border as the words box does. No labels — placeholders, as the words
+   box has. First drawn for legislatie.just.ro; Court files and ANAF draw
+   their fields with the same pieces. Semantic tokens only. */
+.lg-bar { display: flex; align-items: stretch; flex: none; }
+.lg-input {
+  box-sizing: border-box;
+  height: var(--ds-control-h, 24px); padding: 0 7.2px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-left: 0; border-radius: 0;
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  color: var(--text-primary);
+  font: inherit; font-size: var(--ds-control-size, 10.4px); line-height: calc(var(--ds-control-h, 24px) - 2px);
+  outline: none;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.lg-input.is-kind { width: 132px; }
+.lg-input.is-num { width: 66px; }
+.lg-input.is-text { width: 120px; }
+.lg-input.is-wide { width: 160px; }
+.lg-input.is-date { width: 108px; padding-right: 4px; font-variant-numeric: tabular-nums; }
+.lg-input::placeholder { color: var(--text-muted); }
+.lg-input:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); }
+/* A bar with no dice: its first field carries the left edge and corners. */
+.lg-bar > .lg-input:first-child,
+.lg-bar > .lg-switch:first-child > .lg-seg:first-child {
+  border-left: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-control-radius, 4.8px) 0 0 var(--ds-control-radius, 4.8px);
+}
+/* Focused: the accent outline on ALL FOUR sides, drawn as an OUTLINE laid
+   inside the field's own edge (no border or margin change, so nothing in
+   the row moves a pixel), the field rising above its neighbours so the
+   dice or the field before cannot cover it. */
+.lg-input:focus {
+  background: var(--accent-tint); border-color: var(--accent);
+  outline: 1px solid var(--accent); outline-offset: -1px;
+  position: relative; z-index: 1;
+}
+/* A date field: the browser's calendar mark shrunk to the bar's scale, in
+   the bar's muted colour; its typed parts are the field's own text. */
+.lg-input[type="date"]::-webkit-calendar-picker-indicator {
+  width: 11px; height: 11px; margin: 0 0 0 2px; padding: 0;
+  opacity: 0.55; cursor: pointer;
+}
+.lg-input[type="date"]:hover::-webkit-calendar-picker-indicator { opacity: 0.9; }
+.lg-input[type="date"]::-webkit-datetime-edit { padding: 0; }
+.lg-input[type="date"]::-webkit-datetime-edit-fields-wrapper { padding: 0; }
+/* A still segment — a count, a hint — in the field's style, no hover. */
+.lg-note {
+  display: inline-flex; align-items: center;
+  color: var(--text-muted); white-space: nowrap; cursor: default;
+}
+.lg-note:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent); }
+/* ── A choice as SEGMENTS (BarSwitch: the courts' Case files / A court's
+   day): each option a field-shaped button, the chosen one drawn as the app
+   sidebar's selected item — accent tint, accent ring and accent text on
+   Ink; the solid cognac on Cream — the same rule the pill toggles follow. */
+.lg-switch { display: inline-flex; align-items: stretch; flex: none; }
+.lg-seg {
+  display: inline-flex; align-items: center;
+  white-space: nowrap; cursor: pointer;
+  color: var(--text-secondary); font-weight: 500;
+}
+.lg-seg:hover { color: var(--text-primary); }
+.lg-seg:focus-visible {
+  outline: 1px solid var(--accent); outline-offset: -1px;
+  position: relative; z-index: 1;
+}
+.lg-seg.is-on {
+  background: var(--accent-tint); color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--accent) 65%, transparent);
+  cursor: default;
+  position: relative; z-index: 1;
+}
+.lg-seg.is-on:hover { background: var(--accent-tint); border-color: var(--accent); box-shadow: inset 1px 0 0 var(--accent); }
+:root[data-theme="cream"] .lg-seg.is-on,
+:root[data-theme="cream"] .lg-seg.is-on:hover {
+  background: var(--color-cognac); border-color: var(--color-cognac); color: var(--color-cream);
+  box-shadow: inset 1px 0 0 var(--color-cognac);
+}
+/* ── The picker (BarPicker) — the app's own dropdown: the field is a button
+   in the bar's style; open, its bottom corners square onto the list hanging
+   under it. */
+.lg-kind {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+  position: relative;
+  text-align: left; cursor: pointer;
+  color: var(--text-secondary);
+  /* The field fits its choice (BarPicker sets the width) and GLIDES to a
+     new width when the choice changes. */
+  transition: width 280ms cubic-bezier(0.16, 1, 0.3, 1), background 140ms ease, border-color 140ms ease;
+}
+html[data-reduce-motion="true"] .lg-kind { transition: background 140ms ease, border-color 140ms ease; }
+/* The label, measured: a hidden copy at its natural width. */
+.lg-kind-measure { position: absolute; left: 0; top: 0; visibility: hidden; white-space: nowrap; pointer-events: none; }
+.lg-kind:hover { color: var(--text-primary); }
+.lg-kind.is-empty .lg-kind-label { color: var(--text-muted); }
+.lg-kind:focus-visible {
+  background: var(--accent-tint); border-color: var(--accent); color: var(--text-primary);
+  outline: 1px solid var(--accent); outline-offset: -1px;
+  position: relative; z-index: 1;
+}
+/* Open: the field and the list are ONE surface — the same ground, the
+   accent hairline round both, and no line between them (the field's bottom
+   edge is open, the list has no top edge). */
+.lg-kind.is-open {
+  background: color-mix(in srgb, var(--text-primary) 4%, var(--bg-page));
+  border-color: var(--accent); border-bottom-color: transparent;
+  color: var(--text-primary);
+  outline: none;
+  position: relative; z-index: 10002;
+  box-shadow: inset 1px 0 0 var(--accent);
+}
+.lg-kind-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A hairline chevron in the bar's own muted colour; accent while open. */
+.lg-kind-chev {
+  flex: none; width: 6px; height: 6px; margin: 0 2px 3px 0;
+  border-right: 1.5px solid var(--text-muted); border-bottom: 1.5px solid var(--text-muted);
+  transform: rotate(45deg);
+  transition: transform 140ms ease, border-color 140ms ease;
+}
+.lg-kind.is-open .lg-kind-chev { border-color: var(--accent); transform: translateY(2px) rotate(225deg); }
+html[data-reduce-motion="true"] .lg-kind-chev { transition: none; }
+@media (prefers-reduced-motion: reduce) { .lg-kind-chev { transition: none; } }
+/* The list: hung from the field's bottom edge, on the bar's own ground (the
+   search box's tint over the page, frosted), an accent hairline round it
+   joining the open field's, its FOOT rounded. Above every floating surface. */
+.lg-menu {
+  position: fixed; z-index: 10001;
+  /* A faint divider between the open field and the list — a hairline of
+     the text colour, faded out at both ends. */
+  padding: 5px 4px 4px;
+  margin: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--accent); border-top: 0;
+  border-radius: 0 0 var(--ds-menu-radius, 8px) var(--ds-menu-radius, 8px);
+  background: color-mix(in srgb, var(--text-primary) 4%, var(--bg-page));
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  box-shadow: var(--shadow-elev);
+}
+.lg-menu::before {
+  content: ''; position: absolute; left: 6px; right: 6px; top: 0; height: 1px;
+  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--text-primary) 22%, transparent) 25%, color-mix(in srgb, var(--text-primary) 22%, transparent) 75%, transparent);
+  pointer-events: none;
+}
+.lg-menu-list { list-style: none; margin: 0; padding: 0; }
+/* A long list (the courts): capped and scrolling, with a box at its head
+   that narrows it as you type — Enter takes the first match. */
+.lg-menu.is-long .lg-menu-list { max-height: 320px; overflow: auto; overscroll-behavior: contain; }
+.lg-menu-find {
+  display: block; width: 100%; box-sizing: border-box;
+  height: var(--ds-control-h, 24px); margin: 0 0 4px; padding: 0 8px;
+  border: 0; border-bottom: 1px solid var(--ds-hairline, var(--border)); border-radius: 0;
+  background: transparent; color: var(--text-primary);
+  font: inherit; font-size: 10.4px; outline: none;
+}
+.lg-menu-find::placeholder { color: var(--text-muted); }
+.lg-menu-find:focus { border-bottom-color: var(--accent); }
+/* A group's head — the words its entries share, said once — STAYS at the
+   top of the list while the group scrolls under it (sticky in the list,
+   which is the scroller), on the menu's own ground so rows pass beneath. */
+.lg-menu-head {
+  position: sticky; top: 0; z-index: 1;
+  padding: 6px 8px 3px;
+  font-size: 9.6px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-primary) 4%, var(--bg-page));
+  box-shadow: 0 1px 0 var(--ds-hairline, var(--border));
+}
+.lg-menu-none { padding: 6px 8px; font-size: 10.4px; color: var(--text-muted); }
+.lg-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 5px 8px;
+  border: 0; border-radius: 5px;
+  background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: 10.4px; text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.lg-menu-item-label { flex: 1 1 auto; min-width: 0; }
+.lg-menu-item:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+/* The entry chosen: its text in full strength and a filled circle at the
+   row's far right — a plain row otherwise, picked like any other. */
+.lg-menu-item.is-on { color: var(--text-primary); }
+.lg-menu-mark {
+  flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.lg-menu-item:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+/* The dice — the go button's twin at the bar's left end: accent-filled,
+   rounded on its outer corners. */
+.lg-random {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: none;
+  box-sizing: border-box; height: var(--ds-control-h, 24px); padding: 0 8px;
+  border: 1px solid var(--accent); border-radius: var(--ds-control-radius, 4.8px) 0 0 var(--ds-control-radius, 4.8px);
+  background: var(--accent); color: var(--text-on-accent);
+  font: inherit; font-size: 10.4px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.lg-random:hover { background: var(--accent-hover); }
+.lg-random:disabled { opacity: 0.55; cursor: progress; }
+.lg-random .lg-ico { width: 13px; height: 13px; }
+.lg-go {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  flex: none;
+  box-sizing: border-box; height: var(--ds-control-h, 24px); padding: 0 11px;
+  border: 1px solid var(--accent); border-radius: 0 var(--ds-control-radius, 4.8px) var(--ds-control-radius, 4.8px) 0;
+  white-space: nowrap;
+  background: var(--accent); color: var(--text-on-accent);
+  font: inherit; font-size: 10.4px; font-weight: 600; line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.lg-go:hover { background: var(--accent-hover); }
+.lg-go:disabled { opacity: 0.55; cursor: progress; }
+.lg-ico { display: inline-flex; width: 15px; height: 15px; flex: none; }
+/* In the go button the glyph and the label are boxes of ONE height (12px),
+   so flex centres them on the same line — a text box taller than the glyph
+   put its letters half a pixel off it. */
+.lg-go .lg-ico { width: 12px; height: 12px; }
+.lg-go > span:not(.lg-ico) { display: inline-block; line-height: 12px; height: 12px; }
+.lg-ico svg { display: block; width: 100%; height: 100%; }

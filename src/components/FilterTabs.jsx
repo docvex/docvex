@@ -18,7 +18,12 @@ import './FilterTabs.css';
 // `underlineCat` tints the bar via data-cat — the
 // Activity feed passes the active category so the line takes that category's
 // colour; callers with no categories leave it out and get the accent.
-export default function FilterTabs({ tabs, active, onSelect, className = '', underlineCat, ariaLabel = 'Filter' }) {
+// `fromId`: a tab to start the underline FROM on mount — it snaps there and
+// then slides to the active tab. For a strip that is remounted on every
+// change (the Legislation tab bar: each tab is a route, so the page and the
+// bar mount afresh), this is what keeps the slide the Activity strip gets
+// for free by staying mounted.
+export default function FilterTabs({ tabs, active, onSelect, className = '', underlineCat, ariaLabel = 'Filter', fromId = null }) {
   const stripRef = useRef(null);
   const underlineRef = useRef(null);
   // False until the underline has been positioned once. The very first
@@ -47,45 +52,52 @@ export default function FilterTabs({ tabs, active, onSelect, className = '', und
         b.classList.toggle('is-rowend', !next || next.offsetTop > b.offsetTop);
       });
     };
+    // Where the underline sits for a button. Wrap the label text with a
+    // symmetric overhang on each side so the bar reads wider than the word
+    // and stays centred under it. No clamp to the button's box: the first
+    // tab has no leading padding, so its underline deliberately pokes past
+    // the tab's left edge (the strip's overflow is visible). Offsets are
+    // relative to the button (position: relative). Vertically it rides the
+    // host bar's bottom edge like the chat toolbar's tab line
+    // (.dvx-tab.is-active::after): the tabs stretch to the bar's full
+    // height, so the button's bottom IS the bar's bottom border — the line
+    // straddles it, nudged the same 40% past the midpoint as chat (line
+    // half-height 1.6px − 40%-of-height 1.28px = 0.32px above the edge for
+    // the line's top).
+    const EXT = 8;
+    const spot = (btn) => {
+      const label = btn.querySelector('.activity-filter-label');
+      const start = (label ? label.offsetLeft : 0) - EXT;
+      const end = (label ? label.offsetLeft + label.offsetWidth : btn.offsetWidth) + EXT;
+      return { x: btn.offsetLeft + start, y: btn.offsetTop + btn.offsetHeight - 0.32, w: Math.max(end - start, 0) };
+    };
+    const put = (s) => {
+      bar.style.width = `${s.w}px`;
+      bar.style.transform = `translate(${s.x}px, ${s.y}px)`;
+    };
     const place = () => {
       markRowEnds();
       const btn = strip.querySelector(`[data-tab-id="${active}"]`);
       if (!btn) { bar.style.width = '0px'; return; }
-      const snap = !placedRef.current;
-      if (snap) bar.style.transition = 'none';
-      // Wrap the label text with a symmetric overhang on each side so the
-      // bar reads wider than the word and stays centred under it. No clamp
-      // to the button's box: the first tab has no leading padding, so its
-      // underline deliberately pokes past the tab's left edge (the strip's
-      // overflow is visible). Offsets are relative to the button
-      // (position: relative).
-      const EXT = 8;
-      const label = btn.querySelector('.activity-filter-label');
-      const start = (label ? label.offsetLeft : 0) - EXT;
-      const end = (label ? label.offsetLeft + label.offsetWidth : btn.offsetWidth) + EXT;
-      const x = btn.offsetLeft + start;
-      // Ride the host bar's bottom edge like the chat toolbar's tab line
-      // (.dvx-tab.is-active::after): the tabs stretch to the bar's full
-      // height, so the button's bottom IS the bar's bottom border — place the
-      // line straddling it, nudged the same 40% past the midpoint as chat
-      // (line half-height 1.6px − 40%-of-height 1.28px = 0.32px above the
-      // edge for the line's top).
-      const y = btn.offsetTop + btn.offsetHeight - 0.32;
-      bar.style.width = `${Math.max(end - start, 0)}px`;
-      bar.style.transform = `translate(${x}px, ${y}px)`;
-      if (snap) {
-        // Commit the untransitioned placement, then hand movement back to the
-        // stylesheet transition for subsequent tab changes.
+      if (!placedRef.current) {
+        // First placement: snap — to the tab the underline is said to come
+        // from, and then slide on to the active one; else straight to the
+        // active one, and the stylesheet transition takes over from there.
+        const from = fromId && fromId !== active ? strip.querySelector(`[data-tab-id="${fromId}"]`) : null;
+        bar.style.transition = 'none';
+        put(spot(from || btn));
         void bar.offsetWidth;
         bar.style.transition = '';
+        if (!from) { placedRef.current = true; return; }
       }
+      put(spot(btn));
       placedRef.current = true;
     };
     place();
     const ro = new ResizeObserver(place);
     ro.observe(strip);
     return () => ro.disconnect();
-  }, [active, tabs]);
+  }, [active, tabs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div

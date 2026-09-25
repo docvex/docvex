@@ -17,8 +17,8 @@
 }
 .pmh-mh-left { display: flex; flex-direction: column; gap: 14.4px; flex: 1 1 auto; min-width: 0; }
 .pmh-mh-eyebrow {
-  font-size: 8.8px;
-  letter-spacing: 0.22em;
+  font-size: var(--ds-eyebrow-size, 8.8px);
+  letter-spacing: var(--ds-eyebrow-tracking, 0.22em);
   text-transform: uppercase;
   font-weight: 700;
   color: var(--accent);
@@ -31,7 +31,7 @@
 .pmh-mh-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 44.8px;
+  font-size: var(--ds-title-size, 44.8px);
   font-weight: 700;
   letter-spacing: -0.04em;
   line-height: 1;
@@ -39,7 +39,7 @@
   text-wrap: pretty;
   max-width: 576px;
 }
-.pmh-mh-kicker { margin: 0; font-size: 12px; line-height: 1.55; color: var(--text-secondary); max-width: 464px; }
+.pmh-mh-kicker { margin: 0; font-size: var(--ds-kicker-size, 12px); line-height: 1.55; color: var(--text-secondary); max-width: 464px; }
 .pmh-mh-kicker strong { color: var(--text-primary); font-weight: 600; }
 .pmh-mh-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 @media (max-width: 512px) { /* 640px pre-scale */ .pmh-mh-title { font-size: 33.6px; } }
@@ -60,7 +60,7 @@
   left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px) + var(--rail-gap, 6.4px));
   right: var(--chrome-inset, 6.4px);
   z-index: 30;
-  height: 40px;
+  height: var(--ds-bar-h, 40px);
   display: flex;
   align-items: center;
   gap: 6.4px;
@@ -79,10 +79,10 @@
   overflow: visible;
   /* Rounded floating section — SAME surface recipe as the sidebar rail:
      translucent bg-page frost + blur + hairline border + card shadow. */
-  border-radius: 9.6px;
-  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
-  backdrop-filter: blur(6.4px);
-  -webkit-backdrop-filter: blur(6.4px);
+  border-radius: var(--ds-bar-radius, 9.6px);
+  background: color-mix(in srgb, var(--bg-page) var(--ds-bar-frost, 66%), transparent);
+  backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
   /* Opaque hairline (--border flattened over --bg-page) — a translucent
      border over this frosted surface reads at different opacities top vs
      bottom (page gap above, blurred content below). */

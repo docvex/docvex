@@ -1,0 +1,136 @@
+/* Court files — portal.just.ro, in DocVex's own typography. Semantic tokens
+   only; a sibling of the Legislation page, laid out the same way. */
+
+.pj-page { --lgt-page-gap: 20px; display: flex; flex-direction: column; gap: var(--lgt-page-gap); padding-bottom: 64px; }
+@media (min-width: 1024px) { /* 1280px pre-scale */
+  .pj-page { width: min(100%, var(--content-max-width, 1280px)); }
+}
+
+.pj-mast-meta {
+  display: flex; align-items: center; gap: 16px;
+  font-size: 9.6px; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.08em; text-align: right;
+}
+.pj-mast-num {
+  font-family: var(--font-display);
+  font-size: 20px; font-weight: 700; letter-spacing: -0.01em;
+  color: var(--text-primary); text-transform: none;
+}
+
+.pj-main, .pj-reader { display: flex; flex-direction: column; gap: 16px; }
+.pj-ico { display: inline-flex; width: 15px; height: 15px; flex: none; }
+.pj-ico svg { width: 100%; height: 100%; }
+
+/* ── Which question ───────────────────────────────────────────────────── */
+/* The Case files / A court's day choice is the first dropdown of the Legislation
+   bar (BarPicker in components/LegalBar). */
+
+/* ── The search ───────────────────────────────────────────────────────── */
+/* The fields are the Legislation tab's bar (components/LegalBar), in the
+   tab bar's second line; the page body starts at the results. */
+
+.pj-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-card); color: var(--text-primary);
+  font: inherit; font-size: 11.2px; font-weight: 600; cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.pj-btn:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
+
+/* ── Results ──────────────────────────────────────────────────────────── */
+.pj-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.pj-row {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.pj-row:hover { border-color: var(--border-strong); box-shadow: var(--shadow-card); }
+.pj-row-main {
+  width: 100%; display: flex; flex-direction: column; gap: 4px;
+  padding: 12px 14px; border: 0; border-radius: 12px;
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.pj-row-top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.pj-row-nr { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.pj-row-court { font-size: 11.2px; color: var(--text-secondary); }
+.pj-row-obj { font-size: 12.8px; color: var(--text-primary); line-height: 1.4; overflow-wrap: anywhere; }
+.pj-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 11.2px; color: var(--text-muted); }
+.pj-next { color: var(--success); font-weight: 600; }
+.pj-tag {
+  padding: 0 7px; border-radius: 999px;
+  background: var(--info-soft); color: var(--info);
+  font-size: 9.6px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.pj-tag.is-stage { background: var(--accent-soft); color: var(--accent); }
+
+/* ── A court's day ────────────────────────────────────────────────────── */
+.pj-docket { display: flex; flex-direction: column; gap: 10px; }
+.pj-sitting { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.pj-sitting-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.pj-sitting-dept { font-family: var(--font-display); font-size: 13px; font-weight: 650; color: var(--text-primary); }
+.pj-sitting-meta { font-size: 11.2px; color: var(--text-muted); }
+.pj-sitting-list { list-style: none; margin: 0; padding: 6px; display: flex; flex-direction: column; gap: 1px; }
+.pj-sitting-row {
+  width: 100%; display: flex; align-items: baseline; gap: 12px;
+  padding: 6px 8px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+}
+.pj-sitting-row:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.pj-sitting-hour { flex: none; min-width: 40px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.pj-sitting-nr { flex: none; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.pj-sitting-kind { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── The file ─────────────────────────────────────────────────────────── */
+.pj-reader-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.pj-file {
+  display: flex; flex-direction: column; gap: 20px;
+  max-width: 82ch; padding: 26px 30px 30px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: var(--shadow-card);
+}
+.pj-file-head { padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.pj-file-kind { font-size: 10.4px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--accent); }
+.pj-file-nr { margin: 6px 0 6px; font-family: var(--font-display); font-size: 28px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.pj-file-obj { margin: 0 0 10px; font-size: 14.4px; line-height: 1.45; color: var(--text-primary); }
+.pj-file-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 11.2px; color: var(--text-muted); }
+
+.pj-sec { display: flex; flex-direction: column; gap: 8px; }
+.pj-sec-title { margin: 0; font-size: 9.6px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-muted); }
+.pj-parties { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.pj-role { font-size: 11.2px; font-weight: 700; color: var(--accent); }
+.pj-names { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12.8px; line-height: 1.45; color: var(--text-primary); }
+
+.pj-hearings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pj-hearing { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.pj-hearing:first-child { border-top: 0; padding-top: 0; }
+.pj-hearing-when { display: flex; flex-direction: column; gap: 2px; }
+.pj-hearing-date { font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.pj-hearing.is-ahead .pj-hearing-date { color: var(--success); }
+.pj-hearing-sub { font-size: 10.4px; color: var(--text-muted); }
+.pj-hearing-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pj-hearing-sol { margin: 0; font-size: 13px; font-weight: 650; color: var(--text-primary); }
+.pj-hearing-sol.is-none { font-weight: 500; color: var(--text-muted); }
+.pj-hearing-sum { margin: 0; font-size: 12.4px; line-height: 1.6; color: var(--text-secondary); text-align: left; hyphens: none; }
+.pj-hearing-doc { margin: 0; font-size: 10.8px; color: var(--text-muted); }
+
+.pj-appeals { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.pj-appeal { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: 12px; font-size: 12.4px; color: var(--text-primary); }
+.pj-appeal-type { font-weight: 700; color: var(--accent); }
+.pj-appeal-by { min-width: 0; overflow-wrap: anywhere; }
+.pj-appeal-date { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.pj-source { padding-top: 14px; border-top: 1px solid var(--border); font-size: 11.2px; line-height: 1.55; color: var(--text-muted); }
+
+.pj-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+.pj-note.is-bad { color: var(--danger-text); }
+.pj-empty { padding: 48px 0; text-align: center; }
+.pj-empty-title { margin: 0; font-family: var(--font-display); font-size: 17.6px; font-weight: 650; color: var(--text-primary); }
+.pj-empty-sub { margin: 6px auto 0; max-width: 46ch; font-size: 12.8px; line-height: 1.6; color: var(--text-muted); }
+
+@media (max-width: 760px) {
+  .pj-file { padding: 18px 16px 24px; }
+  .pj-parties, .pj-hearing { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .pj-appeal { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}

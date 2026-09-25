@@ -19,9 +19,10 @@ const STATES = 'legal_update_states';
 // Select list mirrors the columns the Newsletter renders. The embedded
 // `legal_update_states(...)` comes back as an array (0 or 1 row after
 // RLS) — `normalizeRow` flattens it to a single `state`.
-const SELECT =
-  'id, slug, category, impact, title, source, citations, summary, areas, ai_status, published_at, ' +
-  'legal_update_states ( read_at, pinned_at, saved_at )';
+// `*` rather than a column list: the act columns (portal_id, act_*,
+// source_url, origin — migration 037) are read when present, and a database
+// that hasn't had that migration yet still answers instead of erroring.
+const SELECT = '*, legal_update_states ( read_at, pinned_at, saved_at )';
 
 function normalizeRow(row) {
   const state = Array.isArray(row.legal_update_states)
@@ -39,6 +40,15 @@ function normalizeRow(row) {
     areas: Array.isArray(row.areas) ? row.areas : [],
     aiStatus: row.ai_status,
     publishedAt: row.published_at,
+    // The act a row is about, when it came from Monitorul Oficial via the
+    // legal-feed-sync job: enough to open it in the Legislation tab.
+    act: row.portal_id ? {
+      type: row.act_type || '',
+      number: row.act_number || '',
+      year: row.act_year || '',
+      url: row.source_url || '',
+    } : null,
+    fromPortal: row.origin === 'portal',
     unread: !state?.read_at,
     pinned: !!state?.pinned_at,
     saved: !!state?.saved_at,

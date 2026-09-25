@@ -50,7 +50,7 @@ function paneDestinations(selectedProject) {
         { label: 'Activity', to: '/', icon: NAV_ICONS.activity },
         { label: 'Projects', to: '/projects', icon: NAV_ICONS.projects },
         { label: 'Versions', to: '/versions', icon: NAV_ICONS.versions },
-        { label: 'Newsletter', to: '/newsletter', icon: NAV_ICONS.newsletter },
+        { label: 'Legislation', to: '/legislation', icon: NAV_ICONS.newsletter },
         { label: 'Account', to: '/account', icon: NAV_ICONS.account },
       ];
 }
@@ -88,6 +88,8 @@ function PaneChrome({ onRefresh }) {
     '/': 'Activity & notifications',
     '/projects': 'All your projects',
     '/versions': 'Release history',
+    '/legislation': 'legislatie.just.ro',
+    '/caen': 'CAEN codes',
     '/newsletter': 'Legal newsfeed',
     '/account': 'Profile & settings',
     '/admin': 'Developer console',
@@ -148,7 +150,7 @@ function PaneFooter() {
 // Routes that render WITHOUT the in-content chrome bar — the personal
 // destinations plus the Hub (/projects) and Account (/account). They each carry
 // their own page masthead, so the chrome's title would just duplicate it.
-const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/legislation', '/roadmap', '/playbook', '/versions', '/settings', '/debug', '/mail', '/admin', '/projects', '/account', '/files', '/chat', '/events', '/ai']);
+const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/newsletter', '/legislation', '/caen', '/portal-just', '/anaf', '/firme', '/bpi', '/ancpi', '/rejust', '/unbr', '/eurlex', '/roadmap', '/playbook', '/versions', '/settings', '/design', '/debug', '/mail', '/admin', '/projects', '/account', '/files', '/chat', '/events', '/ai']);
 
 // The project Overview / settings page (/projects/:id, no further segment) is
 // also chromeless — it carries its own Versions-style masthead + compact

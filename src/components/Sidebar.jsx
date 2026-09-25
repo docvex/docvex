@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
@@ -11,6 +11,7 @@ import { isElectron, isLocalhostWeb, openExternal, listDocViewerTabs, onDocViewe
 import { supabase } from '../lib/supabaseClient';
 import { toLayoutPx } from '../lib/appZoom';
 import { hasNewBrief, onNewsletterChanged } from '../lib/legalFeed';
+import { LEGAL_TAB_PATHS } from './LegalTabs';
 import { prefetchProjects } from '../lib/projectListPrefetch';
 import { preloadProjectList } from '../AppRoutes';
 import Tooltip from './Tooltip';
@@ -69,22 +70,15 @@ const ActivityIcon = (
   </svg>
 );
 
-// Newspaper glyph — folded-page outline with masthead + column lines.
-// The legislative portal: a book standing open, with the pillars of a code of
-// law under it — a shape of our own, drawn to the same 20px stroke grid as
-// every other rail icon rather than borrowed from anywhere.
+// Legislation — the portal, the CAEN nomenclature and the Newsletter, one
+// entry (components/LegalTabs is the bar between them): a book standing open,
+// a shape of our own, drawn to the same 20px stroke grid as every other rail
+// icon rather than borrowed from anywhere.
 const LegislationIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 7.5C10.6 6.2 8.6 5.5 6 5.5H4v11h2c2.6 0 4.6.7 6 2" />
     <path d="M12 7.5c1.4-1.3 3.4-2 6-2h2v11h-2c-2.6 0-4.6.7-6 2" />
     <path d="M12 7.5v13" />
-  </svg>
-);
-
-const NewspaperIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M4 22h14a2 2 0 0 0 2-2V4a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v16a2 2 0 0 1-2-2V8"/>
-    <path d="M8 7h6M8 11h6M8 15h4"/>
   </svg>
 );
 
@@ -140,6 +134,16 @@ const GearIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="3"/>
     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+  </svg>
+);
+
+// Swatches — the Design system row.
+const SwatchIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="18" rx="1.5" />
+    <path d="M10 8.5l4.2-4.2a1.5 1.5 0 0 1 2.1 0l3.4 3.4a1.5 1.5 0 0 1 0 2.1L12 17.5" />
+    <path d="M12.5 21H19a2 2 0 0 0 2-2v-6" />
+    <circle cx="6.5" cy="17" r="1" fill="currentColor" />
   </svg>
 );
 
@@ -256,6 +260,7 @@ const AiIcon = (
 export default function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   const { session, signOut } = useAuth();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   // Log out is in the account row's menu, behind a confirm step (the morph
   // pill's own). Note this uses signOut(), NOT AuthContext's logout() — logout
   // quits the desktop app entirely, whereas here we want to land on the auth
@@ -387,16 +392,17 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
       to: '/', label: 'Activity', icon: ActivityIcon, end: true,
       badge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : String(unreadCount)) : null,
     },
+    // Legislation: the national legislative portal (pages/Legislation), the
+    // CAEN nomenclature (pages/Caen) and the Newsletter (pages/Newsletter),
+    // three tabs of one entry — what the law says, the list a company's object
+    // of activity is written in, and what has just changed. Each keeps its own
+    // route, so the entry is active on all three.
     {
-      to: '/newsletter', label: 'Newsletter', icon: NewspaperIcon, end: true,
-      // "New brief" pill — cleared when the user opens the tab.
+      to: '/legislation', label: 'Legislation', icon: LegislationIcon, end: true,
+      activeOn: LEGAL_TAB_PATHS,
+      // "New brief" pill — cleared when the user opens the Newsletter tab.
       pill: newBrief ? { kind: 'brief', text: 'new' } : null,
     },
-    // The national legislative portal, read in the app and kept on the machine
-    // (pages/Legislation). Beside the Newsletter because the two answer the
-    // same question at different ranges: what has just changed, and what the
-    // law actually says.
-    { to: '/legislation', label: 'Legislation', icon: LegislationIcon, end: true },
     ...(session ? [{ to: '/mail', label: 'Mail', icon: MailIcon, end: true }] : []),
     { to: '/playbook', label: 'Playbook', icon: PlaybookIcon, end: true },
     {
@@ -411,6 +417,7 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
   // is dev-only (import.meta.env.DEV is false in packaged + web builds).
   const systemItems = [
     ...(session ? [{ to: '/settings', label: 'Settings', icon: GearIcon, end: true }] : []),
+    ...(session ? [{ to: '/design', label: 'Design system', icon: SwatchIcon, end: true }] : []),
     ...(session && isAdmin ? [{ to: '/admin', label: 'Admin', icon: AdminIcon, end: true }] : []),
     // Debug: dev builds, plus the BUILT web app when served from localhost
     // (import.meta.env.DEV is false there but it's still a dev surface).
@@ -446,7 +453,7 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
 
   // Render a single NavLink nav-item from a descriptor (shared by every
   // category group).
-  const renderNavItem = ({ to, label, icon, end, badge, pill, dot, onClick, onWarm }) => (
+  const renderNavItem = ({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn }) => (
     <NavLink
       key={to}
       to={to}
@@ -457,7 +464,9 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
       // than mouse-over so it fires once per entry, not per child element.
       onPointerEnter={onWarm}
       onFocus={onWarm}
-      className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+      // `activeOn`: other routes this entry stands for (an entry with tabs of
+      // its own, each on a route of its own).
+      className={({ isActive }) => `nav-item${isActive || activeOn?.includes(pathname) ? ' active' : ''}`}
     >
       <span className="icon">
         {icon}

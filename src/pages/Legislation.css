@@ -3,7 +3,12 @@
    Newsletter and the Activity feed and read as one app, which is the whole
    argument for not copying a website's look along with its data. */
 
-.lg-page { display: flex; flex-direction: column; gap: 20px; padding-bottom: 64px; }
+.lg-page { --lgt-page-gap: 20px; display: flex; flex-direction: column; gap: var(--lgt-page-gap); padding-bottom: 64px; }
+/* Capped at the shared content ceiling on wide screens, left-aligned — the
+   same rule as Versions and the Newsletter. */
+@media (min-width: 1024px) { /* 1280px pre-scale */
+  .lg-page { width: min(100%, var(--content-max-width, 1280px)); }
+}
 
 /* ── Masthead figures ─────────────────────────────────────────────────── */
 .lg-mast-meta {
@@ -12,9 +17,14 @@
   text-transform: uppercase; letter-spacing: 0.08em;
   text-align: right;
 }
+/* Each figure has a FIXED width, so "0" becoming "12" and "0 B" becoming
+   "1.2 MB" as the archive is read cannot widen the block, narrow the
+   description beside it and shift everything under the masthead. */
+.lg-mast-meta > div { min-width: 92px; }
 .lg-mast-num {
   font-family: var(--font-display);
   font-size: 20px; font-weight: 700; letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
   color: var(--text-primary); text-transform: none;
 }
 .lg-mast-sep { width: 1px; height: 28px; background: var(--border); }
@@ -22,53 +32,74 @@
 .lg-main,
 .lg-reader { display: flex; flex-direction: column; gap: 16px; }
 
-/* ── The search ───────────────────────────────────────────────────────── */
-/* A form, not a single box: the service searches by number, by year, by title
-   and by full text as separate fields, and collapsing them into one query box
-   would mean guessing which the user meant. */
-.lg-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px 12px;
-  align-items: end;
-  padding: 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: var(--shadow-card);
+/* ── The rail — the Advisor's list of chats (pages/Projects/ProjectAIChat.css,
+   .aichat-item — keep the two in step), for the acts open in this tab. It
+   stands at the page's left, sticky under the tab bar, with a hairline
+   divider; the search / reader takes the rest. */
+.lg-shell { display: flex; align-items: flex-start; }
+.lg-shell-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.lg-rail {
+  flex: 0 0 236px; min-width: 0;
+  position: sticky; top: calc(var(--chrome-inset, 6.4px) + 100px); align-self: flex-start;
+  max-height: calc(100vh - 150px);
+  display: flex; flex-direction: column;
+  box-sizing: border-box;
+  margin-right: 20px; padding-right: 14px;
+  border-right: 1px solid var(--border);
 }
-.lg-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.lg-field.is-num { max-width: 120px; }
-.lg-field.is-wide { grid-column: span 2; }
-.lg-field label {
-  font-size: 9.6px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
-  color: var(--text-muted);
-}
-.lg-input {
-  width: 100%; box-sizing: border-box;
-  padding: 8px 10px;
-  border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg-input); color: var(--text-primary);
-  font: inherit; font-size: 13px;
-  outline: none;
-  transition: border-color 120ms ease, background 120ms ease;
-}
-.lg-input::placeholder { color: var(--text-muted); }
-.lg-input:focus { border-color: var(--accent); background: var(--bg-elevated); }
-select.lg-input { appearance: none; cursor: pointer; padding-right: 26px; }
-.lg-go {
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  height: 36px; padding: 0 18px;
-  border: 0; border-radius: 8px;
-  background: var(--accent); color: var(--text-on-accent);
-  font: inherit; font-size: 13px; font-weight: 650;
+.lg-rail-head { flex: none; padding: 0 0 6.4px; margin-bottom: 6.4px; border-bottom: 1px solid var(--border); }
+.lg-rail-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 2px 0 8px; scrollbar-width: thin; }
+.lg-rail-item {
+  position: relative;
+  width: 100%;
+  display: flex; align-items: center; gap: 7.2px;
+  height: 32px; margin-bottom: 4.8px;
+  box-sizing: border-box;
+  padding: 6.4px 6.4px 6.4px 9.6px;
+  border: 1px solid transparent; border-radius: 6.4px;
+  overflow: hidden;
+  background: transparent;
+  font: inherit; text-align: left;
   cursor: pointer;
-  transition: background 120ms ease;
+  color: var(--text-secondary);
+  transition: background 120ms, color 120ms, border-color 120ms;
 }
-.lg-go:hover { background: var(--accent-hover); }
-.lg-go:disabled { opacity: 0.55; cursor: progress; }
-.lg-ico { display: inline-flex; width: 15px; height: 15px; flex: none; }
-.lg-ico svg { width: 100%; height: 100%; }
+.lg-rail-item:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.lg-rail-item.is-active { background: var(--accent-tint); border-color: var(--border-strong); color: var(--text-primary); font-weight: 600; }
+.lg-rail-item.is-active .lg-rail-ico { color: var(--accent); }
+.lg-rail-item.is-head { margin-bottom: 0; }
+.lg-rail-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lg-rail-ico { flex: 0 0 auto; display: inline-flex; color: var(--text-muted); }
+.lg-rail-ico svg { display: block; }
+.lg-rail-title { flex: 1 1 auto; min-width: 0; font-size: 0.68rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lg-rail-item.is-active .lg-rail-title { font-weight: 600; }
+.lg-rail-sub { color: var(--text-muted); font-weight: 400; }
+.lg-rail-actions { flex: 0 0 auto; display: flex; gap: 1.6px; opacity: 0; transition: opacity 120ms; }
+.lg-rail-item:hover .lg-rail-actions, .lg-rail-item:focus-within .lg-rail-actions { opacity: 1; }
+.lg-rail-actions button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 19.2px; height: 19.2px; padding: 0;
+  border: none; border-radius: 4.8px;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.lg-rail-actions button:hover { background: color-mix(in srgb, var(--text-primary) 10%, transparent); color: var(--text-primary); }
+.lg-rail-actions button svg { display: block; }
+@media (max-width: 760px) {
+  .lg-shell { flex-direction: column; }
+  .lg-rail { position: static; flex: none; width: 100%; max-height: 220px; margin: 0 0 12px; padding: 0 0 8px; border-right: 0; border-bottom: 1px solid var(--border); }
+}
+
+/* ── The search ───────────────────────────────────────────────────────── */
+/* The bar (dice, Kind, Number, Year, Search) is the shared LegalBar —
+   components/LegalBar.jsx + .css — drawn in the tab bar's second line; the
+   Court files and ANAF tabs draw theirs from the same pieces. */
+
+/* No card fills anywhere on this page — the form, the result rows, the
+   library and the act stand on the page ground with a hairline only (the
+   filled cards were removed at the user's request). */
+
+.lg-found { font-size: 11.2px; color: var(--text-muted); }
 
 /* ── Where the answer came from ───────────────────────────────────────── */
 /* Live and offline are never allowed to look the same. A search that answered
@@ -92,7 +123,9 @@ select.lg-input { appearance: none; cursor: pointer; padding-right: 26px; }
 .lg-source.is-live { background: var(--success-soft); color: var(--success); }
 .lg-source.is-archive { background: var(--warning-soft); color: var(--warning); }
 .lg-warn { font-size: 11.2px; color: var(--text-secondary); }
-
+/* The bar's own note ("Give it a number, a year, or some words from the
+   title."), on the tab bar's second line beside the bar, in its type. */
+.lg-barnote { font-size: var(--ds-control-size, 10.4px); line-height: 1.3; min-width: 0; }
 .lg-btn {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 6px 12px;
@@ -121,7 +154,7 @@ select.lg-input { appearance: none; cursor: pointer; padding-right: 26px; }
 .lg-row {
   display: flex; align-items: center; gap: 8px;
   padding: 4px 8px 4px 4px;
-  background: var(--bg-card);
+  background: transparent;
   border: 1px solid var(--border);
   border-radius: 12px;
   transition: border-color 120ms ease, box-shadow 120ms ease;
@@ -146,58 +179,81 @@ select.lg-input { appearance: none; cursor: pointer; padding-right: 26px; }
 }
 .lg-row-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.2px; color: var(--text-muted); }
 .lg-tag {
-  padding: 0 7px; border-radius: 999px;
+  padding: 0 7px; border-radius: var(--ds-pill-radius, 999px);
   background: var(--info-soft); color: var(--info);
-  font-size: 9.6px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  font-size: var(--ds-tag-size, 9.6px); font-weight: 700; letter-spacing: var(--ds-tag-tracking, 0.04em); text-transform: uppercase;
 }
-.lg-tag.is-kept { background: var(--success-soft); color: var(--success); }
 
 /* ── The offline library ──────────────────────────────────────────────── */
 .lg-lib {
   display: flex; flex-direction: column; gap: 12px;
   padding: 16px;
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
+  background: transparent; border: 1px solid var(--border); border-radius: 14px;
 }
 .lg-lib-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.lg-lib-title { margin: 0; font-family: var(--font-display); font-size: 15px; font-weight: 650; color: var(--text-primary); }
+.lg-lib-title { margin: 0; display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-size: 15px; font-weight: 650; color: var(--text-primary); }
+.lg-lib-title .lg-ico { color: var(--accent); }
 .lg-lib-sub { margin: 3px 0 0; font-size: 11.2px; line-height: 1.5; color: var(--text-muted); max-width: 62ch; }
-.lg-lib-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow-y: auto; scrollbar-width: thin; }
-.lg-lib-row { display: flex; align-items: center; gap: 10px; border-radius: 8px; }
-.lg-lib-row:hover { background: var(--bg-elevated); }
-.lg-lib-open {
-  flex: 1 1 auto; min-width: 0;
-  display: flex; align-items: baseline; gap: 10px;
-  padding: 7px 10px; border: 0; border-radius: 8px;
-  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
-}
-.lg-lib-kind { flex: none; font-size: 9.6px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
-.lg-lib-name { min-width: 0; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lg-lib-state { flex: none; font-size: 9.6px; color: var(--text-muted); }
-.lg-lib-state.is-full { color: var(--success); }
+
 
 /* ── Reading an act ───────────────────────────────────────────────────── */
-.lg-reader-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.lg-reader-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.lg-find { width: 200px; padding: 6px 10px; font-size: 11.2px; }
-.lg-kept {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 11px; border-radius: 8px;
-  background: var(--success-soft); color: var(--success);
-  font-size: 11.2px; font-weight: 650;
+/* The open act's row of actions (Save offline, On the portal) at the right;
+   the way back and the find live in the tab bar's second line. */
+/* The open act's actions (Save offline, On the portal) stand on the act's
+   kind line, at its right; the way back and the find are in the tab bar. */
+.lg-act-kindrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
+/* The actions: at the row's FAR right, drawn as the tab bar's tool buttons
+   (Back, Clear — .lgt-tool-btn, the sidebar tab at rest), on the kind's
+   own line. The last button's own padding is taken back so its label ends
+   on the section's edge, where the search box above ends. */
+.lg-reader-tools { display: flex; align-items: center; gap: 4px; margin-left: auto; margin-right: -9px; flex: none; }
+/* ── Find in the act ── every occurrence of the words in the tab bar's box,
+   marked where it stands; the current one in the accent. */
+/* A reference in the act made pressable where it stands (`marked` in
+   Legislation.jsx): a button that is nothing but the words with a wash
+   behind them and a rule under them — background layers only, no padding,
+   no font change, so marking cannot re-wrap a line. Three kinds, as the Doc
+   Viewer draws them: an ACT or code in the accent (opens here), a CAEN code
+   in amber (the nomenclature, in a modal), a COURT FILE number in the info
+   colour (the Court files tab). Hover deepens the wash. */
+.lg-ref {
+  display: inline; margin: 0; padding: 0; border: 0;
+  font: inherit; color: inherit; text-align: inherit; line-height: inherit;
+  cursor: pointer; border-radius: 2px;
+  --ref: var(--accent); --ref-wash: 12%;
+  background-image: linear-gradient(var(--ref), var(--ref));
+  background-size: 100% 1.4px; background-position: 0 100%; background-repeat: no-repeat;
+  background-color: color-mix(in srgb, var(--ref) var(--ref-wash), transparent);
+  transition: background-color 120ms ease;
 }
+.lg-ref:hover { --ref-wash: 24%; }
+.lg-ref:focus-visible { outline: 2px solid var(--ref); outline-offset: 1px; }
+.lg-ref.is-caen { --ref: rgb(217, 119, 6); --ref-wash: 16%; }
+:root[data-theme="ink"] .lg-ref.is-caen { --ref: rgb(251, 191, 36); }
+.lg-ref.is-case { --ref: var(--info); --ref-wash: 14%; }
+.lg-ref .lg-hit { border-radius: 0; }
+.lg-hit {
+  padding: 0 1px; border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: inherit;
+}
+.lg-hit.is-current { background: var(--accent); color: var(--text-on-accent); }
+/* The match count with its arrows, beside the way back — the toggle's
+   field (LegalTabs.css) holding two small buttons and the count. */
+.lg-findnav { align-items: center; }
+.lg-findnav .lgt-toggle-btn { padding: 0 8px; font-size: 13px; line-height: 1; }
+.lg-findnav .lgt-toggle-btn:disabled { opacity: 0.4; cursor: default; background: transparent; }
+.lg-findnav-count { padding: 0 4px; font-size: 10.4px; color: var(--text-secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-/* The act itself is a DOCUMENT, so it is set like one: a measure the eye can
-   follow, the app's display face for its structure and its body face for the
-   law. Nothing here imitates the portal's own page — the text is the only
-   thing worth carrying across. */
-.lg-act {
-  max-width: 78ch;
-  padding: 28px 32px 40px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: var(--shadow-card);
-}
+/* The act itself is a DOCUMENT, so it is set like one: the app's display
+   face for its structure and its body face for the law, across the whole
+   width the page has (a 78ch measure was tried and removed). Nothing here
+   imitates the portal's own page — the text is the only thing worth
+   carrying across. */
+/* The act stands on the page ground — no frame, no rounded corners, no
+   inset of its own (removed at the user's request); the page's own edges
+   are its edges. */
+.lg-act { padding: 0 0 40px; background: transparent; border: 0; border-radius: 0; }
 .lg-act-head { padding-bottom: 18px; border-bottom: 1px solid var(--border); margin-bottom: 22px; }
 .lg-act-kind {
   font-size: 10.4px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
@@ -213,14 +269,25 @@ select.lg-input { appearance: none; cursor: pointer; padding-right: 26px; }
 /* The authority note. Deliberately not a dismissible banner and not a footnote:
    a consolidated text quoted as the law is the one real risk this page
    introduces, so it stands on every act, every time. */
+/* A callout, framed all round in the warning colour: the icon, a bold lead
+   line saying what matters, the explanation under it in full-strength text. */
 .lg-act-warn {
-  margin: 14px 0 0;
-  padding: 9px 12px;
-  border-left: 2.4px solid var(--warning);
-  border-radius: 0 8px 8px 0;
-  background: var(--warning-soft);
-  font-size: 11.2px; line-height: 1.5; color: var(--text-secondary);
+  display: flex; align-items: flex-start; gap: 11px;
+  margin: 16px 0 0;
+  padding: 12px 16px 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent);
+  border-left-width: 4px; border-left-color: var(--warning);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 14%, var(--bg-page));
 }
+.lg-act-warn-ico { flex: none; display: inline-flex; width: 18px; height: 18px; margin-top: 1px; color: var(--warning); }
+.lg-act-warn-ico svg { width: 100%; height: 100%; }
+.lg-act-warn-title {
+  margin: 0 0 2px;
+  font-family: var(--font-display); font-size: 13px; font-weight: 700; line-height: 1.3;
+  color: var(--text-primary);
+}
+.lg-act-warn-body { margin: 0; font-size: 12px; line-height: 1.55; color: var(--text-primary); }
 .lg-body { display: flex; flex-direction: column; gap: 2px; }
 .lg-unit {
   margin: 26px 0 8px;
@@ -241,12 +308,142 @@ select.lg-input { appearance: none; cursor: pointer; padding-right: 26px; }
 .lg-para {
   margin: 0 0 8px;
   font-size: 14px; line-height: 1.68; color: var(--text-primary);
-  text-align: justify; hyphens: auto;
+  /* Left-aligned, never justified: justifying stretches the spaces between
+     words to fill the line, which reads as gaps in the text. */
+  text-align: left; hyphens: none;
 }
 /* The paragraph number sits in the margin where the printed act puts it, so
    the prose keeps one left edge down the page. */
 .lg-para-num { display: inline-block; min-width: 26px; font-weight: 700; color: var(--text-secondary); }
 .lg-actnote { margin: 10px 0; font-size: 12px; line-height: 1.6; color: var(--text-muted); font-style: italic; }
+/* A box-drawn table (a form, a schedule) as the act draws it: monospace,
+   every space kept, the boxes lining up; wider than the page it scrolls
+   sideways rather than wrapping (a wrapped row breaks every box). */
+/* ── The act as the portal lays it out (`.lg-body.is-tree`) ── the portal's
+   own structure — article, alineat, literă, punct, citation, note, annex,
+   signatures, preformatted block — each in DocVex's type: */
+.lg-body.is-tree .lg-para { margin: 6px 0; }
+.lg-art-den, .lg-unit-den { font-weight: 500; color: var(--text-secondary); }
+/* A numbered paragraph, a lettered point, a numbered point: the number in
+   a fixed column, the text beside it; each level indents under the last. */
+.lg-aln, .lg-lit, .lg-pct { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0; }
+.lg-aln > .lg-para-num, .lg-lit > .lg-para-num, .lg-pct > .lg-para-num { flex: none; min-width: 30px; padding-top: 6px; font-weight: 700; color: var(--text-secondary); }
+.lg-lit > .lg-para-num { min-width: 24px; }
+.lg-lit, .lg-pct { margin-left: 14px; }
+.lg-inner { flex: 1 1 auto; min-width: 0; }
+.lg-inner > .lg-para:first-child { margin-top: 0; }
+/* Text an amendment quotes (the new wording it introduces): a rule at
+   its left, set in a little from the article it changes. */
+.lg-cit { margin: 8px 0 8px 10px; padding: 2px 0 2px 14px; border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+/* The portal's own amendment notes — "(la 16-11-2022, Alineatul (2) … a
+   fost modificat de …)": small and muted, as an aside. */
+.lg-amend { font-size: 11.2px; color: var(--text-muted); }
+/* The signatures: at the right, one line each, as the printed act. */
+.lg-smn { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin: 22px 0 6px; font-size: 12px; line-height: 1.5; color: var(--text-primary); text-align: right; }
+/* A preformatted block (a form, a model): its rows as drawn, monospace,
+   and its tables switchable. */
+.lg-pre { margin: 12px 0; }
+.lg-preline {
+  margin: 6px 0; padding: 0;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  font-size: 10.4px; line-height: 1.35; color: var(--text-primary);
+  white-space: pre; overflow-x: auto;
+}
+.lg-unitsec.is-anx { margin-top: 24px; }
+/* Each table: a switch above it, at the LEFT (DocVex · Source — the tab
+   bar's toggle, the chosen one filled in the accent as the dice and the
+   Search button are), then either DocVex's table or the portal's drawing. */
+.lg-tblwrap { margin: 14px 0; }
+/* The switch sits INSIDE the section's frame, in its top-right corner; the
+   three frames (the table's box, the drawing, the diagram) keep a band
+   clear at the top for it. */
+.lg-tblwrap { position: relative; }
+.lg-tblbar { position: absolute; top: 7px; right: 8px; z-index: 2; display: flex; margin: 0; }
+.lg-tblbox, .lg-table, .lg-diagram { padding-top: 38px; }
+/* No frost on this toggle: it stands on the page ground, and the blur put
+   the buttons on a compositing layer of their own, snapped to whole pixels
+   while the act's text around it sits on fractions — which is what made
+   the words inside jump up a pixel now and then as the page scrolled. No
+   lift on the chosen one either. */
+.lg-tblbar .lgt-toggle { backdrop-filter: none; -webkit-backdrop-filter: none; }
+.lg-tblbar .lgt-toggle-btn { transition: background 150ms, color 150ms, border-color 150ms; }
+.lg-tblbar .lgt-toggle-btn.is-on,
+.lg-tblbar .lgt-toggle-btn.is-on:hover,
+:root[data-theme="cream"] .lg-tblbar .lgt-toggle-btn.is-on,
+:root[data-theme="cream"] .lg-tblbar .lgt-toggle-btn.is-on:hover {
+  background: var(--accent); border-color: var(--accent); color: var(--text-on-accent);
+  transform: none; box-shadow: none;
+}
+/* DocVex's table: the drawing read as a grid — hairline cells on the page
+   ground, merged cells where the drawing merged them, the act's own type. */
+/* Framed like the Source drawing: the same hairline, corners and ground.
+   A collapsed table cannot round its corners, so the frame is the box's,
+   and each cell draws only its right and bottom hairlines against it. */
+.lg-tblbox {
+  overflow: hidden;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: 8px;
+  /* The search bar's ground: its tint and its frost. */
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+}
+.lg-tbl {
+  /* One pixel wider and lower than the box, so the last column's and
+     row's hairlines fall under the frame instead of doubling it. */
+  width: calc(100% + 1px); margin: 0 -1px -1px 0;
+  border-collapse: separate; border-spacing: 0;
+  font-size: 11.2px; line-height: 1.45; color: var(--text-primary);
+}
+.lg-tbl td {
+  padding: 5px 8px;
+  border: 0 solid var(--border); border-right-width: 1px; border-bottom-width: 1px;
+  vertical-align: top;
+  /* A line breaks only AFTER a word, never inside one. */
+  overflow-wrap: normal; word-break: keep-all; hyphens: none;
+}
+.lg-tbl td.is-empty { background: color-mix(in srgb, var(--text-primary) 2.5%, transparent); }
+/* A cell's lines: one per item the drawing set on a row of its own (a
+   bullet, a number, a letter) — a line break at every one. */
+.lg-tbl-line { display: block; }
+.lg-tbl-line + .lg-tbl-line { margin-top: 2px; }
+.lg-tbl tr:first-child td { font-weight: 600; background: color-mix(in srgb, var(--text-primary) 4%, transparent); }
+/* DocVex's DIAGRAM (BoxDiagram in Legislation.jsx): the drawing read as
+   boxes and lines, in the same frame as the table and the drawing. The SVG
+   scales down to the column and never up past its own size (its max-width). */
+.lg-diagram {
+  padding: 12px 14px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: 8px;
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+}
+.lg-diag { display: block; width: 100%; height: auto; overflow: visible; }
+.lg-diag-lines { fill: none; stroke: var(--text-muted); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+.lg-diag-box rect { fill: var(--bg-card); stroke: var(--border-strong); stroke-width: 1.2; }
+.lg-diag-box.is-frame rect { fill: color-mix(in srgb, var(--text-primary) 2.5%, transparent); stroke: var(--border); stroke-dasharray: 4 3; }
+/* A box's words: real text, centred, breaking only after a word. */
+.lg-diag-text {
+  box-sizing: border-box; height: 100%; padding: 2px 5px;
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  text-align: center;
+  font-family: var(--font-body); font-size: 11px; font-weight: 500; line-height: 1.2;
+  color: var(--text-primary);
+  overflow: hidden; overflow-wrap: normal; word-break: keep-all; hyphens: none;
+}
+.lg-diag-line { display: block; white-space: nowrap; }
+.lg-table {
+  margin: 0; padding: 10px 12px;
+  overflow-x: auto; overscroll-behavior-x: contain;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: 8px;
+  /* The search bar's ground: its tint and its frost. */
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  font-size: 10.4px; line-height: 1.25; letter-spacing: 0;
+  color: var(--text-primary);
+  white-space: pre; tab-size: 4;
+}
 
 .lg-note { margin: 0; font-size: 12px; color: var(--text-muted); }
 .lg-note.is-bad { color: var(--danger-text); }
@@ -256,6 +453,5 @@ select.lg-input { appearance: none; cursor: pointer; padding-right: 26px; }
 .lg-empty-sub { margin: 6px auto 0; max-width: 46ch; font-size: 12.8px; line-height: 1.6; color: var(--text-muted); }
 
 @media (max-width: 760px) {
-  .lg-field.is-wide { grid-column: span 1; }
   .lg-act { padding: 20px 18px 30px; }
 }

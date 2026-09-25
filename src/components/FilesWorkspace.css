@@ -1061,11 +1061,11 @@
      hover, and their selected look — the accent tint — while it is in use.
      It still widens on focus so typing has room. */
   display: flex; align-items: center; gap: 6.4px;
-  height: 24px;
+  height: var(--ds-control-h, 24px);
   box-sizing: border-box;
   padding: 0 6.4px 0 7.2px;
-  border: 1px solid var(--border);
-  border-radius: 4.8px;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-control-radius, 4.8px);
   /* A faint wash at rest so the field reads as a field; hover deepens it and
      the accent tint takes over while it is in use. */
   background: color-mix(in srgb, var(--text-primary) 4%, transparent);

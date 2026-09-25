@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import './Newsletter.css';
 import PageMasthead from '../components/PageMasthead';
+import LegalTabs from '../components/LegalTabs';
 import {
   listLegalUpdates,
   setUpdateRead,
@@ -10,6 +12,10 @@ import {
   markNewsletterVisited,
 } from '../lib/legalFeed';
 import { useAuth } from '../context/AuthContext';
+import { isElectron, openExternal } from '../lib/platform';
+import { recallPage, usePageMemory } from '../lib/pageMemory';
+import { logHistory } from '../lib/tabHistory';
+import HistoryButton from '../components/HistoryMenu';
 
 // Newsletter — Legal Newsfeed v2 "Editorial" (ported from the Claude
 // Design handoff `docvex-newsfeed`). A typographically-led briefing of
@@ -86,12 +92,12 @@ function ImpactMark({ level }) {
   );
 }
 
-function Article({ item, onOpen, onPin, onToggleRead, onSave }) {
+function Article({ item, onOpen, onPin, onSave }) {
   const cat = CATEGORIES[item.category] || { label: item.category };
   const impactKey = item.impact === 'high' ? 'high' : item.impact === 'medium' ? 'med' : 'low';
   return (
     <li
-      className={`ed-article${item.unread ? '' : ' is-read'}`}
+      className="ed-article"
       data-cat={item.category}
       onClick={() => onOpen(item)}
     >
@@ -130,14 +136,19 @@ function Article({ item, onOpen, onPin, onToggleRead, onSave }) {
           </div>
         )}
         <div className="ed-actions">
-          <button type="button" className="ed-action is-primary" onClick={(e) => { e.stopPropagation(); onOpen(item); }}>
-            Read full update →
+          {/* A row from Monitorul Oficial points at its act: "Read the act"
+              opens it — in the Legislation tab on the desktop (read in the app,
+              kept offline), on the portal in a browser. A row with no act
+              behind it keeps the old button, which only marks it read. */}
+          <button
+            type="button"
+            className="ed-action is-primary"
+            onClick={(e) => { e.stopPropagation(); onOpen(item, { act: true }); }}
+          >
+            {item.act ? 'Read the act →' : 'Read full update →'}
           </button>
           <button type="button" className="ed-action" onClick={(e) => { e.stopPropagation(); onPin(item.id); }}>
             {item.pinned ? 'Unpin' : 'Pin'}
-          </button>
-          <button type="button" className="ed-action" onClick={(e) => { e.stopPropagation(); onToggleRead(item.id); }}>
-            {item.unread ? 'Mark read' : 'Mark unread'}
           </button>
           <button type="button" className="ed-action" onClick={(e) => { e.stopPropagation(); onSave(item.id); }}>
             {item.saved ? 'Saved ✓' : 'Save'}
@@ -156,9 +167,14 @@ const sortFeed = (arr) => arr.slice().sort((a, b) => {
 export default function Newsletter() {
   const { session } = useAuth();
   const userId = session?.user?.id || null;
-  const [filter, setFilter] = useState('all');
-  const [impactFilter, setImpactFilter] = useState('all');
-  const [query, setQuery] = useState('');
+  // What the page had on it when it was last left (lib/pageMemory).
+  const saved = recallPage('newsletter');
+  const [filter, setFilter] = useState(saved?.filter || 'all');
+  const [impactFilter, setImpactFilter] = useState(saved?.impactFilter || 'all');
+  const [query, setQuery] = useState(saved?.query || '');
+  const pageRef = useRef(null);
+  const remembered = useMemo(() => ({ filter, impactFilter, query }), [filter, impactFilter, query]);
+  usePageMemory('newsletter', remembered, pageRef);
 
   // Visiting the tab stamps the per-device "last visit" time, which clears
   // the sidebar's new-brief pill (see hasNewBrief in lib/legalFeed.js).
@@ -245,17 +261,27 @@ export default function Newsletter() {
   // Optimistic local update + fire-and-forget Supabase persistence. The
   // page doesn't await the write — RLS errors are swallowed and the next
   // toggle naturally retries (same pattern as saveSidecar / notify()).
-  const onOpen = (item) => {
+  const navigate = useNavigate();
+  const onOpen = (item, { act = false } = {}) => {
+    if (act && item.act) openAct(item.act);
+    // The tab's history: the briefing opened (its act, when it has one, is
+    // what picking the entry again opens).
+    logHistory('newsletter', { kind: 'open', label: item.title, detail: CATEGORIES[item.category]?.label || item.category || '', data: { id: item.id, title: item.title, act: item.act || null }, dedupe: `o:${item.id}` });
     if (!item.unread) return;
     setItems((arr) => arr.map((i) => (i.id === item.id ? { ...i, unread: false } : i)));
     setUpdateRead(item.id, true);
   };
-  const onToggleRead = (id) => {
-    const it = items.find((i) => i.id === id);
-    if (!it) return;
-    const newRead = it.unread; // toggling an unread item marks it read
-    setItems((arr) => arr.map((i) => (i.id === id ? { ...i, unread: !i.unread } : i)));
-    setUpdateRead(id, newRead);
+  // The act itself. The Legislation tab searches the ministry's own service by
+  // kind, number and year and opens the act when the answer is unambiguous
+  // (`open=1`); an act with no number (a set of norms) or a browser build goes
+  // to the portal page the row was written from.
+  const openAct = (act) => {
+    if (isElectron && act.number && act.year) {
+      const p = new URLSearchParams({ tip: act.type, nr: act.number, an: act.year, open: '1' });
+      navigate(`/legislation?${p.toString()}`);
+      return;
+    }
+    if (act.url) openExternal(act.url);
   };
   const onPin = (id) => {
     const it = items.find((i) => i.id === id);
@@ -280,11 +306,12 @@ export default function Newsletter() {
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
-    <div className="ed-page">
+    <div className="ed-page" ref={pageRef}>
       <PageMasthead
         eyebrow="DocVex Briefing"
         eyebrowMuted="Romania"
         title="Newsletter"
+        compact={false}
         actions={(
           <div className="ed-mast-meta">
             <div>
@@ -298,12 +325,30 @@ export default function Newsletter() {
             </div>
           </div>
         )}
-        compactRight={<span className="ed-mast-meta-num" style={{ fontSize: '13px' }}>{unreadCount} unread</span>}
       >
         A running briefing of Romanian legislation and compliance — each update
         AI-summarised with its impact level and the areas it affects, so you can
         scan what changed and mark what matters.
       </PageMasthead>
+      {/* The Legislation tab bar — shared with the portal and the CAEN page;
+          the briefing search sits in it. */}
+      <LegalTabs
+        search={{ value: query, onChange: setQuery, placeholder: 'Search briefings' }}
+        // History — this tab's log (components/HistoryMenu): every briefing
+        // opened; picking one opens its act, or finds the briefing again.
+        trailing={(
+          <HistoryButton
+            tab="newsletter"
+            tip="Every briefing opened, with the time"
+            emptyText="Nothing yet. Every briefing you open is listed here."
+            onPick={(e) => {
+              const d = e.data || {};
+              if (d.act && (d.act.number || d.act.url)) { openAct(d.act); return; }
+              setFilter('all'); setImpactFilter('all'); setQuery(d.title || '');
+            }}
+          />
+        )}
+      />
 
       <p className="ed-weekly">
         <span className="ed-weekly-mark">AI weekly</span>
@@ -349,15 +394,7 @@ export default function Newsletter() {
             </button>
           ))}
         </div>
-        <div className="ed-search">
-          <input
-            type="text"
-            placeholder="Search briefings…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search briefings"
-          />
-        </div>
+        {/* The search box is in the tab bar above (LegalTabs). */}
       </div>
 
       {loading ? (
@@ -395,7 +432,6 @@ export default function Newsletter() {
                   item={it}
                   onOpen={onOpen}
                   onPin={onPin}
-                  onToggleRead={onToggleRead}
                   onSave={onSave}
                 />
               ))}

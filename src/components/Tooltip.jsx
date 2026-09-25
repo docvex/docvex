@@ -122,6 +122,19 @@ export function useTooltip(content, className = '') {
     const y = Math.max(EDGE_MARGIN, Math.min(pos.y + CURSOR_OFFSET, vh - EDGE_MARGIN - h));
     const isFirstSet = !pill.style.transform;
     if (isFirstSet) {
+      // Two lines or more: HALF the radius. A stadium pill (999px) is right
+      // only one line tall — on two lines its ends read as a deformed
+      // capsule. The rule is measured, not opted into: the one-line height
+      // is the line box plus the padding and border, and a pill at least a
+      // line taller than that gets half of what its one-line radius would
+      // have been (that height's half, halved). Inline, so a re-render that
+      // rewrites the class list cannot drop it.
+      const cs = getComputedStyle(pill);
+      const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+      const oneLine = lh + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom)
+        + parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+      const tall = h >= oneLine + lh - 1;
+      pill.style.borderRadius = tall ? `${oneLine / 4}px` : '';
       pill.style.transition = 'none';
       pill.style.transform = `translate(${x}px, ${y}px)`;
       void pill.offsetWidth;

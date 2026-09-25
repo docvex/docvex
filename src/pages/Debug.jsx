@@ -12,6 +12,7 @@ import { sendInviteDebug } from '../lib/projects';
 import { sendSupportReport } from '../lib/support';
 import { sendWelcomeEmail } from '../lib/sendWelcome';
 import { insertDebugBriefs, removeDebugBriefs } from '../lib/legalFeed';
+import { runLegalFeedSync } from '../lib/legalFeedSync';
 import { TEST_NOTIFICATIONS, TEST_NOTIFICATION_STAGGER_MS, buildFileTestNotifications } from '../notifications/testNotifications';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useAuth } from '../context/AuthContext';
@@ -199,7 +200,42 @@ async function sweepTestBriefs(notify) {
       });
 }
 
+// The Newsletter's real source, tried without consequences: this app walks the
+// newest Monitorul Oficial issues and the legal-feed-sync function answers with
+// what it WOULD keep, skip or reject — nothing is written and nothing is
+// summarised (one screening call is made). The full answer goes to the console.
+async function dryRunLegalFeed(notify) {
+  try {
+    const res = await runLegalFeedSync({ dryRun: true });
+    // eslint-disable-next-line no-console
+    console.log('[legal-feed-sync] dry run', res);
+    const r = res?.reports?.[0];
+    notify?.({
+      category: 'system', variant: res?.ok ? 'success' : 'warning', priority: 'low', icon: 'sparkles',
+      title: res?.skipped ? `Legal feed dry run skipped (${res.skipped})` : 'Legal feed dry run',
+      body: r
+        ? `Issues to nr. ${r.issuesTo}: ${r.records} acts read, ${r.new ?? 0} new, ${r.skippedByRules ?? 0} skipped by rules, ${r.relevant ?? 0} relevant. Details in the console.`
+        : 'Nothing to report — see the console.',
+      dedupeKey: 'debug-legal-feed-dry',
+    });
+  } catch (err) {
+    notify?.({
+      category: 'system', variant: 'error', priority: 'high', icon: 'alert',
+      title: 'Legal feed dry run failed',
+      body: String(err?.message || err),
+      dedupeKey: 'debug-legal-feed-dry-error',
+    });
+  }
+}
+
 const ACTIONS = [
+  {
+    id: 'legal-feed-dry',
+    title: 'Legal feed: dry run',
+    body: 'Reads the newest Monitorul Oficial issues from legislatie.just.ro (desktop app only) and asks the legal-feed-sync function what it would add to the Newsletter. Writes nothing. App admins only.',
+    cta: 'Dry run',
+    run: (notify) => dryRunLegalFeed(notify),
+  },
   {
     id: 'generate-briefs',
     title: 'Generate test briefs',

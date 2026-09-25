@@ -3223,6 +3223,26 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
 .dv-paralaw-open:active { transform: translateY(0.5px); }
 :root[data-reduce-motion='true'] .dv-paralaw-row,
 :root[data-reduce-motion='true'] .dv-paralaw-open { transition: none; }
+/* A CAEN citation's codes, each with its official name (ParaCaenCodes). The
+   code is the button — it opens the code on the CAEN page in the main window. */
+.dv-paracaen { list-style: none; margin: 3px 0 1px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.dv-paracaen-row { display: flex; align-items: baseline; gap: 7px; }
+.dv-paracaen-code {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: var(--bg-elevated); color: var(--text-primary);
+  font: inherit; font-size: 9.6px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.6;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.dv-paracaen-code:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+.dv-paracaen-code:disabled { cursor: default; color: var(--text-muted); }
+.dv-paracaen-body { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.dv-paracaen-name { font-size: 10.4px; line-height: 1.35; color: var(--text-secondary); }
+/* The revision caveat — a number whose meaning depends on when the document
+   was written. */
+.dv-paracaen-flag { font-size: 9.6px; line-height: 1.35; color: var(--warning); font-weight: 600; }
 
 .dv-docx-liftpanel {
   position: absolute; z-index: 6;

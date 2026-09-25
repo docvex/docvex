@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import ProjectVersionGate from './components/ProjectVersionGate';
 import { useAuth } from './context/AuthContext';
 import { isElectron, isLocalhostWeb } from './lib/platform';
+import { LEGAL_STUB_TABS } from './components/LegalTabs';
 
 // The app's route tree. The "/" layout `Shell` and the /projects/:id
 // `ProjectShell` wrapper are passed in as props by App.jsx (the main window
@@ -12,9 +13,14 @@ const AuthPage = lazy(() => import('./components/AuthPage'));
 const Activity = lazy(() => import('./pages/Activity'));
 const Account = lazy(() => import('./pages/Account'));
 const Settings = lazy(() => import('./pages/Settings'));
+const DesignSystem = lazy(() => import('./pages/DesignSystem'));
 const Updates = lazy(() => import('./pages/Updates'));
 const Newsletter = lazy(() => import('./pages/Newsletter'));
 const Legislation = lazy(() => import('./pages/Legislation'));
+const Caen = lazy(() => import('./pages/Caen'));
+const PortalJust = lazy(() => import('./pages/PortalJust'));
+const Anaf = lazy(() => import('./pages/Anaf'));
+const LegalSourceStub = lazy(() => import('./pages/LegalSourceStub'));
 const Roadmap = lazy(() => import('./pages/Roadmap'));
 const Playbook = lazy(() => import('./pages/Playbook'));
 const Admin = lazy(() => import('./pages/Admin'));
@@ -96,11 +102,29 @@ export default function AppRoutes({ Shell, ProjectShell }) {
           <Route path="versions" element={<Updates />} />
           {/* Legacy alias — old links / stored notifications used /updates. */}
           <Route path="updates" element={<Navigate to="/versions" replace />} />
+          {/* The Legislation tab's three pages — one sidebar entry, each on
+              its own route, each drawing the shared tab bar
+              (components/LegalTabs) under its own masthead: the Newsletter,
+              the national legislative portal read through its own web service
+              and kept on this machine (pages/Legislation), and the CAEN
+              nomenclature bundled with the app (pages/Caen). Public: the law
+              is not project data. */}
           <Route path="newsletter" element={<Newsletter />} />
-          {/* The national legislative portal, read through its own web
-              service and kept on this machine (pages/Legislation). Public,
-              like the Newsletter: the law is not project data. */}
           <Route path="legislation" element={<Legislation />} />
+          <Route path="caen" element={<Caen />} />
+          {/* The courts' portal (case files, live over SOAP from main) and
+              ANAF (a company's fiscal record, live over REST from main). */}
+          <Route path="portal-just" element={<PortalJust />} />
+          <Route path="anaf" element={<Anaf />} />
+          {/* The tab's sources not yet connected (aggregators, BPI, …):
+              placeholders, one page for all (pages/LegalSourceStub). */}
+          {/* One component serves every placeholder, so the ELEMENT is keyed
+              by tab: without it, going from one placeholder to another kept
+              the mounted page and the Legislation bar's enter motion (which
+              plays on mount) never ran. */}
+          {LEGAL_STUB_TABS.map((t) => (
+            <Route key={t.to} path={t.to.slice(1)} element={<LegalSourceStub key={t.id} />} />
+          ))}
           {(import.meta.env.DEV || isLocalhostWeb) && <Route path="debug" element={<Debug />} />}
           <Route path="notifications" element={<Navigate to="/" replace />} />
           <Route path="invite/:token" element={<InviteAccept />} />
@@ -110,6 +134,7 @@ export default function AppRoutes({ Shell, ProjectShell }) {
             <Route path="playbook" element={<Playbook />} />
             <Route path="account" element={<Account />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="design" element={<DesignSystem />} />
             <Route path="admin" element={<Admin />} />
             <Route path="projects" element={<ProjectList />} />
             <Route path="projects/new" element={<ProjectCreate />} />

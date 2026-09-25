@@ -114,6 +114,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   legislationArchiveGet: (id) => ipcRenderer.invoke('legislation:archive-get', id),
   legislationArchiveRemove: (id) => ipcRenderer.invoke('legislation:archive-remove', id),
   legislationArchiveClear: () => ipcRenderer.invoke('legislation:archive-clear'),
+  legislationPage: (payload) => ipcRenderer.invoke('legislation:page', payload),
+  // The courts' portal (portal.just.ro, SOAP) and ANAF's company record (REST)
+  // — main for the same reason: neither service sends CORS headers.
+  courtsSearch: (query) => ipcRenderer.invoke('courts:search', query),
+  courtsHearings: (query) => ipcRenderer.invoke('courts:hearings', query),
+  anafLookup: (payload) => ipcRenderer.invoke('anaf:lookup', payload),
 
   // Native fullscreen state — the macOS title bar drops its traffic-light inset
   // when fullscreen hides the lights.

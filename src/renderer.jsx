@@ -1,6 +1,12 @@
 import './index.css';
 import './styles/tokens.css';
 import './styles/miniHeader.css';
+import './styles/designSystem.css';
+import { initDesignSystem } from './lib/designSystem';
+
+// The design system's overrides (Settings → System → Design system) go on
+// <html> before anything renders, so the first frame already follows them.
+initDesignSystem();
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';

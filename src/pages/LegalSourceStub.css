@@ -1,0 +1,71 @@
+/* Placeholder pages for the Legislation tab's unconnected sources. */
+.lss-page { --lgt-page-gap: 20px; display: flex; flex-direction: column; gap: var(--lgt-page-gap); padding-bottom: 64px; }
+@media (min-width: 1024px) { /* 1280px pre-scale */
+  .lss-page { width: min(100%, var(--content-max-width, 1280px)); }
+}
+
+/* The Doc Viewer advisor's empty state (.dv-advisor-empty* in DocViewer.css),
+   to the letter — the mark alone with no frame, the sentence under it —
+   narrowed to the advisor's 32ch and centred across the page's width. */
+.lss-card {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 10px;
+  width: 100%; max-width: 64ch;
+  margin: 0 auto;
+  padding: 40px 28px 48px;
+  text-align: center;
+}
+.lss-mark { display: grid; place-items: center; margin-bottom: 6px; color: var(--accent); }
+.lss-title {
+  margin: 0;
+  font-family: var(--font-display); font-size: 21px; font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+/* The plain-words section: what the page is for, in the advisor's sub-text. */
+.lss-plain { margin: 0; max-width: 56ch; font-size: 13.2px; line-height: 1.6; color: var(--text-muted); text-wrap: balance; }
+
+/* The technical section under it: a fold for how the source would be reached,
+   then the uses as a row of pills. */
+.lss-tech {
+  width: 100%;
+  margin-top: 22px; padding-top: 22px;
+  border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+}
+.lss-more { width: 100%; max-width: 56ch; text-align: left; }
+.lss-more-head {
+  display: inline-flex; align-items: center; gap: 6px;
+  list-style: none; cursor: pointer; user-select: none;
+  padding: 5.6px 9.6px; border-radius: 6.4px;
+  font-size: 11.2px; font-weight: 600; color: var(--text-secondary);
+  transition: background 120ms ease, color 120ms ease;
+}
+.lss-more-head::-webkit-details-marker { display: none; }
+.lss-more-head:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); color: var(--text-primary); }
+.lss-more-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lss-chev { transition: transform 160ms ease; }
+.lss-more[open] .lss-chev { transform: rotate(180deg); }
+.lss-access {
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: 9.6px;
+  background: var(--bg-input);
+  font-size: 12.4px; line-height: 1.6; color: var(--text-secondary);
+}
+.lss-uses { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.lss-use {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 12px 4px 4px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg-card);
+  font-size: 11.6px; line-height: 1.4; color: var(--text-primary); text-align: left;
+}
+.lss-level {
+  flex: none; min-width: 58px; text-align: center;
+  padding: 1px 8px; border-radius: 999px;
+  font-size: 9.6px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  background: var(--info-soft); color: var(--info);
+}
+.lss-level.is-critical { background: var(--danger-soft); color: var(--danger-text); }
+.lss-level.is-high { background: var(--warning-soft); color: var(--warning); }

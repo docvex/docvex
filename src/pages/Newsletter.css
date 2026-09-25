@@ -184,8 +184,8 @@
 }
 .ed-article:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
 .ed-article:hover .ed-headline { color: var(--accent); }
-.ed-article.is-read .ed-headline,
-.ed-article.is-read .ed-lead { opacity: 0.55; }
+/* A read entry looks like any other — no fade, no marker; reading is still
+   recorded (it drives the "new brief" pill) but not shown on the row. */
 
 /* Left rail — sparse vertical meta column, like a magazine sidebar */
 .ed-rail {

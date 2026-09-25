@@ -12,6 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { isElectron } from '../lib/platform';
 import { toLayoutPx } from '../lib/appZoom';
+import { familyOf } from '../lib/designSystem';
 import './AppShell.css';
 
 // Routes that operate on the currently-selected project. The banner shows on
@@ -44,14 +45,14 @@ export function isProjectScopedRoute(pathname) {
   return false;
 }
 
-// The sidebar's "Personal" section tabs (Activity / Newsletter / Versions).
+// The sidebar's "Personal" section tabs (Activity / Legislation / Versions).
 // These all render their content full-bleed — no chrome frame (border / rounded
 // corners / shadow) and no gaps around the content section — so they read as one
 // consistent editorial surface. Keep in sync with Sidebar's personalItems.
 // '/projects' (the Hub) is here too: it's a full-screen launcher with the rail
 // slid out, so a rounded card frame around it read as a floating panel inside
 // an empty window rather than the surface filling it.
-const FLUSH_CONTENT_ROUTES = new Set(['/', '/newsletter', '/legislation', '/roadmap', '/playbook', '/versions', '/mail', '/admin', '/settings', '/debug', '/files', '/chat', '/events', '/ai', '/projects']);
+const FLUSH_CONTENT_ROUTES = new Set(['/', '/newsletter', '/legislation', '/caen', '/portal-just', '/anaf', '/firme', '/bpi', '/ancpi', '/rejust', '/unbr', '/eurlex', '/roadmap', '/playbook', '/versions', '/mail', '/admin', '/settings', '/design', '/debug', '/files', '/chat', '/events', '/ai', '/projects']);
 
 // The project Overview / settings page (/projects/:id, no further segment)
 // also renders full-bleed — it carries its own Versions-style masthead, so it
@@ -350,7 +351,7 @@ export default function AppShell() {
               aria-label="Resize sidebar"
             />
           )}
-          <main className={`main-content main-content--single${flushContent ? ' main-content--flush' : ''}`}>
+          <main className={`main-content main-content--single${flushContent ? ' main-content--flush' : ''}`} data-ds={familyOf(pathname)}>
             {/* Cursor-following spotlight that brightens the ambient dot grid.
                 A real element moved by a direct transform write (not a CSS-var
                 `::after`) to avoid a document-wide style recalc on every move. */}

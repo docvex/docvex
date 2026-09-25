@@ -90,6 +90,15 @@ const NUMBER = '(?:nr\\.?\\s*)?';
 // groups of digits around a slash, so one shape covers them and the caller
 // tells them apart by which side holds the four-digit year.
 const NUM_YEAR = '(\\d{1,5})\\s*\\/\\s*(\\d{2,4})';
+// An older EU act carries its body AFTER the number instead: Directiva
+// 2007/43/CE, Regulamentul (CEE) nr. 2913/92, Directiva 96/29/Euratom. Part
+// of the number, so part of the reference — without it "Directiva 2007/43"
+// was marked and "/CE" left hanging.
+// Longest first: the alternation is ordered, and "Euratom" would otherwise
+// be cut to "Eu" (the match is case-insensitive).
+const EU_SUFFIX = '(?:\\/(?:Euratom|CECO|CEEA|PESC|JAI|CEE|CE|UE|EU))?';
+const EU_MARK_RE = /\((?:UE|CE|CEE|EU)\)|\/(?:Euratom|CECO|CEEA|PESC|JAI|CEE|CE|UE|EU)\b/iu;
+const YEAR_NOW = new Date().getFullYear();
 // The title, on a first mention. It opens at `privind` / `pentru` and runs to
 // the end of the clause; punctuation closes it here, and `cutTitle` below ends
 // it at the first word that can only start a new clause.
@@ -101,7 +110,7 @@ const TITLE = `(?:\\s+${TITLE_OPEN}\\s+[^.,;:()\\n]{2,200})?`;
 const NOTES = dia('(?:\\s*,\\s*(?:republicat[ăa]|actualizat[ăa]|cu\\s+modificările(?:\\s+și\\s+completările)?\\s+ulterioare|cu\\s+completările\\s+ulterioare))*');
 
 const ACT_RE = new RegExp(
-  `(?:${CATEGORY})${EU_TAG}\\s*${NUMBER}${NUM_YEAR}${TITLE}${NOTES}`,
+  `(?:${CATEGORY})${EU_TAG}\\s*${NUMBER}${NUM_YEAR}${EU_SUFFIX}${TITLE}${NOTES}`,
   'giu',
 );
 
@@ -115,6 +124,25 @@ const TITLE_STOP_RE = new RegExp(dia(
   + '|stabilește|stabilesc|dispune|reglementează|rămâne|rămân|devine|devin'
   + '|intră|cuprinde|impune|a\\s+fost|au\\s+fost|în\\s+tot|în\\s+cele)\\s',
 ), 'iu');
+
+// Which side of the slash is the year. A four-digit year is its own
+// evidence; a two-digit one ("Legea nr. 31/90", "Directiva 96/29/CE") is
+// the side with two digits; with both sides two digits an EU act reads
+// year/number and a Romanian one number/year. A two-digit year is given its
+// century, since it is what the Legislation tab searches by.
+const plausibleYear = (x) => x.length === 4 && Number(x) >= 1800 && Number(x) <= YEAR_NOW + 1;
+function readNumberYear(a, b, raw) {
+  const eu = EU_MARK_RE.test(raw);
+  let year; let number;
+  if (plausibleYear(b) && !plausibleYear(a)) { year = b; number = a; }
+  else if (plausibleYear(a) && !plausibleYear(b)) { year = a; number = b; }
+  else if (b.length === 2 && a.length !== 2) { year = b; number = a; }
+  else if (a.length === 2 && b.length !== 2) { year = a; number = b; }
+  else if (eu) { year = a; number = b; }
+  else { year = b; number = a; }
+  if (year.length === 2) year = `${Number(year) > YEAR_NOW % 100 ? '19' : '20'}${year}`;
+  return { number, year };
+}
 
 function cutTitle(raw) {
   const open = TITLE_OPEN_RE.exec(raw);
@@ -223,7 +251,7 @@ function trimEnd(hit, text) {
  * Every reference to a normative act in `text`.
  *
  * @returns {{ start:number, end:number, raw:string, kind:'act'|'element'|'code'|'back'|'caen',
- *             number?:string, year?:string, codes?:string[], target?:string, letter?:string }[]}
+ *             number?:string, year?:string, codes?:string[], rev?:number, target?:string, letter?:string }[]}
  *          in document order, never overlapping. An `element` with a `target` is
  *          an INTERNAL cross-reference — a clause of this same document.
  */
@@ -237,9 +265,7 @@ export function findLawRefs(text) {
   ACT_RE.lastIndex = 0;
   for (let m = ACT_RE.exec(s); m; m = ACT_RE.exec(s)) {
     const raw = cutTitle(m[0]);
-    const [a, b] = [m[1], m[2]];
-    const year = b && b.length === 4 && Number(b) > 1200 ? b : a;
-    const number = year === b ? a : b;
+    const { number, year } = readNumberYear(m[1], m[2], raw);
     const hit = { start: m.index, end: m.index + raw.length, raw, kind: 'act', number, year };
     acts.push(hit);
     hits.push(hit);
@@ -278,10 +304,54 @@ export function findLawRefs(text) {
     // The revision is dropped before the numbers are read, or "CAEN Rev. 2 –
     // 6201" would report the revision as a code.
     const codes = m[0].replace(/Rev\.?\s*\d+/i, '').match(/\d{2,4}/g) || [];
-    hits.push({ start: m.index, end: m.index + m[0].length, raw: m[0], kind: 'caen', codes });
+    // …and kept on its own: "6201" means one thing in Rev. 2 and another in
+    // Rev. 3, so the revision a citation names decides how it is read (lib/caen).
+    const rev = Number((/Rev\.?\s*(\d)/i.exec(m[0]) || [])[1]) || 0;
+    hits.push({ start: m.index, end: m.index + m[0].length, raw: m[0], kind: 'caen', codes, rev });
   }
 
   return dropOverlaps(hits).map((h) => trimEnd(h, s)).filter((h) => h.end > h.start);
+}
+
+// ── Court file numbers ────────────────────────────────────────────────────
+// "Dosarul nr. 1.234/1/2023" — a file at a court, by the number the courts'
+// portal knows it by (number / court code / year), which is how a published
+// decision names the case it was given in. The word is REQUIRED: three
+// numbers with slashes between them are otherwise a date. Thousands dots are
+// dropped from the number ("1.234" → "1234"), which is how the portal wants it.
+const CASE_RE = new RegExp(dia(
+  '\\bdosar(?:ul|ului|e|ele|elor)?\\s+(?:nr\\.?\\s*|num[ăa]r(?:ul)?\\s+)?'
+  + '(\\d{1,3}(?:\\.\\d{3})+|\\d{1,7})\\s*\\/\\s*(\\d{1,4}(?:\\.\\d{3})?)\\s*\\/\\s*(\\d{4})',
+), 'giu');
+
+/**
+ * Every court file number in `text` — `{ start, end, raw, kind: 'case', number }`,
+ * `number` as the courts' portal takes it ("1234/1/2023").
+ */
+export function findCaseRefs(text) {
+  const s = String(text || '');
+  if (s.length < 10) return [];
+  const hits = [];
+  CASE_RE.lastIndex = 0;
+  for (let m = CASE_RE.exec(s); m; m = CASE_RE.exec(s)) {
+    const number = `${m[1].replace(/\./g, '')}/${m[2].replace(/\./g, '')}/${m[3]}`;
+    hits.push({ start: m.index, end: m.index + m[0].length, raw: m[0], kind: 'case', number });
+  }
+  return hits;
+}
+
+/**
+ * The references a READER can follow out of a passage, for a page that turns
+ * them into controls: acts and codes (→ the Legislation tab), CAEN codes (→ the
+ * CAEN nomenclature), court file numbers (→ Court files). Internal
+ * cross-references and short back-references are left out — they point at the
+ * document itself. In document order, never overlapping.
+ */
+export function findFollowableRefs(text) {
+  const law = findLawRefs(text).filter((h) => h.kind === 'act' || h.kind === 'code' || h.kind === 'caen');
+  const cases = findCaseRefs(text);
+  if (!cases.length) return law;
+  return dropOverlaps([...law, ...cases]);
 }
 
 /** A short label for one reference — what a tooltip or a list calls it. */

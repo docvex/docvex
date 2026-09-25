@@ -12,6 +12,7 @@ import TitleBar from './components/TitleBar';
 import ReportProblemModal from './components/ReportProblemModal';
 import { ReportProblemProvider, useReportProblem } from './context/ReportProblemContext';
 import AppRoutes from './AppRoutes';
+import { maybeRunLegalFeedSync, resetLegalFeedSync } from './lib/legalFeedSync';
 
 // Mirrors `useProject().project.id` into SelectedProjectContext when the
 // user is on the /dashboard sub-route — the "working in this project"
@@ -225,6 +226,26 @@ function TrayNavigation() {
   return null;
 }
 
+// The Legal Newsfeed's reader (lib/legalFeedSync). legislatie.just.ro refuses
+// Supabase's servers, so the newest Monitorul Oficial issues are read from here,
+// over the user's own connection, and handed to the legal-feed-sync function to
+// judge. Only app admins' apps do it (the function accepts nobody else), only
+// the main window, at most every three hours; the first check waits a minute
+// and a half so it never competes with the app's own start.
+function LegalFeedSyncRunner() {
+  const { session } = useAuth();
+  const userId = session?.user?.id;
+  useEffect(() => {
+    resetLegalFeedSync();
+    if (!isElectron || isAuxWindow || !userId) return undefined;
+    const tick = () => { maybeRunLegalFeedSync().catch(() => {}); };
+    const first = setTimeout(tick, 90 * 1000);
+    const every = setInterval(tick, 30 * 60 * 1000);
+    return () => { clearTimeout(first); clearInterval(every); };
+  }, [userId]);
+  return null;
+}
+
 export default function App() {
   // Guard against the window navigating to a file when an OS file drag is
   // dropped anywhere OUTSIDE an explicit drop target (the Files canvas calls
@@ -266,6 +287,7 @@ export default function App() {
         )
         && <TitleBar />}
       <TrayNavigation />
+      <LegalFeedSyncRunner />
       <AppRoutes Shell={AppShell} ProjectShell={ProjectShell} />
       {isLocalhostWeb && <DemoSeedFiles />}
       <ReportProblemModal />

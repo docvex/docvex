@@ -1,0 +1,840 @@
+{
+ "name": "DocVex Files",
+ "version": 1,
+ "meta": {
+  "source": "DocVex desktop app, Files tab (the project's local-folder explorer). Values read from src/styles/tokens.css, src/components/FilesWorkspace.css, src/styles/miniHeader.css, src/components/fileGlyph.jsx + .css, src/lib/folderColors.js and src/components/useMorphPill.css on 2026-09-25. Two themes: Cream (default, light) and Ink (dark). Runtime colour mixes are resolved to concrete values.",
+  "units": "px at a 16px root and app zoom 1; line-heights given in px (size × the CSS ratio) or 'normal' where the CSS leaves it unset"
+ },
+ "color": {
+  "themes": [
+   {
+    "id": "cream",
+    "name": "Cream"
+   },
+   {
+    "id": "ink",
+    "name": "Ink"
+   }
+  ],
+  "tokens": [
+   {
+    "name": "bg-page",
+    "value": {
+     "cream": "#F5F2EA",
+     "ink": "#16181A"
+    },
+    "usage": "The page behind the Files canvas: the brand cream in Cream, near-black (not the brand ink) in Ink. The canvas itself is transparent over it."
+   },
+   {
+    "name": "bg-backdrop",
+    "value": {
+     "cream": "#F9F9FA",
+     "ink": "#16181A"
+    },
+    "usage": "Window backdrop and the seams around floating chrome: the 6.4px seam shadow above the pinned path bar and below the action bar, and the fade strip under the path bar."
+   },
+   {
+    "name": "dot-grid",
+    "value": {
+     "cream": "rgba(15, 23, 42, 0.09)",
+     "ink": "rgba(245, 242, 234, 0.09)"
+    },
+    "usage": "Dots of the canvas grid: 0.96px dots on a 19.2px grid, drawn behind the whole Files page."
+   },
+   {
+    "name": "bg-card",
+    "value": {
+     "cream": "#FFFFFF",
+     "ink": "#1E293B"
+    },
+    "usage": "Menus, the Properties dialog, the consent and archive dialogs, the drop card. The slider thumb's ring."
+   },
+   {
+    "name": "bg-elevated",
+    "value": {
+     "cream": "#FAF7F0",
+     "ink": "#2A3548"
+    },
+    "usage": "Menu-item hover, the Properties thumbnail box, secondary dialog buttons. In Cream also the box behind a rendered preview on a tile. In Ink previews have no box."
+   },
+   {
+    "name": "chrome-glass",
+    "value": {
+     "cream": "rgba(255, 255, 255, 0.90)",
+     "ink": "rgba(22, 24, 26, 0.66)"
+    },
+    "usage": "The path bar once pinned to the top, and the bottom action bar, always with a 6.4px backdrop blur. Transparent while the path bar still scrolls with the page."
+   },
+   {
+    "name": "item-fill",
+    "value": {
+     "cream": "rgba(15, 23, 42, 0.05)",
+     "ink": "rgba(245, 242, 234, 0.05)"
+    },
+    "usage": "Hovered and selected tile or list row. The one fill an item ever takes; there is no hover lift."
+   },
+   {
+    "name": "control-fill",
+    "value": {
+     "cream": "rgba(15, 23, 42, 0.04)",
+     "ink": "rgba(245, 242, 234, 0.04)"
+    },
+    "usage": "Search field at rest."
+   },
+   {
+    "name": "control-fill-hover",
+    "value": {
+     "cream": "rgba(15, 23, 42, 0.08)",
+     "ink": "rgba(245, 242, 234, 0.08)"
+    },
+    "usage": "Hover on path-bar buttons, the search field and the category toggle. Also the category count pill and the search clear button."
+   },
+   {
+    "name": "border",
+    "value": {
+     "cream": "rgba(15, 23, 42, 0.10)",
+     "ink": "rgba(245, 242, 234, 0.10)"
+    },
+    "usage": "1px hairline on menus, dialogs, the search field and toolbar separators. Also the rule after a category heading."
+   },
+   {
+    "name": "border-strong",
+    "value": {
+     "cream": "rgba(15, 23, 42, 0.18)",
+     "ink": "rgba(245, 242, 234, 0.20)"
+    },
+    "usage": "Tile and row edge on hover, search hover, the size-slider track, the context-menu edge."
+   },
+   {
+    "name": "border-flat",
+    "value": {
+     "cream": "#DEDCD7",
+     "ink": "#2C2E2F"
+    },
+    "usage": "The 1.5px edge of the frosted bars (pinned path bar, action bar). Opaque on purpose: an alpha hairline over blurred content reads uneven."
+   },
+   {
+    "name": "text-primary",
+    "value": {
+     "cream": "#0F172A",
+     "ink": "#F5F2EA"
+    },
+    "usage": "File and folder names, the page title, the current breadcrumb, dialog titles, Properties values."
+   },
+   {
+    "name": "text-secondary",
+    "value": {
+     "cream": "#1E293B",
+     "ink": "#C9CEDC"
+    },
+    "usage": "Breadcrumbs that aren't current, column headers, toolbar button labels, the masthead summary line, the full path in Properties."
+   },
+   {
+    "name": "text-muted",
+    "value": {
+     "cream": "#6B7280",
+     "ink": "#8A93A8"
+    },
+    "usage": "Date, Type and Size columns, category headings, the action-bar status ('3 selected'), empty-state text, placeholders and the Ctrl F hint, crumb separators at 55% opacity."
+   },
+   {
+    "name": "text-on-accent",
+    "value": {
+     "cream": "#FFFFFF",
+     "ink": "#0F172A"
+    },
+    "usage": "Label on an accent-filled button (Choose folder, Enable AI search)."
+   },
+   {
+    "name": "accent",
+    "value": {
+     "cream": "#8B5E3C",
+     "ink": "#DCC9A3"
+    },
+    "usage": "Cognac in Cream, sand in Ink. Selection border, focused search border, drop targets, the masthead eyebrow, active toggles, the primary button. In Cream, icons and the path-bar view/size/category controls use the Ink value (see icon-accent)."
+   },
+   {
+    "name": "accent-hover",
+    "value": {
+     "cream": "#74502F",
+     "ink": "#C8B58E"
+    },
+    "usage": "Hover on an accent-filled button."
+   },
+   {
+    "name": "accent-soft",
+    "value": {
+     "cream": "#DCC9A3",
+     "ink": "#8B5E3C"
+    },
+    "usage": "Body of the identity-record glyph."
+   },
+   {
+    "name": "accent-tint",
+    "value": {
+     "cream": "rgba(139, 94, 60, 0.10)",
+     "ink": "rgba(220, 201, 163, 0.12)"
+    },
+    "usage": "The 2.4px ring around a selected item, the drop-target wash (tile, row, breadcrumb, whole canvas while files are dragged in), the focused search field, the active Select toggle."
+   },
+   {
+    "name": "icon-accent",
+    "value": {
+     "cream": "#DCC9A3",
+     "ink": "#DCC9A3"
+    },
+    "usage": "Every icon and file glyph, in both themes: folders, breadcrumb icons, file-type glyphs, the view, size and category controls. Icons wear the Ink palette even in Cream so a folder is the same sand everywhere. Text stays cognac."
+   },
+   {
+    "name": "hit-highlight",
+    "value": {
+     "cream": "rgba(139, 94, 60, 0.30)",
+     "ink": "rgba(220, 201, 163, 0.30)"
+    },
+    "usage": "Background of the matched words in a content-search snippet."
+   },
+   {
+    "name": "drop-wash",
+    "value": {
+     "cream": "rgba(139, 94, 60, 0.10)",
+     "ink": "rgba(220, 201, 163, 0.10)"
+    },
+    "usage": "Fill of the drop overlay while files from the computer are dragged over the canvas; its 1.6px dashed edge is the accent at 60%."
+   },
+   {
+    "name": "danger",
+    "value": {
+     "cream": "#B91C1C",
+     "ink": "#EF4444"
+    },
+    "usage": "The trash count badge, the red edge when an item is dragged onto the trash, a trash countdown in its last 3 days, delete confirmations."
+   },
+   {
+    "name": "danger-soft",
+    "value": {
+     "cream": "#DC2626",
+     "ink": "#F87171"
+    },
+    "usage": "Label of destructive menu items (Delete, Delete folder, Empty trash)."
+   },
+   {
+    "name": "warning",
+    "value": {
+     "cream": "#B45309",
+     "ink": "#F59E0B"
+    },
+    "usage": "Countdown ring and hover chip on an item in the trash: days left before it's removed for good (30-day retention)."
+   },
+   {
+    "name": "success",
+    "value": {
+     "cream": "#15803D",
+     "ink": "#22C55E"
+    },
+    "usage": "Not used by the Files tab itself; listed because the theme defines it."
+   },
+   {
+    "name": "overlay-scrim",
+    "value": {
+     "cream": "rgba(15, 23, 42, 0.45)",
+     "ink": "rgba(0, 0, 0, 0.65)"
+    },
+    "usage": "Behind the Properties and AI-consent dialogs. The archive prompt uses it at 32%."
+   },
+   {
+    "name": "folder-default",
+    "value": {
+     "cream": "{icon-accent}",
+     "ink": "{icon-accent}"
+    },
+    "usage": "Folder glyph with no colour chosen. Filled when the folder has contents, outlined when empty."
+   },
+   {
+    "name": "folder-red",
+    "value": {
+     "cream": "#EF4444",
+     "ink": "#EF4444"
+    },
+    "usage": "Folder colour preset (right-click a folder). Saved per project."
+   },
+   {
+    "name": "folder-orange",
+    "value": {
+     "cream": "#F97316",
+     "ink": "#F97316"
+    },
+    "usage": "Folder colour preset."
+   },
+   {
+    "name": "folder-amber",
+    "value": {
+     "cream": "#F59E0B",
+     "ink": "#F59E0B"
+    },
+    "usage": "Folder colour preset."
+   },
+   {
+    "name": "folder-green",
+    "value": {
+     "cream": "#22C55E",
+     "ink": "#22C55E"
+    },
+    "usage": "Folder colour preset."
+   },
+   {
+    "name": "folder-teal",
+    "value": {
+     "cream": "#14B8A6",
+     "ink": "#14B8A6"
+    },
+    "usage": "Folder colour preset."
+   },
+   {
+    "name": "folder-blue",
+    "value": {
+     "cream": "#3B82F6",
+     "ink": "#3B82F6"
+    },
+    "usage": "Folder colour preset."
+   },
+   {
+    "name": "folder-violet",
+    "value": {
+     "cream": "#8B5CF6",
+     "ink": "#8B5CF6"
+    },
+    "usage": "Folder colour preset."
+   },
+   {
+    "name": "folder-pink",
+    "value": {
+     "cream": "#EC4899",
+     "ink": "#EC4899"
+    },
+    "usage": "Folder colour preset."
+   },
+   {
+    "name": "office-word",
+    "value": {
+     "cream": "#185ABD",
+     "ink": "#185ABD"
+    },
+    "usage": "Word badge ('W') on the document glyph, and the 6px left stripe on a rendered .doc/.docx preview (3px in a list row)."
+   },
+   {
+    "name": "office-excel",
+    "value": {
+     "cream": "#107C41",
+     "ink": "#107C41"
+    },
+    "usage": "Excel badge ('X') and preview stripe."
+   },
+   {
+    "name": "office-powerpoint",
+    "value": {
+     "cream": "#C43E1C",
+     "ink": "#C43E1C"
+    },
+    "usage": "PowerPoint badge ('P') and preview stripe."
+   },
+   {
+    "name": "office-pdf",
+    "value": {
+     "cream": "#B5473F",
+     "ink": "#B5473F"
+    },
+    "usage": "PDF badge ('PDF') and preview stripe."
+   },
+   {
+    "name": "office-page",
+    "value": {
+     "cream": "#FFFFFF",
+     "ink": "#FFFFFF"
+    },
+    "usage": "The white page behind an Office or text-file glyph, with a 0.8px rgba(0, 0, 0, 0.16) outline. White in both themes: it's a picture of paper."
+   },
+   {
+    "name": "ext-pill-bg",
+    "value": {
+     "cream": "#0F172A",
+     "ink": "#0F172A"
+    },
+    "usage": "Extension pill ('MD', 'TXT') in the corner of a text or unknown-format tile. Same in both themes, with ext-pill-text on it."
+   },
+   {
+    "name": "ext-pill-text",
+    "value": {
+     "cream": "#F5F2EA",
+     "ink": "#F5F2EA"
+    },
+    "usage": "Extension pill label."
+   },
+   {
+    "name": "whatsapp",
+    "value": {
+     "cream": "#25D366",
+     "ink": "#25D366"
+    },
+    "usage": "WhatsApp chat exports: glyph gradient from #25D366 to #128C7E at 135°, white logo. Only on WhatsApp exports."
+   },
+   {
+    "name": "media-scrim",
+    "value": {
+     "cream": "rgba(20, 20, 24, 0.55)",
+     "ink": "rgba(20, 20, 24, 0.55)"
+    },
+    "usage": "Round play button over a video thumbnail (1.6px blur). The duration badge uses rgba(0, 0, 0, 0.6) with a 4.8px blur. White glyph and text on both."
+   }
+  ]
+ },
+ "type": {
+  "fonts": [],
+  "families": {
+   "body": "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+   "display": "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif",
+   "mono": "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace"
+  },
+  "groups": [
+   {
+    "name": "Display",
+    "family": "display",
+    "styles": [
+     {
+      "name": "page-title",
+      "fontSize": "44.8px",
+      "lineHeight": "44.8px",
+      "fontWeight": 700,
+      "letterSpacing": "-0.04em",
+      "sample": "Files",
+      "usage": "The masthead title: 'Files', the open folder's name, or 'Trash'. One per page; it scrolls away under the path bar."
+     },
+     {
+      "name": "section-title",
+      "fontSize": "18.4px",
+      "lineHeight": "normal",
+      "fontWeight": 700,
+      "letterSpacing": "-0.01em",
+      "sample": "AI Search",
+      "usage": "Heading of the AI-search invitation in search results."
+     },
+     {
+      "name": "dialog-title",
+      "fontSize": "14.4px",
+      "lineHeight": "18.7px",
+      "fontWeight": 700,
+      "sample": "AI search sends this folder’s contents to Anthropic",
+      "usage": "Title of a consent or confirm dialog. The Properties dialog uses 12px, the archive prompt 12.8px."
+     },
+     {
+      "name": "empty-title",
+      "fontSize": "13.6px",
+      "lineHeight": "normal",
+      "fontWeight": 700,
+      "sample": "Nothing here yet",
+      "usage": "Empty and loading states: 'Nothing here yet', 'Trash is empty', 'No matches'."
+     },
+     {
+      "name": "glyph-letter",
+      "fontSize": "8.8px",
+      "lineHeight": "normal",
+      "fontWeight": 700,
+      "letterSpacing": "0.06em",
+      "sample": "W",
+      "usage": "Letters on a file glyph at the default tile size (6.4px in a list row). Office badges use 800 and draw a thin white stroke behind the letter."
+     }
+    ]
+   },
+   {
+    "name": "Text",
+    "family": "body",
+    "styles": [
+     {
+      "name": "eyebrow",
+      "fontSize": "8.8px",
+      "lineHeight": "normal",
+      "fontWeight": 700,
+      "letterSpacing": "0.22em",
+      "textTransform": "uppercase",
+      "sample": "PROJECT FILES · STORED IN YOUR LOCAL FOLDER",
+      "usage": "Masthead eyebrow in accent. Its tail ('· Stored in your local folder', '· Home › Contracts', '· Recycle bin') is weight 500 in text-muted."
+     },
+     {
+      "name": "kicker",
+      "fontSize": "12px",
+      "lineHeight": "18.6px",
+      "fontWeight": 400,
+      "sample": "6 files · 5.2 KB · Updated 25 Sept 2026",
+      "usage": "The summary line under the title, in text-secondary."
+     },
+     {
+      "name": "crumb",
+      "fontSize": "10px",
+      "lineHeight": "normal",
+      "fontWeight": 500,
+      "sample": "Home",
+      "usage": "Breadcrumbs in the path bar. The root is 600 and the current folder 700, both in text-primary."
+     },
+     {
+      "name": "item-name",
+      "fontSize": "10.4px",
+      "lineHeight": "13px",
+      "fontWeight": 600,
+      "sample": "Shareholder agreement — draft.md",
+      "usage": "Name under a tile: centred, two lines at most, the extension shown and styled like the name. In a list row it is weight 500 on one line."
+     },
+     {
+      "name": "column-header",
+      "fontSize": "9.2px",
+      "lineHeight": "normal",
+      "fontWeight": 700,
+      "letterSpacing": "0.06em",
+      "textTransform": "uppercase",
+      "sample": "NAME · DATE · TYPE · SIZE",
+      "usage": "List-view column headings, in text-secondary."
+     },
+     {
+      "name": "meta",
+      "fontSize": "9.6px",
+      "lineHeight": "normal",
+      "fontWeight": 400,
+      "sample": "3 Sep 2026",
+      "usage": "The Date, Type and Size columns of a list row, in text-muted. Content-search snippets use the same size at 1.4 line height."
+     },
+     {
+      "name": "category-head",
+      "fontSize": "9.6px",
+      "lineHeight": "normal",
+      "fontWeight": 700,
+      "letterSpacing": "0.1em",
+      "textTransform": "uppercase",
+      "sample": "OFFICE DOCUMENTS",
+      "usage": "Group heading when files are grouped by category, followed by a count pill and a hairline."
+     },
+     {
+      "name": "control",
+      "fontSize": "10.4px",
+      "lineHeight": "normal",
+      "fontWeight": 500,
+      "sample": "Create",
+      "usage": "Action-bar buttons, the search field text, Create-menu items. An active toggle (Select → Done) is 600."
+     },
+     {
+      "name": "menu-item",
+      "fontSize": "10.88px",
+      "lineHeight": "normal",
+      "fontWeight": 500,
+      "sample": "Open file location",
+      "usage": "Right-click menu items, in text-primary (danger-soft for destructive ones)."
+     },
+     {
+      "name": "tooltip",
+      "fontSize": "9.6px",
+      "lineHeight": "11.5px",
+      "fontWeight": 500,
+      "sample": "Group by category",
+      "usage": "The cursor-following hint pill, which a right-click turns into the menu. It never wraps."
+     },
+     {
+      "name": "status",
+      "fontSize": "9.2px",
+      "lineHeight": "normal",
+      "fontWeight": 400,
+      "sample": "3 selected",
+      "usage": "The action bar's status on the right, in text-muted."
+     },
+     {
+      "name": "label",
+      "fontSize": "8.8px",
+      "lineHeight": "normal",
+      "fontWeight": 700,
+      "letterSpacing": "0.05em",
+      "textTransform": "uppercase",
+      "sample": "MODIFIED",
+      "usage": "Field labels in the Properties dialog, in text-muted, beside 10.4px values."
+     },
+     {
+      "name": "body",
+      "fontSize": "10.4px",
+      "lineHeight": "15.6px",
+      "fontWeight": 400,
+      "sample": "Pick a folder on your computer — that’s where this project’s files live.",
+      "usage": "Empty-state text (max 304px wide), dialog body copy (10.8px there)."
+     },
+     {
+      "name": "kbd",
+      "fontSize": "9.6px",
+      "lineHeight": "9.6px",
+      "fontWeight": 600,
+      "letterSpacing": "0.02em",
+      "sample": "Ctrl F",
+      "usage": "The shortcut hint inside the search field, in text-muted; '⌘ F' on a Mac."
+     },
+     {
+      "name": "ext-pill",
+      "fontSize": "7.2px",
+      "lineHeight": "10.8px",
+      "fontWeight": 800,
+      "letterSpacing": "0.06em",
+      "textTransform": "uppercase",
+      "sample": "MD",
+      "usage": "The extension pill on a text or unknown-format tile."
+     },
+     {
+      "name": "count-badge",
+      "fontSize": "8.8px",
+      "lineHeight": "8.8px",
+      "fontWeight": 700,
+      "sample": "4",
+      "usage": "The red count on the trash tile, white on danger."
+     }
+    ]
+   },
+   {
+    "name": "Data",
+    "family": "mono",
+    "styles": [
+     {
+      "name": "path",
+      "fontSize": "9.2px",
+      "lineHeight": "normal",
+      "fontWeight": 400,
+      "sample": "C:\\Users\\Luca\\Docvex\\Popescu v. Ionescu\\Contracte",
+      "usage": "A file's location in the Properties dialog, in text-secondary. The only monospace on the page."
+     }
+    ]
+   }
+  ]
+ },
+ "spacing": {
+  "tokens": [
+   {
+    "name": "chrome-inset",
+    "value": "6.4px",
+    "usage": "The gap every floating bar keeps from the window and the sidebar rail. Also the sticky offset of the path bar and the action bar's distance from the bottom."
+   },
+   {
+    "name": "content-left-gap",
+    "value": "17.6px",
+    "usage": "Left edge of the page content from the sidebar rail: masthead, grid and list all start here."
+   },
+   {
+    "name": "grid-gap",
+    "value": "6.4px",
+    "usage": "Gap between tiles, and between tiles and category sections."
+   },
+   {
+    "name": "tile-padding",
+    "value": "6.4px 6.4px 7.2px",
+    "usage": "Inside a tile; 6.4px between thumbnail and name."
+   },
+   {
+    "name": "tile-size-min",
+    "value": "70px",
+    "usage": "Smallest item size on the size slider. Below 100px the canvas switches to the list view."
+   },
+   {
+    "name": "tile-size-default",
+    "value": "100px",
+    "usage": "Default tile width (list view defaults to 70). Thumbnail = 58% of the width, file glyph = 65% square, folder glyph = 112% of the thumbnail."
+   },
+   {
+    "name": "tile-size-max",
+    "value": "320px",
+    "usage": "Largest tile width. The slider moves in 2px steps, Ctrl + wheel in 14px steps."
+   },
+   {
+    "name": "list-row",
+    "value": "28px–64.8px",
+    "usage": "List-row height, set by the same slider: thumbnail 19→40.8px, vertical padding 4.5→12px across the 70–98 range. Columns: Name (1.6fr) · Date 112px · Type 72px · Size 80px."
+   },
+   {
+    "name": "pathbar-height",
+    "value": "40px",
+    "usage": "Minimum height of the path bar (padding 6.4px, 1.5px edge). All its controls are 24px tall."
+   },
+   {
+    "name": "control-size",
+    "value": "24px",
+    "usage": "View and category toggles (24 × 24), back/forward (22.4 × 24), the search field height."
+   },
+   {
+    "name": "search-width",
+    "value": "224px",
+    "usage": "Search field at rest; 288px while focused (the width eases open)."
+   },
+   {
+    "name": "actionbar-padding",
+    "value": "8px 17.6px",
+    "usage": "Inside the bottom action bar. Buttons: padding 5.6px 8.8px, about 26px tall, 3.2px apart. Separators: 1 × 17.6px."
+   },
+   {
+    "name": "masthead-padding",
+    "value": "25.6px 17.6px 8px",
+    "usage": "Around the eyebrow, title and summary line (14.4px between them)."
+   },
+   {
+    "name": "menu-item-padding",
+    "value": "7px 10.2px",
+    "usage": "Right-click menu item. The menu is at least 160px wide, 3.2px padding, 1.6px between items."
+   },
+   {
+    "name": "dialog-width",
+    "value": "272px",
+    "usage": "Properties dialog (the archive prompt is 268px, the AI consent 420px). Properties rows: a 73.6px label column, 8px gap."
+   },
+   {
+    "name": "empty-padding",
+    "value": "64px 16px",
+    "usage": "Empty-state block: 44.8px icon at 50% opacity, 11.2px below it."
+   },
+   {
+    "name": "icon-inline",
+    "value": "12.8px",
+    "usage": "Action-bar icons. Path-bar icons are 14px, the root breadcrumb 16px, search 15px, category headings 13px."
+   }
+  ]
+ },
+ "radius": {
+  "tokens": [
+   {
+    "name": "radius-none",
+    "value": "0px",
+    "usage": "The page frame, the canvas and the list itself. Content sits flush; only items and chrome are rounded."
+   },
+   {
+    "name": "radius-control",
+    "value": "4.8px",
+    "usage": "Path-bar buttons, the search field, action-bar buttons, list-row thumbnails, menu items."
+   },
+   {
+    "name": "radius-crumb",
+    "value": "5.6px",
+    "usage": "Breadcrumbs, tile thumbnails, Create-menu items, search-hit thumbnails."
+   },
+   {
+    "name": "radius-glyph",
+    "value": "7.2px",
+    "usage": "File-type glyph tiles, dialog buttons, search-hit rows."
+   },
+   {
+    "name": "radius-item",
+    "value": "8px",
+    "usage": "A tile, a list row's highlight, menus and the right-click menu."
+   },
+   {
+    "name": "radius-bar",
+    "value": "9.6px",
+    "usage": "The path bar, the action bar, the drop card, the Properties thumbnail."
+   },
+   {
+    "name": "radius-dialog",
+    "value": "11.2px",
+    "usage": "Dialogs and the drop overlay."
+   },
+   {
+    "name": "radius-confirm",
+    "value": "12.8px",
+    "usage": "The red delete-confirmation pill."
+   },
+   {
+    "name": "radius-pill",
+    "value": "999px",
+    "usage": "Tooltip, count badges, the extension pill, colour swatches, the slider track, the video play button. Never a button with a text label."
+   }
+  ]
+ },
+ "elevation": {
+  "tokens": [
+   {
+    "name": "shadow-card",
+    "value": {
+     "cream": "0 1px 2.4px rgba(15, 23, 42, 0.06), 0 1px 1.6px rgba(15, 23, 42, 0.04)",
+     "ink": "0 1px 2.4px rgba(0, 0, 0, 0.40), 0 1px 1.6px rgba(0, 0, 0, 0.25)"
+    },
+    "usage": "A hovered tile or list row. The only shadow an item takes."
+   },
+   {
+    "name": "shadow-elev",
+    "value": {
+     "cream": "0 6.4px 19.2px rgba(15, 23, 42, 0.10)",
+     "ink": "0 9.6px 25.6px rgba(0, 0, 0, 0.55)"
+    },
+    "usage": "Menus, dialogs, the drop card."
+   },
+   {
+    "name": "shadow-menu",
+    "value": "0 9.6px 25.6px rgba(0, 0, 0, 0.5)",
+    "usage": "The right-click menu (both themes). The hint pill it grows from: 0 3.2px 9.6px rgba(0, 0, 0, 0.4)."
+   },
+   {
+    "name": "ring-selected",
+    "value": "0 0 0 2.4px {accent-tint}",
+    "usage": "Outside ring of a selected or drop-target item, with a 1px accent border."
+   },
+   {
+    "name": "seam",
+    "value": "0 ±6.4px 0 0 {bg-backdrop}",
+    "usage": "Solid seam that makes the floating bars read as cut out of the window rather than floating over content: upward for the path bar, downward for the action bar."
+   },
+   {
+    "name": "glass-blur",
+    "value": "6.4px",
+    "usage": "Backdrop blur of the pinned path bar, the action bar and the search field."
+   },
+   {
+    "name": "button-press-edge",
+    "value": "0 1.6px 0 {accent at 60% mixed with black}",
+    "usage": "The bottom edge under an accent-filled button."
+   }
+  ]
+ },
+ "motion": {
+  "tokens": [
+   {
+    "name": "item",
+    "value": "120ms",
+    "usage": "Tile and row fill, border and shadow; breadcrumb hover; menu-item hover. Default easing."
+   },
+   {
+    "name": "control",
+    "value": "140ms ease",
+    "usage": "Path-bar buttons, the slider, the search field's colours, action-bar buttons."
+   },
+   {
+    "name": "expand",
+    "value": "220ms cubic-bezier(0.16, 1, 0.3, 1)",
+    "usage": "The search field widening, and the hint pill morphing into the right-click menu."
+   },
+   {
+    "name": "chrome",
+    "value": "260ms ease",
+    "usage": "The path bar's frosted surface fading in as it pins."
+   },
+   {
+    "name": "wash",
+    "value": "340ms ease",
+    "usage": "The canvas tint while files are dragged in, the action bar's surface."
+   },
+   {
+    "name": "dismiss",
+    "value": "130ms ease-in",
+    "usage": "The right-click menu closing."
+   },
+   {
+    "name": "dialog-in",
+    "value": "160ms cubic-bezier(0.16, 1, 0.3, 1)",
+    "usage": "Properties dialog entering from 4.8px lower at 98% scale."
+   },
+   {
+    "name": "follow",
+    "value": "45ms ease-out",
+    "usage": "The hint pill following the cursor."
+   },
+   {
+    "name": "reduced-motion",
+    "value": "off",
+    "usage": "With reduced motion on, entrances and the pointer-following glows are removed and the loading spinner slows to 2s. Colour changes stay instant during a theme switch."
+   }
+  ]
+ }
+}

@@ -4551,6 +4551,181 @@ app.whenReady().then(() => {
   });
 });
 
+// ── The courts' portal: case files and hearings ──────────────────────────
+// portal.just.ro publishes a free SOAP service (portalquery.just.ro/query.asmx,
+// `CautareDosare` by number / party / object / court / date, `CautareSedinte`
+// for a court's hearings on a day). Called from here for the same reason as
+// the legislation service: a 2000s-era asmx endpoint with no CORS headers.
+// A search by party name can answer with hundreds of files at a few kilobytes
+// each, so the answer is capped and the count of the whole is reported.
+const COURTS_ENDPOINT = 'http://portalquery.just.ro/query.asmx';
+const COURTS_NS = 'portalquery.just.ro';
+const COURTS_TIMEOUT_MS = 60000;
+const COURTS_MAX = 400;
+
+async function courtsPost(action, body) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), COURTS_TIMEOUT_MS);
+  try {
+    const res = await fetch(COURTS_ENDPOINT, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        SOAPAction: `"${COURTS_NS}/${action}"`,
+        'User-Agent': LEGIS_UA,
+      },
+      body: '<?xml version="1.0" encoding="utf-8"?>'
+        + '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body>'
+        + `<${action} xmlns="${COURTS_NS}">${body}</${action}>`
+        + '</soap:Body></soap:Envelope>',
+    });
+    // The courts' service answers a bad query with a SOAP fault inside an
+    // HTTP 500 — a fault, not a transport failure (same as the legislation
+    // portal above).
+    const xml = await res.text();
+    if (/<(?:\w+:)?Fault>/.test(xml)) return { ok: false, error: 'service_fault' };
+    if (!res.ok) return { ok: false, error: `http_${res.status}` };
+    return { ok: true, xml };
+  } catch (e) {
+    return { ok: false, error: e?.name === 'AbortError' ? 'timeout' : 'unreachable' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Every block of `tag` in `xml` — the tag exactly, so `<Dosar>` does not also
+// take `<DosarParte>`.
+const xmlBlocks = (xml, tag) => {
+  const out = [];
+  const re = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'g');
+  for (let m = re.exec(xml); m; m = re.exec(xml)) out.push(m[1]);
+  return out;
+};
+// A SOAP date: the portal writes "2026-06-25T00:00:00" (and ".353" fractions).
+const soapDate = (s) => String(s || '').replace(/\.\d+$/, '');
+// A form date (yyyy-mm-dd) as the service takes it; anything else is dropped.
+const soapDateArg = (s) => (/^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) ? `${s}T00:00:00` : '');
+
+function courtsParseDosar(block) {
+  return {
+    numar: xmlField(block, 'numar'),
+    numarVechi: xmlField(block, 'numarVechi'),
+    data: soapDate(xmlField(block, 'data')),
+    institutie: xmlField(block, 'institutie'),
+    departament: xmlField(block, 'departament'),
+    categorie: xmlField(block, 'categorieCazNume') || xmlField(block, 'categorieCaz'),
+    stadiu: xmlField(block, 'stadiuProcesualNume') || xmlField(block, 'stadiuProcesual'),
+    obiect: xmlField(block, 'obiect'),
+    modificat: soapDate(xmlField(block, 'dataModificare')),
+    parti: xmlBlocks(block, 'DosarParte').map((p) => ({
+      nume: xmlField(p, 'nume').trim(),
+      calitate: xmlField(p, 'calitateParte').trim(),
+    })),
+    sedinte: xmlBlocks(block, 'DosarSedinta').map((s) => ({
+      complet: xmlField(s, 'complet'),
+      data: soapDate(xmlField(s, 'data')),
+      ora: xmlField(s, 'ora'),
+      solutie: xmlField(s, 'solutie'),
+      sumar: xmlField(s, 'solutieSumar'),
+      pronuntare: soapDate(xmlField(s, 'dataPronuntare')),
+      document: xmlField(s, 'documentSedinta'),
+      numarDocument: xmlField(s, 'numarDocument'),
+      dataDocument: soapDate(xmlField(s, 'dataDocument')),
+    })),
+    caiAtac: xmlBlocks(block, 'DosarCaleAtac').map((c) => ({
+      data: soapDate(xmlField(c, 'dataDeclarare')),
+      parte: xmlField(c, 'parteDeclaratoare').trim().replace(/,\s*$/, ''),
+      tip: xmlField(c, 'tipCaleAtac'),
+    })),
+  };
+}
+
+// Case files: `{ numarDosar, obiectDosar, numeParte, institutie, dataStart, dataStop }`,
+// any subset. `institutie` is one of the service's own court ids
+// (lib/courts.json, built from its WSDL by scripts/build-courts.mjs).
+ipcMain.handle('courts:search', async (_e, query) => {
+  const q = query && typeof query === 'object' ? query : {};
+  const opt = (tag, value) => (value ? `<${tag}>${legisEscape(value)}</${tag}>` : '');
+  const body = opt('numarDosar', String(q.numarDosar || '').trim())
+    + opt('obiectDosar', String(q.obiectDosar || '').trim())
+    + opt('numeParte', String(q.numeParte || '').trim())
+    + opt('institutie', /^[A-Za-z0-9]+$/.test(String(q.institutie || '')) ? q.institutie : '')
+    + opt('dataStart', soapDateArg(q.dataStart))
+    + opt('dataStop', soapDateArg(q.dataStop));
+  if (!body) return { ok: false, error: 'empty_query' };
+  const res = await courtsPost('CautareDosare', body);
+  if (!res.ok) return res;
+  const blocks = xmlBlocks(res.xml, 'Dosar');
+  return { ok: true, total: blocks.length, dosare: blocks.slice(0, COURTS_MAX).map(courtsParseDosar) };
+});
+
+// A court's hearings on a day: `{ institutie, dataSedinta }` (both required).
+ipcMain.handle('courts:hearings', async (_e, query) => {
+  const q = query && typeof query === 'object' ? query : {};
+  const inst = /^[A-Za-z0-9]+$/.test(String(q.institutie || '')) ? q.institutie : '';
+  const day = soapDateArg(q.dataSedinta);
+  if (!inst || !day) return { ok: false, error: 'empty_query' };
+  const res = await courtsPost('CautareSedinte', `<dataSedinta>${day}</dataSedinta><institutie>${inst}</institutie>`);
+  if (!res.ok) return res;
+  const sedinte = xmlBlocks(res.xml, 'Sedinta').map((s) => ({
+    departament: xmlField(s, 'departament'),
+    complet: xmlField(s, 'complet'),
+    data: soapDate(xmlField(s, 'data')),
+    ora: xmlField(s, 'ora'),
+    dosare: xmlBlocks(s, 'SedintaDosar').map((d) => ({
+      numar: xmlField(d, 'numar'),
+      data: soapDate(xmlField(d, 'data')),
+      ora: xmlField(d, 'ora'),
+      categorie: xmlField(d, 'categorieCazNume') || xmlField(d, 'categorieCaz'),
+      stadiu: xmlField(d, 'stadiuProcesualNume') || xmlField(d, 'stadiuProcesual'),
+    })),
+  }));
+  return { ok: true, sedinte };
+});
+
+// ── ANAF: a company's fiscal record ──────────────────────────────────────
+// ANAF's public REST service (webservicesp.anaf.ro, `PlatitorTvaRest` v9): one
+// POST with up to 100 CUIs and a date, answering the company's registration,
+// address, CAEN code and every VAT / inactivity state as of that date. Free,
+// no key; it allows one request a second. Called from here: the service sends
+// no CORS headers either.
+const ANAF_ENDPOINT = 'https://webservicesp.anaf.ro/api/PlatitorTvaRest/v9/tva';
+const ANAF_TIMEOUT_MS = 30000;
+const ANAF_MAX = 100;
+
+ipcMain.handle('anaf:lookup', async (_e, payload) => {
+  const raw = Array.isArray(payload?.cuis) ? payload.cuis : [];
+  const cuis = [...new Set(raw.map((c) => Number(String(c).replace(/\D/g, ''))).filter((n) => n > 0))].slice(0, ANAF_MAX);
+  if (!cuis.length) return { ok: false, error: 'empty_query' };
+  const today = new Date().toISOString().slice(0, 10);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ANAF_TIMEOUT_MS);
+  try {
+    const res = await fetch(ANAF_ENDPOINT, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': LEGIS_UA },
+      body: JSON.stringify(cuis.map((cui) => ({ cui, data: today }))),
+    });
+    if (res.status === 429) return { ok: false, error: 'rate_limited' };
+    if (!res.ok) return { ok: false, error: `http_${res.status}` };
+    const data = await res.json().catch(() => null);
+    if (!data || typeof data !== 'object') return { ok: false, error: 'bad_answer' };
+    if (data.cod && Number(data.cod) !== 200) return { ok: false, error: `anaf_${data.cod}` };
+    return {
+      ok: true,
+      asOf: today,
+      found: Array.isArray(data.found) ? data.found : [],
+      notFound: Array.isArray(data.notFound) ? data.notFound : [],
+    };
+  } catch (e) {
+    return { ok: false, error: e?.name === 'AbortError' ? 'timeout' : 'unreachable' };
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 // ── The national legislation portal, and the copy this machine keeps ───────
 // legislatie.just.ro publishes a FREE web service (legislatie.just.ro/apiws —
 // `GetToken`, then `Search`), and it is the only lawful, complete source of
@@ -4625,8 +4800,15 @@ async function legisPost(action, body) {
       },
       body: `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body>${body}</s:Body></s:Envelope>`,
     });
-    if (!res.ok) return { ok: false, error: `http_${res.status}` };
-    return { ok: true, xml: await res.text() };
+    // A SOAP fault (an expired token — "TOKEN INVALID SAU EXPIRAT" — a bad
+    // query) arrives as an HTTP 500 WITH a fault envelope in its body. It is
+    // handed back as an answer, so the caller can read the fault and retry
+    // with a fresh token; only a non-200 with no fault in it is a transport
+    // failure. (Treating the 500 as one left the cached token in use, and
+    // every search falling back to the archive, for the token's ten minutes.)
+    const xml = await res.text();
+    if (!res.ok && !/<(?:\w+:)?Fault>/.test(xml)) return { ok: false, error: `http_${res.status}` };
+    return { ok: true, xml };
   } catch (e) {
     // Offline, DNS gone, the ministry's server down, or the 45s timeout: all
     // one answer to the caller, which is "use what we have".
@@ -4736,7 +4918,8 @@ ipcMain.handle('legislation:archive-put', async (_e, payload) => {
       publicatie: rec.publicatie || '',
       dataVigoare: rec.dataVigoare || '',
       link: rec.link || '',
-      savedAt: new Date().toISOString(),
+      savedAt: new Date().toISOString(),          // last SEEN (a search answer, or an opening)
+      openedAt: withText ? new Date().toISOString() : (prev?.openedAt || ''), // last OPENED — what "Recently viewed" lists
       hasText: prev?.hasText || false,
       chars: prev?.chars || 0,
     };
@@ -4778,7 +4961,46 @@ ipcMain.handle('legislation:archive-remove', (_e, id) => {
   if (!index.acts[id]) return { ok: true };
   delete index.acts[id];
   try { fs.unlinkSync(legisActFile(id)); } catch { /* text was never kept */ }
+  try { fs.unlinkSync(legisPageFile(id)); } catch { /* page was never kept */ }
   return legisWriteIndex(index) ? { ok: true } : { ok: false, error: 'write_failed' };
+});
+
+// ── The act's PAGE on the portal ──────────────────────────────────────────
+// The service's `Text` is the act flattened to plain text; the portal's own
+// page (`/Public/DetaliiDocument/<id>`) carries the act's STRUCTURE — every
+// article, paragraph, letter, point, citation, note, annex and preformatted
+// block marked up with the portal's `S_*` classes — which is what the tab
+// lays the act out from. Fetched here (a browser user agent; nginx answers
+// 403 to Node's), kept beside the act as `acts/<id>.html`, and answered
+// from that copy unless `fresh` is asked for or there is none.
+const legisPageFile = (id) => path.join(legisDir(), 'acts', `${String(id).replace(/[^0-9a-z_-]/gi, '')}.html`);
+ipcMain.handle('legislation:page', async (_e, payload) => {
+  const id = String(payload?.id || '').replace(/[^0-9a-z_-]/gi, '');
+  if (!id) return { ok: false, error: 'bad_id' };
+  if (!payload?.fresh) {
+    try { return { ok: true, html: fs.readFileSync(legisPageFile(id), 'utf8'), source: 'archive' }; } catch { /* not kept */ }
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), LEGIS_TIMEOUT_MS);
+  try {
+    const res = await fetch(`https://legislatie.just.ro/Public/DetaliiDocument/${id}`, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': LEGIS_UA, Accept: 'text/html' },
+    });
+    if (!res.ok) return kept(`http_${res.status}`);
+    const html = await res.text();
+    if (!/content_forma_act/.test(html)) return kept('not_found');
+    try { fs.mkdirSync(path.join(legisDir(), 'acts'), { recursive: true }); fs.writeFileSync(legisPageFile(id), html); } catch { /* the answer still stands */ }
+    return { ok: true, html, source: 'live' };
+  } catch (e) {
+    return kept(e?.name === 'AbortError' ? 'timeout' : 'unreachable');
+  } finally {
+    clearTimeout(timer);
+  }
+  // The portal could not answer: this machine's copy, if it has one.
+  function kept(error) {
+    try { return { ok: true, html: fs.readFileSync(legisPageFile(id), 'utf8'), source: 'archive', portalError: error }; } catch { return { ok: false, error }; }
+  }
 });
 
 // Everything, gone. Asked for from the tab, never done on the app's own

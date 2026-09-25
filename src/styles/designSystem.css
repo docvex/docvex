@@ -1,0 +1,103 @@
+/* ── Design system tokens ───────────────────────────────────────────────────
+   ONE set of measurements and treatments the app's chrome is built from —
+   its mini headers and bottom bars, its search boxes and toggles, its pills,
+   tags, dropdowns, cards and mastheads — so the same element reads the same
+   on every tab. The catalogue (name, label, group, default, what it drives)
+   is lib/designSystem.js; the Design system tab (pages/DesignSystem) shows
+   every element built from them and lets them be edited — by hand or by
+   asking the AI — with the change propagating live, app-wide, and kept on
+   the device (`docvex:design-system:v1`).
+
+   The values here ARE the app's current ones (the Legislation tab bar, the
+   Files search, the Versions masthead…), so nothing moves until a token is
+   changed. Recipes read them with the same value as a fallback, e.g.
+   `height: var(--ds-control-h, 24px)`, so a stylesheet loaded on its own
+   still lays out.
+
+   THREE FAMILIES sit on the base: every section of the sidebar builds from
+   the same elements, but PERSONAL tabs (Activity, the Newsletter and the
+   Legislation sources, Versions, Playbook, Mail, the System pages) follow
+   the rules the Legislation tab set — editorial mastheads, no card fills,
+   rows on the page ground — PROJECT tabs (the Hub, Files, Chat, Events, the
+   Advisor…) follow the Files tab — filled cards, denser lists, tools in the
+   bars — and the DOC VIEWER (a Word document open) is its own family —
+   floating panels over the paper. The family is stamped on the content
+   frame as `data-ds` (AppShell; the viewer's own root) and its tokens are
+   read the same way (`var(--ds-card-fill, transparent)`). Colour stays with
+   tokens.css: a family changes shape, density and treatment, never the
+   palette. */
+
+:root {
+  /* ── Bars: mini headers (the Legislation tab bar, the Files path bar, the
+     compact mastheads) and bottom bars (Files' actions, the CAEN picker's
+     keys). The frosted surface every pinned bar paints. */
+  --ds-bar-h: 40px;
+  --ds-bar-radius: 9.6px;
+  --ds-bar-border: 1.5px;
+  --ds-bar-frost: 66%;
+  --ds-bar-blur: 6.4px;
+
+  /* ── Controls: the search boxes, the view toggles, the tool buttons and
+     the field rows that live in those bars. */
+  --ds-control-h: 24px;
+  --ds-control-radius: 4.8px;
+  --ds-control-size: 10.4px;
+  --ds-control-tint: 4%;
+  --ds-control-tint-hover: 8%;
+  --ds-control-blur: 6.4px;
+  --ds-search-w: 256px;
+  --ds-search-w-focus: 320px;
+
+  /* ── Type: the masthead's eyebrow, title and kicker; the small labels. */
+  --ds-eyebrow-size: 8.8px;
+  --ds-eyebrow-tracking: 0.22em;
+  --ds-title-size: 44.8px;
+  --ds-kicker-size: 12px;
+  --ds-label-size: 9.6px;
+  --ds-label-tracking: 0.07em;
+
+  /* ── Pills and tags. */
+  --ds-pill-radius: 999px;
+  --ds-tag-size: 9.6px;
+  --ds-tag-tracking: 0.04em;
+
+  /* ── Surfaces: cards, rows, menus; the hairline they are edged with. */
+  --ds-card-radius: 14px;
+  --ds-row-radius: 8px;
+  --ds-menu-radius: 8px;
+  --ds-hairline: var(--border);
+  --ds-content-max: var(--content-max-width, 1280px);
+
+  /* Family tokens' base values — the PERSONAL family's, so a page outside
+     any frame still reads. */
+  --ds-card-fill: transparent;
+  --ds-card-shadow: none;
+  --ds-section-gap: 20px;
+  --ds-row-density: 1;
+}
+
+/* ── The families ─────────────────────────────────────────────────────── */
+/* Personal — the Legislation tab's rules: nothing filled, rows on the page
+   ground, generous gaps. */
+[data-ds="personal"] {
+  --ds-card-fill: transparent;
+  --ds-card-shadow: none;
+  --ds-section-gap: 20px;
+  --ds-row-density: 1;
+}
+/* Project — the Files tab's rules: filled cards with the card shadow,
+   tighter lists. */
+[data-ds="project"] {
+  --ds-card-fill: var(--bg-card);
+  --ds-card-shadow: var(--shadow-card);
+  --ds-section-gap: 12px;
+  --ds-row-density: 0.85;
+}
+/* Viewer — the Doc Viewer with a Word document open: floating panels over
+   the paper, the elevated shadow. */
+[data-ds="viewer"] {
+  --ds-card-fill: var(--bg-card);
+  --ds-card-shadow: var(--shadow-elev);
+  --ds-section-gap: 12px;
+  --ds-row-density: 0.9;
+}

@@ -1,0 +1,106 @@
+/* The CAEN modal (components/CaenModal): the nomenclature brought to another
+   tab. The scrim and the rise are the app's confirm modal's; inside, a head
+   (eyebrow + title, the words box drawn as the tab bar's search, Open in the
+   CAEN tab, Close), the codes a citation named as chips, then the results
+   down the left and the entry card (Caen.css, `cn-`) on the right. */
+.cm-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: var(--overlay-scrim, rgba(0, 0, 0, 0.6));
+  animation: cm-fade 120ms ease;
+}
+.cm-card {
+  display: flex; flex-direction: column;
+  width: min(960px, 100%); max-height: min(86vh, 820px);
+  overflow: hidden;
+  background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: var(--shadow-elev);
+  animation: cm-rise 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+html[data-reduce-motion="true"] .cm-backdrop,
+html[data-reduce-motion="true"] .cm-card { animation: none; }
+
+.cm-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 14px 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+.cm-titles { flex: none; min-width: 0; margin-right: 6px; }
+.cm-eyebrow { font-size: var(--ds-eyebrow-size, 8.8px); font-weight: 700; letter-spacing: var(--ds-eyebrow-tracking, 0.22em); text-transform: uppercase; color: var(--text-muted); }
+.cm-title { margin: 2px 0 0; font-family: var(--font-display); font-size: 15px; font-weight: 650; line-height: 1.2; color: var(--text-primary); }
+/* The words box: the tab bar's search (LegalTabs.css) to the letter. */
+.cm-search {
+  flex: 1 1 auto; min-width: 0; max-width: 360px;
+  display: flex; align-items: center; gap: 6.4px;
+  height: var(--ds-control-h, 24px); box-sizing: border-box;
+  padding: 0 6.4px 0 7.2px;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-control-radius, 4.8px);
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  font-size: var(--ds-control-size, 10.4px);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.cm-search:focus-within { background: var(--accent-tint); border-color: var(--accent); }
+.cm-search-glyph { display: inline-flex; width: 12px; height: 12px; flex: none; color: var(--text-muted); }
+.cm-search-glyph svg { width: 100%; height: 100%; }
+.cm-search:focus-within .cm-search-glyph { color: var(--accent); }
+.cm-search input { border: 0; background: transparent; outline: none; font: inherit; color: var(--text-primary); width: 100%; min-width: 0; }
+.cm-search input::placeholder { color: var(--text-muted); }
+.cm-btn {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  height: var(--ds-control-h, 24px); padding: 0 9px;
+  border: 1px solid var(--border); border-radius: 6.4px;
+  background: var(--bg-card); color: var(--text-secondary);
+  font: inherit; font-size: var(--ds-control-size, 10.4px); font-weight: 500; line-height: 1;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.cm-btn:hover:not(:disabled) { background: var(--bg-elevated); border-color: var(--border-strong); color: var(--text-primary); }
+.cm-btn:disabled { opacity: 0.5; cursor: default; }
+.cm-ico { display: inline-flex; width: 12px; height: 12px; }
+.cm-ico svg { width: 100%; height: 100%; }
+.cm-close {
+  flex: none; display: grid; place-items: center;
+  width: 24px; height: 24px; padding: 0;
+  border: 1px solid transparent; border-radius: 6.4px;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.cm-close svg { width: 14px; height: 14px; }
+.cm-close:hover { background: var(--bg-elevated); color: var(--text-primary); }
+
+.cm-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 20px 0; }
+.cm-chip {
+  padding: 2px 10px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: 11.2px; font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.cm-chip:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.cm-chip.is-on { background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--accent); }
+
+.cm-body {
+  display: grid; grid-template-columns: 280px minmax(0, 1fr);
+  min-height: 0; flex: 1 1 auto;
+}
+.cm-list {
+  min-height: 0; overflow: auto;
+  padding: 12px;
+  border-right: 1px solid var(--border);
+}
+.cm-list .cn-row.is-on { background: var(--accent-tint); color: var(--text-primary); }
+.cm-detail { min-height: 0; overflow: auto; padding: 16px 20px 20px; }
+/* The card stands on the modal's ground: no frame or shadow of its own. */
+.cm-detail .cn-card { max-width: none; padding: 0; background: transparent; border: 0; box-shadow: none; }
+
+@media (max-width: 760px) {
+  .cm-body { grid-template-columns: minmax(0, 1fr); }
+  .cm-list { max-height: 200px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .cm-search { max-width: none; }
+}
+
+@keyframes cm-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cm-rise { from { opacity: 0; transform: translateY(6.4px) scale(0.97); } to { opacity: 1; transform: none; } }

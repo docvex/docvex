@@ -25,6 +25,7 @@
     "web:deploy": "npm run web:build && node scripts/web-deploy.mjs && node scripts/landing-deploy.mjs",
     "site:dev": "vite --config vite.site.config.mjs --open",
     "site:deploy": "node scripts/landing-deploy.mjs",
+    "test": "node --test tests/*.test.mjs",
     "lint": "echo \"No linting configured\""
   },
   "keywords": [],

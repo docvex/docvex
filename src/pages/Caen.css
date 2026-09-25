@@ -1,0 +1,356 @@
+/* CAEN — the nomenclature of activities. Semantic tokens only, laid out as a
+   sibling of the Legislation page: the list on the left, the entry on the
+   right, the entry set like a reference card rather than a table row. */
+
+.cn-page { --lgt-page-gap: 20px; display: flex; flex-direction: column; gap: var(--lgt-page-gap); padding-bottom: 64px; }
+/* Capped at the shared content ceiling on wide screens, left-aligned — the
+   same rule as Versions and the Newsletter. */
+@media (min-width: 1024px) { /* 1280px pre-scale */
+  .cn-page { width: min(100%, var(--content-max-width, 1280px)); }
+}
+
+.cn-mast-meta {
+  display: flex; align-items: center; gap: 16px;
+  font-size: 9.6px; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  text-align: right;
+}
+.cn-mast-num {
+  font-family: var(--font-display);
+  font-size: 20px; font-weight: 700; letter-spacing: -0.01em;
+  color: var(--text-primary); text-transform: none;
+}
+.cn-mast-sep { width: 1px; height: 28px; background: var(--border); }
+
+/* ── View switch: the list, or the letter picker (CaenPicker.css) ───────
+   In the masthead's actions, ahead of the figures. */
+/* The List / Picker switch is the shared view toggle in the Legislation tab
+   bar — .lgt-toggle / .lgt-toggle-btn in components/LegalTabs.css. */
+
+.cn-ico { display: inline-flex; width: 15px; height: 15px; flex: none; }
+.cn-ico svg { width: 100%; height: 100%; }
+
+.cn-body {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* ── The list ─────────────────────────────────────────────────────────── */
+/* Sticky, and scrolled on its own: the entry beside it can be long, and the
+   list is where the reader goes back to. */
+.cn-side {
+  /* Under the Legislation tab bar (40px, pinned at --chrome-inset). */
+  position: sticky; top: calc(var(--chrome-inset, 6.4px) + 40px + 16px);
+  display: flex; flex-direction: column; gap: 10px;
+  max-height: calc(100vh - var(--titlebar-h, 0px) - 48px);
+  padding: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+  min-width: 0;
+}
+.cn-search {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg-input); color: var(--text-muted);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.cn-search:focus-within { border-color: var(--accent); background: var(--bg-elevated); }
+.cn-search-input {
+  flex: 1 1 auto; min-width: 0;
+  padding: 9px 0;
+  border: 0; outline: none; background: transparent;
+  color: var(--text-primary); font: inherit; font-size: 13px;
+}
+.cn-search-input::placeholder { color: var(--text-muted); }
+
+.cn-tree,
+.cn-side > .cn-list { overflow-y: auto; scrollbar-width: thin; min-height: 0; margin: 0 -4px; padding: 0 4px; }
+.cn-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.cn-list .cn-list { margin-top: 1px; }
+.cn-row {
+  width: 100%;
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 8px 6px calc(8px + var(--depth, 0) * 14px);
+  border: 0; border-radius: 8px;
+  background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: 12px; line-height: 1.4; text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.cn-row:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.cn-row.is-on { background: var(--accent-tint); color: var(--text-primary); }
+.cn-row.is-on .cn-row-code { color: var(--accent); }
+.cn-chev, .cn-chev-pad { display: inline-flex; width: 11px; height: 11px; flex: none; align-self: flex-start; margin-top: 3px; color: var(--text-muted); }
+.cn-chev svg { width: 100%; height: 100%; transition: transform 140ms ease; }
+.cn-row.is-open .cn-chev svg { transform: rotate(90deg); }
+.cn-row-code {
+  flex: none; min-width: 34px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700; color: var(--text-primary);
+}
+.cn-row-code.is-s { min-width: 16px; color: var(--accent); }
+.cn-row-name { min-width: 0; overflow-wrap: anywhere; }
+.cn-tag {
+  flex: none; align-self: center;
+  padding: 0 7px; border-radius: 999px;
+  background: var(--info-soft); color: var(--info);
+  font-size: 9.6px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  white-space: nowrap;
+}
+.cn-tag.is-old { background: var(--warning-soft); color: var(--warning); }
+
+/* ── The entry ────────────────────────────────────────────────────────── */
+.cn-detail { min-width: 0; scroll-margin-top: 16px; }
+.cn-card {
+  display: flex; flex-direction: column; gap: 18px;
+  max-width: 82ch;
+  padding: 24px 28px 28px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+}
+.cn-crumbs { display: flex; flex-direction: column; gap: 2px; }
+.cn-crumb {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 2px 6px; margin: 0 -6px;
+  border: 0; border-radius: 6px;
+  background: transparent; color: var(--text-muted);
+  font: inherit; font-size: 11.2px; text-align: left; cursor: pointer;
+}
+.cn-crumb:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.cn-crumb-code { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cn-crumb-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cn-head { display: flex; flex-direction: column; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.cn-kind {
+  font-size: 10.4px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--accent);
+}
+.cn-title-row { display: flex; align-items: baseline; gap: 14px; }
+.cn-code {
+  flex: none;
+  font-family: var(--font-display);
+  font-size: 32px; font-weight: 800; letter-spacing: -0.02em; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.cn-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20.8px; font-weight: 650; line-height: 1.3; letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.cn-actions { display: flex; gap: 8px; }
+.cn-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-card); color: var(--text-primary);
+  font: inherit; font-size: 11.2px; font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.cn-btn:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
+
+/* A code whose meaning depends on the revision. The one thing on this page a
+   reader can get wrong without noticing, so it stands out. */
+.cn-callout {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 2.4px solid var(--info);
+  border-radius: 0 10px 10px 0;
+  background: var(--bg-elevated);
+}
+.cn-callout.is-old { border-left-color: var(--warning); }
+.cn-callout-title { margin: 0; font-size: 12.8px; font-weight: 700; color: var(--text-primary); }
+.cn-callout-body { margin: 0; font-size: 12px; line-height: 1.55; color: var(--text-secondary); }
+.cn-callout .cn-sub-title { margin-top: 2px; }
+.cn-link {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0; border: 0; background: transparent;
+  color: var(--accent); font: inherit; font-size: 12px; font-weight: 600; text-align: left;
+  cursor: pointer;
+}
+.cn-link:hover { text-decoration: underline; }
+.cn-link .cn-ico { width: 12px; height: 12px; }
+
+.cn-sub { display: flex; flex-direction: column; gap: 6px; }
+.cn-sub-title {
+  margin: 0;
+  font-size: 9.6px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cn-codes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.cn-coderow {
+  width: 100%;
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 6px 8px; margin: 0 -8px;
+  border: 0; border-radius: 8px;
+  background: transparent; color: var(--text-primary);
+  font: inherit; font-size: 12.8px; line-height: 1.45; text-align: left;
+  cursor: pointer;
+}
+.cn-coderow:hover { background: var(--bg-elevated); }
+.cn-coderow-code { flex: none; min-width: 36px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent); }
+.cn-coderow-name { flex: 1 1 auto; min-width: 0; }
+
+.cn-notes { display: flex; flex-direction: column; gap: 16px; }
+.cn-notebox { padding-top: 14px; border-top: 1px solid var(--border); }
+/* Straight under the header, which already closes with a rule — or first
+   in the card (the picker's card has no header). */
+.cn-head + .cn-notes > .cn-notebox:first-child,
+.cn-notes:first-child > .cn-notebox:first-child { padding-top: 0; border-top: 0; }
+.cn-notetext { display: flex; flex-direction: column; gap: 3px; }
+.cn-noteline {
+  margin: 0;
+  padding-left: calc(var(--indent, 0) * 16px);
+  font-size: 13px; line-height: 1.6; color: var(--text-primary);
+}
+.cn-notebox.is-exclude .cn-noteline { color: var(--text-secondary); }
+.cn-inline-code {
+  padding: 0 5px; margin: 0 1px;
+  border: 0; border-radius: 5px;
+  background: var(--accent-soft); color: var(--accent);
+  font: inherit; font-weight: 700; font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.cn-inline-code:hover { background: var(--accent-tint); text-decoration: underline; }
+
+.cn-source {
+  padding-top: 14px; border-top: 1px solid var(--border);
+  font-size: 11.2px; line-height: 1.55; color: var(--text-muted);
+}
+
+/* The entry's ancestors as pills above the picker section (picker view).
+   As tall as its pills need — it never scrolls; the picker under it moves
+   down when the trail wraps to another row. (A fixed two-row height was
+   tried and removed.) */
+.cn-trail {
+  display: flex; flex-wrap: wrap; align-content: flex-start; align-items: center; gap: 6px 8px;
+  /* Close under the tab bar (which leaves 19.2px — this takes 15.2 back,
+     leaving 4px), and the picker sits close under it. */
+  margin-top: -15.2px;
+  margin-bottom: -10px;
+}
+/* Two lines: the level and its code on the first ("SECTION C"), the name on
+   its own line under them, larger. */
+.cn-pill {
+  display: inline-grid; grid-template-columns: max-content 1fr;
+  align-items: baseline; column-gap: 8px; row-gap: 3px;
+  max-width: 100%;
+  padding: 7px 14px 8px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg-card); color: var(--text-secondary);
+  font: inherit; font-size: 11.2px; text-align: left; cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.cn-pill:hover { background: var(--bg-elevated); border-color: var(--border-strong); color: var(--text-primary); }
+.cn-pill.is-live { background: var(--accent-tint); border-color: var(--accent); color: var(--text-primary); }
+.cn-pill-kind { font-size: 9.6px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-muted); }
+.cn-pill-code { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent); }
+.cn-pill-name { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; font-size: 15.2px; font-weight: 400; line-height: 1.3; color: var(--text-primary); }
+.cn-trail-sep { color: var(--text-muted); }
+
+/* ── Bottom bar (picker view) — the picker's keys ──────────────────────
+   The Files tab's bottom action bar (.fx-bottombar in FilesWorkspace.css),
+   to the letter: a rounded FLOATING section, `position: sticky` a
+   chrome-inset above the window's bottom edge while the page scrolls behind
+   it; frosted page wash + blur + 1.5px border + seam shadow + 9.6px radius.
+   Keep in sync with it. */
+/* The page in picker view fills the window's height at least (the Files
+   page's `min-height: 100%`, written against the viewport here since this
+   page has no frame with a definite height), and its last row — the bar —
+   grows nothing, so the bar docks at the window's bottom edge with the
+   sticky gap alone, exactly where the Files bar is; taller content scrolls
+   behind it. The picker section takes the room in between. */
+.cn-page.is-picker {
+  /* The scroller's content box — a flex item of a definite-height column,
+     so the percentage resolves; its bottom padding is dropped below. */
+  min-height: 100%;
+  padding-bottom: 0;
+}
+.cn-page.is-picker > .cp-root { flex: 1 0 auto; }
+/* The scroller keeps no bottom padding under this page, as it keeps none
+   at all under Files: the bar's sticky gap is then the same 6.4px above
+   the window's bottom edge. */
+.sv-single-scroll:has(.cn-page.is-picker) { padding-bottom: 0; }
+/* The solid seam strip under the bar — the rule Files gets in SplitView.css
+   (.sv-single-body:has(.fx-bottombar)::after), so the fade does not paint
+   behind the frost. */
+.sv-single-body:has(.cn-bottombar)::after { height: var(--chrome-inset, 6.4px); background: var(--bg-page); }
+.cn-bottombar {
+  position: sticky;
+  bottom: 6.4px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9.6px;
+  padding: 8px 17.6px;
+  font-size: 9.2px;
+  color: var(--text-muted);
+  border: var(--ds-bar-border, 1.5px) solid var(--border-flat, var(--border));
+  border-radius: var(--ds-bar-radius, 9.6px);
+  background: color-mix(in srgb, var(--bg-page) var(--ds-bar-frost, 66%), transparent);
+  backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  box-shadow: var(--mini-seam-shadow-down);
+  transition: background-color 340ms ease, border-color 340ms ease;
+}
+/* Exactly where the Files bar stands. Files' root sits in a scroller with
+   NO padding and the bar starts one --rail-gap from the rail; this page
+   sits --content-left-gap in, so the bar is pulled back by the difference
+   and made the width the Files bar has (the root's, less the rail gap).
+   The left padding is the Files bar's own formula. */
+.main-content--flush .cn-page .cn-bottombar {
+  margin-left: calc(var(--rail-gap, 6.4px) - var(--content-left-gap, 17.6px));
+  width: calc(100% - var(--rail-gap, 6.4px));
+  box-sizing: border-box;
+  padding-left: max(8px, calc(17.6px - 9.6px - var(--rail-gap, 6.4px)));
+}
+
+/* The picker's keys (in the bottom bar): each one the size and set of a
+   Files bar button (.fx-tb-btn — 10.4px / 500, 5.6px 8.8px), so the bar
+   is the Files bar's height to the pixel. */
+.cn-hints {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 3.2px;
+  font-size: 10.4px; color: var(--text-muted);
+}
+.cn-hints > span {
+  display: inline-flex; align-items: center; gap: 5.6px;
+  padding: 5.6px 8.8px;
+  border-radius: 4.8px;
+  font-size: 10.4px; font-weight: 500; color: var(--text-secondary);
+  white-space: nowrap;
+}
+.cn-hints .is-off { opacity: 0.4; }
+/* A hairline between the keys. */
+.cn-hints > .cn-hints-sep { width: 1px; height: 16px; padding: 0; margin: 0 4px; background: var(--border); }
+.cn-hints kbd {
+  display: inline-block; padding: 1px 5px;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg-elevated); color: var(--text-secondary);
+  font: inherit; font-size: 9.6px;
+}
+
+.cn-note { margin: 0; font-size: 12px; color: var(--text-muted); }
+.cn-note.is-bad { color: var(--danger-text); }
+
+.cn-empty { padding: 48px 16px; text-align: center; }
+.cn-empty-title { margin: 0; font-family: var(--font-display); font-size: 17.6px; font-weight: 650; color: var(--text-primary); }
+.cn-empty-sub { margin: 6px auto 0; max-width: 46ch; font-size: 12.8px; line-height: 1.6; color: var(--text-muted); }
+
+@media (max-width: 860px) {
+  .cn-body { grid-template-columns: minmax(0, 1fr); }
+  .cn-side { position: static; max-height: 420px; }
+  .cn-card { padding: 18px 16px 22px; }
+  .cn-title-row { flex-direction: column; gap: 6px; }
+}

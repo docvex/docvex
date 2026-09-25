@@ -1,0 +1,69 @@
+/* The History dropdown (components/HistoryMenu) — every tab of the
+   Legislation family hangs it under its History button. The classes keep
+   the `lg-hist` prefix they were born with in the Legislation tab. */
+/* The tab bar's History button opens a COMPACT modal (the app's modal
+   backdrop, a narrow card) whose scrolling list is laid out as the Advisor's
+   thread is (pages/Projects/ProjectAIChat.css — keep the two in step): the
+   searches run as the user's own bubbles at the right (the accent tint over
+   the page, the one square corner at the bottom right, the time under),
+   the acts opened as the answers at the left (plain text, the time after),
+   day dividers between days. Each entry is a button: a search runs again,
+   an act opens again. */
+.lg-hist {
+  position: fixed; z-index: 10001;
+  display: flex; flex-direction: column;
+  width: min(440px, calc(100vw - 32px)); max-height: min(72vh, 640px);
+  padding: 0; overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-menu-radius, 8px);
+  background: color-mix(in srgb, var(--text-primary) 4%, var(--bg-page));
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  box-shadow: var(--shadow-elev);
+  animation: lg-hist-rise 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes lg-hist-rise { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+html[data-reduce-motion="true"] .lg-hist { animation: none; }
+/* The History button while its dropdown is open — the sidebar's selected
+   look, so the button and its list read as one. */
+.lgt-tool-btn.is-open { background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--accent); }
+.lg-hist-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 12px 12px 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.lg-hist-title { margin: 0; flex: 1 1 auto; min-width: 0; font-family: var(--font-display); font-size: 14px; font-weight: 650; color: var(--text-primary); }
+.lg-hist-title small { margin-left: 6px; font-family: var(--font-body); font-size: 10.4px; font-weight: 500; color: var(--text-muted); }
+.lg-hist-list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 16px 14px; overscroll-behavior: contain; }
+.lg-hist-empty { margin: 24px 0; text-align: center; font-size: 11.2px; color: var(--text-muted); }
+.lg-hist-day { display: flex; align-items: center; justify-content: center; gap: 9.6px; margin: 14.4px 0 8px; }
+.lg-hist-day::before, .lg-hist-day::after { content: ''; flex: 1; height: 1px; background: var(--border); max-width: 192px; }
+.lg-hist-day-label { font-family: var(--font-display); font-size: 0.544rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; }
+.lg-hist-row { display: flex; margin: 6px 0; }
+.lg-hist-row.is-search { justify-content: flex-end; }
+.lg-hist-item {
+  display: block; max-width: 84%;
+  padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.lg-hist-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 9.6px; }
+/* A search — the user's bubble. */
+.lg-hist-row.is-search .lg-hist-msg {
+  display: inline-block;
+  padding: 7.2px 10.4px;
+  border-radius: 9.6px 9.6px 3.2px 9.6px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-page));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--bg-page));
+  color: var(--text-primary);
+  font-size: 0.72rem; line-height: 1.5; word-break: break-word;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.lg-hist-row.is-search .lg-hist-item:hover .lg-hist-msg { background: color-mix(in srgb, var(--accent) 24%, var(--bg-page)); border-color: color-mix(in srgb, var(--accent) 45%, var(--bg-page)); }
+.lg-hist-row.is-search .lg-hist-time { display: block; margin-top: 2.4px; text-align: right; }
+/* An act opened — the answer. */
+.lg-hist-row.is-open .lg-hist-msg { display: block; font-size: 0.72rem; line-height: 1.5; color: var(--text-primary); word-break: break-word; }
+.lg-hist-row.is-open .lg-hist-item:hover .lg-hist-msg { color: var(--accent); }
+.lg-hist-row.is-open .lg-hist-time { display: block; margin-top: 2.4px; }
+.lg-hist-kind { font-weight: 700; letter-spacing: 0.02em; }
+.lg-hist-dim { color: var(--text-muted); }
+.lg-hist-time { font-size: 0.528rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }

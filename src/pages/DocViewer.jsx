@@ -61,6 +61,7 @@ import { DocThemeGrid, DocQuickActions, useItemSpots, flashQuickAction } from '.
 import { DOC_THEMES, applyDocTheme, docThemeById, loadDocTheme, readDocSample, saveDocTheme } from '../lib/docThemes';
 import { findLawRefs, lawRefDetails, lawRefLookupUrl } from '../lib/lawRefs';
 import { legislationHref } from '../lib/legislation';
+import { loadCaen, resolveCaen, caenHref } from '../lib/caen';
 import {
   replaceFields as constructorReplaceFields, scanBlanks as matchFields, parseSource as parseConstructorSource, composeSource as composeConstructorSource, changedParagraphs,
   findPieceForText, fieldInfo as constructorFieldInfo,
@@ -10443,6 +10444,7 @@ function ParaLawRefs({ hits }) {
                   {caen ? `CAEN ${(d.codes || []).join(', ')}` : d.heading}
                 </span>
                 {d.title ? <span className="dv-paralaw-of">{d.title}</span> : null}
+                {caen ? <ParaCaenCodes hit={hit} onOpen={openInApp} /> : null}
                 <span className="dv-paralaw-meta">
                   {/* The part of the act the clause actually points at — the
                       one line of this that is about THIS paragraph. */}
@@ -10486,6 +10488,58 @@ function ParaLawRefs({ hits }) {
 }
 // Named where a reader of the tooltip would expect the source to be named.
 const LAW_PORTAL_NAME = 'legislatie.just.ro';
+
+// The codes a CAEN citation names, each with its OFFICIAL name — read from the
+// nomenclature bundled with the app (lib/caen), so a bare "4100" in a clause
+// says what activity it is without leaving the document. A citation that names
+// its revision is read in it; one that doesn't is read in Rev. 3, and when the
+// number meant something else in Rev. 2 — the revision every document older
+// than 2025 was written in — that is said too: which one the clause meant
+// depends on when it was written, and only the reader knows that.
+function ParaCaenCodes({ hit, onOpen }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let live = true;
+    loadCaen().then((d) => { if (live) setData(d); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  if (!data) return null;
+  return (
+    <ul className="dv-paracaen">
+      {(hit.codes || []).map((code) => {
+        const r = resolveCaen(data, code, hit.rev);
+        const old = r.rev === 2 && r.rev2;
+        const name = old ? r.rev2.name : r.entry?.name;
+        return (
+          <li className="dv-paracaen-row" key={code}>
+            <Tooltip content={name ? 'Open this code in DocVex — CAEN codes, in the main window' : 'Not a CAEN code'}>
+              <button
+                type="button"
+                className="dv-paracaen-code"
+                disabled={!name}
+                onClick={() => onOpen(caenHref(code, old ? 2 : 3))}
+              >
+                {code}
+              </button>
+            </Tooltip>
+            <span className="dv-paracaen-body">
+              <span className="dv-paracaen-name">{name || 'Not in the CAEN nomenclature'}</span>
+              {old ? (
+                <span className="dv-paracaen-flag">
+                  Rev. 2 — now {r.rev2.to.map((t) => t.code).join(', ') || 'no direct successor'}
+                </span>
+              ) : r.changed ? (
+                <span className="dv-paracaen-flag">
+                  Before 2025 (Rev. 2) this number meant: {r.rev2.name}
+                </span>
+              ) : null}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 function DocParaPill({ hostRef, onOpen, onToggleFold }) {
   const targetRef = useRef(null); // the block the pill is about
@@ -18439,6 +18493,12 @@ function DocFindBar({ containerRef, inBar = false }) {
 }
 
 export default function DocViewer() {
+  // The viewer is its own design family (styles/designSystem.css): stamped on
+  // the document, since this window has no AppShell frame to carry it.
+  useEffect(() => {
+    document.documentElement.setAttribute('data-ds', 'viewer');
+    return () => document.documentElement.removeAttribute('data-ds');
+  }, []);
   const [params] = useSearchParams();
   // Opened from Files' "New file": the document is empty and the advisor should
   // generate its content. `regenTick` re-keys the pane after each generation so

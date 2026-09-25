@@ -1,0 +1,341 @@
+/* The page scroller's own TOP padding pushes a sticky child's pinned
+   position down by that padding (Chromium anchors sticky offsets past the
+   scroll container's padding) — the bar would pin 25.6px too low and the
+   rect-based .is-pinned check would never trigger, so it never frosted.
+   Zeroed here and the 1.6rem inset carried on the masthead instead —
+   exactly what the Activity tab does (.sv-single-scroll:has(.avt-root)). */
+.sv-single-scroll:has(.lgt-bar) { padding-top: 0; }
+.pmh:has(+ .lgt-bar) { padding-top: 1.6rem; }
+
+/* A masthead followed by this bar loses its own divider: the bar's hairline
+   is the line under the header, and two rules a few pixels apart read as a
+   mistake. (MiniHeaderFade portals to <body>, so the bar IS the masthead's
+   next sibling.) */
+.pmh:has(+ .lgt-bar) .pmh-masthead { border-bottom: 0; padding-bottom: 12px; margin-bottom: 8px; }
+
+/* THE SAME GAP UNDER THE SUBTITLE ON EVERY PAGE. Most of these pages lay
+   themselves out as a flex column with a gap (Legislation, CAEN, the portal,
+   ANAF, the placeholders — 20px), and that gap was landing between the
+   masthead and this bar on top of the masthead's own 8px, while the
+   Newsletter (a plain block) showed the 8px alone. A page declares its gap
+   as --lgt-page-gap and it is taken back here, above AND below the bar, so
+   subtitle → bar is 8px and bar → content 19.2px everywhere. */
+.pmh:has(+ .lgt-bar) { margin-bottom: calc(-1 * var(--lgt-page-gap, 0px)); }
+/* (the bar's side is in its own `margin` shorthand below) */
+
+/* ── The Legislation tab bar — the Activity tab's mini header (.avt-toolbar),
+   same recipe: transparent while in flow under the masthead; once actually
+   stuck at the top (.is-pinned, rect-based detection in LegalTabs.jsx) it
+   paints the frosted surface every other pinned bar has. The strip inside is
+   the shared FilterTabs (components/FilterTabs.css). */
+.lgt-bar {
+  position: sticky;
+  top: var(--chrome-inset, 6.4px);
+  z-index: 30;
+  /* A column: the tabs row, then — on pages that have one — the view-toggle
+     row under the hairline. One row = 37px + the 1.5px borders = 40px. */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: var(--ds-bar-h, 40px);
+  box-sizing: border-box;
+  /* 19.2px under the bar on every page — the page's own flex gap (if any) is
+     taken back here; see --lgt-page-gap above. */
+  margin: 0 0 calc(19.2px - var(--lgt-page-gap, 0px)) calc(var(--rail-gap, 6.4px) - var(--content-left-gap, 17.6px));
+  padding: 0;
+  border-radius: var(--ds-bar-radius, 9.6px);
+  /* Constant transparent border so gaining the pinned hairline doesn't
+     shift the row's height. */
+  border: var(--ds-bar-border, 1.5px) solid transparent;
+  background: transparent;
+  line-height: 1;
+  backdrop-filter: blur(0px);
+  -webkit-backdrop-filter: blur(0px);
+  transition: background-color 260ms ease, border-color 260ms ease, box-shadow 260ms ease, backdrop-filter 260ms ease, -webkit-backdrop-filter 260ms ease;
+}
+/* The tabs row: the bar's former single line. */
+.lgt-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6.4px;
+  /* The bar's height less its two borders; taller only when ten tabs have
+     to wrap onto a second row. */
+  min-height: calc(var(--ds-bar-h, 40px) - 2 * var(--ds-bar-border, 1.5px));
+  box-sizing: border-box;
+  /* The bar's LEFT EDGE is pulled out to one --rail-gap from the sidebar
+     rail (its margin above); the content is re-inset by the same amount, so
+     the tabs keep their exact x position at the content edge. */
+  padding: 0 12px 0 calc(var(--content-left-gap, 17.6px) - var(--rail-gap, 6.4px));
+}
+/* A page's state pill at the tabs row's right end, above the hairline
+   (Legislation's "Live from the portal" / "From your copy on this machine"):
+   a FILLED pill — solid success or warning ground, the accent's text
+   colour, a dot — so it can be seen at a glance beside the tabs. */
+.lgt-status { display: inline-flex; align-items: center; margin-left: auto; flex: none; }
+/* It is a BUTTON: it says where the answer came from and opens the act (or
+   the portal) in a browser — the external-link glyph at its end says so. */
+.lgt-status-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 20px; padding: 0 8px 0 10px;
+  border: 0; border-radius: 999px;
+  font: inherit; font-size: 10.4px; font-weight: 700; letter-spacing: 0.01em; line-height: 1; white-space: nowrap;
+  color: var(--text-on-accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+.lgt-status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 30%, transparent); }
+.lgt-status-pill:hover { filter: brightness(1.08); }
+.lgt-status-pill:active { transform: translateY(1px); }
+.lgt-status-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lgt-status-pill.is-live { background: var(--success); }
+.lgt-status-pill.is-archive { background: var(--warning); }
+/* A kept act that differs from the portal's: "Differs from the portal ·
+   Sync", a filled danger-toned button, the portal's version a press away
+   (a copy that matches is simply "Live from the portal", with a tick). */
+.lgt-status-pill.is-differs { background: var(--danger); }
+.lgt-status-pill.is-differs > span:last-child { padding-left: 2px; text-decoration: underline; text-underline-offset: 2px; }
+.lgt-status-ico { display: inline-flex; width: 11px; height: 11px; margin-left: 2px; opacity: 0.9; }
+.lgt-status-ico svg { display: block; width: 100%; height: 100%; }
+.lgt-bar.is-pinned {
+  background: color-mix(in srgb, var(--bg-page) var(--ds-bar-frost, 66%), transparent);
+  backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  border-color: var(--border-flat);
+  box-shadow: var(--mini-seam-shadow);
+}
+/* A hairline under the tabs row, laid THROUGH the vertical middle of the
+   active tab's underline: FilterTabs puts the underline's top 0.32px above
+   the tab's bottom edge and makes it 3.2px tall, so its middle is 1.28px
+   below the edge — this 1px line is centred there (its top 0.78px below the
+   row, its bottom 1.78px). On a page with no toggle row the bar's own
+   (transparent, 1.5px) border sits in the same place; it only paints while
+   pinned, over this. */
+.lgt-row::after {
+  content: '';
+  position: absolute; left: 0; right: 0;
+  bottom: -1.78px; height: 1px;
+  background: var(--border);
+  pointer-events: none;
+}
+/* ── Content slide — the Activity feed's: what stands under the bar enters
+   from the side the underline just travelled toward. The bar carries the
+   direction (it mounts with the page, so the page's content mounts with
+   it and plays this once); the masthead above it stays put. */
+.lgt-bar.is-enter-right ~ * { animation: lgt-in-right 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+.lgt-bar.is-enter-left ~ * { animation: lgt-in-left 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes lgt-in-right {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes lgt-in-left {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lgt-bar.is-enter-right ~ *,
+  .lgt-bar.is-enter-left ~ * { animation: none; }
+}
+html[data-reduce-motion="true"] .lgt-bar.is-enter-right ~ *,
+html[data-reduce-motion="true"] .lgt-bar.is-enter-left ~ * { animation: none; }
+
+/* ── The search, right of the tabs — the Files tab's (.fx-search in
+   FilesWorkspace.css), to the letter; keep the two in sync. */
+.lgt-search {
+  flex: none;
+  display: flex; align-items: center; gap: 6.4px;
+  height: var(--ds-control-h, 24px);
+  box-sizing: border-box;
+  padding: 0 6.4px 0 7.2px;
+  margin-left: auto;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-control-radius, 4.8px);
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  width: var(--ds-search-w, 256px);
+  font-size: var(--ds-control-size, 10.4px);
+  color: var(--text-secondary);
+  transition: width 220ms cubic-bezier(.16, 1, .3, 1), background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.lgt-search:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); color: var(--text-primary); border-color: var(--border-strong); }
+.lgt-search:focus-within,
+.lgt-search.is-active { background: var(--accent-tint); }
+.lgt-search:focus-within { width: var(--ds-search-w-focus, 320px); border-color: var(--accent); }
+.lgt-search.is-off { opacity: 0.5; pointer-events: none; }
+
+/* The mini header's SECOND LINE, under the hairline: a page's own controls
+   (the CAEN List / Picker switch, the courts' mode switch) at the left and
+   the search at the right (its margin-left: auto) — it pins and frosts with
+   the bar. Its gap from the hairline mirrors what a 24px field centred in
+   the 37px tabs row would have: 6.5px to the row's edge plus the 0.78px to
+   the line's top = 7.28px; the line's bottom is 1.78px below the row, so
+   this line starts 1.78 + 7.28 = 9.06px under it, and the same 6.5px closes
+   the bar under it. Its left padding is the tabs row's, so the switch
+   stands on the content edge under the first tab. */
+.lgt-line2 {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6.5px 6.4px;
+  margin-top: 9.06px;
+  padding: 0 12px 6.5px calc(var(--content-left-gap, 17.6px) - var(--rail-gap, 6.4px));
+}
+
+/* ── View toggles (CAEN's List / Picker, Court files' Case files / A court's
+   day): the SEARCH FIELD's surface — same height, border, radius, frost and
+   hover — holding small pills, and the chosen one drawn as the APP SIDEBAR's
+   selected item (.nav-item.active in Sidebar.css): on Ink an accent-tint fill
+   with an accent ring and accent text; on Cream the solid cognac pill with
+   cream text and its lift + shadow. Hover on the others is the sidebar's
+   hover wash too (accent on Ink, neutral on Cream) — without the cursor
+   spotlight, which a 18px pill has no room to show. */
+.lgt-toggle {
+  flex: none;
+  display: inline-flex; align-items: stretch;
+  gap: 2px;
+  height: var(--ds-control-h, 24px);
+  box-sizing: border-box;
+  padding: 1px;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-control-radius, 4.8px);
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  font-size: var(--ds-control-size, 10.4px);
+  color: var(--text-secondary);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.lgt-toggle:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); border-color: var(--border-strong); }
+/* The pills fill the field's inner height (24px − the border and 1px of
+   inset each side = 20px), so the toggle reads as tall as the search. */
+.lgt-toggle-btn {
+  display: inline-flex; align-items: center;
+  height: calc(var(--ds-control-h, 24px) - 4px);
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 3.6px;
+  background: transparent;
+  font: inherit; font-size: 10.4px; font-weight: 500; line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 150ms, color 150ms, border-color 150ms, transform 150ms, box-shadow 150ms;
+}
+.lgt-toggle-btn:hover:not(.is-on) {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--text-primary);
+}
+.lgt-toggle-btn.is-on {
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+}
+.lgt-toggle-btn.is-on:hover { border-color: var(--accent); }
+.lgt-toggle-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* A plain action on the second line (the Legislation tab's "Empty it"),
+   drawn as an APP SIDEBAR tab button at rest (.nav-item): glyph + label,
+   no box, the sidebar's hover wash (accent on Ink, neutral on Cream);
+   `.is-danger` turns the wash red. Disabled: faded, inert. */
+.lgt-tool-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: var(--ds-control-h, 24px); padding: 0 9px;
+  border: 1px solid transparent; border-radius: 6.4px;
+  background: transparent;
+  font: inherit; font-size: var(--ds-control-size, 10.4px); font-weight: 500; line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 150ms, color 150ms, border-color 150ms;
+}
+/* The glyph and the label are boxes of ONE height (13px), so flex centres
+   them on the same line — a text box taller than the glyph sat its letters
+   a pixel off it (the same rule the bar's Search button follows). */
+.lgt-tool-btn .lgt-tool-ico { display: inline-flex; width: 13px; height: 13px; flex: none; }
+.lgt-tool-btn .lgt-tool-ico svg { display: block; width: 100%; height: 100%; }
+.lgt-tool-btn > span:not(.lgt-tool-ico) { display: inline-block; height: 13px; line-height: 13px; }
+.lgt-tool-btn:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--text-primary); }
+:root[data-theme="cream"] .lgt-tool-btn:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.lgt-tool-btn.is-danger:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger-text); }
+.lgt-tool-btn:disabled { opacity: 0.4; cursor: default; background: transparent; border-color: transparent; color: var(--text-muted); }
+.lgt-tool-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The dice — a random entry that exists (CAEN, Court files, ANAF): the
+   Legislation bar's dice on its own, accent-filled, a control's height,
+   rounded on both sides. */
+.lgt-dice {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: none;
+  box-sizing: border-box; height: var(--ds-control-h, 24px); padding: 0 8px;
+  border: 1px solid var(--accent); border-radius: var(--ds-control-radius, 4.8px);
+  background: var(--accent); color: var(--text-on-accent);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.lgt-dice:hover { background: var(--accent-hover); }
+.lgt-dice:disabled { opacity: 0.55; cursor: progress; }
+.lgt-dice svg { display: block; width: 13px; height: 13px; }
+/* A choice that cannot be made here — still shown, faded, its tooltip
+   saying why (aria-disabled, so it keeps its hover for the tooltip). */
+.lgt-toggle-btn.is-off { opacity: 0.4; cursor: default; }
+.lgt-toggle-btn.is-off:hover { background: transparent; color: var(--text-muted); }
+/* Cream — the sidebar's cognac pill. */
+:root[data-theme="cream"] .lgt-toggle-btn:hover:not(.is-on) {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+:root[data-theme="cream"] .lgt-toggle-btn.is-on,
+:root[data-theme="cream"] .lgt-toggle-btn.is-on:hover {
+  background: var(--color-cognac);
+  border-color: var(--color-cognac);
+  color: var(--color-cream);
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--color-cognac) 35%, transparent),
+    0 6px 16px -4px color-mix(in srgb, var(--color-cognac) 55%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent);
+}
+html[data-reduce-motion="true"] .lgt-toggle-btn { transition: none; }
+.lgt-search-glyph { display: inline-flex; color: inherit; flex: 0 0 auto; transition: color 140ms ease; }
+.lgt-search:focus-within .lgt-search-glyph,
+.lgt-search.is-active .lgt-search-glyph { color: var(--accent); }
+.lgt-search input {
+  border: 0; background: transparent; outline: none;
+  font: inherit; color: var(--text-primary); width: 100%; min-width: 0;
+}
+.lgt-search input::placeholder { color: var(--text-muted); }
+.lgt-search-kbd { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 1.6px; font-family: var(--font-body); transition: opacity 120ms ease; }
+.lgt-search-kbd kbd { font-family: inherit; font-size: 9.6px; font-weight: 600; line-height: 1; letter-spacing: 0.02em; color: var(--text-muted); }
+.lgt-search:focus-within .lgt-search-kbd { opacity: 0; }
+.lgt-search-clear {
+  flex: 0 0 auto;
+  display: grid; place-items: center;
+  width: 16px; height: 16px;
+  padding: 0; border: 0; cursor: pointer;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-secondary);
+  transition: background 120ms ease, color 120ms ease;
+}
+.lgt-search-clear:hover { background: color-mix(in srgb, var(--text-primary) 16%, transparent); color: var(--text-primary); }
+
+.lgt-bar .activity-filters { align-self: stretch; flex-wrap: wrap; }
+/* A tab is one 40px row (the bar's height less its borders), so a wrapped
+   strip is two even rows and the underline still rides each row's foot. */
+.lgt-bar .activity-filter { height: 37px; }
+/* First tab loses its leading inset so its label lines up with the masthead
+   and the content below — Activity's rule. */
+.lgt-bar .activity-filter:first-child { padding-left: 0; }
+
+/* "new" — a brief was published since the Newsletter was last opened. */
+.lgt-pill {
+  margin-left: 6.4px;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 5.6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  vertical-align: middle;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lgt-bar { transition: none; }
+}

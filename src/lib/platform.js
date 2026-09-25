@@ -417,23 +417,30 @@ export function onFilesChanged(cb) {
 // Each one answers, never throws. Two things can leave the channel missing, and
 // neither is an error the page should show as a crash: the WEB build has no
 // bridge at all, and in DEVELOPMENT the renderer is hot-reloaded on every save
-// while main is only rebuilt when Electron restarts — so a window can be newer
-// than the process it is talking to, and `invoke` on a handler that does not
-// exist yet REJECTS. Answered as "unreachable" instead, the Legislation tab
-// does exactly what it does when the ministry's server is down: falls back to
-// this machine's copy and says so. (`goFullscreen` guards the same way, for the
-// same reason.)
+// while main is only rebuilt when Electron restarts (Forge's Vite plugin has
+// main-process hot restart stubbed out as a TODO) — so a window can be newer
+// than the process it is talking to: the bridge lacks the method, or `invoke`
+// on a handler that does not exist yet REJECTS ("No handler registered").
+// That case is answered as `stale_app`, NOT as "unreachable": the pages used to
+// blame the portal for it, and a developer went looking for a network fault
+// that was a process needing `npm start` again. A real network failure still
+// comes back as the fallback, and the Legislation tab then does what it does
+// when the ministry's server is down: falls back to this machine's copy and
+// says so. (`goFullscreen` guards the same way, for the same reason.)
 const legisCall = async (method, arg, fallback) => {
   const fn = electronAPI?.[method];
-  if (!fn) return fallback;
+  // A bridge that exists but lacks the method = a preload older than this code.
+  if (!fn) return electronAPI && fallback === LEGIS_DOWN ? LEGIS_STALE : fallback;
   try {
     const res = await fn(arg);
     return res ?? fallback;
-  } catch {
-    return fallback;
+  } catch (e) {
+    const stale = /No handler registered/i.test(String(e?.message || e));
+    return stale && fallback === LEGIS_DOWN ? LEGIS_STALE : fallback;
   }
 };
 const LEGIS_DOWN = { ok: false, error: 'unreachable' };
+const LEGIS_STALE = { ok: false, error: 'stale_app' };
 
 export function legislationSearch(query) {
   return legisCall('legislationSearch', query, LEGIS_DOWN);
@@ -454,6 +461,21 @@ export function legislationArchiveRemove(id) {
 }
 export function legislationArchiveClear() {
   return legisCall('legislationArchiveClear', undefined, LEGIS_DOWN);
+}
+/** The act's page on the portal (`{ id, fresh }` → `{ ok, html, source }`), kept beside the act. */
+export function legislationPage(payload) {
+  return legisCall('legislationPage', payload, LEGIS_DOWN);
+}
+
+// The courts' portal and ANAF — the same guard, the same "unreachable" answer.
+export function courtsSearch(query) {
+  return legisCall('courtsSearch', query, LEGIS_DOWN);
+}
+export function courtsHearings(query) {
+  return legisCall('courtsHearings', query, LEGIS_DOWN);
+}
+export function anafLookup(payload) {
+  return legisCall('anafLookup', payload, LEGIS_DOWN);
 }
 
 export function extractDocText(filePath) {

@@ -1,0 +1,210 @@
+/* CAEN letter picker — the PS3 Store's letter picker, in the app's own
+   palette: the dark blue ground it began with is gone, and every colour here
+   is a semantic token (the `--cp-*` names stay as this file's aliases). On
+   the left the ROW of columns (the box is the cursor), the levels passed and
+   ahead faded around it; on the right the entry's card. */
+.cp-root {
+  --cp-text: var(--text-primary);
+  --cp-muted: var(--text-muted);
+  --cp-box: var(--accent-tint);
+  --cp-accent: var(--accent);
+  --cp-ch: 36px;                 /* one character of the column — ROW_H in the JSX */
+  /* The columns area's tallest: the window, less the tab bar it sits under. */
+  --cp-view-h: calc(100vh - var(--chrome-inset, 6.4px) - 40px - 4px - 12px);
+  --cp-colw: 48px;               /* the column's width — and each preview's (its entries are one or two characters) */
+  --cp-gap: 4px;                 /* between the columns */
+
+  position: relative;
+  display: flex; align-items: flex-start;
+  /* The columns area is a fixed height; the card beside it is as tall as
+     its content and never scrolls inside itself. */
+  color: var(--cp-text);
+  font-size: 13px;
+}
+
+/* ── The body: the columns ──────────────────────────────────────────────── */
+/* The area takes NO height in the layout — a zero-height, sticky anchor
+   with the columns drawn under it — so the card beside it alone decides
+   how tall the section is, and how far the page scrolls. */
+.cp-body {
+  flex: none;
+  width: calc(24px + 4 * var(--cp-colw) + 3 * var(--cp-gap) + 24px);
+  height: 0; overflow: visible;
+  /* Stays in view while a long card beside it is read — close under the
+     Legislation tab bar. */
+  position: sticky; top: calc(var(--chrome-inset, 6.4px) + 40px + 4px);
+}
+
+/* ── To the right of the columns: the entry's card ──────────────────────── */
+/* As tall as its content; the page scrolls, the card does not. */
+.cp-side { flex: 1 1 auto; min-width: 0; padding: 0 0 0 4px; }
+.cp-side .cn-card { max-width: none; }
+
+/* ── The row ────────────────────────────────────────────────────────────── */
+/* The columns stand on one top line, each as tall as ALL its entries —
+   nothing is cut or faded. Only when a list is taller than the window does
+   the area get a scroll of its own (the JSX keeps the box in view). */
+.cp-stage {
+  display: flex; align-items: flex-start; gap: var(--cp-gap);
+  padding: 0 0 0 24px;
+  max-height: var(--cp-view-h);
+  overflow: auto; scrollbar-width: thin;
+}
+/* The column: the list, whole, the box on its selected entry (the height
+   is set inline to fit every entry). `clip`, not `hidden`: a scroll
+   container would catch the rails' sticky positioning. */
+.cp-col {
+  position: relative; flex: none;
+  width: var(--cp-colw);
+  overflow: clip;
+  outline: none;
+  border-radius: 8px;
+  transition: background 150ms ease;
+}
+.cp-col:focus-visible { outline: none; }
+/* Hovered — the column the wheel would move: a hairline down each side,
+   fading out towards the top and the bottom. The rails are a zero-height
+   STICKY child of the column, so when the area scrolls (a list taller than
+   the window) they stay still over the part in view rather than riding the
+   list; their length is the area's own height, and the column's clip cuts
+   what would run past its foot. */
+.cp-col-rails {
+  position: sticky; top: 0; z-index: 1;
+  display: block; height: 0;
+  pointer-events: none;
+}
+.cp-col-rails::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0;
+  height: min(100vh, var(--cp-view-h));
+  background:
+    linear-gradient(to bottom, transparent, var(--border-strong) 22%, var(--border-strong) 78%, transparent) left / 1px 100% no-repeat,
+    linear-gradient(to bottom, transparent, var(--border-strong) 22%, var(--border-strong) 78%, transparent) right / 1px 100% no-repeat;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.cp-col:hover .cp-col-rails::before { opacity: 1; }
+.cp-col-box {
+  position: absolute; left: 3px; right: 3px; top: 0;
+  height: var(--cp-ch);
+  border-radius: 6px;
+  background: var(--cp-box);
+  box-shadow: inset 0 0 0 1px var(--border);
+  pointer-events: none;
+  /* Glides down the list to the selected entry (translateY, set inline). */
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), background 150ms ease, box-shadow 150ms ease;
+  will-change: transform;
+}
+/* The live column's box is the APP SIDEBAR's selected item (.nav-item.active
+   in Sidebar.css): on Ink the accent-tint fill with an accent ring, the
+   entry under it in accent; on Cream the solid cognac pill with cream text,
+   its one-pixel lift and shadow. */
+.cp-col.is-focus .cp-col-box,
+.cp-col.is-passed .cp-col-box {
+  background: var(--accent-tint);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 65%, transparent);
+}
+.cp-col.is-focus:hover .cp-col-box { box-shadow: inset 0 0 0 1px var(--cp-accent); }
+.cp-col.is-focus .cp-ch.is-on,
+.cp-col.is-passed .cp-ch.is-on { color: var(--cp-accent); }
+:root[data-theme="cream"] .cp-col.is-focus .cp-col-box,
+:root[data-theme="cream"] .cp-col.is-focus:hover .cp-col-box,
+:root[data-theme="cream"] .cp-col.is-passed .cp-col-box {
+  background: var(--color-cognac);
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--color-cognac) 35%, transparent),
+    0 6px 16px -4px color-mix(in srgb, var(--color-cognac) 55%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent);
+}
+:root[data-theme="cream"] .cp-col.is-focus .cp-ch.is-on,
+:root[data-theme="cream"] .cp-col.is-passed .cp-ch.is-on { color: var(--color-cream); }
+.cp-strip { position: relative; }
+/* An entry is styled the SAME whether it is under the box or not — only its
+   opacity differs, and that eases at the strip's own pace, so nothing pops
+   as the selection moves. The box is the one thing that says "selected". */
+.cp-ch {
+  height: var(--cp-ch);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-size: 19px; font-weight: 700; letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--cp-text);
+  opacity: 1;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 180ms cubic-bezier(0.2, 0.8, 0.2, 1), color 150ms ease;
+}
+/* One size at every level (the section letters used to be larger): what is
+   in the box is what lands in the row, unchanged. */
+.cp-ch:hover { opacity: 0.85; }
+
+/* An entry's tooltip (the app's pill, `className` on Tooltip): the code
+   and the name, set as the card sets them, wrapping as a name needs. */
+.tooltip.cp-tip { display: flex; flex-direction: column; gap: 2px; max-width: 320px; white-space: normal; text-align: left; }
+.cp-tip-head { display: flex; align-items: baseline; gap: 6px; }
+/* The level, as the trail's pills write it (.cn-pill-kind). */
+.cp-tip-kind { font-size: 9.6px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-muted); }
+.cp-tip-code { font-family: var(--font-display); font-size: 14px; font-weight: 800; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; color: var(--accent); }
+.cp-tip-name { font-size: 12px; line-height: 1.4; }
+
+/* A preview of a level ahead: the same column, faded, its first entry in a
+   faded box — the slot the stage will take when entered. */
+.cp-col.is-preview { opacity: 0.45; transition: opacity 150ms ease; }
+.cp-col.is-preview:hover { opacity: 0.65; }
+.cp-col.is-preview .cp-col-box { background: var(--bg-elevated); box-shadow: inset 0 0 0 1px var(--border); }
+/* A level that cannot be reached from here: an empty slot, disabled. */
+.cp-col.is-disabled { opacity: 0.1; pointer-events: none; height: var(--cp-ch); }
+/* A stage passed: its column stays, the entry CHOSEN there fully opaque in
+   its box — it is part of the code being built — and the entries not chosen
+   faded further than a preview's. The fade is per entry, not on the column,
+   so the chosen one is untouched by it. */
+.cp-col.is-passed .cp-ch { opacity: 0.3; }
+.cp-col.is-passed .cp-ch:hover { opacity: 0.5; }
+.cp-col.is-passed .cp-ch.is-on { opacity: 1; }
+/* A passed stage keeps its chosen entry in the SAME selected box as the live
+   column (the rules above) — its other entries are what fade. */
+/* The levels AHEAD: their box is an outline only — no fill — since nothing
+   is chosen there yet. */
+.cp-col.is-preview .cp-col-box,
+.cp-col.is-disabled .cp-col-box {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+
+/* ── Motion ─────────────────────────────────────────────────────────────── */
+/* The levels AHEAD fade in when their content changes: each preview is
+   keyed by the cursor's entry, so moving the cursor mounts it afresh and
+   plays this once. A `from` keyframe only — the end is the preview's own
+   0.45 (a disabled slot's 0.1), so nothing jumps when the fade lands. The
+   passed and live columns have no motion of their own on a stage change;
+   their one movement is the entries gliding under the box as the selection
+   moves (the strips' transform transitions above). */
+.cp-col-anim { position: absolute; inset: 0; }
+/* The ENTRIES fade, not the box they sit in — that outline stays put. */
+.cp-col.is-preview .cp-strip, .cp-col.is-disabled .cp-strip { animation: cp-col-in 220ms ease-out; }
+@keyframes cp-col-in { from { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .cp-strip, .cp-ch { transition: none; }
+  .cp-strip { animation: none; }
+}
+html[data-reduce-motion="true"] .cp-strip,
+html[data-reduce-motion="true"] .cp-ch { transition: none; }
+html[data-reduce-motion="true"] .cp-strip { animation: none; }
+
+/* ── Narrow ─────────────────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .cp-root { --cp-colw: 42px; --cp-gap: 4px; }
+  .cp-stage { padding-left: 12px; }
+  .cp-col-box { left: 3px; right: 3px; }
+  .cp-ch { font-size: 14px; letter-spacing: 0; }
+  .cp-body { width: calc(12px + 4 * var(--cp-colw) + 3 * var(--cp-gap) + 12px); }
+  .cp-side { padding: 0; }
+}
+/* Too narrow for the two side by side: the card goes under the columns. */
+@media (max-width: 760px) {
+  .cp-root { flex-direction: column; align-items: stretch; }
+  .cp-body { width: auto; height: auto; position: relative; top: auto; }
+  .cp-stage { height: 420px; min-height: 0; }
+  .cp-side { padding: 0; }
+}
