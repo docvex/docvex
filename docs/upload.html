@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#F9F9FA" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16181A" media="(prefers-color-scheme: dark)">
+<title>Upload to DocVex</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap">
+<style>
+  /* tokens.css — Cream */
+  :root {
+    --color-ink: #0F172A; --color-slate: #1E293B; --color-sand: #DCC9A3; --color-cream: #F5F2EA; --color-cognac: #8B5E3C;
+    --bg-page: var(--color-cream); --bg-backdrop: #F9F9FA; --bg-bars: #F4F4F5; --bg-card: #FFFFFF; --bg-input: #FFFFFF;
+    --border: rgba(15, 23, 42, 0.10); --border-strong: rgba(15, 23, 42, 0.18);
+    --text-primary: var(--color-ink); --text-secondary: var(--color-slate); --text-muted: #6B7280; --text-on-accent: #FFFFFF;
+    --accent: var(--color-cognac); --accent-hover: #74502F; --accent-tint: rgba(139, 94, 60, 0.10);
+    --danger: #B91C1C; --danger-text: #B91C1C; --success: #15803D; --info: #0369A1;
+    --font-body: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-display: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    /* designSystem.css */
+    --ds-row-radius: 8px; --ds-card-radius: 14px; --ds-pill-radius: 999px;
+    --ds-pill-tint: 14%; --ds-pill-ring: 45%; --ds-pill-weight: 650; --ds-eyebrow-tracking: 0.22em;
+    --ds-hairline: var(--border);
+  }
+  /* tokens.css — Ink */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-page: #16181A; --bg-backdrop: #16181A; --bg-bars: #15213A; --bg-card: var(--color-slate); --bg-input: #15213A;
+      --border: rgba(245, 242, 234, 0.10); --border-strong: rgba(245, 242, 234, 0.20);
+      --text-primary: var(--color-cream); --text-secondary: #C9CEDC; --text-muted: #8A93A8; --text-on-accent: var(--color-ink);
+      --accent: var(--color-sand); --accent-hover: #C8B58E; --accent-tint: rgba(220, 201, 163, 0.12);
+      --danger: #EF4444; --danger-text: #FCA5A5; --success: #22C55E; --info: #38BDF8;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }   /* .actions / .section set a display of their own */
+  html, body { margin: 0; background: var(--bg-backdrop); color: var(--text-primary); font: 15px/1.5 var(--font-body); -webkit-font-smoothing: antialiased; }
+  main { position: relative; z-index: 1; max-width: 560px; margin: 0 auto; padding: calc(28px + env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom)); }
+
+  /* The app's SPOTLIGHT BACKGROUND (AppShell.css .main-content::before +
+     components/CursorSpotlight): the backdrop, a fine dot grid anchored to the
+     viewport, and a brighter copy of the dots in a soft circle — its position
+     counter-shifted so its dots stay on the grid's. Here nothing follows the
+     pointer: the circle is ALWAYS there at a resting glow, glides slowly to a
+     random spot, FLARES up there, settles back, and moves on. Hidden with
+     reduced motion, as in the app.
+     FIXED, whatever the page does: dots and spotlight are one layer pinned to
+     the viewport, as tall as the LARGE viewport (100lvh — so a phone's
+     collapsing address bar never uncovers a strip without dots). Scrolling
+     moves the content over it, never the background. (No overscroll-behavior
+     on html/body: phones stopped scrolling the page with it.) */
+  .bg {
+    position: fixed; left: 0; top: 0; width: 100%; height: 100vh; height: 100lvh; z-index: 0;
+    pointer-events: none; overflow: hidden;
+    background-image: radial-gradient(circle at center, color-mix(in srgb, var(--text-primary) 9%, transparent) 0.96px, transparent 1.28px);
+    background-size: 19.2px 19.2px; background-position: 0 0;
+  }
+  /* The brighter dots cover the whole layer ON THE SAME GRID and never move;
+     only the soft circle that reveals them (the mask) glides. Moving the box
+     and counter-shifting its dots was two animations a phone ran out of step,
+     which drew a second, offset grid — a second spotlight. */
+  .spot {
+    position: absolute; inset: 0; pointer-events: none;
+    background-image: radial-gradient(circle at center, color-mix(in srgb, var(--text-primary) 30%, transparent) 1.24px, transparent 1.6px);
+    background-size: 19.2px 19.2px; background-position: 0 0;
+    -webkit-mask-image: radial-gradient(circle closest-side at center, #000 0%, #000 42%, transparent 100%);
+    mask-image: radial-gradient(circle closest-side at center, #000 0%, #000 42%, transparent 100%);
+    -webkit-mask-size: 344px 344px; mask-size: 344px 344px;
+    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+    -webkit-mask-position: 0 0; mask-position: 0 0;
+    /* Always there at a resting glow; the flare is the lit state. */
+    opacity: 0.32;
+    transition: opacity 2200ms ease-in-out, -webkit-mask-position 5200ms ease-in-out, mask-position 5200ms ease-in-out;
+  }
+  .spot.is-lit { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .spot { display: none; } }
+
+  /* The masthead: eyebrow, display title, kicker, hairline. */
+  .eyebrow { margin: 0; font-size: 10.4px; font-weight: 700; letter-spacing: var(--ds-eyebrow-tracking); text-transform: uppercase; color: var(--accent); }
+  .eyebrow b { color: var(--text-muted); font-weight: 700; }
+  h1 { margin: 10px 0 0; font-family: var(--font-display); font-size: 30px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+  .sub { margin: 8px 0 0; color: var(--text-muted); font-size: 14px; }
+  .head { padding-bottom: 18px; border-bottom: 1px solid var(--ds-hairline); }
+
+  /* A pill: soft — a tint and a ring of its tone, the text in it. */
+  .pill {
+    --tone: var(--accent);
+    display: inline-flex; align-items: center; gap: 6px; margin-top: 14px;
+    height: 24px; padding: 0 10px; border-radius: var(--ds-pill-radius);
+    background: color-mix(in srgb, var(--tone) var(--ds-pill-tint), transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) var(--ds-pill-ring), transparent);
+    color: var(--tone); font-size: 12px; font-weight: var(--ds-pill-weight);
+  }
+  .pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  /* Buttons: the gallery's recipe, a thumb's height. */
+  .actions { display: grid; gap: 8px; margin-top: 20px; }
+  .btn {
+    position: relative; display: flex; align-items: center; justify-content: center; gap: 8px;
+    height: 52px; padding: 0 14px; border-radius: var(--ds-row-radius);
+    border: 1px solid var(--ds-hairline); background: transparent; color: var(--text-primary);
+    font: inherit; font-size: 14.4px; font-weight: 600; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; transition: background 120ms ease, border-color 120ms ease;
+  }
+  .btn:active { background: color-mix(in srgb, var(--text-primary) 7%, transparent); border-color: var(--border-strong); }
+  /* A plain button (Take a photo) is FROSTED — the dots and the spotlight
+     blur behind it instead of showing through. Stood in the Design system
+     tab as "Portal buttons" (.dsg-pbtn) — keep the two in step. */
+  .btn:not(.primary) {
+    background: color-mix(in srgb, var(--bg-backdrop) 55%, transparent);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+  .btn.primary:active { background: var(--accent-hover); }
+  .btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .btn svg { width: 19px; height: 19px; flex: none; }
+
+  /* The files: rows on the page ground, divided by hairlines. */
+  .section { margin: 28px 0 0; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .section h2 { margin: 0; font-size: 10.4px; font-weight: 700; letter-spacing: var(--ds-eyebrow-tracking); text-transform: uppercase; color: var(--text-muted); }
+  .section span { font-size: 12px; color: var(--text-muted); }
+  .list { list-style: none; margin: 8px 0 0; padding: 0; }
+  .item { display: grid; grid-template-columns: 48px 1fr; gap: 4px 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--ds-hairline); }
+  .item:last-child { border-bottom: 1px solid var(--ds-hairline); }
+  .thumb {
+    grid-row: span 2; width: 48px; height: 48px; border-radius: var(--ds-row-radius); overflow: hidden;
+    display: grid; place-items: center; background: var(--bg-bars); box-shadow: inset 0 0 0 1px var(--ds-hairline);
+    font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* A file with no picture wears the Files tab's own type icon
+     (components/fileGlyph, generated into lib/phoneUploadGlyphs) — on no box,
+     as a Files tile draws it, in the icons' colours (the app draws icons in
+     Ink's palette in every theme — tokens.css). */
+  .thumb.has-glyph { background: transparent; box-shadow: none; }
+  .thumb .fx-glyph { width: 84%; height: 84%; --accent: #DCC9A3; --accent-soft: #8B5E3C; }
+  .fx-glyph {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 7.2px;
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+.fx-glyph-icon { background: transparent; color: var(--accent); }
+.fx-glyph-icon .fx-type-icon { width: 100%; height: 100%; display: block; }
+.fx-type-base { fill: currentColor; }
+.fx-type-detail { fill: color-mix(in srgb, var(--accent) 52%, #000); }
+.fx-glyph-txt .fx-type-base { fill: #fff; stroke: rgba(0, 0, 0, 0.16); stroke-width: 0.8; }
+.fx-zip-teeth {
+  stroke: color-mix(in srgb, var(--accent) 52%, #000);
+  stroke-width: 3;
+  stroke-dasharray: 1 1.3;
+}
+.fx-glyph-vid { position: relative; overflow: hidden; }
+.fx-glyph-vid .fx-glyph-play {
+  width: 100%;
+  height: 100%;
+}
+.fx-glyph-vid-tag {
+  position: absolute;
+  bottom: 1.6px;
+  right: 2.4px;
+  font-size: 0.55em;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+.fx-glyph-aud { position: relative; overflow: hidden; }
+.fx-glyph-aud .fx-glyph-audio {
+  width: 100%;
+  height: 100%;
+}
+.fx-glyph-pdf,
+.fx-glyph-img, .fx-glyph-vid, .fx-glyph-aud, .fx-glyph-txt, .fx-glyph-psd,
+.fx-glyph-ai, .fx-glyph-gen {
+  background: transparent;
+  color: var(--accent);
+  border: none;
+}
+.fx-glyph-vid .fx-glyph-play,
+.fx-glyph-aud .fx-glyph-audio,
+.fx-glyph-vid-tag { color: var(--accent); }
+.fx-glyph-identity .fx-type-base {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+  stroke-width: 1.3;
+}
+.fx-glyph-identity .fx-idn-mark {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.fx-glyph-collection .fx-idn-mark circle { fill: var(--accent); stroke: none; }
+.fx-glyph-collection .fx-idn-mark path { stroke-width: 1.2; opacity: 0.8; }
+  .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 14.4px; }
+  .state {
+    --tone: var(--text-muted);
+    flex: none; height: 20px; padding: 0 8px; border-radius: var(--ds-pill-radius); display: inline-flex; align-items: center;
+    background: color-mix(in srgb, var(--tone) var(--ds-pill-tint), transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) var(--ds-pill-ring), transparent);
+    color: var(--tone); font-size: 11.2px; font-weight: var(--ds-pill-weight); font-variant-numeric: tabular-nums;
+  }
+  .item.is-done .state { --tone: var(--success); }
+  .item.is-held .state { --tone: var(--info); }
+  .item.is-bad .state { --tone: var(--danger); color: var(--danger-text); }
+  /* The portal was closed on the computer: a notice where the buttons were. */
+  .closed {
+    display: flex; gap: 12px; align-items: flex-start; margin-top: 20px; padding: 14px 16px;
+    border-radius: var(--ds-row-radius); border: 1px solid var(--ds-hairline);
+    background: color-mix(in srgb, var(--bg-backdrop) 55%, transparent);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  }
+  .closed svg { flex: none; width: 22px; height: 22px; color: var(--text-muted); margin-top: 1px; }
+  .closed strong { display: block; font-size: 14.4px; font-weight: 650; }
+  .closed span { display: block; margin-top: 2px; font-size: 13px; color: var(--text-muted); }
+  /* A rejected file: send it again, or clear it from the list. */
+  .acts { grid-column: 2; display: flex; gap: 8px; margin-top: 6px; }
+  .act {
+    height: 30px; padding: 0 12px; border-radius: var(--ds-row-radius);
+    border: 1px solid var(--ds-hairline); background: color-mix(in srgb, var(--bg-backdrop) 55%, transparent);
+    color: var(--text-primary); font: inherit; font-size: 12.8px; font-weight: 600; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .act.primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+  .act:active { opacity: 0.8; }
+  .meta { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 12px; color: var(--text-muted); }
+  .bar { flex: 1; height: 3px; border-radius: 999px; background: var(--ds-hairline); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 150ms linear; }
+  .item.is-done .bar, .item.is-held .bar, .item.is-bad .bar { display: none; }
+  .note { margin: 16px 0 0; color: var(--text-muted); font-size: 13px; text-align: center; }
+
+  /* The camera sheet (Take photos, where the browser lets the page use the
+     camera — a secure page, i.e. the cloud route): stays open, one press of
+     the shutter per photo, each uploading while the next is taken. */
+  .cam { position: fixed; inset: 0; z-index: 50; background: #000; display: flex; flex-direction: column; }
+  .cam video { flex: 1; min-height: 0; width: 100%; object-fit: cover; background: #000; }
+  .cam-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 260ms ease-out; }
+  .cam-flash.is-on { opacity: 0.7; transition: none; }
+  .cam-bar {
+    position: absolute; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+    padding: 18px 20px calc(22px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.55), transparent);
+  }
+  .cam-done {
+    justify-self: start; height: 40px; padding: 0 16px; border-radius: 999px; border: none;
+    background: rgba(255, 255, 255, 0.18); color: #fff; font: inherit; font-size: 14.4px; font-weight: 600;
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); -webkit-tap-highlight-color: transparent;
+  }
+  .cam-shoot {
+    width: 72px; height: 72px; border-radius: 50%; border: 4px solid #fff; background: rgba(255, 255, 255, 0.9);
+    box-shadow: inset 0 0 0 3px #000; -webkit-tap-highlight-color: transparent; transition: transform 90ms ease;
+  }
+  .cam-shoot:active { transform: scale(0.92); }
+  .cam-count { justify-self: end; color: #fff; font-size: 13px; font-weight: 600; }
+
+  /* An ended code: the empty state — centred, no frame. */
+  .gone { margin-top: 18vh; text-align: center; }
+  .gone svg { width: 34px; height: 34px; color: var(--text-muted); }
+  .gone h1 { font-size: 22px; }
+  .gone .sub { max-width: 34ch; margin-left: auto; margin-right: auto; }
+</style>
+</head>
+<body>
+<div class="bg" aria-hidden="true"><div class="spot" id="spot"></div></div>
+<main id="app">
+  <div class="head">
+    <p class="eyebrow">DocVex <b>· Upload</b></p>
+    <h1 id="title">Upload files</h1>
+    <p class="sub" id="sub">Connecting…</p>
+    <span class="pill" id="route"></span>
+  </div>
+  <div class="closed" id="closed" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+    <div><strong id="closedTitle">Upload closed</strong><span id="closedText"></span></div>
+  </div>
+  <div class="actions" id="actions" hidden>
+    <label class="btn primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+      Choose files
+      <input type="file" id="pick" multiple>
+    </label>
+    <label class="btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+      <span id="cameraLabel">Take photos</span>
+      <input type="file" id="camera" accept="image/*" capture="environment">
+    </label>
+  </div>
+  <div class="section" id="section" hidden><h2>Sent from this phone</h2><span id="count"></span></div>
+  <ul class="list" id="list"></ul>
+  <p class="note" id="note"></p>
+</main>
+<div class="cam" id="cam" hidden>
+  <video id="camVideo" playsinline muted autoplay></video>
+  <div class="cam-flash" id="camFlash"></div>
+  <div class="cam-bar">
+    <button type="button" class="cam-done" id="camDone">Done</button>
+    <button type="button" class="cam-shoot" id="camShoot" aria-label="Take a photo"></button>
+    <span class="cam-count" id="camCount"></span>
+  </div>
+</div>
+<script>
+(function () {
+  var CFG = {"mode":"cloud","project":"","folder":"","base":"","fn":"https://pntxlvhkqfryyyxlqytr.supabase.co/functions/v1/phone-upload","anon":"sb_publishable_2JXDUwP4MFAk9t78UELKpA_99CImHfW","computer":"","dev":false,"glyphs":{"icons":{"pdf":"\u003cspan class=\"fx-glyph fx-glyph-icon\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"width:100%;height:100%\">\u003crect x=\"4.6\" y=\"2.5\" width=\"14.8\" height=\"19\" rx=\"1.7\" fill=\"#fff\" stroke=\"rgba(0,0,0,0.16)\" stroke-width=\"0.8\">\u003c/rect>\u003cpath d=\"M6.8 5.9h10.4M6.8 8.5h10.4M14.8 11.1h2.4M14.8 13.7h2.4\" stroke=\"#B5473F\" stroke-opacity=\"0.5\" stroke-width=\"1.25\" stroke-linecap=\"round\">\u003c/path>\u003crect x=\"1.8\" y=\"11.4\" width=\"13.4\" height=\"10.1\" rx=\"1.8\" fill=\"#B5473F\">\u003c/rect>\u003ctext x=\"8.5\" y=\"17.9\" text-anchor=\"middle\" font-family=\"var(--font-display, sans-serif)\" font-size=\"4\" font-weight=\"800\" letter-spacing=\"0.2\" fill=\"#fff\" stroke=\"#fff\" stroke-width=\"0.35\" stroke-linejoin=\"round\" paint-order=\"stroke\">PDF\u003c/text>\u003c/svg>\u003c/span>","doc":"\u003cspan class=\"fx-glyph fx-glyph-icon\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"width:100%;height:100%\">\u003crect x=\"4.6\" y=\"2.5\" width=\"14.8\" height=\"19\" rx=\"1.7\" fill=\"#fff\" stroke=\"rgba(0,0,0,0.16)\" stroke-width=\"0.8\">\u003c/rect>\u003cpath d=\"M6.8 5.9h10.4M6.8 8.5h10.4M6.8 11.1h7\" stroke=\"#185ABD\" stroke-opacity=\"0.5\" stroke-width=\"1.25\" stroke-linecap=\"round\">\u003c/path>\u003crect x=\"1.8\" y=\"11.4\" width=\"11\" height=\"10.1\" rx=\"1.8\" fill=\"#185ABD\">\u003c/rect>\u003ctext x=\"7.3\" y=\"18.35\" text-anchor=\"middle\" font-family=\"var(--font-display, sans-serif)\" font-size=\"5.8\" font-weight=\"800\" fill=\"#fff\" stroke=\"#fff\" stroke-width=\"0.35\" stroke-linejoin=\"round\" paint-order=\"stroke\">W\u003c/text>\u003c/svg>\u003c/span>","xls":"\u003cspan class=\"fx-glyph fx-glyph-icon\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"width:100%;height:100%\">\u003crect x=\"4.6\" y=\"2.5\" width=\"14.8\" height=\"19\" rx=\"1.7\" fill=\"#fff\" stroke=\"rgba(0,0,0,0.16)\" stroke-width=\"0.8\">\u003c/rect>\u003cpath d=\"M6.8 6.1h10.4M6.8 9h10.4M10.6 4.6v6.9M14.1 4.6v6.9\" stroke=\"#107C41\" stroke-opacity=\"0.5\" stroke-width=\"1.1\">\u003c/path>\u003crect x=\"1.8\" y=\"11.4\" width=\"11\" height=\"10.1\" rx=\"1.8\" fill=\"#107C41\">\u003c/rect>\u003ctext x=\"7.3\" y=\"18.35\" text-anchor=\"middle\" font-family=\"var(--font-display, sans-serif)\" font-size=\"5.8\" font-weight=\"800\" fill=\"#fff\" stroke=\"#fff\" stroke-width=\"0.35\" stroke-linejoin=\"round\" paint-order=\"stroke\">X\u003c/text>\u003c/svg>\u003c/span>","ppt":"\u003cspan class=\"fx-glyph fx-glyph-icon\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"width:100%;height:100%\">\u003crect x=\"4.6\" y=\"2.5\" width=\"14.8\" height=\"19\" rx=\"1.7\" fill=\"#fff\" stroke=\"rgba(0,0,0,0.16)\" stroke-width=\"0.8\">\u003c/rect>\u003ccircle cx=\"9.3\" cy=\"7.6\" r=\"3.1\" fill=\"none\" stroke=\"#C43E1C\" stroke-opacity=\"0.5\" stroke-width=\"1.2\">\u003c/circle>\u003cpath d=\"M14.2 6h3.2M14.2 8.5h3.2M14.2 11h3.2\" stroke=\"#C43E1C\" stroke-opacity=\"0.5\" stroke-width=\"1.2\" stroke-linecap=\"round\">\u003c/path>\u003crect x=\"1.8\" y=\"11.4\" width=\"11\" height=\"10.1\" rx=\"1.8\" fill=\"#C43E1C\">\u003c/rect>\u003ctext x=\"7.3\" y=\"18.35\" text-anchor=\"middle\" font-family=\"var(--font-display, sans-serif)\" font-size=\"5.8\" font-weight=\"800\" fill=\"#fff\" stroke=\"#fff\" stroke-width=\"0.35\" stroke-linejoin=\"round\" paint-order=\"stroke\">P\u003c/text>\u003c/svg>\u003c/span>","zip":"\u003cspan class=\"fx-glyph fx-glyph-icon\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003cpath class=\"fx-type-base\" d=\"M2.6 6.6a2.2 2.2 0 0 1 2.2-2.2h4.2l2 2h8.2a2.2 2.2 0 0 1 2.2 2.2v8.6a2.2 2.2 0 0 1-2.2 2.2H4.8a2.2 2.2 0 0 1-2.2-2.2z\">\u003c/path>\u003cline class=\"fx-zip-teeth\" x1=\"12\" y1=\"9.2\" x2=\"12\" y2=\"19.3\">\u003c/line>\u003ccircle class=\"fx-type-detail\" cx=\"12\" cy=\"9.4\" r=\"1.8\">\u003c/circle>\u003crect class=\"fx-type-detail\" x=\"11.25\" y=\"9.4\" width=\"1.5\" height=\"3.5\" rx=\"0.75\">\u003c/rect>\u003c/svg>\u003c/span>","img":"\u003cspan class=\"fx-glyph fx-glyph-icon\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003crect class=\"fx-type-base\" x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2.6\">\u003c/rect>\u003ccircle class=\"fx-type-detail\" cx=\"8.5\" cy=\"9.5\" r=\"2\">\u003c/circle>\u003cpath class=\"fx-type-detail\" d=\"M4 19 L9.5 12.5 L13 16 L16 12.5 L20 19 Z\">\u003c/path>\u003c/svg>\u003c/span>","vid":"\u003cspan class=\"fx-glyph fx-glyph-vid\">\u003csvg class=\"fx-glyph-play\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003cpath d=\"M8 5.14v13.72a1 1 0 0 0 1.53.85l10.78-6.86a1 1 0 0 0 0-1.7L9.53 4.29A1 1 0 0 0 8 5.14z\" fill=\"currentColor\">\u003c/path>\u003c/svg>\u003c/span>","aud":"\u003cspan class=\"fx-glyph fx-glyph-aud\">\u003csvg class=\"fx-glyph-audio\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003cg fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\">\u003cpath d=\"M3 10.5v3\">\u003c/path>\u003cpath d=\"M6.5 7.5v9\">\u003c/path>\u003cpath d=\"M10 4.5v15\">\u003c/path>\u003cpath d=\"M13.5 8.5v7\">\u003c/path>\u003cpath d=\"M17 6v12\">\u003c/path>\u003cpath d=\"M20.5 9.5v5\">\u003c/path>\u003c/g>\u003c/svg>\u003c/span>","txt":"\u003cspan class=\"fx-glyph fx-glyph-icon fx-glyph-generic fx-glyph-txt\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003crect class=\"fx-type-base\" x=\"4\" y=\"2.5\" width=\"16\" height=\"19\" rx=\"2.6\">\u003c/rect>\u003crect class=\"fx-type-detail\" x=\"7\" y=\"7\" width=\"10\" height=\"1.8\" rx=\"0.9\">\u003c/rect>\u003crect class=\"fx-type-detail\" x=\"7\" y=\"11\" width=\"10\" height=\"1.8\" rx=\"0.9\">\u003c/rect>\u003crect class=\"fx-type-detail\" x=\"7\" y=\"15\" width=\"7\" height=\"1.8\" rx=\"0.9\">\u003c/rect>\u003c/svg>\u003c/span>","collection":"\u003cspan class=\"fx-glyph fx-glyph-icon fx-glyph-identity fx-glyph-collection\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003crect class=\"fx-type-base\" x=\"4.4\" y=\"3.6\" width=\"15.2\" height=\"16.8\" rx=\"2.4\">\u003c/rect>\u003cg class=\"fx-idn-mark\">\u003cpath d=\"M9.4 9.6l5 1.6M9.2 11.2l2.4 4.2M14.8 12.6l-2.2 3\">\u003c/path>\u003ccircle cx=\"8.6\" cy=\"9.2\" r=\"1.5\">\u003c/circle>\u003ccircle cx=\"15.6\" cy=\"11.6\" r=\"1.5\">\u003c/circle>\u003ccircle cx=\"12\" cy=\"16.4\" r=\"1.5\">\u003c/circle>\u003c/g>\u003c/svg>\u003c/span>","gen":"\u003cspan class=\"fx-glyph fx-glyph-icon fx-glyph-generic\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003crect class=\"fx-type-base\" x=\"4\" y=\"2.5\" width=\"16\" height=\"19\" rx=\"2.6\">\u003c/rect>\u003ctext class=\"fx-type-detail\" x=\"12\" y=\"16.2\" text-anchor=\"middle\" font-family=\"var(--font-display, sans-serif)\" font-size=\"11\" font-weight=\"800\">?\u003c/text>\u003c/svg>\u003c/span>"},"cats":{"pdf":"pdf","doc":"doc","docx":"doc","docm":"doc","dot":"doc","dotx":"doc","dotm":"doc","rtf":"doc","odt":"doc","pages":"doc","xls":"xls","xlsx":"xls","xlsm":"xls","xlsb":"xls","xlt":"xls","xltx":"xls","xltm":"xls","csv":"xls","ods":"xls","numbers":"xls","ppt":"ppt","pptx":"ppt","pptm":"ppt","pps":"ppt","ppsx":"ppt","ppsm":"ppt","pot":"ppt","potx":"ppt","potm":"ppt","odp":"ppt","key":"ppt","jpg":"img","jpeg":"img","png":"img","gif":"img","webp":"img","svg":"img","heic":"img","bmp":"img","tif":"img","tiff":"img","mp4":"vid","mov":"vid","avi":"vid","mkv":"vid","webm":"vid","m4v":"vid","mp3":"aud","wav":"aud","m4a":"aud","aac":"aud","ogg":"aud","oga":"aud","flac":"aud","opus":"aud","wma":"aud","aif":"aud","aiff":"aud","txt":"txt","md":"txt","log":"txt","zip":"zip","rar":"zip","7z":"zip","tar":"zip","gz":"zip","dvc":"collection"}}};
+  var q = new URLSearchParams(location.search);
+  var token = q.get('t') || '';
+  var $ = function (id) { return document.getElementById(id); };
+  var maxBytes = 0;
+  var busy = 0;
+  var sent = 0;
+  var total = 0;
+
+  // The spotlight: always visible, gliding between random spots and flaring
+  // at each. Whole pixels at rest, so its dots sit on the grid's.
+  (function () {
+    var spot = $('spot');
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var R = 172;
+    function placeRandomly() {
+      var px = Math.round(Math.random() * window.innerWidth);
+      var py = Math.round(Math.random() * window.innerHeight);
+      var at = (px - R) + 'px ' + (py - R) + 'px';
+      spot.style.webkitMaskPosition = at;
+      spot.style.maskPosition = at;
+    }
+    // Always visible: it glides to a new spot (5.2s), flares up there, holds,
+    // settles back to its resting glow, then moves on.
+    function cycle() {
+      placeRandomly();
+      setTimeout(function () {
+        spot.classList.add('is-lit');
+        setTimeout(function () {
+          spot.classList.remove('is-lit');
+          setTimeout(cycle, 2200 + Math.random() * 1200);
+        }, 2200 + 1800 + Math.random() * 2200);
+      }, 5200);
+    }
+    // First spot without the glide.
+    spot.style.transition = 'none';
+    placeRandomly();
+    requestAnimationFrame(function () { requestAnimationFrame(function () {
+      spot.style.transition = '';
+      spot.classList.add('is-lit');
+      setTimeout(function () { spot.classList.remove('is-lit'); setTimeout(cycle, 2200); }, 4000);
+    }); });
+  })();
+
+  function fmt(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
+    if (n < 1073741824) return (n / 1048576).toFixed(1).replace(/\.0$/, '') + ' MB';
+    return (n / 1073741824).toFixed(2).replace(/\.?0+$/, '') + ' GB';
+  }
+  function ended(title, text) {
+    $('app').innerHTML = '<div class="gone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5a1 1 0 0 1 1-1h2"/><path d="M17 4h2a1 1 0 0 1 1 1v2"/><path d="M20 17v2a1 1 0 0 1-1 1h-2"/><path d="M7 20H5a1 1 0 0 1-1-1v-2"/><path d="m9 9 6 6"/><path d="m15 9-6 6"/></svg><p class="eyebrow">DocVex <b>· Upload</b></p><h1></h1><p class="sub"></p></div>';
+    $('app').querySelector('h1').textContent = title;
+    $('app').querySelector('.sub').textContent = text;
+  }
+  function fnCall(body) {
+    return fetch(CFG.fn, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', apikey: CFG.anon },
+      body: JSON.stringify(Object.assign({ token: token }, body)),
+    }).then(function (r) { return r.json().catch(function () { return { ok: false, error: 'http_' + r.status }; }); });
+  }
+  function put(method, url, file, headers, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var x = new XMLHttpRequest();
+      x.open(method, url);
+      Object.keys(headers || {}).forEach(function (k) { x.setRequestHeader(k, headers[k]); });
+      x.upload.onprogress = function (e) { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+      x.onload = function () {
+        var body = null;
+        try { body = JSON.parse(x.responseText); } catch (e) { body = null; }
+        if (x.status >= 200 && x.status < 300) resolve(body); else reject(new Error((body && (body.error || body.message)) || ('HTTP ' + x.status)));
+      };
+      x.onerror = function () { reject(new Error('network')); };
+      x.send(file);
+    });
+  }
+
+  // ── The two routes ──
+  function info() {
+    if (CFG.mode === 'local') {
+      return fetch(CFG.base + '/info').then(function (r) { return r.json(); });
+    }
+    if (!token) return Promise.resolve({ ok: false, error: 'unknown' });
+    return fnCall({ action: 'info' });
+  }
+  function upload(file, onProgress) {
+    if (CFG.mode === 'local') {
+      return put('POST', CFG.base + '/file?name=' + encodeURIComponent(file.name || 'file'), file, { 'content-type': 'application/octet-stream' }, onProgress);
+    }
+    return fnCall({ action: 'sign', name: file.name, size: file.size, type: file.type }).then(function (s) {
+      if (!s || !s.ok) throw new Error(s && s.error === 'too_large' ? 'Too large (max ' + fmt(s.maxBytes || 0) + ')' : (s && s.error) || 'refused');
+      return put('PUT', s.signedUrl, file, { 'content-type': file.type || 'application/octet-stream', 'x-upsert': 'false', apikey: CFG.anon }, onProgress)
+        .then(function () { return fnCall({ action: 'done', path: s.path, name: file.name, size: file.size, type: file.type }); })
+        .then(function (d) { if (!d || !d.ok) throw new Error((d && d.error) || 'not recorded'); return d; });
+    });
+  }
+
+  // A thumbnail: the picture itself, read on the phone (nothing extra is sent),
+  // or a badge with the file's extension.
+  function thumbFor(file, el) {
+    var ext = ((file.name || '').split('.').pop() || '').slice(0, 4);
+    var full = /\.([a-z0-9]{1,8})$/i.exec(file.name || '');
+    var G = CFG.glyphs || {};
+    var icon = G.icons && G.icons[(full && G.cats[full[1].toLowerCase()]) || 'gen'];
+    if (icon) { el.innerHTML = icon; el.classList.add('has-glyph'); }
+    else el.textContent = ext && ext !== file.name ? ext : 'file';
+    if (!/^image\//.test(file.type || '') || !window.URL) return;
+    var img = new Image();
+    img.alt = '';
+    img.onload = function () { el.textContent = ''; el.classList.remove('has-glyph'); el.appendChild(img); };
+    img.onerror = function () { URL.revokeObjectURL(img.src); };
+    img.src = URL.createObjectURL(file);
+  }
+
+  // Files waiting for approval on the computer: asked after every few seconds,
+  // so the page says what became of them — added, or REJECTED (the Import
+  // window closed on them, or Reject in the Files tab), with Send again / Remove.
+  // (Both routes: Wi-Fi asks the computer's server, the cloud asks the function.)
+  var watching = {};   // id → { li, state, file }
+  var watchTimer = 0;
+  function follow(id, li, state, file) {
+    watching[id] = { li: li, state: state, file: file };
+    if (!watchTimer) watchTimer = setInterval(checkWaiting, 3000);
+  }
+  function checkWaiting() {
+    var ids = Object.keys(watching);
+    if (!ids.length) { clearInterval(watchTimer); watchTimer = 0; return; }
+    (CFG.mode === 'local'
+      ? fetch(CFG.base + '/status?ids=' + encodeURIComponent(ids.join(',')), { cache: 'no-store' }).then(function (r) { return r.json(); })
+      : fnCall({ action: 'status', ids: ids }))
+      .then(function (d) {
+        if (!d || !d.ok) return;
+        ids.forEach(function (id) {
+          var w = watching[id]; var st = d.status && d.status[id];
+          if (!w || st === 'waiting' || !st) return;
+          delete watching[id];
+          if (st === 'accepted') { w.li.className = 'item is-done'; w.state.textContent = 'Added'; return; }
+          if (st === 'rejected') rejected(w);
+        });
+      })
+      .catch(function () {});
+  }
+  function rejected(w) {
+    w.li.className = 'item is-bad';
+    w.state.textContent = 'Rejected';
+    sent = Math.max(0, sent - 1);
+    var acts = document.createElement('div');
+    acts.className = 'acts';
+    var again = document.createElement('button');
+    again.type = 'button'; again.className = 'act primary'; again.textContent = 'Send again';
+    again.addEventListener('click', function () { w.li.remove(); total = Math.max(0, total - 1); addFiles([w.file]); });
+    var drop = document.createElement('button');
+    drop.type = 'button'; drop.className = 'act'; drop.textContent = 'Remove';
+    drop.addEventListener('click', function () { w.li.remove(); total = Math.max(0, total - 1); note(); });
+    acts.appendChild(again); acts.appendChild(drop);
+    w.li.appendChild(acts);
+    note();
+  }
+
+  function addFiles(files) {
+    Array.prototype.forEach.call(files, function (file) {
+      total += 1;
+      $('section').hidden = false;
+      var li = document.createElement('li');
+      li.className = 'item';
+      li.innerHTML = '<span class="thumb"></span><div class="row"><span class="name"></span><span class="state">Waiting</span></div><div class="meta"><span class="size"></span><span class="bar"><i></i></span></div>';
+      li.querySelector('.name').textContent = file.name || 'file';
+      li.querySelector('.size').textContent = fmt(file.size || 0);
+      thumbFor(file, li.querySelector('.thumb'));
+      $('list').insertBefore(li, $('list').firstChild);
+      var state = li.querySelector('.state');
+      var bar = li.querySelector('.bar > i');
+      if (maxBytes && file.size > maxBytes) {
+        li.className = 'item is-bad'; state.textContent = 'Too large'; li.querySelector('.size').textContent = fmt(file.size) + ' · the limit is ' + fmt(maxBytes); return;
+      }
+      queue.push(function () {
+        busy += 1;
+        state.textContent = '0%';
+        return upload(file, function (p) { bar.style.width = Math.round(p * 100) + '%'; state.textContent = Math.round(p * 100) + '%'; })
+          .then(function (r) {
+            var held = r && r.held;
+            li.className = 'item ' + (held ? 'is-held' : 'is-done');
+            state.textContent = held ? 'Waiting for approval' : 'Sent';
+            sent += 1;
+            if (held && r.id) follow(r.id, li, state, file);
+          })
+          .catch(function (e) { li.className = 'item is-bad'; state.textContent = e && e.message === 'network' ? 'Connection lost' : 'Failed'; })
+          .then(function () { busy -= 1; note(); });
+      });
+    });
+    pump();
+  }
+  // Two at a time: fast on Wi-Fi, gentle on mobile data.
+  var queue = [];
+  var running = 0;
+  function pump() {
+    while (running < 2 && queue.length) {
+      running += 1;
+      queue.shift()().then(function () { running -= 1; pump(); });
+    }
+    note();
+  }
+  function note() {
+    $('count').textContent = total ? sent + ' of ' + total : '';
+    $('note').textContent = sent && !(queue.length + busy) ? 'You can send more, or close this page.' : '';
+  }
+
+  // Which computer the files go to — with several people on one network, the
+  // way to be sure this is the right one.
+  function routeLabel(computer) {
+    return CFG.mode === 'local'
+      ? 'Local network · to ' + (computer || 'this computer')
+      : 'DocVex cloud · any connection';
+  }
+  $('route').textContent = routeLabel(CFG.computer);
+  info().then(function (r) {
+    if (!r || !r.ok) {
+      if (r && r.error === 'expired') return ended('This code has expired', 'Open Import in DocVex again for a new QR code.');
+      return ended('This code is no longer valid', 'Open Import in DocVex on your computer and scan the new QR code.');
+    }
+    maxBytes = r.maxBytes || 0;
+    if (r.computer) $('route').textContent = routeLabel(r.computer);
+    var project = r.projectName || CFG.project;
+    $('title').textContent = project ? 'Upload to ' + project : 'Upload to DocVex';
+    // The limit only — which folder the files land in is the computer's
+    // business (and changes whenever Import is opened elsewhere).
+    $('sub').textContent = maxBytes ? 'Up to ' + fmt(maxBytes) + ' a file' : '';
+    $('actions').hidden = false;
+    watch();
+  }).catch(function () {
+    ended('Can’t reach DocVex', CFG.mode === 'local' ? 'Make sure this phone is on the same Wi-Fi as the computer and DocVex is open.' : 'Check the connection and try again.');
+  });
+  // The portal lives only while DocVex's Import window is open. Every few
+  // seconds the page asks whether it still does: closed → the buttons give way
+  // to a notice (the list stays); open again → the page comes back by itself
+  // (both routes keep their address, so reopening the window revives the page).
+  var closedNow = false;
+  function alive() {
+    if (CFG.mode === 'local') {
+      // Given up on after 2.5s: a closed server can leave a request hanging.
+      var ctl = window.AbortController ? new AbortController() : null;
+      var t = setTimeout(function () { if (ctl) ctl.abort(); }, 2500);
+      return fetch(CFG.base + '/info', { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+        .then(function (res) { clearTimeout(t); return res.ok ? res.json() : { ok: false }; })
+        .catch(function () { clearTimeout(t); return { ok: false }; });
+    }
+    return fnCall({ action: 'info' }).catch(function () { return { ok: false }; });
+  }
+  function setClosed(on) {
+    if (on === closedNow) return;
+    closedNow = on;
+    $('closed').hidden = !on;
+    $('actions').hidden = on;
+    $('closedText').textContent = 'The Import window was closed in DocVex. Open it again on the computer and this page picks up where it was.';
+    var cam = document.getElementById('cam');
+    if (on && cam && !cam.hidden) { var done = document.getElementById('camDone'); if (done) done.click(); }
+  }
+  function watch() {
+    setInterval(function () {
+      if (busy && !closedNow) return;   // an upload in flight says enough
+      alive().then(function (r) { setClosed(!(r && r.ok)); });
+    }, CFG.mode === 'local' ? 3000 : 6000);
+  }
+
+  ['pick', 'camera'].forEach(function (id) {
+    $(id).addEventListener('change', function (e) {
+      var got = e.target.files && e.target.files.length;
+      addFiles(e.target.files); e.target.value = '';
+      // The phone's own camera gives one photo a press; say the next is one tap away.
+      if (id === 'camera' && got) $('cameraLabel').textContent = 'Take another photo';
+    });
+  });
+
+  // Take photos: where the page may use the camera itself (a secure page —
+  // the cloud route; a plain-http Wi-Fi page may not), it opens a camera that
+  // STAYS OPEN — press the shutter as often as needed, each photo uploads
+  // while the next is taken, Done closes it. Elsewhere the phone's own camera
+  // (one photo a press) is the fallback.
+  (function () {
+    var canCam = !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    var stream = null;
+    var shots = 0;
+    var video = $('camVideo');
+    function close() {
+      if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+      stream = null; video.srcObject = null;
+      $('cam').hidden = true; document.body.style.overflow = '';
+    }
+    function shoot() {
+      var w = video.videoWidth, h = video.videoHeight;
+      if (!w || !h) return;
+      var c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').drawImage(video, 0, 0, w, h);
+      var fl = $('camFlash'); fl.classList.add('is-on');
+      requestAnimationFrame(function () { requestAnimationFrame(function () { fl.classList.remove('is-on'); }); });
+      c.toBlob(function (blob) {
+        if (!blob) return;
+        shots += 1;
+        var d = new Date(), z = function (n) { return (n < 10 ? '0' : '') + n; };
+        var name = 'Photo ' + d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + ' ' + z(d.getHours()) + '.' + z(d.getMinutes()) + '.' + z(d.getSeconds()) + (shots > 1 ? ' (' + shots + ')' : '') + '.jpg';
+        var file;
+        try { file = new File([blob], name, { type: 'image/jpeg' }); } catch (e) { file = blob; file.name = name; }
+        addFiles([file]);
+        $('camCount').textContent = shots === 1 ? '1 photo' : shots + ' photos';
+      }, 'image/jpeg', 0.92);
+    }
+    $('camera').addEventListener('click', function (e) {
+      if (!canCam) return;
+      e.preventDefault();
+      navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 4096 }, height: { ideal: 3072 } } })
+        .then(function (st) {
+          stream = st; shots = 0; $('camCount').textContent = '';
+          video.srcObject = st;
+          $('cam').hidden = false; document.body.style.overflow = 'hidden';
+          var pr = video.play(); if (pr && pr.catch) pr.catch(function () {});
+        })
+        .catch(function () {
+          // Refused or no camera: the phone's own camera from the next press.
+          canCam = false;
+          $('note').textContent = 'The camera couldn’t open here — tap Take photos again to use the phone’s camera.';
+        });
+    });
+    $('camShoot').addEventListener('click', shoot);
+    $('camDone').addEventListener('click', close);
+    document.addEventListener('visibilitychange', function () { if (document.hidden && stream) close(); });
+  })();
+  window.addEventListener('beforeunload', function (e) { if (busy || queue.length) { e.preventDefault(); e.returnValue = ''; } });
+
+  // Development: the desktop serves this page fresh from its source file; when
+  // that file changes, reload — but never in the middle of an upload.
+  if (CFG.dev && CFG.mode === 'local') {
+    var seen = null;
+    setInterval(function () {
+      fetch(CFG.base + '/dev', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+        if (seen === null) { seen = d.v; return; }
+        if (d.v !== seen && !busy && !queue.length) location.reload();
+      }).catch(function () {});
+    }, 1000);
+  }
+})();
+</script>
+</body>
+</html>
