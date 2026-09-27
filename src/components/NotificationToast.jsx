@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useNotifications } from '../context/NotificationsContext';
 import { useUpdates } from '../context/UpdatesContext';
 import { buildActions } from '../notifications/actionRegistry';
 import { DEFAULT_TOAST_DURATION } from '../lib/notifications';
 import { resolveNotificationIcon } from '../notifications/icons';
+import { ExtGlyph } from './fileGlyph';
 
 const CloseIcon = (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
@@ -13,9 +14,16 @@ const CloseIcon = (
   </svg>
 );
 
+function ToastThumb({ src, ext }) {
+  const [broken, setBroken] = useState(false);
+  if (src && !broken) return <img className="toast-thumb" src={src} alt="" onError={() => setBroken(true)} />;
+  return <span className="toast-thumb is-glyph" aria-hidden="true"><ExtGlyph ext={ext || ''} /></span>;
+}
+
 export default function NotificationToast({ notification }) {
-  const { dismissToast } = useNotifications();
+  const { dismissToast, notify } = useNotifications();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { installUpdate } = useUpdates();
 
   const [leaving, setLeaving] = useState(false);
@@ -24,7 +32,7 @@ export default function NotificationToast({ notification }) {
 
   // Rebuild action closures at render time so rows hydrated from localStorage
   // still get working buttons. ctx carries fresh React-bound callbacks.
-  const actions = buildActions(notification, { navigate, installUpdate });
+  const actions = buildActions(notification, { navigate, installUpdate, notify, pathname });
 
   // Begin the exit animation, then actually dismiss after the transition ends.
   // We don't unmount synchronously because that would skip the slide-out.
@@ -84,9 +92,16 @@ export default function NotificationToast({ notification }) {
       onBlur={startTimer}
       tabIndex={-1}
     >
-      <span className="toast-icon" aria-hidden="true">
-        {icon}
-      </span>
+      {/* A notification ABOUT a file may carry its thumbnail (`payload.thumb`,
+          or `payload.thumbExt` for the file type's glyph): it takes the icon's
+          place, since the file is what the toast is about. */}
+      {notification.payload?.thumb || notification.payload?.thumbExt ? (
+        <ToastThumb src={notification.payload.thumb} ext={notification.payload.thumbExt} />
+      ) : (
+        <span className="toast-icon" aria-hidden="true">
+          {icon}
+        </span>
+      )}
 
       <div className="toast-body">
         <div className="toast-title">{notification.title}</div>

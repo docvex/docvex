@@ -7,7 +7,7 @@
 // identity file collects them in one place, in the project folder, next to the
 // documents they were taken from.
 //
-// Stored as `<Name>.dvx` inside an `Identities/` subfolder of the project —
+// (Historically stored as `<Name>.dvx` inside an `Identities/` subfolder —
 // DocVex's own record format. The bytes are JSON: these are FIELDS, not prose,
 // so the AI reads and writes them without parsing a layout and the file stays
 // diffable and syncs cleanly through Dropbox/iCloud like everything else in
@@ -17,12 +17,27 @@
 // Written from two places: by hand ("Add identity" in the Files tab) and
 // automatically by the Timeline council, which knows every party in the story
 // by the time it has finished reconstructing it.
+//
+// ── NOW STORED INSIDE A DATA COLLECTION ─────────────────────────────────
+// The separate identity file type is RETIRED: a party's record lives inside a
+// Data collection (`<Name>.dvc`, lib/dataCollections), as its `record` — the
+// collection being everything the project knows about that subject (sources,
+// facts, timeline, face matches) and the record the fields a clause is filled
+// from. Everything here works on the RECORD as before; only the file around it
+// changed: `parseIdentity` finds the record inside a collection, the writers
+// put it back into the collection WITHOUT touching the rest of it, and
+// `listProjectIdentities` lists every collection that carries one — which is
+// what the document autofill (DocConstructor) reads, so it works unchanged.
+// The standalone `.dvx` file type, the record form and every way of writing a
+// record by hand are GONE: a record is what the Files tab's AI scan reads into
+// a person's or company's Data collection (lib/dataCollections fillRecord).
 
 import { normalizeNationality } from './nationalities';
 import { localFolderApi, readLocalBlob } from './localFolder';
 import { JURISDICTIONS, DEFAULT_JURISDICTION } from './jurisdictions';
 
-export const IDENTITY_EXT = '.dvx';
+export const IDENTITY_EXT = '.dvc';
+const COLLECTION_TYPE = 'docvex/data-collection';
 export const IDENTITY_FOLDER = 'Identities';
 // Served as JSON so anything that reads the bytes directly (the AI file
 // index, a text editor) still understands them.
@@ -450,6 +465,11 @@ export function parseIdentity(text) {
   let raw;
   try { raw = JSON.parse(text); } catch { return null; }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  // A Data collection: its record, if it carries one.
+  if (raw.type === COLLECTION_TYPE) {
+    raw = raw.record;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  }
   const base = emptyIdentity(raw.kind === 'org' ? 'org' : 'person');
   const out = { ...base };
   for (const key of Object.keys(base)) {
@@ -510,10 +530,8 @@ export function parseIdentity(text) {
   return settleRepresentative(settlePersonName(out));
 }
 
-// Read a file ONLY if it really is a record. `readIdentity` is deliberately
-// lenient — it fills gaps from the blank shape so an older or hand-edited record
-// still opens — which makes it useless for deciding whether an arbitrary `.json`
-// IS one. This asks that question first.
+// Read a file ONLY if it is a Data collection carrying a record (what the
+// document autofill lists: listProjectIdentities).
 export async function readIdentityIfRecord(pathOrName) {
   try {
     const blob = await readLocalBlob(pathOrName);
@@ -526,79 +544,32 @@ export async function readIdentityIfRecord(pathOrName) {
   }
 }
 
-export function serializeIdentity(identity) {
-  return `${JSON.stringify({ ...identity, version: 1 }, null, 2)}\n`;
-}
-
-export function identityBlob(identity) {
-  return new Blob([serializeIdentity(identity)], { type: IDENTITY_MIME });
-}
-
+// A file that may carry a record: a Data collection.
 export function isIdentityFile(name) {
   return String(name || '').toLowerCase().endsWith(IDENTITY_EXT);
 }
 
-// Could these bytes be a record, regardless of what the file is called?
-//
-// `.dvx` is what this app writes, but records reach a project folder by other
-// routes too — an older build, a hand-written file, one saved out as plain
-// `.json` — and a record the viewer shows as raw JSON is a record the user
-// can't read or edit. So the viewer sniffs instead of trusting the extension,
-// and this is the test it uses.
-//
-// Deliberately strict, because a false positive opens somebody's `package.json`
-// in an identity form: it must be a JSON object that declares one of OUR two
-// kinds AND carries at least one field only an identity record has.
-const IDENTITY_MARKERS = [
-  'legalName', 'nationalId', 'dateOfBirth', 'nationality', 'idDocument',
-  'taxId', 'regNo', 'legalForm', 'representative', 'role', 'aka',
-];
+// Does this JSON carry a record? Only a Data collection whose `record` is a
+// person or an organisation does.
 export function looksLikeIdentityJson(text) {
   let raw;
   try { raw = JSON.parse(text); } catch { return false; }
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
-  if (raw.kind !== 'person' && raw.kind !== 'org') return false;
-  if (typeof raw.name !== 'string') return false;
-  // `version: 1` is ours and settles it on its own; otherwise look for a field
-  // that no ordinary JSON document would happen to carry alongside a matching
-  // `kind` and `name`.
-  if (raw.version === 1) return true;
-  return IDENTITY_MARKERS.some((k) => typeof raw[k] === 'string');
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || raw.type !== COLLECTION_TYPE) return false;
+  return !!(raw.record && typeof raw.record === 'object' && (raw.record.kind === 'person' || raw.record.kind === 'org'));
 }
 
-// Is this file worth sniffing at all? `.dvx` is a record by definition; `.json`
-// is the only other extension a record has ever been written under.
+// Is this file worth reading for a record? Only a Data collection can hold one.
 export function isIdentityCandidate(name) {
-  const n = String(name || '').toLowerCase();
-  return n.endsWith(IDENTITY_EXT) || n.endsWith('.json');
+  return String(name || '').toLowerCase().endsWith(IDENTITY_EXT);
 }
 
-// Everything in the project's Identities/ folder is a record, whatever it is
-// called — which settles a `.json` one without reading a byte. Handles both
-// separators, since a path can arrive from either platform's listing.
-export function isInIdentityFolder(path) {
-  const p = String(path || '').replace(/\\/g, '/').toLowerCase();
-  return p.includes(`/${IDENTITY_FOLDER.toLowerCase()}/`);
-}
 
-// "Ionescu Maria.dvx" → "Ionescu Maria"
+// "Ionescu Maria.dvc" → "Ionescu Maria"
 export function identityDisplayName(name) {
   const n = String(name || '');
-  return isIdentityFile(n) ? n.slice(0, -IDENTITY_EXT.length) : n;
+  return isIdentityFile(n) ? n.replace(/\.dvc$/i, '') : n;
 }
 
-// Filename for a record. Path separators and the characters Windows refuses are
-// replaced rather than stripped, so two different names can't collapse into one
-// file and silently overwrite each other.
-export function identityFileName(identity) {
-  const base = String(identity?.name || identity?.legalName || 'Unnamed')
-    .replace(/[\\/:*?"<>|]/g, '-')
-    .replace(/\s+/g, ' ')
-    .replace(/^\.+/, '')
-    .trim()
-    .slice(0, 90) || 'Unnamed';
-  return `${base}${IDENTITY_EXT}`;
-}
 
 // ── County or sector? ───────────────────────────────────────────────────
 // One field holds both, because a Romanian address has one or the other and
@@ -1392,7 +1363,7 @@ export function identityValueForField(identity, key) {
 // Identities/ — records reach a project by other routes, and one the user can
 // see in the Files tab is one they will expect to fill from. Reading is what
 // decides: readIdentityIfRecord returns null for ordinary JSON.
-const IDENTITY_SCAN_MAX = 60;
+const IDENTITY_SCAN_MAX = 200;
 export async function listProjectIdentities(projectDir) {
   if (!projectDir) return [];
   try {
@@ -1421,115 +1392,7 @@ export function identitySummary(identity) {
   return bits.join(' · ');
 }
 
-// ── Folder IO ────────────────────────────────────────────────────────────
-// A record is written BESIDE the documents — into whichever folder it was made
-// from, or the project root — never into a folder of its own. Nothing here
-// creates `Identities/` any more: the Files tab gathers records into an
-// "Identities" CATEGORY instead, which groups them wherever they sit without
-// moving anyone's files. Projects that already have an `Identities/` folder
-// keep it, and its records are still found (listProjectIdentities walks the
-// whole project).
 
-export function identityDirIn(projectDir) {
-  if (!projectDir) return '';
-  const sep = projectDir.includes('\\') ? '\\' : '/';
-  return `${projectDir.replace(/[\\/]+$/, '')}${sep}${IDENTITY_FOLDER}`;
-}
-
-// Every identity in the project, wherever it sits. (Used to read only the
-// `Identities/` folder; records are no longer kept in one.)
-export async function listIdentities(projectDir) {
-  return listProjectIdentities(projectDir);
-}
-
-export async function readIdentity(pathOrName) {
-  try {
-    const blob = await readLocalBlob(pathOrName);
-    if (!blob) return null;
-    return parseIdentity(await blob.text());
-  } catch {
-    return null;
-  }
-}
-
-// Write a record. `previousFileName` lets a rename replace the old file instead
-// of leaving a stale duplicate behind when the person's name is corrected.
-//
-// Where it lands: next to the record it replaces (`previousPath`), else in
-// `dir` (the folder the user is looking at), else the project root. No folder
-// is created for it.
-export async function writeIdentity(projectDir, identity, { previousFileName, previousPath, dir: wantedDir } = {}) {
-  if (!projectDir && !wantedDir && !previousPath) return { error: 'no_folder' };
-  const prior = String(previousPath || '');
-  const cut = Math.max(prior.lastIndexOf('/'), prior.lastIndexOf('\\'));
-  const dir = (cut > 0 ? prior.slice(0, cut) : '') || wantedDir || projectDir;
-  const filename = identityFileName(identity);
-  const record = { ...identity, updatedAt: new Date().toISOString() };
-  const { results, error } = await localFolderApi.writeFiles({
-    dir,
-    files: [{ filename, blob: identityBlob(record) }],
-  });
-  const res = results?.[0];
-  if (error || !res?.ok) return { error: error || res?.error || 'write_failed' };
-  if (previousFileName && previousFileName !== filename) {
-    const sep = dir.includes('\\') ? '\\' : '/';
-    await localFolderApi.deleteFiles({ dir, paths: [`${dir}${sep}${previousFileName}`] }).catch(() => null);
-  }
-  return { ok: true, path: res.path, filename, identity: record };
-}
-
-// Save a record back to the exact file it was opened from — what the Doc
-// Viewer does. Separate from writeIdentity because the viewer knows the file's
-// own path, not the project folder, and must not move it: a window whose file
-// silently relocated mid-edit would lose its tab.
-//
-// Renaming the party is still honoured — the caller gets the new filename back
-// and repoints its tab, the same way the AI document generator does when it
-// renames a file it just wrote.
-export async function saveIdentityAt(filePath, identity, { rename = true } = {}) {
-  if (!filePath) return { error: 'no_path' };
-  const sep = filePath.includes('\\') ? '\\' : '/';
-  const dir = filePath.slice(0, filePath.lastIndexOf(sep));
-  const current = filePath.slice(filePath.lastIndexOf(sep) + 1);
-  const wanted = identityFileName(identity);
-  const filename = rename ? wanted : current;
-  const record = { ...identity, updatedAt: new Date().toISOString() };
-  const { results, error } = await localFolderApi.writeFiles({
-    dir,
-    files: [{ filename, blob: identityBlob(record) }],
-  });
-  const res = results?.[0];
-  if (error || !res?.ok) return { error: error || res?.error || 'write_failed' };
-  if (filename !== current) {
-    await localFolderApi.deleteFiles({ dir, paths: [filePath] }).catch(() => null);
-  }
-  return { ok: true, path: res.path, filename, renamed: filename !== current, identity: record };
-}
-
-// Fold AI-extracted records into what's already on disk: an existing identity
-// with the same name is UPDATED (empty fields filled, sources merged) rather
-// than duplicated, and fields the user already typed are never overwritten.
-export function mergeIdentity(existing, incoming) {
-  if (!existing) return incoming;
-  const out = { ...existing };
-  for (const key of Object.keys(incoming)) {
-    if (['id', 'createdAt', 'updatedAt', 'sources', 'fieldSources', 'custom', 'origin', 'version', 'sourceLinks', 'pending'].includes(key)) continue;
-    const cur = String(out[key] ?? '').trim();
-    const next = String(incoming[key] ?? '').trim();
-    if (!cur && next) out[key] = next;
-  }
-  out.sources = Array.from(new Set([...(existing.sources || []), ...(incoming.sources || [])]));
-  out.sourceLinks = { ...(incoming.sourceLinks || {}), ...(existing.sourceLinks || {}) };
-  out.pending = Array.from(new Set([...(existing.pending || []), ...(incoming.pending || [])]))
-    .filter((n) => !out.sources.includes(n));
-  return out;
-}
-
-// Match on name, case- and spacing-insensitively — the AI writes "Ion Popescu"
-// where the user typed "ion  popescu".
-export function identityKey(identity) {
-  return String(identity?.name || '').toLowerCase().replace(/\s+/g, ' ').trim();
-}
 
 // ── Where a record's source documents are ──────────────────────────────────
 // A source is stored as a path RELATIVE to the record's folder, so the record

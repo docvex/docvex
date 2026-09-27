@@ -1,0 +1,65 @@
+/* The advisor thread's "checked against the sources" card (SourcesCheckCard).
+   The version card's width and ground; one hairline row per thing checked, a
+   tone dot for its verdict. */
+.scc {
+  margin: 6px 0 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-card) 70%, transparent);
+  font-size: 12.4px;
+  color: var(--text-primary);
+}
+.scc.has-issues { border-color: color-mix(in srgb, var(--warning) 55%, var(--border)); }
+.scc-head { display: flex; align-items: center; gap: 8px; }
+.scc-title { font-weight: 650; }
+.scc-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--success-soft); color: var(--success);
+}
+.scc.has-issues .scc-badge { background: var(--warning-soft); color: var(--warning); }
+.scc-spin {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--accent-tint); border-top-color: var(--accent);
+  animation: scc-spin 800ms linear infinite;
+}
+.scc-spin.is-still { animation: none; border-top-color: var(--text-muted); }
+@keyframes scc-spin { to { transform: rotate(360deg); } }
+.scc.is-pending .scc-title { font-weight: 550; color: var(--text-secondary); }
+
+.scc-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.scc-row { border-top: 1px solid var(--border); }
+.scc-row-head {
+  width: 100%; display: flex; align-items: flex-start; gap: 8px;
+  padding: 7px 2px; border: none; background: transparent;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.scc-row-head:disabled { cursor: default; }
+.scc-row-head:hover:not(:disabled) .scc-row-title { color: var(--accent); }
+.scc-dot { flex: none; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--text-muted); }
+.scc-row.is-ok .scc-dot { background: var(--success); }
+.scc-row.is-warn .scc-dot { background: var(--warning); }
+.scc-row.is-error .scc-dot { background: var(--danger); }
+.scc-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.scc-row-title { font-weight: 600; }
+.scc-row-detail { color: var(--text-secondary); line-height: 1.45; }
+.scc-row-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.scc-verdict { font-size: 10.4px; font-weight: 700; color: var(--text-muted); }
+.scc-row.is-ok .scc-verdict { color: var(--success); }
+.scc-row.is-warn .scc-verdict { color: var(--warning); }
+.scc-row.is-error .scc-verdict { color: var(--danger-text); }
+.scc-src { font-size: 10.4px; color: var(--text-muted); }
+.scc-more { padding: 0 2px 8px 16px; }
+.scc-fact { margin: 2px 0; color: var(--text-secondary); }
+.scc-quote {
+  margin: 6px 0 0; padding: 4px 0 4px 10px;
+  border-left: 2px solid var(--accent);
+  color: var(--text-secondary); line-height: 1.5;
+}
+.scc-waiting { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.scc-waiting-head { margin: 0 0 4px; font-size: 10.4px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.scc-waiting-row { margin: 2px 0; color: var(--text-secondary); line-height: 1.45; }
+.scc-plan { color: var(--text-muted); }
+:root[data-reduce-motion='true'] .scc-spin { animation: none; }
+@media (prefers-reduced-motion: reduce) { .scc-spin { animation: none; } }

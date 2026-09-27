@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './DesignSystem.css';
 // The real recipes the gallery stands still: the Legislation tab bar and its
 // controls, the Legislation page's rows, tags, menu and sections, the CAEN
@@ -8,10 +8,20 @@ import '../components/LegalBar.css';
 import './Legislation.css';
 import './Caen.css';
 import './LegalSourceStub.css';
+// The Doc Viewer's Quick actions tiles (components/DocRibbon), for the viewer sample.
+import '../components/DocRibbon.css';
 import PageMasthead from '../components/PageMasthead';
 import FilterTabs from '../components/FilterTabs';
 import Tooltip from '../components/Tooltip';
+import HistoryButton from '../components/HistoryMenu';
+import { WorkspaceSearchTab, WorkspaceRail } from '../components/LegalWorkspace';
 import { BarDatePicker, BarDateRange, isoOf } from '../components/BarCalendar';
+import { BarPicker } from '../components/LegalBar';
+import { useOneOpen } from '../lib/oneOpen';
+import DropZone from '../components/DropZone';
+import Toggle from '../components/Toggle';
+import RuleOptions from '../components/RuleOptions';
+import DangerZone, { DangerRow } from '../components/DangerZone';
 import {
   DS_TOKENS, DS_FAMILIES, tokenKey, currentValue, loadOverrides, saveOverrides, onDesignChange,
   overridesToCss, askDesign,
@@ -55,12 +65,13 @@ const BinIcon = (
   </svg>
 );
 
-const FAMILY_IDS = ['personal', 'project', 'viewer'];
-const GROUPS = ['Bars', 'Controls', 'Type', 'Pills and tags', 'Surfaces', 'Families'];
+const GROUPS = ['Bars', 'Controls', 'Type', 'Pills and tags', 'Surfaces', 'Page layout', 'Doc Viewer', 'Families'];
 
 export default function DesignSystem() {
   const [over, setOver] = useState(loadOverrides);
-  const [family, setFamily] = useState('personal');
+  // One family for the whole app (lib/designSystem) — Project and Viewer were folded into it.
+  const family = 'personal';
+  const [sampleView, setSampleView] = useState('list');   // the Mini header sample's View dropdown
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [proposal, setProposal] = useState(null); // { changes, note } | { error }
@@ -129,29 +140,21 @@ export default function DesignSystem() {
       <section className="dsg-section">
         <div className="dsg-section-head">
           <div>
-            <h2 className="dsg-h">One language, three families</h2>
+            <h2 className="dsg-h">One language</h2>
             <p className="dsg-sub">
-              Every section of the sidebar builds from the same elements. What differs is the family: the shape,
-              density and treatment a section’s tabs share. Pick one to see the gallery in it.
+              Every section of the sidebar and the Doc Viewer builds from the same elements, under the same rules:
+              one family, rendered the same everywhere.
             </p>
           </div>
-          <div className="lgt-toggle" role="tablist" aria-label="Family">
-            {FAMILY_IDS.map((f) => (
-              <button key={f} type="button" role="tab" aria-selected={family === f} className={`lgt-toggle-btn${family === f ? ' is-on' : ''}`} onClick={() => setFamily(f)}>
-                {DS_FAMILIES[f].label}
-              </button>
-            ))}
-          </div>
         </div>
+        {/* The family's rule. */}
         <div className="dsg-families">
-          {FAMILY_IDS.map((f) => (
-            <div key={f} className={`dsg-family${family === f ? ' is-on' : ''}`} data-ds={f}>
-              <p className="dsg-family-follows">Follows {DS_FAMILIES[f].follows}</p>
-              <p className="dsg-family-name">{DS_FAMILIES[f].label}</p>
-              <p className="dsg-family-rule">{DS_FAMILIES[f].rule}</p>
-              <p className="dsg-family-tabs">{DS_FAMILIES[f].tabs}.</p>
-            </div>
-          ))}
+          <div className="dsg-family is-on" data-ds={family}>
+            <p className="dsg-family-follows">Follows {DS_FAMILIES[family].follows}</p>
+            <p className="dsg-family-name">{DS_FAMILIES[family].label}</p>
+            <p className="dsg-family-rule">{DS_FAMILIES[family].rule}</p>
+            <p className="dsg-family-tabs">{DS_FAMILIES[family].tabs}.</p>
+          </div>
         </div>
       </section>
 
@@ -216,7 +219,7 @@ export default function DesignSystem() {
       <section className="dsg-section" data-ds={family}>
         <div className="dsg-section-head">
           <div>
-            <h2 className="dsg-h">The elements — {DS_FAMILIES[family].label} family</h2>
+            <h2 className="dsg-h">The elements</h2>
             <p className="dsg-sub">
               Each one is the real recipe the tabs use, stood still, under the token that drives it. Where the real
               rules are bound to a page, the sample is built from the same tokens and says which recipe it mirrors.
@@ -236,10 +239,15 @@ export default function DesignSystem() {
                 <FilterTabs tabs={[{ id: 'a', label: 'One' }, { id: 'b', label: 'Two' }, { id: 'c', label: 'Three' }]} active="a" onSelect={() => {}} ariaLabel="Sample tabs" />
               </div>
               <div className="lgt-line2">
-                <div className="lgt-toggle" role="tablist" aria-label="Sample view">
-                  <button type="button" role="tab" aria-selected className="lgt-toggle-btn is-on">List</button>
-                  <button type="button" role="tab" className="lgt-toggle-btn">Picker</button>
-                </div>
+                {/* The view — a dropdown (the bar's picker, on its own), as the
+                    CAEN tab chooses List / Outline / Atlas. */}
+                <BarPicker
+                  solo
+                  label="View"
+                  options={[{ id: 'list', label: 'List' }, { id: 'picker', label: 'Picker' }]}
+                  value={sampleView}
+                  onChange={setSampleView}
+                />
                 <button type="button" className="lgt-tool-btn is-danger"><span className="lgt-tool-ico">{BinIcon}</span><span>Clear</span></button>
                 <div className="lgt-search">
                   <span className="lgt-search-glyph">{SearchGlyph}</span>
@@ -249,6 +257,8 @@ export default function DesignSystem() {
               </div>
             </div>
           </Sample>
+
+          <WorkspaceSample />
 
           <Sample name="Bottom bar" of="mirrors .fx-bottombar (Files) and .cn-bottombar (CAEN picker) — keys and actions" wide>
             <div className="dsg-bottombar">
@@ -276,24 +286,20 @@ export default function DesignSystem() {
 
           <CalendarSamples />
 
-          <Sample name="Dropdown" of="components/LegalBar .lg-menu — the app’s own list, the chosen entry faded; a long list gets a narrowing box and headings">
-            <div className="lg-menu is-long" style={{ position: 'static', width: 240 }}>
-              <input className="lg-menu-find" placeholder="Type to narrow" readOnly aria-label="Narrow the sample list" />
-              <ul className="lg-menu-list" role="listbox" aria-label="Sample kinds">
-                <li className="lg-menu-head" role="presentation">Kinds</li>
-                {['Any kind', 'Lege', 'Ordonanță de urgență', 'Hotărâre'].map((k, i) => (
-                  <li key={k}><button type="button" role="option" aria-selected={i === 1} className={`lg-menu-item${i === 1 ? ' is-on' : ''}`}><span className="lg-menu-item-label">{k}</span>{i === 1 ? <span className="lg-menu-mark" aria-hidden="true" /> : null}</button></li>
-                ))}
-              </ul>
-            </div>
-          </Sample>
+          <DropdownSample />
 
-          <Sample name="Pills and tags" of=".lg-tag · .cn-tag · .cn-pill (trail) · tooltip pill · status pill" row>
-            <span className="lg-tag">republicată</span>
-            <span className="cn-tag is-old">Rev. 2</span>
-            <span className="dsg-pill-still">A tooltip</span>
-            <span className="dsg-status">Up to date</span>
-            <button type="button" className="cn-pill is-live"><span className="cn-pill-kind">Section</span><span className="cn-pill-code">C</span><span className="cn-pill-name">Industria prelucrătoare</span></button>
+          <ToggleSample />
+          <SegmentedSample />
+
+          <Sample name="Danger zone" of="components/DangerZone — DangerZone + DangerRow + .dz-btn (Account, Admin)" wide>
+            <DangerZone subtitle="Irreversible actions. Proceed with care." className="dsg-dz">
+              <DangerRow title="Erase data" desc="Clear the locally cached data on this machine.">
+                <button type="button" className="dz-btn">Erase data</button>
+              </DangerRow>
+              <DangerRow title="Delete account" desc="Permanently remove the account. This cannot be undone.">
+                <button type="button" className="dz-btn">Delete account</button>
+              </DangerRow>
+            </DangerZone>
           </Sample>
 
           <Sample name="Buttons" of=".dsg-btn · .lg-go · .lgt-tool-btn — plain, primary, danger, tool" row>
@@ -302,6 +308,20 @@ export default function DesignSystem() {
             <button type="button" className="dsg-btn is-danger">Danger</button>
             <button type="button" className="lgt-tool-btn"><span className="lgt-tool-ico">{BinIcon}</span><span>Tool button</span></button>
             <Tooltip content="A live tooltip — the cursor-following pill every hint uses"><button type="button" className="dsg-btn">Hover me</button></Tooltip>
+          </Sample>
+
+          <Sample name="Portal buttons" of="lib/phoneUploadPage .btn — the phone upload page: primary, and FROSTED (Take a photo) over the spotlight background" wide>
+            <div className="dsg-portal">
+              <span className="dsg-portal-spot" aria-hidden="true" />
+              <button type="button" className="dsg-pbtn is-primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></svg>
+                Choose files
+              </button>
+              <button type="button" className="dsg-pbtn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
+                Take a photo
+              </button>
+            </div>
           </Sample>
 
           <Sample name="List row" of="pages/Legislation .lg-row — kind · title · meta" wide>
@@ -329,7 +349,7 @@ export default function DesignSystem() {
             </section>
           </Sample>
 
-          <Sample name="Callouts" of="pages/Caen .cn-callout — a note; .is-old — a warning" stretch>
+          <Sample name="Callouts" of="pages/Caen .cn-callout — on the page ground with a hairline, no fill; a tone dot says a note (accent) or a warning (.is-old)" stretch>
             <section className="cn-callout">
               <p className="cn-callout-title">In a document from before 2025, 6201 meant something else</p>
               <p className="cn-callout-body">In CAEN Rev. 2, 6201 was “Activități de realizare a soft-ului la comandă”.</p>
@@ -339,6 +359,8 @@ export default function DesignSystem() {
               <p className="cn-callout-body">CAEN Rev. 2 was replaced by Rev. 3 on 1 January 2025.</p>
             </section>
           </Sample>
+
+          <DropZoneSample />
 
           <Sample name="Empty state" of="pages/LegalSourceStub .lss-card — the Doc Viewer advisor’s empty state">
             <section className="lss-card">
@@ -350,6 +372,87 @@ export default function DesignSystem() {
               <p className="lss-title">Nothing here yet</p>
               <p className="lss-plain">The sentence that says what will be here, and how to get it.</p>
             </section>
+          </Sample>
+        </div>
+      </section>
+
+      {/* ── Page layout ───────────────────────────────────────────────────
+          How a page stands beside the app sidebar — read off the Playbook and
+          the Legislation tab, drawn from the Page layout tokens. */}
+      <section className="dsg-section" data-ds={family}>
+        <div className="dsg-section-head">
+          <div>
+            <h2 className="dsg-h">Page layout</h2>
+            <p className="dsg-sub">
+              How a page stands beside the app sidebar — its gaps, the header’s divider that the mini header
+              takes over, a side list and the content — read off the Playbook and the Legislation tab and drawn
+              here from the Page layout tokens, so a change to one moves the drawing and both tabs at once.
+            </p>
+          </div>
+        </div>
+        <div className="dsg-gallery">
+          <PageLayoutSample />
+        </div>
+      </section>
+
+      {/* ── The Doc Viewer ────────────────────────────────────────────────
+          The viewer window's chrome, read off the Word document's layout and
+          drawn from the Doc Viewer tokens — the layout every kind of file now
+          renders by. */}
+      <section className="dsg-section" data-ds={family}>
+        <div className="dsg-section-head">
+          <div>
+            <h2 className="dsg-h">DocVex file viewer</h2>
+            <p className="dsg-sub">
+              The viewer window as a Word document draws it — the floating side panel under its Quick actions card,
+              the page list, the pills over the document, the counters at its foot — read off that layout into
+              the Doc Viewer tokens, which every kind of file now renders by: the same cards, the same clearance,
+              the find bar in the same corner, whatever is open.
+            </p>
+          </div>
+        </div>
+        <div className="dsg-gallery">
+          <DocViewerSample over={over} />
+        </div>
+      </section>
+
+      {/* ── Pills ────────────────────────────────────────────────────────
+          Every pill in the app, in one place. They share ONE recipe — the
+          same height, corners, type and weight — and differ only in tone:
+          every one SOFT: a tinted ground, a ring in its tone, the text at
+          full strength. */}
+      <section className="dsg-section" data-ds={family}>
+        <div className="dsg-section-head">
+          <div>
+            <h2 className="dsg-h">Pills</h2>
+            <p className="dsg-sub">
+              One shape for every pill: the same height, fully rounded, the tag size and weight. Every pill is
+              soft — a tinted ground with a ring in its tone — so it reads on any row, and one that can be pressed
+              deepens on hover. Tone is the only thing that changes.
+            </p>
+          </div>
+        </div>
+        <div className="dsg-gallery">
+          <Sample name="Tags" of=".lg-tag (a note on an act) · .cn-tag (a revision) · .cn-tag.is-old (an old one) — soft" row>
+            <span className="lg-tag">republicată</span>
+            <span className="lg-tag">cu modificările ulterioare</span>
+            <span className="cn-tag">Rev. 3</span>
+            <span className="cn-tag is-old">Rev. 2</span>
+          </Sample>
+          <Sample name="Status" of=".dsg-status (a state) — soft, with its dot" row>
+            <span className="dsg-status">Up to date</span>
+          </Sample>
+          <Sample name="Source status" of="components/LegalWorkspace SourceStatus .lgt-status-pill — soft, like the tags, and a button: live · from this machine · differs" row>
+            <button type="button" className="lgt-status-pill is-live"><span>Live from legislatie.just.ro</span></button>
+            <button type="button" className="lgt-status-pill is-archive"><span>From your copy on this machine</span></button>
+            <button type="button" className="lgt-status-pill is-differs"><span>Differs from the portal - click to sync</span></button>
+          </Sample>
+          <Sample name="Tooltip pill" of="components/Tooltip — the cursor-following hint, stood still" row>
+            <span className="dsg-pill-still">A tooltip</span>
+          </Sample>
+          <Sample name="Trail pill" of="pages/Caen .cn-pill — an ancestor in the CAEN trail, two lines" row>
+            <button type="button" className="cn-pill"><span className="cn-pill-kind">Section</span><span className="cn-pill-code">C</span><span className="cn-pill-name">Industria prelucrătoare</span></button>
+            <button type="button" className="cn-pill is-live"><span className="cn-pill-kind">Division</span><span className="cn-pill-code">10</span><span className="cn-pill-name">Industria alimentară</span></button>
           </Sample>
         </div>
       </section>
@@ -433,7 +536,7 @@ function CalendarSamples() {
       <Sample name="Date picker" of="components/BarCalendar BarDatePicker — the bar’s field, zz.ll.aaaa, the calendar hung under it (Monday first, today ringed, the day chosen filled)">
         <BarDatePicker value={day} onChange={setDay} inline />
       </Sample>
-      <Sample name="Date range" of="components/BarCalendar BarDateRange — from – to in one field; two presses, the span shown as it is hovered, the usual spans at the foot">
+      <Sample name="Date range" of="components/BarCalendar BarDateRange — in steps: FROM alone, then TO alone, then the span — one calendar shaded when both ends share a month, two (FROM left, TO right, just the two days) when they don’t; Clear starts over" wide>
         <BarDateRange from={span.from} to={span.to} onChange={setSpan} inline />
       </Sample>
       <Sample name="Legislation bar, with dates" of="the Legislation bar (components/LegalBar) with a period and a day — press the fields; not yet on the tab" wide>
@@ -448,6 +551,343 @@ function CalendarSamples() {
         </div>
       </Sample>
     </>
+  );
+}
+
+// The WORKSPACE (components/LegalWorkspace) — the frame every Legislation
+// source tab stands in, the Newsletter aside: Search and History heading the
+// mini header's second line, the rail of what the tab has opened, the main
+// column. Live: press an item, close one, press Search.
+const WS_SAMPLE = [
+  { id: 'a', kind: 'Lege', title: 'nr. 24/2000', tip: 'LEGE nr. 24/2000 — privind normele de tehnică legislativă' },
+  { id: 'b', kind: 'Ordonanță de urgență', title: 'nr. 195/2002', tip: 'O.U.G. nr. 195/2002 — privind circulația pe drumurile publice' },
+  { id: 'c', kind: 'Tribunalul Cluj', title: '1234/117/2026', tip: 'Dosarul 1234/117/2026' },
+];
+function WorkspaceSample() {
+  const [items, setItems] = useState(WS_SAMPLE);
+  const [active, setActive] = useState('a');
+  const current = items.find((t) => t.id === active);
+  return (
+    <Sample name="Workspace" of="components/LegalWorkspace — Search + History, the rail of what is open, the main column (every Legislation tab but the Newsletter)" wide stretch>
+      <div className="dsg-ws" style={{ '--lg-rail-w': '236px' }}>
+        <div className="lgt-bar is-pinned">
+          <div className="lgt-line2">
+            <WorkspaceSearchTab active={active == null} onClick={() => setActive(null)} />
+            <HistoryButton iconOnly className="lg-searchtab-hist" tab="design-system" tip="The tab's history" emptyText="Nothing here — this is a sample." onPick={() => {}} />
+            <div className="lgt-search">
+              <span className="lgt-search-glyph">{SearchGlyph}</span>
+              <input placeholder={current ? 'Find in this act' : 'Any words'} readOnly aria-label="Sample search" />
+            </div>
+          </div>
+        </div>
+        <div className="lg-shell has-rail dsg-ws-shell">
+          {items.length ? (
+            <WorkspaceRail
+              still
+              pinned
+              items={items}
+              activeId={active}
+              onSelect={setActive}
+              onClose={(id) => { setItems((l) => l.filter((t) => t.id !== id)); if (id === active) setActive(null); }}
+              label="Sample items"
+            />
+          ) : null}
+          <div className="dsg-ws-main">
+            {current ? (
+              <>
+                <p className="dsg-ws-kind">{current.kind} {current.title}</p>
+                <p className="dsg-sample-note">{current.tip}. The item open fills the main column; Search puts it away and shows the search again.</p>
+              </>
+            ) : (
+              <>
+                <p className="dsg-ws-kind">The search</p>
+                <p className="dsg-sample-note">
+                  Search is lit: the search and its answers fill the main column. Everything opened stands in the rail,
+                  which is not drawn while nothing is open.
+                  {items.length < WS_SAMPLE.length ? <> <button type="button" className="dsg-btn" onClick={() => { setItems(WS_SAMPLE); setActive('a'); }}>Put the items back</button></> : null}
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </Sample>
+  );
+}
+
+// The DROPDOWN, working: its field (the bar's Kind picker) expands and
+// collapses the list under it, drawn in place rather than portalled so it
+// stays in the gallery; a pick marks the entry and folds the list, the
+// narrowing box narrows, Escape folds it.
+const SAMPLE_KINDS = ['Any kind', 'Lege', 'Ordonanță de urgență', 'Hotărâre', 'Ordin', 'Decizie'];
+function DropdownSample() {
+  const [open, setOpen] = useState(false);   // closed when the tab opens
+  const boxRef = useRef(null);
+  // One open at a time, and a press outside the field and its list closes it.
+  useOneOpen(open, () => setOpen(false), [boxRef]);
+  const [value, setValue] = useState('Lege');
+  const [q, setQ] = useState('');
+  const shown = SAMPLE_KINDS.filter((k) => k.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <Sample name="Dropdown" of="components/LegalBar BarPicker — the field expands and collapses the app’s own list; the chosen entry marked; a long list gets a narrowing box and headings">
+      <div className="dsg-dropdown" ref={boxRef} onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}>
+        <button
+          type="button"
+          className={`lg-input is-kind lg-kind is-solo${open ? ' is-open' : ''}`}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <span className="lg-kind-label">{value}</span>
+          <span className="lg-kind-chev" aria-hidden="true" />
+        </button>
+        {open ? (
+          <div className="lg-menu is-long is-solo is-placed dsg-dropdown-menu">
+            <input className="lg-menu-find" placeholder="Type to narrow" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Narrow the sample list" />
+            <ul className="lg-menu-list" role="listbox" aria-label="Sample kinds">
+              <li className="lg-menu-head" role="presentation">Kinds</li>
+              {shown.map((k) => (
+                <li key={k}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={k === value}
+                    className={`lg-menu-item${k === value ? ' is-on' : ''}`}
+                    onClick={() => { setValue(k); setQ(''); setOpen(false); }}
+                  >
+                    <span className="lg-menu-item-label">{k}</span>
+                    {k === value ? <span className="lg-menu-mark" aria-hidden="true" /> : null}
+                  </button>
+                </li>
+              ))}
+              {!shown.length ? <li className="lg-menu-head" role="presentation">Nothing matches</li> : null}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    </Sample>
+  );
+}
+
+// The DOC VIEWER (pages/DocViewer) — its chrome as a Word document draws it,
+// stood still and built from the Doc Viewer tokens (the real rules are bound
+// to the viewer window, whose stylesheet reads the same tokens with the same
+// fallbacks): the Quick actions card and the side panel floating at the left,
+// the page list, the zoom and find pills, a sheet, the counters. Under it,
+// the values read off that layout.
+const DV_TILES = [
+  { id: 'pages', label: 'Pages', live: true },
+  { id: 'fit', label: 'Fit', live: true },
+  { id: 'counters', label: 'Counters', live: true },
+  { id: 'focus', label: 'Focus', live: true },
+  { id: 'laws', label: 'Laws', live: true },
+  { id: 'edit', label: 'Edit photo' },
+  { id: 'extract', label: 'Extract text' },
+  { id: 'word', label: 'To Word' },
+];
+const DV_TABS = [
+  { id: 'advisor', label: 'Advisor', live: true, on: true },
+  { id: 'metadata', label: 'Data', live: true },
+  { id: 'theme', label: 'Theme', live: true },
+  { id: 'add', label: 'Structure', live: true },
+  { id: 'extract', label: 'Extract' },
+  { id: 'extracted', label: 'Pieces' },
+  { id: 'captions', label: 'Captions' },
+  { id: 'sources', label: 'Sources' },
+];
+const TileGlyph = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 12h8M12 8v8" />
+  </svg>
+);
+function DocViewerSample({ over }) {
+  const tokens = DS_TOKENS.filter((t) => t.group === 'Doc Viewer');
+  return (
+    <>
+      <Sample name="Viewer window" of="pages/DocViewer — the Word document's layout: .dv-quick-card · .dv-advisor-card · .dv-pagerail-card · .dv-find · .dv-zoom-controls · .dv-doc-counter, from the --ds-dv-* tokens" wide>
+        <div className="dsg-dv" role="img" aria-label="The Doc Viewer window as a Word document draws it">
+          <div className="dsg-dv-side">
+            <aside className="dsg-dv-card dsg-dv-quick">
+              <h3 className="drb-quick-title">Quick actions</h3>
+              <div className="drb-actions">
+                {DV_TILES.map((t) => (
+                  <span key={t.id} className={`drb-action${t.live ? '' : ' is-unavailable'}`}>
+                    <span className="drb-action-icon">{TileGlyph}</span>
+                    <span className="drb-action-label">{t.label}</span>
+                  </span>
+                ))}
+              </div>
+            </aside>
+            <aside className="dsg-dv-card dsg-dv-panel">
+              <div className="dsg-dv-tabs">
+                {DV_TABS.map((t) => (
+                  <span key={t.id} className={`dsg-dv-tab${t.on ? ' is-on' : ''}${t.live ? '' : ' is-unavailable'}`}>{t.label}</span>
+                ))}
+              </div>
+              <div className="dsg-dv-panel-body">
+                <span className="dsg-dv-line" style={{ width: '70%' }} />
+                <span className="dsg-dv-line" style={{ width: '52%' }} />
+                <span className="dsg-dv-line" style={{ width: '61%' }} />
+              </div>
+              <div className="dsg-dv-composer"><span>Ask about this document</span></div>
+            </aside>
+          </div>
+          <div className="dsg-dv-doc">
+            <aside className="dsg-dv-card dsg-dv-rail">
+              <h3 className="drb-quick-title">Pages</h3>
+              <div className="dsg-dv-thumbs">
+                <span className="is-current" /><span /><span />
+              </div>
+            </aside>
+            <div className="dsg-dv-pill dsg-dv-zoom"><span className="dsg-dv-zoom-btn">−</span><span className="dsg-dv-pct">100%</span><span className="dsg-dv-zoom-btn">+</span></div>
+            <div className="dsg-dv-pill dsg-dv-find">{SearchGlyph}<span>Find in the document</span></div>
+            <div className="dsg-dv-sheet">
+              <span className="dsg-dv-line is-title" style={{ width: '46%' }} />
+              <span className="dsg-dv-line" style={{ width: '92%' }} />
+              <span className="dsg-dv-line" style={{ width: '88%' }} />
+              <span className="dsg-dv-line" style={{ width: '95%' }} />
+              <span className="dsg-dv-line" style={{ width: '60%' }} />
+            </div>
+            <div className="dsg-dv-pill dsg-dv-counter">Page 1 of 3</div>
+            <div className="dsg-dv-pill dsg-dv-words">412 words</div>
+          </div>
+        </div>
+        <dl className="dsg-dv-values" aria-label="The values read off the Word layout">
+          {tokens.map((t) => (
+            <div key={t.name} className={`dsg-dv-value${over?.[tokenKey(t)] ? ' is-set' : ''}`}>
+              <dt>{t.label}</dt>
+              <dd>{currentValue(t, over)}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="dsg-sample-note">
+          Read off the Word document’s viewer: the panel’s width, the cards’ inset, corner, frost and blur, the
+          document’s clearance, the page list, the pills’ button, glass and blur, the open find bar, the counters’
+          type. Every kind of file — PDF, picture, video, audio, text, slides, sheets, records — now draws its
+          chrome from these; edit them in the table below.
+        </p>
+      </Sample>
+    </>
+  );
+}
+
+// The DROP ZONE (components/DropZone) — the file import surface the Timeline,
+// the Playbook and an identity record's Sources tab share: the full panel
+// and, once there is something under it, the compact row. Live: drop files
+// on it or press Import — they are only named here, never read or kept.
+function DropZoneSample() {
+  const [picked, setPicked] = useState([]);
+  const take = (files) => {
+    const names = Array.from(files || []).map((f) => f.name).filter(Boolean);
+    if (names.length) setPicked((l) => [...l, ...names].slice(-6));
+  };
+  return (
+    <Sample name="Drop zone" of="components/DropZone .cto-dropzone — file import: drop or Import; compact once something is listed under it (Timeline, Playbook, record sources)" wide stretch>
+      <DropZone
+        title="Drop files here"
+        sub="Any file — here they are only named, never read or kept."
+        onFiles={take}
+      />
+      <DropZone
+        compact
+        title="Drop more files here"
+        sub="The compact row a zone collapses into once it has something to show."
+        onFiles={take}
+      >
+        {picked.length ? (
+          <p className="dsg-sample-note">Dropped: {picked.join(', ')}{' '}
+            <button type="button" className="dsg-btn" onClick={() => setPicked([])}>Clear</button>
+          </p>
+        ) : null}
+      </DropZone>
+    </Sample>
+  );
+}
+
+// The page's layout, drawn from the Page layout tokens: the window edge, the
+// app sidebar, the header with its divider pulled out toward the sidebar,
+// a side list and the content under it — each measure labelled with its
+// token, then the rules in words.
+const PAGE_RULES = [
+  ['Window edge', '--ds-page-inset', 'The app sidebar keeps this gap from the window’s top, left and bottom. The same gap is where a sticky header or side list sticks under the top of the page, and how far above the window’s bottom a side list ends.'],
+  ['Content', '--ds-content-gap', 'A page’s content — its text, headings and fields — starts this far from the sidebar, and keeps the same on its right. On a wide window it stops at the content width (--ds-content-max — the old 3/4 rule), left-aligned; controls standing beside a document may run past it.'],
+  ['Header divider', '--ds-divider-pull', 'The hairline under a page’s header is pulled out toward the sidebar by the content gap less the gap from the sidebar, so it starts one --ds-rail-gap from the sidebar while the header’s text stays on the content edge. The mini header that takes over when the page scrolls stands in the same place: --ds-rail-gap from the sidebar, --ds-page-inset under the top, --ds-bar-h tall, its hairline on this line, frosted only while it is stuck.'],
+  ['Under the header', '--ds-head-gap', 'Whatever stands under the divider — the side list and the content — starts this far below it.'],
+  ['Side list', '--ds-list-w · --ds-list-gap', 'A side list is --ds-list-w wide, its left edge on the divider’s left end (its items padded back onto the content edge), --ds-list-gap from the content beside it. It is sticky: it holds --ds-page-inset under the top once the header has scrolled away, and ends --ds-page-inset above the window’s bottom, as the sidebar does; its items scroll inside it.'],
+  ['Content column', '--ds-list-gap · --ds-page-foot', 'Beside a side list the content keeps --ds-list-gap on its right too, so both its sides match. The air at the end of the page (--ds-page-foot) is inside the content’s last section — nothing stands below it, so a sticky side list is never pushed up at the end of the scroll.'],
+];
+function PageLayoutSample() {
+  return (
+    <Sample name="A page" of="the Playbook · the Legislation tabs — the Page layout tokens, to scale" wide>
+      <div className="dsg-pl" aria-hidden="true">
+        <div className="dsg-pl-sidebar"><span className="dsg-pl-tag">App sidebar</span></div>
+        <div className="dsg-pl-page">
+          <div className="dsg-pl-head">
+            <span className="dsg-pl-eyebrow" />
+            <span className="dsg-pl-title" />
+            <span className="dsg-pl-line" />
+            <span className="dsg-pl-tag is-divider">Header divider · pulled by --ds-divider-pull</span>
+          </div>
+          <div className="dsg-pl-body">
+            <div className="dsg-pl-list">
+              <span className="dsg-pl-tag">Side list · --ds-list-w</span>
+              <span className="dsg-pl-item is-on" />
+              <span className="dsg-pl-item" />
+              <span className="dsg-pl-item" />
+            </div>
+            <div className="dsg-pl-content">
+              <span className="dsg-pl-tag">Content</span>
+              <span className="dsg-pl-line is-wide" />
+              <span className="dsg-pl-line" />
+              <span className="dsg-pl-line is-wide" />
+              <span className="dsg-pl-line is-short" />
+            </div>
+          </div>
+          <span className="dsg-pl-measure is-gap">--ds-content-gap</span>
+          <span className="dsg-pl-measure is-head">--ds-head-gap</span>
+          <span className="dsg-pl-measure is-listgap">--ds-list-gap</span>
+        </div>
+      </div>
+      <ol className="dsg-pl-rules">
+        {PAGE_RULES.map(([name, token, text]) => (
+          <li key={name}>
+            <span className="dsg-pl-rule-name">{name}</span>
+            <code>{token}</code>
+            <p>{text}</p>
+          </li>
+        ))}
+      </ol>
+    </Sample>
+  );
+}
+
+// The Toggle (components/Toggle — the Playbook's Preview switch), live.
+function ToggleSample() {
+  const [on, setOn] = useState(true);
+  const [off, setOff] = useState(false);
+  return (
+    <Sample name="Toggle" of="components/Toggle .tgl — on / off with its label (the Playbook's Preview)" row>
+      <Toggle on={on} onChange={setOn} label="Preview" />
+      <Toggle on={off} onChange={setOff} label="Preview" />
+    </Sample>
+  );
+}
+
+// The segmented control (components/RuleOptions — the Playbook's Word
+// settings, the Import window's route switch), live.
+const ROUTE_SAMPLE = {
+  label: 'How the phone sends',
+  options: [
+    { id: 'local', label: 'Local network', example: 'Same Wi-Fi — straight from the phone to this computer' },
+    { id: 'cloud', label: 'DocVex cloud', example: 'Any connection — for a phone on mobile data or another network' },
+  ],
+};
+function SegmentedSample() {
+  const [route, setRoute] = useState('local');
+  return (
+    <Sample name="Segmented choice" of="components/RuleOptions .pbk-rule-opts — the Playbook's Word settings, the Import window's route switch" row>
+      <RuleOptions field={ROUTE_SAMPLE} value={route} onPick={setRoute} />
+    </Sample>
   );
 }
 

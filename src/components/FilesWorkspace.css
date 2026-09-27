@@ -2629,3 +2629,81 @@
   box-shadow: inset 0 0 0 1.5px var(--accent);
   color: var(--accent);
 }
+
+/* Rubber-band selection (FilesWorkspace onCanvasMouseDown) — the translucent
+   rectangle Windows Explorer and the macOS Finder draw while dragging across
+   empty space: an accent wash inside an accent edge. Started from anywhere on
+   the screen, it is drawn FIXED over everything (portalled to the body); its
+   corners follow the files as the page scrolls. While it is drawn nothing on
+   the page takes a text selection. */
+.fx-marquee {
+  /* Placed by transform from the top-left (FilesWorkspace's drag), contained
+     so resizing it touches nothing else. */
+  position: fixed; left: 0; top: 0; z-index: 9000;
+  contain: strict; will-change: transform;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--accent) 80%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  pointer-events: none;
+}
+body.fx-marqueeing, body.fx-marqueeing * { user-select: none !important; }
+
+/* ── The AI scan button (beside the search) ─────────────────────────────
+   A toolbar toggle like the others, in the accent: it starts the AI scan of
+   every file (lib/dataCollections); while the scan runs it stays lit and its
+   sparkle pulses, and pressing it again stops the scan. */
+.fx-scan-btn { color: var(--accent); margin-left: 4.8px; }
+.fx-scan-btn.is-busy svg { animation: fx-scan-pulse 1.4s ease-in-out infinite; }
+@keyframes fx-scan-pulse { 50% { opacity: 0.45; transform: scale(0.86); } }
+@media (prefers-reduced-motion: reduce) { .fx-scan-btn.is-busy svg { animation: none; } }
+
+/* The AI mark on an item tagged for the AI scan: a small accent disc with the
+   sparkle, just inside the thumbnail's top-right corner (the thumbnails clip
+   their overflow), on tiles and list rows alike. */
+.fx-scan-mark {
+  position: absolute; top: 4px; right: 4px; z-index: 2;
+  display: grid; place-items: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent); color: var(--text-on-accent);
+  box-shadow: 0 0 0 1.5px var(--bg-page);
+  pointer-events: none;
+}
+.fx-scan-mark svg { width: 10px; height: 10px; }
+.fx-list-thumb .fx-scan-mark { top: 0; right: 0; width: 11px; height: 11px; box-shadow: 0 0 0 1px var(--bg-page); }
+.fx-list-thumb .fx-scan-mark svg { width: 7px; height: 7px; }
+
+/* A file a phone sent, WAITING to be let in (ProjectFiles incomingItems):
+   faded, with a download mark on its thumbnail — a click adds it to the
+   folder; the right-click menu accepts, previews or rejects. It comes back to
+   full strength under the pointer, so it reads as something to press. */
+.fx-tile.is-incoming .fx-tile-thumb > :not(.fx-incoming-mark),
+.fx-tile.is-incoming .fx-tile-name,
+.fx-list-row.is-incoming .fx-list-thumb > :not(.fx-incoming-mark),
+.fx-list-row.is-incoming .fx-name,
+.fx-list-row.is-incoming .fx-list-muted { opacity: 0.42; transition: opacity 140ms ease; }
+.fx-tile.is-incoming:hover .fx-tile-thumb > :not(.fx-incoming-mark),
+.fx-tile.is-incoming:hover .fx-tile-name,
+.fx-list-row.is-incoming:hover .fx-list-thumb > :not(.fx-incoming-mark),
+.fx-list-row.is-incoming:hover .fx-name,
+.fx-list-row.is-incoming:hover .fx-list-muted { opacity: 0.75; }
+.fx-tile.is-incoming .fx-tile-thumb { position: relative; }
+.fx-incoming-mark {
+  position: absolute; left: 50%; top: 50%; z-index: 2;
+  transform: translate(-50%, -50%);
+  display: grid; place-items: center;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--accent); color: var(--text-on-accent);
+  box-shadow: 0 0 0 2px var(--bg-page), var(--shadow-card);
+  pointer-events: none;
+  transition: transform 140ms ease;
+}
+.fx-incoming-mark svg { width: 16px; height: 16px; }
+.fx-tile.is-incoming:hover .fx-incoming-mark { transform: translate(-50%, -50%) scale(1.08); }
+.fx-list-thumb { position: relative; }
+.fx-list-thumb .fx-incoming-mark { width: 16px; height: 16px; box-shadow: 0 0 0 1.5px var(--bg-page); }
+.fx-list-thumb .fx-incoming-mark svg { width: 10px; height: 10px; }
+
+/* The header's Sort dropdown (LegalBar's solo BarPicker) — the bar's control
+   height, a little air before the Categorize button. */
+.fx-sort { display: flex; align-items: center; margin: 0 4.8px 0 6.4px; -webkit-app-region: no-drag; }

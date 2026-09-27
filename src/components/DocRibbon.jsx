@@ -120,7 +120,7 @@ export function DocThemeGrid({ themes = [], themeId = '', onPickTheme = null, lo
 // The section under the panel's tabs. `actions`: [{ id, label, tooltip?, icon,
 // onClick, pressed? }] — `pressed` (a boolean) makes the tile a toggle.
 // `disabled`: a paragraph is open, and none of these is about the paragraph.
-export function DocQuickActions({ actions = [], disabled = false, catalogue = [] }) {
+export function DocQuickActions({ actions = [], disabled = false, catalogue = [], always = false }) {
   // (Re-bound when the section appears: with no actions it renders nothing.)
   const rootRef = useItemSpots('.drb-action', actions.length > 0);
   // A hairline between neighbouring tiles — but never after the LAST tile of a
@@ -167,7 +167,9 @@ export function DocQuickActions({ actions = [], disabled = false, catalogue = []
     ro.observe(root);
     return () => ro.disconnect();
   }, [shape]);
-  if (!actions.length) return null;      // a file with no quick actions gets no card
+  // A pane with no actions renders nothing — unless the viewer asks for the
+  // catalogue anyway (`always`: the card is drawn for every kind of file).
+  if (!actions.length && !(always && merged.length)) return null;
   const blocks = [];
   for (const a of merged) {
     const title = a.group || '';

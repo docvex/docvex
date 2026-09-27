@@ -1,10 +1,8 @@
 /* ANAF — a company's fiscal record, in DocVex's own typography. Semantic
    tokens only; a sibling of the Legislation page. */
 
-.an-page { --lgt-page-gap: 20px; display: flex; flex-direction: column; gap: var(--lgt-page-gap); padding-bottom: 64px; }
-@media (min-width: 1024px) { /* 1280px pre-scale */
-  .an-page { width: min(100%, var(--content-max-width, 1280px)); }
-}
+/* The page frame (gap, width, bottom space) is the workspace's —
+   components/LegalWorkspace.css (.lws). */
 
 .an-mast-meta {
   display: flex; align-items: center; gap: 16px;
@@ -22,12 +20,29 @@
    answer. */
 
 /* ── The record ───────────────────────────────────────────────────────── */
-.an-cards { display: flex; flex-direction: column; gap: 14px; }
+/* The answer's list — one row per company, pressed to open the whole record
+   (a rail item of its own); the Court files tab's result row, to the letter. */
+.an-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.an-row {
+  background: var(--ds-card-fill, transparent); border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.an-row:hover { border-color: var(--border-strong); background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent); }
+.an-row-main {
+  width: 100%; display: flex; flex-direction: column; gap: 4px;
+  padding: calc(12px * var(--ds-row-density, 1)) 14px; border: 0; border-radius: var(--ds-row-radius, 8px);
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.an-row-top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.an-row-name { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.an-row-cui { font-size: 11.2px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.an-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 11.2px; color: var(--text-muted); }
 .an-card {
   display: flex; flex-direction: column; gap: 16px;
-  max-width: 82ch; padding: 22px 26px 24px;
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
-  box-shadow: var(--shadow-card);
+  /* On the page ground: no frame, no corners, no inset of its own. */
+  max-width: none; padding: 0;
+  background: transparent; border: 0; border-radius: 0;
+  box-shadow: var(--ds-card-shadow, none);
 }
 .an-head { display: flex; flex-direction: column; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
 .an-kind { font-size: 10.4px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--accent); }
@@ -37,22 +52,27 @@
 .an-btn {
   display: inline-flex; align-items: center; gap: 7px; flex: none;
   padding: 6px 12px;
-  border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg-card); color: var(--text-primary);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  background: var(--ds-card-fill, transparent); color: var(--text-primary);
   font: inherit; font-size: 11.2px; font-weight: 600; cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
 }
-.an-btn:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
+.an-btn:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); border-color: var(--border-strong); }
 .an-flags { display: flex; flex-wrap: wrap; gap: 6px; }
 .an-flag {
-  padding: 2px 9px; border-radius: 999px;
-  font-size: 10.4px; font-weight: 700; letter-spacing: 0.03em;
-  background: var(--bg-elevated); color: var(--text-secondary);
+  --pill-tone: var(--text-secondary);
+  display: inline-flex; align-items: center; height: var(--ds-pill-h, 20px); box-sizing: border-box;
+  padding: 0 var(--ds-pill-pad, 9px);
+  border: 1px solid color-mix(in srgb, var(--pill-tone) var(--ds-pill-ring, 45%), transparent);
+  border-radius: var(--ds-pill-radius, 999px);
+  background: color-mix(in srgb, var(--pill-tone) var(--ds-pill-tint, 14%), transparent);
+  color: var(--pill-tone);
+  font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 650); letter-spacing: var(--ds-tag-tracking, 0.01em); line-height: 1; white-space: nowrap;
 }
-.an-flag.is-good { background: var(--success-soft); color: var(--success); }
-.an-flag.is-bad { background: var(--danger-soft); color: var(--danger-text); }
-.an-flag.is-info { background: var(--info-soft); color: var(--info); }
-.an-flag.is-muted { background: var(--bg-elevated); color: var(--text-muted); }
+.an-flag.is-good { --pill-tone: var(--success); }
+.an-flag.is-bad { --pill-tone: var(--danger); }
+.an-flag.is-info { --pill-tone: var(--info); }
+.an-flag.is-muted { --pill-tone: var(--text-muted); }
 
 .an-facts { margin: 0; display: flex; flex-direction: column; gap: 6px; }
 .an-fact { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 10px; align-items: baseline; }
@@ -66,7 +86,7 @@
 
 .an-source { padding-top: 12px; border-top: 1px solid var(--border); font-size: 11.2px; line-height: 1.55; color: var(--text-muted); }
 
-.an-note { margin: 0; font-size: 12px; line-height: 1.55; color: var(--text-muted); max-width: 82ch; }
+.an-note { margin: 0; font-size: 12px; line-height: 1.55; color: var(--text-muted); max-width: none; }
 .an-note.is-bad { color: var(--danger-text); }
 .an-note.is-warn { color: var(--warning); }
 .an-empty { padding: 48px 0; text-align: center; }
@@ -78,3 +98,18 @@
   .an-fact { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .an-title-row { flex-direction: column; }
 }
+
+/* The registered office's Map button (opens components/MapDrawer), inline
+   after the address; values ANAF has not given yet or at all, muted. */
+.an-mapbtn {
+  display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; vertical-align: 1px;
+  height: 20px; padding: 0 8px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-pill-radius, 999px);
+  background: transparent; color: var(--text-secondary); font: inherit; font-size: 10.4px; font-weight: 600; cursor: pointer;
+}
+.an-mapbtn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
+.an-mapbtn .an-ico { display: inline-flex; }
+.an-muted { color: var(--text-muted); }
+/* The copy button is its icon alone (the word was removed); square, so it
+   stands as tall as the buttons beside it. */
+.an-btn.is-icon { padding: 6px 8px; }

@@ -15,7 +15,6 @@ import { runTimelineCouncil, refineTimelineWithClarifications, draftFlagAsks, DI
 import { toLayoutPx } from '../../lib/appZoom';
 import { openDocViewerWindow, pathForFile, allowLocalFile, notifyFilesChanged } from '../../lib/platform';
 import { loadCaseTimeline, saveCaseTimeline } from '../../lib/caseTimeline';
-import { extractIdentities, saveExtractedIdentities } from '../../lib/identityExtract';
 import { localFolderApi } from '../../lib/localFolder';
 import { readProjectsDir } from '../../lib/projectsDir';
 import { loadExtract, saveExtract } from '../../lib/scanExtractCache';
@@ -1615,28 +1614,10 @@ export default function ProjectEvents() {
       }
     } catch { /* the story does not depend on this */ }
 
-    // ── 2. Parties as identity records ──
+    // (The parties are no longer filed as identity records — what the AI knows
+    // about a person or a company lives in its Data collection, made by the
+    // Files tab's AI scan.)
     const created = [];
-    try {
-      const res = await extractIdentities({
-        projectName: selectedProject?.name,
-        timeline: built,
-        excerpts: excerptsRef.current,
-        jurisdiction: selectedProject?.jurisdiction,
-        usageProject: projectId,
-      });
-      if (res.identities.length) {
-        const saved = await saveExtractedIdentities(dir, res.identities);
-        if (saved.added || saved.updated) {
-          saved.names.forEach((n) => created.push({ name: `${n}.dvx`, kind: 'identity', party: n }));
-          const parts = [
-            saved.added ? `${saved.added} new` : '',
-            saved.updated ? `${saved.updated} updated` : '',
-          ].filter(Boolean).join(', ');
-          addDecision(LOG_OK, 'Parties filed', `— ${parts} in the project's Identities folder.`, saved.names.slice(0, 4));
-        }
-      }
-    } catch { /* a story is worth more than its cast list */ }
 
     // Record what the run produced ON the story, so the timeline can show it
     // at the foot of the page and a reload still knows about it.

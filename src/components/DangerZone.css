@@ -28,6 +28,10 @@
   background: color-mix(in srgb, var(--danger) 8%, transparent);
   backdrop-filter: blur(9.6px);
   -webkit-backdrop-filter: blur(9.6px);
+  /* Its OWN top corners: a backdrop-filter is not clipped by the card's
+     rounded overflow in Chromium, so the header's frost drew square corners
+     over the card's round ones. The card's radius less its 1px border. */
+  border-radius: calc(12.8px - 1px) calc(12.8px - 1px) 0 0;
 }
 .dz-hd-icon {
   width: 27.2px; height: 27.2px; border-radius: 7.2px; flex-shrink: 0;

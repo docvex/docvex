@@ -10,7 +10,8 @@
   display: flex; flex-direction: column; gap: 24px;
   width: 100%;
   margin: 0;
-  padding-bottom: 64px;
+  /* No bottom padding: the page's bottom air is inside the rules section
+     (see "Keeping the presets list STUCK" at the foot of this file). */
 }
 @media (min-width: 1024px) { /* 1280px pre-scale */
   /* The Versions page's rule, verbatim (.updates-page .page): the content area
@@ -40,14 +41,11 @@
 
 /* ── What it learned ────────────────────────────────────────────────── */
 .pbk-profile {
-  border: 1px solid var(--border); border-radius: 12px;
-  background: var(--bg-card);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-card-radius, 14px);
+  background: var(--ds-card-fill, transparent);
   padding: 20px;
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--ds-card-shadow, none);
 }
-/* Nothing learned yet: quieter, and no fill — an empty card that looks like a
-   full one reads as a card that failed to load. */
-.pbk-profile.is-empty { background: transparent; box-shadow: none; border-style: dashed; }
 .pbk-profile-head {
   display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap;
   margin-bottom: 14px;
@@ -71,10 +69,6 @@
 .pbk-profile-body p:last-child { margin-bottom: 0; }
 /* Switched off — still there, plainly not in force. */
 .pbk-profile-body.is-paused { opacity: 0.5; }
-.pbk-profile-blank {
-  margin: 0; max-width: 62ch;
-  font-size: 12.5px; line-height: 1.6; color: var(--text-muted);
-}
 
 /* On / off for the whole thing, without forgetting anything. */
 .pbk-switch {
@@ -102,14 +96,14 @@
 .pbk-switch.is-on .pbk-switch-knob { transform: translateX(13px); }
 
 .pbk-relearn {
-  padding: 6px 13px;
-  border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg-input);
-  font: inherit; font-size: 11.5px; font-weight: 600; color: var(--text-secondary);
+  height: 30px; padding: 0 12px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  background: var(--ds-card-fill, transparent);
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--text-primary);
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
-.pbk-relearn:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--text-primary); }
+.pbk-relearn:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 7%, transparent); border-color: var(--border-strong); }
 .pbk-relearn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── The documents ──────────────────────────────────────────────────── */
@@ -165,26 +159,134 @@
    above it, but laid out as a form beside a worked example: numbering rules
    are unreadable as words and obvious as a document, so the example is not
    decoration — it is how the settings are read. */
+/* The design system's family (styles/designSystem.css): no card fill, no
+   shadow — the section stands on the page ground, the rail and the detail
+   parted by hairlines. */
 .pbk-rules {
-  border: 1px solid var(--border); border-radius: 12px;
-  background: var(--bg-card);
-  padding: 20px;
-  box-shadow: var(--shadow-card);
-}
-.pbk-rules-head {
-  display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap;
-  margin-bottom: 14px;
+  background: var(--ds-card-fill, transparent);
+  box-shadow: var(--ds-card-shadow, none);
 }
 /* Switched off: the rules stay on screen and readable, but plainly not in
    force — the same treatment the learned voice gets. */
-.pbk-rules.is-paused .pbk-rules-body { opacity: 0.55; }
+.pbk-pdetail.is-paused .pbk-rules-body { opacity: 0.55; }
 
 .pbk-rules-body {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+  /* One column: the example is the Word drawer now (WordDrawer). */
+  display: grid; grid-template-columns: minmax(0, 1fr);
   gap: 22px; align-items: start;
-  border-top: 1px solid var(--border); padding-top: 16px;
+  padding-top: 16px;
   transition: opacity 160ms ease;
 }
+
+/* ── Presets: the rail and the detail ──────────────────────────────────
+   The Legislation workspace's shape (components/LegalWorkspace): a rail of
+   items at the left — the rules in use, then every preset — with + at its
+   top, and the selected item's data beside it. The items ARE the rail's
+   (.lg-rail-item, the app sidebar's tab: two lines, pointer-lit hover, the
+   selected pill). */
+.pbk-pgrid { display: grid; grid-template-columns: 236px minmax(0, 1fr); }
+@media (max-width: 760px) {
+  .pbk-pgrid { grid-template-columns: minmax(0, 1fr); }
+  .pbk-prail { border-bottom: 1px solid var(--ds-hairline, var(--border)); }
+}
+.pbk-prail {
+  display: flex; flex-direction: column; min-width: 0;
+  padding: 12px 0;
+  box-sizing: border-box;
+}
+.pbk-prail-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: var(--ds-control-h, 24px); margin-bottom: 8px; padding-left: 9.6px;
+  /* A divider under the heading: the hairline sits 8px below it, the list
+     another 8px under that. */
+  padding-bottom: 8px; border-bottom: 1px solid var(--ds-hairline, var(--border));
+  box-sizing: content-box;
+}
+.pbk-prail-label {
+  font-size: var(--ds-label-size, 9.6px); font-weight: 700;
+  letter-spacing: var(--ds-label-tracking, 0.07em); text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* The + — the tab bar's tool button (.lgt-tool-btn), an icon alone. */
+.pbk-prail-add {
+  display: inline-grid; place-items: center;
+  width: var(--ds-control-h, 24px); height: var(--ds-control-h, 24px); padding: 0;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-control-radius, 4.8px);
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  color: var(--text-secondary); cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.pbk-prail-add:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); border-color: var(--accent); color: var(--accent); }
+.pbk-prail-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pbk-prail-list { display: flex; flex-direction: column; min-width: 0; }
+.pbk-prail-div { height: 1px; margin: 2px 9.6px 7px; background: var(--ds-hairline, var(--border)); }
+.pbk-prail-empty { margin: 4px 9.6px; font-size: 11.2px; line-height: 1.5; color: var(--text-muted); }
+/* Delete, asked once: the item's close button turns into the word. */
+.pbk-prail-sure { padding: 0 4px; font-size: 10.4px; font-weight: 700; color: var(--danger-text, var(--danger)); }
+.pbk-prail .lg-rail-item.is-asking .lg-rail-actions { opacity: 1; pointer-events: auto; }
+.pbk-prail .lg-rail-actions button { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--ds-control-radius, 4.8px); background: none; color: inherit; cursor: pointer; }
+.pbk-prail .lg-rail-actions button:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger-text, var(--danger)); }
+
+.pbk-pdetail { min-width: 0; padding: 12px 0 var(--ds-page-foot, 64px); }
+.pbk-pdetail-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ds-hairline, var(--border));
+}
+.pbk-pdetail-title { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pbk-pdetail-h, .pbk-pdetail-name {
+  /* The preset's name: the heading of the settings. */
+  margin: 0; font-family: var(--font-display); font-size: 28.8px; font-weight: 650; line-height: 1.2; color: var(--text-primary);
+}
+/* The preset's name IS its title — typed over in place; a field only while
+   hovered or focused. */
+.pbk-pdetail-name {
+  width: 100%; max-width: 420px; box-sizing: border-box;
+  margin-left: -7px; padding: 1px 6px;
+  border: 1px solid transparent; border-radius: var(--ds-control-radius, 4.8px);
+  background: none; outline: none;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.pbk-pdetail-name:hover { border-color: var(--ds-hairline, var(--border)); }
+.pbk-pdetail-name:focus { border-color: var(--accent); background: var(--accent-tint); }
+.pbk-pdetail-sub { margin: 0; font-size: 12px; color: var(--text-muted); }
+.pbk-pdetail-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; align-self: flex-end; }
+/* (At the header's FOOT, level with the line under the name — the In use
+   pill and the buttons beside it.) */
+
+/* Buttons — the Design system gallery's recipe (.dsg-btn): plain, primary,
+   danger soft at rest. */
+.pbk-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 12px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  background: var(--ds-card-fill, transparent); color: var(--text-primary);
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.pbk-btn:hover { background: color-mix(in srgb, var(--text-primary) 7%, transparent); border-color: var(--border-strong); }
+.pbk-btn.is-primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+.pbk-btn.is-primary:hover { background: var(--accent-hover); }
+.pbk-btn.is-danger {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  color: var(--danger-text, var(--danger));
+}
+.pbk-btn.is-danger:hover, .pbk-btn.is-danger.is-asking { background: color-mix(in srgb, var(--danger) 22%, transparent); border-color: var(--danger); }
+.pbk-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* "In use" — the design system's soft status pill. */
+.pbk-status {
+  --pill-tone: var(--success);
+  display: inline-flex; align-items: center; gap: 7px;
+  height: var(--ds-pill-h, 20px); box-sizing: border-box; padding: 0 var(--ds-pill-pad, 9px);
+  border: 1px solid color-mix(in srgb, var(--pill-tone) var(--ds-pill-ring, 45%), transparent);
+  border-radius: var(--ds-pill-radius, 999px);
+  background: color-mix(in srgb, var(--pill-tone) var(--ds-pill-tint, 14%), transparent);
+  color: var(--pill-tone);
+  font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 650); letter-spacing: var(--ds-tag-tracking, 0.01em);
+  white-space: nowrap;
+}
+.pbk-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 /* One column under a narrow pane: the example goes below the settings rather
    than being squeezed to a width no clause fits in. */
 @media (max-width: 900px) {
@@ -198,57 +300,42 @@
 }
 .pbk-ruleset-note { margin: 0 0 12px; font-size: 11.5px; line-height: 1.5; color: var(--text-muted); }
 
+/* One rule: its name and hint, then its choices UNDER them, aligned on the
+   same left edge. */
 .pbk-rule {
-  display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr);
-  gap: 10px 14px; align-items: start;
-  padding: 8px 0;
-  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid color-mix(in srgb, var(--ds-hairline, var(--border)) 60%, transparent);
 }
 .pbk-ruleset .pbk-rule:first-of-type { border-top: 0; }
-@media (max-width: 620px) { .pbk-rule { grid-template-columns: minmax(0, 1fr); } }
-.pbk-rule-label { display: flex; flex-direction: column; gap: 2px; padding-top: 3px; }
+.pbk-rule-label { display: flex; flex-direction: column; gap: 2px; }
 .pbk-rule-label span { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
 .pbk-rule-label small { font-size: 11px; line-height: 1.45; color: var(--text-muted); }
 
-.pbk-rule-opts { display: flex; flex-wrap: wrap; gap: 6px; }
-/* The app sidebar's tab button, in miniature: bare at rest, the accent as the
-   pressed state — the same vocabulary the Doc Viewer's quick actions use. */
-.pbk-rule-opt {
-  appearance: none; border: 1px solid var(--border); background: transparent;
-  color: var(--text-secondary);
-  border-radius: 7px; padding: 4px 9px;
-  font: inherit; font-size: 12px; font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.pbk-rule-opt:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); color: var(--text-primary); }
-.pbk-rule-opt.is-on {
-  background: var(--accent); border-color: var(--accent); color: var(--text-on-accent);
-}
-.pbk-rule-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The segmented control itself (.pbk-rule-opts / -pill / -opt) lives in
+   components/RuleOptions.css — shared with the Import window. */
 
 .pbk-rules-extra {
   width: 100%; box-sizing: border-box;
-  border: 1px solid var(--border); border-radius: 9px;
-  background: var(--bg-input); color: var(--text-primary);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent); color: var(--text-primary);
   padding: 9px 11px;
   font: inherit; font-size: 12.5px; line-height: 1.6;
   resize: vertical;
 }
-.pbk-rules-extra:focus-visible { outline: none; border-color: var(--accent); }
+.pbk-rules-extra:focus-visible { outline: none; border-color: var(--accent); background: var(--accent-tint); }
 .pbk-rules-extra::placeholder { color: var(--text-muted); }
 
 /* The example. A sheet, not a code block: it is a document, and it is judged
    by whether it looks like one. */
-.pbk-rules-preview { position: sticky; top: 16px; min-width: 0; }
+.pbk-rules-preview { min-width: 0; }
 .pbk-rules-preview h3 {
   margin: 0 0 8px; font-family: var(--font-display); font-size: 13px; font-weight: 600;
   color: var(--text-primary);
 }
 .pbk-preview-sheet {
-  border: 1px solid var(--border); border-radius: 10px;
-  background: var(--bg-elevated);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
   padding: 16px 18px;
   font-size: 11.5px; line-height: 1.6;
   color: var(--text-primary);
@@ -265,3 +352,532 @@
 .pbk-preview-line.is-l2 { padding-left: 26px; color: var(--text-secondary); }
 .pbk-preview-line.is-l3 { padding-left: 42px; color: var(--text-secondary); }
 .pbk-preview-foot { margin: 8px 0 0; font-size: 11px; color: var(--text-muted); }
+/* The conventions sheet: each line under the small label of the rule it shows. */
+.pbk-preview-h2 { margin-top: 16px !important; }
+.pbk-preview-conv { display: flex; flex-direction: column; gap: 10px; }
+.pbk-conv-line { display: flex; flex-direction: column; gap: 2px; }
+.pbk-conv-line p { margin: 0; }
+.pbk-conv-rule {
+  font-size: var(--ds-label-size, 9.6px); font-weight: 700;
+  letter-spacing: var(--ds-label-tracking, 0.07em); text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pbk-conv-line.is-extra p { color: var(--text-secondary); }
+.pbk-conv-line.is-extra p::before { content: '– '; color: var(--text-muted); }
+
+
+/* ── The sample document ──────────────────────────────────────────────────
+   Beside the preset's name, a dropdown of sample documents; picking one lays
+   the rules out as a whole contract — a real .docx (lib/rulesSample) drawn
+   by docx-preview, pages on the Word ground — over the page. */
+.pbk-pdetail-namerow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.pbk-pdetail-namerow > .pbk-pdetail-name { flex: 0 1 auto; width: auto; min-width: 120px; field-sizing: content; }
+.pbk-sample-pick { flex: none; display: inline-flex; }
+
+.pbk-sample-scrim {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: stretch; justify-content: center;
+  padding: calc(var(--titlebar-h, 0px) + 24px) 24px 24px;
+  background: var(--overlay-scrim);
+  animation: pbk-sample-in 160ms ease-out;
+}
+@keyframes pbk-sample-in { from { opacity: 0; } to { opacity: 1; } }
+html[data-reduce-motion="true"] .pbk-sample-scrim { animation: none; }
+.pbk-sample {
+  display: flex; flex-direction: column; min-height: 0;
+  width: min(100%, 980px);
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-card-radius, 14px);
+  background: var(--bg-page);
+  box-shadow: var(--shadow-elev);
+  overflow: hidden;
+}
+.pbk-sample-head {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  height: var(--ds-bar-h, 40px); padding: 0 8px 0 14px; box-sizing: content-box;
+  padding-block: 6px;
+  border-bottom: 1px solid var(--ds-hairline, var(--border));
+  background: var(--bg-sidebar);
+}
+.pbk-sample-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.pbk-sample-eyebrow {
+  font-size: var(--ds-label-size, 9.6px); font-weight: 700; letter-spacing: var(--ds-label-tracking, 0.07em);
+  text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pbk-sample-tools { display: flex; align-items: center; gap: 6px; flex: none; }
+.pbk-sample-close {
+  display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0;
+  border: 1px solid transparent; border-radius: var(--ds-row-radius, 8px);
+  background: none; color: var(--text-muted); cursor: pointer;
+}
+.pbk-sample-close:hover { background: color-mix(in srgb, var(--text-primary) 7%, transparent); color: var(--text-primary); }
+.pbk-sample-body { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; background: #e8e8ea; }
+.pbk-sample-note { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; font-size: 12px; color: #555; }
+.pbk-sample-note.is-error { color: var(--danger-text, var(--danger)); }
+.pbk-sample-doc { opacity: 0; transition: opacity 180ms ease; }
+.pbk-sample-doc.is-ready { opacity: 1; }
+/* docx-preview's own wrapper: the Word ground, sheets centred with a shadow. */
+.pbk-sample-doc .docx-wrapper { background: transparent; padding: 24px 0 32px; }
+.pbk-sample-doc .docx-wrapper > section.docx { box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18); margin-bottom: 20px; }
+
+
+/* The import inside a custom preset: the drop zone and what was imported,
+   under the preset's name, above its rules. */
+.pbk-pimport {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 0 16px;
+  border-bottom: 1px solid var(--ds-hairline, var(--border));
+}
+.pbk-pimport .pbk-list { margin: 0; }
+
+/* The learned voice inside a preset: a titled block under the import. */
+.pbk-pimport .pbk-profile { margin-top: 6px; }
+
+/* Less air under the masthead's rule: the detail's own 12px top padding is the gap. */
+.pbk-frame .pmh-masthead { margin-bottom: 0; }
+
+
+
+/* ── The page layout ─────────────────────────────────────────────────────
+   The page scrolls in ONE pane of its own (.pbk-rules-split): the masthead
+   (.pbk-phead), then the list and the settings side by side (.pbk-pgrid).
+   The masthead and the settings scroll; the presets list is STICKY:
+   · it starts 12px under the masthead's divider, and once the masthead has
+     scrolled away it holds one window-edge inset under the pane's top;
+   · it is the pane's height less that inset top and bottom (100cqh — the
+     pane is a size container, so no measuring), its ITEMS scrolling inside
+     it when they don't fit, the "Presets" heading and + staying put;
+   · it can never be dragged at the end: nothing follows the grid in the pane
+     and the pane has no bottom padding, so the grid always reaches below the
+     list's foot;
+   · it is drawn as the APP SIDEBAR, by its own rules (components/Sidebar.css
+     .sidebar — keep them in step): frosted page ground (Cream: the bars'
+     white, lightly see-through), a 1.5px --border ring, 9.6px corners, the
+     card shadow, 12.8 × 9.6px padding and the pointer spotlight (glow +
+     border shine, from --spot-x/y eased in Playbook.jsx).
+   The app's own page scroller is switched off on this page and the pane
+   fills it. Under 761px it all falls back to one ordinary column. */
+@media (min-width: 761px) {
+  .sv-single-scroll:has(.pbk-rules-split) { position: relative; overflow: hidden; padding: 0; }
+  .pbk-frame .pbk-rules-split {
+    /* The Design system's Page layout tokens (styles/designSystem.css), with
+       today's values as fallbacks. */
+    --pbk-inset: var(--ds-page-inset, var(--pbk-inset));
+    --pbk-pull: var(--ds-divider-pull, calc(var(--content-left-gap, 17.6px) - var(--rail-gap, 6.4px)));
+    --pbk-head-gap: var(--ds-head-gap, 8px);
+    --pbk-list-w: var(--ds-list-w, 236px);
+    --pbk-list-gap: var(--ds-list-gap, 20px);
+    position: absolute; inset: 0;
+    overflow-y: auto; overflow-x: hidden;
+    scrollbar-gutter: stable;
+    container-type: size;
+  }
+  /* The page scroller's padding, carried by the rows instead of the pane (so
+     100cqh is the pane's whole height). */
+  .pbk-phead { padding: 1.6rem 17.6px 0 var(--content-left-gap, 17.6px); }
+  .pbk-pgrid { padding: 0 17.6px 0 var(--content-left-gap, 17.6px); align-items: start; }
+}
+/* The content width rule every tab follows (AppShell.css --content-max-width,
+   which replaced the old 3/4 `width: 75%` recipe): at ≥1024px the content
+   column is capped at the shared ceiling, left-aligned. The pane itself spans
+   the page (its scrollbar at the window's edge); the ROWS are capped — their
+   padding outside the ceiling, as the page scroller's is on other tabs — so
+   the masthead's rule, the list and the settings all end on one line. */
+@media (min-width: 1024px) {
+  .pbk-phead,
+  .pbk-pgrid {
+    box-sizing: border-box;
+    width: min(100%, calc(var(--content-max-width, 1280px) + var(--content-left-gap, 17.6px) + 17.6px));
+  }
+}
+@media (min-width: 761px) {
+  .pbk-prail {
+    position: sticky; top: var(--pbk-inset);
+    height: calc(100cqh - var(--pbk-inset) * 2);
+    /* The LEGISLATION RAIL's spacing (components/LegalWorkspace.css .lg-rail
+       — keep them in step): 8px under the header's divider; its LEFT EDGE
+       pulled out to one --rail-gap from the app sidebar (the content gap
+       less the window-edge inset, --pbk-pull) and its items padded back onto
+       the content edge; 20px between it and the settings. */
+    margin: var(--pbk-head-gap) var(--pbk-list-gap) var(--pbk-inset) calc(-1 * var(--pbk-pull));
+    padding: 12.8px 9.6px 12.8px calc(var(--pbk-pull) - 1.5px);
+    border: 1.5px solid var(--border);
+    border-radius: 9.6px;
+    background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+    backdrop-filter: blur(6.4px);
+    -webkit-backdrop-filter: blur(6.4px);
+    box-shadow: var(--shadow-card);
+    isolation: isolate;
+    z-index: 6;   /* above the page's bottom fade (.sv-single-body::after, z 5) */
+  }
+  :root[data-theme="cream"] .pbk-prail { background: color-mix(in srgb, var(--bg-sidebar) 90%, transparent); }
+  .pbk-prail-head { flex: none; }
+  .pbk-prail-list {
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto; overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+  .pbk-prail > * { position: relative; z-index: 1; }
+  /* The SELECTED preset is STICKY inside the list: when the items scroll it
+     holds at the list's top (scrolled past) or its foot (not yet reached),
+     so the preset being shown is always in sight. Its ground is made opaque
+     — the accent tint over the page ground — so the items passing under it
+     don't show through (Cream's selected pill is solid already). */
+  .pbk-prail-list > .lg-rail-item.is-active {
+    position: sticky; top: 0; bottom: 0;
+    z-index: 2;
+  }
+  :root:not([data-theme="cream"]) .pbk-prail-list > .lg-rail-item.is-active,
+  :root:not([data-theme="cream"]) .pbk-prail-list > .lg-rail-item.is-active:hover {
+    background: linear-gradient(var(--accent-tint), var(--accent-tint)) var(--bg-page);
+  }
+  .pbk-prail::before,
+  .pbk-prail::after {
+    content: '';
+    position: absolute; inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 240ms ease;
+  }
+  .pbk-prail::before {
+    z-index: 0;
+    background: radial-gradient(
+      264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+      color-mix(in srgb, var(--accent) 4.5%, transparent) 0%,
+      color-mix(in srgb, var(--accent) 1.5%, transparent) 38%,
+      transparent 68%
+    );
+  }
+  .pbk-prail::after {
+    z-index: 2;
+    padding: 1.5px;
+    background: radial-gradient(
+      264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+      color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+      color-mix(in srgb, var(--accent) 12%, transparent) 34%,
+      transparent 62%
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+  .pbk-prail:hover::before,
+  .pbk-prail:hover::after { opacity: 0.7; }
+
+  /* The act column's rule (.lg-shell-main): 20px on its right, matching the
+     gap between the list and it; 8px under the divider, as the list. */
+  .pbk-pmain { min-width: 0; padding-right: var(--pbk-list-gap); }
+  /* More air between the header's divider and the preset's name. */
+  .pbk-pmain > .pbk-pdetail { padding-top: 20px; }
+  /* The list's column: its 236px plus the 20px gap to the settings. */
+  .pbk-pgrid { grid-template-columns: calc(var(--pbk-list-w) + var(--pbk-list-gap)) minmax(0, 1fr); }
+  /* The HEADER'S DIVIDER follows the Legislation tab bar's hairline: its left
+     end pulled out to one --rail-gap from the app sidebar (the text stays on
+     the content edge), so the rule and the list's left edge are one line. */
+  .pbk-phead .pmh-masthead {
+    margin-left: calc(-1 * var(--pbk-pull));
+    padding-left: var(--pbk-pull);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pbk-prail::before, .pbk-prail::after { display: none; }
+}
+/* ── The list's foot at the bottom of the screen ────────────────────────
+   The app sidebar's rule: the panel ends one window-edge inset above the
+   bottom of the window, always. Stuck, the list's height already does
+   (100cqh less an inset top and bottom). Before it sticks — while the header
+   is still on screen — its top is lower by what is left of the header, so it
+   is SHORTER by exactly that: its height is driven by the pane's scroll
+   (a scroll-driven animation — no script on scroll), from the pane less the
+   header, the 8px gap and the bottom inset at the top of the page, to its
+   stuck height once the header has scrolled away (--pbk-head, the header's
+   height, measured on resize in Playbook.jsx). The grid is kept at least as
+   tall as the grown list, so the list's changing height never changes the
+   page's length. Without scroll-driven animations it keeps its stuck height. */
+@media (min-width: 761px) {
+  .pbk-pgrid { min-height: calc(100cqh + var(--pbk-head-gap) - var(--pbk-inset)); }
+  @supports (animation-timeline: scroll()) {
+    .pbk-prail {
+      animation: pbk-rail-grow linear both;
+      animation-timeline: scroll(nearest block);
+      animation-range: 0px calc(var(--pbk-head, 0px) + var(--pbk-head-gap) - var(--pbk-inset));
+    }
+  }
+}
+@keyframes pbk-rail-grow {
+  from { height: calc(100cqh - var(--pbk-head, 0px) - var(--pbk-head-gap) - var(--pbk-inset)); }
+  to { height: calc(100cqh - var(--pbk-inset) * 2); }
+}
+
+/* ── The rules, edited in Word (WordRulesView) ──────────────────────────
+   The switch beside the preset's name picks the view (the rules' own
+   segmented control). In the Word view the example is a real .docx drawn by
+   docx-preview INSIDE the tab: one page, as wide as it can be up to a Word
+   page, on the page ground with the Word page's shadow. Above every
+   paragraph a rule shapes stands a STRIP holding that rule's choices — laid
+   into the page itself, in the Cream theme (the page is white in both), in
+   the app's type rather than the document's, a faint accent dashed box so it
+   reads as a control and never as text of the document. */
+.pbk-view-pick { flex: none; display: inline-flex; }
+.pbk-word { display: flex; flex-direction: column; gap: 20px; padding-top: 16px; min-width: 0; }
+.pbk-word-note { margin: 0; font-size: 12px; color: var(--text-muted); }
+.pbk-word-note.is-error { color: var(--danger-text, var(--danger)); }
+.pbk-word-doc {
+  position: relative;
+  min-width: 0;
+}
+/* The GUTTER, RIGHT of the sheets: each rule's choices, level with the
+   paragraph they change, aligned toward the page. Out of the document, so
+   they cannot move a line of it — and out of the content column's width cap
+   (the 3/4 rule): it is placed past the sheets' right edge and may run into
+   the page's margin (widths from Playbook.jsx). */
+.pbk-word-gutter {
+  position: absolute; top: 0; bottom: 0;
+  left: calc(var(--pbk-word-sheets-w, 794px) + var(--pbk-word-gap, 16px));
+  width: max-content;
+}
+.pbk-word-strips { position: absolute; inset: 0; visibility: hidden; }
+.pbk-word-strips.is-shown { visibility: visible; }
+.pbk-wstrip {
+  position: absolute; left: 0;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+}
+/* The sheets, scaled to fit beside the gutter (--pbk-word-zoom, Playbook.jsx). */
+.pbk-word-sheets { position: relative; width: var(--pbk-word-sheets-w, 794px); max-width: none; }
+/* A new render waits here, laid out but unseen, until it is paginated. */
+.pbk-word-stage { position: absolute; top: 0; left: 0; right: 0; visibility: hidden; pointer-events: none; }
+.pbk-word-stage.is-shown { position: static; visibility: visible; pointer-events: auto; }
+.pbk-word-sheets .docx-wrapper {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 24px;
+  background: transparent; padding: 0;
+  zoom: var(--pbk-word-zoom, 1);
+}
+/* A4 sheets at Word's size, one under the other. */
+.pbk-word-sheets .docx-wrapper > section.docx {
+  flex: none;
+  margin: 0 !important;
+  overflow: hidden;
+  border-radius: 2px;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18);
+}
+/* Each rule a SECTION of its own — a hairline box on the page ground — its
+   name as a small label, its choices under it on ONE line (the rules' own
+   segmented control, scaled down, never wrapping). Hovering it lights up in
+   the document every paragraph the rule changes (.pbk-whl). */
+.pbk-wrule {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  padding: 6px 8px 7px;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-row-radius, 8px);
+  background: color-mix(in srgb, var(--text-primary) 2%, transparent);
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.pbk-wrule:hover { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-tint); }
+.pbk-wstrip .pbk-rule-opts { flex-wrap: nowrap; }
+.pbk-wstrip .pbk-rule-opt { white-space: nowrap; }
+/* What the hovered rule changes, lit in the document: a clear accent wash
+   with an accent edge at its left, and — while something is lit — every
+   other paragraph faded back, so the lit ones stand out at a glance. */
+.pbk-word-sheets p { transition: background-color 160ms ease, box-shadow 160ms ease, opacity 160ms ease; }
+.pbk-word-sheets.has-lit p:not(.pbk-whl) { opacity: 0.32; }
+.pbk-word-sheets p.pbk-whl {
+  background-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent),
+    -7px 0 0 0 var(--accent);
+  border-radius: 2px;
+}
+/* The first render fades in; later ones replace it in place. */
+.pbk-word-stage.is-first { animation: pbk-word-in 220ms ease both; }
+@keyframes pbk-word-in { from { opacity: 0; } to { opacity: 1; } }
+.pbk-wrule-label {
+  font-size: var(--ds-label-size, 9.6px); font-weight: 700;
+  letter-spacing: var(--ds-label-tracking, 0.07em); text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pbk-wstrip .pbk-rule-opts { max-width: none; justify-content: flex-start; padding: 2px; border-radius: var(--ds-control-radius, 4.8px); }
+.pbk-wstrip .pbk-rule-pill { border-radius: calc(var(--ds-control-radius, 4.8px) - 2px); }
+.pbk-wstrip .pbk-rule-opt {
+  height: 19px; padding: 0 6px;
+  font-size: 10.4px;
+  border-radius: calc(var(--ds-control-radius, 4.8px) - 2px);
+}
+
+/* "Anything else" — the gutter's last section, placed under the last rule
+   (Playbook.jsx), hidden until the first render has placed it. */
+.pbk-wextra { position: absolute; left: 0; top: 0; width: 280px; align-items: stretch; }
+.pbk-word-gutter:not(:has(.pbk-word-strips.is-shown)) .pbk-wextra { visibility: hidden; }
+.pbk-wextra .pbk-rules-extra { font-size: 11.5px; padding: 6px 8px; min-height: 72px; }
+
+/* Reset keeps its place while there is nothing to reset (hidden, not
+   removed), so the In use pill beside it never moves. */
+.pbk-reset.is-idle { visibility: hidden; }
+
+/* ── The Word preview drawer ────────────────────────────────────────────
+   "Open in Word" (What it looks like): the In Word view in a panel sliding in
+   from the right of the screen, FLOATING over the page — fixed, portalled, so
+   nothing under it moves. The app sidebar's surface (frosted page ground,
+   1.5px ring, 9.6px corners), one window-edge inset from the window's top,
+   right and bottom (under the title bar). */
+.pbk-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.pbk-preview-head h3 { margin: 0; }
+.pbk-drawer {
+  position: fixed; z-index: 900;
+  top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px));
+  right: var(--chrome-inset, 6.4px);
+  bottom: var(--chrome-inset, 6.4px);
+  /* Its width is the handle's (--pbk-drawer-w, clamped in Playbook.jsx), never past the window. */
+  width: min(var(--pbk-drawer-w, 836px), calc(100vw - 2 * var(--chrome-inset, 6.4px) - 64px));
+  display: flex; flex-direction: column;
+  box-sizing: border-box;
+  border: 1.5px solid var(--border);
+  border-radius: 9.6px;
+  background: color-mix(in srgb, var(--bg-page) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-elev);
+  transform: translateX(calc(100% + 24px));
+  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+:root[data-theme="cream"] .pbk-drawer { background: color-mix(in srgb, var(--bg-sidebar) 94%, transparent); }
+.pbk-drawer.is-open { transform: none; }
+/* Kept after its first opening: hidden once it has slid out. */
+.pbk-drawer:not(.is-open) { visibility: hidden; pointer-events: none; transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear 280ms; }
+.pbk-drawer { will-change: transform; }
+.pbk-drawer-wait { padding-top: 16px; }
+html[data-reduce-motion="true"] .pbk-drawer { transition: none; }
+@media (prefers-reduced-motion: reduce) { .pbk-drawer { transition: none; } }
+.pbk-drawer-head {
+  flex: none;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  height: var(--ds-bar-h, 40px); padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--ds-hairline, var(--border));
+}
+.pbk-drawer-title {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--font-display); font-size: 13px; font-weight: 650; color: var(--text-primary);
+}
+.pbk-drawer-close {
+  display: inline-grid; place-items: center;
+  width: var(--ds-control-h, 24px); height: var(--ds-control-h, 24px); padding: 0;
+  border: 0; border-radius: var(--ds-control-radius, 4.8px);
+  background: none; color: var(--text-secondary); cursor: pointer;
+}
+.pbk-drawer-close:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+.pbk-drawer-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  /* Equal air both sides of the sheet: a thin gutter reserved on both edges. */
+  padding: 0 12px 32px; scrollbar-width: thin; scrollbar-gutter: stable both-edges;
+}
+.pbk-drawer .pbk-word-sheets { margin: 0 auto; }
+
+/* The loader while a new document is built over the one on show (a preset
+   never opened before): a small pill pinned under the drawer's header. FIXED
+   — the drawer's `will-change: transform` makes it the frame a fixed box is
+   placed in — so it floats over the sheets and moves nothing. */
+.pbk-word-updating {
+  position: fixed; z-index: 3;
+  top: calc(var(--ds-bar-h, 40px) + 10px); left: 50%; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 7px;
+  height: var(--ds-pill-h, 22px); padding: 0 10px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-page) 90%, transparent);
+  backdrop-filter: blur(6.4px); -webkit-backdrop-filter: blur(6.4px);
+  box-shadow: var(--shadow-card);
+  font-size: 11px; font-weight: 600; color: var(--text-secondary);
+}
+.pbk-word-spin {
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  animation: pbk-spin 700ms linear infinite;
+}
+@keyframes pbk-spin { to { transform: rotate(360deg); } }
+
+/* The document CENTRED vertically in the drawer: equal air above and below,
+   and — when it is shorter than the panel — the sheets in its middle (auto
+   margins, which, unlike `justify-content: center`, never push the top out
+   of reach when it is taller). */
+.pbk-drawer-body { display: flex; flex-direction: column; padding-top: 12px; padding-bottom: 12px; }
+.pbk-drawer-body > .pbk-word { margin: auto 0; padding-top: 0; }
+.pbk-drawer-body > .pbk-drawer-wait { margin: auto 0; padding-top: 0; text-align: center; }
+
+/* The resize handle: a band on the drawer's left edge that lights in the
+   accent (the Legislation rail's divider handle, .lg-rail-resizer). While
+   dragging, the page takes no text selection and the cursor holds. */
+.pbk-drawer-grip {
+  position: absolute; z-index: 4; top: 0; bottom: 0; left: -5px; width: 10px;
+  cursor: ew-resize; touch-action: none;
+}
+.pbk-drawer-grip::after {
+  content: ''; position: absolute; top: 12px; bottom: 12px; left: 4px; width: 2px;
+  border-radius: 2px; background: var(--accent);
+  opacity: 0; transition: opacity 140ms ease;
+}
+.pbk-drawer-grip:hover::after,
+.pbk-drawer-grip:focus-visible::after,
+.pbk-drawer.is-dragging .pbk-drawer-grip::after { opacity: 1; }
+.pbk-drawer-grip:focus-visible { outline: none; }
+.pbk-drawer.is-dragging { user-select: none; }
+body:has(.pbk-drawer.is-dragging) { cursor: ew-resize; user-select: none; }
+
+/* A subtle hover on each setting's section: a faint wash, a little wider
+   than the row, behind it (a pseudo-element — nothing moves). */
+.pbk-rule { position: relative; isolation: isolate; }
+.pbk-rule::before {
+  content: ''; position: absolute; z-index: -1;
+  inset: 0 -10px;
+  border-radius: var(--ds-row-radius, 8px);
+  background: color-mix(in srgb, var(--text-primary) 3.5%, transparent);
+  opacity: 0; transition: opacity 160ms ease;
+  pointer-events: none;
+}
+.pbk-rule:hover::before { opacity: 1; }
+
+/* The masthead's Preview switch is components/Toggle (Toggle.css). */
+
+/* Switching preset — the Activity tab's switch motion to the letter
+   (Activity.css .avt-feed.is-enter-*): the detail enters from the side the
+   selection moved toward, 300ms, 28px, fading in. */
+.pbk-pdetail.is-enter-right { animation: pbk-detail-in-right 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+.pbk-pdetail.is-enter-left  { animation: pbk-detail-in-left 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes pbk-detail-in-right {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pbk-detail-in-left {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pbk-pdetail.is-enter-right,
+  .pbk-pdetail.is-enter-left { animation: none; }
+}
+html[data-reduce-motion="true"] .pbk-pdetail.is-enter-right,
+html[data-reduce-motion="true"] .pbk-pdetail.is-enter-left { animation: none; }
+/* …and the preview document with it (WordDocView's stage). */
+.pbk-word-stage.is-enter-right { animation: pbk-detail-in-right 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+.pbk-word-stage.is-enter-left  { animation: pbk-detail-in-left 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .pbk-word-stage.is-enter-right,
+  .pbk-word-stage.is-enter-left { animation: none; }
+}
+html[data-reduce-motion="true"] .pbk-word-stage.is-enter-right,
+html[data-reduce-motion="true"] .pbk-word-stage.is-enter-left { animation: none; }
+
+/* A setting's section is pressable — a press cycles it to its next choice. */
+.pbk-rule { cursor: pointer; user-select: none; }
+/* …and says so, in words: "Click to cycle" in the section's top-right
+   corner, faint at rest, clearer while the section is hovered. */
+.pbk-rule-cycle {
+  position: absolute; top: 10px; right: 0;
+  font-size: var(--ds-label-size, 9.6px); font-weight: 700;
+  letter-spacing: var(--ds-label-tracking, 0.07em); text-transform: uppercase;
+  color: var(--text-muted);
+  opacity: 0.35;
+  pointer-events: none;
+  transition: opacity 160ms ease, color 160ms ease;
+}
+.pbk-rule:hover .pbk-rule-cycle { opacity: 0.9; color: var(--text-secondary); }

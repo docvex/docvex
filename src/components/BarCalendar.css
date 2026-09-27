@@ -4,44 +4,99 @@
    hairline, the rounded foot). Semantic tokens only. */
 
 .bc-wrap { display: contents; }
-.bc-wrap.is-inline { display: inline-flex; flex-direction: column; align-items: flex-start; }
+/* Drawn in place (the gallery): the field keeps its place in the layout and
+   the open folder FLOATS over it — it never pushes the content below. */
+.bc-wrap.is-inline { position: relative; display: inline-flex; flex-direction: column; align-items: flex-start; }
 
 /* ── The field ── a calendar mark, then the date in tabular figures — or,
    for a span, "from – to" — in the field's own type. */
 .bc-field {
   display: inline-flex; align-items: center; gap: 6px;
-  width: auto; min-width: 118px;
+  width: auto; min-width: 0;   /* fits its content: the chevron follows the date closely */
   text-align: left; cursor: pointer;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
-.bc-field.is-range { min-width: 206px; }
 .bc-field.is-empty { color: var(--text-muted); }
-.bc-field-ico { display: inline-flex; width: 13px; height: 13px; flex: none; color: var(--text-muted); }
-.bc-field-ico svg { width: 100%; height: 100%; }
+/* Centred on the field's middle: its own box centred in the row (align-self,
+   line-height 0 so the field's tall line box can't lift it), the SVG a block
+   — inline, it sat on the text baseline and dropped below centre. */
+.bc-field-ico {
+  display: inline-flex; align-items: center; justify-content: center; align-self: center;
+  width: 13px; height: 13px; flex: none; line-height: 0;
+  color: var(--text-muted);
+}
+.bc-field-ico svg { display: block; width: 100%; height: 100%; }
 .bc-field-text { white-space: nowrap; }
 .bc-field-text.is-ph { color: var(--text-muted); }
 .bc-field-dash { color: var(--text-muted); }
-/* Standing alone (the gallery draws it open, out of a bar): its own left
-   edge and top corners, the foot squared onto the calendar. */
+/* Standing alone (the gallery draws it, out of a bar): its own left edge
+   and every corner rounded — open or shut. */
 .bc-wrap.is-inline > .bc-field {
   border-left: 1px solid var(--ds-hairline, var(--border));
-  border-radius: var(--ds-control-radius, 4.8px) var(--ds-control-radius, 4.8px) 0 0;
+  border-radius: var(--ds-control-radius, 4.8px);
 }
 .bc-field:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; background: var(--accent-tint); border-color: var(--accent); position: relative; z-index: 1; }
-/* Open: the field and the calendar are ONE surface, as the Kind picker and
-   its list are. */
-.bc-field.is-open {
-  background: color-mix(in srgb, var(--text-primary) 4%, var(--bg-page));
-  border-color: var(--accent); border-bottom-color: transparent;
-  box-shadow: inset 1px 0 0 var(--accent);
-  position: relative; z-index: 10002;
-}
+/* The button is its own section: open, its edge turns to the accent (it is
+   what the calendar under it belongs to) and it keeps its HOVER — the bar's
+   wash — so it reads as the thing to press to fold the calendar away. */
+.bc-field { transition: background 140ms ease, border-color 140ms ease, color 140ms ease; }
+.bc-field:hover,
+.bc-field.is-open:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); }
+.bc-field.is-open { border-color: var(--accent); }
+.bc-wrap.is-inline > .bc-field.is-open { border-left-color: var(--accent); }
 .bc-field.is-open .bc-field-ico { color: var(--accent); }
+/* The dropdown's chevron at the field's right end — the Kind picker's, to
+   the letter (LegalBar.css), turning over and taking the accent when open. */
+/* Close after the date — a touch more than the field's own gap. */
+.bc-field-chev { margin-left: 2px; }
+.bc-field.is-open .bc-field-chev { border-color: var(--accent); transform: translateY(2px) rotate(225deg); }
+.bc-field.is-open:hover .bc-field-ico,
+.bc-field:hover .bc-field-ico { color: var(--accent); }
 
-/* ── The popover ── the .lg-menu ground; drawn in place in the gallery. */
-.bc-pop { padding: 8px 8px 6px; width: auto; }
-.bc-pop.is-inline { position: static; box-shadow: var(--shadow-card); margin-top: -1px; }
+/* ── The popover ── TWO SECTIONS: the field (the button, unchanged) and,
+   open, the CALENDAR — a box of its own a little under the field (6px),
+   never joined to it: one accent edge all round, the same rounded corner at
+   all four, sized to its content (`max-content` — never squeezed to the
+   field's width), no shadow. Switching is a plain fade: the calendar fades
+   in and out (`bc-fade-in` / `bc-fade-out`, FOLD_MS in the JSX). */
+.bc-pop {
+  box-sizing: border-box;
+  width: max-content;
+  padding: 8px 8px 6px; margin: 0;
+  border: 1px solid var(--accent);
+  border-radius: var(--ds-menu-radius, 8px);
+  background: color-mix(in srgb, var(--text-primary) 4%, var(--bg-page));
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  box-shadow: none; filter: none;
+}
+.bc-pop::before { display: none; }
+/* Drawn in place (the gallery): under its field, over the content. */
+.bc-pop.is-inline { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; max-width: none; }
+
+/* The fade. Played only once placed (`.is-placed`) — before that the panel
+   is hidden while it is measured, and the fade would be spent. */
+@keyframes bc-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes bc-fade-out { from { opacity: 1; } to { opacity: 0; } }
+.bc-pop.is-placed { animation: bc-fade-in 160ms ease-out; }
+.bc-pop.is-closing { animation: bc-fade-out 150ms ease-in forwards; pointer-events: none; }
+html[data-reduce-motion="true"] .bc-pop { animation: none; }
+@media (prefers-reduced-motion: reduce) { .bc-pop { animation: none; } }
+
+/* The band and the chosen days fading in when the second end is chosen
+   (`band` switched on, or `reveal` → .is-reveal, for a moment only). */
+@keyframes bc-span-in { from { opacity: 0; } to { opacity: 1; } }
+.bc.is-reveal .bc-day.is-span::before,
+.bc.is-reveal .bc-day.is-start::before,
+.bc.is-reveal .bc-day.is-end::before,
+.bc.is-reveal .bc-day.is-start > span,
+.bc.is-reveal .bc-day.is-end > span,
+.bc.is-reveal .bc-day.is-on > span { animation: bc-span-in 320ms ease-out both; }
+html[data-reduce-motion="true"] .bc.is-reveal .bc-day::before,
+html[data-reduce-motion="true"] .bc.is-reveal .bc-day > span { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .bc.is-reveal .bc-day::before, .bc.is-reveal .bc-day > span { animation: none; }
+}
 
 /* ── The calendar ── */
 .bc { width: 232px; display: flex; flex-direction: column; gap: 4px; font-size: var(--ds-control-size, 10.4px); }
@@ -56,7 +111,9 @@
   transition: background 120ms ease, color 120ms ease;
 }
 .bc-nav svg { width: 13px; height: 13px; }
-.bc-nav:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+.bc-nav:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+/* A month the calendar may not go to (before FROM, in the TO calendar). */
+.bc-nav:disabled { opacity: 0.3; cursor: default; }
 .bc-nav:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .bc-week, .bc-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
@@ -67,6 +124,27 @@
 }
 .bc-week span.is-weekend { color: color-mix(in srgb, var(--text-muted) 70%, transparent); }
 .bc-grid { row-gap: 2px; }
+
+/* Changing month: the title and the days slide in from the side the month
+   moved to — the Activity feed's entry, to the letter (300ms, 28px, a fade
+   from nothing). The calendar clips it at its sides, with room left for a
+   focused day's outline. */
+.bc { overflow-x: clip; overflow-clip-margin: 4px; }
+.bc-grid.is-enter-right, .bc-title.is-enter-right { animation: bc-page-in-right 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+.bc-grid.is-enter-left,  .bc-title.is-enter-left  { animation: bc-page-in-left 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes bc-page-in-right {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes bc-page-in-left {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: none; }
+}
+html[data-reduce-motion="true"] .bc-grid, html[data-reduce-motion="true"] .bc-title { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .bc-grid.is-enter-right, .bc-grid.is-enter-left,
+  .bc-title.is-enter-right, .bc-title.is-enter-left { animation: none; }
+}
 
 /* A day: a round button; the span between two chosen days is a continuous
    band the chosen days cap. */
@@ -87,9 +165,23 @@
 .bc-day:hover > span { background: color-mix(in srgb, var(--text-primary) 9%, transparent); }
 .bc-day.is-weekend { color: var(--text-secondary); }
 .bc-day.is-out { color: color-mix(in srgb, var(--text-muted) 65%, transparent); }
+/* A day that can't be picked here (before FROM in the TO calendar, after TO
+   in the FROM one): faded further, struck through lightly, no hover. */
+.bc-day.is-off { color: color-mix(in srgb, var(--text-muted) 45%, transparent); cursor: default; }
+.bc-day.is-off > span { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text-muted) 40%, transparent); }
+.bc-day.is-off:hover > span { background: transparent; }
 .bc-day.is-today > span { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent); font-weight: 700; }
 .bc-day.is-on > span,
 .bc-day.is-on:hover > span { background: var(--accent); color: var(--text-on-accent); font-weight: 700; box-shadow: none; }
+/* The OTHER end of the range on a side calendar (FROM, seen in the TO one):
+   the chosen day's fill, faded back — it shows where the span starts
+   without claiming to be this calendar's pick. */
+.bc-day.is-ghost > span {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: color-mix(in srgb, var(--text-primary) 55%, transparent);
+  font-weight: 600;
+}
+.bc-day.is-ghost:hover > span { background: color-mix(in srgb, var(--accent) 32%, transparent); }
 .bc-day:focus-visible { outline: none; }
 .bc-day:focus-visible > span { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* The span. */
@@ -128,6 +220,59 @@
 .bc.is-range .bc-foot { flex-direction: column; align-items: stretch; }
 .bc.is-range .bc-foot .bc-link { align-self: flex-end; }
 .bc-hint { margin: 2px 0 0; font-size: 10.4px; color: var(--text-muted); text-align: center; }
+
+/* ── The range: TWO calendars side by side — FROM left, TO right — each
+   headed by the date it holds, a hairline between them, one foot under both
+   (the usual spans, then Clear). */
+/* The popover grows to the pair's width — the Kind list's 520px cap is for a
+   list, not two calendars — and is pulled left to fit the window
+   (useCalendarPopover's `shift`). */
+.bc-pop.is-range { max-width: calc(100vw - 32px); }
+.bc-pop.is-range { padding: 8px; }
+.bc-range { display: flex; flex-direction: column; gap: 8px; font-size: var(--ds-control-size, 10.4px); }
+/* Clear sits at the foot's right end (after the quick picks); greyed when
+   there is nothing to clear. */
+.bc-range-foot .bc-link:disabled { opacity: 0.4; cursor: default; background: transparent; }
+.bc-range-cals {
+  display: flex; align-items: stretch; gap: 14px;
+  /* No box of its own — no fill, no border: the calendars stand straight on
+     the folder's ground. */
+  padding: 0; border: 0; background: transparent;
+}
+.bc-range-col { display: flex; flex-direction: column; gap: 4px; }
+/* With one calendar the foot is narrower: the four spans two by two. */
+.bc-range:has(.bc-range-cals.is-one) .bc-range-foot { flex-wrap: wrap; }
+.bc-range:has(.bc-range-cals.is-one) .bc-range-foot .bc-presets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* The foot runs the pair's WHOLE width: the four spans share it equally,
+   Clear at the end. */
+/* A hairline divider above the quick picks, parting them from the calendars. */
+.bc-range-foot { margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--ds-hairline, var(--border)); gap: 6px; flex-wrap: wrap; }
+/* The spans' label, on a line of its own over them — the calendar labels'
+   small capitals. */
+.bc-quick-label {
+  flex: 0 0 100%; margin: 2px 0 -2px; padding: 0 2px;
+  font-size: var(--ds-label-size, 9.6px); font-weight: 700;
+  letter-spacing: var(--ds-label-tracking, 0.07em); text-transform: uppercase;
+  color: var(--text-muted);
+}
+.bc-range-foot .bc-presets { flex: 1 1 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 6px; }
+.bc-range-foot .bc-preset { width: 100%; height: 26px; }
+.bc-range-foot .bc-link { flex: none; height: 26px; }
+.bc-range-sep { width: 1px; flex: none; background: var(--ds-hairline, var(--border)); }
+/* The label over a calendar — just "From" / "To", in the labels' small
+   capitals. */
+.bc-range-label {
+  margin: 0; padding: 0 2px 2px;
+  font-size: var(--ds-label-size, 9.6px); font-weight: 700;
+  letter-spacing: var(--ds-label-tracking, 0.07em); text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* A SINGLE calendar in the range picker stretches to the panel's width (the
+   quick picks under it can make the panel wider than a calendar's 232px):
+   its column and the calendar take the whole row, the day grid's columns
+   widen with it. 232px stays the least it is. */
+.bc-range-cals.is-one .bc-range-col { flex: 1 1 auto; min-width: 0; }
+.bc-range-cals.is-one .bc { width: 100%; min-width: 232px; }
 
 html[data-reduce-motion="true"] .bc-day > span,
 html[data-reduce-motion="true"] .bc-nav { transition: none; }

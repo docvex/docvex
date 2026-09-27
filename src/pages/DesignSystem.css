@@ -69,10 +69,24 @@
   font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
-.dsg-btn:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
+/* Hover: a NEUTRAL wash of the text colour — not --bg-elevated, which reads
+   blue on Ink. */
+.dsg-btn:hover { background: color-mix(in srgb, var(--text-primary) 7%, transparent); border-color: var(--border-strong); }
 .dsg-btn.is-primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
 .dsg-btn.is-primary:hover { background: var(--accent-hover); }
-.dsg-btn.is-danger:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger-text); }
+/* Danger says so AT REST, not only on hover: the pills' soft recipe in the
+   danger tone — a tint of it, a ring of it, the text in it — deepening on
+   hover and filling solid while pressed. */
+.dsg-btn.is-danger {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  color: var(--danger-text, var(--danger));
+}
+.dsg-btn.is-danger:hover {
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+  border-color: var(--danger);
+}
+.dsg-btn.is-danger:active { background: var(--danger); border-color: var(--danger); color: var(--text-on-accent); }
 .dsg-btn:disabled { opacity: 0.5; cursor: default; }
 .dsg-err { margin: 0; font-size: 12px; color: var(--danger-text); }
 
@@ -99,6 +113,20 @@
 .dsg-gallery .lgt-bar.is-pinned { background: color-mix(in srgb, var(--bg-page) var(--ds-bar-frost, 66%), transparent); }
 .dsg-gallery .lgt-search { margin-left: auto; }
 .dsg-gallery .lg-menu { position: static; width: 240px; }
+/* The calendars drawn open take their own size (the range's two side by
+   side are far wider than a list), and their frame lets them show whole. */
+/* No max-width: for a calendar floating under its field, 100% is the FIELD's
+   width, which cut the calendar's background short of the calendars. */
+.dsg-gallery .lg-menu.bc-pop { width: max-content; max-width: none; }
+.dsg-sample-frame:has(.bc-pop) { overflow: visible; }
+/* The working Dropdown sample: the field, and its list drawn in place under
+   it a little below (a solo picker's detached card). */
+/* The field stays in the layout; its list FLOATS 6px under it over the
+   content, as a real one does — opening moves nothing. */
+.dsg-dropdown { position: relative; display: inline-flex; flex-direction: column; align-items: flex-start; }
+.dsg-dropdown .lg-kind { width: 200px; }
+.dsg-gallery .dsg-dropdown-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; width: 240px; }
+.dsg-sample-frame:has(.dsg-dropdown-menu) { overflow: visible; }
 .dsg-gallery .lg-row { width: 100%; }
 .dsg-gallery .lg-lib { width: 100%; }
 .dsg-gallery .pmh { width: 100%; }
@@ -127,18 +155,23 @@
   display: inline-flex; align-items: center;
   padding: 4.8px 9.6px;
   border-radius: var(--ds-pill-radius, 999px);
-  background: var(--bg-elevated); border: 1px solid var(--ds-hairline, var(--border));
+  background: var(--bg-sidebar); border: 1px solid var(--ds-hairline, var(--border));
   color: var(--text-primary); font-size: 9.6px; font-weight: 500;
   box-shadow: var(--shadow-elev);
 }
 
 /* Status pill (the "up to date" shimmer, the plan pill). */
 .dsg-status {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 4px 12px 4px 10px;
+  --pill-tone: var(--success);
+  display: inline-flex; align-items: center; gap: 7px;
+  height: var(--ds-pill-h, 20px); box-sizing: border-box;
+  padding: 0 var(--ds-pill-pad, 9px);
+  border: 1px solid color-mix(in srgb, var(--pill-tone) var(--ds-pill-ring, 45%), transparent);
   border-radius: var(--ds-pill-radius, 999px);
-  background: var(--success-soft); color: var(--success);
-  font-size: var(--ds-tag-size, 9.6px); font-weight: 700; letter-spacing: var(--ds-tag-tracking, 0.04em); text-transform: uppercase;
+  background: color-mix(in srgb, var(--pill-tone) var(--ds-pill-tint, 14%), transparent);
+  color: var(--pill-tone);
+  font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 650);
+  letter-spacing: var(--ds-tag-tracking, 0.01em); line-height: 1; white-space: nowrap;
 }
 .dsg-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 18%, transparent); }
 
@@ -193,3 +226,261 @@
 @media (max-width: 760px) {
   .dsg-token { grid-template-columns: 1fr; }
 }
+
+/* ── The Doc Viewer sample ─────────────────────────────────────────────
+   The viewer window as a Word document draws it (pages/DocViewer.css reads
+   the same --ds-dv-* tokens with the same fallbacks): the backdrop and its
+   dot grid, the two floating cards down the left, the page list, the
+   dark-glass pills, a sheet, the counters. Still — nothing here is live. */
+.dsg-dv {
+  --dv-w: var(--ds-dv-panel-w, 360px);
+  --dv-inset: var(--ds-dv-inset, 8px);
+  --dv-gap: var(--ds-dv-doc-gap, 16px);
+  --dv-rail: var(--ds-dv-rail-w, 126px);
+  position: relative; width: 100%; height: 380px; box-sizing: border-box;
+  border-radius: var(--ds-card-radius, 14px);
+  background: var(--bg-backdrop, var(--bg-page));
+  background-image: radial-gradient(color-mix(in srgb, var(--text-primary) 10%, transparent) 0.8px, transparent 0.9px);
+  background-size: 19.2px 19.2px;
+  overflow: hidden;
+  font-size: 12px;
+}
+.dsg-dv-card {
+  box-sizing: border-box; display: flex; flex-direction: column; min-height: 0;
+  background: color-mix(in srgb, var(--bg-page) var(--ds-dv-card-frost, 90%), transparent);
+  backdrop-filter: blur(var(--ds-dv-card-blur, 32px)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--ds-dv-card-blur, 32px)) saturate(1.4);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-dv-card-radius, 11.2px);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+/* The two side cards: the same width, the inset from the window's edges and
+   between them. */
+.dsg-dv-side {
+  position: absolute; left: var(--dv-inset); top: var(--dv-inset); bottom: var(--dv-inset);
+  width: var(--dv-w);
+  display: flex; flex-direction: column; gap: var(--dv-inset);
+}
+.dsg-dv-quick { flex: none; }
+.dsg-dv-quick .drb-actions { grid-template-columns: repeat(4, 1fr); }
+.dsg-dv-quick .drb-action { cursor: default; }
+.dsg-dv-panel { flex: 1 1 auto; }
+/* The side panel's tab strip (.dv-advisor-slot .dv-side-tabs): the sidebar
+   ground, the tabs at a tab's size wrapping, the active one underlined, the
+   ones this file cannot use faded. */
+.dsg-dv-tabs {
+  flex: none; display: flex; flex-wrap: wrap; gap: 6px 12px;
+  padding: 0 4.8px;
+  background: var(--bg-sidebar); border-bottom: 1px solid var(--border);
+}
+.dsg-dv-tab {
+  position: relative; display: inline-flex; align-items: center;
+  height: 34px; padding: 0 8px;
+  font-size: 0.704rem; font-weight: 500; color: var(--text-primary);
+}
+.dsg-dv-tab.is-on::after {
+  content: ''; position: absolute; left: 8px; right: 8px; bottom: -2px; height: 4px; border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+.dsg-dv-tab.is-unavailable { opacity: 0.26; }
+.dsg-dv-panel-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: 10px; padding: 16px 14px; }
+.dsg-dv-line { display: block; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
+.dsg-dv-line.is-title { height: 12px; background: color-mix(in srgb, var(--text-primary) 22%, transparent); }
+.dsg-dv-composer {
+  flex: none; margin: 0 10px 10px;
+  height: 34px; display: flex; align-items: center; padding: 0 12px; box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: var(--ds-row-radius, 8px);
+  color: var(--text-muted); font-size: 11.2px;
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+}
+/* The document area: starts the panel's width plus the document gap in — the
+   viewer's --dv-doc-inset — and holds the page list, the pills and the sheet. */
+.dsg-dv-doc { position: absolute; inset: 0 0 0 calc(var(--dv-w) + var(--dv-gap)); }
+.dsg-dv-rail {
+  position: absolute; left: 0.8px; top: var(--dv-inset); bottom: var(--dv-inset);
+  width: var(--dv-rail);
+}
+.dsg-dv-thumbs { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 10px 8px 8px; }
+.dsg-dv-thumbs > span {
+  width: 84px; height: 108px; border-radius: 3px;
+  background: var(--bg-card); border: 1px solid var(--border); box-shadow: var(--shadow-card);
+  opacity: 0.7;
+}
+.dsg-dv-thumbs > span.is-current { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The pills floating over the document: the dark glass, a button high, in
+   both themes (the viewer's .dv-find / .dv-zoom-controls / .dv-doc-counter). */
+.dsg-dv-pill {
+  position: absolute; z-index: 2;
+  display: inline-flex; align-items: center; gap: 6.4px; box-sizing: border-box;
+  height: calc(var(--ds-dv-pill-btn, 25.6px) + 2px);
+  border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 999px;
+  background: var(--ds-dv-pill-glass, rgba(10, 12, 14, 0.92));
+  backdrop-filter: blur(var(--ds-dv-pill-blur, 17.6px)) saturate(1.8);
+  -webkit-backdrop-filter: blur(var(--ds-dv-pill-blur, 17.6px)) saturate(1.8);
+  filter: drop-shadow(0 3.2px 12.8px rgba(0, 0, 0, 0.55));
+  color: rgba(255, 255, 255, 0.7); font-size: 10.4px; white-space: nowrap;
+}
+.dsg-dv-zoom { top: var(--dv-inset); left: calc(var(--dv-rail) + 8px); padding: 0; }
+.dsg-dv-zoom-btn { display: inline-flex; align-items: center; justify-content: center; width: var(--ds-dv-pill-btn, 25.6px); height: var(--ds-dv-pill-btn, 25.6px); font-size: 14.4px; }
+.dsg-dv-pct { min-width: 35.2px; text-align: center; font-size: 9.2px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; color: rgba(255, 255, 255, 0.6); }
+.dsg-dv-find { top: var(--ds-dv-pill-top, 6.4px); right: 12px; width: var(--ds-dv-find-w, 288px); padding: 0 4px 0 8.8px; }
+.dsg-dv-find svg { flex: none; }
+.dsg-dv-counter, .dsg-dv-words {
+  height: auto; padding: 5px 11px; bottom: 6px;
+  font-size: var(--ds-dv-counter-size, 11px); font-weight: 600; line-height: 1.2; letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.6);
+}
+.dsg-dv-counter { left: calc(var(--dv-rail) + 8px); right: 0; width: max-content; margin: 0 auto; }
+.dsg-dv-words { left: calc(var(--dv-rail) + 8px + 8px); font-variant-numeric: tabular-nums; }
+/* A sheet, centred in what is left of the area, edge to edge under the pills. */
+.dsg-dv-sheet {
+  position: absolute; top: 44px; bottom: 0; left: calc(var(--dv-rail) + 8px + 24px); right: 24px;
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 36px 40px 0; box-sizing: border-box;
+  background: #fff; border-radius: 3px 3px 0 0;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+}
+.dsg-dv-sheet .dsg-dv-line { background: rgba(0, 0, 0, 0.1); }
+.dsg-dv-sheet .dsg-dv-line.is-title { background: rgba(0, 0, 0, 0.32); margin-bottom: 8px; }
+/* The values read off the layout, in a row of small cards. */
+.dsg-dv-values {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px;
+  width: 100%; margin: 0; box-sizing: border-box;
+}
+.dsg-dv-value {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 7px 10px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+}
+.dsg-dv-value.is-set { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-tint); }
+.dsg-dv-value dt { font-size: var(--ds-label-size, 9.6px); font-weight: 700; letter-spacing: var(--ds-label-tracking, 0.07em); text-transform: uppercase; color: var(--text-muted); }
+.dsg-dv-value dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.2px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 900px) { .dsg-dv { height: 300px; } .dsg-dv-find span { display: none; } .dsg-dv-find { width: auto; padding: 0 8px; } }
+
+/* The Workspace sample (components/LegalWorkspace): the bar's second line,
+   then the rail and the main column side by side, drawn still. */
+.dsg-ws { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.dsg-ws > .lgt-bar { position: static; margin: 0; }
+.dsg-ws .lg-shell.dsg-ws-shell { min-height: 0; }
+.dsg-ws-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 6px 0; }
+.dsg-ws-kind { margin: 0; font-family: var(--font-display); font-size: 17.6px; font-weight: 700; color: var(--text-primary); }
+/* The Danger zone sample spans its frame, as it does on a page. */
+.dsg-dz { align-self: stretch; }
+
+/* ── Page layout (PageLayoutSample) ─────────────────────────────────────
+   A page beside the app sidebar, drawn from the Page layout tokens at their
+   real sizes: the window edge (--ds-page-inset), the sidebar, the header with
+   its divider pulled toward the sidebar (--ds-divider-pull), the side list
+   and the content (--ds-head-gap under the divider, --ds-list-gap between
+   and after). */
+.dsg-pl {
+  position: relative; align-self: stretch;
+  display: flex; height: 340px; overflow: hidden;
+  padding: var(--ds-page-inset, 6.4px);
+  border-radius: 10px;
+  background: var(--bg-backdrop, var(--bg-page));
+  box-shadow: inset 0 0 0 1px var(--ds-hairline, var(--border));
+}
+.dsg-pl-sidebar {
+  position: relative; flex: none; width: 120px;
+  border: 1.5px solid var(--border); border-radius: 9.6px;
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  box-shadow: var(--shadow-card);
+}
+.dsg-pl-page {
+  position: relative; flex: 1; min-width: 0;
+  padding: 18px var(--ds-list-gap, 20px) 0 var(--ds-content-gap, 17.6px);
+}
+.dsg-pl-head {
+  position: relative;
+  display: flex; flex-direction: column; gap: 8px;
+  margin-left: calc(-1 * var(--ds-divider-pull, 11.2px));
+  padding: 0 0 16px var(--ds-divider-pull, 11.2px);
+  border-bottom: 1px solid var(--border);
+}
+.dsg-pl-eyebrow { width: 60px; height: 6px; border-radius: 3px; background: var(--accent); opacity: 0.7; }
+.dsg-pl-title { width: 150px; height: 16px; border-radius: 4px; background: color-mix(in srgb, var(--text-primary) 55%, transparent); }
+.dsg-pl-line { display: block; width: 62%; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text-primary) 16%, transparent); }
+.dsg-pl-line.is-wide { width: 88%; }
+.dsg-pl-line.is-short { width: 40%; }
+.dsg-pl-body {
+  display: grid;
+  grid-template-columns: calc(var(--ds-list-w, 236px) + var(--ds-list-gap, 20px)) minmax(0, 1fr);
+  align-items: start;
+}
+.dsg-pl-list {
+  position: relative;
+  display: flex; flex-direction: column; gap: 6px;
+  height: 196px; box-sizing: border-box;
+  margin: var(--ds-head-gap, 8px) var(--ds-list-gap, 20px) 0 calc(-1 * var(--ds-divider-pull, 11.2px));
+  padding: 26px 9.6px 10px calc(var(--ds-divider-pull, 11.2px) - 1.5px);
+  border: 1.5px solid var(--border); border-radius: 9.6px;
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  box-shadow: var(--shadow-card);
+}
+.dsg-pl-item { display: block; height: 26px; border-radius: 6px; background: color-mix(in srgb, var(--text-primary) 5%, transparent); }
+.dsg-pl-item.is-on { background: var(--accent-tint); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 65%, transparent); }
+.dsg-pl-content {
+  position: relative;
+  display: flex; flex-direction: column; gap: 10px;
+  padding-top: calc(var(--ds-head-gap, 8px) + 26px);
+}
+.dsg-pl-tag {
+  position: absolute; top: 8px; left: 10px;
+  font-size: 9.6px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.dsg-pl-list .dsg-pl-tag { left: calc(var(--ds-divider-pull, 11.2px) + 2px); }
+.dsg-pl-content .dsg-pl-tag { top: calc(var(--ds-head-gap, 8px) + 6px); left: 0; }
+.dsg-pl-tag.is-divider { top: auto; bottom: -18px; left: 0; color: var(--accent); }
+/* The measures, as accent labels where they are taken. */
+.dsg-pl-measure {
+  position: absolute;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 9.6px;
+  color: var(--accent);
+  pointer-events: none;
+}
+.dsg-pl-measure.is-gap { bottom: 10px; left: 0; }
+.dsg-pl-measure.is-head { top: 118px; right: var(--ds-list-gap, 20px); }
+.dsg-pl-measure.is-listgap { bottom: 10px; right: var(--ds-list-gap, 20px); }
+
+.dsg-pl-rules { margin: 4px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px 22px; align-self: stretch; }
+.dsg-pl-rules li { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dsg-pl-rule-name { font-size: 12.5px; font-weight: 700; color: var(--text-primary); }
+.dsg-pl-rules code { font-size: 10.4px; color: var(--accent); }
+.dsg-pl-rules p { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--text-secondary); }
+
+/* ── Portal buttons (lib/phoneUploadPage .btn) ───────────────────────────
+   The phone upload page's two buttons, on its background: the dot grid and a
+   spotlight glow (AppShell .main-content::before / CursorSpotlight dots) so
+   the FROSTED one has something to blur. Keep in step with the page's CSS —
+   it is a standalone file with the values copied in. */
+.dsg-portal {
+  position: relative; width: 100%; max-width: 420px; padding: 22px 16px;
+  display: grid; gap: 8px; overflow: hidden; border-radius: var(--ds-row-radius, 8px);
+  background-color: var(--bg-backdrop, var(--bg-page));
+  background-image: radial-gradient(circle at center, color-mix(in srgb, var(--text-primary) 9%, transparent) 0.96px, transparent 1.28px);
+  background-size: 19.2px 19.2px;
+}
+.dsg-portal-spot {
+  position: absolute; left: 62%; top: 30%; width: 260px; height: 260px; transform: translate(-50%, -50%);
+  pointer-events: none;
+  background-image: radial-gradient(circle at center, color-mix(in srgb, var(--text-primary) 22%, transparent) 1.16px, transparent 1.48px);
+  background-size: 19.2px 19.2px;
+  -webkit-mask-image: radial-gradient(circle 130px at center, #000 0%, #000 42%, transparent 100%);
+  mask-image: radial-gradient(circle 130px at center, #000 0%, #000 42%, transparent 100%);
+}
+.dsg-pbtn {
+  position: relative; display: flex; align-items: center; justify-content: center; gap: 8px;
+  height: 52px; padding: 0 14px; border-radius: var(--ds-row-radius, 8px);
+  border: 1px solid var(--ds-hairline, var(--border));
+  background: color-mix(in srgb, var(--bg-backdrop, var(--bg-page)) 55%, transparent);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  color: var(--text-primary); font: inherit; font-size: 14.4px; font-weight: 600; cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.dsg-pbtn:active { background: color-mix(in srgb, var(--text-primary) 7%, transparent); border-color: var(--border-strong); }
+.dsg-pbtn.is-primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.dsg-pbtn.is-primary:active { background: var(--accent-hover); }
+.dsg-pbtn svg { width: 19px; height: 19px; flex: none; }

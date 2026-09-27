@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import './CaenModal.css';
 import CaenCard from './CaenCard';
 import Tooltip from './Tooltip';
-import { loadCaenRev, searchCaen, normCode, caenHref } from '../lib/caen';
+import { loadCaenRev, peekCaenTrees, searchCaen, normCode, caenHref } from '../lib/caen';
 
 // The CAEN nomenclature as a MODAL — the insse.ro tab, brought to wherever a
 // code turned up: a CAEN code in an act read in the Legislation tab, the code
@@ -41,7 +41,7 @@ const revOf = (r) => (r === 1 || r === 2 ? r : 3);
 
 export default function CaenModal({ open, onClose }) {
   const navigate = useNavigate();
-  const [trees, setTrees] = useState({});
+  const [trees, setTrees] = useState(peekCaenTrees);
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState(null);   // { code, rev }
   const inputRef = useRef(null);

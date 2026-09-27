@@ -1,0 +1,524 @@
+/* The Legislation tabs' WORKSPACE (components/LegalWorkspace) — the frame
+   every source tab but the Newsletter stands in: the page column, the rail
+   of what the tab has opened (sticky under the mini header, resizable), the
+   main column, and the Search control that heads the mini header's second
+   line. Moved here from pages/Legislation.css, class names kept (`lg-*`). */
+
+/* `--lg-rail-w`: the rail's width, divider included — the mini header's
+   Search and History together end on that divider. */
+.lws { --lg-rail-w: var(--ds-list-w, 236px); --lgt-page-gap: 20px; display: flex; flex-direction: column; gap: var(--lgt-page-gap); padding-bottom: 0; }
+/* NOTHING below the shell: a sticky rail cannot outrun the bottom of the
+   block around it, so any space under that block — the page's own bottom
+   padding, the scroller's — pushed the pinned rail up at the end of the
+   scroll. That space is the main column's instead (.lg-shell-main). */
+.sv-single-scroll:has(.lws) { padding-bottom: 0; }
+/* Tighter under the tab bar: 8px to the rail and the content (the shared bar
+   keeps 19.2px on the Newsletter). */
+.lws > .lgt-bar { margin-bottom: calc(var(--ds-head-gap, 8px) - var(--lgt-page-gap, 0px)); }
+/* Capped at the shared content ceiling on wide screens, left-aligned — the
+   same rule as Versions and the Newsletter. */
+@media (min-width: 1024px) { /* 1280px pre-scale */
+  .lws { width: min(100%, var(--content-max-width, 1280px)); }
+}
+
+/* ── The rail — the Advisor's list of chats (pages/Projects/ProjectAIChat.css,
+   .aichat-item — keep the two in step), for the acts open in this tab. It
+   stands at the page's left, sticky under the tab bar, with a hairline
+   divider; the search / reader takes the rest. */
+.lg-shell { display: flex; align-items: flex-start; }
+/* The act's column: its RIGHT margin matches the gap between the rail's
+   divider and it (the rail's 20px right margin). */
+.lg-shell-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding-right: var(--ds-list-gap, 20px); padding-bottom: calc(var(--ds-page-foot, 64px) + 1.6rem); }
+/* Pinned just under the mini header (`--lg-bar-h`, its measured height) and
+   running to the BOTTOM of the window (`--lg-scroll-h`, the scrolling area's
+   measured height), so its divider is one line from the header down to the
+   window's foot; the list inside scrolls. Both measured in LegalWorkspace.jsx. */
+.lg-rail {
+  /* Its LEFT EDGE on the mini header's: pulled left exactly as the bar is
+     (the content gap less the window-edge inset, LegalTabs.css), and wider by
+     the same, so its divider stays under the end of History. */
+  --lg-rail-pull: var(--ds-divider-pull, calc(var(--content-left-gap, 17.6px) - var(--rail-gap, 6.4px)));
+  flex: 0 0 calc(var(--lg-rail-w, 236px) + var(--lg-rail-pull)); min-width: 0;
+  margin-left: calc(-1 * var(--lg-rail-pull));
+  /* STICKY just under the mini header; the shell is kept tall enough for it
+     to hold (`--lg-rail-travel`, below). */
+  position: sticky; top: calc(var(--chrome-inset, 6.4px) + var(--lg-bar-h, 90px) + 8px); align-self: flex-start;
+  height: calc(var(--lg-scroll-h, 100vh) - var(--chrome-inset, 6.4px) - var(--lg-bar-h, 90px) - 8px);
+  display: flex; flex-direction: column;
+  box-sizing: border-box;
+  /* Its items keep the content's left edge — under the Search button. */
+  margin-right: var(--ds-list-gap, 20px); padding: 6px 14px 6px calc(var(--lg-rail-pull) - 1px);
+  /* One border all round, only the right edge (the divider) showing until
+     the rail is pinned — so nothing moves when the frame appears. */
+  border: 1px solid transparent; border-right-color: var(--border);
+  border-radius: 0;
+  transition: background-color 260ms ease, border-color 260ms ease, box-shadow 260ms ease, border-radius 260ms ease,
+    height 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* PINNED (stuck under the mini header — `is-pinned`, set by position in
+   LegalWorkspace.jsx, as the bar's own): the mini header's pinned surface to the
+   letter — the frosted page ground, the flat hairline all round, the seam
+   shadow, the bar's corners. */
+.lg-rail.is-pinned {
+  /* Above the page's bottom fade (.sv-single-body::after, z 5) and below the
+     bar (z 30), so the fade never washes over it; and its height GLIDES to
+     end one window-edge inset above the bottom, its rounded foot floating
+     as the bar's top does. */
+  z-index: 20;
+  height: calc(var(--lg-scroll-h, 100vh) - var(--chrome-inset, 6.4px) * 2 - var(--lg-bar-h, 90px) - 8px);
+  background: color-mix(in srgb, var(--bg-page) var(--ds-bar-frost, 66%), transparent);
+  backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  border-color: var(--border-flat, var(--border));
+  border-radius: var(--ds-bar-radius, 9.6px);
+}
+html[data-reduce-motion="true"] .lg-rail { transition: none; }
+/* The SIDEBAR's SPOTLIGHT (components/Sidebar.css .sidebar::before / ::after,
+   to the letter): a soft accent glow following the pointer over the rail,
+   and a bright shine on its border — the gradient masked to the 1px ring —
+   both from --spot-x/y (eased toward the pointer in LegalWorkspace.jsx), faded
+   in while the pointer is over the rail. The list sits above them. */
+.lg-rail::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  pointer-events: none; z-index: 0;
+  background: radial-gradient(
+    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 4.5%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 1.5%, transparent) 38%,
+    transparent 68%
+  );
+  opacity: 0; transition: opacity 240ms ease;
+}
+.lg-rail::after {
+  content: ''; position: absolute; inset: -1px; border-radius: inherit;
+  padding: 1px; pointer-events: none; z-index: 2;
+  background: radial-gradient(
+    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 12%, transparent) 34%,
+    transparent 62%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0; transition: opacity 240ms ease;
+}
+/* The shine rides the rail's BORDER, drawn all round only once pinned. */
+.lg-rail:hover::before, .lg-rail.is-pinned:hover::after { opacity: 0.7; }
+.lg-rail > .lg-rail-list { position: relative; z-index: 1; }
+@media (prefers-reduced-motion: reduce) { .lg-rail::before, .lg-rail::after { display: none; } }
+html[data-reduce-motion="true"] .lg-rail::before, html[data-reduce-motion="true"] .lg-rail::after { display: none; }
+/* The DIVIDER as a drag handle: a 10px band centred on the rail's right
+   border, the resize cursor on it; hovered, held or focused, the divider
+   lights in the accent. While dragging, the whole window keeps the cursor
+   and nothing gets selected. */
+.lg-rail-resizer {
+  position: absolute; top: 0; bottom: 0; right: -6px; z-index: 3;
+  width: 11px;
+  cursor: col-resize;
+  outline: none;
+}
+.lg-rail-resizer::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 5px; width: 1px;
+  background: transparent;
+  transition: background-color 140ms ease, box-shadow 140ms ease;
+}
+.lg-rail-resizer:hover::after,
+.lg-rail-resizer:focus-visible::after,
+.lg-rail-resizer.is-active::after { background: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+.lg-rail.is-resizing { transition: none; }
+body.lg-resizing, body.lg-resizing * { cursor: col-resize !important; user-select: none !important; }
+/* The shell is at least the rail's height plus the distance the page
+   scrolls before the rail sticks, so the sticky rail always has room to
+   hold (measured in LegalWorkspace.jsx). */
+.lg-shell { min-height: calc(var(--lg-scroll-h, 100vh) - var(--chrome-inset, 6.4px) - var(--lg-bar-h, 90px) - 8px + var(--lg-rail-travel, 0px)); }
+/* The head: the Search item, and History (the clock alone) at its right. */
+/* SEARCH, in the mini header — the far left of its second line, the SAME
+   SIZE as the act's find field (.lgt-search: its height and its width, its
+   hairline, corners, tint and frost), so the line reads as two fields: the
+   way to the search at the left, the find at the right. Its icon and word
+   centred; lit (accent tint and border, accent text) while the search is on
+   show. History, the clock alone, beside it. */
+.lg-searchtab {
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6.4px;
+  box-sizing: border-box;
+  /* Search + the line's gap + History = the rail's width, so the pair ends
+     exactly on the rail's divider below them. */
+  height: var(--ds-control-h, 24px);
+  width: calc(var(--lg-rail-w, 236px) - 6.4px - var(--ds-control-h, 24px));
+  padding: 0 10px;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-control-radius, 4.8px);
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  color: var(--text-secondary);
+  font: inherit; font-size: var(--ds-control-size, 10.4px); font-weight: 600; line-height: 1;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+/* Its HOVER and SELECTED looks are the APP SIDEBAR's (.nav-item, as the
+   rail's items wear them): hovered, a wash brightening where the pointer is
+   (accent on Ink, neutral on Cream); selected (the search on show), the
+   sidebar's selected tab — Ink: accent tint, ring and text, a brighter
+   pointer glow on hover; Cream: the solid cognac pill, lifted. At rest it
+   keeps its field look, beside the find. */
+.lg-searchtab { position: relative; isolation: isolate; transition: background 150ms, color 150ms, border-color 150ms, transform 150ms, box-shadow 150ms; }
+.lg-searchtab:hover {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 100%
+  );
+  color: var(--text-primary);
+}
+.lg-searchtab.is-active {
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+}
+.lg-searchtab.is-active::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 32%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 24%, transparent) 100%
+  );
+  opacity: 0; transition: opacity 220ms ease; pointer-events: none; z-index: -1;
+}
+.lg-searchtab.is-active:hover::before { opacity: 1; }
+.lg-searchtab.is-active:hover { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+:root[data-theme="cream"] .lg-searchtab.is-active,
+:root[data-theme="cream"] .lg-searchtab.is-active:hover {
+  background: var(--color-cognac);
+  border-color: var(--color-cognac);
+  color: var(--color-cream);
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--color-cognac) 35%, transparent),
+    0 6px 16px -4px color-mix(in srgb, var(--color-cognac) 55%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-accent) 18%, transparent);
+}
+:root[data-theme="cream"] .lg-searchtab.is-active::before {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--text-on-accent) 16%, transparent) 0%,
+    color-mix(in srgb, var(--text-on-accent) 6%, transparent) 55%,
+    transparent 100%
+  );
+}
+:root[data-theme="cream"] .lg-searchtab:not(.is-active):hover {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--text-primary) 7%, transparent) 0%,
+    color-mix(in srgb, var(--text-primary) 5%, transparent) 55%,
+    color-mix(in srgb, var(--text-primary) 4%, transparent) 100%
+  );
+  color: var(--text-primary);
+}
+html[data-reduce-motion="true"] .lg-searchtab,
+html[data-reduce-motion="true"] .lg-searchtab::before { transition: none; }
+.lg-searchtab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lg-searchtab-ico { display: inline-flex; flex: none; }
+.lg-searchtab-ico svg { display: block; width: 13px; height: 13px; }
+.lg-searchtab-hist.is-icon { flex: none; width: var(--ds-control-h, 24px); padding: 0; justify-content: center; }
+.lg-rail-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 2px 0 8px; scrollbar-width: thin; }
+.lg-rail-item {
+  position: relative;
+  width: 100%;
+  display: flex; align-items: center; gap: 7.2px;
+  /* Two lines (the kind, then the number and year): a fixed 44px row. */
+  height: 44px; margin-bottom: 4.8px;
+  box-sizing: border-box;
+  padding: 6.4px 6.4px 6.4px 9.6px;
+  /* The APP SIDEBAR's item (.nav-item, components/Sidebar.css — keep the two
+     in step): a transparent 1.5px ring reserved so the selected ring does not
+     move the row. */
+  border: 1.5px solid transparent; border-radius: 6.4px;
+  background: none;
+  font: inherit; text-align: left;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: background 150ms, color 150ms, border-color 150ms, transform 150ms, box-shadow 150ms;
+}
+/* HOVER — the sidebar's: an accent wash brightening where the pointer is
+   (--item-spot-x/y, fed by `useItemSpots` on the rail), the text to full
+   strength. Cream: a quiet NEUTRAL wash instead (below). */
+.lg-rail-item:hover {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 100%
+  );
+  color: var(--text-primary);
+}
+/* SELECTED — the sidebar's selected tab: accent tint, accent ring, accent
+   text; hovered, a brighter pointer-tracked glow fades in (its own layer).
+   Cream: the solid cognac pill, lifted (below). */
+.lg-rail-item.is-active {
+  isolation: isolate;
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+}
+.lg-rail-item.is-active::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 32%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 24%, transparent) 100%
+  );
+  opacity: 0; transition: opacity 220ms ease; pointer-events: none; z-index: -1;
+}
+.lg-rail-item.is-active:hover::before { opacity: 1; }
+.lg-rail-item.is-active:hover { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+
+:root[data-theme="cream"] .lg-rail-item.is-active,
+:root[data-theme="cream"] .lg-rail-item.is-active:hover {
+  background: var(--color-cognac);
+  border-color: var(--color-cognac);
+  color: var(--color-cream);
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--color-cognac) 35%, transparent),
+    0 6px 16px -4px color-mix(in srgb, var(--color-cognac) 55%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-accent) 18%, transparent);
+}
+:root[data-theme="cream"] .lg-rail-item.is-active::before {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--text-on-accent) 16%, transparent) 0%,
+    color-mix(in srgb, var(--text-on-accent) 6%, transparent) 55%,
+    transparent 100%
+  );
+}
+:root[data-theme="cream"] .lg-rail-item:not(.is-active):hover {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--text-primary) 7%, transparent) 0%,
+    color-mix(in srgb, var(--text-primary) 5%, transparent) 55%,
+    color-mix(in srgb, var(--text-primary) 4%, transparent) 100%
+  );
+  color: var(--text-primary);
+}
+html[data-reduce-motion="true"] .lg-rail-item,
+html[data-reduce-motion="true"] .lg-rail-item::before { transition: none; }
+.lg-rail-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lg-rail-ico { flex: 0 0 auto; display: inline-flex; color: var(--text-muted); }
+.lg-rail-ico svg { display: block; }
+.lg-rail-title { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 0.68rem; font-weight: 500; white-space: nowrap; overflow: hidden; }
+/* The KIND on top — the portal's own word, in small capitals — and the
+   number and year under it, the row's main line. Each line ends in an
+   ellipsis on its own; both are the same selected or not. */
+.lg-rail-kind, .lg-rail-num { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+.lg-rail-kind { font-size: 0.56rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.75; }
+.lg-rail-num { font-size: 0.72rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* The title is the SAME selected or not — one weight, one size; only its
+   colour follows the selected pill. */
+/* The close button FLOATS over the item's right end instead of taking a
+   place in its row, so the title always has the item's whole width; shown
+   only while the item is hovered or focused — and then the TITLE, no
+   ellipsis, FADES OUT at its right end, gone just before the button, so the
+   button never sits on the text. */
+.lg-rail-actions {
+  position: absolute; top: 50%; right: 5px; transform: translateY(-50%);
+  display: flex; gap: 1.6px;
+  opacity: 0; pointer-events: none;
+  transition: opacity 120ms;
+}
+.lg-rail-item:hover .lg-rail-actions, .lg-rail-item:focus-within .lg-rail-actions { pointer-events: auto; }
+.lg-rail-item:hover :is(.lg-rail-kind, .lg-rail-num), .lg-rail-item:focus-within :is(.lg-rail-kind, .lg-rail-num) { text-overflow: clip; }
+.lg-rail-item:hover .lg-rail-title, .lg-rail-item:focus-within .lg-rail-title {
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent calc(100% - 22px));
+  mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent calc(100% - 22px));
+}
+.lg-rail-item:hover .lg-rail-actions, .lg-rail-item:focus-within .lg-rail-actions { opacity: 1; }
+.lg-rail-actions button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 19.2px; height: 19.2px; padding: 0;
+  border: none; border-radius: 4.8px;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.lg-rail-actions button:hover { background: color-mix(in srgb, var(--text-primary) 10%, transparent); color: var(--text-primary); }
+.lg-rail-actions button svg { display: block; }
+@media (max-width: 760px) {
+  .lg-shell { flex-direction: column; }
+  .lg-rail { position: static; flex: none; width: 100%; height: auto; max-height: 220px; margin: 0 0 12px; padding: 0 0 8px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: none; box-shadow: none; }
+}
+
+/* STILL — the rail drawn in place (the Design system gallery): not sticky,
+   no measured height, its frame shown as when pinned. */
+.lg-rail.is-still {
+  position: relative; top: auto; margin-left: 0; flex: 0 0 var(--lg-rail-w, 236px);
+  height: 220px; padding-left: 8px;
+}
+
+/* ── The search view (WorkspaceSearch) — moved here from Legislation.css so
+   every source tab draws its search the same way. ─────────────────────── */
+/* The Search item's head: the bar, the words box beside it (the tab bar's
+   search box, `LegalSearchBox`, here at the left, not pushed right), and the
+   bar's note after them — wrapping onto a second line on a narrow window. */
+.lg-searchrow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+.lg-searchrow .lg-words { margin-left: 0; }
+/* Before anything is asked: the tabs' EMPTY STATE (LegalSourceStub's
+   .lss-card, the Doc Viewer advisor's) — the mark alone, the title, the
+   muted line, centred — holding the two ways to search side by side, "or"
+   between them, each with its label over it and a hint under it. */
+.lg-start {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  /* Wide enough for the two ways side by side at their larger size. */
+  width: 100%; max-width: 1080px; margin: 0 auto;
+  padding: 16px 28px 48px;
+  text-align: center;
+}
+.lg-start-mark { display: grid; place-items: center; margin-bottom: 6px; color: var(--accent); }
+.lg-start-title {
+  margin: 0;
+  font-family: var(--font-display); font-size: 21px; font-weight: 600; letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.lg-start-sub { margin: 0; max-width: 56ch; font-size: 13.2px; line-height: 1.6; color: var(--text-muted); text-wrap: balance; }
+/* The two ways SIDE BY SIDE: by number at the left, "or", by words at the
+   right; stacked only where the window is too narrow for both. */
+/* The two ways STACKED, one centred column: by number, "or", by words. */
+.lg-start-modes {
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  margin-top: 22px; width: 100%;
+}
+.lg-start-mode { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; }
+.lg-start-label {
+  margin: 0;
+  font-size: var(--ds-eyebrow-size, 8.8px); font-weight: 700; letter-spacing: var(--ds-eyebrow-tracking, 0.22em); text-transform: uppercase;
+  color: var(--text-muted);
+}
+.lg-start-mode .lg-words { margin-left: 0; width: var(--ds-search-w, 256px); }
+.lg-start-mode .lg-words:focus-within { width: var(--ds-search-w-focus, 320px); }
+/* The two ways to search, LARGER on the start screen: the bar and the words
+   box read their height, type size, corners and the box's width from the
+   design tokens, so re-declaring those here scales every part together
+   (the Kind picker measures its own label, so it follows); the few sizes
+   the recipes write literally — the dice and Search buttons' type and
+   glyphs, the number fields' width, the key hint — are scaled beside them.
+   The compact row over the results keeps the bar's usual size. */
+.lg-start-mode {
+  --ds-control-h: 36px;
+  --ds-control-size: 13.6px;
+  --ds-control-radius: 7px;
+  --ds-search-w: 340px;
+  --ds-search-w-focus: 380px;
+}
+.lg-start-mode .lg-input { padding: 0 11px; }
+.lg-start-mode .lg-input.is-num { width: 92px; }
+.lg-start-mode .lg-random { padding: 0 12px; font-size: 13.6px; }
+.lg-start-mode .lg-random .lg-ico { width: 17px; height: 17px; }
+.lg-start-mode .lg-go { padding: 0 16px; font-size: 13.6px; gap: 8px; }
+.lg-start-mode .lg-go .lg-ico { width: 15px; height: 15px; }
+.lg-start-mode .lg-go > span:not(.lg-ico) { line-height: 15px; height: 15px; }
+.lg-start-mode .lg-kind-chev { width: 8px; height: 8px; }
+.lg-start-mode .lgt-search { padding: 0 10px 0 12px; gap: 9px; }
+.lg-start-mode .lgt-search-glyph svg { width: 17px; height: 17px; }
+.lg-start-mode .lgt-search-kbd kbd { font-size: 11.2px; }
+.lg-start-mode .lgt-search-clear { width: 20px; height: 20px; }
+.lg-start-hint { margin: 0; max-width: 30ch; font-size: 11.2px; line-height: 1.5; color: var(--text-muted); }
+/* Between the two ways, centred. */
+.lg-start-or {
+  align-self: center; margin: 0; padding: 0;
+  line-height: 16px;
+  font-family: var(--font-display); font-size: 13px; font-style: italic; color: var(--text-muted);
+}
+.lg-start-foot { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; min-height: 24px; }
+/* A way to search made of several controls side by side (ANAF's CUI box and
+   its Look up bar). */
+.lg-start-inline { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 10px; }
+
+/* The masthead's figures (KeptFigures) — moved here from Legislation.css. */
+/* ── Masthead figures ─────────────────────────────────────────────────── */
+.lg-mast-meta {
+  display: flex; align-items: center; gap: 16px;
+  font-size: 9.6px; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  text-align: right;
+}
+/* Each figure has a FIXED width, so "0" becoming "12" and "0 B" becoming
+   "1.2 MB" as the archive is read cannot widen the block, narrow the
+   description beside it and shift everything under the masthead. */
+.lg-mast-meta > div { min-width: 92px; }
+.lg-mast-num {
+  font-family: var(--font-display);
+  font-size: 20px; font-weight: 700; letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary); text-transform: none;
+}
+.lg-mast-sep { width: 1px; height: 28px; background: var(--border); }
+
+/* ── THE OPEN LIST as the Playbook's presets list (Playbook.css .pbk-prail —
+   keep them in step): a card of its own from the first frame, not only once
+   pinned — the app sidebar's surface (frosted page ground, the 1.5px ring,
+   9.6px corners, the card shadow), its spotlight shine always on hover; a
+   head with its label and the + (a new search); the tab on show sticky in
+   the list so it is always in sight. Every platform's items are here, like a
+   browser's vertical tabs. */
+.lg-rail.is-card {
+  padding: 12.8px 9.6px 12.8px calc(var(--lg-rail-pull) - 1.5px);
+  border: var(--ds-bar-border, 1.5px) solid var(--border);
+  border-radius: var(--ds-bar-radius, 9.6px);
+  background: color-mix(in srgb, var(--bg-page) var(--ds-bar-frost, 66%), transparent);
+  backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  box-shadow: var(--ds-card-shadow, none);
+  isolation: isolate;
+  z-index: 20;
+}
+:root[data-theme="cream"] .lg-rail.is-card { background: color-mix(in srgb, var(--bg-sidebar) 90%, transparent); }
+.lg-rail.is-card::after { inset: -1.5px; padding: 1.5px; }
+.lg-rail.is-card:hover::after { opacity: 0.7; }
+.lg-rail.is-card .lg-rail-resizer { right: -7px; }
+.lg-rail-head {
+  position: relative; z-index: 1; flex: none;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: var(--ds-control-h, 24px); margin-bottom: var(--ds-head-gap, 8px); padding: 0 0 var(--ds-head-gap, 8px) 9.6px;
+  border-bottom: 1px solid var(--ds-hairline, var(--border));
+  box-sizing: content-box;
+}
+.lg-rail-label {
+  font-size: var(--ds-label-size, 9.6px); font-weight: 700;
+  letter-spacing: var(--ds-label-tracking, 0.07em); text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* The + — the tab bar's tool button, an icon alone (.pbk-prail-add). */
+.lg-rail-add {
+  display: inline-grid; place-items: center;
+  width: var(--ds-control-h, 24px); height: var(--ds-control-h, 24px); padding: 0;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-control-radius, 4.8px);
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  color: var(--text-secondary); cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.lg-rail-add:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); border-color: var(--accent); color: var(--accent); }
+.lg-rail-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lg-rail-empty { margin: 4px 9.6px; font-size: 11.2px; line-height: 1.5; color: var(--text-muted); }
+.lg-rail.is-card .lg-rail-list > .lg-rail-item.is-active { position: sticky; top: 0; bottom: 0; z-index: 2; }
+:root:not([data-theme="cream"]) .lg-rail.is-card .lg-rail-list > .lg-rail-item.is-active,
+:root:not([data-theme="cream"]) .lg-rail.is-card .lg-rail-list > .lg-rail-item.is-active:hover {
+  background: linear-gradient(var(--accent-tint), var(--accent-tint)) var(--bg-page);
+}
+@media (max-width: 760px) {
+  .lws .lg-shell.has-rail { flex-direction: column; align-items: stretch; }
+  .lws .lg-rail.is-card { position: relative; top: auto; height: auto; max-height: 40vh; margin: 0 0 12px; flex: none; }
+}
+/* The status pill at the LEFT of the line under the divider, before the
+   page's own controls. */
+.lws-status { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+/* The content runs to the SAME right edge as the header's divider and the
+   mini header (the page's content-width line), not 20px short of it — the
+   search results line up with everything above them. */
+.lws .lg-shell-main { padding-right: 0; }
+.lws-searchfoot { display: contents; }

@@ -110,17 +110,18 @@ html[data-reduce-motion="true"] .lg-kind { transition: background 140ms ease, bo
   outline: 1px solid var(--accent); outline-offset: -1px;
   position: relative; z-index: 1;
 }
-/* Open: the field and the list are ONE surface — the same ground, the
-   accent hairline round both, and no line between them (the field's bottom
-   edge is open, the list has no top edge). */
+/* Open — the field and its list are TWO SECTIONS (the calendar pickers'
+   rule, components/BarCalendar): the field keeps its whole outline, its
+   edge in the accent, and keeps its hover wash; the list is a box of its
+   own under it. */
 .lg-kind.is-open {
-  background: color-mix(in srgb, var(--text-primary) 4%, var(--bg-page));
-  border-color: var(--accent); border-bottom-color: transparent;
+  border-color: var(--accent);
   color: var(--text-primary);
   outline: none;
-  position: relative; z-index: 10002;
-  box-shadow: inset 1px 0 0 var(--accent);
 }
+.lg-kind.is-open:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); }
+/* In a joined bar the field has no left edge of its own — drawn as an inset line, so opening moves nothing. */
+.lg-bar > .lg-input.lg-kind.is-open { box-shadow: inset 1px 0 0 var(--accent); }
 .lg-kind-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A hairline chevron in the bar's own muted colour; accent while open. */
 .lg-kind-chev {
@@ -140,23 +141,24 @@ html[data-reduce-motion="true"] .lg-kind-chev { transition: none; }
   /* As wide as the longest entry (never narrower than the field — the
      inline min-width), within the window. */
   width: max-content; max-width: min(520px, calc(100vw - 32px));
-  /* A faint divider between the open field and the list — a hairline of
-     the text colour, faded out at both ends. */
   padding: 5px 4px 4px;
   margin: 0;
   box-sizing: border-box;
-  border: 1px solid var(--accent); border-top: 0;
-  border-radius: 0 0 var(--ds-menu-radius, 8px) var(--ds-menu-radius, 8px);
+  /* The calendar's box: one accent edge all round, the same rounded corner
+     at all four, the bar's ground, no shadow. */
+  border: 1px solid var(--accent);
+  border-radius: var(--ds-menu-radius, 8px);
   background: color-mix(in srgb, var(--text-primary) 4%, var(--bg-page));
-  backdrop-filter: blur(6.4px);
-  -webkit-backdrop-filter: blur(6.4px);
-  box-shadow: var(--shadow-elev);
+  box-shadow: none;
 }
-.lg-menu::before {
-  content: ''; position: absolute; left: 6px; right: 6px; top: 0; height: 1px;
-  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--text-primary) 22%, transparent) 25%, color-mix(in srgb, var(--text-primary) 22%, transparent) 75%, transparent);
-  pointer-events: none;
-}
+.lg-menu::before { display: none; }
+/* The fade in and out — the calendar's, to the letter (FADE_MS in the JSX). */
+@keyframes lg-menu-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lg-menu-out { from { opacity: 1; } to { opacity: 0; } }
+.lg-menu.is-placed { animation: lg-menu-in 160ms ease-out; }
+.lg-menu.is-closing { animation: lg-menu-out 150ms ease-in forwards; pointer-events: none; }
+html[data-reduce-motion="true"] .lg-menu { animation: none; }
+@media (prefers-reduced-motion: reduce) { .lg-menu { animation: none; } }
 .lg-menu-list { list-style: none; margin: 0; padding: 0; }
 /* A long list (the courts): capped and scrolling, with a box at its head
    that narrows it as you type — Enter takes the first match. */
@@ -237,3 +239,21 @@ html[data-reduce-motion="true"] .lg-kind-chev { transition: none; }
 .lg-go .lg-ico { width: 12px; height: 12px; }
 .lg-go > span:not(.lg-ico) { display: inline-block; line-height: 12px; height: 12px; }
 .lg-ico svg { display: block; width: 100%; height: 100%; }
+
+/* A picker standing on its own (`solo` — the CAEN tab's revision dropdown):
+   the field's own full hairline and every corner rounded, open or shut; its
+   list a detached card a little below it, every corner rounded, its accent
+   edge all round, and no divider at its head (there is no field edge above
+   it to part from). */
+.lg-bar > .lg-input.lg-kind.is-solo,
+.lg-input.lg-kind.is-solo {
+  border-left: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-control-radius, 4.8px);
+}
+.lg-input.lg-kind.is-solo.is-open { border-color: var(--accent); }
+.lg-menu.is-solo {
+  border-top: 1px solid var(--accent);
+  border-radius: var(--ds-menu-radius, 8px);
+  overflow: hidden;
+}
+.lg-menu.is-solo::before { display: none; }

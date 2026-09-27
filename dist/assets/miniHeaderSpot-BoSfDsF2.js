@@ -1,0 +1,1 @@
+import{A as r}from"./index-Big0ZeWE.js";function p(t){const e=t.currentTarget,o=e.getBoundingClientRect();e.style.setProperty("--spot-x",`${r(t.clientX-o.left)}px`),e.style.setProperty("--spot-y",`${r(t.clientY-o.top)}px`)}export{p as m};

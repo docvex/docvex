@@ -1,7 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { hasNewBrief, onNewsletterChanged } from '../lib/legalFeed';
 import FilterTabs from './FilterTabs';
 import MiniHeaderFade from './MiniHeaderFade';
 import './LegalTabs.css';
@@ -18,20 +16,24 @@ import './LegalTabs.css';
 // where the data comes from is on each page's masthead ("source: …").
 export const LEGAL_TABS = [
   // Each tab is named for the SOURCE it reads (the site), as the user asked;
-  // what each one is for is on its masthead. The Newsletter is DocVex's own.
-  { id: 'newsletter', to: '/newsletter', label: 'Newsletter' },
-  { id: 'legislation', to: '/legislation', label: 'legislatie.just.ro' },
-  { id: 'caen', to: '/caen', label: 'insse.ro' },
-  { id: 'portal-just', to: '/portal-just', label: 'portal.just.ro' },
-  { id: 'anaf', to: '/anaf', label: 'anaf.ro' },
+  // what each one is for is on its masthead. (The Newsletter was the first
+  // tab; it is a sidebar entry of its own now and draws this bar with
+  // `standalone` — its second line only.)
+  // `short`: the name on an open item's small-caps line in the rail; `about`:
+  // what the platform is, for the header's "i"; `tries`: what to type to reach
+  // it through the one search (lib/legalOmni).
+  { id: 'legislation', to: '/legislation', label: 'legislatie.just.ro', short: 'Legislație', about: 'Romanian legislation from the Ministry of Justice’s portal — every act, read here as a document and kept on this machine.', tries: ['Legea 287/2009', 'OUG 195/2002', 'protecția consumatorului'] },
+  { id: 'caen', to: '/caen', label: 'insse.ro', short: 'CAEN', about: 'The CAEN nomenclature of economic activities, all three revisions, from the National Institute of Statistics.', tries: ['caen 6210', 'caen software'] },
+  { id: 'portal-just', to: '/portal-just', label: 'portal.just.ro', short: 'Dosar', about: 'Court files from the courts’ portal — parties, hearings and solutions, by file number or by a party’s name.', tries: ['1234/3/2026', 'dosare Popescu Ion'] },
+  { id: 'anaf', to: '/anaf', label: 'anaf.ro', short: 'ANAF', about: 'A company’s fiscal record from ANAF — VAT, inactive or struck-off status, e-Factura — by its CUI.', tries: ['RO1590082'] },
   // Sources not yet connected — each opens a placeholder (pages/LegalSourceStub)
   // that says what it is for. Same order as the sources table they came from.
-  { id: 'firme', to: '/firme', label: 'termene.ro - listafirme.ro', stub: true },
-  { id: 'bpi', to: '/bpi', label: 'bpi.ro', stub: true },
-  { id: 'ancpi', to: '/ancpi', label: 'ancpi.ro', stub: true },
-  { id: 'rejust', to: '/rejust', label: 'rejust.ro', stub: true },
-  { id: 'unbr', to: '/unbr', label: 'unbr.ro', stub: true },
-  { id: 'eurlex', to: '/eurlex', label: 'eur-lex.europa.eu', stub: true },
+  { id: 'firme', to: '/firme', label: 'termene.ro - listafirme.ro', stub: true, about: 'Financial data and risk on companies from the private aggregators.' },
+  { id: 'bpi', to: '/bpi', label: 'bpi.ro', stub: true, about: 'The Insolvency Proceedings Bulletin — openings, reorganisations and bankruptcies.' },
+  { id: 'ancpi', to: '/ancpi', label: 'ancpi.ro', stub: true, about: 'The cadastre and land register — owners, mortgages and encumbrances.' },
+  { id: 'rejust', to: '/rejust', label: 'rejust.ro', stub: true, about: 'The courts’ published decisions, from the Superior Council of Magistracy.' },
+  { id: 'unbr', to: '/unbr', label: 'unbr.ro', stub: true, about: 'The national bar’s register of lawyers.' },
+  { id: 'eurlex', to: '/eurlex', label: 'eur-lex.europa.eu', stub: true, about: 'European Union law — regulations, directives and the Court of Justice’s case law.' },
 ];
 
 // The dice — "a random one": every source with a dice draws an entry that
@@ -177,11 +179,24 @@ export function LegalSearchBox({ search, className = '', hotkey = true }) {
 
 // `noSearch`: the page draws its search elsewhere — the bar leaves its box
 // out altogether rather than showing it disabled.
-export default function LegalTabs({ search = null, tools = null, status = null, trailing = null, noSearch = false }) {
+// `onPinnedChange(pinned)`: told whenever the bar gains or loses its pinned
+// (frosted) state — for page chrome that must frost with it.
+// `standalone`: a page that is not one of the tabs (the Newsletter) — the bar
+// is drawn without its tabs row: just the second line, as a mini header.
+// `dropSearch`: with `noSearch`, leave the box out altogether (the Legislation
+// workspace, whose line holds the one search instead).
+// `ownTabs` — `{ tabs: [{ id, label }], active, onSelect }`: the tabs row shows
+// these instead of the platforms (the Legislation workspace's Search / History).
+// `rows`: nodes of the page's own, each drawn as one of the bar's rows (the
+// tabs row's height, its hairline under it) in place of the tabs — the
+// Legislation tab's browser tabs strip and its address row. The bar keeps
+// everything else a mini header does: pinning, the frost, the gap-strip fade
+// and its hairline taking over as the masthead's divider.
+// `line2`: false leaves the second line out altogether — a bar whose page
+// has nothing to put under the hairline is its rows alone.
+export default function LegalTabs({ search = null, tools = null, status = null, trailing = null, noSearch = false, dropSearch = false, onPinnedChange = null, standalone = false, ownTabs = null, rows = null, line2 = true, className = '' }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { session } = useAuth();
-  const userId = session?.user?.id || null;
   const active = LEGAL_TABS.find((t) => t.to === pathname)?.id ?? LEGAL_TABS[0].id;
 
   // Where the bar came from (captured once, at mount): the underline slides
@@ -189,28 +204,17 @@ export default function LegalTabs({ search = null, tools = null, status = null, 
   // underline travelled toward — the Activity tab's feed slide. Nothing
   // moves on a first arrival.
   const [from] = useState(() => lastActive);
-  useEffect(() => { lastActive = active; }, [active]);
+  useEffect(() => { if (!standalone) lastActive = active; }, [active, standalone]);
   const idx = (id) => LEGAL_TABS.findIndex((t) => t.id === id);
   const dir = from && from !== active ? Math.sign(idx(active) - idx(from)) : 0;
-
-  // The Newsletter's "new brief" mark — the same signal the sidebar shows,
-  // carried on the tab so it can be seen from the other two.
-  const [newBrief, setNewBrief] = useState(false);
-  useEffect(() => {
-    if (!userId) { setNewBrief(false); return undefined; }
-    let cancelled = false;
-    const check = () => {
-      hasNewBrief(userId).then((v) => { if (!cancelled) setNewBrief(v); }).catch(() => {});
-    };
-    check();
-    const off = onNewsletterChanged(check);
-    return () => { cancelled = true; off(); };
-  }, [userId]);
 
   // Pinned = actually stuck at the scroller's top (rect-based, like every
   // other mini header) — paints the frosted surface.
   const [pinned, setPinned] = useState(false);
   const barRef = useRef(null);
+  // A page whose own chrome must frost WITH the bar (the Legislation tab's
+  // rail) hears the same state the bar paints from, at the same render.
+  useLayoutEffect(() => { onPinnedChange?.(pinned); }, [pinned]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const el = barRef.current?.closest('.sv-single-scroll, .main-content');
     if (!el) return undefined;
@@ -223,18 +227,17 @@ export default function LegalTabs({ search = null, tools = null, status = null, 
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
 
-  const tabs = LEGAL_TABS.map((t) => ({
-    id: t.id,
-    label: t.id === 'newsletter' && newBrief
-      ? <>{t.label}<span className="lgt-pill">new</span></>
-      : t.label,
-  }));
+  const tabs = LEGAL_TABS.map((t) => ({ id: t.id, label: t.label }));
 
   return (
     <>
       <MiniHeaderFade visible={pinned} />
-      <div ref={barRef} className={`lgt-bar${pinned ? ' is-pinned' : ''}${dir > 0 ? ' is-enter-right' : dir < 0 ? ' is-enter-left' : ''}`}>
-      <div className="lgt-row">
+      <div ref={barRef} className={`lgt-bar${pinned ? ' is-pinned' : ''}${standalone && !ownTabs && !rows ? ' is-standalone' : ''}${!standalone && dir > 0 ? ' is-enter-right' : !standalone && dir < 0 ? ' is-enter-left' : ''}${className ? ` ${className}` : ''}`}>
+      {rows ? rows.filter(Boolean).map((r, i) => <div key={i} className="lgt-row lgt-row-own">{r}</div>) : null}
+      {ownTabs ? <div className="lgt-row">
+        <FilterTabs tabs={ownTabs.tabs} active={ownTabs.active} onSelect={ownTabs.onSelect} ariaLabel="Views" />
+      </div> : null}
+      {!standalone && !ownTabs && <div className="lgt-row">
         <FilterTabs
           tabs={tabs}
           active={active}
@@ -246,19 +249,21 @@ export default function LegalTabs({ search = null, tools = null, status = null, 
           ariaLabel="Legislation sources"
         />
         {status ? <div className="lgt-status">{status}</div> : null}
-      </div>
+      </div>}
       {/* The mini header's SECOND LINE, under the hairline: a page's own
           controls at the left (the CAEN view switch, the courts' mode
           switch — when the page has one) and the search at the right, as
           the Files search stands. It pins and frosts with the bar. */}
-      <div className="lgt-line2">
+      {line2 ? <div className="lgt-line2">
         {tools}
         {/* `noSearch`: the box is still LAID OUT, hidden and inert, so the
             line keeps its height and nothing moves when the page brings
             its search back (the Legislation tab's find, on opening an act). */}
-        <LegalSearchBox search={noSearch ? null : search} className={noSearch ? 'is-hidden' : ''} />
+        {noSearch && dropSearch ? null : <LegalSearchBox search={noSearch ? null : search} className={noSearch ? 'is-hidden' : ''} />}
+        {/* With no tabs row, the page's status pill stands on this line. */}
+        {(standalone || ownTabs) && !rows && status ? <div className="lgt-status">{status}</div> : null}
         {trailing}
-      </div>
+      </div> : null}
       </div>
     </>
   );

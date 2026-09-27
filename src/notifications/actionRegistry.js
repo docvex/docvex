@@ -8,6 +8,15 @@
 // touch the toast renderer or the storage layer.
 
 const BUILDERS = {
+  // Files. A file a phone sent while Import was closed waits, faded, in the
+  // Files tab (click = accept) — the toast takes you there, unless you are
+  // already on it (`ctx.pathname`, the route the toast is shown over).
+  file(notification, ctx) {
+    if (!notification.payload?.phoneUpload?.id) return [];
+    if (ctx.pathname === '/files') return [];
+    return [{ label: 'Show in Files', variant: 'primary', onClick: () => ctx.navigate?.('/files') }];
+  },
+
   // Update notifications. dedupe_key disambiguates within the category:
   //   'update-available'   → View button (navigates to /versions)
   //   'update-downloaded'  → Restart & install button (calls installUpdate)

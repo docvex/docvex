@@ -45,7 +45,8 @@ html.dv-focus-moving .tooltip {
      tall. */
   padding: 4.8px 9.6px;
   border-radius: 999px;
-  background: var(--bg-elevated);
+  /* The window's top bar colour (TitleBar's --bg-sidebar), in both themes. */
+  background: var(--bg-sidebar);
   border: 1px solid var(--border);
   color: var(--text-primary);
   font-size: 0.6rem;

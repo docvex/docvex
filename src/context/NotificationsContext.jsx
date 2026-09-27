@@ -35,6 +35,10 @@ import * as platform from '../lib/platform';
 
 const NotificationsContext = createContext(null);
 
+// The server writes still running per `userId|dedupeKey` — see the mirror in
+// notify(), which queues a key's writes behind each other.
+const MIRROR_CHAINS = new Map();
+
 // `sourcesEnabled: false` mounts the provider without its event-source hooks
 // (auth sign-in/out, updater, social). Auxiliary windows (Doc Viewer, snip
 // overlay) share the renderer and restore the cached Supabase session on
@@ -300,7 +304,7 @@ export function NotificationsProvider({ children, sourcesEnabled = true }) {
     // for this device; the row eventually lands in the cloud (or doesn't, in
     // which case the user still sees it locally).
     if (userId) {
-      const mirror = async () => {
+      const write = async () => {
         try {
           if (strategy === 'replace' && dedupeKey) {
             await deleteByDedupeKey(userId, dedupeKey);
@@ -314,7 +318,18 @@ export function NotificationsProvider({ children, sourcesEnabled = true }) {
           console.warn('[notifications] mirror insert failed:', err);
         }
       };
-      mirror();
+      // Writes for ONE dedupe key run one after another. A progress toast
+      // (a scan updating "Reading 3 of 40…") fires faster than a delete +
+      // insert round trip, and two interleaved replaces both inserted the same
+      // (user_id, dedupe_key) — the server answered 409 Conflict.
+      if (dedupeKey) {
+        const chainKey = `${userId}|${dedupeKey}`;
+        const next = (MIRROR_CHAINS.get(chainKey) || Promise.resolve()).then(write);
+        MIRROR_CHAINS.set(chainKey, next);
+        next.then(() => { if (MIRROR_CHAINS.get(chainKey) === next) MIRROR_CHAINS.delete(chainKey); });
+      } else {
+        write();
+      }
     }
 
     // OS-level escalation (v2 scaffolding). Only fires when window is hidden

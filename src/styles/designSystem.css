@@ -14,15 +14,13 @@
    `height: var(--ds-control-h, 24px)`, so a stylesheet loaded on its own
    still lays out.
 
-   THREE FAMILIES sit on the base: every section of the sidebar builds from
-   the same elements, but PERSONAL tabs (Activity, the Newsletter and the
-   Legislation sources, Versions, Playbook, Mail, the System pages) follow
-   the rules the Legislation tab set — editorial mastheads, no card fills,
-   rows on the page ground — PROJECT tabs (the Hub, Files, Chat, Events, the
-   Advisor…) follow the Files tab — filled cards, denser lists, tools in the
-   bars — and the DOC VIEWER (a Word document open) is its own family —
-   floating panels over the paper. The family is stamped on the content
-   frame as `data-ds` (AppShell; the viewer's own root) and its tokens are
+   ONE FAMILY sits on the base, for every section of the sidebar and the
+   Doc Viewer alike: the rules the Legislation tab set — editorial
+   mastheads, no card fills, rows on the page ground, generous gaps. (There
+   were three — Project followed the Files tab, Viewer the Doc Viewer — and
+   they were folded into this one so the whole app renders the same.) The
+   family is stamped on the content frame as `data-ds` (AppShell; the
+   viewer's own root) and its tokens are
    read the same way (`var(--ds-card-fill, transparent)`). Colour stays with
    tokens.css: a family changes shape, density and treatment, never the
    palette. */
@@ -56,10 +54,19 @@
   --ds-label-size: 9.6px;
   --ds-label-tracking: 0.07em;
 
-  /* ── Pills and tags. */
+  /* ── Pills and tags — ONE recipe for every pill (the Design system's Pills
+     section): this height and corner, this type, and a tone. A tag is soft
+     (a tint of its tone, a ring of it, the text in it at full strength) —
+     every pill, a status that is also a button included. Sentence case — capitals at this size
+     read as a smudge. */
   --ds-pill-radius: 999px;
-  --ds-tag-size: 9.6px;
-  --ds-tag-tracking: 0.04em;
+  --ds-pill-h: 20px;
+  --ds-pill-pad: 9px;
+  --ds-pill-weight: 650;
+  --ds-pill-tint: 14%;
+  --ds-pill-ring: 45%;
+  --ds-tag-size: 10.4px;
+  --ds-tag-tracking: 0.01em;
 
   /* ── Surfaces: cards, rows, menus; the hairline they are edged with. */
   --ds-card-radius: 14px;
@@ -67,6 +74,37 @@
   --ds-menu-radius: 8px;
   --ds-hairline: var(--border);
   --ds-content-max: var(--content-max-width, 1280px);
+
+  /* ── Doc Viewer: the viewer window's chrome — the floating cards (the side
+     panel, Quick actions, the page list), the document's clearance from the
+     panel, and the dark-glass pills floating over the document. READ OFF THE
+     WORD DOCUMENT'S LAYOUT, which is the reference: every kind of file now
+     renders by these (pages/DocViewer.css reads them, fallback = these). */
+  /* Page layout — the rules every tab's page is laid out by, read off the
+     Playbook and the Legislation tab (see the Design system tab's Page
+     layout section). The first three alias the shell's own variables
+     (AppShell.css), so the shell stays their source. */
+  --ds-page-inset: var(--chrome-inset, 6.4px);
+  --ds-rail-gap: var(--rail-gap, 6.4px);
+  --ds-content-gap: var(--content-left-gap, 17.6px);
+  --ds-divider-pull: calc(var(--ds-content-gap) - var(--ds-rail-gap));
+  --ds-head-gap: 8px;
+  --ds-list-w: 236px;
+  --ds-list-gap: 20px;
+  --ds-page-foot: 64px;
+  --ds-dv-panel-w: 360px;
+  --ds-dv-inset: 8px;
+  --ds-dv-card-radius: 11.2px;
+  --ds-dv-card-frost: 90%;
+  --ds-dv-card-blur: 32px;
+  --ds-dv-doc-gap: 16px;
+  --ds-dv-rail-w: 126px;
+  --ds-dv-pill-btn: 25.6px;
+  --ds-dv-pill-top: 6.4px;
+  --ds-dv-pill-glass: rgba(10, 12, 14, 0.92);
+  --ds-dv-pill-blur: 17.6px;
+  --ds-dv-find-w: 288px;
+  --ds-dv-counter-size: 11px;
 
   /* Family tokens' base values — the PERSONAL family's, so a page outside
      any frame still reads. */
@@ -77,27 +115,12 @@
 }
 
 /* ── The families ─────────────────────────────────────────────────────── */
-/* Personal — the Legislation tab's rules: nothing filled, rows on the page
-   ground, generous gaps. */
+/* The one family — the Legislation tab's rules, for every section (the
+   former Project and Viewer families were folded into it): nothing filled,
+   rows on the page ground, generous gaps. */
 [data-ds="personal"] {
   --ds-card-fill: transparent;
   --ds-card-shadow: none;
   --ds-section-gap: 20px;
   --ds-row-density: 1;
-}
-/* Project — the Files tab's rules: filled cards with the card shadow,
-   tighter lists. */
-[data-ds="project"] {
-  --ds-card-fill: var(--bg-card);
-  --ds-card-shadow: var(--shadow-card);
-  --ds-section-gap: 12px;
-  --ds-row-density: 0.85;
-}
-/* Viewer — the Doc Viewer with a Word document open: floating panels over
-   the paper, the elevated shadow. */
-[data-ds="viewer"] {
-  --ds-card-fill: var(--bg-card);
-  --ds-card-shadow: var(--shadow-elev);
-  --ds-section-gap: 12px;
-  --ds-row-density: 0.9;
 }

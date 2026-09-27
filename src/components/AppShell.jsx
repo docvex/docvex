@@ -1,16 +1,18 @@
-﻿import React, { startTransition, useEffect, useLayoutEffect, useRef, useState } from 'react';
+﻿import React, { Suspense, startTransition, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, Navigate, useNavigate } from 'react-router-dom';
-import { RouteFallback, preloadProjectList } from '../AppRoutes';
+import { RouteFallback, preloadProjectList, preloadRoutes } from '../AppRoutes';
+import { warmLegalData } from '../lib/legalWarm';
 import { prefetchProjects } from '../lib/projectListPrefetch';
 import Sidebar from './Sidebar';
 import UpdateProgressBar from './UpdateProgressBar';
+import PhoneIncomingNotifier from './PhoneIncomingNotifier';
 import UpdateRestartModal from './UpdateRestartModal';
 import SwitchProjectLoader from './SwitchProjectLoader';
 import ContentShell from './SplitView';
 import CursorSpotlight from './CursorSpotlight';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
-import { isElectron } from '../lib/platform';
+import { isElectron, isTabWindow } from '../lib/platform';
 import { toLayoutPx } from '../lib/appZoom';
 import { familyOf } from '../lib/designSystem';
 import './AppShell.css';
@@ -283,13 +285,22 @@ export default function AppShell() {
   }, [onHub, switching]);
   // The live, sidebar-driven view. ContentShell wraps it as one pane with the
   // in-pane nav chrome (left rail + header) pinned above a scroll area.
+  // A page whose chunk is still loading suspends HERE, inside the content
+  // area — the sidebar and the title bar stay up (the route tree's own
+  // Suspense used to blank the whole shell behind a spinner).
+  const outlet = <Suspense fallback={<RouteFallback />}><Outlet /></Suspense>;
   const primary = showBanner ? (
     <div className="project-page-frame">
-      <Outlet />
+      {outlet}
     </div>
-  ) : (
-    <Outlet />
-  );
+  ) : outlet;
+  // Once signed in: every page's chunk and the Legislation platforms' data
+  // are warmed while the window is idle, so no tab waits on either later.
+  useEffect(() => {
+    if (!session) return;
+    preloadRoutes();
+    warmLegalData();
+  }, [session]);
 
   // Electron: force signed-out users to the auth screen — the app shell is
   // only for authenticated sessions. AuthPage pins the window to its default
@@ -308,8 +319,8 @@ export default function AppShell() {
   return (
       <div
         ref={shellRef}
-        className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}${resizingSidebar ? ' sidebar-resizing' : ''}${railOffstage ? ' on-hub' : ''}${hubLeaving ? ' hub-leaving' : ''}${onHub ? ' hub-collapsed' : ''}${railToggling ? ' rail-toggling' : ''}`}
-        style={{ '--sidebar-width': sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : `${sidebarWidth}px` }}
+        className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}${resizingSidebar ? ' sidebar-resizing' : ''}${railOffstage ? ' on-hub' : ''}${hubLeaving ? ' hub-leaving' : ''}${onHub ? ' hub-collapsed' : ''}${railToggling ? ' rail-toggling' : ''}${isTabWindow ? ' is-tab-window' : ''}`}
+        style={{ '--sidebar-width': isTabWindow ? '0px' : sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : `${sidebarWidth}px` }}
       >
         {/* App chrome — a single bordered, rounded frame that wraps the vertical
             sidebar AND the content area so they read as one window-in-window
@@ -325,20 +336,21 @@ export default function AppShell() {
               rail itself — absolutely positioned inside it — slides out on a
               pure transform. Animating the rail's own margin used to re-lay-out
               the entire content column on every frame of the ride. */}
-          <div className="sidebar-slot">
+          {/* A popped-out tab's window shows that tab alone — no app sidebar. */}
+          {!isTabWindow && <div className="sidebar-slot">
             <Sidebar
               collapsed={sidebarCollapsed}
               onToggleCollapse={toggleSidebar}
               offstage={railOffstage}
               onHubNav={goToHub}
             />
-          </div>
+          </div>}
           {/* Drag handle on the rail's right edge. Rendered by the SHELL, not
               the rail: the rail scrolls its own content, so a handle inside it
               would scroll away with the nav list. Hidden while collapsed (the
               collapsed width is fixed) and while the rail is offstage on the
               Hub. */}
-          {!sidebarCollapsed && !railOffstage && (
+          {!isTabWindow && !sidebarCollapsed && !railOffstage && (
             <div
               className="sidebar-resize-handle"
               onPointerDown={startSidebarResize}
@@ -381,6 +393,8 @@ export default function AppShell() {
             update is checking/downloading. Lives at the shell level so the
             user keeps the feedback even after navigating away from /updates. */}
         <UpdateProgressBar />
+        {/* Files a phone sent while Import was closed, posted as toasts to accept or reject. */}
+        <PhoneIncomingNotifier />
         {/* Once the update finishes downloading + staging ('downloaded'),
             prompt for the restart that actually applies it. Shell-level so
             it appears wherever the user is, not only on /versions. */}

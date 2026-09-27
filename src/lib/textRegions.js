@@ -122,7 +122,17 @@ function getWorker() {
       });
       // A photograph of a card or a form is text scattered about, not a column
       // of prose: "sparse text" finds each piece wherever it is.
-      await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT, preserve_interword_spaces: '1' });
+      await worker.setParameters({
+        tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+        preserve_interword_spaces: '1',
+        // Quiet: a canvas carries no DPI, so the engine logged "Estimating
+        // resolution as N" for every pass (hundreds of lines over a Files-tab
+        // scan). The picture is scaled to ~2200px on its long edge, which is
+        // what a 300 dpi scan of a card or a page amounts to; the engine's
+        // other diagnostics go nowhere.
+        user_defined_dpi: '300',
+        debug_file: '/dev/null',
+      });
       return worker;
     })().catch((err) => { workerPromise = null; throw err; });
   }

@@ -2,15 +2,19 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom';
 import './PortalJust.css';
 import PageMasthead from '../components/PageMasthead';
-import LegalTabs from '../components/LegalTabs';
+import LegalTabs, { LegalSearchBox } from '../components/LegalTabs';
+import LegalWorkspace, { WorkspaceSearch, WorkspaceClear, SourceStatus, KeptFigures } from '../components/LegalWorkspace';
+import { BinIcon } from '../components/HistoryMenu';
+import CourtMap from '../components/CourtMap';
 import { LegalBar, BarDice, BarPicker, BarInput, BarGo } from '../components/LegalBar';
 import Tooltip from '../components/Tooltip';
-import { isElectron, openExternal } from '../lib/platform';
+import { isElectron } from '../lib/platform';
 import { recallPage, usePageMemory } from '../lib/pageMemory';
 import { logHistory } from '../lib/tabHistory';
-import HistoryButton from '../components/HistoryMenu';
+import { takeRecord } from '../lib/legalBrowser';
 import {
   COURTS, KIND_LABEL, courtLabel, hasCaseQuery, searchCases, listHearings,
+  searchCasesKept, listHearingsKept, checkFile, keepFile, repairDosar, keptStats, clearKept, onKeptChange,
   fmtDate, todayIso, hearingsSorted, nextHearing, lastSolution, partiesByRole, casesSorted, portalCaseUrl,
 } from '../lib/courts';
 
@@ -21,21 +25,17 @@ import {
 // A file is found by its number, by a party's name or by its object, narrowed
 // to a court and a period; a court's docket for a day is the other question
 // the service takes. Desktop only: the service is SOAP with no CORS headers,
-// so main.js makes the call (`courts:*`). Nothing is kept on disk yet — a
-// file's state is what the court says today.
+// so main.js makes the call (`courts:*`).
+//
+// As the Legislation tab keeps its acts, this tab keeps what the portal tells
+// it (lib/courts → lib/sourceCache): every answer and every file opened. The
+// portal is asked first; when it cannot be reached the same question is
+// answered from the copy, and the pill in the tab bar says which ("Live from
+// the portal" / "From your copy on this machine"). A file opened from the
+// copy is checked against the portal in the background — "Differs from the
+// portal · Sync" when the court has moved on.
 //
 // `?nr=…` opens straight on a file (a chat or a note will link here).
-
-const BackIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M15 6l-6 6 6 6" />
-  </svg>
-);
-const ExternalIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M14 5h5v5" /><path d="M19 5l-8 8" /><path d="M17 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h5" />
-  </svg>
-);
 
 const ERRORS = {
   unreachable: 'The portal could not be reached — check the connection and try again.',
@@ -68,14 +68,30 @@ export default function PortalJust() {
   const [mode, setMode] = useState(saved?.mode || 'cases');           // 'cases' | 'docket'
   const [query, setQuery] = useState(saved?.query || { numar: '', parte: '', obiect: '', institutie: '', from: '', to: '' });
   const [docket, setDocket] = useState(saved?.docket || { institutie: '', day: todayIso() });
-  const [results, setResults] = useState(saved?.results ?? null);        // { total, dosare } | null
+  const [results, setResults] = useState(saved?.results ? { ...saved.results, dosare: (saved.results.dosare || []).map(repairDosar) } : null);        // { total, dosare } | null
   const [sedinte, setSedinte] = useState(saved?.sedinte ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(saved?.error || '');
-  const [open, setOpen] = useState(saved?.open ?? null);              // the file being read
+  // The files OPEN, one rail item each (components/LegalWorkspace), and the
+  // one on show — null = the search and its answers.
+  const [files, setFiles] = useState(() => (saved?.files || []).map((f) => ({ ...f, dosar: repairDosar(f.dosar) })));             // [{ id, dosar, from: 'live' | 'archive' }]
+  const [activeFile, setActiveFile] = useState(saved?.activeFile ?? null);
+  const openEntry = files.find((f) => f.id === activeFile) || null;
+  const open = openEntry?.dosar || null;   // the file being read
+  // Where the last answer came from, and why the copy answered it.
+  const [source, setSource] = useState(saved?.source || '');           // 'live' | 'archive'
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+  const [portalError, setPortalError] = useState(saved?.portalError || '');
+  // Whether a file kept here is what the portal has: { [id]: { state, live } }.
+  const [sync, setSync] = useState({});
+  // What the copy holds — the masthead's figures.
+  const [kept, setKept] = useState(keptStats);
+  useEffect(() => onKeptChange(() => setKept(keptStats())), []);
+  const setOpen = (d) => { if (!d) setActiveFile(null); };
   const seq = useRef(0);
   const pageRef = useRef(null);
-  const remembered = useMemo(() => ({ mode, query, docket, results, sedinte, error, open }), [mode, query, docket, results, sedinte, error, open]);
+  const remembered = useMemo(() => ({ mode, query, docket, results, sedinte, error, files, activeFile, source, portalError }), [mode, query, docket, results, sedinte, error, files, activeFile, source, portalError]);
   usePageMemory('portal-just', remembered, pageRef);
   const [params, setParams] = useSearchParams();
   const arrived = useRef('');
@@ -91,11 +107,12 @@ export default function PortalJust() {
     if (!hasCaseQuery(q)) { setError(ERRORS.empty_query); return null; }
     const mine = ++seq.current;
     setBusy(true); setError(''); setSedinte(null);
-    const res = await searchCases(q);
+    const res = await searchCasesKept(q);
     if (mine !== seq.current) return null;
     setBusy(false);
-    if (!res?.ok) { setError(errorText(res?.error)); setResults({ total: 0, dosare: [] }); return null; }
+    if (!res?.ok) { setError(errorText(res?.error)); setResults({ total: 0, dosare: [] }); setSource(''); return null; }
     setResults({ total: res.total, dosare: casesSorted(res.dosare) });
+    setSource(res.source); sourceRef.current = res.source; setPortalError(res.portalError || '');
     // The tab's history: the search as it was asked, and what it found.
     const label = [q.numar ? `File ${q.numar}` : '', q.parte ? `“${q.parte}”` : '', q.obiect ? `object “${q.obiect}”` : '', q.institutie ? courtLabel(q.institutie) : '']
       .filter(Boolean).join(' · ') || 'Everything';
@@ -129,6 +146,7 @@ export default function PortalJust() {
       setMode('cases');
       setQuery((q) => ({ ...q, numar, parte: '', obiect: '', institutie: court.id }));
       setResults({ total: found.total, dosare: found.dosare });
+      setSource('live'); sourceRef.current = 'live'; setPortalError('');
       setBusy(false);
       openFile(found.dosare[Math.floor(Math.random() * found.dosare.length)]);
       return;
@@ -142,20 +160,31 @@ export default function PortalJust() {
     if (!q.institutie || !q.day) { setError('Pick a court and a day.'); return; }
     const mine = ++seq.current;
     setBusy(true); setError(''); setResults(null);
-    const res = await listHearings(q);
+    const res = await listHearingsKept(q);
     if (mine !== seq.current) return;
     setBusy(false);
-    if (!res?.ok) { setError(errorText(res?.error)); setSedinte([]); return; }
+    if (!res?.ok) { setError(errorText(res?.error)); setSedinte([]); setSource(''); return; }
     setSedinte(res.sedinte);
+    setSource(res.source); sourceRef.current = res.source; setPortalError(res.portalError || '');
     const n = (res.sedinte || []).reduce((m, s) => m + (s.dosare || []).length, 0);
     logHistory('portal-just', { kind: 'search', label: `${courtLabel(q.institutie)} · ${fmtDate(q.day)}`, detail: `${n} ${n === 1 ? 'hearing' : 'hearings'}`, data: { mode: 'docket', docket: q } });
   }, []);
 
   // A file opened is logged too (once, however often it is reopened in a
   // row), by number and court, which is enough to find it again.
+  // Opening a file: the one already open is switched to, anything else
+  // becomes a new item in the rail.
+  // The file is kept on this machine as it opens; one that came from the
+  // copy is checked against the portal in the background.
   const openFile = useCallback((d) => {
-    setOpen(d);
-    if (!d) return;
+    if (!d) { setActiveFile(null); return; }
+    const id = `${d.institutie}:${d.numar}`;
+    const from = sourceRef.current || 'live';
+    setFiles((list) => (list.some((f) => f.id === id) ? list.map((f) => (f.id === id ? { id, dosar: d, from } : f)) : [...list, { id, dosar: d, from }]));
+    setActiveFile(id);
+    keepFile(d);
+    setSync((m) => ({ ...m, [id]: { state: '', live: null } }));
+    if (from === 'archive') checkFile(d).then((r) => setSync((m) => ({ ...m, [id]: r }))).catch(() => {});
     logHistory('portal-just', { kind: 'open', label: d.numar, detail: [courtLabel(d.institutie), d.obiect].filter(Boolean).join(' — '), data: { numar: d.numar, institutie: d.institutie }, dedupe: `o:${d.institutie}:${d.numar}` });
   }, []);
 
@@ -167,9 +196,19 @@ export default function PortalJust() {
     if (!isElectron) return;
     const nr = params.get('nr') || '';
     const parte = params.get('parte') || '';
-    const sig = nr ? `nr:${nr}` : parte ? `parte:${parte}` : '';
+    const rid = params.get('rid') || '';
+    const sig = rid ? `rid:${rid}` : nr ? `nr:${nr}:${params.get('_') || ''}` : parte ? `parte:${parte}:${params.get('_') || ''}` : '';
     if (!sig || arrived.current === sig) return;
     arrived.current = sig;
+    // A row of the tabs' results page hands the file itself over
+    // (lib/legalBrowser's handRecord): opened as it is, no search run.
+    const handed = rid ? takeRecord(rid) : null;
+    if (handed) {
+      setMode('cases');
+      setParams({}, { replace: true });
+      openFile(handed);
+      return;
+    }
     setQuery((q) => ({ ...q, numar: nr, parte }));
     setMode('cases');
     setOpen(null); setSedinte(null);
@@ -189,20 +228,60 @@ export default function PortalJust() {
     if (res?.dosare?.length === 1) openFile(res.dosare[0]);
   };
 
+  // RELOAD (the tab's button, F5): the open file asked of the portal again
+  // (and kept); with none open, the last search or docket run again.
+  const reload = async () => {
+    if (open) {
+      const id = activeFile;
+      const r = await checkFile(open);
+      if (r?.live) setFiles((list) => list.map((f) => (f.id === id ? { ...f, dosar: r.live, from: 'live' } : f)));
+      setSync((m) => ({ ...m, [id]: r?.live ? { state: 'same', live: null } : (r || { state: '', live: null }) }));
+      return;
+    }
+    if (mode === 'docket' && sedinte) { await runDocket(docket); return; }
+    if (results && hasCaseQuery(query)) await runCases(query);
+  };
+
+  // Sync: the portal's version of the open file, on screen and kept.
+  const syncFile = () => {
+    const r = sync[activeFile];
+    if (!r?.live) return;
+    setFiles((list) => list.map((f) => (f.id === activeFile ? { ...f, dosar: r.live, from: 'live' } : f)));
+    setSync((m) => ({ ...m, [activeFile]: { state: '', live: null } }));
+  };
+  // The pill: the open file's own source (a kept copy the portal confirms is
+  // simply live), else the last answer's.
+  const status = (
+    <SourceStatus
+      source={open ? openEntry.from || 'live' : (results || sedinte) ? source : ''}
+      sync={open ? sync[activeFile]?.state || '' : ''}
+      onSync={syncFile}
+      href={open ? portalCaseUrl(open.numar) : 'https://portal.just.ro/'}
+      tip={open ? 'Search this number on the courts’ portal' : 'Open the courts’ portal'}
+    />
+  );
+
   const masthead = (
     <PageMasthead
       eyebrow="Court files and courts"
       eyebrowMuted="source: portal.just.ro"
       title="Court files"
       compact={false}
-      actions={results ? (
-        <div className="pj-mast-meta">
-          <div>
-            <div className="pj-mast-num">{results.total}</div>
-            <div>{results.total === 1 ? 'File found' : 'Files found'}</div>
-          </div>
-        </div>
-      ) : null}
+      actions={(
+        <KeptFigures
+          count={kept.count}
+          bytes={kept.bytes}
+          lead={results ? (
+            <>
+              <div>
+                <div className="lg-mast-num">{results.total}</div>
+                <div>{results.total === 1 ? 'File found' : 'Files found'}</div>
+              </div>
+              <span className="lg-mast-sep" />
+            </>
+          ) : null}
+        />
+      )}
     >
       Case files as the courts publish them — the parties, every hearing with its solution, and
       the appeals — read live from the courts’ own service by number, party or object, or as a
@@ -212,7 +291,7 @@ export default function PortalJust() {
 
   if (!isElectron) {
     return (
-      <div className="pj-page">
+      <div className="lws pj-page">
         {masthead}
         <LegalTabs />
         <div className="pj-empty">
@@ -223,78 +302,152 @@ export default function PortalJust() {
     );
   }
 
-  return (
-    <div className="pj-page" ref={pageRef}>
-      {masthead}
-      {/* The party search sits in the tab bar's words box (Enter searches);
-          everything else — the dice, the Case files / A court's day switch,
-          the number, the object, the court, the period, Search — is the
-          Legislation tab's bar (components/LegalBar), drawn the same way.
-          It is there whatever is shown, an open file included; submitting
-          closes the file. */}
-      <LegalTabs
-        search={mode === 'cases' ? {
-          value: query.parte,
-          placeholder: 'A party, as the file writes it',
-          onChange: (v) => setQuery((q) => ({ ...q, parte: v })),
-          onSubmit: () => { setOpen(null); runCases(query); },
-        } : null}
-        // History — this tab's log (components/HistoryMenu): a search runs
-        // again (a docket lists again), a file opens again by its number.
-        trailing={(
-          <HistoryButton
-            tab="portal-just"
-            tip="Every search run and every file opened, with the time"
-            emptyText="Nothing yet. Every search you run and every file you open is listed here."
-            onPick={async (e) => {
-              const d = e.data || {};
-              setOpen(null);
-              if (e.kind === 'search' && d.mode === 'docket') { setMode('docket'); setDocket(d.docket); runDocket(d.docket); return; }
-              if (e.kind === 'search') { setMode('cases'); setQuery((q) => ({ ...q, ...d.query })); runCases(d.query); return; }
-              setMode('cases'); setQuery((q) => ({ ...q, numar: d.numar || '', institutie: d.institutie || '' }));
-              const res = await runCases({ numar: d.numar, institutie: d.institutie });
-              const hit = res?.dosare?.find((x) => x.numar === d.numar && x.institutie === d.institutie) || (res?.dosare?.length === 1 ? res.dosare[0] : null);
-              if (hit) setOpen(hit);
-            }}
-          />
-        )}
-        tools={(
-          <LegalBar onSubmit={() => { setOpen(null); if (mode === 'cases') runCases(query); else runDocket(docket); }}>
-            <Tooltip content="A random case — a court and a day drawn at random, one file of that day's docket">
-              <BarDice label="Open a random case" disabled={busy} onClick={randomCase} />
-            </Tooltip>
-            <BarPicker label="What to search" options={MODES} value={mode} onChange={(m) => { setOpen(null); setMode(m); }} />
-            {mode === 'cases' ? (
-              <>
-                <BarInput size="text" aria-label="Case number" value={query.numar} onChange={set('numar')} placeholder="Number 1234/3/2026" />
-                <BarInput size="text" aria-label="The object" value={query.obiect} onChange={set('obiect')} placeholder="Object" />
-                <BarPicker label="Court" width="wide" groups={anyCourtGroups} value={query.institutie} onChange={(v) => setQuery((q) => ({ ...q, institutie: v }))} placeholder="Any court" />
-                <Tooltip content="Registered from">
-                  <BarInput size="date" type="date" aria-label="Registered from" value={query.from} onChange={set('from')} />
-                </Tooltip>
-                <Tooltip content="Registered up to">
-                  <BarInput size="date" type="date" aria-label="Registered up to" value={query.to} onChange={set('to')} />
-                </Tooltip>
-                <BarGo busy={busy}>Search</BarGo>
-              </>
-            ) : (
-              <>
-                <BarPicker label="Court" width="wide" groups={courtGroups} value={docket.institutie} onChange={(v) => setDocket((d) => ({ ...d, institutie: v }))} placeholder="Pick a court" />
-                <Tooltip content="The day">
-                  <BarInput size="date" type="date" aria-label="Day" value={docket.day} onChange={(e) => setDocket((d) => ({ ...d, day: e.target.value }))} />
-                </Tooltip>
-                <BarGo busy={busy} busyLabel="Reading…">List the hearings</BarGo>
-              </>
-            )}
-          </LegalBar>
-        )}
-      />
+  // THE SEARCH, drawn as every source tab draws it (WorkspaceSearch): the
+  // bar — the dice, the Case files / A court's day choice, the number, the
+  // object, the court, the period, Search — and the party's words box, as
+  // the start screen's ways to search before anything is asked, and as one
+  // compact row over the answer after.
+  const formBar = (
+    <LegalBar onSubmit={() => { setOpen(null); if (mode === 'cases') runCases(query); else runDocket(docket); }}>
+      <Tooltip content="A random case — a court and a day drawn at random, one file of that day's docket">
+        <BarDice label="Open a random case" disabled={busy} onClick={randomCase} />
+      </Tooltip>
+      <BarPicker label="What to search" options={MODES} value={mode} onChange={(m) => { setOpen(null); setMode(m); }} />
+      {mode === 'cases' ? (
+        <>
+          <BarInput size="text" aria-label="Case number" value={query.numar} onChange={set('numar')} placeholder="Number 1234/3/2026" />
+          <BarInput size="text" aria-label="The object" value={query.obiect} onChange={set('obiect')} placeholder="Object" />
+          <BarPicker label="Court" width="wide" groups={anyCourtGroups} value={query.institutie} onChange={(v) => setQuery((q) => ({ ...q, institutie: v }))} placeholder="Any court" />
+          <Tooltip content="Registered from">
+            <BarInput size="date" type="date" aria-label="Registered from" value={query.from} onChange={set('from')} />
+          </Tooltip>
+          <Tooltip content="Registered up to">
+            <BarInput size="date" type="date" aria-label="Registered up to" value={query.to} onChange={set('to')} />
+          </Tooltip>
+          <BarGo busy={busy}>Search</BarGo>
+        </>
+      ) : (
+        <>
+          <BarPicker label="Court" width="wide" groups={courtGroups} value={docket.institutie} onChange={(v) => setDocket((d) => ({ ...d, institutie: v }))} placeholder="Pick a court" />
+          <Tooltip content="The day">
+            <BarInput size="date" type="date" aria-label="Day" value={docket.day} onChange={(e) => setDocket((d) => ({ ...d, day: e.target.value }))} />
+          </Tooltip>
+          <BarGo busy={busy} busyLabel="Reading…">List the hearings</BarGo>
+        </>
+      )}
+    </LegalBar>
+  );
+  const partyBox = (
+    <LegalSearchBox
+      className="lg-words"
+      search={{
+        value: query.parte,
+        placeholder: 'A party, as the file writes it',
+        onChange: (v) => setQuery((q) => ({ ...q, parte: v })),
+        onSubmit: () => { setOpen(null); runCases(query); },
+      }}
+    />
+  );
+  const clear = () => {
+    ++seq.current;
+    setQuery({ numar: '', parte: '', obiect: '', institutie: '', from: '', to: '' });
+    setDocket({ institutie: '', day: todayIso() });
+    setResults(null); setSedinte(null); setError(''); setBusy(false);
+  };
+  const searchView = (
+    <WorkspaceSearch
+      asked={!!(results || sedinte)}
+      title="Search the courts’ files"
+      sub={mode === 'cases'
+        ? 'Find a case file by its number, object, court and period, or by a party’s name. Every file you open stays in the list on the left.'
+        : 'A court’s docket for a day — every hearing listed, and each file one press away.'}
+      modes={mode === 'cases' ? [
+        { id: 'file', label: 'By file', hint: 'A number finds one file, and its appeals at the higher court.', node: formBar },
+        { id: 'party', label: 'By party', hint: 'Every file the party is in — for a company, often hundreds. Press Enter to search.', node: partyBox },
+      ] : [
+        { id: 'docket', label: 'A court’s day', hint: 'Pick the court and the day.', node: formBar },
+      ]}
+      foot={(
+        <>
+          <WorkspaceClear onClick={clear} disabled={!results && !sedinte && !error && !query.numar && !query.parte && !query.obiect && !query.institutie && !docket.institutie} />
+          {error ? <span className="lg-warn lg-barnote">{error}</span> : null}
+        </>
+      )}
+    />
+  );
 
+  // The page stands in the Legislation tabs' workspace: Search + History
+  // head the bar's second line, every file opened is an item in the rail.
+  return (
+    <LegalWorkspace
+      className="pj-page"
+      rootRef={pageRef}
+      masthead={masthead}
+      items={files.map((f) => ({
+        id: f.id,
+        kind: courtLabel(f.dosar.institutie),
+        title: f.dosar.numar,
+        tip: [f.dosar.numar, courtLabel(f.dosar.institutie), f.dosar.obiect].filter(Boolean).join(' — '),
+      }))}
+      activeId={activeFile}
+      onSelect={setActiveFile}
+      onReload={reload}
+      onClose={(id) => { setFiles((list) => list.filter((f) => f.id !== id)); if (id === activeFile) setActiveFile(null); }}
+      onSearch={() => setActiveFile(null)}
+      railLabel="Court files open in this tab"
+      // History — this tab's log (components/HistoryMenu): a search runs
+      // again (a docket lists again), a file opens again by its number.
+      history={{
+        tab: 'portal-just',
+        tip: 'Every search run and every file opened, with the time',
+        extra: (
+          <Tooltip content={kept.count ? 'Forget every file kept on this machine' : 'No file is kept on this machine'}>
+            <button type="button" className="lgt-tool-btn is-danger" disabled={!kept.bytes} onClick={clearKept}>
+              <span className="lgt-tool-ico">{BinIcon}</span><span>Kept files</span>
+            </button>
+          </Tooltip>
+        ),
+        emptyText: 'Nothing yet. Every search you run and every file you open is listed here.',
+        onPick: async (e) => {
+          const d = e.data || {};
+          setOpen(null);
+          if (e.kind === 'search' && d.mode === 'docket') { setMode('docket'); setDocket(d.docket); runDocket(d.docket); return; }
+          if (e.kind === 'search') { setMode('cases'); setQuery((q) => ({ ...q, ...d.query })); runCases(d.query); return; }
+          setMode('cases'); setQuery((q) => ({ ...q, numar: d.numar || '', institutie: d.institutie || '' }));
+          const res = await runCases({ numar: d.numar, institutie: d.institutie });
+          const hit = res?.dosare?.find((x) => x.numar === d.numar && x.institutie === d.institutie) || (res?.dosare?.length === 1 ? res.dosare[0] : null);
+          if (hit) openFile(hit);
+        },
+      }}
+      // No find in this tab: the search is the main column's (below).
+      bar={{ noSearch: true, status }}
+    >
       {open ? (
-        <CaseFile dosar={open} onBack={() => setOpen(null)} />
+        <CaseFile dosar={open} />
       ) : (
         <div className="pj-main">
-          {error ? <p className="pj-note is-bad">{error}</p> : null}
+          {searchView}
+          {/* Before anything is asked: the courts on the map, as the portal
+              shows them — a county opens its court of appeal's courts, and a
+              court pressed there lists its hearings for today. */}
+          {!results && !sedinte ? (
+            <CourtMap
+              selectedCourt={mode === 'docket' ? docket.institutie : query.institutie}
+              onPick={(c) => {
+                const q = { institutie: c.id, day: todayIso() };
+                setMode('docket'); setDocket(q);
+                setQuery((x) => ({ ...x, institutie: c.id }));
+                runDocket(q);
+              }}
+            />
+          ) : null}
+          {(results || sedinte) && source === 'archive' ? (
+            <p className="pj-note is-warn">
+              {portalError === 'stale_app'
+                ? 'This window is newer than the app running behind it — restart Docvex to reach the portal; this is what you already had.'
+                : `The portal could not be reached${portalError === 'timeout' ? ' (it timed out)' : ''} — this is what you already had.`}
+            </p>
+          ) : null}
 
           {results ? (
             results.dosare.length ? (
@@ -302,7 +455,7 @@ export default function PortalJust() {
                 {results.total > results.dosare.length ? (
                   <p className="pj-note">The portal found {results.total} files; the newest {results.dosare.length} are shown. Narrow the search by court or period for the rest.</p>
                 ) : (
-                  <p className="pj-note">{results.total} {results.total === 1 ? 'file' : 'files'}, newest change first. Live from the portal.</p>
+                  <p className="pj-note">{results.total} {results.total === 1 ? 'file' : 'files'}, newest change first.</p>
                 )}
                 <ul className="pj-results">
                   {results.dosare.map((d) => <CaseRow key={`${d.institutie}-${d.numar}`} dosar={d} onOpen={() => openFile(d)} />)}
@@ -336,16 +489,9 @@ export default function PortalJust() {
               </div>
             ) : !busy && !error ? <p className="pj-note">No hearings listed for that court on that day.</p> : null
           ) : null}
-
-          {!results && !sedinte && !error ? (
-            <p className="pj-note">
-              A number finds one file (and its appeals, under the same number at the higher court); a name finds every file the
-              party is in, which for a company can run to hundreds — a court or a period narrows it.
-            </p>
-          ) : null}
         </div>
       )}
-    </div>
+    </LegalWorkspace>
   );
 }
 
@@ -373,22 +519,13 @@ function CaseRow({ dosar, onOpen }) {
   );
 }
 
-function CaseFile({ dosar, onBack }) {
+function CaseFile({ dosar }) {
   const parties = partiesByRole(dosar);
   const hearings = hearingsSorted(dosar);
   return (
     <div className="pj-reader">
-      <div className="pj-reader-bar">
-        <button type="button" className="pj-btn" onClick={onBack}>
-          <span className="pj-ico">{BackIcon}</span><span>Back to results</span>
-        </button>
-        <Tooltip content="Search this number on the courts’ portal">
-          <button type="button" className="pj-btn" onClick={() => openExternal(portalCaseUrl(dosar.numar))}>
-            <span className="pj-ico">{ExternalIcon}</span><span>On the portal</span>
-          </button>
-        </Tooltip>
-      </div>
-
+      {/* No "On the portal" button: the pill in the tab bar ("Live from the
+          portal") is the way out to the portal, for this file. */}
       <article className="pj-file">
         <header className="pj-file-head">
           <div className="pj-file-kind">{courtLabel(dosar.institutie)}{dosar.departament ? ` · ${dosar.departament}` : ''}</div>

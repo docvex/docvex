@@ -12,7 +12,6 @@ import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { ICONS as I } from './aiHub';
 import { askProjectAi, makeAskAnswers } from '../../lib/projectAi';
 import { buildDocumentBlobSmart, extOf, inferDocKind, mimeForKind } from '../../lib/documentGen';
-import { parseIdentity, identityBlob, fieldsFor, ID_TYPE_RULE } from '../../lib/identities';
 import { notifyFilesChanged, openDocViewerWindow } from '../../lib/platform';
 import { describeLocalFile } from '../../lib/thumbnailDescriptor';
 import FileThumbnail from '../../components/FileThumbnail';
@@ -53,26 +52,15 @@ const STORAGE_PREFIX = 'docvex.aichat.v3.';
 // Steer note appended (transiently) to each turn: the model may CREATE real
 // files in the project's Files tab via write_document, must ask_user when
 // unsure, and otherwise just answers. Mirrors the Doc Viewer generate steer.
-// What a .dvx is, in the model's own terms. Built from the record definition so
-// the two can't drift: the advisor used to refuse to write identity records
-// because nothing ever told it the format — it asked to be shown an existing
-// .dvx instead of simply writing one.
-const dvxSteer = () => {
-  const keys = (k) => fieldsFor(k).map((f) => f.key).join(', ');
-  return 'A `.dvx` file is a DocVex IDENTITY RECORD — a party to the case (a person or a company) stored as ONE JSON object. '
-    + 'To create one, put the JSON in `content` and name the file `<Name>.dvx`. '
-    + '`kind` is "person" or "org". Keys for a person: ' + keys('person') + '. '
-    + 'Keys for an organisation: ' + keys('org') + '. '
-    + 'Either kind also takes: name, email, phone, addressStreet, addressNumber, addressBlock, addressStair, addressFloor, addressApartment, city, county, country, and `custom` — an array of { label, value } for anything with no field of its own. '
-    + 'Dates are written DD.MM.YYYY. Leave a key out when you do not know it, and never invent an identifier such as a CNP, CUI or IBAN unless the user asked for fictional data. ' + ID_TYPE_RULE + ' '
-    + 'The record opens in the Doc Viewer as a form, so write plain values — no markdown, and no comments in the JSON.';
-};
+// Data collections (`.dvc`) are made by the Files tab's AI scan, never
+// written by hand or by the advisor.
+const DVC_STEER = 'You cannot create `.dvc` Data collection files (or the retired `.dvx` identity records): Data collections are made by the Files tab\'s AI scan — tell the user to tag the files and run it.';
 
 const FILE_STEER = '[Meta: You can CREATE real files in this project\'s Files tab with the write_document tool — give it the COMPLETE file content. Use it when the user clearly asks you to create, draft, generate, convert or export a document/file. '
-  + 'ANY file type is allowed, not only Office ones: `docx`, `pptx`, `xlsx` and `pdf` are BUILT from the text you write (its headings, lists and tables become real document structure); every text-based format — `txt`, `md`, `csv`, `json`, `xml`, `html`, `dvx`, `srt`, `ics`, `yaml`, source code and so on — is written EXACTLY as you give it, so for those `content` must be the finished file, valid for that format, with nothing around it (no markdown fences, no commentary). Name the file with the extension you want and it will be written. '
+  + 'ANY file type is allowed, not only Office ones: `docx`, `pptx`, `xlsx` and `pdf` are BUILT from the text you write (its headings, lists and tables become real document structure); every text-based format — `txt`, `md`, `csv`, `json`, `xml`, `html`, `srt`, `ics`, `yaml`, source code and so on — is written EXACTLY as you give it, so for those `content` must be the finished file, valid for that format, with nothing around it (no markdown fences, no commentary). Name the file with the extension you want and it will be written. '
   + 'The tool\'s `kind` field only chooses the builder for the four Office/PDF kinds; for anything else it is ignored — put the extension you want in the filename and write the file\'s exact contents. Never refuse a format because the tool lists four kinds. '
   + 'You cannot create binary media (images, audio, video, archives) — say so and offer an alternative instead. '
-  + dvxSteer() + ' '
+  + DVC_STEER + ' '
   + 'The FIRST line of the tool\'s `summary` field MUST be a header of the exact form `[file: <filename> | folder: <folder>]`. Use the exact file name and the exact folder the user asked for; when the user did not specify a name, choose a short descriptive filename that reflects the document\'s content; when they did not specify a location, use `home` (the project\'s root Files directory). Folders are relative paths inside the project (e.g. `contracts/2026`) — never absolute paths. After that header line, write a one-sentence summary of the document. '
   + 'If you are UNSURE whether they want a file created — or which kind, or what should go in it — call ask_user FIRST instead of guessing. If they are just chatting or asking questions, answer normally in text. Never silently create a file when you are unsure.]';
 
@@ -90,7 +78,7 @@ const BINARY_ONLY_EXTS = new Set([
 // Content types for the text formats worth naming; everything else is plain
 // UTF-8 text, which is what the remaining text formats actually are.
 const TEXT_MIMES = {
-  dvx: 'application/json', json: 'application/json', csv: 'text/csv', tsv: 'text/tab-separated-values',
+  dvx: 'application/json', dvc: 'application/json', json: 'application/json', csv: 'text/csv', tsv: 'text/tab-separated-values',
   md: 'text/markdown', markdown: 'text/markdown', txt: 'text/plain', log: 'text/plain',
   html: 'text/html', htm: 'text/html', xml: 'application/xml', svg: 'image/svg+xml',
   yaml: 'application/yaml', yml: 'application/yaml', ics: 'text/calendar',
@@ -826,25 +814,19 @@ export default function ProjectAI() {
     // than attempted: a .png holding the model's prose is a broken file, and
     // the message tells the reader (and the model) what can be done instead.
     if (BINARY_ONLY_EXTS.has(kind)) {
-      return { ok: false, error: `I can’t create ${kind.toUpperCase()} files — that format is binary (a picture, sound, video or archive). I can write Word, PowerPoint, Excel and PDF documents, and any text-based format (txt, md, csv, json, xml, html, .dvx records…).` };
+      return { ok: false, error: `I can’t create ${kind.toUpperCase()} files — that format is binary (a picture, sound, video or archive). I can write Word, PowerPoint, Excel and PDF documents, and any text-based format (txt, md, csv, json, xml, html…).` };
     }
     try {
-      // Three ways a file gets its bytes:
-      //   • An identity record is PARSED first (parseIdentity fills the blank
-      //     record around whatever the model wrote), so a .dvx always opens in
-      //     the record form instead of being JSON the viewer can't read.
+      // How a file gets its bytes (a Data collection is refused — the AI scan
+      // makes those):
       //   • Office / PDF are BUILT — 'skills' prefers Anthropic's Office Skills
       //     builder (high fidelity) and falls back to the local builders.
       //   • Anything else is a text format: the model's content IS the file, so
       //     it is written verbatim. This is what lets the advisor produce the
-      //     formats nothing here can build — .dvx, .csv, .json, .srt, code.
+      //     formats nothing here can build — .csv, .json, .srt, code.
       let blob;
-      if (kind === 'dvx') {
-        const record = parseIdentity(String(text || ''));
-        if (!record) {
-          return { ok: false, error: 'I couldn’t write that identity record — the content wasn’t valid JSON for a DocVex record. Let me try again.' };
-        }
-        blob = identityBlob(record);
+      if (kind === 'dvx' || kind === 'dvc') {
+        return { ok: false, error: 'I can’t write Data collections — they are made by the Files tab’s AI scan. Tag the files for the scan and run it.' };
       } else if (!BUILT_KINDS.has(kind)) {
         blob = new Blob([String(text || '')], { type: mimeForExt(kind) });
       } else {

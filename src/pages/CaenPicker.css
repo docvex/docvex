@@ -114,7 +114,7 @@
   box-shadow:
     0 1px 2px color-mix(in srgb, var(--color-cognac) 35%, transparent),
     0 6px 16px -4px color-mix(in srgb, var(--color-cognac) 55%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent);
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-accent) 18%, transparent);
 }
 :root[data-theme="cream"] .cp-col.is-focus .cp-ch.is-on,
 :root[data-theme="cream"] .cp-col.is-passed .cp-ch.is-on { color: var(--color-cream); }

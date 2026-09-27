@@ -12,7 +12,8 @@ import {
   isElectronBranch,
   readLocalBlob,
 } from '../../lib/localFolder';
-import { openDocx, isDocxFile, openFileWindow, canViewInBrowser, openDocViewerWindow, prepareWhatsAppZip, prepareWhatsAppFolder, detectWhatsApp, notifyFilesRemoved, onFilesRemoved, onFilesChanged } from '../../lib/platform';
+import { openDocx, isDocxFile, openFileWindow, canViewInBrowser, openDocViewerWindow, prepareWhatsAppZip, prepareWhatsAppFolder, detectWhatsApp, notifyFilesRemoved, onFilesRemoved, onFilesChanged, pathForFile } from '../../lib/platform';
+import { livePartnerOf, isLivpName, unpackLivp } from '../../lib/livePhoto';
 import { openDocxInWindow } from '../../lib/openDocxWindow';
 import { emptyDocumentBlob, docKindFromName, mimeForKind } from '../../lib/documentGen';
 import { clearConversation, migrateConversation, migrateConversationsUnder } from '../../lib/conversationHistory';
@@ -26,13 +27,14 @@ import {
   renameEntry as renameSidecarEntry,
   reconcileWithFilesystem,
 } from '../../lib/localBranchMeta';
-import {
-  isIdentityFile, isIdentityCandidate, isInIdentityFolder, readIdentityIfRecord,
-  emptyIdentity, writeIdentity,
-} from '../../lib/identities';
-import { createIdentitiesFromFiles } from '../../lib/identityExtract';
+// Data collections (`.dvc`) — the AI scan's output. The scanner itself
+// (lib/dataCollections: OCR, captions, face matching) is imported on press.
+const isCollectionFile = (name) => /\.dvc$/i.test(String(name || '').trim());
+import { loadScanTags, setScanTags, isScanTagged, subscribeScanTags, relInProject as scanRel } from '../../lib/scanTags';
 import { getPrefetchedProjectFiles } from '../../lib/projectFilesPrefetch';
 import { prefetchMetadata } from '../../lib/metadataPrefetch';
+import PhoneUploadModal from '../../components/PhoneUploadModal';
+import { subscribeIncoming, decideIncoming, fmtBytes as fmtIncomingBytes } from '../../lib/phoneUploadIncoming';
 import './ProjectScoped.css';
 import './ProjectFiles.css';
 
@@ -158,7 +160,17 @@ export default function ProjectFiles({ embedded = false } = {}) {
   const [renameTargetPath, setRenameTargetPath] = useState(null);
   // True while "Create identity" is scanning — declared up here with the other
   // hooks, above the early returns (see the note above).
-  const [identityScanBusy, setIdentityScanBusy] = useState(false);
+  // The AI scan of the whole folder (lib/dataCollections) — { stage, index,
+  // total, name } while it runs, null otherwise. `scanStopRef` cancels it.
+  const [filesScan, setFilesScan] = useState(null);
+  const scanStopRef = useRef(false);
+  // Files tagged for the AI scan (lib/scanTags) — only these are scanned, and
+  // each wears the AI mark in the listing.
+  const [scanTags, setScanTagsState] = useState(() => loadScanTags(''));
+  useEffect(() => {
+    setScanTagsState(loadScanTags(localFolder || ''));
+    return subscribeScanTags((dir) => { if (dir === localFolder) setScanTagsState(loadScanTags(localFolder)); });
+  }, [localFolder]);
   // Path of a just-created folder the workspace should select (not open) —
   // set after an archive is extracted.
   const [selectTargetPath, setSelectTargetPath] = useState(null);
@@ -169,6 +181,14 @@ export default function ProjectFiles({ embedded = false } = {}) {
   const { pushAction, clear: clearUndo, undo, redo, canUndo, canRedo, undoLabel, redoLabel } = useUndoRedo();
 
   const localUploadInputRef = useRef(null);
+  // Import opens a window: this computer's picker, or a phone by QR code
+  // (components/PhoneUploadModal — over the local network or DocVex's cloud).
+  const [importOpen, setImportOpen] = useState(false);
+  // Files a phone sent with the Import window closed, still waiting (lib/
+  // phoneUploadIncoming): shown FADED in the folder they are going to, with a
+  // download mark — a click accepts one, the right-click menu decides.
+  const [incoming, setIncoming] = useState([]);
+  useEffect(() => subscribeIncoming(setIncoming), []);
   const localFolderUploadInputRef = useRef(null);
   const localFolderDebounceRef = useRef(null);
 
@@ -215,37 +235,6 @@ export default function ProjectFiles({ embedded = false } = {}) {
     return () => { cancelled = true; };
   }, [waCandidatesKey]);
 
-  // Identity records: read each one's `kind` so its tile can show a person or an
-  // organisation. `.json` files are probed too, not just `.dvx` — records reach
-  // a folder by other routes (an older build, a hand-written file) and one
-  // wearing the generic JSON badge is one the user can't pick out. The read is
-  // what decides: `readIdentityIfRecord` returns null for ordinary JSON, so a
-  // `package.json` sitting in the folder keeps its own glyph.
-  //
-  // Same shape as the WhatsApp probe above, and like it purely cosmetic: a
-  // failure just means the default glyph.
-  const [idnKindByPath, setIdnKindByPath] = useState(() => ({}));
-  const idnCandidatesKey = browseFiles
-    .filter((f) => isIdentityCandidate(f.name))
-    .map((f) => f.path || f.name)
-    .filter(Boolean)
-    .join('\n');
-  useEffect(() => {
-    if (!idnCandidatesKey) return undefined;
-    let cancelled = false;
-    (async () => {
-      const paths = idnCandidatesKey.split('\n');
-      const found = {};
-      for (const path of paths) {
-        const rec = await readIdentityIfRecord(path);
-        if (rec) found[path] = rec.kind;
-      }
-      if (!cancelled && Object.keys(found).length) {
-        setIdnKindByPath((prev) => ({ ...prev, ...found }));
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [idnCandidatesKey]);
 
   // ── Hydrate the chosen folder when the project switches ───────────────
   useEffect(() => {
@@ -857,12 +846,50 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // drag-and-drop from the OS file manager — both just hand off a file list.
   const importFiles = useCallback(async (picked) => {
     if (!picked || picked.length === 0 || !localFolder) return;
-    const payload = picked
-      .filter((file) => file && file.name)
-      .map((file) => ({ filename: file.name, blob: file }));
+    // A `.livp` (the ZIP iOS wraps an exported Live Photo in) is unpacked:
+    // its picture is written, and its video rides along as the partner below.
+    const entries = [];
+    for (const file of picked.filter((f) => f && f.name)) {
+      if (isLivpName(file.name)) {
+        try {
+          const u = await unpackLivp(file, file.name);
+          if (u?.image) {
+            entries.push({ filename: u.image.name, blob: u.image.blob, src: null, video: u.video });
+            continue;
+          }
+        } catch { /* not a readable .livp — written as it is */ }
+      }
+      entries.push({ filename: file.name, blob: file, src: file, video: null });
+    }
+    const payload = entries.map(({ filename, blob }) => ({ filename, blob }));
     if (payload.length === 0) return;
     const { results, error } = await localFolderApi.writeFiles({ dir: currentDir, files: payload });
     if (error) { notify({ category: 'file', variant: 'error', title: 'Could not add files', body: error, dedupeKey: 'fab-write-error' }); return; }
+    // LIVE PHOTOS: an iPhone Live Photo on a computer is a picture plus a
+    // same-name video (IMG_1234.JPG + IMG_1234.MOV). Importing the picture
+    // brings its video along — named after the picture AS WRITTEN (it may
+    // have become "IMG_1234 (2).JPG"), so the Doc Viewer still pairs them
+    // (lib/livePhoto). Skipped when the video was picked as well.
+    const pickedNames = new Set(picked.map((f) => String(f?.name || '').toLowerCase()));
+    const partners = [];
+    const stemOfWritten = (r) => String(r.filename).replace(/\.[^./\\]+$/, '');
+    for (let i = 0; i < entries.length; i += 1) {
+      const r = results?.[i];
+      if (!r?.ok || !r.filename) continue;
+      const e = entries[i];
+      if (e.video) { partners.push({ filename: `${stemOfWritten(r)}.${String(e.video.name).split('.').pop()}`, blob: e.video.blob }); continue; }
+      const src = e.src ? pathForFile(e.src) : null;
+      const partner = src ? await livePartnerOf(src, e.filename) : null;
+      if (!partner || pickedNames.has(String(partner.name).toLowerCase())) continue;
+      try {
+        const blob = await readLocalBlob(partner.path);
+        if (blob) partners.push({ filename: `${stemOfWritten(r)}.${String(partner.name).split('.').pop()}`, blob });
+      } catch { /* the picture came across; its movement did not */ }
+    }
+    if (partners.length) {
+      const pr = await localFolderApi.writeFiles({ dir: currentDir, files: partners });
+      for (const x of pr?.results || []) if (x.ok) results.push(x);
+    }
     const okCount = (results || []).filter((r) => r.ok).length;
     const failCount = (results || []).length - okCount;
     const importedNames = (results || []).filter((r) => r.ok && r.filename).map((r) => r.filename);
@@ -1273,9 +1300,13 @@ export default function ProjectFiles({ embedded = false } = {}) {
       status: 'synced',
       sizeLabel: stats ? formatBytes(stats.bytes) : '',
       modifiedLabel: stats?.latest ? formatDate(new Date(stats.latest).toISOString()) : '',
+      // For the header's Sort: newest file inside, total size.
+      sortTime: stats?.latest || 0,
+      sortSize: stats?.bytes || 0,
       // Content-probed (see the waByPath effect) — an extracted WhatsApp
       // export folder keeps its mark whatever it's renamed to.
       isWhatsApp: waByPath[dir.path] === true,
+      scanTagged: !!localFolder && isScanTagged(scanTags, `${scanRel(localFolder, dir.path)}/`),
       _dir: dir,
     };
   });
@@ -1312,35 +1343,65 @@ export default function ProjectFiles({ embedded = false } = {}) {
   };
   const draftItems = browseFiles.map((lf) => {
     const fid = sidecar.byFilename.get((lf.name || '').toLowerCase());
-    // Identity records report a SYNTHETIC extension so they wear a party glyph
-    // (a bust, or a facade for an organisation) instead of the generic JSON
-    // badge their real extension would earn them. Three ways to know: the `.dvx`
-    // extension, sitting in the Identities folder (both instant, so the glyph is
-    // right on the first paint), or the content probe above — which is also what
-    // says person vs organisation.
-    const idnPath = lf.path || lf.name;
-    const idn = isIdentityFile(lf.name)
-      || (isIdentityCandidate(lf.name) && isInIdentityFolder(idnPath))
-      || idnKindByPath[idnPath] != null;
+    // A Data collection wears its own glyph (extCategory 'collection').
+    const isDvc = isCollectionFile(lf.name);
     return {
       id: fid || lf.path || lf.name,
       kind: 'file',
       name: lf.name,
-      ext: idn
-        ? (idnKindByPath[idnPath] === 'org' ? 'identity-org' : 'identity')
-        : fileExtOf(lf.name),
+      ext: fileExtOf(lf.name),
       sizeLabel: lf.sizeBytes != null ? formatBytes(lf.sizeBytes) : '',
       modifiedLabel: formatDate(lf.mtimeIso),
+      sortTime: lf.mtimeIso ? Date.parse(lf.mtimeIso) || 0 : 0,
+      sortSize: Number(lf.sizeBytes) || 0,
       author: 'You',
       status: 'synced',
       // Content-probed verdict for .zip archives and loose .txt transcripts
       // (true/false once resolved; undefined while pending / for other types →
       // FilesWorkspace falls back to its name heuristic until the probe lands).
       isWhatsApp: lf.path ? waByPath[lf.path] : undefined,
-      descriptor: idn ? null : describeLocalFile({ localFile: lf }),
+      descriptor: isDvc ? null : describeLocalFile({ localFile: lf }),
+      scanTagged: !!localFolder && isScanTagged(scanTags, scanRel(localFolder, lf.path || lf.name)),
       _raw: lf,
     };
   });
+
+  // Waiting phone files whose destination is the folder on show, first.
+  const samePath = (a, b) => String(a || '').replace(/[\\/]+$/, '').toLowerCase() === String(b || '').replace(/[\\/]+$/, '').toLowerCase();
+  const incomingItems = incoming.filter((p) => samePath(p.dir, currentDir)).map((p) => ({
+    id: `incoming:${p.id}`,
+    kind: 'file',
+    name: p.name,
+    ext: fileExtOf(p.name),
+    sizeLabel: fmtIncomingBytes(p.size),
+    modifiedLabel: 'From your phone',
+    sortTime: p.at || 0,
+    sortSize: Number(p.size) || 0,
+    status: 'synced',
+    incoming: true,
+    incomingId: p.id,
+    descriptor: describeLocalFile({ localFile: { path: p.path, name: p.name } }),
+    _raw: { path: p.path, name: p.name },
+  }));
+  const fxIncoming = async (item, action) => {
+    const ids = [item.incomingId];
+    const accept = action === 'accept';
+    let done = 0;
+    for (const id of ids) {
+      const res = await decideIncoming(id, accept);
+      if (res?.ok) done += 1;
+    }
+    if (done < ids.length) {
+      notify({ category: 'file', variant: 'error', title: accept ? 'Couldn’t add the file' : 'Couldn’t reject the file', body: 'It is still waiting — try again.', dedupeKey: `phone-upload-fail:${Date.now()}` });
+    } else if (accept) {
+      notify({
+        category: 'file', variant: 'success', icon: 'check', silent: true,
+        title: ids.length > 1 ? `${ids.length} files added from your phone` : 'Added from your phone',
+        body: ids.length > 1 ? 'They are in this folder now.' : `“${item.name}” is in this folder now.`,
+        payload: { activity: { action: 'phone-upload', fileName: item.name } },
+      });
+    }
+  };
 
   // The listing is exactly what's in the folder. Files referenced by the case
   // timeline but stored elsewhere on disk are NOT surfaced here — they'd read
@@ -1371,6 +1432,8 @@ export default function ProjectFiles({ embedded = false } = {}) {
       ext: fileExtOf(t.originalName),
       sizeLabel: t.sizeBytes != null ? formatBytes(t.sizeBytes) : '',
       modifiedLabel: formatDate(t.deletedAt),
+      sortTime: t.deletedAt ? Date.parse(t.deletedAt) || 0 : 0,
+      sortSize: Number(t.sizeBytes) || 0,
       author: 'You',
       status: 'deleted',
       deletesInDays: daysUntilPurge(t.deletedAt),
@@ -1419,9 +1482,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
       if (item._dir) handleEnterFolder(item._dir);
       return;
     }
-    // Identity records open in the Doc Viewer like everything else — it shows
-    // the record as a form rather than as the JSON it is stored as.
-    if (isIdentityFile(item.name)) { openIdentityInViewer(item._raw); return; }
+    // Data collections (the AI scan's `.dvc` files) open in the Doc Viewer as
+    // what the AI gathered, not the JSON they are stored as.
+    if (isCollectionFile(item.name)) { openCollectionInViewer(item._raw); return; }
     handleOpenLocalFile(item._raw);
   };
   // The menu's "Open content(s)". For a folder it browses the files (bypassing
@@ -1489,6 +1552,8 @@ export default function ProjectFiles({ embedded = false } = {}) {
     handleRenameLocalFile(item._raw, newName);
   };
   const fxDelete = (item) => {
+    // A waiting phone file isn't a project file yet: "delete" means reject it.
+    if (item?.incoming) { fxIncoming(item, 'reject'); return; }
     if (filesTab === 'trash') {
       if (item?._trashGroup) { handlePermanentDeleteGroup(item); return; }
       handlePermanentDelete(item._trash);
@@ -1544,138 +1609,110 @@ export default function ProjectFiles({ embedded = false } = {}) {
       notify({ category: 'file', variant: 'error', title: 'Couldn’t create file', body: err?.message || String(err), dedupeKey: 'fx-newfile-error' });
     }
   };
-  // ── Identities ─────────────────────────────────────────────────────────
-  // A party to the case — a person or a company — rather than a document. The
-  // record is a `.dvx` file written into the folder you are looking at, beside
-  // the documents it was taken from; no `Identities/` folder is made for it.
-  // The "Identities" CATEGORY (Group by category) is what gathers records
-  // together. The Timeline council writes the same files for every party it
-  // finds in the story; this is the manual door to them.
-  //
+  // ── Data collections ──────────────────────────────────────────────────
+  // What the AI gathered about one subject (lib/dataCollections) — made only
+  // by the AI scan; opened in the Doc Viewer.
   // Nothing here is edited in a dialog: a record is a file, so creating one
   // writes a blank record and opens it in the Doc Viewer — the same place an
   // existing identity opens, and where it is actually filled in.
-  const openIdentityInViewer = (raw) => {
+  const openCollectionInViewer = (raw) => {
     if (!raw?.path) return;
     openDocViewerWindow({ path: raw.path, name: raw.name, mime: 'application/json' });
   };
 
-  const fxAddIdentity = async () => {
+  // The AI scan: read every file in the project (text, a picture's text, an
+  // audio or video file's captions), have the AI understand each one, connect
+  // them into Data collections. A second run only reads what is new or changed
+  // since — with nothing new it costs nothing. One progress toast, updated.
+  const fxScanFiles = async () => {
+    if (filesScan) { scanStopRef.current = true; return; }   // pressed again = stop
     if (!localFolder) {
-      notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then you can add identities to it.', dedupeKey: 'fx-identity-nofolder' });
+      notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then the AI can scan it.', dedupeKey: 'fx-scan-nofolder' });
       return;
     }
-    // A unique placeholder name, so adding two in a row doesn't overwrite the
-    // first. The viewer renames the file the moment the party is named.
-    const existing = new Set((localFiles || []).map((f) => String(f.name || '').toLowerCase()));
-    let seed = 'New identity';
-    for (let n = 2; existing.has(`${seed}.dvx`.toLowerCase()); n += 1) seed = `New identity ${n}`;
-    const res = await writeIdentity(localFolder, { ...emptyIdentity('person'), name: seed }, { dir: currentDir });
-    if (res.error) {
-      notify({ category: 'file', variant: 'error', title: 'Couldn’t add the identity', body: res.error === 'no_folder' ? 'No project folder is connected.' : String(res.error), dedupeKey: 'fx-identity-save' });
-      return;
-    }
-    setBrowseTick((t) => t + 1);
-    await refetchLocalFiles();
-    openIdentityInViewer({ path: res.path, name: res.filename });
-    notify({
-      category: 'file',
-      variant: 'success',
-      icon: 'plus',
-      title: 'Identity added',
-      body: 'A blank record was added to this folder — fill it in and save.',
-      silent: true,
-      payload: actMeta('create', res.filename, { filePath: res.path }),
-    });
-  };
-
-  // "Create identity" on a file or a selection: scan the documents — OCR for a
-  // picture or a scanned PDF, text extraction for everything else — and write a
-  // record for each party found, into the folder they were picked in. The files
-  // are read TOGETHER, so the two sides of one card become one record and a
-  // contract becomes a record per party. One progress toast, updated in place.
-  const fxCreateIdentityFromFiles = async (picked) => {
-    const sources = (picked || []).filter((f) => f?.path);
-    if (!sources.length || identityScanBusy) return;
-    if (!localFolder) {
-      notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then you can add identities to it.', dedupeKey: 'fx-identity-nofolder' });
-      return;
-    }
-    const many = sources.length > 1;
+    scanStopRef.current = false;
     const say = (body, extra = {}) => notify({
-      category: 'file', variant: 'info', icon: 'sparkles', title: 'Creating identity', body,
-      dedupeKey: 'fx-identity-scan', dedupeStrategy: 'replace', persistent: true, ...extra,
+      category: 'file', variant: 'info', icon: 'sparkles', title: 'Scanning the files', body,
+      dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace', persistent: true, ...extra,
     });
-    setIdentityScanBusy(true);
-    say(many ? `Reading ${sources.length} files…` : `Reading “${sources[0].name}”…`);
+    const STAGE = {
+      list: () => 'Listing the files…',
+      read: (p) => `Reading ${p.index + 1} of ${p.total} — \u201c${p.name}\u201d…`,
+      understand: (p) => `Understanding the files — ${Math.min(p.index + 1, p.total)} of ${p.total}…`,
+      connect: (p) => (p.incremental ? `Fitting ${p.total} new file${p.total === 1 ? '' : 's'} into the collections…` : 'Connecting what the files say…'),
+      faces: (p) => (p.total ? `Comparing faces with the identity documents — ${p.index + 1} of ${p.total} (on this computer)…` : 'Comparing faces with the identity documents (on this computer)…'),
+      save: () => 'Writing the data collections…',
+    };
+    setFilesScan({ stage: 'list' });
+    say(STAGE.list());
     try {
-      const files = [];
-      for (const f of sources) {
-        try {
-          const blob = await readLocalBlob(f.path);
-          if (blob) files.push({ blob, name: f.name, path: f.path });
-        } catch { /* unreadable — reported below as skipped */ }
+      const { scanProjectFiles } = await import('../../lib/dataCollections');
+      const tags = loadScanTags(localFolder);
+      if (!tags.size) {
+        notify({ category: 'file', variant: 'info', icon: 'sparkles', title: 'Tag files for the scan first', body: 'Right-click a file or a folder and choose \u201cTag for AI scan\u201d. Only tagged files are scanned; they show the AI mark.', dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace' });
+        return;
       }
-      const res = await createIdentitiesFromFiles(localFolder, files, {
-        dir: currentDir,
-        projectName: selectedProject?.name,
+      const res = await scanProjectFiles(localFolder, {
+        tags,
         projectId,
-        onProgress: (pr) => {
-          if (pr.stage === 'read') say(many ? `Reading ${pr.index + 1} of ${pr.total} — “${pr.name}”…` : `Reading “${pr.name}”…`);
-          else if (pr.stage === 'extract') say('Working out who the documents belong to…');
-          else if (pr.stage === 'save') say('Writing the records…');
-        },
+        projectName: selectedProject?.name,
+        isCancelled: () => scanStopRef.current,
+        onProgress: (p) => { setFilesScan(p); const line = STAGE[p.stage]?.(p); if (line) say(line); },
       });
       const WHY = {
-        media: 'audio and video have no text to read',
-        identity: 'it is already an identity record',
-        no_text: 'no text was found in it',
-        decode_failed: 'the picture couldn’t be opened',
-        unsupported: 'this file type couldn’t be read',
-        ocr_failed: 'the AI service couldn’t be reached',
+        no_speech: 'no speech in it', no_text: 'no text in it', too_large: 'too large to transcribe here', decode_failed: 'the picture couldn\u2019t be opened',
+        unsupported: 'this file type can\u2019t be read', ocr_failed: 'the AI service couldn\u2019t be reached', ai_failed: 'the AI couldn\u2019t understand it',
       };
       const skippedNote = res.skipped?.length
-        ? ` Skipped: ${res.skipped.map((k) => `“${k.name}” (${WHY[k.error] || 'unreadable'})`).join('; ')}.`
+        ? ` Skipped ${res.skipped.length}: ${res.skipped.slice(0, 4).map((k) => `\u201c${k.name}\u201d (${WHY[k.error] || k.error || 'unreadable'})`).join('; ')}${res.skipped.length > 4 ? '\u2026' : ''}.`
         : '';
       if (res.error) {
         const body = {
-          nothing_read: `None of the selected files could be read.${skippedNote}`,
-          no_party: `The text was read, but no person or company could be identified in it.${skippedNote}`,
-          ai_failed: 'The AI service couldn’t be reached. Check you’re signed in and online.',
+          cancelled: 'The scan was stopped. What was read so far is kept, so the next scan picks up from there.',
+          none_tagged: 'None of the tagged files are in this project any more. Tag files for the scan and try again.',
+          empty: 'There are no files in this project to scan.',
+          nothing_read: `None of the files could be read.${skippedNote}`,
           no_folder: 'No project folder is connected.',
-          no_files: 'None of the selected files could be opened.',
-        }[res.error] || 'Something went wrong while scanning.';
-        notify({ category: 'file', variant: 'error', title: 'Couldn’t create an identity', body, dedupeKey: 'fx-identity-scan', dedupeStrategy: 'replace' });
+        }[res.error] || `${res.error}${skippedNote}`;
+        notify({ category: 'file', variant: res.error === 'cancelled' ? 'info' : 'error', title: res.error === 'cancelled' ? 'Scan stopped' : 'Couldn\u2019t scan the files', body, dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace' });
         return;
       }
       setBrowseTick((t) => t + 1);
       await refetchLocalFiles();
-      const total = res.added + res.updated;
-      const parts = [
-        res.added ? `${res.added} added` : '',
-        res.updated ? `${res.updated} updated` : '',
-      ].filter(Boolean).join(', ');
+      const faceNote = res.faceMatches ? ` ${res.faceMatches} face match${res.faceMatches === 1 ? '' : 'es'} with identity documents.` : '';
+      const body = res.upToDate && !res.created && !res.updated
+        ? `Nothing new since the last scan \u2014 the ${res.collections.length} data collection${res.collections.length === 1 ? ' is' : 's are'} up to date.${faceNote}`
+        : [
+          res.created ? `${res.created} new data collection${res.created === 1 ? '' : 's'}` : '',
+          res.updated ? `${res.updated} updated` : '',
+          res.removed ? `${res.removed} removed` : '',
+        ].filter(Boolean).join(', ').replace(/^./, (c) => c.toUpperCase()) + `${res.read ? ` from ${res.read} file${res.read === 1 ? '' : 's'} read` : ''}.${faceNote}${skippedNote}`;
       notify({
-        category: 'file',
-        variant: 'success',
-        icon: 'plus',
-        title: total === 1 ? 'Identity created' : `${total} identities created`,
-        body: `${res.names.join(', ')} — ${parts}.${skippedNote}`,
-        dedupeKey: 'fx-identity-scan',
-        dedupeStrategy: 'replace',
-        payload: actMeta('create', res.names.join(', '), { filePath: res.paths?.[0] }),
+        category: 'file', variant: 'success', icon: 'sparkles', title: 'Files scanned', body,
+        dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace',
+        payload: actMeta('create', `${res.collections.length} data collections`, { filePath: res.collections[0]?.path }),
       });
-      // One record → open it, where its readings can be checked against the
-      // document. Several → leave them selected-in-place in the listing.
-      if (res.paths?.length === 1) {
-        const path = res.paths[0];
-        openIdentityInViewer({ path, name: path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1) });
-      }
     } catch (err) {
-      notify({ category: 'file', variant: 'error', title: 'Couldn’t create an identity', body: err?.message || String(err), dedupeKey: 'fx-identity-scan', dedupeStrategy: 'replace' });
+      notify({ category: 'file', variant: 'error', title: 'Couldn\u2019t scan the files', body: err?.message || String(err), dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace' });
     } finally {
-      setIdentityScanBusy(false);
+      setFilesScan(null);
+      scanStopRef.current = false;
     }
+  };
+
+  // Tag / untag items for the AI scan. A folder is tagged as a whole (every
+  // file under it, now and later); untagging a file inside a tagged folder
+  // keeps just that file out.
+  const fxToggleScanTag = (items, on) => {
+    if (!localFolder) return;
+    const rels = (items || []).map((it) => {
+      const path = it?._raw?.path || it?._dir?.path;
+      if (!path) return '';
+      const rel = scanRel(localFolder, path);
+      return it.kind === 'folder' ? `${rel}/` : rel;
+    }).filter(Boolean);
+    if (!rels.length) return;
+    setScanTagsState(setScanTags(localFolder, rels, on));
   };
 
   // Create new <type> file → write an empty styled Office file of the chosen kind
@@ -1729,7 +1766,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
   const fxUpload = () => {
     if (!localFolder) { handleBrowseFolder(); return; }
     if (needsReconnect) { handleReconnect(); return; }
-    localUploadInputRef.current?.click();
+    setImportOpen(true);
   };
   // Resolve a breadcrumb path token to its real directory, then move the
   // dragged files there (reuses the same move + undo machinery).
@@ -1828,11 +1865,12 @@ export default function ProjectFiles({ embedded = false } = {}) {
     canBack: fxCanUp,
     canUp: fxCanUp,
     folders: filesTab === 'drafts' ? draftFolders : binFolderItems,
-    items: filesTab === 'drafts' ? draftItems : binFileItems,
+    items: filesTab === 'drafts' ? [...incomingItems, ...draftItems] : binFileItems,
+    onIncoming: fxIncoming,
     loading: filesTab === 'trash' ? trashLoading : localLoading,
     onOpen: fxOpen,
     onOpenContent: fxOpenContent,
-    onRename: fxRename,
+    onRename: (item, ...rest) => { if (!item?.incoming) fxRename(item, ...rest); },
     onDelete: fxDelete,
     onRestore: fxRestore,
     onOpenLocation: fxOpenLocation,
@@ -1843,8 +1881,10 @@ export default function ProjectFiles({ embedded = false } = {}) {
     onNewFolder: fxNewFolder,
     onNewFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxNewFile : undefined,
     onCreateTypedFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxCreateTypedFile : undefined,
-    onAddIdentity: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxAddIdentity : undefined,
-    onCreateIdentityFromFiles: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxCreateIdentityFromFiles : undefined,
+    onScanFiles: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxScanFiles : undefined,
+    onToggleScanTag: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxToggleScanTag : undefined,
+    scanTaggedCount: scanTags.size,
+    scanState: filesScan,
     renameTargetPath,
     onRenameTargetConsumed: () => setRenameTargetPath(null),
     selectTargetPath,
@@ -1870,9 +1910,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
     onDropFiles: (filesTab === 'drafts' && Boolean(localFolder)) ? handleDropFiles : undefined,
     // Copy / paste (footer + Ctrl+C / Ctrl+V) and drag-to-move between folders
     // — drafts only, and only with a bound local folder.
-    onPasteItems: (filesTab === 'drafts' && Boolean(localFolder)) ? handlePasteItems : undefined,
+    onPasteItems: (filesTab === 'drafts' && Boolean(localFolder)) ? (items, ...rest) => handlePasteItems((items || []).filter((i) => !i?.incoming), ...rest) : undefined,
     onPasteCut: (filesTab === 'drafts' && Boolean(localFolder)) ? handlePasteCut : undefined,
-    onMoveItems: (filesTab === 'drafts' && Boolean(localFolder)) ? handleMoveItems : undefined,
+    onMoveItems: (filesTab === 'drafts' && Boolean(localFolder)) ? (items, ...rest) => handleMoveItems((items || []).filter((i) => !i?.incoming), ...rest) : undefined,
     onMoveToCrumb: (filesTab === 'drafts' && Boolean(localFolder)) ? fxMoveToCrumb : undefined,
     // Undo / redo (footer buttons + Ctrl+Z / Ctrl+Y).
     onUndo: handleUndo,
@@ -1904,6 +1944,16 @@ export default function ProjectFiles({ embedded = false } = {}) {
         multiple
         style={{ display: 'none' }}
         onChange={handleLocalFolderPicked}
+      />
+      <PhoneUploadModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        dir={currentDir}
+        folderLabel={atRoot ? 'Home' : folderStack[folderStack.length - 1]?.name}
+        projectId={projectId}
+        projectName={selectedProject?.name || ''}
+        onPickFromComputer={() => { setImportOpen(false); localUploadInputRef.current?.click(); }}
+        onReject={(filePath, fileName) => primTrash(filePath, fileName)}
       />
       {localError && filesTab === 'drafts' && (
         <p className="fx-local-error" role="alert">{localError}</p>

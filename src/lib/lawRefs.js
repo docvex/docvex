@@ -163,7 +163,7 @@ function cutTitle(raw) {
 // and in whatever declension the sentence needs, so the endings are loose.
 const ELEMENT = dia('(?:art\\.|alin\\.|lit\\.|pct\\.|paragr\\.|parag\\.|cap\\.'
   + `|articol${TAIL}|alineat${TAIL}|liter${TAIL}|punct${TAIL}|clauz${TAIL}`
-  + `|capitol${TAIL}|anex${TAIL}|secțiun${TAIL})`);
+  + `|capitol${TAIL}|anex${TAIL}|secțiun${TAIL}|tez${TAIL})`);
 // A bracketed number, a number, or a letter. The number may be DOTTED — "6.1",
 // "4.3.2" — which is how a contract numbers its own clauses and what an
 // internal cross-reference points at. Its trailing dot is taken WITH it
@@ -173,7 +173,15 @@ const ELEMENT = dia('(?:art\\.|alin\\.|lit\\.|pct\\.|paragr\\.|parag\\.|cap\\.'
 // really was a full stop.
 // Already a character class, so the letters are written with both diacritic
 // spellings by hand rather than run through dia().
-const ELEMENT_VALUE = '(?:\\(\\d+\\)|\\d+(?:\\.\\d+)*(?:\\^\\d+)?\\.?|[a-zșşțţăâî]\\))';
+// A number may carry the Latin insertion words an older amendment used
+// ("art. 4 bis"), and a value may be a ROMAN numeral — "Cap. III", "teza I",
+// "teza a II-a" (the agreed article and the "-a" belong to it). The letter-
+// paren alternative stays AHEAD of the roman one: "lit. i)" is the letter i
+// with its paren, and the roman branch would take the bare "i" and leave the
+// paren hanging. `(?!\p{L})` closes the roman so "teza in..." never reads
+// "in" as a numeral.
+const ELEMENT_VALUE = '(?:\\(\\d+\\)|\\d+(?:\\.\\d+)*(?:\\^\\d+)?(?:\\s+(?:bis|ter|quater))?\\.?'
+  + '|[a-zșşțţăâî]\\)|(?:a\\s+)?[IVX]{1,5}(?:-a)?(?!\\p{L}))';
 const ELEMENT_JOIN = `(?:\\s*(?:,|${dia('și')}|-|–)\\s*|\\s+)`;
 const STRUCT_RE = new RegExp(
   `\\b${ELEMENT}\\s*${ELEMENT_VALUE}(?:${ELEMENT_JOIN}(?:${ELEMENT}\\s*)?${ELEMENT_VALUE})*`,
@@ -185,11 +193,21 @@ const FROM_ACT_RE = /^\s*(?:din|ale|al|ai|a)\s+/iu;
 // ── Codes and the Constitution ────────────────────────────────────────────
 // Cited by name, never by number — "Codul civil", not "Legea nr. 287/2009",
 // once the full form has been given.
+// The dotted abbreviations are how a pleading cites a code mid-sentence —
+// "art. 1349 C.civ.", "art. 453 C.proc.pen." — with or without the inner
+// spaces ("C. pr. civ."). The procedure forms come first in the alternation:
+// both start with "C." and the plain form would cut "C.proc.civ." at "C.".
 const CODE_RE = new RegExp(dia(
   '\\bCod(?:ul|ului)?\\s+(?:de\\s+procedură\\s+(?:civilă|penală|fiscală)'
-  + '|civil|penal|fiscal|muncii|rutier|vamal|silvic|aerian|comercial)'
+  + '|civil|penal|fiscal|muncii|rutier|vamal|silvic|aerian|comercial|administrativ)'
+  + '|\\bC\\.\\s?(?:proc\\.|pr\\.)\\s?(?:civ|pen|fisc)\\.?'
+  + '|\\bC\\.\\s?(?:civ|pen|fisc)\\.?'
   + '|\\bConstituți(?:a|ei)(?:\\s+României)?',
 ), 'giu');
+// The bare siglas — CPC, CPP, and the "noul …" forms from the 2011–2014
+// transition. CASE-SENSITIVE on purpose: under /i they would match ordinary
+// syllables, and nobody writes a code's sigla in lowercase.
+const CODE_SIGLA_RE = /\b(?:NCPC|NCPP|CPC|CPP)\b/gu;
 
 // ── CAEN codes ────────────────────────────────────────────────────────────
 // Not a citation of an act but the same kind of thing to a reader: a pointer
@@ -213,6 +231,26 @@ const CAEN_RE = new RegExp(dia(
   + '(?:\\s*(?:,|și|\\/)\\s*\\d{2,4})*',            // …and any others listed with it
 ), 'giu');   // the whole pattern goes through dia() once — never dia() a part of it too
 
+// ── CAEN codes as a LIST, one per line ───────────────────────────────────
+// A trade-register extract (ONRC's "Certificat constatator", the "Obiecte de
+// activitate" of a registration) names the nomenclature ONCE — "…conform
+// codificării (Ordin 377/2024) Rev. Caen (3)" — and then lists the classes one
+// per line as `6210 - Activități de realizare a soft-ului …`. No keyword stands
+// beside each code, so CAEN_RE cannot see them. They are recognised by their
+// SHAPE — a line that is a four-digit number, a dash, and a capitalised name —
+// and only in a text that mentions CAEN at all (`caenContext`), since a bare
+// "2024 - Anul …" elsewhere is no activity.
+const CAEN_LINE_RE = /(^|\n)([ \t]*)(\d{4})([ \t]*[-–—][ \t]+)(?=\p{Lu})/gu;
+const CAEN_WORD_RE = /\bC\.?A\.?E\.?N\b/i;
+// The revision the document names: "CAEN Rev. 2", "Rev. Caen (3)", "Rev.3".
+const CAEN_REV_RE = /(?:C\.?A\.?E\.?N\.?\s*Rev\.?\s*\(?\s*(\d)|Rev\.?\s*C\.?A\.?E\.?N\.?\s*\(?\s*(\d))/i;
+/** Does a text speak of CAEN, and in which revision? → { on, rev } */
+export function caenContextOf(text) {
+  const s = String(text || '');
+  const m = CAEN_REV_RE.exec(s);
+  return { on: CAEN_WORD_RE.test(s), rev: m ? Number(m[1] || m[2]) || 0 : 0 };
+}
+
 // ── Pointing back at the act already cited ────────────────────────────────
 // The short form the rules allow once the act has been named in full.
 const BACKREF_RE = new RegExp(dia(
@@ -225,7 +263,7 @@ const BACKREF_RE = new RegExp(dia(
 // Overlapping ranges are one reference seen twice (a code named inside an act's
 // title, an element run already folded into its act). The longer one — and, at
 // equal length, the earlier — is the reference; the other is dropped.
-function dropOverlaps(hits) {
+export function dropOverlaps(hits) {
   const sorted = hits.slice().sort((a, b) => (a.start - b.start) || ((b.end - b.start) - (a.end - a.start)));
   const out = [];
   for (const hit of sorted) {
@@ -255,10 +293,13 @@ function trimEnd(hit, text) {
  *          in document order, never overlapping. An `element` with a `target` is
  *          an INTERNAL cross-reference — a clause of this same document.
  */
-export function findLawRefs(text) {
+export function findLawRefs(text, { caenContext = null } = {}) {
   const s = String(text || '');
   if (s.length < 6) return [];
   const hits = [];
+  // Whether this text is in a CAEN setting — handed in by a caller that scans
+  // a document a paragraph at a time (the Word preview), else read here.
+  const caen = caenContext || caenContextOf(s);
 
   // 1. Acts with a number — the anchor everything else hangs off.
   const acts = [];
@@ -294,6 +335,10 @@ export function findLawRefs(text) {
   for (let m = CODE_RE.exec(s); m; m = CODE_RE.exec(s)) {
     hits.push({ start: m.index, end: m.index + m[0].length, raw: m[0], kind: 'code' });
   }
+  CODE_SIGLA_RE.lastIndex = 0;
+  for (let m = CODE_SIGLA_RE.exec(s); m; m = CODE_SIGLA_RE.exec(s)) {
+    hits.push({ start: m.index, end: m.index + m[0].length, raw: m[0], kind: 'code' });
+  }
   BACKREF_RE.lastIndex = 0;
   for (let m = BACKREF_RE.exec(s); m; m = BACKREF_RE.exec(s)) {
     hits.push({ start: m.index, end: m.index + m[0].length, raw: m[0], kind: 'back' });
@@ -308,6 +353,14 @@ export function findLawRefs(text) {
     // Rev. 3, so the revision a citation names decides how it is read (lib/caen).
     const rev = Number((/Rev\.?\s*(\d)/i.exec(m[0]) || [])[1]) || 0;
     hits.push({ start: m.index, end: m.index + m[0].length, raw: m[0], kind: 'caen', codes, rev });
+  }
+  // 5b. …and the one-per-line list of an extract ("6210 - Activități de …").
+  if (caen.on) {
+    CAEN_LINE_RE.lastIndex = 0;
+    for (let m = CAEN_LINE_RE.exec(s); m; m = CAEN_LINE_RE.exec(s)) {
+      const start = m.index + m[1].length + m[2].length;
+      hits.push({ start, end: start + 4, raw: m[3], kind: 'caen', codes: [m[3]], rev: caen.rev || 0 });
+    }
   }
 
   return dropOverlaps(hits).map((h) => trimEnd(h, s)).filter((h) => h.end > h.start);
@@ -349,9 +402,40 @@ export function findCaseRefs(text) {
  */
 export function findFollowableRefs(text) {
   const law = findLawRefs(text).filter((h) => h.kind === 'act' || h.kind === 'code' || h.kind === 'caen');
-  const cases = findCaseRefs(text);
-  if (!cases.length) return law;
-  return dropOverlaps([...law, ...cases]);
+  const extra = [...findCaseRefs(text), ...findCuiRefs(text)];
+  if (!extra.length) return law;
+  return dropOverlaps([...law, ...extra]);
+}
+
+// ── A company's fiscal code (CUI / CIF) ──────────────────────────────
+// "Cod unic de înregistrare : 54912561", "CUI RO 14399840", "C.I.F. 4204020",
+// "cod fiscal RO54912561", "Codul de identificare fiscală: …" — the KEYWORD is
+// required (bare digits are anything: a sum, a phone number, a file number),
+// the acronyms are matched in capitals ("cui" is a Romanian word), and the
+// number must pass the CUI check digit, which is what keeps a registration
+// number or an amount that happens to follow the word out. A hit carries
+// `cui` (digits only) — ANAF answers it (the ANAF tab, `/anaf?cui=`).
+const CUI_KEYWORD = String.raw`(?:C\.?\s?U\.?\s?I\.?|C\.?\s?I\.?\s?F\.?|[Cc]od(?:ul)?\s+[Uu]nic\s+de\s+[ÎîÂâIi]nregistrare(?:\s+[Ff]iscal[ăa])?|[Cc]od(?:ul)?\s+de\s+[ÎîIi]nregistrare\s+[Ff]iscal[ăa]|[Cc]od(?:ul)?\s+de\s+[Ii]dentificare\s+[Ff]iscal[ăa]|[Cc]od(?:ul)?\s+[Ff]iscal)`;
+const CUI_RE = new RegExp(`${CUI_KEYWORD}\\s*(?:nr\\.?\\s*)?[:\\-–]?\\s*((?:RO\\s?)?(\\d{2,10}))(?!\\d)`, 'gu');
+const CUI_KEY = [7, 5, 3, 2, 1, 7, 5, 3, 2];
+export function cuiValid(digits) {
+  const s = String(digits || '');
+  if (!/^\d{2,10}$/.test(s)) return false;
+  const body = s.slice(0, -1).padStart(9, '0').split('').map(Number);
+  const c = (body.reduce((n, d, i) => n + d * CUI_KEY[i], 0) * 10) % 11;
+  return (c === 10 ? 0 : c) === Number(s.slice(-1));
+}
+export function findCuiRefs(text) {
+  const out = [];
+  const s = String(text || '');
+  CUI_RE.lastIndex = 0;
+  for (let m = CUI_RE.exec(s); m; m = CUI_RE.exec(s)) {
+    if (!cuiValid(m[2])) continue;
+    // A letter glued before the keyword ("ACUI…") is not the keyword.
+    if (m.index > 0 && /\p{L}/u.test(s[m.index - 1])) continue;
+    out.push({ kind: 'cui', start: m.index, end: m.index + m[0].length, raw: m[0], cui: m[2] });
+  }
+  return out;
 }
 
 /** A short label for one reference — what a tooltip or a list calls it. */
@@ -454,4 +538,622 @@ export function lawRefLabel(hit) {
     return codes.length > 1 ? `CAEN codes ${codes.join(', ')}` : `CAEN code ${codes[0] || ''}`.trim();
   }
   return hit.number && hit.year ? `Act no. ${hit.number}/${hit.year}` : 'Normative act';
+}
+
+// ═══ The wider catalogue — every legal identifier the app recognises ═══════
+//
+// A Romanian legal document is full of identifiers that are not citations of
+// acts but are the same kind of thing to a reader: registry numbers, fiscal
+// codes, court files, land-registry entries, the phrases that announce a legal
+// basis. This catalogue is the ONE list of them — what each is, the regex that
+// finds it, the phrases it rides on, and what the AI side does with it — and
+// it is what the Debug tab's "Legal references" section renders, so every way
+// the app recognises these can be READ in one place.
+//
+// Each entry: `id` (the hit's `kind`), `group` (REF_GROUPS), `name`, `what`
+// (one line, for a reader), `via` — 'shape' (the pattern alone is evidence
+// enough), 'keyword' (the digits mean nothing without their keyword) or
+// 'context' (not an identifier but a cue that one follows — what the AI is
+// steered by) — `res` (the regexes, in the order they are tried), `phrases`
+// (the wording it answers to), `examples` (real-shaped text the Debug tab runs
+// the entry's own regexes over), `ai` (what the AI layer does with it, when it
+// does anything), and `live: true` on the kinds `findLawRefs` / `findCaseRefs`
+// already find — those are NOT run again by `findEntityRefs`.
+//
+// Boundary note: JS `\b` is ASCII-only, so it is useless next to a diacritic
+// (`\bîn` never matches — space→î is no boundary to \b). Patterns here lean on
+// `scanRefPatterns`' own letter-boundary check instead, and only use `\b`
+// against ASCII letters and digits.
+
+export const REF_GROUPS = [
+  { id: 'I', name: 'Economic and fiscal identifiers' },
+  { id: 'II', name: 'Legal forms of organisation' },
+  { id: 'III', name: 'Classifications and nomenclatures' },
+  { id: 'IV', name: 'Normative acts (Legea nr. 24/2000)' },
+  { id: 'V', name: 'Case law, courts and files' },
+  { id: 'VI', name: 'Land registry and property' },
+  { id: 'VII', name: 'Natural persons' },
+  { id: 'VIII', name: 'Enforcement and notarial acts' },
+  { id: 'IX', name: 'EU and international law' },
+  { id: 'X', name: 'Legal connectors (context cues)' },
+  { id: 'XI', name: 'Fiscal bodies (ANAF)' },
+];
+
+const IDENTITY_AI = 'The identity reader (Fill from documents / Create identity) asks the model for this and writes it into the record.';
+
+export const REF_CATALOGUE = [
+  // ── I. Economic and fiscal identifiers ────────────────────────────────
+  {
+    id: 'euid',
+    group: 'I',
+    name: 'EUID — European unique identifier',
+    what: 'The European form of the trade-register number: ROONRC. + the ONRC number. Tried before ONRC — it contains one.',
+    via: 'shape',
+    res: [new RegExp('ROONRC\\.?\\s?[JFC]\\d{1,2}\\s*\\/\\s*\\d{1,7}\\s*\\/\\s*(?:19|20)\\d{2}', 'gu')],
+    phrases: ['ROONRC.J40/123/2026'],
+    examples: ['identificată prin EUID ROONRC.J40/123/2026'],
+    ai: '',
+  },
+  {
+    id: 'onrc',
+    group: 'I',
+    name: 'ONRC — trade-register number',
+    what: 'J/F/C + county code + entry + year — J companies, F sole traders (PFA/II/IF), C cooperatives. The shape alone is distinctive.',
+    via: 'shape',
+    res: [
+      new RegExp('\\b[JFC]\\s?\\d{1,2}\\s*\\/\\s*\\d{1,7}\\s*\\/\\s*(?:19|20)\\d{2}\\b', 'gu'),
+      new RegExp('(?:nr\\.?|num[ăa]r(?:ul)?)\\s+de\\s+ordine\\s+(?:[îâ]n|la)\\s+registrul\\s+comer[țţ]ului', 'giu'),
+    ],
+    phrases: ['J40/123/2026', 'F12/456/2024', 'C23/789/2025', 'nr. de ordine în Registrul Comerțului'],
+    examples: ['înmatriculată la ORC sub nr. J40/123/2026', 'numărul de ordine în registrul comerțului F12/456/2024'],
+    ai: IDENTITY_AI + ' Record key: regNo.',
+  },
+  {
+    id: 'cui',
+    group: 'I',
+    name: 'CUI / CIF — fiscal code',
+    what: '2–10 digits, optionally RO-prefixed. The keyword is REQUIRED — bare digits are anything — and the acronyms are matched case-sensitively (“cui” is a Romanian word).',
+    via: 'keyword',
+    res: [new RegExp(
+      '(?:C\\.?U\\.?I\\.?|C\\.?I\\.?F\\.?|[Cc]od(?:ul)?\\s+[Uu]nic\\s+de\\s+[ÎîÂâ]nregistrare(?:\\s+[Ff]iscal[ăa])?|[Cc]od(?:ul)?\\s+de\\s+[ÎîIi]nregistrare\\s+[Ff]iscal[ăa]|[Cc]od(?:ul)?\\s+de\\s+[Ii]dentificare\\s+[Ff]iscal[ăa]|[Cc]od(?:ul)?\\s+[Ff]iscal)\\s*(?:nr\\.?\\s*)?[:\\-–]?\\s*(?:RO\\s?)?\\d{2,10}\\b',
+      'gu',
+    )],
+    phrases: ['CUI', 'C.U.I.', 'CIF', 'C.I.F.', 'Cod Unic de Înregistrare', 'Cod de Identificare Fiscală'],
+    examples: ['CUI RO12345678', 'cod unic de înregistrare 987654', 'C.I.F. RO 4204020'],
+    ai: IDENTITY_AI + ' Record key: taxId.',
+  },
+  {
+    id: 'ong',
+    group: 'I',
+    name: 'NGO registry — Registrul Asociațiilor și Fundațiilor',
+    what: 'nr/A/year (associations), nr/B/year (federations), nr/PJ/year — the register kept at each court’s clerk’s office. The /A/ / /B/ / /PJ/ middle is what makes the bare shape safe.',
+    via: 'shape',
+    res: [
+      new RegExp('\\b\\d{1,5}\\s*\\/\\s*(?:A|B|PJ)\\s*\\/\\s*(?:19|20)\\d{2}\\b', 'gu'),
+      new RegExp('registrul\\s+(?:special\\s+al\\s+)?asocia[țţ]iilor\\s+[șş]i\\s+funda[țţ]iilor', 'giu'),
+    ],
+    phrases: ['înscrisă în Registrul Asociațiilor și Fundațiilor sub nr.', 'aflat la grefa Judecătoriei'],
+    examples: ['înscrisă în Registrul Asociațiilor și Fundațiilor sub nr. 12/A/2020'],
+    ai: '',
+  },
+  {
+    id: 'iban',
+    group: 'I',
+    name: 'IBAN — Romanian bank account',
+    what: 'RO + 2 check digits + 4-letter bank code + 16 alphanumerics = 24 characters, written solid or in groups of four.',
+    via: 'shape',
+    res: [new RegExp('\\bRO\\d{2}(?:\\s?[A-Z0-9]{4}){5}\\b', 'gu')],
+    phrases: ['contul IBAN', 'cont curent'],
+    examples: ['în contul IBAN RO49AAAA1B31007593840000', 'cont RO49 AAAA 1B31 0075 9384 0000'],
+    ai: IDENTITY_AI + ' Record keys: iban, bank.',
+  },
+  {
+    id: 'fiscal-doc',
+    group: 'I',
+    name: 'Fiscal documents — e-Factura, invoices, receipts',
+    what: 'An invoice or receipt by its series and number, a payment order, and the e-Factura system’s own ids (id descărcare, index încărcare).',
+    via: 'keyword',
+    res: [new RegExp(
+      'factur\\p{L}*(?:\\s+fiscal\\p{L}*)?\\s+(?:seria\\s+[A-Z0-9-]{1,8}\\s*,?\\s*)?nr\\.?\\s*[0-9][0-9A-Za-z.\\/-]*'
+      + '|chitan[țţ]\\p{L}*\\s+(?:seria\\s+[A-Z0-9-]{1,8}\\s*,?\\s*)?nr\\.?\\s*\\d+'
+      + '|ordin(?:ul|e|ele)?\\s+de\\s+plat[ăa]\\s+nr\\.?\\s*\\d+|\\bOP\\s+nr\\.?\\s*\\d+'
+      + '|id(?:-ul)?\\s+(?:de\\s+)?desc[ăa]rcare(?:\\s+e-?factura)?\\s*:?\\s*\\d+'
+      + '|index(?:ul)?\\s+(?:de\\s+)?[îâ]nc[ăa]rcare\\s*:?\\s*\\d+',
+      'giu',
+    )],
+    phrases: ['Factura seria X nr. Y', 'Chitanța nr.', 'Ordin de plată / OP nr.', 'id descărcare e-Factura', 'index încărcare'],
+    examples: ['Factura seria ABC nr. 1042 din 03.02.2026', 'achitat cu OP nr. 55', 'index încărcare: 5312024'],
+    ai: '',
+  },
+  {
+    id: 'eori',
+    group: 'I',
+    name: 'EORI — customs operator number',
+    what: 'RO followed directly by the CUI. Indistinguishable from a plain RO-prefixed CUI, so the EORI keyword is required.',
+    via: 'keyword',
+    res: [new RegExp('\\bEORI\\b(?:\\s*(?:nr\\.?|:)?\\s*RO\\s?\\d{2,10})?', 'gu')],
+    phrases: ['numărul EORI', 'cod EORI'],
+    examples: ['operator cu numărul EORI RO12345678'],
+    ai: '',
+  },
+  {
+    id: 'lei-code',
+    group: 'I',
+    name: 'LEI — legal entity identifier',
+    what: '20 alphanumerics. Matched only against the LEI keyword and only in capitals — otherwise every amount “în lei” would light up.',
+    via: 'keyword',
+    res: [new RegExp('(?:[Cc]od(?:ul)?\\s+)?LEI\\s*:?\\s*[A-Z0-9]{20}\\b', 'gu')],
+    phrases: ['cod LEI'],
+    examples: ['cod LEI 549300GFX6WN7JDUSN34'],
+    ai: '',
+  },
+
+  // ── II. Legal forms ───────────────────────────────────────────────────
+  {
+    id: 'legalform',
+    group: 'II',
+    name: 'Legal form — SRL, SA, PFA, BNP, BEJ…',
+    what: 'The form a firm or a regulated practice trades under. Case-sensitive; the bare undotted SA, II, IF and CA are left out — in capitals they are also “să”, initials and Curtea de Apel — and C.A. (Cabinet de Avocat) is skipped for the same collision.',
+    via: 'shape',
+    res: [new RegExp(
+      '(?<![\\p{L}.])(?:S\\.C\\.P\\.E\\.J\\.?|SCPEJ|S\\.P\\.R\\.L\\.?|SPRL|S\\.R\\.L\\.?|SRL|S\\.N\\.C\\.?|SNC'
+      + '|S\\.C\\.A\\.?|P\\.F\\.A\\.?|PFA|B\\.N\\.P\\.?|BNP|S\\.P\\.N\\.?|B\\.I\\.N\\.?|B\\.E\\.J\\.?|BEJ'
+      + '|C\\.M\\.I\\.?|B\\.I\\.A\\.?|S\\.A\\.?|Î\\.I\\.?|I\\.I\\.?|Î\\.F\\.?|I\\.F\\.?)(?!\\p{L})',
+      'gu',
+    )],
+    phrases: ['S.R.L. / SRL', 'S.A.', 'P.F.A. / PFA', 'I.I. / Î.I.', 'I.F.', 'S.N.C.', 'S.C.A.', 'S.P.R.L.', 'B.N.P.', 'S.P.N.', 'B.I.N.', 'B.E.J. / BEJ', 'S.C.P.E.J.', 'C.M.I.', 'B.I.A.'],
+    examples: ['EXEMPLU CONS S.R.L.', 'B.E.J. Ionescu Radu', 'PFA Popescu Ana', 'BANCA EXEMPLU S.A.'],
+    ai: IDENTITY_AI + ' Record key: legalForm.',
+  },
+
+  // ── III. Classifications ──────────────────────────────────────────────
+  {
+    id: 'caen',
+    group: 'III',
+    name: 'CAEN — economic activities',
+    what: 'The nomenclature a company’s object of activity is written in. Keyword required — a bare four-digit number is a year or an amount. Live: marked amber in the Word preview, opens the CAEN tab / modal.',
+    via: 'keyword',
+    live: true,
+    res: [CAEN_RE],
+    phrases: ['cod CAEN', 'clasa CAEN', 'CAEN Rev. 2 –', 'obiect de activitate conform CAEN'],
+    examples: ['cod CAEN 6201', 'clasa CAEN 4711', 'CAEN 6201, 6202 și 6209'],
+    ai: 'The Doc Viewer’s paragraph dock lists each code with its official name (ParaCaenCodes); the advisor sees them in context.',
+  },
+  {
+    id: 'cor',
+    group: 'III',
+    name: 'COR — occupations',
+    what: 'Six digits after the COR keyword (capitals only).',
+    via: 'keyword',
+    res: [new RegExp('(?:[Cc]od(?:ul|uri|urile)?\\s+)?COR\\s*:?[\\s-]*\\d{6}(?!\\d)', 'gu')],
+    phrases: ['cod COR', 'funcția ocupată conform COR'],
+    examples: ['funcția de consilier juridic, cod COR 261103'],
+    ai: '',
+  },
+  {
+    id: 'cpv',
+    group: 'III',
+    name: 'CPV — public procurement vocabulary',
+    what: '8 digits, a dash and a check digit — distinctive enough on its own; the keyword form is tried first.',
+    via: 'shape',
+    res: [
+      new RegExp('(?:[Cc]od(?:ul|uri|urile)?\\s+)?CPV\\s*:?\\s*\\d{8}\\s*-\\s*\\d\\b', 'gu'),
+      new RegExp('\\b\\d{8}-\\d\\b(?!-)', 'gu'),
+    ],
+    phrases: ['cod CPV', 'achiziție publică având codul CPV'],
+    examples: ['cod CPV 79110000-8', 'servicii juridice 79100000-5'],
+    ai: '',
+  },
+  {
+    id: 'nc',
+    group: 'III',
+    name: 'NC — combined (customs) nomenclature',
+    what: 'Eight digits, often spaced 4-2-2. Keyword required — eight bare digits are a phone number or an amount.',
+    via: 'keyword',
+    res: [new RegExp('(?:cod(?:ul)?\\s+(?:vamal|NC)|pozi[țţ]i\\p{L}*\\s+tarifar[ăa](?:\\s+NC)?)\\s*:?\\s*\\d{4}(?:[ .]?\\d{2}){0,2}', 'giu')],
+    phrases: ['cod vamal', 'poziția tarifară NC'],
+    examples: ['încadrate la poziția tarifară NC 8471 30 00'],
+    ai: '',
+  },
+  {
+    id: 'siruta',
+    group: 'III',
+    name: 'SIRUTA — administrative units',
+    what: '5–6 digits after the SIRUTA keyword.',
+    via: 'keyword',
+    res: [new RegExp('(?:cod(?:ul)?\\s+)?SIRUTA\\s*:?\\s*\\d{4,6}\\b', 'giu')],
+    phrases: ['cod SIRUTA', 'localitatea X (SIRUTA: …)'],
+    examples: ['localitatea Voluntari (cod SIRUTA 179587)'],
+    ai: '',
+  },
+
+  // ── IV. Normative acts ────────────────────────────────────────────────
+  {
+    id: 'act',
+    group: 'IV',
+    name: 'Normative act — Legea / O.U.G. / H.G. / Ordinul / EU acts',
+    what: 'Category + nr. + number/year (+ title on first mention, + republicată / cu modificările… notes, which are part of the citation). EU acts carry their body in brackets or after the number. Live: the AI-gradient mark in the Word preview; “Read here” opens it in the Legislation tab.',
+    via: 'shape',
+    live: true,
+    res: [ACT_RE],
+    phrases: ['Legea nr. 287/2009 privind Codul civil', 'O.U.G. nr. 195/2002', 'H.G. 1/2016', 'Regulamentul (UE) 2016/679', 'Directiva 96/29/Euratom', ', republicată', ', cu modificările și completările ulterioare'],
+    examples: ['Legea nr. 24/2000 privind normele de tehnică legislativă, republicată', 'Ordonanța de urgență a Guvernului nr. 195/2002'],
+    ai: 'lawRefDetails reads the citation apart (category, number, year, title, notes); the Legislation tab’s words search asks the AI what an act is called when the form is empty.',
+  },
+  {
+    id: 'element',
+    group: 'IV',
+    name: 'Structural element / internal cross-reference',
+    what: 'art. / alin. / lit. / pct. / teza / cap. / anexa runs — with ^-indices (art. 155^1), bis/ter/quater, and roman values (teza a II-a, Cap. III). Followed by “din <act>” it folds into that citation; alone it is an INTERNAL pointer and (with a dotted target) becomes a go-to control. Live in the Word preview.',
+    via: 'shape',
+    live: true,
+    res: [STRUCT_RE],
+    phrases: ['art. 12 alin. (1) lit. b)', 'articolul', 'alineatul', 'litera', 'punctul', 'teza I / teza a II-a', 'art. 155^1', 'art. 4 bis'],
+    examples: ['potrivit art. 12 alin. (1) lit. b) din Legea nr. 24/2000', 'sancțiunea prevăzută la pct. 6.1. lit. d)', 'art. 6 teza a II-a'],
+    ai: 'The AI is told a picked paragraph’s references; internal pointers are resolved to the clause they name, no AI involved.',
+  },
+  {
+    id: 'code',
+    group: 'IV',
+    name: 'National code, by name or sigla',
+    what: 'Codul civil / penal / fiscal / muncii / administrativ…, the Constitution, the dotted abbreviations (C.civ., C.proc.pen., C. pr. civ.) and — case-sensitively — the bare siglas CPC / CPP / NCPC / NCPP. Live in the Word preview.',
+    via: 'shape',
+    live: true,
+    res: [CODE_RE, CODE_SIGLA_RE],
+    phrases: ['Codul civil / C.civ.', 'Codul de procedură civilă / C.proc.civ. / C. pr. civ. / CPC', 'Codul penal / C.pen.', 'Codul de procedură penală / CPP', 'Codul muncii', 'Codul fiscal', 'Codul administrativ', 'Codul silvic', 'Constituția României'],
+    examples: ['art. 1349 C.civ.', 'în condițiile Codului administrativ', 'art. 453 CPC'],
+    ai: '',
+  },
+  {
+    id: 'back',
+    group: 'IV',
+    name: 'Back-reference to the act just cited',
+    what: '“legea menționată mai sus”, “actul normativ citat” — the short form the drafting rules allow once the act has been named in full. Live in the Word preview.',
+    via: 'shape',
+    live: true,
+    res: [BACKREF_RE],
+    phrases: ['legea menționată mai sus', 'actul normativ citat', 'ordonanța sus-menționată'],
+    examples: ['în sensul legii menționate mai sus'],
+    ai: 'Only the AI can say WHICH act it points back to — the regex only marks that it points.',
+  },
+
+  // ── V. Case law, courts and files ─────────────────────────────────────
+  {
+    id: 'case',
+    group: 'V',
+    name: 'Court file (ECRIS)',
+    what: 'number / court code / year, the word “dosar” required — three slashed numbers are otherwise a date. Thousands dots dropped. Live: opens the Court files tab.',
+    via: 'keyword',
+    live: true,
+    res: [CASE_RE],
+    phrases: ['dosar nr.', 'dosarul penal nr.', 'dosar asociat nr.'],
+    examples: ['în dosarul nr. 1.234/3/2023 al Tribunalului București'],
+    ai: '',
+  },
+  {
+    id: 'pcase',
+    group: 'V',
+    name: 'Prosecution file (parchet)',
+    what: 'number /P/ year — the /P/ middle marks the criminal-investigation phase and makes the bare shape safe; “dosar penal nr.” is taken with it.',
+    via: 'shape',
+    res: [new RegExp('(?:[Dd]osar(?:ul|ului)?\\s+(?:penal\\s+)?(?:nr\\.?\\s*|num[ăa]r(?:ul)?\\s+)?)?\\b\\d{1,6}\\s*\\/\\s*P\\s*\\/\\s*(?:19|20)\\d{2}\\b', 'gu')],
+    phrases: ['dosar nr. X/P/An al Parchetului de pe lângă…'],
+    examples: ['dosarul penal nr. 123/P/2024 al Parchetului de pe lângă Judecătoria Sectorului 1'],
+    ai: '',
+  },
+  {
+    id: 'pv',
+    group: 'V',
+    name: 'Proces-verbal (contravention report)',
+    what: 'The report by its series and number — “proces-verbal … seria X nr. Y”, or the bare “seria XX nr. NNN” pair.',
+    via: 'keyword',
+    res: [new RegExp(
+      'proces(?:ul|ului)?[-\\s]verbal(?:\\s+de\\s+constatare[^,;.\\n]{0,60}?|\\s+de\\s+contraven[țţ]ie)?\\s*,?\\s*(?:seria\\s+[A-Z0-9]{1,5}\\s*,?\\s*)?nr\\.?\\s*\\d+'
+      + '|\\bseria\\s+[A-Z]{2,4}\\s*,?\\s*nr\\.?\\s*\\d{3,}\\b',
+      'giu',
+    )],
+    phrases: ['Proces-verbal de constatare și sancționare a contravenției seria X nr. Y'],
+    examples: ['procesul-verbal de constatare a contravenției seria PCA nr. 1234567'],
+    ai: '',
+  },
+  {
+    id: 'decision',
+    group: 'V',
+    name: 'Court decision — sentință, decizie, încheiere',
+    what: 'Sentința / Încheierea / Ordonanța președințială nr. …, and Decizia only with its civilă / penală qualifier — plain “Decizia nr. X/Y” already reads as a normative act.',
+    via: 'shape',
+    res: [new RegExp(
+      '(?:sentin[țţ](?:a|ei)|[îâ]ncheier(?:ea|ii|e)(?:\\s+de\\s+[șş]edin[țţ][ăa])?|ordonan[țţ](?:a|ei)\\s+pre[șş]edin[țţ]ial[ăa])'
+      + '(?:\\s+(?:civil[ăae]|penal[ăae]|comercial[ăae]))?\\s+nr\\.?\\s*\\d+(?:\\s*\\/\\s*\\d{2,4}|\\s+din\\s+\\d{1,2}[./]\\d{1,2}[./]\\d{4}|\\s+din\\s+\\d{1,2}\\s+\\p{L}+\\s+\\d{4})?'
+      + '|decizi(?:a|ei)\\s+(?:civil[ăae]|penal[ăae]|comercial[ăae])\\s+nr\\.?\\s*\\d+(?:\\s*\\/\\s*\\d{2,4}|\\s+din\\s+[^,;.\\n]{4,30})?',
+      'giu',
+    )],
+    phrases: ['Sentința civilă nr.', 'Decizia penală nr.', 'Încheierea de ședință', 'Ordonanța președințială nr.'],
+    examples: ['prin Sentința civilă nr. 4521/2023', 'Decizia civilă nr. 100 din 12.03.2024'],
+    ai: '',
+  },
+  {
+    id: 'court',
+    group: 'V',
+    name: 'Court name',
+    what: 'Judecătoria / Tribunalul / Curtea de Apel + a capitalised name, and ÎCCJ in full or as sigla. A bare “Curtea de Apel” with no name is left alone.',
+    via: 'shape',
+    res: [new RegExp(
+      '(?:Judec[ăa]tori(?:a|ei)|Tribunalul(?:ui)?(?:\\s+(?:Specializat|Militar|pentru\\s+[Mm]inori\\s+[șş]i\\s+[Ff]amilie))?|Cur(?:tea|[țţ]ii)\\s+(?:Militar[ăa]\\s+|Militare\\s+)?de\\s+Apel)'
+      + '\\s+(?:[A-ZĂÂÎȘŞȚŢ][\\p{L}-]*|\\d+)(?:[\\s-]+(?:[A-ZĂÂÎȘŞȚŢ][\\p{L}-]*|\\d+)){0,3}'
+      + '|[ÎI]nalt(?:a|ei)\\s+Cur(?:te|[țţ]i)\\s+de\\s+Casa[țţ]ie\\s+[șş]i\\s+Justi[țţ]ie'
+      + '|[ÎI]\\.?C\\.?C\\.?J\\.?(?!\\p{L})',
+      'gu',
+    )],
+    phrases: ['Judecătoria Sectorului 4', 'Tribunalul București', 'Curtea de Apel Cluj', 'Înalta Curte de Casație și Justiție / ÎCCJ'],
+    examples: ['pe rolul Judecătoriei Sectorului 4 București', 'Tribunalul pentru Minori și Familie Brașov', 'decizia ÎCCJ'],
+    ai: 'The Court files tab’s own list (lib/courts.json) is the closed nomenclature; this regex only marks the words.',
+  },
+  {
+    id: 'ccr',
+    group: 'V',
+    name: 'Constitutional Court decision',
+    what: 'Decizia Curții Constituționale / CCR nr. X/an or “din <date>”.',
+    via: 'shape',
+    res: [new RegExp('decizi(?:a|ei)\\s+(?:cur[țţ]ii\\s+constitu[țţ]ionale(?:\\s+a\\s+rom[âî]niei)?|C\\.?C\\.?R\\.?)\\s*,?\\s*nr\\.?\\s*\\d+(?:\\s*\\/\\s*\\d{4}|\\s+din\\s+[^,;.\\n]{4,40})?', 'giu')],
+    phrases: ['Decizia Curții Constituționale nr. X din …', 'Decizia CCR nr. X/An'],
+    examples: ['Decizia CCR nr. 458/2020', 'Decizia Curții Constituționale nr. 405 din 15 iunie 2016'],
+    ai: '',
+  },
+  {
+    id: 'ril',
+    group: 'V',
+    name: 'RIL — appeal in the interest of the law',
+    what: 'Decizia RIL nr. X/an, or Decizia nr. X/an + the “pronunțată în recursul în interesul legii” phrase — without either it is a plain act citation.',
+    via: 'keyword',
+    res: [new RegExp('decizi(?:a|ei)\\s+(?:RIL\\s+nr\\.?\\s*\\d+\\s*\\/\\s*\\d{4}|nr\\.?\\s*\\d+\\s*\\/\\s*\\d{4}\\s*,?\\s*pronun[țţ]at[ăa]\\s+[îâ]n\\s+recurs(?:ul)?\\s+[îâ]n\\s+interesul\\s+legii)', 'giu')],
+    phrases: ['Decizia RIL nr. X/An', 'Decizia nr. X/An pronunțată în recursul în interesul legii'],
+    examples: ['Decizia RIL nr. 19/2019', 'Decizia nr. 3/2020 pronunțată în recursul în interesul legii'],
+    ai: '',
+  },
+  {
+    id: 'hp',
+    group: 'V',
+    name: 'HP — preliminary ruling on questions of law',
+    what: 'Decizia HP nr. X/an, or Decizia nr. X/an + “pentru dezlegarea unor chestiuni de drept”.',
+    via: 'keyword',
+    res: [new RegExp('decizi(?:a|ei)\\s+(?:HP\\s+nr\\.?\\s*\\d+\\s*\\/\\s*\\d{4}|nr\\.?\\s*\\d+\\s*\\/\\s*\\d{4}\\s*,?\\s*(?:pentru|privind)\\s+dezlegarea\\s+unor\\s+chestiuni\\s+de\\s+drept)', 'giu')],
+    phrases: ['Decizia HP nr. X/An', 'Decizia nr. X/An pentru dezlegarea unor chestiuni de drept'],
+    examples: ['Decizia HP nr. 52/2018', 'Decizia nr. 9/2016 pentru dezlegarea unor chestiuni de drept'],
+    ai: '',
+  },
+
+  // ── VI. Land registry ─────────────────────────────────────────────────
+  {
+    id: 'cf',
+    group: 'VI',
+    name: 'Carte Funciară — land book',
+    what: 'The land-book number, written out or as CF / C.F. The sigla is capitals-only: lowercase “cf.” is “confer”.',
+    via: 'keyword',
+    res: [new RegExp('(?:[Cc]arte(?:a|ii)?\\s+[Ff]unciar[ăa]|C\\.?\\s?F\\.?)\\s+(?:nr\\.?\\s*)?\\d+', 'gu')],
+    phrases: ['Carte Funciară nr.', 'CF nr.', 'C.F. nr.'],
+    examples: ['imobil înscris în Cartea Funciară nr. 54321 Cluj-Napoca', 'CF nr. 12345'],
+    ai: '',
+  },
+  {
+    id: 'cadastral',
+    group: 'VI',
+    name: 'Cadastral number',
+    what: '“nr. cadastral X” / “nr. cad. X”.',
+    via: 'keyword',
+    res: [new RegExp('(?:nr|num[ăa]r(?:ul)?)\\.?\\s*(?:cadastral|cad\\.?)\\s*:?\\s*\\d+', 'giu')],
+    phrases: ['nr. cadastral', 'nr. cad.'],
+    examples: ['identificat cu nr. cadastral 123', 'nr. cad. 4567'],
+    ai: '',
+  },
+  {
+    id: 'topo',
+    group: 'VI',
+    name: 'Topographic number',
+    what: '“nr. topografic X” / “nr. top. X” — the older Transylvanian land-book numbering.',
+    via: 'keyword',
+    res: [new RegExp('(?:nr|num[ăa]r(?:ul)?)\\.?\\s*top(?:ografic)?\\.?\\s*:?\\s*\\d+', 'giu')],
+    phrases: ['nr. topografic', 'nr. top.'],
+    examples: ['nr. top. 1024/2'],
+    ai: '',
+  },
+  {
+    id: 'tarla',
+    group: 'VI',
+    name: 'Tarla / parcelă',
+    what: '“Tarlaua X, Parcela Y” written out, or the bare “T X, P Y” pair — the pair, because a bare T or P is a letter.',
+    via: 'shape',
+    res: [new RegExp('Tarla(?:ua)?\\s+[0-9A-Z\\/]+(?:\\s*,?\\s*[Pp]arcel(?:a|ele)?\\s+[0-9A-Z\\/]+)?|\\bT\\s?\\d+\\s*,?\\s*P\\s?\\d+(?!\\d)', 'gu')],
+    phrases: ['Tarla X', 'Parcela Y', 'T X, P Y'],
+    examples: ['teren situat în Tarlaua 24, Parcela 102/3', 'amplasat în T 24, P 102'],
+    ai: '',
+  },
+
+  // ── VII. Natural persons ──────────────────────────────────────────────
+  {
+    id: 'cnp',
+    group: 'VII',
+    name: 'CNP — personal numeric code',
+    what: '13 digits: sex/century digit 1–8, then a REAL date (month 01–12, day 01–31) — the date check is what keeps random 13-digit numbers out.',
+    via: 'shape',
+    res: [new RegExp('(?:C\\.?N\\.?P\\.?\\s*:?\\s*)?\\b[1-8]\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])\\d{6}\\b', 'gu')],
+    phrases: ['CNP'],
+    examples: ['CNP 1850101123456', 'domiciliat în …, 2921231123456'],
+    ai: IDENTITY_AI + ' Record key: nationalId.',
+  },
+  {
+    id: 'idcard',
+    group: 'VII',
+    name: 'Identity documents — C.I. / B.I. / passport',
+    what: 'C.I. seria XX nr. NNNNNN (series 1–2 letters, number 6 digits), the old B.I., and “Pașaport nr.”.',
+    via: 'keyword',
+    res: [new RegExp(
+      '(?:C\\.?I\\.?|B\\.?I\\.?|[Cc]arte(?:a)?\\s+de\\s+identitate|[Bb]uletin(?:ul)?(?:\\s+de\\s+identitate)?)\\s+seri[ae]\\s+[A-Z]{1,2}\\s*,?\\s*nr\\.?\\s*\\d{6}\\b'
+      + '|[Pp]a[șş]aport(?:ul)?\\s+nr\\.?\\s*\\d{6,9}\\b',
+      'gu',
+    )],
+    phrases: ['C.I. seria XX nr. NNNNNN', 'B.I. seria', 'Pașaport nr.'],
+    examples: ['identificat cu C.I. seria RX nr. 456789', 'pașaport nr. 05512345'],
+    ai: IDENTITY_AI + ' Record keys: idType, idSeries, idNumber.',
+  },
+
+  // ── VIII. Enforcement and notarial acts ───────────────────────────────
+  {
+    id: 'exec',
+    group: 'VIII',
+    name: 'Enforcement file',
+    what: '“Dosar de executare (silită) nr. X/an”, with the executing BEJ taken when named.',
+    via: 'keyword',
+    res: [new RegExp('dosar(?:ul|ului)?\\s+(?:de\\s+)?executare(?:\\s+silit[ăa])?\\s+nr\\.?\\s*\\d+(?:\\s*\\/\\s*(?:19|20)?\\d{2,4})?(?:\\s+al\\s+(?:B\\.?E\\.?J\\.?|S\\.?C\\.?P\\.?E\\.?J\\.?)[^,;.\\n]{0,40})?', 'giu')],
+    phrases: ['Dosar de executare silită nr. X/An'],
+    examples: ['în dosarul de executare silită nr. 210/2024 al B.E.J. Ionescu'],
+    ai: '',
+  },
+  {
+    id: 'notarial',
+    group: 'VIII',
+    name: 'Notarial acts',
+    what: '“Încheiere de autentificare nr.” and “Certificat de moștenitor nr.”.',
+    via: 'keyword',
+    res: [new RegExp(
+      '[îâ]ncheier(?:ea|ii|e)\\s+de\\s+autentificare\\s+nr\\.?\\s*\\d+(?:\\s*\\/\\s*[\\d.]+)?(?:\\s+din\\s+[^,;.\\n]{4,30})?'
+      + '|certificat(?:ul)?\\s+de\\s+mo[șş]tenitor\\s+nr\\.?\\s*\\d+(?:\\s*\\/\\s*\\d{4}|\\s+din\\s+[^,;.\\n]{4,30})?',
+      'giu',
+    )],
+    phrases: ['Încheiere de autentificare nr.', 'Certificat de moștenitor nr.'],
+    examples: ['autentificat prin Încheierea de autentificare nr. 1502 din 12 mai 2025', 'certificat de moștenitor nr. 44/2023'],
+    ai: '',
+  },
+
+  // ── IX. EU and international ──────────────────────────────────────────
+  {
+    id: 'cjue',
+    group: 'IX',
+    name: 'CJEU case',
+    what: '“Cauza C-131/12”, optionally with the party name; “Hotărârea CJUE în cauza …”. (EU regulations and directives are already acts.)',
+    via: 'shape',
+    res: [new RegExp('[Cc]auz(?:a|ei)\\s+C[-‑–]\\s?\\d+\\/\\d{2}(?:\\s+[A-Z][\\p{L}-]+)?|Hot[ăa]r[âî]r(?:ea|ii)\\s+CJUE(?:\\s+[îâ]n\\s+cauza\\s+[^,;.\\n]{3,60})?', 'gu')],
+    phrases: ['Cauza C-131/12', 'Hotărârea CJUE în cauza'],
+    examples: ['principiul stabilit în Cauza C-131/12 Google Spain'],
+    ai: '',
+  },
+  {
+    id: 'gdpr',
+    group: 'IX',
+    name: 'GDPR',
+    what: 'The sigla, or the regulation by its Romanian description. The numbered form — Regulamentul (UE) 2016/679 — is already an act.',
+    via: 'shape',
+    res: [new RegExp('\\bGDPR\\b|[Rr]egulamentul\\s+general\\s+privind\\s+protec[țţ]ia\\s+datelor', 'gu')],
+    phrases: ['GDPR', 'Regulamentul general privind protecția datelor'],
+    examples: ['cu respectarea GDPR'],
+    ai: '',
+  },
+  {
+    id: 'cedo',
+    group: 'IX',
+    name: 'ECHR case law',
+    what: '“Hotărârea CEDO în cauza …”, the “X contra României” case-name shape, and “art. N din Convenție”.',
+    via: 'shape',
+    res: [new RegExp(
+      'Hot[ăa]r[âî]r(?:ea|ii)\\s+(?:CEDO|Cur[țţ]ii\\s+Europene\\s+a\\s+Drepturilor\\s+Omului)(?:\\s+[îâ]n\\s+cauza\\s+[^,;.\\n]{3,60})?'
+      + '|[A-Z][\\p{L}-]+(?:\\s+[șş]i\\s+al[țţ]ii)?\\s+(?:contra|[îâ]mpotriva|c\\.)\\s+Rom[âî]niei\\b'
+      + '|art\\.?\\s*\\d+\\s+din\\s+Conven[țţ]i(?:e|a)(?!\\p{L})',
+      'gu',
+    )],
+    phrases: ['Hotărârea CEDO în cauza X contra României', 'art. 6 din Convenție'],
+    examples: ['Hotărârea CEDO în cauza Popescu contra României', 'garanțiile art. 6 din Convenție'],
+    ai: '',
+  },
+
+  // ── X. Connectors ─────────────────────────────────────────────────────
+  {
+    id: 'connector',
+    group: 'X',
+    name: 'Legal connectors',
+    what: 'Not identifiers — the phrases that announce one: a legal basis (“în temeiul”, “potrivit dispozițiilor”), a correlation (“coroborat cu”), an interpretive stance (“per a contrario”). Found by regex here, but their JOB is context: they tell the AI a citation follows.',
+    via: 'context',
+    res: [new RegExp(
+      '(?:[îâ]n\\s+temeiul|[îâ]n\\s+drept\\b|potrivit\\s+dispozi[țţ]iilor|prin\\s+raportare\\s+la'
+      + '|av[âî]nd\\s+[îâ]n\\s+vedere\\s+(?:prevederile|dispozi[țţ]iile)|coroborat\\p{L}*\\s+cu|prin\\s+coroborare\\s+cu'
+      + '|[îâ]n\\s+conexiune\\s+cu|[îâ]n\\s+subsidiar|[îâ]n\\s+principal\\b|per\\s+a\\s+contrario|ad\\s+litteram)',
+      'giu',
+    )],
+    phrases: ['în temeiul', 'în drept', 'potrivit dispozițiilor', 'prin raportare la', 'având în vedere prevederile', 'coroborat cu', 'în subsidiar', 'per a contrario', 'ad litteram'],
+    examples: ['În temeiul art. 194 CPC, coroborat cu art. 148…', 'în subsidiar, per a contrario'],
+    ai: 'These are the cues the AI reads a legal argument by — where one appears, an entity from this catalogue is imminent.',
+  },
+
+  // ── XI. Fiscal bodies ─────────────────────────────────────────────────
+  {
+    id: 'fiscal-body',
+    group: 'XI',
+    name: 'Fiscal bodies — ANAF and its directorates',
+    what: 'The issuers in the letterhead of a contested administrative act: ANAF, D.G.R.F.P., A.J.F.P., D.G.A.M.C., D.G.A.F. — siglas in capitals, names written out.',
+    via: 'shape',
+    res: [new RegExp(
+      '\\bANAF\\b|Agen[țţ]i(?:a|ei)\\s+Na[țţ]ional[ăae]\\s+de\\s+Administrare\\s+Fiscal[ăa]'
+      + '|D\\.?G\\.?R\\.?F\\.?P\\.?(?!\\p{L})|Direc[țţ]i(?:a|ei)\\s+Generale?\\s+Regional[ăae]\\s+a\\s+Finan[țţ]elor\\s+Publice'
+      + '|A\\.?J\\.?F\\.?P\\.?(?!\\p{L})|Administra[țţ]i(?:a|ei)\\s+Jude[țţ]en[ăae]\\s+a\\s+Finan[țţ]elor\\s+Publice'
+      + '|D\\.?G\\.?A\\.?M\\.?C\\.?(?!\\p{L})|Direc[țţ]i(?:a|ei)\\s+Generale?\\s+de\\s+Administrare\\s+a\\s+Marilor\\s+Contribuabili'
+      + '|D\\.?G\\.?A\\.?F\\.?(?!\\p{L})|Direc[țţ]i(?:a|ei)\\s+Generale?\\s+Antifraud[ăa]\\s+Fiscal[ăa]',
+      'gu',
+    )],
+    phrases: ['ANAF', 'D.G.R.F.P.', 'A.J.F.P.', 'D.G.A.M.C.', 'D.G.A.F.'],
+    examples: ['decizia de impunere emisă de A.J.F.P. Cluj', 'inspecția fiscală ANAF — D.G.A.F.'],
+    ai: '',
+  },
+];
+
+/** The display name of a hit's kind, from the catalogue. */
+const KIND_NAME = new Map(REF_CATALOGUE.map((e) => [e.id, e.name]));
+export const refKindName = (kind) => KIND_NAME.get(kind) || kind || '';
+
+/**
+ * Run a set of the catalogue's patterns over `text` — the shared scan the
+ * Debug tab's per-entry previews use too. Enforces the letter boundary JS's
+ * ASCII-only `\b` cannot (a match may not start or end mid-word), trims
+ * trailing space/commas but KEEPS a trailing dot (it belongs to "S.R.L.").
+ */
+export function scanRefPatterns(text, res, kind = '') {
+  const s = String(text || '');
+  if (!s) return [];
+  const letter = (c) => !!c && /\p{L}/u.test(c);
+  const hits = [];
+  for (const re of res || []) {
+    re.lastIndex = 0;
+    for (let m = re.exec(s); m; m = re.exec(s)) {
+      if (!m[0]) { re.lastIndex += 1; continue; }
+      const a = m.index; let b = a + m[0].length;
+      if ((a > 0 && letter(s[a - 1]) && letter(s[a]))
+        || (b < s.length && letter(s[b]) && letter(s[b - 1]))) continue;
+      while (b > a && /[\s,;:]/.test(s[b - 1])) b -= 1;
+      if (b > a) hits.push({ start: a, end: b, raw: s.slice(a, b), kind });
+    }
+  }
+  return dropOverlaps(hits);
+}
+
+/**
+ * Every identifier from the wider catalogue — everything `findLawRefs` /
+ * `findCaseRefs` do NOT already find. `{ start, end, raw, kind }`, the kind
+ * being the catalogue entry's id; in document order, never overlapping.
+ */
+export function findEntityRefs(text) {
+  const s = String(text || '');
+  if (s.length < 3) return [];
+  const hits = [];
+  for (const e of REF_CATALOGUE) {
+    if (e.live) continue;
+    hits.push(...scanRefPatterns(s, e.res, e.id));
+  }
+  return dropOverlaps(hits);
+}
+
+/**
+ * The whole picture in one pass: acts, elements, codes, CAEN, court files AND
+ * the wider catalogue, overlaps resolved (the law detectors win at equal
+ * length — they are pushed first). What the Debug tab's tester runs.
+ */
+export function findAllLegalRefs(text) {
+  return dropOverlaps([...findLawRefs(text), ...findCaseRefs(text), ...findEntityRefs(text)]);
 }

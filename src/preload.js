@@ -120,6 +120,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   courtsSearch: (query) => ipcRenderer.invoke('courts:search', query),
   courtsHearings: (query) => ipcRenderer.invoke('courts:hearings', query),
   anafLookup: (payload) => ipcRenderer.invoke('anaf:lookup', payload),
+  anafBilant: (payload) => ipcRenderer.invoke('anaf:bilant', payload),
+
+  // Upload from a phone over the local network (main's phoneUploadServer):
+  // start a session for a folder, stop it, and hear each file arrive.
+  phoneUploadStart: (payload) => ipcRenderer.invoke('phone-upload:start', payload),
+  phoneUploadStop: (token) => ipcRenderer.invoke('phone-upload:stop', token),
+  phoneUploadHold: (payload) => ipcRenderer.invoke('phone-upload:hold', payload),
+  phoneUploadPending: (payload) => ipcRenderer.invoke('phone-upload:pending', payload),
+  phoneUploadRelease: (payload) => ipcRenderer.invoke('phone-upload:release', payload),
+  phoneUploadHoldFile: (payload) => ipcRenderer.invoke('phone-upload:hold-file', payload),
+  phoneUploadFirewall: (payload) => ipcRenderer.invoke('phone-upload:firewall', payload),
+  phoneUploadAccept: (id) => ipcRenderer.invoke('phone-upload:accept', id),
+  phoneUploadReject: (id) => ipcRenderer.invoke('phone-upload:reject', id),
+  onPhoneUploadEvent: (cb) => {
+    const listener = (_e, msg) => cb(msg);
+    ipcRenderer.on('phone-upload:event', listener);
+    return () => ipcRenderer.removeListener('phone-upload:event', listener);
+  },
 
   // Native fullscreen state — the macOS title bar drops its traffic-light inset
   // when fullscreen hides the lights.
@@ -176,6 +194,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // "Back to app" from a doc-viewer window — raise the main app window.
   focusMainWindow: () => ipcRenderer.send('window:focus-main'),
   navigateMainWindow: (dest) => ipcRenderer.send('window:navigate-main', dest),
+  // A tab in a separate window (main.js tabWindows).
+  openTabWindow: (route, title) => ipcRenderer.send('window:open-tab-window', { route, title }),
+  listTabWindows: () => ipcRenderer.invoke('tab-windows:list'),
+  onTabWindows: (cb) => {
+    const listener = (_e, list) => cb(list);
+    ipcRenderer.on('tab-windows:changed', listener);
+    return () => ipcRenderer.removeListener('tab-windows:changed', listener);
+  },
+  reportTabWindowRoute: (route, title) => ipcRenderer.send('tab-window:route', { route, title }),
+  focusTabWindow: (id) => ipcRenderer.send('tab-window:focus', id),
+  dockTabWindow: (id) => ipcRenderer.send('tab-window:dock', id),
 
   // ── Pre-warmed doc-viewer window ────────────────────────────────────────
   // A viewer window boots hidden and empty (?warm=1), says it's ready, and is

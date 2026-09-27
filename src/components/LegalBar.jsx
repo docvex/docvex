@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toLayoutPx } from '../lib/appZoom';
+import { useOneOpen } from '../lib/oneOpen';
 import './LegalBar.css';
 
 // THE SEARCH BAR of the Legislation tabs — first drawn for legislatie.just.ro
@@ -103,19 +104,54 @@ export function BarSwitch({ value, options, onChange, label }) {
 
 /**
  * The app's own dropdown, not the browser's — a native <select> cannot take
- * the bar's frost or a rounded foot. The field is a button; open, a list
- * hangs under it (portalled to <body>, placed from the button's rect), on the
- * bar's ground, its bottom corners rounded, the chosen entry faded. Escape, a
- * click elsewhere or a scroll closes it. `options` = [{ id, label }], or
- * `groups` = [{ label, list: [{ id, label }] }] for a long list under
- * headings — a long list scrolls and gets a filter box at its head.
+ * the bar's look. It is built EXACTLY as the calendar pickers are
+ * (components/BarCalendar, whose base this is): TWO SECTIONS — the field (a
+ * button, its edge turning accent while open and keeping its hover wash)
+ * and, open, the LIST, a box of its own 6px under it (portalled to <body>),
+ * one accent edge all round, the same rounded corner at all four, no shadow;
+ * FITTED TO THE WINDOW once drawn (pulled left, opened above the field when
+ * there is no room below, else raised); FADING in and out (`is-placed` /
+ * `is-closing`, FADE_MS — the list is taken away after its fade). Escape,
+ * a press elsewhere or another dropdown opening closes it (a scroll or a
+ * resize at once). `options` = [{ id, label }], or `groups` = [{ label,
+ * list: [{ id, label }] }] for a long list under headings — a long list
+ * scrolls and gets a filter box at its head.
  */
+// How long the list takes to fade out — the calendar's FOLD_MS (keep in step
+// with `lg-menu-out` in LegalBar.css).
+const FADE_MS = 150;
+const MENU_GAP = 6;
 // How narrow and how wide a picker's field may get as it fits its choice.
 const PICKER_MIN = 56;
 const PICKER_MAX = 460;
 
-export function BarPicker({ value, onChange, options = null, groups = null, label, placeholder = '', width = 'kind', filter = null }) {
+// `solo`: a picker standing ON ITS OWN, not a piece of a joined bar (the CAEN
+// tab's revision dropdown) — every corner rounded, on the field and on its
+// list, the list opening a little below the field and lined up with its
+// RIGHT edge (a solo picker stands at the bar's right end, where a list
+// hung from its left edge would run off the window).
+export function BarPicker({ value, onChange, options = null, groups = null, label, placeholder = '', width = 'kind', filter = null, solo = false }) {
   const [open, setOpen] = useState(false);
+  // CLOSING fades (as the calendar's does): `closing` for FADE_MS, then gone.
+  // `shut` is at once (a scroll / resize, another dropdown opening, reduced
+  // motion); `close` fades.
+  const [closing, setClosing] = useState(false);
+  const closeTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+  const shut = () => { window.clearTimeout(closeTimer.current); setClosing(false); setOpen(false); };
+  const close = (refocus = false) => {
+    if (!open || closing) return;
+    let reduced = false;
+    try {
+      reduced = document.documentElement.getAttribute('data-reduce-motion') === 'true'
+        || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch { /* no matchMedia */ }
+    if (refocus) btnRef.current?.focus();
+    if (reduced) { shut(); return; }
+    setClosing(true);
+    closeTimer.current = window.setTimeout(shut, FADE_MS);
+  };
+  useOneOpen(open, shut);   // opening this closes any other dropdown
   const [rect, setRect] = useState(null);
   const [q, setQ] = useState('');
   const btnRef = useRef(null);
@@ -163,18 +199,42 @@ export function BarPicker({ value, onChange, options = null, groups = null, labe
     return () => ro.disconnect();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = () => {
-    if (!open && btnRef.current) { setRect(btnRef.current.getBoundingClientRect()); setQ(''); }
-    setOpen((o) => !o);
+    if (open && !closing) { close(); return; }
+    if (btnRef.current) { setRect(btnRef.current.getBoundingClientRect()); setQ(''); }
+    window.clearTimeout(closeTimer.current);
+    setClosing(false);
+    setOpen(true);
   };
+  // Fitted to the window once drawn — the calendar's rule: under the field
+  // (a GAP below it), lined up with its left edge (a solo picker: its right
+  // edge), pulled back inside the window; no room below → above the field
+  // when that has the room, else raised just enough.
+  const [place, setPlace] = useState(null);   // layout px: { left, top }
+  useLayoutEffect(() => {
+    if (!open || !rect) { setPlace(null); return; }
+    const el = menuRef.current;
+    if (!el) return;
+    const M = 16;
+    const vw = window.innerWidth; const vh = window.innerHeight;
+    const w = el.offsetWidth; const h = el.offsetHeight;
+    const zoom = el.getBoundingClientRect().width / (w || 1) || 1;
+    const W = w * zoom; const H = h * zoom; const G = MENU_GAP * zoom;
+    const want = solo ? rect.right - W : rect.left;
+    const left = Math.max(M, Math.min(want, vw - M - W));
+    let top = rect.bottom + G;
+    if (top + H > vh - M) top = rect.top - G - H >= M ? rect.top - G - H : Math.max(M, vh - M - H);
+    const next = { left: toLayoutPx(left), top: toLayoutPx(top) };
+    setPlace((pl) => (pl && pl.left === next.left && pl.top === next.top ? pl : next));
+  }, [open, rect, solo, q]);
   useEffect(() => {
     if (!open) return undefined;
     const away = (e) => {
       if (btnRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
-      setOpen(false);
+      close();
     };
-    const key = (e) => { if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus(); } };
+    const key = (e) => { if (e.key === 'Escape') close(true); };
     // A scroll INSIDE the list is the list's own; any other closes it.
-    const gone = (e) => { if (menuRef.current && menuRef.current.contains(e.target)) return; setOpen(false); };
+    const gone = (e) => { if (menuRef.current && menuRef.current.contains(e.target)) return; shut(); };
     window.addEventListener('mousedown', away);
     window.addEventListener('keydown', key);
     window.addEventListener('scroll', gone, { capture: true, passive: true });
@@ -186,7 +246,7 @@ export function BarPicker({ value, onChange, options = null, groups = null, labe
       window.removeEventListener('scroll', gone, { capture: true });
       window.removeEventListener('resize', gone);
     };
-  }, [open, filtering]);
+  }, [open, filtering, closing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fold = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const hit = (o) => !q || fold(o.label).includes(fold(q));
@@ -232,7 +292,7 @@ export function BarPicker({ value, onChange, options = null, groups = null, labe
         aria-selected={t.id === value}
         aria-label={t.label}
         className={`lg-menu-item${t.id === value ? ' is-on' : ''}`}
-        onClick={() => { onChange(t.id); setOpen(false); }}
+        onClick={() => { onChange(t.id); close(); }}
       >
         <span className="lg-menu-item-label">{short(t, g)}</span>
         {t.id === value ? <span className="lg-menu-mark" aria-hidden="true" /> : null}
@@ -245,7 +305,7 @@ export function BarPicker({ value, onChange, options = null, groups = null, labe
       <button
         type="button"
         ref={btnRef}
-        className={`lg-input is-${width} lg-kind${open ? ' is-open' : ''}${current ? '' : ' is-empty'}`}
+        className={`lg-input is-${width} lg-kind${open ? ' is-open' : ''}${current ? '' : ' is-empty'}${solo ? ' is-solo' : ''}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={label}
@@ -258,10 +318,13 @@ export function BarPicker({ value, onChange, options = null, groups = null, labe
       {open && rect ? createPortal(
         <div
           ref={menuRef}
-          className={`lg-menu${filtering ? ' is-long' : ''}`}
+          className={`lg-menu${filtering ? ' is-long' : ''}${solo ? ' is-solo' : ''}${place ? ' is-placed' : ''}${closing ? ' is-closing' : ''}`}
           // At least the field's width, and as wide as its longest entry
           // needs (`width: max-content` in the CSS), within the window.
-          style={{ top: toLayoutPx(rect.bottom), left: toLayoutPx(rect.left), minWidth: toLayoutPx(Math.max(rect.width, filtering ? 240 : 0)) }}
+          // Until measured it is drawn where it would hang, hidden.
+          style={place
+            ? { top: place.top, left: place.left, minWidth: toLayoutPx(Math.max(rect.width, filtering ? 240 : 0)) }
+            : { top: toLayoutPx(rect.bottom) + MENU_GAP, left: toLayoutPx(rect.left), minWidth: toLayoutPx(Math.max(rect.width, filtering ? 240 : 0)), visibility: 'hidden' }}
         >
           {filtering ? (
             <input
@@ -274,7 +337,7 @@ export function BarPicker({ value, onChange, options = null, groups = null, labe
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   const first = shown[0]?.list[0];
-                  if (first) { e.preventDefault(); onChange(first.id); setOpen(false); }
+                  if (first) { e.preventDefault(); onChange(first.id); close(); }
                 }
               }}
             />

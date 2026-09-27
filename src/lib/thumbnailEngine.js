@@ -36,6 +36,7 @@
 //   clearThumbnailCache()       — Debug menu / sign-out
 
 import { generateThumbnail, isPptxFile } from './thumbnails';
+import { isHeicName, heicJpeg } from './heic';
 import { readLocalBlob } from './localFolder';
 
 // Width requested from the OS thumbnailer. Tiles paint at ~120 CSS px and can
@@ -230,8 +231,10 @@ export function buildCandidates(descriptor) {
   // 3. Renderer-side generation. Last resort: the web build (no localfile://),
   //    a platform with no shell thumbnail provider (Linux), or a format whose
   //    provider is missing (PDF without a viewer installed).
+  // A HEIC picture is decoded here (lib/heic) when the OS has no thumbnail
+  // for it — Windows without the HEIF extension, i.e. most machines.
   if (kind === 'pdf' || kind === 'video' || kind === 'pptx'
-      || (kind === 'image' && !path)) {
+      || (kind === 'image' && !path) || isHeicName(descriptor.name)) {
     out.push({ kind: 'generate', id: 'gen' });
   }
   return out;
@@ -410,6 +413,13 @@ async function runGeneration(descriptor) {
     }
     if (!descriptor.path?.startsWith('web://')) return null;
     // Web build: no streamable URL, fall through to the bytes path below.
+  }
+
+  if (isHeicName(descriptor.name)) {
+    const src = path || (descriptor.url ? await fetch(descriptor.url).then((r) => (r.ok ? r.blob() : null)) : null);
+    if (!src) return null;
+    const jpeg = await heicJpeg(src, THUMB_W * 2);
+    return jpeg ? URL.createObjectURL(jpeg) : null;
   }
 
   const file = await bytesOf(descriptor, kind);

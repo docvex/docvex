@@ -1,8 +1,6 @@
 /* Placeholder pages for the Legislation tab's unconnected sources. */
-.lss-page { --lgt-page-gap: 20px; display: flex; flex-direction: column; gap: var(--lgt-page-gap); padding-bottom: 64px; }
-@media (min-width: 1024px) { /* 1280px pre-scale */
-  .lss-page { width: min(100%, var(--content-max-width, 1280px)); }
-}
+/* The page frame (gap, width, bottom space) is the workspace's —
+   components/LegalWorkspace.css (.lws). */
 
 /* The Doc Viewer advisor's empty state (.dv-advisor-empty* in DocViewer.css),
    to the letter — the mark alone with no frame, the sentence under it —
@@ -49,23 +47,31 @@
 .lss-access {
   margin: 8px 0 0;
   padding: 12px 14px;
-  border: 1px solid var(--border); border-radius: 9.6px;
-  background: var(--bg-input);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-card-radius, 14px);
+  background: var(--ds-card-fill, transparent);
   font-size: 12.4px; line-height: 1.6; color: var(--text-secondary);
 }
 .lss-uses { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .lss-use {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 4px 12px 4px 4px;
-  border: 1px solid var(--border); border-radius: 999px;
-  background: var(--bg-card);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-pill-radius, 999px);
+  background: transparent;
   font-size: 11.6px; line-height: 1.4; color: var(--text-primary); text-align: left;
 }
+/* The level — the ONE pill recipe, soft: the tone's tint and ring, the text
+   in the tone, sentence case. */
 .lss-level {
-  flex: none; min-width: 58px; text-align: center;
-  padding: 1px 8px; border-radius: 999px;
-  font-size: 9.6px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-  background: var(--info-soft); color: var(--info);
+  --pill-tone: var(--info);
+  flex: none; min-width: 58px; justify-content: center;
+  display: inline-flex; align-items: center; box-sizing: border-box;
+  height: var(--ds-pill-h, 20px); padding: 0 var(--ds-pill-pad, 9px);
+  border: 1px solid color-mix(in srgb, var(--pill-tone) var(--ds-pill-ring, 45%), transparent);
+  border-radius: var(--ds-pill-radius, 999px);
+  background: color-mix(in srgb, var(--pill-tone) var(--ds-pill-tint, 14%), transparent);
+  color: var(--pill-tone);
+  font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 650);
+  letter-spacing: var(--ds-tag-tracking, 0.01em); line-height: 1; text-transform: none;
 }
-.lss-level.is-critical { background: var(--danger-soft); color: var(--danger-text); }
-.lss-level.is-high { background: var(--warning-soft); color: var(--warning); }
+.lss-level.is-critical { --pill-tone: var(--danger); }
+.lss-level.is-high { --pill-tone: var(--warning); }

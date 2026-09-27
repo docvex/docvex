@@ -75,27 +75,36 @@
 .lgt-status { display: inline-flex; align-items: center; margin-left: auto; flex: none; }
 /* It is a BUTTON: it says where the answer came from and opens the act (or
    the portal) in a browser — the external-link glyph at its end says so. */
+/* A SOFT pill — the Design system's one pill recipe, exactly as the tags
+   and the status pill draw it (--ds-pill-* tokens: a tint of its tone, a
+   ring of it, the text in it at full strength). It is also a BUTTON, so the
+   tint deepens on hover and the pill settles a pixel when pressed. */
 .lgt-status-pill {
+  --pill-tone: var(--success);
   display: inline-flex; align-items: center; gap: 6px;
-  height: 20px; padding: 0 8px 0 10px;
-  border: 0; border-radius: 999px;
-  font: inherit; font-size: 10.4px; font-weight: 700; letter-spacing: 0.01em; line-height: 1; white-space: nowrap;
-  color: var(--text-on-accent);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  height: var(--ds-pill-h, 20px); box-sizing: border-box;
+  padding: 0 var(--ds-pill-pad, 9px);
+  border: 1px solid color-mix(in srgb, var(--pill-tone) var(--ds-pill-ring, 45%), transparent);
+  border-radius: var(--ds-pill-radius, 999px);
+  background: color-mix(in srgb, var(--pill-tone) var(--ds-pill-tint, 14%), transparent);
+  color: var(--pill-tone);
+  font: inherit; font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 650); letter-spacing: var(--ds-tag-tracking, 0.01em); line-height: 1; white-space: nowrap;
   cursor: pointer;
-  transition: filter 120ms ease, transform 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
 }
-.lgt-status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 30%, transparent); }
-.lgt-status-pill:hover { filter: brightness(1.08); }
+.lgt-status-pill::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent); }
+.lgt-status-pill:hover {
+  background: color-mix(in srgb, var(--pill-tone) calc(var(--ds-pill-tint, 14%) + 10%), transparent);
+  border-color: color-mix(in srgb, var(--pill-tone) calc(var(--ds-pill-ring, 45%) + 20%), transparent);
+}
 .lgt-status-pill:active { transform: translateY(1px); }
 .lgt-status-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.lgt-status-pill.is-live { background: var(--success); }
-.lgt-status-pill.is-archive { background: var(--warning); }
-/* A kept act that differs from the portal's: "Differs from the portal ·
-   Sync", a filled danger-toned button, the portal's version a press away
-   (a copy that matches is simply "Live from the portal", with a tick). */
-.lgt-status-pill.is-differs { background: var(--danger); }
-.lgt-status-pill.is-differs > span:last-child { padding-left: 2px; text-decoration: underline; text-underline-offset: 2px; }
+.lgt-status-pill.is-live { --pill-tone: var(--success); }
+.lgt-status-pill.is-archive { --pill-tone: var(--warning); }
+/* A kept act that differs from the portal's: "Differs from the portal -
+   click to sync", danger-toned, the portal's version a press away (a copy
+   that matches is simply "Live from the portal", with a tick). */
+.lgt-status-pill.is-differs { --pill-tone: var(--danger); }
 .lgt-status-ico { display: inline-flex; width: 11px; height: 11px; margin-left: 2px; opacity: 0.9; }
 .lgt-status-ico svg { display: block; width: 100%; height: 100%; }
 .lgt-bar.is-pinned {
@@ -365,3 +374,14 @@ html[data-reduce-motion="true"] .lgt-toggle-btn { transition: none; }
 @media (prefers-reduced-motion: reduce) {
   .lgt-bar { transition: none; }
 }
+
+/* A page that is not one of the tabs (the Newsletter — `standalone`): the
+   bar is its second line alone, centred in the bar's height as a plain mini
+   header, the hairline the tabs row drew kept as the bar's foot. */
+.lgt-bar.is-standalone { justify-content: center; }
+.lgt-bar.is-standalone::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1.78px; height: 1px;
+  background: var(--border); pointer-events: none;
+}
+.lgt-bar.is-standalone.is-pinned::after { opacity: 0; }
+.lgt-bar.is-standalone .lgt-line2 { margin-top: 0; padding-bottom: 0; }

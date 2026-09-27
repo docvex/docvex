@@ -37,10 +37,15 @@ const isSnipPanel = launchParams.get('snipPanel') === '1';
 const isSnipCountdown = launchParams.get('snipCountdown') === '1';
 // The app-drawn system-tray menu (main.js anchors it to the tray icon).
 const isTrayMenu = launchParams.get('trayMenu') === '1';
+// A tab opened in a SEPARATE WINDOW (the sidebar's "Open in a new window"):
+// the whole app, booted at that tab's route. Not the main window — no toasts,
+// no notification sources, no background sync.
+const isTabWindow = launchParams.get('tabWindow') === '1';
+const tabRoute = launchParams.get('route') || '/files';
 // Only the main app window shows notification toasts / runs the notification
 // source hooks — aux windows (Doc Viewer, snip overlay, snip launcher,
 // countdown) must not pop toasts over their own surfaces.
-const isMainWindow = !isDocViewer && !isSnip && !isSnipPanel && !isSnipCountdown && !isTrayMenu && !isAuthWindow;
+const isMainWindow = !isDocViewer && !isSnip && !isSnipPanel && !isSnipCountdown && !isTrayMenu && !isAuthWindow && !isTabWindow;
 
 // The Snipping-Tool launcher panel and the delayed-capture countdown ride in
 // TRANSPARENT windows (their cards paint themselves; everything else must
@@ -66,6 +71,8 @@ if (isElectron && !isSnip && !isSnipPanel && !isSnipCountdown && !isTrayMenu) {
 }
 const initialEntries = isAuthWindow
   ? ['/auth']
+  : isTabWindow
+  ? [tabRoute]
   : isDocViewer
   ? [`/doc-viewer?${launchParams.toString()}`]
   : isTrayMenu

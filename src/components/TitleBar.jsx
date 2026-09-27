@@ -14,6 +14,7 @@ import { useAccountMenu } from './AccountMenu';
 import SecurityInfoModal from './SecurityInfoModal';
 import {
   isMac,
+  isTabWindow,
   windowMinimize,
   windowToggleMaximize,
   windowClose,
@@ -25,8 +26,26 @@ import {
 } from '../lib/platform';
 import { toLayoutPx } from '../lib/appZoom';
 
+import { LEGAL_TAB_PATHS } from './LegalTabs';
 import brandIcon from '../favicon.ico';
 import './TitleBar.css';
+
+// The sidebar tab a route belongs to, by the sidebar's own labels — the bar
+// reads "DOCVEX | <project> - <tab>".
+const TAB_LABELS = [
+  ['/files', 'Files'], ['/chat', 'Chat'], ['/events', 'Timeline'], ['/ai', 'Advisor'],
+  ['/roadmap', 'Roadmap'], ['/newsletter', 'Newsletter'], ['/mail', 'Mail'],
+  ['/playbook', 'Playbook'], ['/versions', 'Versions'], ['/settings', 'Settings'],
+  ['/design', 'Design system'], ['/admin', 'Admin'], ['/debug', 'Debug'],
+  ['/account', 'Account'],
+];
+function tabLabelFor(pathname) {
+  if (pathname === '/') return 'Activity';
+  if (LEGAL_TAB_PATHS.includes(pathname)) return 'Legislation';
+  if (/^\/projects\/[^/]+\/?$/.test(pathname)) return 'Dashboard';
+  const hit = TAB_LABELS.find(([to]) => pathname === to || pathname.startsWith(`${to}/`));
+  return hit ? hit[1] : null;
+}
 
 // Custom frameless title bar (Electron only — App.jsx gates it on isElectron).
 // One bar holds the Theme control AND the window controls (minimize / maximize
@@ -243,6 +262,7 @@ export default function TitleBar() {
   // "DOCVEX | HUB" and ALL selected-project chrome (name chip + member avatars
   // + file count + usage meters) is hidden — you're between projects, not in one.
   const onHub = pathname === '/projects';
+  const tabLabel = tabLabelFor(pathname);
   // The signed-out screen (/auth). There the bar goes transparent and drops the
   // brand mark so the auth window reads as one full-bleed surface with just the
   // window controls floating on top.
@@ -336,7 +356,7 @@ export default function TitleBar() {
         {/* Main window: the same burger, for the app's sidebar — it narrows the
             rail to its icons and widens it back (the rail never goes away).
             Not on the Hub, where the rail is off stage, nor signed out. */}
-        {!onDocViewer && !onAuth && !onHub && signedIn && (
+        {!onDocViewer && !onAuth && !onHub && !isTabWindow && signedIn && (
           <Tooltip content={railCollapsed ? 'Widen sidebar' : 'Narrow sidebar'}>
             <button
               type="button"
@@ -414,11 +434,17 @@ export default function TitleBar() {
         {!onHub && !onDocViewer && signedIn && selectedProject && (
           <>
             <span className="tb-brand-sep" aria-hidden="true">|</span>
-            <Tooltip content={selectedProject.name}>
+            <Tooltip content={tabLabel ? `${selectedProject.name} - ${tabLabel}` : selectedProject.name}>
               <span className="tb-project-name">
-                {selectedProject.name}
+                {selectedProject.name}{tabLabel ? ` - ${tabLabel}` : ''}
               </span>
             </Tooltip>
+          </>
+        )}
+        {!onHub && !onDocViewer && signedIn && !selectedProject && tabLabel && (
+          <>
+            <span className="tb-brand-sep" aria-hidden="true">|</span>
+            <span className="tb-project-name">{tabLabel}</span>
           </>
         )}
       </div>

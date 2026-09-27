@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import '../pages/Caen.css';
 import Tooltip from './Tooltip';
 import {
-  loadCaenNotes, caenEntry, caenChildren, caenNext, caenPrev, resolveCaen,
+  loadCaenNotes, peekCaenNotes, caenEntry, caenChildren, caenNext, caenPrev, resolveCaen,
   noteLines, normCode, LEVEL_LABEL, REV_INFO,
 } from '../lib/caen';
 
@@ -50,7 +50,10 @@ export default function CaenCard({ trees, code, rev, onPick, foot = null, crumbs
   const r3 = useMemo(() => (rev === 3 && data ? resolveCaen(data, code, 3) : null), [rev, data, code]);
   const went = useMemo(() => (entry?.level === 'c' ? caenNext(trees, rev, code) : []), [trees, rev, code, entry]);
   const same3 = rev !== 3 && trees[3]?.items?.[normCode(code)] ? { code: normCode(code), name: trees[3].items[normCode(code)].n } : null;
-  const [notes, setNotes] = useState(null);
+  const [notesState, setNotes] = useState(null);
+  // Notes already loaded are read at once — no "loading" frame per card.
+  const peekNotes = peekCaenNotes();
+  const notes = rev === 3 && entry && peekNotes ? (peekNotes[entry.code] || {}) : notesState;
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {

@@ -67,3 +67,15 @@ html[data-reduce-motion="true"] .lg-hist { animation: none; }
 .lg-hist-kind { font-weight: 700; letter-spacing: 0.02em; }
 .lg-hist-dim { color: var(--text-muted); }
 .lg-hist-time { font-size: 0.528rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* INLINE — the Legislation tab's History tab: the same thread, drawn on the
+   page ground in the main column, newest at the top of the page's scroll. */
+.lg-hist.is-inline {
+  position: static; z-index: auto;
+  width: 100%; max-width: 760px; max-height: none; overflow: visible;
+  border: 0; border-radius: 0; background: transparent;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  box-shadow: none; animation: none;
+}
+.lg-hist.is-inline .lg-hist-head { padding: 4px 0 10px; }
+.lg-hist.is-inline .lg-hist-list { overflow: visible; padding: 4px 0 14px; }

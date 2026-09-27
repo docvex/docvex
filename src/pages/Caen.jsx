@@ -3,15 +3,16 @@ import { useSearchParams } from 'react-router-dom';
 import { recallPage, usePageMemory } from '../lib/pageMemory';
 import './Caen.css';
 import PageMasthead from '../components/PageMasthead';
-import LegalTabs, { DiceGlyph } from '../components/LegalTabs';
+import { DiceGlyph, LegalSearchBox } from '../components/LegalTabs';
+import { useTabSetting, tabKeyFor, useSearchTabs } from '../components/LegalOmnibox';
+import LegalWorkspace, { WorkspaceSearch, WorkspaceClear, SourceStatus } from '../components/LegalWorkspace';
 import Tooltip from '../components/Tooltip';
-import CaenPicker, { CaenPickerHints } from './CaenPicker';
 import CaenCard, { codeLabel } from '../components/CaenCard';
-import HistoryButton from '../components/HistoryMenu';
 import { logHistory } from '../lib/tabHistory';
-import { miniHeaderSpot } from '../lib/miniHeaderSpot';
+import { BarPicker } from '../components/LegalBar';
+import { CaenOutline, CaenAtlas } from './CaenViews';
 import {
-  loadCaenRev, caenEntry, caenChildren, searchCaen, normCode, sentenceCase, LEVEL_LABEL, REVS_ALL,
+  loadCaenRev, peekCaenTrees, caenEntry, caenChildren, searchCaen, normCode, sentenceCase, REVS_ALL,
 } from '../lib/caen';
 
 // CAEN — the nomenclature of economic activities, in the app.
@@ -39,17 +40,10 @@ const ChevronIcon = (
   </svg>
 );
 
-// Two views of the same nomenclature: the list (tree + entry card) and the
-// letter picker (pages/CaenPicker). Remembered per device.
-const VIEW_KEY = 'docvex:caen:view';
-const VIEWS = [{ id: 'list', label: 'List' }, { id: 'picker', label: 'Picker' }];
-const loadView = () => { try { return localStorage.getItem(VIEW_KEY) === 'picker' ? 'picker' : 'list'; } catch { return 'list'; } };
-const saveView = (v) => { try { localStorage.setItem(VIEW_KEY, v); } catch { /* storage unavailable */ } };
-
 // Which revision the page reads — each a whole tree (lib/caen: Rev. 3, the
 // law since 2025; Rev. 2, 2008–2024; Rev. 1, 2003–2007), read alike by the
-// tree, the picker and the card — or all three at once, where the search
-// answers from every one and the tree and the picker walk Rev. 3. Remembered
+// tree and the card — or all three at once, where the search answers from
+// every one and the tree walks Rev. 3. Remembered
 // per device.
 const REV_KEY = 'docvex:caen:rev';
 const REVS = [
@@ -62,25 +56,42 @@ const loadRev = () => { try { const v = localStorage.getItem(REV_KEY); return v 
 const revOf = (v) => (v === '1' ? 1 : v === '2' ? 2 : 3);
 const saveRev = (v) => { try { localStorage.setItem(REV_KEY, String(v)); } catch { /* storage unavailable */ } };
 
+// How the tree is read (pages/CaenViews): the LIST (search + tree + card),
+// the OUTLINE (a section rail and the section as a table of contents) or the
+// ATLAS (the sections as tiles, the divisions as cards). Remembered per device.
+const VIEW_KEY = 'docvex:caen:layout';
+const VIEWS = [
+  { id: 'list', label: 'List' },
+  { id: 'outline', label: 'Outline' },
+  { id: 'atlas', label: 'Atlas' },
+];
+const loadView = () => { try { const v = localStorage.getItem(VIEW_KEY); return VIEWS.some((x) => x.id === v) ? v : 'list'; } catch { return 'list'; } };
+const saveView = (v) => { try { localStorage.setItem(VIEW_KEY, v); } catch { /* storage unavailable */ } };
+
 
 export default function Caen() {
   // The trees loaded so far, by revision; the one the page reads is `data`.
-  const [trees, setTrees] = useState({});
+  const [trees, setTrees] = useState(peekCaenTrees);
   const [loadError, setLoadError] = useState(false);
   const [params, setParams] = useSearchParams();
   // What the page had on it when it was last left (lib/pageMemory): the
-  // words typed, the picker's preview and the code on the URL — a route
+  // words typed and the code on the URL — a route
   // change drops `?code=`, so it is put back on the first render here.
   const saved = recallPage('caen');
   const [query, setQuery] = useState(saved?.query || '');
-  const [view, setViewState] = useState(loadView);
-  const setView = (v) => { setViewState(v); saveView(v); };
-  const [rev, setRevState] = useState(loadRev);
-  const setRev = (v) => { setRevState(v); saveRev(v); };
-  // The entry under the picker's cursor — its card shows under the picker
-  // live, for every level, without a pick (a pick still sets `?code=`).
-  const [previewCode, setPreviewCode] = useState(saved?.previewCode || '');
-  const pickerRef = useRef(null);
+  // View and Revision belong to the TAB they are set in (the open class, the
+  // search tab, the page's own search) — not to the whole page.
+  const [opened, setOpened] = useState(saved?.opened || []);        // [{ id, code, rev }]
+  const [activeCode, setActiveCode] = useState(saved?.activeCode ?? null);
+  useSearchTabs();
+  const tabKey = tabKeyFor('/caen', activeCode);
+  const [rev, setRev] = useTabSetting(tabKey, 'rev', 3);
+  const [view, setView] = useTabSetting(tabKey, 'view', 'list');
+  // The CLASSES opened, one rail item each (components/LegalWorkspace), and
+  // the one on show — null = the search / browse view (the tree).
+  // Browsing — a section, a division, a group — stays in that view; a class
+  // is where browsing ends, and opens as an item of its own.
+  const shown = opened.find((o) => o.id === activeCode) || null;
   const pageRef = useRef(null);
   const restoredCode = useRef(false);
   useEffect(() => {
@@ -89,12 +100,15 @@ export default function Caen() {
     if (!params.get('code') && saved?.code) {
       const next = { code: saved.code };
       if (saved.rev) next.rev = saved.rev;
-      setParams(next, { replace: true });
+      // The page's OWN address write (`internal`): the tabs must not read
+      // it as a link arriving — that opened a new page in the tab and
+      // re-opened the code on every entry into the tab.
+      setParams(next, { replace: true, state: { internal: true } });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const remembered = useMemo(
-    () => ({ query, previewCode, code: params.get('code') || '', rev: params.get('rev') || '' }),
-    [query, previewCode, params],
+    () => ({ query, code: params.get('code') || '', rev: params.get('rev') || '', opened, activeCode }),
+    [query, params, opened, activeCode],
   );
   usePageMemory('caen', remembered, pageRef);
   const detailRef = useRef(null);
@@ -109,7 +123,7 @@ export default function Caen() {
   // under 'All revs' — every one. Each is fetched once and kept.
   useEffect(() => {
     let live = true;
-    const wanted = rev === 'all' ? REVS_ALL : [...new Set([activeRev, selectedRev, 3])];
+    const wanted = rev === 'all' ? REVS_ALL : [...new Set([activeRev, selectedRev, shown?.rev || 3, 3])];
     for (const r of wanted) {
       if (trees[r]) continue;
       loadCaenRev(r)
@@ -117,23 +131,51 @@ export default function Caen() {
         .catch(() => { if (live) setLoadError(true); });
     }
     return () => { live = false; };
-  }, [rev, activeRev, selectedRev]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rev, activeRev, selectedRev, shown?.rev]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // `r` is the revision the code belongs to; left out, it is the tree on show.
   const select = useCallback((code, r) => {
     const next = { code: normCode(code) };
     const rr = r || activeRev;
     if (rr === 1 || rr === 2) next.rev = String(rr);
-    setParams(next, { replace: false });
+    setParams(next, { replace: false, state: { internal: true } });
     detailRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
     // The tab's history: the code opened, with its name and revision.
     const it = trees[rr]?.items?.[normCode(code)];
     logHistory('caen', { kind: 'open', label: normCode(code), detail: `${it?.n || ''}${rr !== 3 ? ` · Rev. ${rr}` : ''}`.replace(/^ · /, ''), data: { code: normCode(code), rev: rr }, dedupe: `o:${rr}:${normCode(code)}` });
   }, [setParams, activeRev, trees]);
 
-  // The card under the picker follows the picker's cursor; a new tree starts
-  // it afresh.
-  useEffect(() => { setPreviewCode(''); }, [activeRev]);
+  // Opening a CLASS: selected as ever (the tree follows it)
+  // and put in the rail — the one already there is switched to. Anything
+  // above a class is browsed, in the search view.
+  const openCode = useCallback((code, r) => {
+    const c = normCode(code);
+    const rr = r || activeRev;
+    const level = trees[rr]?.items?.[c]?.l;
+    select(c, rr);
+    if (level && level !== 'c') { setActiveCode(null); return; }
+    const id = `${rr}:${c}`;
+    setOpened((list) => (list.some((o) => o.id === id) ? list : [...list, { id, code: c, rev: rr }]));
+    setActiveCode(id);
+  }, [select, activeRev, trees]);
+
+
+  // From the Legislation tab's one search (lib/legalOmni): `?q=` is words to
+  // look for here, `?code=…&open=1` a code to open — a class as an item of
+  // its own, anything above it selected in the tree. Waits for the tree the
+  // code belongs to, since what it is decides how it opens.
+  useEffect(() => {
+    if (!params.get('_')) return;
+    const q = params.get('q');
+    if (q != null) { setQuery(q); setActiveCode(null); setParams({}, { replace: true }); return; }
+    const code = params.get('code');
+    if (params.get('open') !== '1' || !code) return;
+    const r = revOf(params.get('rev'));
+    if (!trees[r]) return;
+    if (r !== activeRev && rev !== 'all') setRev(r);
+    setQuery('');
+    openCode(code, r);
+  }, [params, trees]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Under 'All revs' every loaded tree answers, newest first, each hit tagged
   // with its revision.
@@ -149,157 +191,173 @@ export default function Caen() {
     return c;
   }, [data]);
 
-  return (
-    <div className={`cn-page${view === 'picker' ? ' is-picker' : ''}`} ref={pageRef}>
-      <PageMasthead
-        eyebrow="Nomenclatorul CAEN"
-        eyebrowMuted="source: insse.ro/cms/ro/caen"
-        title="CAEN codes"
-        compact={false}
-        actions={data ? (
-          <div className="cn-mast-meta">
-            <div>
-              <div className="cn-mast-num">{counts.c}</div>
-              <div>Classes</div>
-            </div>
-            <span className="cn-mast-sep" />
-            <div>
-              <div className="cn-mast-num">{counts.s}</div>
-              <div>Sections</div>
-            </div>
-          </div>
-        ) : null}
-      >
-        The classification of economic activities a company’s object of activity is written in —
-        every section, division, group and class of Rev. 3 with the National Institute of
-        Statistics’ own notes, and where each Rev. 2 code went.
-      </PageMasthead>
-      {/* The Legislation tab bar — shared with the Newsletter and the portal;
-          the search sits in it: the list's, in list view; in picker view a
-          typed code takes the picker to it. The view switch — the list, or
-          the letter picker — stands at the bar's right end, past the
-          divider after the search. */}
-      <LegalTabs
-        search={{
-          value: query,
-          placeholder: 'A code or an activity',
-          onChange: (v) => {
-            setQuery(v);
-            if (view === 'picker' && /^\d{2,4}$|^[A-Va-v]$/.test(v.trim())) pickerRef.current?.goTo(v.trim().toUpperCase());
-          },
-        }}
-        // History — this tab's log (components/HistoryMenu): every code
-        // opened; picking one opens it again (the picker walks to it).
-        trailing={(
-          <HistoryButton
-            tab="caen"
-            tip="Every code opened, with the time"
-            emptyText="Nothing yet. Every code you open is listed here."
-            onPick={(e) => {
-              const d = e.data || {};
-              if (!d.code) return;
-              if (d.rev && d.rev !== rev && rev !== 'all') setRev(d.rev);
-              if (view === 'picker' && (d.rev || 3) === activeRev) pickerRef.current?.goTo(d.code); else select(d.code, d.rev);
-            }}
-          />
-        )}
-        tools={(
-          <>
-            {/* The dice: a random class of the revision on show — the list
-                opens its card, the picker walks to it. */}
-            <Tooltip content="A random class">
-              <button
-                type="button"
-                className="lgt-dice"
-                aria-label="Open a random class"
-                disabled={!data}
-                onClick={() => {
-                  const classes = Object.keys(data?.items || {}).filter((k) => data.items[k].l === 'c');
-                  if (!classes.length) return;
-                  const code = classes[Math.floor(Math.random() * classes.length)];
-                  if (view === 'picker') pickerRef.current?.goTo(code); else select(code);
-                }}
-              >
-                {DiceGlyph}
-              </button>
-            </Tooltip>
-            <div className="lgt-toggle" role="tablist" aria-label="View">
-              {VIEWS.map((v) => (
-                <button
-                  key={v.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={view === v.id}
-                  className={`lgt-toggle-btn${view === v.id ? ' is-on' : ''}`}
-                  onClick={() => setView(v.id)}
-                >
-                  {v.label}
-                </button>
-              ))}
-            </div>
-            {/* The revision — beside the view switch. */}
-            <div className="lgt-toggle" role="tablist" aria-label="Revision">
-              {REVS.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={rev === r.id}
-                  className={`lgt-toggle-btn${rev === r.id ? ' is-on' : ''}`}
-                  onClick={() => setRev(r.id)}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-      />
+  // THE SEARCH, drawn as every source tab draws it (WorkspaceSearch): the
+  // words box — a code or the words of an activity: the
+  // start screen until something is typed or picked, one compact row after.
+  const wordsBox = (
+    <LegalSearchBox
+      className="lg-words"
+      search={{
+        value: query,
+        placeholder: 'A code or an activity',
+        onChange: (v) => {
+          setQuery(v);
+          setActiveCode(null);
+        },
+      }}
+    />
+  );
+  const searchView = (
+    <WorkspaceSearch
+      asked={!!query.trim() || !!selected}
+      title="Find a CAEN code"
+      sub="Search the nomenclature by a code or by the words of an activity, or browse its sections below. Every class you open stays in the list on the left."
+      modes={[
+        { id: 'words', label: 'By code or activity', hint: 'A number (“6210”, “62”, “J”) or words (“software”). Pick a revision above for an older document.', node: wordsBox },
+      ]}
+      foot={(
+        <WorkspaceClear
+          tip="Clear the search"
+          disabled={!query}
+          onClick={() => setQuery('')}
+        />
+      )}
+    />
+  );
 
+  // The page stands in the Legislation tabs' workspace: Search + History head
+  // the bar's second line, every class opened is an item in the rail; the
+  // search view is the tree and the card beside it.
+  return (
+    <LegalWorkspace
+      className="cn-page"
+      rootRef={pageRef}
+      items={opened.map((o) => {
+        const it = trees[o.rev]?.items?.[o.code];
+        return {
+          id: o.id,
+          kind: `Rev. ${o.rev || 3}`,
+          title: it?.n ? `${o.code} ${sentenceCase(it.n)}` : o.code,
+          tip: it?.n ? `${o.code} — ${it.n}${o.rev !== 3 ? ` (Rev. ${o.rev})` : ''}` : o.code,
+        };
+      })}
+      activeId={activeCode}
+      onSelect={(id) => { const o = opened.find((x) => x.id === id); if (o) { select(o.code, o.rev); setActiveCode(id); } }}
+      onClose={(id) => { setOpened((list) => list.filter((o) => o.id !== id)); if (id === activeCode) setActiveCode(null); }}
+      onSearch={() => setActiveCode(null)}
+      railLabel="Codes open in this tab"
+      // History — this tab's log (components/HistoryMenu): every code
+      // opened; picking one opens it again.
+      history={{
+        tab: 'caen',
+        tip: 'Every code opened, with the time',
+        emptyText: 'Nothing yet. Every code you open is listed here.',
+        onPick: (e) => {
+          const d = e.data || {};
+          if (!d.code) return;
+          if (d.rev && d.rev !== rev && rev !== 'all') setRev(d.rev);
+          openCode(d.code, d.rev || 3);
+        },
+      }}
+      masthead={(
+        <PageMasthead
+          eyebrow="Nomenclatorul CAEN"
+          eyebrowMuted="source: insse.ro/cms/ro/caen"
+          title="CAEN codes"
+          compact={false}
+          actions={data ? (
+            <div className="cn-mast-meta">
+              <div>
+                <div className="cn-mast-num">{counts.c}</div>
+                <div>Classes</div>
+              </div>
+              <span className="cn-mast-sep" />
+              <div>
+                <div className="cn-mast-num">{counts.s}</div>
+                <div>Sections</div>
+              </div>
+            </div>
+          ) : null}
+        >
+          The classification of economic activities a company’s object of activity is written in —
+          every section, division, group and class of Rev. 3 with the National Institute of
+          Statistics’ own notes, and where each Rev. 2 code went.
+        </PageMasthead>
+      )}
+      // Typing in the search goes back to the search view.
+      bar={{
+        // No find in this tab: the words box is the search view's (below);
+        // the dice stays here, the revision dropdown at the far right.
+        noSearch: true,
+        // Where it comes from: nothing is fetched — the INS nomenclature is
+        // bundled with the app, so it is always here, offline included. The
+        // pill says so and is the way out to the INS page.
+        status: (
+          <SourceStatus
+            source="live"
+            liveLabel="Bundled with the app · INS"
+            href="https://insse.ro/cms/ro/caen"
+            tip="Open the National Institute of Statistics’ CAEN page"
+          />
+        ),
+        // The revision — a dropdown standing on its own, at the far RIGHT of
+        // the bar's second line (LegalTabs' `trailing`, past the search).
+        // Only on a tab that browses: an open class is read in its own
+        // revision, and there is no tree to view another way.
+        trailing: shown ? null : (
+          <>
+            <BarPicker
+              solo
+              label="View"
+              options={VIEWS}
+              value={view}
+              onChange={setView}
+            />
+            <BarPicker
+              solo
+              label="Revision"
+              options={REVS}
+              value={rev}
+              onChange={setRev}
+            />
+          </>
+        ),
+      }}
+    >
       {loadError ? (
         <p className="cn-note is-bad">The nomenclature could not be loaded.</p>
       ) : !data ? (
         <p className="cn-note">Loading…</p>
-      ) : view === 'picker' ? (
-        // The letter picker, holding the card of the entry under its cursor
-        // — section, division, group or class — live, beside its columns; a
-        // pick selects the code (the same `?code=` the list view reads).
-        // Above both, the entry's ancestors as pills (the card's own
-        // breadcrumbs are off here), each taking the picker to that stage.
-        <>
-          <Trail data={data} code={previewCode || (selectedRev === activeRev && selected) || data.sections[0]} onGo={(c) => pickerRef.current?.goTo(c)} />
-          <CaenPicker key={activeRev} ref={pickerRef} data={data} onPick={(code) => select(code)} onHighlight={setPreviewCode}>
-            <main className="cn-detail" ref={detailRef}>
-              <CaenCard
-                trees={trees}
-                code={previewCode || (selectedRev === activeRev && selected) || data.sections[0]}
-                rev={previewCode || selectedRev !== activeRev ? activeRev : selectedRev}
-                // A code pressed in the card (a child in "N divisions in it",
-                // a former Rev. 2 code, a code in the notes) TAKES THE PICKER
-                // THERE — the card follows the picker's cursor, so setting
-                // the URL alone changed nothing on screen. A Rev. 2 code has
-                // no place in the picker and opens as the list would open it.
-                onPick={(code, r) => { if (r && r !== activeRev) select(code, r); else pickerRef.current?.goTo(code); }}
-                crumbs={false}
-                head={false}
-              />
-            </main>
-          </CaenPicker>
-          {/* The keys, in a footer — the Files tab's bottom bar, to the
-              letter: a rounded floating section docked a chrome-inset above
-              the window's bottom edge while the page scrolls behind it. */}
-          <div className="cn-bottombar mini-glow" onMouseMove={miniHeaderSpot}>
-            <CaenPickerHints atClass={data.items[previewCode || (selectedRev === activeRev && selected)]?.l === 'c'} />
-          </div>
-        </>
+      ) : shown ? (
+        // ── One class open ───────────────────────────────────────────────
+        // A code pressed in the card opens in its turn: a class as an item
+        // of its own, anything above it back in the search view.
+        <main className="cn-detail is-open" ref={detailRef}>
+          <CaenCard trees={trees} code={shown.code} rev={shown.rev} onPick={openCode} />
+        </main>
+      ) : view === 'outline' || view === 'atlas' ? (
+        // ── Outline / Atlas: the tree on show, read another way. A class
+        // picked here is selected (the URL, the history), not opened as an
+        // item — the card stands beside it.
+        (() => {
+          const tree = data;
+          const r = tree.rev || activeRev;
+          const sel = selectedRev === r ? selected : '';
+          const pick = (c, rr) => select(c, rr || r);
+          return view === 'outline'
+            ? <CaenOutline data={tree} trees={trees} rev={r} selected={sel} onPick={pick} cardRef={detailRef} />
+            : <CaenAtlas data={tree} trees={trees} rev={r} selected={sel} onPick={pick} onClose={() => setParams({}, { replace: false, state: { internal: true } })} />;
+        })()
       ) : (
+        <>
+        {searchView}
         <div className="cn-body">
           <aside className="cn-side">
             {/* The search box is in the tab bar above (LegalTabs). */}
             {results ? (
-              <SearchResults results={results} selected={selected} selectedRev={selectedRev} onPick={select} />
+              <SearchResults results={results} selected={selected} selectedRev={selectedRev} onPick={openCode} />
             ) : (
-              <Tree data={data} selected={selected} selectedRev={selectedRev} onPick={select} />
+              <Tree data={data} selected={selected} selectedRev={selectedRev} onPick={openCode} />
             )}
           </aside>
           <main className="cn-detail" ref={detailRef}>
@@ -317,8 +375,9 @@ export default function Caen() {
             )}
           </main>
         </div>
+        </>
       )}
-    </div>
+    </LegalWorkspace>
   );
 }
 
@@ -370,30 +429,4 @@ function Tree({ data, selected, selectedRev, onPick }) {
   );
   const sections = data.sections.map((s) => ({ code: s, level: 's', name: data.items[s].n }));
   return <div className="cn-tree">{branch(sections, 0)}</div>;
-}
-
-// The entry's ancestors as pills, above the picker section — each a button
-// that takes the picker to that stage.
-function Trail({ data, code, onGo }) {
-  const entry = caenEntry(data, code);
-  const path = entry ? [...entry.path, { code: entry.code, level: entry.level, name: entry.name }] : [];
-  if (!path.length) return null;
-  return (
-    <nav className="cn-trail" aria-label="Where this code sits">
-      {path.map((p, i) => (
-        <React.Fragment key={p.code}>
-          {i ? <span className="cn-trail-sep" aria-hidden="true">›</span> : null}
-          <button
-            type="button"
-            className={`cn-pill${i === path.length - 1 ? ' is-live' : ''}`}
-            onClick={() => onGo(p.code)}
-          >
-            <span className="cn-pill-kind">{LEVEL_LABEL[p.level]}</span>
-            <span className="cn-pill-code">{p.code}</span>
-            <span className="cn-pill-name">{sentenceCase(p.name)}</span>
-          </button>
-        </React.Fragment>
-      ))}
-    </nav>
-  );
 }

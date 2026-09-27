@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Outlet, useMatch, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useMatch, useNavigate } from 'react-router-dom';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { useSelectedProject } from './context/SelectedProjectContext';
 import { useAuth } from './context/AuthContext';
-import { isElectron, isAuxWindow, isLocalhostWeb, notifyFilesChanged } from './lib/platform';
+import { isElectron, isAuxWindow, isLocalhostWeb, notifyFilesChanged, isTabWindow, reportTabWindowRoute } from './lib/platform';
 import { localFolderApi } from './lib/localFolder';
 import { DEMO_PROJECT_ID } from './lib/demoWorkspace';
 import { prefetchProjectFiles } from './lib/projectFilesPrefetch';
@@ -246,6 +246,18 @@ function LegalFeedSyncRunner() {
   return null;
 }
 
+// A TAB WINDOW reports its route (and title) to main whenever it moves, so
+// the main window's sidebar names it and docking it returns right there.
+function TabWindowRoute() {
+  const { pathname, search } = useLocation();
+  useEffect(() => {
+    const clean = search.replace(/[?&]_=\d+/, '').replace(/^&/, '?');
+    const t = setTimeout(() => reportTabWindowRoute(`${pathname}${clean}`, document.title), 120);
+    return () => clearTimeout(t);
+  }, [pathname, search]);
+  return null;
+}
+
 export default function App() {
   // Guard against the window navigating to a file when an OS file drag is
   // dropped anywhere OUTSIDE an explicit drop target (the Files canvas calls
@@ -286,8 +298,15 @@ export default function App() {
           (k) => new URLSearchParams(window.location.search).get(k) === '1',
         )
         && <TitleBar />}
-      <TrayNavigation />
-      <LegalFeedSyncRunner />
+      {/* A tab in a separate window runs neither (they belong to the main
+          window); it reports where it is instead, so its × in the main
+          window's sidebar can bring that back. */}
+      {isTabWindow ? <TabWindowRoute /> : (
+        <>
+          <TrayNavigation />
+          <LegalFeedSyncRunner />
+        </>
+      )}
       <AppRoutes Shell={AppShell} ProjectShell={ProjectShell} />
       {isLocalhostWeb && <DemoSeedFiles />}
       <ReportProblemModal />

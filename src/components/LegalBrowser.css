@@ -1,0 +1,723 @@
+/* THE LEGISLATION TAB AS A BROWSER — LegalBrowser.jsx + LegalWorkspace.jsx.
+   Every recipe here is the Design system's (styles/designSystem.css, the
+   Design system tab's gallery), read through its tokens with the current
+   values as fallbacks: controls (--ds-control-*), pills (--ds-pill-*), rows
+   on the page ground with a hairline (--ds-row-*), labels (--ds-label-*), the
+   bar surface (--ds-bar-*). No card fills, no filled pills, no shadows on
+   the page; colour only from tokens.css. */
+
+/* ── The frame ── */
+.lgb-root { --lgb-rail-w: var(--ds-list-w, 236px); --lgb-ctl-h: var(--ds-control-h, 24px); }
+/* THE MINI HEADER is the Design system's own (components/LegalTabs .lgt-bar
+   — the gallery's "Mini header"): it pins, frosts, draws the gap-strip fade
+   and the seam, and its hairline takes over as the masthead's divider (the
+   masthead drops its own, LegalTabs.css). This file only fits the address
+   row into one of its rows. */
+.lgt-row.lgt-row-own { padding-right: 8px; }
+.lgt-row-own > .lgb-addr,
+.lgt-row-own > .lgb-strip { flex: 1 1 auto; min-width: 0; }
+.lgt-row-own > .lgb-strip { align-self: stretch; border-bottom: 0; padding-top: 4px; }
+
+/* The address row: back · forward · dice + field · route · status. */
+.lgb-addr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lgb-addr-gap { flex: 1 1 auto; }
+.lgb-status { display: inline-flex; align-items: center; flex: none; }
+
+/* Icon buttons — the tab bar's tool button. */
+.lgb-icobtn,
+.lgb-addbtn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--lgb-ctl-h);
+  height: var(--lgb-ctl-h);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ds-control-radius, 4.8px);
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.lgb-icobtn:hover:not(:disabled),
+.lgb-addbtn:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); color: var(--text-primary); }
+.lgb-icobtn:disabled { opacity: 0.35; cursor: default; }
+.lgb-addbtn { color: var(--accent); }
+.lgb-addbtn:hover { color: var(--accent); }
+
+/* The dice joined to the one search field — the Legislation bar's dice (the
+   accent, the Search button's twin) and the control recipe's field. */
+/* The dice + field: as wide as the field makes it (LegalBrowser.jsx sizes the
+   field to its text), shrinking when the row runs out of room. */
+.lgb-omni { display: flex; align-items: stretch; flex: 0 1 auto; min-width: 0; height: var(--lgb-ctl-h); }
+.lgb-dice {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: calc(var(--lgb-ctl-h) + 4px);
+  padding: 0;
+  border: 1px solid var(--accent);
+  border-right: 0;
+  border-radius: var(--ds-control-radius, 4.8px) 0 0 var(--ds-control-radius, 4.8px);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+}
+.lgb-dice:hover { background: var(--accent-hover); }
+.lgb-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 6px 0 8px;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: 0 var(--ds-control-radius, 4.8px) var(--ds-control-radius, 4.8px) 0;
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-control-blur, 6.4px));
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+.lgb-field:hover { border-color: var(--border-strong); }
+.lgb-field { flex: 0 1 auto; min-width: 160px; max-width: 100%; transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease, width 160ms ease; }
+/* The hidden copy the field is measured off — the input's own type. */
+.lgb-field-measure {
+  position: absolute; left: 0; top: 0;
+  visibility: hidden; pointer-events: none;
+  white-space: pre;
+  font: inherit; font-size: var(--ds-control-size, 10.4px);
+}
+/* The results' summary, in line with the field. */
+.lgb-addr-found { flex: none; font-size: var(--ds-kicker-size, 12px); color: var(--text-muted); white-space: nowrap; }
+/* Focus: an inset line, so nothing in the row moves. */
+.lgb-field.is-focus { border-color: var(--accent); background: var(--accent-tint); box-shadow: inset 0 0 0 1px var(--accent); }
+.lgb-field-ico { display: inline-flex; color: var(--text-muted); flex: none; }
+.lgb-field.is-lit .lgb-field-ico { color: var(--accent); }
+.lgb-field input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--ds-control-size, 10.4px);
+}
+.lgb-field input::placeholder { color: var(--text-muted); }
+.lgb-field-clear {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-control-radius, 4.8px);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.lgb-field-clear:hover { color: var(--text-primary); background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); }
+/* The key hint is the search box's (.lgt-search-kbd, LegalTabs.css); it only
+   steps aside while the field has the caret. */
+.lgb-kbd.is-hidden { opacity: 0; }
+
+/* ── Pills: ONE recipe, soft — the tone's tint and ring, the text in the tone ── */
+.lgb-route,
+.lgb-pill {
+  --pill-tone: var(--info);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  box-sizing: border-box;
+  height: var(--ds-pill-h, 20px);
+  padding: 0 var(--ds-pill-pad, 9px);
+  border: 1px solid color-mix(in srgb, var(--pill-tone) var(--ds-pill-ring, 45%), transparent);
+  border-radius: var(--ds-pill-radius, 999px);
+  background: color-mix(in srgb, var(--pill-tone) var(--ds-pill-tint, 14%), transparent);
+  color: var(--pill-tone);
+  font-size: var(--ds-tag-size, 10.4px);
+  font-weight: var(--ds-pill-weight, 650);
+  letter-spacing: var(--ds-tag-tracking, 0.01em);
+  line-height: 1;
+  white-space: nowrap;
+}
+.lgb-pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+/* Where Enter will go — a pill that is a button, its tint deepening on hover. */
+.lgb-route { --pill-tone: var(--accent); max-width: 320px; font: inherit; font-size: var(--ds-tag-size, 10.4px); cursor: pointer; }
+.lgb-route:hover { background: color-mix(in srgb, var(--pill-tone) calc(var(--ds-pill-tint, 14%) + 8%), transparent); }
+.lgb-route-site { font-weight: var(--ds-pill-weight, 650); }
+.lgb-route-label { font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
+
+
+/* ── The shell: the tabs down the left, the page beside them ── */
+/* The shell is kept at least as tall as the rail once stuck (and its foot
+   inset), so the rail's growing height never changes the page's length and
+   it can stick at the end of any page. */
+.lgb-shell {
+  display: flex; align-items: flex-start;
+  min-height: calc(var(--lgb-scroll-h, 100vh) - 2 * var(--ds-page-inset, 6.4px) - var(--lgb-bar-h, 80px) - var(--ds-head-gap, 8px) + var(--ds-page-inset, 6.4px));
+}
+.lgb-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-section-gap, 20px);
+  padding-bottom: calc(var(--ds-page-foot, 64px) + 1.6rem);
+}
+
+/* THE RAIL — the Playbook presets list (pages/Playbook.css .pbk-prail — keep
+   the two in step), drawn as the APP SIDEBAR: the frosted page ground
+   (Cream: --bg-sidebar, lightly see-through), a 1.5px --border ring, 9.6px
+   corners, the card shadow, 12.8 × 9.6px padding and the pointer spotlight
+   (glow + border shine from --spot-x/y, eased in LegalBrowser.jsx). Its
+   left edge on the divider's left end, its items padded back onto the
+   content edge, --ds-list-gap from the content. STICKY under the mini
+   header; its FOOT always one inset above the window's bottom: stuck, its
+   height is the scroller's less the bar, the gap and two insets; before it
+   sticks it is shorter by what is left of the header above it, driven by the
+   scroll (a scroll-driven animation over --lgb-travel, the distance the page
+   scrolls before the bar sticks, measured in LegalWorkspace.jsx) — no
+   script on scroll. Its items scroll inside it; the tab on show is sticky
+   inside the list. */
+.lgb-rail {
+  --lgb-rail-top: calc(var(--ds-page-inset, 6.4px) + var(--lgb-bar-h, 80px) + var(--ds-head-gap, 8px));
+  --lgb-rail-h: calc(var(--lgb-scroll-h, 100vh) - var(--lgb-rail-top) - var(--ds-page-inset, 6.4px));
+  position: sticky;
+  top: var(--lgb-rail-top);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: calc(var(--lgb-rail-w) + var(--ds-divider-pull, 11.2px));
+  height: var(--lgb-rail-h);
+  box-sizing: border-box;
+  margin: 0 var(--ds-list-gap, 20px) var(--ds-page-inset, 6.4px) calc(-1 * var(--ds-divider-pull, 11.2px));
+  padding: 12.8px 9.6px 12.8px calc(var(--ds-divider-pull, 11.2px) - 1.5px);
+  border: 1.5px solid var(--border);
+  border-radius: 9.6px;
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  box-shadow: var(--shadow-card);
+  isolation: isolate;
+  z-index: 6;   /* above the page's bottom fade (.sv-single-body::after, z 5) */
+}
+:root[data-theme="cream"] .lgb-rail { background: color-mix(in srgb, var(--bg-sidebar) 90%, transparent); }
+@supports (animation-timeline: scroll()) {
+  .lgb-rail {
+    animation: lgb-rail-grow linear both;
+    animation-timeline: scroll(nearest block);
+    animation-range: 0px var(--lgb-travel, 0px);
+  }
+}
+@keyframes lgb-rail-grow {
+  from { height: calc(var(--lgb-rail-h) - var(--lgb-travel, 0px)); }
+  to { height: var(--lgb-rail-h); }
+}
+/* FILLING THE SPACE ABOVE (useRailFill in LegalWorkspace.jsx): where the
+   header's second line is empty over the rail, the rail is lifted into that
+   band and grown by as much — its foot stays put. It then stands over the
+   header's (empty, transparent) band, so it rises above the bar there. A
+   layout change eases (.is-easing); a scroll does not. */
+.lgb-rail.is-filled {
+  height: var(--lgb-fill-h);
+  transform: translateY(calc(-1 * var(--lgb-lift, 0px)));
+  animation: none;
+}
+.lgb-rail.is-lifted { z-index: 31; }
+.lgb-rail.is-easing {
+  transition: height 300ms cubic-bezier(0.16, 1, 0.3, 1), transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) { .lgb-rail.is-easing { transition: none; } }
+html[data-reduce-motion="true"] .lgb-rail.is-easing { transition: none; }
+.lgb-rail > * { position: relative; z-index: 1; }
+.lgb-rail::before,
+.lgb-rail::after {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.lgb-rail::before {
+  z-index: 0;
+  background: radial-gradient(
+    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 4.5%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 1.5%, transparent) 38%,
+    transparent 68%
+  );
+}
+.lgb-rail::after {
+  z-index: 2;
+  padding: 1.5px;
+  background: radial-gradient(
+    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 12%, transparent) 34%,
+    transparent 62%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+.lgb-rail:hover::before,
+.lgb-rail:hover::after { opacity: 0.7; }
+@media (prefers-reduced-motion: reduce) { .lgb-rail::before, .lgb-rail::after { display: none; } }
+
+/* The head — the Playbook list's: the label, its buttons, a hairline 8px
+   under it and the list another 8px under that. */
+.lgb-rail-head {
+  flex: none;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: var(--ds-control-h, 24px); margin-bottom: 8px; padding-left: 9.6px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--ds-hairline, var(--border));
+  box-sizing: content-box;
+}
+.lgb-rail-headbtns { display: inline-flex; gap: 4px; }
+/* The + (and the clock) — the tab bar's tool button, an icon alone. */
+.lgb-rail-add {
+  display: inline-grid; place-items: center;
+  width: var(--ds-control-h, 24px); height: var(--ds-control-h, 24px); padding: 0;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-control-radius, 4.8px);
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  color: var(--text-secondary); cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.lgb-rail-add:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); border-color: var(--accent); color: var(--accent); }
+.lgb-rail-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lgb-rail-list {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; min-width: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.lgb-rail-div { flex: none; height: 1px; margin: 2px 9.6px 7px; background: var(--ds-hairline, var(--border)); }
+.lgb-rail-end { flex: 1 0 24px; }
+/* The tab on show is STICKY inside the list — held at the list's top or foot
+   when scrolled out of view; on Ink its accent tint is laid over the page
+   ground so the tabs passing under it don't show through. */
+.lgb-rail-list > .lg-rail-item.is-active { position: sticky; top: 0; bottom: 0; z-index: 2; }
+:root:not([data-theme="cream"]) .lgb-rail-list > .lg-rail-item.is-active,
+:root:not([data-theme="cream"]) .lgb-rail-list > .lg-rail-item.is-active:hover {
+  background: linear-gradient(var(--accent-tint), var(--accent-tint)) var(--bg-page);
+}
+/* The Search tab: a tab like the others, a magnifier where a tab has its
+   platform's dot. */
+.lgb-searchtab-ico { display: inline-flex; flex: none; width: 11px; height: 11px; }
+.lgb-searchtab-ico svg { width: 100%; height: 100%; }
+.lgb-stab.lgb-searchtab { flex: none; min-width: 0; padding: 0 12px 0 10px; }
+
+/* The item is .lg-rail-item's; only what a browser tab adds is here: the
+   platform's dot in the kind line, dragging. */
+.lgb-rtab-kind { display: flex !important; align-items: center; gap: 6px; }
+.lgb-rtab-kindtext { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.lgb-rtab.is-dragging { opacity: 0.4; }
+.lgb-rtab.is-drop { box-shadow: inset 0 2px 0 var(--accent); }
+
+/* Labels — the Design system's label type. */
+.lgb-rail-label,
+.lgb-row-kind,
+.lgb-plat-try-label,
+.lgb-hist-day,
+.lgb-hist-kind {
+  font-size: var(--ds-label-size, 9.6px);
+  font-weight: 700;
+  letter-spacing: var(--ds-label-tracking, 0.07em);
+  text-transform: uppercase;
+}
+.lgb-rail-label { color: var(--text-muted); }
+
+/* The platform's dot — and, while a tab is loading, a spinner in its place. */
+.lgb-dot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--tone, var(--accent)); }
+.lgb-spin {
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid color-mix(in srgb, var(--tone, var(--accent)) 30%, transparent);
+  border-top-color: var(--tone, var(--accent));
+  border-radius: 50%;
+  animation: lgb-spin 700ms linear infinite;
+}
+@keyframes lgb-spin { to { transform: rotate(360deg); } }
+
+/* ── The tabs, along the top ── */
+.lgb-strip {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  min-height: 34px;
+  padding: 4px 8px 0 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--ds-hairline, var(--border));
+}
+.lgb-stab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 200px;
+  min-width: 90px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--ds-control-radius, 4.8px) var(--ds-control-radius, 4.8px) 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.lgb-stab:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); color: var(--text-primary); }
+.lgb-stab.is-active { background: var(--bg-page); border-color: var(--ds-hairline, var(--border)); color: var(--text-primary); margin-bottom: -1px; height: 29px; }
+.lgb-stab.is-pinned { flex: none; min-width: 0; padding: 0 10px; }
+.lgb-stab.is-drop { box-shadow: inset 2px 0 0 var(--accent); }
+.lgb-stab-label { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lgb-stab-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-control-radius, 4.8px);
+  background: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+}
+.lgb-stab-close:hover { opacity: 1; background: color-mix(in srgb, currentColor 14%, transparent); }
+.lgb-strip-add { margin: 0 2px 2px 4px; }
+.lgb-strip-hist { margin: 0 0 2px auto; }
+
+/* ── The tab's menu — the dropdown recipe (.lg-menu): the accent edge, the
+   menu radius, the page ground lifted a touch, no shadow ── */
+.lgb-menu {
+  position: fixed;
+  z-index: 9000;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid var(--accent);
+  border-radius: var(--ds-menu-radius, 8px);
+  background: color-mix(in srgb, var(--text-primary) 4%, var(--bg-page));
+  box-shadow: none;
+  animation: lgb-fade 150ms ease;
+}
+@keyframes lgb-fade { from { opacity: 0; } }
+.lgb-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--ds-control-radius, 4.8px);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.8px;
+  text-align: left;
+  cursor: pointer;
+}
+.lgb-menu-item:hover:not(:disabled) { background: var(--accent-tint); color: var(--accent); }
+.lgb-menu-item:disabled { color: var(--text-muted); cursor: default; }
+.lgb-menu-item.is-danger { color: var(--danger-text, var(--danger)); }
+.lgb-menu-kbd { font-size: 11px; color: var(--text-muted); }
+.lgb-menu-sep { height: 1px; margin: 4px 6px; background: var(--ds-hairline, var(--border)); }
+
+/* ── Buttons, chips ── */
+/* The gallery's button (.dsg-btn). */
+.lgb-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-row-radius, 8px);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.lgt-line2 .lgb-tool { height: var(--lgb-ctl-h); padding: 0 10px; border-radius: var(--ds-control-radius, 4.8px); font-size: var(--ds-control-size, 10.4px); }
+.lgb-tool:hover { border-color: var(--border-strong); background: color-mix(in srgb, var(--text-primary) 7%, transparent); }
+.lgb-tool.is-danger { color: var(--danger-text, var(--danger)); }
+.lgb-tool.is-danger:hover { border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+/* A chip is a soft pill with no tone of its own: hairline ring, the text's
+   colour; the accent's soft pill on hover. */
+.lgb-chip {
+  --pill-tone: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: var(--ds-pill-h, 20px);
+  padding: 0 var(--ds-pill-pad, 9px);
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-pill-radius, 999px);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--ds-tag-size, 10.4px);
+  font-weight: var(--ds-pill-weight, 650);
+  letter-spacing: var(--ds-tag-tracking, 0.01em);
+  line-height: 1;
+  cursor: pointer;
+}
+.lgb-chip:hover {
+  border-color: color-mix(in srgb, var(--pill-tone) var(--ds-pill-ring, 45%), transparent);
+  background: color-mix(in srgb, var(--pill-tone) var(--ds-pill-tint, 14%), transparent);
+  color: var(--pill-tone);
+}
+.lgb-empty { margin: 0; padding: 8px 2px; font-size: 13px; color: var(--text-muted); }
+.lgb-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* ── The results page ── */
+/* The scopes are the Design system's Segmented choice (components/
+   RuleOptions, RuleOptions.css), its pill COLOUR-CODED: the chosen
+   platform's own tone (--scope-tone — its dot's colour in the tabs and the
+   results), All the accent as before. The colour glides with the pill. */
+.lgb-scopes-tone { display: contents; }
+.lgb-scopes .pbk-rule-pill {
+  background: var(--scope-tone, var(--accent));
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--scope-tone, var(--accent)) 35%, transparent);
+}
+.lgb-scopes.pbk-rule-opts.is-ready .pbk-rule-pill {
+  transition:
+    transform 260ms cubic-bezier(0.16, 1, 0.3, 1), width 260ms cubic-bezier(0.16, 1, 0.3, 1), height 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 260ms ease, box-shadow 260ms ease;
+}
+
+.lgb-serp { display: flex; flex-direction: column; gap: calc(var(--ds-section-gap, 20px) + 4px); }
+.lgb-serp-found { margin: 0; font-size: var(--ds-kicker-size, 12px); color: var(--text-muted); }
+.lgb-group { display: flex; flex-direction: column; gap: 8px; }
+.lgb-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lgb-group-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tone, var(--accent)); }
+.lgb-group-name { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.lgb-group-meta { font-size: 12px; color: var(--text-muted); }
+.lgb-group-note { font-size: 12px; color: var(--text-secondary); font-style: italic; }
+.lgb-group-head .lgb-tool { margin-left: auto; }
+
+/* A result — the gallery's List row (.lg-row): the page ground, a hairline,
+   the row radius; a wash on hover, no lift. */
+.lgb-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lgb-row { position: relative; display: flex; align-items: stretch; }
+.lgb-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: calc(10px * var(--ds-row-density, 1)) 44px calc(10px * var(--ds-row-density, 1)) 14px;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-row-radius, 8px);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.lgb-row-main:hover { border-color: var(--border-strong); background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent); }
+.lgb-row-title { font-size: 14px; font-weight: 600; line-height: 1.4; }
+.lgb-row-meta { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); }
+.lgb-row-new {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: var(--lgb-ctl-h);
+  height: var(--lgb-ctl-h);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ds-control-radius, 4.8px);
+  background: none;
+  color: var(--text-muted);
+  opacity: 0;
+  cursor: pointer;
+}
+.lgb-row:hover .lgb-row-new { opacity: 1; }
+.lgb-row-new:hover { border-color: var(--ds-hairline, var(--border)); color: var(--accent); background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); }
+
+/* ── The new-tab page — the empty state (a bare thin-stroke mark, a title,
+   a muted line, centred), then the platforms as hairline rows ── */
+.lgb-newtab { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 40px 16px 0; max-width: 880px; margin: 0 auto; }
+.lgb-newtab-mark { color: var(--text-muted); opacity: 0.8; }
+.lgb-newtab-title { margin: 4px 0 0; font-family: var(--font-display); font-size: 22px; font-weight: 700; color: var(--text-primary); }
+.lgb-newtab-sub { margin: 0; max-width: 64ch; font-size: 13.6px; line-height: 1.6; color: var(--text-secondary); }
+.lgb-plats { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; width: 100%; margin-top: 18px; text-align: left; }
+.lgb-plat { display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px); background: var(--ds-card-fill, transparent); }
+.lgb-plat-site { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.lgb-plat-about { font-size: 12.8px; line-height: 1.5; color: var(--text-secondary); }
+.lgb-plat-tries { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.lgb-plat-try-label { color: var(--text-muted); }
+
+/* ── History — rows on the page ground under hairlines ── */
+.lgb-hist { display: flex; flex-direction: column; gap: 6px; }
+.lgb-hist-title { margin: 0; font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--text-primary); }
+.lgb-hist-sub { margin: 0 0 8px; font-size: 13px; color: var(--text-secondary); }
+.lgb-hist-day { margin: 14px 0 4px; color: var(--text-muted); }
+.lgb-hist-list { list-style: none; margin: 0; padding: 0; }
+.lgb-hist-row {
+  display: grid;
+  grid-template-columns: 44px 8px minmax(90px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: calc(7px * var(--ds-row-density, 1)) 8px;
+  border: 0;
+  border-bottom: 1px solid var(--ds-hairline, var(--border));
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lgb-hist-row:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent); }
+.lgb-hist-time { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.lgb-hist-kind { color: var(--text-secondary); white-space: nowrap; }
+.lgb-hist-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lgb-hist-site { font-size: 11px; color: var(--text-muted); }
+
+/* ── Narrow windows: the rail becomes a list over the content ── */
+@media (max-width: 760px) {
+  .lgb-shell { flex-direction: column; }
+  .lgb-rail { position: static; width: 100%; height: auto; max-height: 240px; margin: 0 0 12px; animation: none; }
+  .lgb-omni { flex: 1 1 auto; }
+  .lgb-route { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) { .lgb-spin { animation-duration: 2s; } .lgb-menu { animation: none; } }
+html[data-reduce-motion="true"] .lgb-menu { animation: none; }
+
+/* "Kept here / On this machine", inside the masthead's i card rather than on
+   the masthead: the figures stand on the card's own padding. */
+.lgo-pop .lg-mast-meta { justify-content: flex-start; margin: 4px 0 0; }
+.lgo-pop .lg-mast-meta > div { width: auto; min-width: 0; }
+.lgb-info-note { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+
+.lgo-pop .lg-mast-meta,
+.lgo-pop .lgb-info-note { margin-left: 6px; margin-right: 6px; }
+.lgo-pop .lgb-info-note { margin-bottom: 4px; }
+
+/* RELOAD — on each tab (beside ×, so the title's fade starts further in)
+   and in the address row, where it turns while the tab is asking again. */
+.lgb-rtab:is(:hover, :focus-within) .lg-rail-title {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 60px), transparent calc(100% - 42px));
+  mask-image: linear-gradient(to right, #000 calc(100% - 60px), transparent calc(100% - 42px));
+}
+.lg-rail-actions button:disabled { opacity: 0.45; cursor: default; }
+.lgb-reload.is-spinning svg { animation: lgb-spin 800ms linear infinite; }
+.lgb-reload:disabled:not(.is-spinning) { opacity: 0.45; }
+@media (prefers-reduced-motion: reduce) { .lgb-reload.is-spinning svg { animation-duration: 2s; } }
+
+/* THE RAIL COMING AND GOING (LegalWorkspace's useRailPresence): folded, it
+   takes no width and no margin and is transparent; animating, width, margins,
+   padding, border and opacity ease, so the page beside it glides over. */
+.lgb-rail.is-folded {
+  width: 0;
+  margin-left: 0; margin-right: 0;
+  padding-left: 0; padding-right: 0;
+  border-left-width: 0; border-right-width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.lgb-rail.is-folded, .lgb-rail.is-animating { overflow: hidden; }
+.lgb-rail.is-animating {
+  transition:
+    width 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    margin 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    padding 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-width 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 200ms ease;
+}
+.lgb-rail.is-folded.is-animating { transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+@media (prefers-reduced-motion: reduce) { .lgb-rail.is-animating { transition: none; } }
+
+/* THE SEARCH SCREEN's field — under the line of text, centred; no back /
+   forward / reload beside it (AddressRow `bare`). */
+.lgb-newtab-field { display: flex; justify-content: center; width: 100%; margin: 8px 0 2px; }
+.lgb-addr.is-bare { justify-content: center; flex-wrap: wrap; }
+.lgb-addr.is-bare .lgb-addr-gap { display: none; }
+/* The "i" at the address row's right end — directly above the divider. */
+.lgb-addr-extra { display: inline-flex; align-items: center; flex: none; margin-left: 4px; }
+
+/* THE SEARCH SCREEN FITS THE WINDOW (LegalWorkspace's --lgb-fit-h): no page
+   scroll; the shell exactly fills what is left under the masthead, the rail
+   (other tabs open) takes its full height, and the column scrolls inside
+   itself only when the window is too short for it. */
+.sv-single-scroll:has(.lgb-root.is-search) { overflow: hidden; }
+.lgb-root.is-search .lgb-shell {
+  min-height: 0 !important;
+  height: var(--lgb-fit-h, auto);
+  align-items: stretch;
+}
+.lgb-root.is-search .lgb-main {
+  padding-bottom: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.lgb-root.is-search .lgb-rail {
+  position: relative; top: auto;
+  height: auto !important;
+  margin-bottom: 0;
+  animation: none;
+  transform: none !important;
+}
+.lgb-root.is-search .lgb-newtab { padding-bottom: 12px; }
+
+/* A platform or facet choice with NO results is faded and cannot be picked. */
+.lgb-scopes .pbk-rule-opt.is-empty:not(.is-on) { opacity: 0.42; }
+.lgb-scopes .pbk-rule-opt.is-empty:not(.is-on) { cursor: default; }
+.lgb-scopes .pbk-rule-opt.is-empty:not(.is-on):hover { background: none; color: inherit; }
+.lgb-scopes .pbk-rule-opt { transition: opacity 160ms ease, color 160ms ease; }
+
+/* The tabs across the top on the search screen, which has no mini header:
+   a plain row under the masthead's divider. */
+.lgb-strip-plain { margin: var(--ds-head-gap, 8px) 0 4px; }
+
+/* On the search screen (no mini header) the rail stands the head gap (8px)
+   under the masthead's divider — as it stands under the mini header's
+   everywhere else — not the page's 20px section gap. */
+.lws.lgb-root.is-search > .pmh { margin-bottom: calc(var(--ds-head-gap, 8px) - var(--lgt-page-gap, 20px)); }
+
+/* A TAB SWITCH ON ITS WAY (lib/legalBrowser `switching`): the page being
+   left fades back and a spinner stands at the top of the content, sticky,
+   until the tab's page is on screen. The selection itself moved at once. */
+.lgb-main { position: relative; }
+.lgb-main.is-switching > :not(.lgb-switching) { opacity: 0.4; transition: opacity 160ms ease 120ms; pointer-events: none; }
+.lgb-switching {
+  position: sticky; top: calc(var(--lgb-rail-top, 96px) + 24px); z-index: 4;
+  display: flex; justify-content: center;
+  height: 0; overflow: visible;
+  animation: lgb-fade 160ms ease both;
+}
+.lgb-switching-spin {
+  display: block; width: 22px; height: 22px; margin-top: 24px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--text-primary) 14%, transparent);
+  border-top-color: var(--accent);
+  animation: lgb-spin 700ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .lgb-switching-spin { animation-duration: 2s; } }

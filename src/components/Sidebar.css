@@ -680,6 +680,280 @@
   color: var(--text-primary);
 }
 
+/* ── Legislation's dropdown — what each source tab has open ──────────
+   (lib/workspaceItems). Hangs under the Legislation row, indented to its
+   label; each tab's items headed by a small labelled hairline, the section
+   headers' look in miniature; each item two lines (what it is in small
+   capitals, its number under it) with the Open files row's close button. */
+.nav-fold-chev {
+  flex: none; margin-left: auto;
+  display: grid; place-items: center;
+  width: 16px; height: 16px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  transform: rotate(-90deg);
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), background 120ms ease, color 120ms ease;
+}
+.nav-fold-chev.is-open { transform: none; }
+.nav-fold-chev:hover {
+  background: color-mix(in srgb, var(--text-primary) 14%, transparent);
+  color: var(--text-primary);
+}
+.nav-sub {
+  display: flex; flex-direction: column; gap: 1px;
+  margin: 2px 0 4px 18px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+.nav-sub-div {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 2px 2px;
+  font-size: 0.46rem; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.nav-sub-div > span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.nav-sub-div::after { content: ''; flex: 1 1 auto; height: 1px; background: var(--border); }
+.nav-sub-div:first-child { padding-top: 2px; }
+.nav-sub-item { padding: 4px 24px 4px 8px; min-width: 0; }
+.nav-sub-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; line-height: 1.25; }
+.nav-sub-kind {
+  font-size: 0.46rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.nav-sub-title { overflow: hidden; text-overflow: ellipsis; }
+.nav-sub-item.active .nav-sub-kind { color: inherit; opacity: 0.8; }
+/* The collapsed rail has no room for a list of acts. */
+.sidebar.is-collapsed .nav-sub,
+.sidebar.is-collapsed .nav-fold-chev { display: none; }
+
+/* The entry's own frame: a transparent ring and the row's corners, pulled
+   out by the ring's width so the row inside sits exactly where a plain row
+   does. The hover and the selected ground are drawn on it while the list is
+   open, so either wraps the row AND its list. */
+.nav-fold {
+  border: 1.5px solid transparent;
+  border-radius: 6.4px;
+  margin: -1.5px;
+  transition: background 150ms, border-color 150ms;
+}
+/* Open, not selected: hovering the ROW (what a click folds) washes the whole
+   entry; the row itself goes bare so the wash isn't doubled. */
+.nav-fold.is-open:not(.is-wrapped):has(> .nav-item:hover) {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 100%
+  );
+}
+.nav-fold.is-open:not(.is-wrapped) > .nav-item:hover { background: none; }
+:root[data-theme="cream"] .sidebar .nav-fold.is-open:not(.is-wrapped):has(> .nav-item:hover) {
+  background: radial-gradient(
+    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
+    color-mix(in srgb, var(--text-primary) 7%, transparent) 0%,
+    color-mix(in srgb, var(--text-primary) 5%, transparent) 55%,
+    color-mix(in srgb, var(--text-primary) 4%, transparent) 100%
+  );
+}
+:root[data-theme="cream"] .sidebar .nav-fold.is-open:not(.is-wrapped) > .nav-item:not(.active):hover { background: none; }
+.sidebar.is-collapsed .nav-fold.is-open:not(.is-wrapped):has(> .nav-item:hover) { background: none; }
+.sidebar.is-collapsed .nav-fold.is-open:not(.is-wrapped) > .nav-item:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+:root[data-theme="cream"] .sidebar.is-collapsed .nav-fold.is-open:not(.is-wrapped) > .nav-item:not(.active):hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+/* Selected AND open: the selected tab's ground wraps the row and its
+   dropdown as one entry. The wrapper takes the row's surface (tint + ring on
+   Ink, the lifted cognac pill on Cream); the row inside goes bare. */
+.nav-fold.is-wrapped {
+  position: relative;
+  isolation: isolate;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  border-radius: 6.4px;
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.nav-fold.is-wrapped > .nav-item.active,
+.nav-fold.is-wrapped > .nav-item.active:hover {
+  background: none;
+  border-color: transparent;
+}
+.nav-fold.is-wrapped .nav-sub { margin: 0 6px 6px 18px; }
+.nav-fold.is-wrapped .nav-sub-item.active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+/* Collapsed, the dropdown is hidden — the wrapper is just the row again. */
+.sidebar.is-collapsed .nav-fold.is-wrapped { border-color: transparent; background: none; }
+.sidebar.is-collapsed .nav-fold.is-wrapped > .nav-item.active {
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped {
+  background: var(--color-cognac);
+  border-color: var(--color-cognac);
+  color: var(--color-cream);
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--color-cognac) 35%, transparent),
+    0 6px 16px -4px color-mix(in srgb, var(--color-cognac) 55%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent);
+}
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped > .nav-item.active {
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+/* On the cognac ground everything inside reads in cream. */
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped .nav-sub { border-left-color: color-mix(in srgb, var(--color-cream) 30%, transparent); }
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped .nav-sub-div { color: color-mix(in srgb, var(--color-cream) 70%, transparent); }
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped .nav-sub-div::after { background: color-mix(in srgb, var(--color-cream) 25%, transparent); }
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped .nav-sub-item,
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped .nav-sub-kind,
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped .nav-fold-chev,
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped .doc-tab-close { color: color-mix(in srgb, var(--color-cream) 80%, transparent); }
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped .nav-sub-item:hover,
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped .nav-fold-chev:hover,
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped .doc-tab-close:hover {
+  background: color-mix(in srgb, #fff 14%, transparent);
+  color: var(--color-cream);
+}
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped .nav-sub-item.active {
+  background: color-mix(in srgb, #fff 18%, transparent);
+  border-color: color-mix(in srgb, var(--color-cream) 35%, transparent);
+  color: var(--color-cream);
+  box-shadow: none;
+  transform: none;
+}
+/* A TAB IN THE DROPDOWN IS SELECTED (.has-sub-active — the Legislation
+   entry, whose dropdown lists its tabs): the selected tab is what is
+   selected, so IT takes the sidebar's selected-tab look (.nav-item.active:
+   Ink's accent tint, ring and text; Cream's lifted cognac pill), and the
+   wrapper around the row and its list steps back to a faded white ground,
+   the row's own label faded with it. */
+.sidebar .nav-fold.is-wrapped:is(.has-sub-active, .has-row-active) {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  color: var(--text-secondary);
+  transform: none;
+  box-shadow: none;
+}
+/* The row itself is NOT faded — its icon and "Legislation" stay at full
+   strength; only the ground around it steps back. */
+.sidebar .nav-fold.is-wrapped.has-sub-active > .nav-item.active,
+.sidebar .nav-fold.is-wrapped.has-sub-active > .nav-item.active:hover { color: var(--text-primary); opacity: 1; }
+.sidebar .nav-fold.is-wrapped.has-sub-active > .nav-item.active::before { display: none; }
+.sidebar .nav-fold.is-wrapped:is(.has-sub-active, .has-row-active) .nav-sub { border-left-color: color-mix(in srgb, var(--text-primary) 14%, transparent); }
+.sidebar .nav-fold.is-wrapped:is(.has-sub-active, .has-row-active) .nav-sub-div { color: var(--text-muted); }
+.sidebar .nav-fold.is-wrapped:is(.has-sub-active, .has-row-active) .nav-sub-div::after { background: var(--border); }
+.sidebar .nav-fold.is-wrapped:is(.has-sub-active, .has-row-active) .nav-sub-item,
+.sidebar .nav-fold.is-wrapped:is(.has-sub-active, .has-row-active) .nav-sub-kind,
+.sidebar .nav-fold.is-wrapped:is(.has-sub-active, .has-row-active) .nav-fold-chev,
+.sidebar .nav-fold.is-wrapped:is(.has-sub-active, .has-row-active) .doc-tab-close { color: var(--text-secondary); }
+.sidebar .nav-fold.is-wrapped:is(.has-sub-active, .has-row-active) .nav-sub-item:hover,
+.sidebar .nav-fold.is-wrapped:is(.has-sub-active, .has-row-active) .nav-fold-chev:hover,
+.sidebar .nav-fold.is-wrapped:is(.has-sub-active, .has-row-active) .doc-tab-close:hover {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
+}
+/* The selected tab: the sidebar's selected tab, to the letter. */
+.sidebar .nav-fold.is-wrapped.has-sub-active .nav-sub-item.active,
+.sidebar .nav-fold.is-wrapped.has-sub-active .nav-sub-item.active:hover {
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+  box-shadow: none;
+  transform: none;
+}
+.sidebar .nav-fold.is-wrapped.has-sub-active .nav-sub-item.active:hover { border-color: var(--accent); }
+.sidebar .nav-fold.is-wrapped.has-sub-active .nav-sub-item.active .nav-sub-kind { color: inherit; }
+/* On Cream the faded ground is white, and the selected tab the lifted
+   cognac pill. */
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped:is(.has-sub-active, .has-row-active) {
+  background: color-mix(in srgb, var(--bg-card) 70%, transparent);
+  border-color: var(--border);
+  color: var(--text-secondary);
+  transform: none;
+  box-shadow: none;
+}
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped.has-sub-active .nav-sub-item.active,
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped.has-sub-active .nav-sub-item.active:hover {
+  background: var(--color-cognac);
+  border-color: var(--color-cognac);
+  color: var(--color-cream);
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--color-cognac) 35%, transparent),
+    0 6px 16px -4px color-mix(in srgb, var(--color-cognac) 55%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-accent) 18%, transparent);
+}
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped.has-sub-active .nav-sub-item.active .nav-sub-kind,
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped.has-sub-active .nav-sub-item.active + .doc-tab-close { color: var(--color-cream); }
+
+/* THE LEGISLATION ROW INSIDE THE DROPDOWN gets its hover back (the wrapped
+   row goes bare): pressing it opens a search tab, so it must read as a
+   button — the sidebar's hover wash. The wash is INSET: the row stands 3px
+   in from the wrapper's edges (top and sides), and its padding gives the
+   same 3px back, so the icon and the label do not move. */
+:root .sidebar .nav-fold.is-wrapped > .nav-item.active {
+  margin: 3px 3px 0;
+  width: calc(100% - 6px);
+  padding: 3.4px 5px 6.4px;
+}
+.sidebar.is-collapsed .nav-fold.is-wrapped > .nav-item.active { margin: 0; width: 100%; padding: 6.4px 8px; }
+:root .sidebar .nav-fold.is-wrapped > .nav-item.active:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+:root .sidebar .nav-fold.is-wrapped.has-sub-active > .nav-item.active:hover {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
+  opacity: 1;
+}
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped > .nav-item.active:hover {
+  background: color-mix(in srgb, var(--color-cream) 14%, transparent);
+}
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped.has-sub-active > .nav-item.active:hover {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-primary);
+}
+/* LEGISLATION ITSELF IS SELECTED (.has-row-active — on the search tab, no
+   listed tab on show): the selection is the ROW's — its icon and label take
+   the sidebar's selected-tab look (Ink: accent tint, ring, text; Cream: the
+   lifted cognac pill), inset 3px as its hover is, and the wrapper around the
+   row and its list steps back to the same faded ground as .has-sub-active. */
+:root .sidebar .nav-fold.is-wrapped.has-row-active > .nav-item.active,
+:root .sidebar .nav-fold.is-wrapped.has-row-active > .nav-item.active:hover {
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  color: var(--accent);
+  opacity: 1;
+}
+:root .sidebar .nav-fold.is-wrapped.has-row-active > .nav-item.active:hover { border-color: var(--accent); }
+:root .sidebar .nav-fold.is-wrapped.has-row-active > .nav-item.active .nav-fold-chev { color: inherit; }
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped.has-row-active > .nav-item.active,
+:root[data-theme="cream"] .sidebar .nav-fold.is-wrapped.has-row-active > .nav-item.active:hover {
+  background: var(--color-cognac);
+  border-color: var(--color-cognac);
+  color: var(--color-cream);
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--color-cognac) 35%, transparent),
+    0 6px 16px -4px color-mix(in srgb, var(--color-cognac) 55%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-accent) 18%, transparent);
+}
+
+:root[data-theme="cream"] .sidebar.is-collapsed .nav-fold.is-wrapped {
+  background: none; border-color: transparent; box-shadow: none; transform: none;
+}
+:root[data-theme="cream"] .sidebar.is-collapsed .nav-fold.is-wrapped > .nav-item.active {
+  background: var(--color-cognac);
+  border-color: var(--color-cognac);
+}
+
 /* ── AI-working marker (set when a viewer's advisor is busy) ──────────
    A pulsing purple/blue dot on the file icon (visible even when the rail
    is collapsed) plus a small shimmering "AI" pill when expanded. */
@@ -1759,6 +2033,10 @@
 .sidebar-cat-text {
   overflow: hidden;
   max-width: 200px;
+  /* The project section is headed by the project's name — a long one ends
+     in an ellipsis rather than wrapping the label onto two lines. */
+  white-space: nowrap;
+  text-overflow: ellipsis;
   transition: opacity 160ms ease, max-width 250ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -1869,3 +2147,154 @@
   );
   color: var(--text-primary);
 }
+
+/* ── Legislation WITH TABS OPEN — drawn as the System section ────────
+   No box around the entry: the Legislation row, then its tabs as ordinary
+   sidebar rows (.nav-item — the same size, hover and selected look as
+   every other row; `.sidebar-cat-items` gives them the section's gap), the
+   platform's dot in the icon slot, the Pinned / Open groups headed by the
+   System header's small capitals and hairline (`.sidebar-cat-label`). The
+   selection is one row: the tab on show, else the Legislation row. */
+/* A faint white ground wraps the Legislation row AND its tabs, so the entry
+   reads as one group; the rows inside keep their own hover and selected
+   look, inset 3px from its edge. */
+.nav-fold.is-cat {
+  padding: 3px;
+  border-color: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 2%, transparent);
+  border-radius: 8px;
+}
+:root[data-theme="cream"] .sidebar .nav-fold.is-cat {
+  border-color: color-mix(in srgb, var(--border) 50%, transparent);
+  background: color-mix(in srgb, var(--bg-card) 35%, transparent);
+}
+.sidebar.is-collapsed .nav-fold.is-cat { padding: 0; border-color: transparent; background: none; }
+.nav-cat-list { margin-top: 4px; }
+.nav-cat-div { padding-top: 4px; }
+.nav-cat-list > .nav-cat-div:first-child { padding-top: 2px; }
+.nav-cat-item { width: 100%; padding-right: 26px; text-align: left; }
+.nav-cat-dot {
+  display: block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--tone, var(--text-muted));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone, var(--text-muted)) 18%, transparent);
+}
+.nav-cat-item .icon { display: grid; place-items: center; }
+.nav-cat-item .nav-sub-text { line-height: 1.25; }
+/* The collapsed rail has no room for a list of tabs. */
+.sidebar.is-collapsed .nav-cat-list { display: none; }
+/* The platform's dot stands IN LINE with the kind ("● ANAF · …"), as the
+   Legislation tab's own rail draws it — not in the icon slot. */
+.nav-cat-item .nav-sub-kind { display: flex; align-items: center; gap: 6px; }
+.nav-cat-item .nav-cat-dot { flex: none; width: 6px; height: 6px; box-shadow: none; }
+.nav-cat-kindtext { min-width: 0; overflow: hidden; text-overflow: clip; white-space: nowrap; }
+/* The text takes the row's WHOLE width while the × is not showing; room is
+   made for it only while the row is hovered or has focus (and never on a
+   pinned tab, which has no ×). */
+.nav-cat-item { padding-right: 8px; transition: padding-right 120ms ease; }
+.nav-cat-row:has(.doc-tab-close):is(:hover, :focus-within) .nav-cat-item { padding-right: 26px; }
+
+/* FOLDING / UNFOLDING the Legislation list is animated: the list is kept
+   mounted and its height runs 0fr ↔ 1fr (a grid row, so no height has to be
+   measured) while it fades, and the ground around the entry fades and its
+   padding eases with it (.nav-fold's own transition). */
+.nav-cat-fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 180ms ease;
+}
+.nav-cat-fold.is-open { grid-template-rows: 1fr; opacity: 1; }
+.nav-cat-fold-inner { min-height: 0; overflow: hidden; }
+.nav-fold { transition: background 220ms ease, border-color 220ms ease, padding 280ms cubic-bezier(0.16, 1, 0.3, 1); }
+.sidebar.is-collapsed .nav-cat-fold { display: none; }
+:root[data-reduce-motion="true"] .nav-cat-fold,
+:root[data-reduce-motion="true"] .nav-fold { transition: none; }
+@media (prefers-reduced-motion: reduce) { .nav-cat-fold, .nav-fold { transition: none; } }
+/* No "…" in the Legislation list, and ALL the text shown: the label takes
+   the row's whole width (it was as wide as its longest line, so a fade on it
+   always ate that line's end), and a line fades out at the row's edge only
+   when it really is too long for it (FadeText measures → .is-clipped). */
+.nav-cat-item > .label { flex: 1 1 auto; min-width: 0; max-width: none; }
+.nav-cat-item .nav-sub-title,
+.nav-cat-kindtext { text-overflow: clip; white-space: nowrap; overflow: hidden; }
+.nav-cat-item .nav-sub-title { display: block; }
+.nav-cat-kindtext { flex: 1 1 auto; min-width: 0; }
+.nav-cat-item .nav-sub-kind { overflow: hidden; text-overflow: clip; }
+.nav-cat-item .nav-sub-title.is-clipped,
+.nav-cat-kindtext.is-clipped {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+}
+.sidebar.is-collapsed .nav-cat-item > .label { max-width: 0; }
+
+/* HOVERING A TAB'S × lights the row it would close with a FAINT version of
+   the selected look — so which tab goes is never in doubt. (A row already
+   selected keeps its own look.) */
+.nav-cat-row:has(.doc-tab-close:hover) .nav-cat-item:not(.active) {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 16%, transparent);
+  color: var(--text-primary);
+}
+:root[data-theme="cream"] .sidebar .nav-cat-row:has(.doc-tab-close:hover) .nav-cat-item:not(.active) {
+  background: color-mix(in srgb, var(--bg-card) 85%, transparent);
+  border-color: var(--border);
+}
+/* The platform's SOURCE ADDRESS on the kind line, written as addresses are
+   (lower case), in the kind line's small capitals' place. */
+.nav-cat-site { text-transform: none; letter-spacing: 0.02em; }
+/* The address wears its platform's colour. */
+.nav-cat-site { color: var(--tone, inherit); }
+/* The selected row keeps the colour too. */
+.nav-cat-item.active .nav-cat-site { color: var(--tone, inherit); }
+/* No dot any more: the address itself carries the platform's colour, set a
+   size up from the small capitals beside it. */
+.nav-cat-item .nav-sub-kind { gap: 0; align-items: baseline; }
+.nav-cat-site { font-size: 0.6rem; font-weight: 600; letter-spacing: 0.01em; }
+
+/* REARRANGING the Legislation tabs by dragging: the tab being carried fades,
+   an accent line marks where it will land — above the tab it is over, or at
+   the list's foot. */
+.nav-cat-row.is-dragged { opacity: 0.4; }
+.nav-cat-row.is-drop::before,
+.nav-cat-list.is-drop-end::after {
+  content: '';
+  position: absolute; left: 6px; right: 6px; height: 2px; border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.nav-cat-row.is-drop::before { top: -3px; }
+.nav-cat-list { position: relative; }
+.nav-cat-list.is-drop-end { padding-bottom: 6px; }
+.nav-cat-list.is-drop-end::after { bottom: 0; }
+.nav-cat-list.is-dragging .nav-cat-item { cursor: grabbing; }
+
+/* "OPEN IN A NEW WINDOW" — every sidebar tab has it at its right end on
+   hover (before a fold chevron), and every Legislation tab beside its ×. */
+.nav-popout {
+  flex: none; margin-left: auto;
+  display: grid; place-items: center;
+  width: 18px; height: 18px; border-radius: 4px;
+  color: var(--text-muted);
+  opacity: 0; pointer-events: none;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+.nav-item:hover > .nav-popout, .nav-item:focus-visible > .nav-popout { opacity: 1; pointer-events: auto; }
+.nav-popout:hover { background: color-mix(in srgb, var(--text-primary) 14%, transparent); color: var(--text-primary); }
+.nav-popout + .nav-fold-chev { margin-left: 2px; }
+.sidebar.is-collapsed .nav-popout { display: none; }
+.doc-tab-pop {
+  position: absolute; right: 24px; top: 50%; transform: translateY(-50%);
+  display: grid; place-items: center;
+  width: 16px; height: 16px; padding: 0;
+  border: none; border-radius: 4px; background: none;
+  color: var(--text-muted); cursor: pointer;
+  opacity: 0; transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+.doc-tab-row:hover .doc-tab-pop, .doc-tab-pop:focus-visible { opacity: 1; }
+.doc-tab-pop:hover { background: color-mix(in srgb, var(--text-primary) 14%, transparent); color: var(--text-primary); }
+/* Room for both buttons while the row is hovered. */
+.nav-cat-row:has(.doc-tab-pop):is(:hover, :focus-within) .nav-cat-item { padding-right: 44px; }
+.nav-cat-row:has(.doc-tab-pop):not(:has(.doc-tab-close)) .doc-tab-pop { right: 5.6px; }
+.sidebar.is-collapsed .doc-tab-pop { display: none; }
+/* The morph pill's host around a sidebar tab adds no box of its own. */
+.tab-pill-host { display: contents; }

@@ -1,5 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
-import { loadIconCatalogue } from '../lib/iconCatalogue';
+﻿import React, { useMemo, useState } from 'react';
 import { ItemGlyph, FolderOrBinGlyph } from '../components/FilesWorkspace';
 import { extCategory } from '../components/fileGlyph';
 import { useNotifications } from '../context/NotificationsContext';
@@ -19,6 +18,9 @@ import { useAuth } from '../context/AuthContext';
 import { localFolderApi } from '../lib/localFolder';
 import { readProjectsDir } from '../lib/projectsDir';
 import PageMasthead from '../components/PageMasthead';
+import Tooltip from '../components/Tooltip';
+import { REF_GROUPS, REF_CATALOGUE, findAllLegalRefs, refKindName, scanRefPatterns } from '../lib/lawRefs';
+import { setWorkspaceSimulation, workspaceSimulation } from '../lib/workspaceItems';
 import './Debug.css';
 
 // In-app developer tools. These used to live in the native "DEBUG" menu that
@@ -287,7 +289,7 @@ const FILE_TYPES = [
   { title: 'Audio', exts: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus', 'wma', 'aif', 'aiff'] },
   { title: 'Text', exts: ['txt', 'md', 'log'] },
   { title: 'Archives', exts: ['zip', 'rar', '7z', 'tar', 'gz'] },
-  { title: 'DocVex records', exts: ['dvx', 'identity-org'] },
+  { title: 'DocVex files', exts: ['dvc'] },
   { title: 'Anything else', exts: ['xyz', ''] },
 ];
 const SPECIAL_TYPES = [
@@ -338,7 +340,7 @@ function FileTypeIcons() {
             {g.exts.map((ext) => (
               <FileTypeTile
                 key={ext || '(none)'}
-                label={ext === 'identity-org' ? 'Organisation record' : ext === 'dvx' ? 'Person record (.dvx)' : ext ? `.${ext}` : '(no extension)'}
+                label={ext === 'dvc' ? 'Data collection (.dvc)' : ext ? `.${ext}` : '(no extension)'}
                 sub={extCategory(ext)}
               >
                 <ItemGlyph item={{ kind: 'file', name: ext ? `file.${ext}` : 'file', ext }} />
@@ -351,79 +353,125 @@ function FileTypeIcons() {
   );
 }
 
-// Every icon in the app, read out of the source (lib/iconCatalogue) — what it
-// is called in code, where it lives, and the comment written above it.
-function IconCatalogue() {
-  const [icons, setIcons] = useState(null);
-  const [error, setError] = useState('');
-  const [query, setQuery] = useState('');
-  useEffect(() => {
-    let alive = true;
-    loadIconCatalogue()
-      .then((list) => { if (alive) setIcons(list); })
-      .catch((e) => { if (alive) setError(String(e?.message || e)); });
-    return () => { alive = false; };
-  }, []);
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!icons || !q) return icons || [];
-    return icons.filter((i) => `${i.name} ${i.file} ${i.note}`.toLowerCase().includes(q));
-  }, [icons, query]);
-  // Grouped by file, in source order.
-  const groups = useMemo(() => {
-    const m = new Map();
-    for (const i of shown) {
-      if (!m.has(i.file)) m.set(i.file, []);
-      m.get(i.file).push(i);
-    }
-    return [...m.entries()];
-  }, [shown]);
+// ── Romanian legal references — the detector catalogue ─────────────────────
+// Every identifier lib/lawRefs recognises in Romanian legal text — acts, court
+// files, fiscal codes, land-registry entries, the phrases that announce a
+// legal basis — with the regex that finds each, the wording it answers to, and
+// what the AI layer does with it. A tester at the top runs the WHOLE detector
+// over any pasted text; each entry's examples run that entry's own patterns,
+// so what a pattern does and does not catch can be read straight off the page.
 
+const REF_VIA = {
+  shape: { label: 'Regex · shape alone', tip: 'The pattern is distinctive enough on its own — no keyword needed.' },
+  keyword: { label: 'Regex · keyword required', tip: 'The digits mean nothing without their keyword — it is part of the pattern.' },
+  context: { label: 'Context cue', tip: 'Not an identifier — a phrase that tells the AI one is about to follow.' },
+};
+
+// The default tester text: one paragraph that trips most of the catalogue.
+const REF_SAMPLE = 'În temeiul art. 12 alin. (1) lit. b) din Legea nr. 24/2000, republicată, '
+  + 'EXEMPLU CONS S.R.L., J40/123/2026, CUI RO12345678, cont IBAN RO49AAAA1B31007593840000, '
+  + 'reprezentată prin administrator, identificat cu C.I. seria RX nr. 456789, CNP 1850101123456, '
+  + 'a formulat contestație împotriva Deciziei civile nr. 100/2024 pronunțate de Tribunalul București '
+  + 'în dosarul nr. 1.234/3/2023, coroborat cu art. 1349 C.civ. și Decizia CCR nr. 458/2020. '
+  + 'Imobil înscris în Cartea Funciară nr. 54321, nr. cadastral 123, cod CAEN 6201, cod COR 261103. '
+  + 'Vezi și Cauza C-131/12 și Hotărârea CEDO în cauza Popescu contra României, potrivit GDPR.';
+
+// `text` with its hits lit: a mark per hit, tagged with the hit's kind (the
+// full name on hover) when `tag` is on.
+function RefMarked({ text, hits, tag = false }) {
+  const out = [];
+  let last = 0;
+  hits.forEach((h, i) => {
+    if (h.start > last) out.push(<React.Fragment key={`t${i}`}>{text.slice(last, h.start)}</React.Fragment>);
+    out.push(
+      <Tooltip key={`m${i}`} content={refKindName(h.kind)}>
+        <mark className="debug-ref-mark">
+          {text.slice(h.start, h.end)}
+          {tag ? <span className="debug-ref-tag">{h.kind}</span> : null}
+        </mark>
+      </Tooltip>,
+    );
+    last = h.end;
+  });
+  if (last < text.length) out.push(<React.Fragment key="tail">{text.slice(last)}</React.Fragment>);
+  return <span className="debug-ref-text">{out}</span>;
+}
+
+function LawRefCatalogue() {
+  const [sample, setSample] = useState(REF_SAMPLE);
+  const sampleHits = useMemo(() => findAllLegalRefs(sample), [sample]);
   return (
-    <section className="debug-icons">
+    <section className="debug-icons debug-refs">
       <div className="debug-icons-head">
         <div>
-          <h2 className="debug-card-title">All icons</h2>
+          <h2 className="debug-card-title">Legal references — the detector catalogue</h2>
           <p className="debug-card-body">
-            Every icon in the app, found in the source code: its name in code,
-            the file and line it lives on, and what the comment above it says.
-            Icons drawn from runtime values show their fixed parts only.
+            Every identifier the app recognises in Romanian legal text (lib/lawRefs): what it is,
+            the regex that finds it, the wording it rides on, and what the AI does with it.
+            Entries marked <em>live</em> are already wired into the Word preview and the
+            Legislation / Court files / CAEN tabs; the rest are detection only, for the
+            surfaces that will use them.
           </p>
         </div>
-        <input
-          className="debug-icons-search"
-          type="search"
-          placeholder="Search icons"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
       </div>
-      {error && <p className="debug-card-body">Couldn’t read the icons: {error}</p>}
-      {!icons && !error && <p className="debug-card-body">Reading the source…</p>}
-      {icons && (
+
+      {/* The tester: the whole detector, over any text. */}
+      <div className="debug-ref-tester">
+        <textarea
+          className="debug-ref-input"
+          rows={4}
+          value={sample}
+          onChange={(e) => setSample(e.target.value)}
+          spellCheck={false}
+          aria-label="Text to run the detectors over"
+        />
         <p className="debug-icons-count">
-          {shown.length === icons.length ? `${icons.length} icons` : `${shown.length} of ${icons.length} icons`}
-          {' '}in {groups.length} files
+          {sampleHits.length} reference{sampleHits.length === 1 ? '' : 's'} found — hover a mark for its kind.
         </p>
-      )}
-      {groups.map(([file, list]) => (
-        <div key={file} className="debug-icons-group">
-          <h3 className="debug-icons-file">{file} <span>{list.length}</span></h3>
-          <div className="debug-icons-grid">
-            {list.map((i) => (
-              <div key={i.id} className="debug-icon">
-                {i.url
-                  ? <img className="debug-icon-art" src={i.url} alt="" />
-                  // Markup made from this app's own source, not user content.
-                  : <span className="debug-icon-art" dangerouslySetInnerHTML={{ __html: i.html }} />}
-                <span className="debug-icon-name">{i.name}</span>
-                <span className="debug-icon-where">{i.line ? `line ${i.line}` : 'file'}</span>
-                {i.note && <span className="debug-icon-note">{i.note}</span>}
-              </div>
-            ))}
+        <p className="debug-ref-result"><RefMarked text={sample} hits={sampleHits} tag /></p>
+      </div>
+
+      {REF_GROUPS.map((g) => {
+        const entries = REF_CATALOGUE.filter((e) => e.group === g.id);
+        if (!entries.length) return null;
+        return (
+          <div key={g.id} className="debug-icons-group">
+            <h3 className="debug-icons-file">{g.id}. {g.name} <span>{entries.length}</span></h3>
+            <div className="debug-ref-list">
+              {entries.map((e) => (
+                <article key={e.id} className="debug-ref">
+                  <header className="debug-ref-head">
+                    <h4 className="debug-ref-name">{e.name}</h4>
+                    <Tooltip content={REF_VIA[e.via]?.tip || ''}>
+                      <span className={`debug-ref-pill is-${e.via}`}>{REF_VIA[e.via]?.label || e.via}</span>
+                    </Tooltip>
+                    {e.live ? (
+                      <Tooltip content="Already marked in the Word preview / followable in the source tabs">
+                        <span className="debug-ref-pill is-live">Live in the app</span>
+                      </Tooltip>
+                    ) : null}
+                    <span className="debug-ref-kind">{e.id}</span>
+                  </header>
+                  <p className="debug-ref-what">{e.what}</p>
+                  {e.ai ? <p className="debug-ref-ai"><span>AI</span>{e.ai}</p> : null}
+                  <div className="debug-ref-phrases">
+                    {e.phrases.map((p) => <code key={p}>{p}</code>)}
+                  </div>
+                  <ul className="debug-ref-examples">
+                    {e.examples.map((ex) => (
+                      <li key={ex}><RefMarked text={ex} hits={scanRefPatterns(ex, e.res, e.id)} /></li>
+                    ))}
+                  </ul>
+                  <details className="debug-ref-pattern">
+                    <summary>{e.res.length === 1 ? 'The pattern' : `The ${e.res.length} patterns, tried in order`}</summary>
+                    {e.res.map((re, i) => <code key={i}>/{re.source}/{re.flags}</code>)}
+                  </details>
+                </article>
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </section>
   );
 }
@@ -434,6 +482,8 @@ export default function Debug() {
   const { selectedProject } = useSelectedProject();
   const { simulateUpdate, setSimulateUpdate, simulateKind, setSimulateKind, currentVersion, latestVersion } = useUpdates();
   const [busy, setBusy] = useState(null);
+  const [simItems, setSimItems] = useState(workspaceSimulation);
+  const toggleSimItems = () => { const next = !simItems; setWorkspaceSimulation(next); setSimItems(next); };
 
   const handleRun = async (action) => {
     setBusy(action.id);
@@ -500,6 +550,31 @@ export default function Debug() {
           </div>
         </section>
 
+        {/* Sample items in the sidebar's Legislation list, to look at the
+            dropdown without opening anything (lib/workspaceItems). */}
+        <section className="debug-card">
+          <div className="debug-card-text">
+            <h2 className="debug-card-title">Simulate items in the Legislation list</h2>
+            <p className="debug-card-body">
+              Adds sample acts, CAEN classes, a court file and companies to the
+              sidebar's Legislation dropdown, after any real ones. Picking one only
+              marks it; closing one only removes it.
+            </p>
+          </div>
+          <div className="debug-card-controls">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={simItems}
+              className={`debug-switch${simItems ? ' is-on' : ''}`}
+              onClick={toggleSimItems}
+            >
+              <span className="debug-switch-track"><span className="debug-switch-knob" /></span>
+              <span className="debug-switch-label">{simItems ? 'On' : 'Off'}</span>
+            </button>
+          </div>
+        </section>
+
         {ACTIONS.map((action) => (
           <section key={action.id} className="debug-card">
             <div className="debug-card-text">
@@ -518,8 +593,8 @@ export default function Debug() {
         ))}
       </div>
 
+      <LawRefCatalogue />
       <FileTypeIcons />
-      <IconCatalogue />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import started from 'electron-squirrel-startup';
 import { updateElectronApp } from 'update-electron-app';
+import { registerPhoneUpload } from './phoneUploadServer';
 
 // Resolve the path to Word's executable when Microsoft Word is
 // installed locally. Electron's `app.getApplicationNameForProtocol`
@@ -1607,6 +1608,54 @@ ipcMain.on('doc-viewer:close', (_e, id) => {
 // A secondary window (the Doc Viewer) asks the MAIN window to go somewhere — an
 // in-app route ('/account'), or '@logout' (TrayNavigation in App.jsx signs out
 // there). Anything else is ignored.
+// ── A tab in a SEPARATE WINDOW ─────────────────────────────────────────────
+// Any of the sidebar's tabs (and any Legislation tab) can be opened in a
+// window of its own: the same app booted at that route (`?tabWindow=1&route=…`).
+// The windows are listed in the main window's sidebar (`tab-windows:list`,
+// pushed on `tab-windows:changed`), each window reporting where it is
+// (`tab-window:route`), so its × can close it and bring what it showed back
+// into the main window (`tab-window:dock` → the main window navigates there).
+const tabWindows = new Map();   // BrowserWindow id → { id, route, title }
+function broadcastTabWindows() {
+  const list = [...tabWindows.values()];
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('tab-windows:changed', list);
+  }
+}
+ipcMain.on('window:open-tab-window', (_e, payload) => {
+  const route = typeof payload?.route === 'string' && payload.route.startsWith('/') ? payload.route : null;
+  if (!route) return;
+  const win = createAppWindow({
+    query: { tabWindow: '1', route },
+    bounds: centeredOnDisplayOf(mainWindow, 1200, 800),
+  });
+  tabWindows.set(win.id, { id: win.id, route, title: String(payload?.title || '') });
+  win.on('closed', () => { tabWindows.delete(win.id); broadcastTabWindows(); });
+  broadcastTabWindows();
+});
+ipcMain.handle('tab-windows:list', () => [...tabWindows.values()]);
+ipcMain.on('tab-window:route', (e, payload) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  const entry = w && tabWindows.get(w.id);
+  if (!entry || typeof payload?.route !== 'string') return;
+  entry.route = payload.route;
+  if (payload.title) entry.title = String(payload.title);
+  broadcastTabWindows();
+});
+ipcMain.on('tab-window:focus', (_e, id) => {
+  const w = BrowserWindow.fromId(Number(id));
+  if (!w || w.isDestroyed()) return;
+  if (w.isMinimized()) w.restore();
+  w.show(); w.focus();
+});
+// The ×: close the window and bring what it showed back into the main window.
+ipcMain.on('tab-window:dock', (_e, id) => {
+  const w = BrowserWindow.fromId(Number(id));
+  const entry = tabWindows.get(Number(id));
+  if (entry?.route) navigateMainWindow(entry.route);
+  if (w && !w.isDestroyed()) w.close();
+});
+
 ipcMain.on('window:navigate-main', (_e, dest) => {
   if (typeof dest !== 'string' || !(dest.startsWith('/') || dest === '@logout')) return;
   navigateMainWindow(dest);
@@ -1642,6 +1691,9 @@ ipcMain.on('files:removed', (e, paths) => {
     if (!w.isDestroyed() && w.webContents !== e.sender) w.webContents.send('files:removed', list);
   }
 });
+
+// Upload from a phone over the local network (the Files tab's Import QR code).
+registerPhoneUpload({ ipcMain });
 
 // Generic on-disk change (e.g. a rename from the doc-viewer tab sidebar) — fan
 // it out to every other window's Files tab. Sender skipped (same reason).
@@ -3711,14 +3763,43 @@ async function readTrashMeta(dir) {
   }
 }
 
+// Written ATOMICALLY: to a temporary file, then renamed over the index, so a
+// reader never sees half of it (a half-written index read as "no entries" and
+// the next write dropped every item's record).
+let TRASH_META_SEQ = 0;
 async function writeTrashMeta(dir, meta) {
   await fsp.mkdir(trashDir(dir), { recursive: true });
-  await fsp.writeFile(
-    path.join(trashDir(dir), TRASH_META_FILE),
-    JSON.stringify(meta, null, 2),
-    'utf8',
-  );
+  const target = path.join(trashDir(dir), TRASH_META_FILE);
+  TRASH_META_SEQ += 1;
+  const tmp = `${target}.${process.pid}.${Date.now()}.${TRASH_META_SEQ}.tmp`;
+  await fsp.writeFile(tmp, JSON.stringify(meta, null, 2), 'utf8');
+  try {
+    await renameWithRetry(tmp, target);
+  } catch (err) {
+    await fsp.unlink(tmp).catch(() => {});
+    throw err;
+  }
 }
+
+// Every Trash operation reads the index, changes it and writes it back. Run
+// concurrently — a multi-select delete fires one trash-file per file at once —
+// they overwrote each other's entries and could leave the index invalid JSON.
+// So the operations on ONE project's Trash run one after another.
+const TRASH_LOCKS = new Map();
+function withTrashLock(dir, fn) {
+  const key = path.resolve(String(dir || ''));
+  const prev = TRASH_LOCKS.get(key) || Promise.resolve();
+  const run = prev.then(fn, fn);
+  const tail = run.then(() => {}, () => {});
+  TRASH_LOCKS.set(key, tail);
+  tail.then(() => { if (TRASH_LOCKS.get(key) === tail) TRASH_LOCKS.delete(key); });
+  return run;
+}
+// An IPC handler whose work on `payload.dir` (or a bare dir string) is locked.
+const trashLocked = (handler) => (event, payload) => {
+  const dir = typeof payload === 'string' ? payload : payload?.dir;
+  return dir ? withTrashLock(dir, () => handler(event, payload)) : handler(event, payload);
+};
 
 // Mint a collision-proof stored name: `<epoch>__<sanitized original>`.
 // The timestamp prefix keeps repeated deletes of the same name distinct.
@@ -3789,7 +3870,7 @@ async function renameWithRetry(from, to, attempts = 5) {
 }
 
 // Move a single file into the bin. `path` must resolve inside `dir`.
-ipcMain.handle('local-folder:trash-file', async (_, payload) => {
+ipcMain.handle('local-folder:trash-file', trashLocked(async (_, payload) => {
   const dir = payload?.dir;
   const filePath = payload?.path;
   if (!dir || !filePath) return { ok: false, error: 'Missing args' };
@@ -3820,7 +3901,7 @@ ipcMain.handle('local-folder:trash-file', async (_, payload) => {
     }
     return { ok: false, error: err?.message || String(err) };
   }
-});
+}));
 
 // Move an entire folder into the bin. There's no "trashed directory" concept —
 // instead every file inside is trashed individually with its original relative
@@ -3830,7 +3911,7 @@ ipcMain.handle('local-folder:trash-file', async (_, payload) => {
 // trash machinery (list / restore / countdown / purge) — folders ride the same
 // rails as single-file deletes. Returns the list of stored names so the caller
 // can offer an undo that restores them all.
-ipcMain.handle('local-folder:trash-folder', async (_, payload) => {
+ipcMain.handle('local-folder:trash-folder', trashLocked(async (_, payload) => {
   const dir = payload?.dir;
   const folderPath = payload?.path;
   if (!dir || !folderPath) return { ok: false, error: 'Missing args' };
@@ -3889,7 +3970,7 @@ ipcMain.handle('local-folder:trash-folder', async (_, payload) => {
     if (err?.code === 'ENOENT') return { ok: false, error: 'Folder not found' };
     return { ok: false, error: err?.message || String(err) };
   }
-});
+}));
 
 // DEV-only: seed the bin with dummy files whose `deletedAt` is backdated so
 // each one is N days from its 30-day purge. Drives the countdown-ring UI.
@@ -3921,7 +4002,7 @@ ipcMain.handle('local-folder:debug-seed-trash', async (_, payload) => {
 });
 
 // List bin contents, joining each stored file with its meta record.
-ipcMain.handle('local-folder:list-trash', async (_, dir) => {
+ipcMain.handle('local-folder:list-trash', trashLocked(async (_, dir) => {
   if (!dir) return { items: [], error: 'No directory specified' };
   const tdir = trashDir(dir);
   let entries;
@@ -3960,10 +4041,10 @@ ipcMain.handle('local-folder:list-trash', async (_, dir) => {
   // Most-recently-deleted first.
   items.sort((a, b) => (a.deletedAt < b.deletedAt ? 1 : -1));
   return { items, error: null };
-});
+}));
 
 // Restore a binned file back to its original location (subfolder included).
-ipcMain.handle('local-folder:restore-from-trash', async (_, payload) => {
+ipcMain.handle('local-folder:restore-from-trash', trashLocked(async (_, payload) => {
   const dir = payload?.dir;
   const stored = payload?.stored;
   if (!dir || !stored) return { ok: false, error: 'Missing args' };
@@ -3989,10 +4070,10 @@ ipcMain.handle('local-folder:restore-from-trash', async (_, payload) => {
     if (err?.code === 'ENOENT') return { ok: false, error: 'File not found in bin' };
     return { ok: false, error: err?.message || String(err) };
   }
-});
+}));
 
 // Permanently delete a single binned file ("Delete forever").
-ipcMain.handle('local-folder:delete-from-trash', async (_, payload) => {
+ipcMain.handle('local-folder:delete-from-trash', trashLocked(async (_, payload) => {
   const dir = payload?.dir;
   const stored = payload?.stored;
   if (!dir || !stored) return { ok: false, error: 'Missing args' };
@@ -4005,11 +4086,11 @@ ipcMain.handle('local-folder:delete-from-trash', async (_, payload) => {
   } catch (err) {
     return { ok: false, error: err?.message || String(err) };
   }
-});
+}));
 
 // Sweep entries older than `olderThanDays` (default 30). Called by the
 // renderer on folder open and by the periodic timer below.
-ipcMain.handle('local-folder:purge-trash', async (_, payload) => {
+ipcMain.handle('local-folder:purge-trash', trashLocked(async (_, payload) => {
   const dir = payload?.dir;
   const olderThanDays = payload?.olderThanDays ?? TRASH_RETENTION_DAYS;
   if (!dir) return { purged: 0, error: 'No directory specified' };
@@ -4019,7 +4100,7 @@ ipcMain.handle('local-folder:purge-trash', async (_, payload) => {
   } catch (err) {
     return { purged: 0, error: err?.message || String(err) };
   }
-});
+}));
 
 // Periodic auto-sweep: every 6h, purge the currently-watched folder's bin.
 // Main only knows the active folder (`watchedDir`); other folders are swept
@@ -4051,6 +4132,8 @@ app.whenReady().then(() => {
       "img-src 'self' localfile: data: blob: https:",
       "media-src 'self' localfile: blob: data:",
       "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.github.com https://*.githubusercontent.com localfile: data: blob:",
+      // The ANAF record's map drawer (components/MapDrawer): Google Maps' embed.
+      "frame-src https://www.google.com https://maps.google.com",
       "object-src 'none'",
       "base-uri 'none'",
       "frame-ancestors 'none'",
@@ -4540,7 +4623,7 @@ app.whenReady().then(() => {
   stopPurgeTimer();
   purgeTimer = setInterval(() => {
     if (watchedDir) {
-      purgeTrashDir(watchedDir).catch(() => { /* best-effort */ });
+      withTrashLock(watchedDir, () => purgeTrashDir(watchedDir)).catch(() => { /* best-effort */ });
     }
   }, PURGE_INTERVAL_MS);
 
@@ -4608,16 +4691,21 @@ const soapDate = (s) => String(s || '').replace(/\.\d+$/, '');
 const soapDateArg = (s) => (/^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) ? `${s}T00:00:00` : '');
 
 function courtsParseDosar(block) {
+  // The file's OWN fields, read with its lists taken out: the service writes
+  // the parties, hearings and appeals BEFORE the number and the date, and a
+  // hearing has a `<data>` of its own — read in place, the file's date was
+  // its first hearing's.
+  const own = block.replace(/<(parti|sedinte|caiAtac)>[\s\S]*?<\/\1>/g, '').replace(/<(parti|sedinte|caiAtac)\s*\/>/g, '');
   return {
-    numar: xmlField(block, 'numar'),
-    numarVechi: xmlField(block, 'numarVechi'),
-    data: soapDate(xmlField(block, 'data')),
-    institutie: xmlField(block, 'institutie'),
-    departament: xmlField(block, 'departament'),
-    categorie: xmlField(block, 'categorieCazNume') || xmlField(block, 'categorieCaz'),
-    stadiu: xmlField(block, 'stadiuProcesualNume') || xmlField(block, 'stadiuProcesual'),
-    obiect: xmlField(block, 'obiect'),
-    modificat: soapDate(xmlField(block, 'dataModificare')),
+    numar: xmlField(own, 'numar'),
+    numarVechi: xmlField(own, 'numarVechi'),
+    data: soapDate(xmlField(own, 'data')),
+    institutie: xmlField(own, 'institutie'),
+    departament: xmlField(own, 'departament'),
+    categorie: xmlField(own, 'categorieCazNume') || xmlField(own, 'categorieCaz'),
+    stadiu: xmlField(own, 'stadiuProcesualNume') || xmlField(own, 'stadiuProcesual'),
+    obiect: xmlField(own, 'obiect'),
+    modificat: soapDate(xmlField(own, 'dataModificare')),
     parti: xmlBlocks(block, 'DosarParte').map((p) => ({
       nume: xmlField(p, 'nume').trim(),
       calitate: xmlField(p, 'calitateParte').trim(),
@@ -4726,6 +4814,32 @@ ipcMain.handle('anaf:lookup', async (_e, payload) => {
   }
 });
 
+// A company's FINANCIAL STATEMENT for a year (ANAF's public `bilant`
+// service, free, no key): the CAEN code it declared for that year — which can
+// differ from the one it is registered with now. A company with no statement
+// for the year answers with caen 0.
+ipcMain.handle('anaf:bilant', async (_e, payload) => {
+  const cui = Number(String(payload?.cui || '').replace(/\D/g, ''));
+  const an = Number(payload?.an) || new Date().getFullYear() - 1;
+  if (!cui) return { ok: false, error: 'empty_query' };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ANAF_TIMEOUT_MS);
+  try {
+    const res = await fetch(`https://webservicesp.anaf.ro/bilant?an=${an}&cui=${cui}`, {
+      signal: ctrl.signal, headers: { Accept: 'application/json', 'User-Agent': LEGIS_UA },
+    });
+    if (!res.ok) return { ok: false, error: `http_${res.status}` };
+    const d = await res.json().catch(() => null);
+    if (!d || typeof d !== 'object') return { ok: false, error: 'bad_answer' };
+    const caen = Number(d.caen) || 0;
+    return { ok: true, an, caen: caen ? String(caen).padStart(4, '0') : '', caenName: String(d.den_caen || ''), found: !!caen || (Array.isArray(d.i) && d.i.length > 0) };
+  } catch (e) {
+    return { ok: false, error: e?.name === 'AbortError' ? 'timeout' : 'unreachable' };
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 // ── The national legislation portal, and the copy this machine keeps ───────
 // legislatie.just.ro publishes a FREE web service (legislatie.just.ro/apiws —
 // `GetToken`, then `Search`), and it is the only lawful, complete source of
@@ -4757,16 +4871,26 @@ const legisDir = () => path.join(app.getPath('userData'), 'legislation');
 const legisIndexFile = () => path.join(legisDir(), 'archive.json');
 const legisActFile = (id) => path.join(legisDir(), 'acts', `${String(id).replace(/[^0-9a-z_-]/gi, '')}.json`);
 
+// The index is read from disk ONCE and kept in memory (every write goes
+// through legisWriteIndex, which updates both); so is the size of the kept
+// texts, re-added up only after a write. Listing the archive used to re-read
+// and re-parse archive.json and stat every kept act on each call — and every
+// visit to the tab lists it.
+let legisIndexCache = null;
+let legisBytesCache = null;
 function legisReadIndex() {
+  if (legisIndexCache) return legisIndexCache;
   try {
     const raw = fs.readFileSync(legisIndexFile(), 'utf8');
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && parsed.acts) return parsed;
+    if (parsed && typeof parsed === 'object' && parsed.acts) return (legisIndexCache = parsed);
   } catch { /* nothing kept yet */ }
-  return { version: 1, acts: {} };
+  return (legisIndexCache = { version: 1, acts: {} });
 }
 
 function legisWriteIndex(index) {
+  legisIndexCache = index;
+  legisBytesCache = null;
   try {
     fs.mkdirSync(legisDir(), { recursive: true });
     fs.writeFileSync(legisIndexFile(), JSON.stringify(index));
@@ -4781,9 +4905,13 @@ function unxml(s) {
     return name in XML_ENTITIES ? XML_ENTITIES[name] : m;
   });
 }
+// The EXACT tag (`numar` must not match `<numarDocument />` — it used to, and
+// captured everything up to the file's own `</numar>`, raw XML and all); a
+// self-closing or nil element (`<numarDocument />`, `<data xsi:nil="true" />`)
+// is empty.
 const xmlField = (block, tag) => {
-  const m = new RegExp(`<(?:\\w+:)?${tag}[^>]*>([\\s\\S]*?)</(?:\\w+:)?${tag}>`).exec(block);
-  return m ? unxml(m[1]) : '';
+  const m = new RegExp(`<(?:\\w+:)?${tag}(?=[\\s/>])[^>]*?(/>|>([\\s\\S]*?)</(?:\\w+:)?${tag}>)`).exec(block);
+  return m && m[1] !== '/>' ? unxml(m[2]) : '';
 };
 
 async function legisPost(action, body) {
@@ -4939,12 +5067,15 @@ ipcMain.handle('legislation:archive-put', async (_e, payload) => {
 ipcMain.handle('legislation:archive-list', () => {
   const index = legisReadIndex();
   const acts = Object.values(index.acts);
-  let bytes = 0;
-  for (const a of acts) {
-    if (!a.hasText) continue;
-    try { bytes += fs.statSync(legisActFile(a.id)).size; } catch { /* gone from disk */ }
+  if (legisBytesCache == null) {
+    let bytes = 0;
+    for (const a of acts) {
+      if (!a.hasText) continue;
+      try { bytes += fs.statSync(legisActFile(a.id)).size; } catch { /* gone from disk */ }
+    }
+    legisBytesCache = bytes;
   }
-  return { ok: true, acts, bytes };
+  return { ok: true, acts, bytes: legisBytesCache };
 });
 
 ipcMain.handle('legislation:archive-get', (_e, id) => {
@@ -5006,6 +5137,8 @@ ipcMain.handle('legislation:page', async (_e, payload) => {
 // Everything, gone. Asked for from the tab, never done on the app's own
 // initiative: this is the copy that makes the tab work offline.
 ipcMain.handle('legislation:archive-clear', () => {
+  legisIndexCache = null;
+  legisBytesCache = null;
   try { fs.rmSync(legisDir(), { recursive: true, force: true }); return { ok: true }; } catch { return { ok: false, error: 'write_failed' }; }
 });
 

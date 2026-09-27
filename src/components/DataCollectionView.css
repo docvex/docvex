@@ -1,0 +1,163 @@
+/* ── Data collection (components/DataCollectionView, .dvc files) ─────────
+   The DocVex family: no card fills — sections on the page ground under a
+   hairline, generous gaps, the accent for what can be pressed. Scrolls in its
+   own pane (the Doc Viewer mounts it flush). */
+.dcv {
+  height: 100%; overflow-y: auto; box-sizing: border-box;
+  color: var(--text-primary);
+}
+.dcv-inner { display: flex; flex-direction: column; gap: 28px; }
+.dcv-loading, .dcv-error { margin: 40px auto; color: var(--text-muted); font-size: 13px; text-align: center; }
+.dcv-error { color: var(--danger-text, var(--danger)); }
+
+.dcv-head { display: flex; flex-direction: column; gap: 6px; }
+.dcv-eyebrow {
+  margin: 0; color: var(--accent);
+  font-size: var(--ds-eyebrow-size, 10.4px); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.dcv-title { margin: 0; font-family: var(--font-display); font-size: 28.8px; font-weight: 700; line-height: 1.15; }
+.dcv-meta { margin: 0; color: var(--text-muted); font-size: 12px; }
+.dcv-summary { margin: 8px 0 0; color: var(--text-secondary); font-size: 14px; line-height: 1.6; max-width: 72ch; }
+
+.dcv-section { display: flex; flex-direction: column; gap: 12px; padding-top: 18px; border-top: 1px solid var(--ds-hairline, var(--border)); }
+.dcv-h { margin: 0; font-size: 12.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-secondary); }
+.dcv-note { margin: -4px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; max-width: 80ch; }
+
+/* Source chips — a file, pressable. */
+.dcv-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: middle; }
+.dcv-chip {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 240px;
+  height: 22px; padding: 0 8px 0 4px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: 999px;
+  background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: 11px; cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.dcv-chip:hover { background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--text-primary); }
+.dcv-chip-glyph { display: inline-flex; width: 16px; height: 16px; flex: none; }
+.dcv-chip-glyph .fx-glyph { width: 16px; height: 16px; transform: none; }
+.dcv-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Facts — label column + value. */
+.dcv-facts { margin: 0; display: flex; flex-direction: column; }
+.dcv-fact { display: grid; grid-template-columns: minmax(140px, 220px) 1fr; gap: 16px; padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.dcv-fact dt { color: var(--text-muted); font-size: 12.5px; }
+.dcv-fact dd { margin: 0; font-size: 13.5px; line-height: 1.5; }
+.dcv-fact-value { user-select: text; }
+
+/* Timeline. */
+.dcv-timeline { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.dcv-timeline li { display: grid; grid-template-columns: 120px 1fr; gap: 16px; padding: 8px 0 8px 14px; border-left: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); position: relative; }
+.dcv-timeline li::before { content: ''; position: absolute; left: -4px; top: 14px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.dcv-date { color: var(--accent); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.dcv-event { font-size: 13.5px; line-height: 1.5; }
+
+/* Sources — the file itself left, what it is and what was understood right. */
+.dcv-sources { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.dcv-source { display: grid; grid-template-columns: 96px 1fr; gap: 16px; padding: 12px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.dcv-source-thumb {
+  width: 96px; height: 84px; padding: 0; border: 0; background: transparent; cursor: pointer;
+  display: grid; place-items: center; border-radius: 6px; overflow: hidden;
+}
+.dcv-source-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; }
+.dcv-source-thumb:hover { background: var(--accent-tint); }
+.dcv-source-glyph { display: inline-flex; width: 48px; height: 48px; }
+.dcv-source-glyph .fx-glyph { width: 48px; height: 48px; }
+.dcv-source-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.dcv-source-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dcv-source-name {
+  padding: 0; border: 0; background: none; cursor: pointer; text-align: left;
+  color: var(--text-primary); font: inherit; font-size: 14px; font-weight: 600;
+}
+.dcv-source-name:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.dcv-source-path { color: var(--text-muted); font-size: 11px; }
+.dcv-source-role { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.dcv-source-understood { margin: 2px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--text-secondary); user-select: text; }
+.dcv-source-understood span {
+  display: block; margin-bottom: 2px; color: var(--text-muted);
+  font-size: 10.4px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.dcv-tag {
+  --pill-tone: var(--info);
+  display: inline-flex; align-items: center; height: var(--ds-pill-h, 18px); padding: 0 7px; border-radius: 999px;
+  font-size: var(--ds-tag-size, 10.4px); font-weight: 600;
+  color: var(--pill-tone);
+  background: color-mix(in srgb, var(--pill-tone) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pill-tone) 35%, transparent);
+}
+.dcv-tag.is-soft { --pill-tone: var(--accent); }
+
+/* Face matches — document face · score · picture face. */
+.dcv-faces { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.dcv-facematch {
+  display: grid; grid-template-columns: auto 1fr auto; grid-template-rows: auto auto; align-items: center; gap: 8px 12px;
+  padding: 12px; border: 1px solid var(--ds-hairline, var(--border)); border-radius: 10px;
+}
+.dcv-facepair { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 0; border: 0; background: none; cursor: pointer; color: inherit; font: inherit; }
+.dcv-facepair:hover .dcv-face { box-shadow: 0 0 0 2px var(--accent); }
+.dcv-face {
+  display: block; flex: none; border-radius: 8px;
+  background-color: color-mix(in srgb, var(--text-primary) 6%, transparent); background-repeat: no-repeat;
+  box-shadow: 0 0 0 1px var(--border); transition: box-shadow 140ms ease;
+}
+.dcv-facecap { max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 10.4px; }
+.dcv-facescore { display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; }
+.dcv-facescore strong { font-family: var(--font-display); font-size: 22px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.dcv-facescore > span:not(.dcv-facebar) { font-size: 11px; color: var(--text-secondary); }
+.dcv-facebar { width: 64px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text-primary) 10%, transparent); overflow: hidden; }
+.dcv-facebar span { display: block; height: 100%; width: calc(var(--c) * 100%); background: var(--accent); border-radius: inherit; }
+.dcv-facewho { grid-column: 1 / -1; color: var(--text-secondary); font-size: 12px; text-align: center; }
+
+/* Connections between files. */
+.dcv-links { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.dcv-links li { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.dcv-link-ends { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dcv-link-ends .dcv-chips { margin: 0; }
+.dcv-link-arrow { color: var(--accent); }
+.dcv-link-why { color: var(--text-secondary); font-size: 12.5px; line-height: 1.5; }
+
+/* The web — related collections, and the names this one holds. */
+.dcv-related { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.dcv-related li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 4px 0; }
+.dcv-related-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 6px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: 8px;
+  background: transparent; color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.dcv-related-btn:hover { background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.dcv-related-why { color: var(--text-muted); font-size: 12px; }
+.dcv-entities { display: flex; flex-wrap: wrap; gap: 6px; }
+.dcv-entity {
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border-radius: 999px;
+  font-size: 11.5px; color: var(--text-secondary);
+  box-shadow: inset 0 0 0 1px var(--ds-hairline, var(--border));
+}
+.dcv-entity em { font-style: normal; font-size: 10px; font-weight: 700; color: var(--accent); }
+
+@media (max-width: 640px) {
+  .dcv { padding: 20px 16px 48px; }
+  .dcv-fact, .dcv-timeline li { grid-template-columns: 1fr; gap: 2px; }
+}
+
+/* ── One page ────────────────────────────────────────────────────────────
+   A collection WITHOUT a record is the findings alone, full width, clear of
+   the Doc Viewer's floating side panel: `--dv-doc-inset` is the panel's live
+   footprint (0 + 8px when it is hidden), so the page follows the panel being
+   shown, hidden or resized, gliding with it while the viewer animates the
+   change (`.is-shifting`). */
+.dcv {
+  padding: 24px 24px 64px var(--dv-doc-inset, calc(var(--dv-advisor-w, 296px) + 16px));
+}
+.dcv-inner { max-width: none; }
+.dv-main-row.is-shifting .dcv { transition: padding 340ms cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* Findings use the width they get: facts, face matches and sources flow into
+   columns as the page widens. */
+@media (min-width: 1300px) {
+  .dcv-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; }
+  .dcv-sources { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; }
+}
+@media (min-width: 1900px) {
+  .dcv-sources { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

@@ -19,10 +19,14 @@ export default function PageMasthead({
   title,
   children,            // kicker paragraph content (optional)
   actions,             // right-aligned masthead content — buttons / stats (optional)
-  compact = true,      // render the on-scroll compact bar
+  compact: wantCompact = true, // render the on-scroll compact bar (only with `compactRight` — see below)
   compactRight = null, // optional node pinned to the right of the compact bar
   scrollerSelector = '.sv-single-scroll, .main-content',
 }) {
+  // A compact bar holding only the title and the eyebrow beside it says
+  // nothing the page doesn't — it is drawn only when it carries something
+  // more (`compactRight`: a status, an action).
+  const compact = wantCompact && !!compactRight;
   const ref = useRef(null);
   const [scrolled, setScrolled] = useState(false);
 

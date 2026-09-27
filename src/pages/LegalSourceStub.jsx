@@ -2,8 +2,7 @@ import React from 'react';
 import { useLocation } from 'react-router-dom';
 import './LegalSourceStub.css';
 import PageMasthead from '../components/PageMasthead';
-import LegalTabs from '../components/LegalTabs';
-import HistoryButton from '../components/HistoryMenu';
+import LegalWorkspace from '../components/LegalWorkspace';
 
 // The Legislation tab's sources that are not connected yet. One page for all
 // of them: the masthead names the source, the card says how it would be
@@ -93,13 +92,21 @@ export default function LegalSourceStub() {
   const src = SOURCES[pathname];
   if (!src) return null;
   return (
-    <div className="lss-page">
-      <PageMasthead eyebrow={src.eyebrow} eyebrowMuted={`source: ${src.site}`} title={src.title} compact={false}>
-        {src.blurb}
-      </PageMasthead>
-      {/* The History button every tab has — this one's log stays empty
-          until the source is connected. */}
-      <LegalTabs trailing={<HistoryButton tab={pathname.slice(1)} tip="Nothing is logged here until the source is connected" emptyText="Nothing yet. This source is not connected." onPick={() => {}} />} />
+    // The Legislation tabs' workspace, as every connected source has it: Search
+    // (lit — the search is all there would be to show) and History head the
+    // bar's second line; nothing can be opened yet, so there is no rail.
+    <LegalWorkspace
+      className="lss-page"
+      masthead={(
+        <PageMasthead eyebrow={src.eyebrow} eyebrowMuted={`source: ${src.site}`} title={src.title} compact={false}>
+          {src.blurb}
+        </PageMasthead>
+      )}
+      searchActive
+      // The History button every tab has — this one's log stays empty until
+      // the source is connected.
+      history={{ tab: pathname.slice(1), tip: 'Nothing is logged here until the source is connected', emptyText: 'Nothing yet. This source is not connected.', onPick: () => {} }}
+    >
       {/* Drawn as the Doc Viewer advisor's empty state ("Ask about this
           document"): a bare thin-stroke mark, the sentence under it, nothing
           framed — centred across the page under the bar. */}
@@ -141,6 +148,6 @@ export default function LegalSourceStub() {
           </ul>
         </div>
       </section>
-    </div>
+    </LegalWorkspace>
   );
 }

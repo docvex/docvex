@@ -7,7 +7,8 @@
 // inactive, split VAT, e-Factura. This module turns CUIs into the question and
 // the answer into one flat record per company.
 
-import { anafLookup } from './platform';
+import { anafLookup, anafBilant } from './platform';
+import { cacheGet, cachePut, cachePutMany, cacheStats, cacheClear, onCacheChange, isUnreachable, sameRecord } from './sourceCache';
 
 export const ANAF_MAX = 100;
 
@@ -84,8 +85,89 @@ export async function lookupCompanies(text) {
   return { ok: true, asOf: res.asOf, companies, notFound };
 }
 
+/** The CAEN a company declared in its financial statement for `an` (the last
+ *  finished year by default): `{ ok, an, caen, caenName, found }`. Cached per
+ *  CUI and year for the session — a filed statement does not change. */
+const bilantCache = new Map();
+export function companyBilant(cui, an = new Date().getFullYear() - 1) {
+  const key = `${cui}:${an}`;
+  if (!bilantCache.has(key)) {
+    bilantCache.set(key, anafBilant({ cui, an }).then((r) => {
+      if (!r?.ok) bilantCache.delete(key);
+      return r;
+    }));
+  }
+  return bilantCache.get(key);
+}
+
+/** The company's EU identifier (EUID): the trade-register number behind
+ *  ROONRC. — "J2026039101008" → "ROONRC.J2026039101008". */
+export const euidOf = (regCom) => {
+  const r = String(regCom || '').trim();
+  return r ? `ROONRC.${r.replace(/\s+/g, '')}` : '';
+};
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+/** "2026-06-16" → "16 June 2026". */
+export const longDate = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : String(iso || '');
+};
+/** How long the company has existed: "0 years, registered in 2026". */
+export const ageOf = (iso, now = new Date()) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  if (!m) return '';
+  let years = now.getFullYear() - Number(m[1]);
+  if (now.getMonth() + 1 < Number(m[2]) || (now.getMonth() + 1 === Number(m[2]) && now.getDate() < Number(m[3]))) years -= 1;
+  years = Math.max(0, years);
+  return `${years} ${years === 1 ? 'year' : 'years'}, registered in ${m[1]}`;
+};
+
 /** "2002-01-23" → "23.01.2002". */
 export const fmtDate = (iso) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
   return m ? `${m[3]}.${m[2]}.${m[1]}` : String(iso || '');
 };
+
+// ── The copy on this machine (lib/sourceCache) ─────────────────────────────
+// Every company ANAF describes is kept; when ANAF cannot be reached, a lookup
+// is answered from the copy for the CUIs it holds — the Legislation tab's
+// archive, for company records. Each answer says where it came from:
+// `source: 'live' | 'archive'`, with `portalError` saying why.
+
+const TAB = 'anaf';
+// Fields that change on every answer without the record changing.
+const VOLATILE = ['asOf'];
+
+/** How many companies are kept, and what the copy weighs. */
+export const keptStats = () => cacheStats(TAB, 'c:');
+/** Forget everything kept. */
+export const clearKept = () => cacheClear(TAB);
+export const onKeptChange = (fn) => onCacheChange(TAB, fn);
+
+/** `lookupCompanies`, ANAF first and the copy when it cannot answer. */
+export async function lookupCompaniesKept(text) {
+  const res = await lookupCompanies(text);
+  if (res.ok) {
+    cachePutMany(TAB, res.companies.map((c) => [`c:${c.cui}`, c]));
+    return { ...res, source: 'live' };
+  }
+  if (!isUnreachable(res.error)) return res;
+  const cuis = parseCuis(text);
+  const companies = []; const notFound = []; let asOf = '';
+  for (const cui of cuis) {
+    const hit = cacheGet(TAB, `c:${cui}`);
+    if (hit) { companies.push(hit.data); if (!asOf || hit.data.asOf < asOf) asOf = hit.data.asOf; } else notFound.push(cui);
+  }
+  if (!companies.length) return res;
+  return { ok: true, asOf, companies, notFound, source: 'archive', portalError: res.error };
+}
+
+/** Whether a kept company is what ANAF says NOW: `{ state: 'same' | 'differs' | '', live }`. */
+export async function checkCompany(c) {
+  const res = await lookupCompanies(String(c.cui));
+  const live = res.ok ? res.companies[0] : null;
+  if (!live) return { state: '', live: null };
+  cachePut(TAB, `c:${live.cui}`, live);
+  return { state: sameRecord(live, c, VOLATILE) ? 'same' : 'differs', live };
+}

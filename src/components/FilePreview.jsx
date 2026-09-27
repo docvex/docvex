@@ -655,13 +655,16 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
   // live text: the text layer itself takes no pointer, only its runs do.
   const onPagesMouseDown = (e) => {
     const el = containerRef.current;
-    if (!el || e.button !== 0) return;
+    // Left or MIDDLE (the wheel press). A document of several pages scrolls,
+    // and the viewer drags its scroll on a middle press (lib/middlePan).
+    const middle = e.button === 1;
+    if (!el || (!middle && e.button !== 0)) return;
     if (e.target.closest('.dv-pagerail-card, .dv-pagerail, .dv-docpill, .dv-doc-counter')) return;
-    const onText = !!e.target.closest('.file-preview-pdf-text span');
+    const onText = !middle && !!e.target.closest('.file-preview-pdf-text span');
     // A press away from the text lets go of what was selected. Worth doing by
     // hand: on a one-page PDF the pan below calls preventDefault, which is
     // exactly what stops the browser from collapsing the selection itself.
-    if (!onText) {
+    if (!onText && !middle) {
       const sel = window.getSelection?.();
       if (sel && !sel.isCollapsed && sel.anchorNode && el.contains(sel.anchorNode)) sel.removeAllRanges();
     }

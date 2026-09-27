@@ -1,0 +1,115 @@
+/* The Legislation tab's ONE SEARCH (components/LegalOmnibox) — the dice
+   joined to the tab bar's search field (.lgt-search, LegalTabs.css), which
+   here takes the line's width instead of its fixed 256px, and the pill at its
+   end saying where Enter will go. */
+.lgo { flex: 1 1 auto; min-width: 0; max-width: 720px; display: flex; align-items: stretch; }
+/* The dice and the field are one control: the dice's right corners and the
+   field's left ones are squared where they meet. */
+.lgo-dice { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.lgo .lgo-field {
+  flex: 1 1 auto; min-width: 0;
+  width: auto; margin-left: 0;
+  border-left: 0;
+  border-top-left-radius: 0; border-bottom-left-radius: 0;
+}
+.lgo .lgo-field:focus-within { width: auto; }
+.lgo .lgo-field input { flex: 1 1 auto; min-width: 0; }
+
+/* Where Enter goes — a soft pill in the platform's tone: the site, then what
+   was read ("Legea nr. 31/1990", "CUI 14399840"). A press runs it too. */
+.lgo-route {
+  --pill-tone: var(--accent);
+  flex: 0 1 auto; min-width: 0; max-width: 40%;
+  align-self: center; margin-left: 8px;
+  display: inline-flex; align-items: center; gap: 5px;
+  height: var(--ds-pill-h, 20px); box-sizing: border-box; padding: 0 var(--ds-pill-pad, 9px);
+  border: 1px solid color-mix(in srgb, var(--pill-tone) var(--ds-pill-ring, 45%), transparent);
+  border-radius: var(--ds-pill-radius, 999px);
+  background: color-mix(in srgb, var(--pill-tone) var(--ds-pill-tint, 14%), transparent);
+  color: var(--pill-tone);
+  font: inherit; font-size: var(--ds-tag-size, 10.4px); letter-spacing: var(--ds-tag-tracking, 0.01em); line-height: 1; white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.lgo-route:hover { background: color-mix(in srgb, var(--pill-tone) calc(var(--ds-pill-tint, 14%) + 10%), transparent); }
+.lgo-route.is-anaf { --pill-tone: var(--success); }
+.lgo-route.is-portal-just { --pill-tone: var(--info); }
+.lgo-route.is-caen { --pill-tone: var(--warning); }
+.lgo-route-site { flex: none; font-weight: var(--ds-pill-weight, 650); }
+.lgo-route-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); }
+.lgo-note { align-self: center; margin-left: 8px; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.6px; color: var(--danger-text, var(--danger)); }
+
+/* ── The header's "i" ─────────────────────────────────────────────────── */
+.lgo-info {
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; padding: 0;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: 50%;
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  color: var(--text-secondary); cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.lgo-info:hover, .lgo-info.is-open { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
+.lgo-info:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lgo-info svg { display: block; }
+
+/* The list it opens — the bar's dropdown ground (.lg-menu): one accent edge,
+   rounded, fading in. */
+.lgo-pop {
+  position: fixed; z-index: 1200;
+  max-height: min(70vh, 620px); overflow-y: auto; overscroll-behavior: contain;
+  box-sizing: border-box; padding: 10px;
+  border: 1px solid var(--accent); border-radius: var(--ds-menu-radius, 8px);
+  /* The Design system's dropdown (.lg-menu): the page ground lifted a
+     touch, no shadow. */
+  background: color-mix(in srgb, var(--text-primary) 4%, var(--bg-page));
+  box-shadow: none;
+  animation: lgo-pop-in 150ms ease both;
+}
+@keyframes lgo-pop-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+html[data-reduce-motion="true"] .lgo-pop { animation: none; }
+.lgo-pop-head {
+  margin: 4px 6px 6px;
+  font-size: var(--ds-label-size, 9.6px); font-weight: 700;
+  letter-spacing: var(--ds-label-tracking, 0.07em); text-transform: uppercase;
+  color: var(--text-muted);
+}
+.lgo-pop-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.lgo-plat { display: flex; flex-direction: column; gap: 5px; padding: 8px 6px; border-bottom: 1px solid var(--ds-hairline, var(--border)); }
+.lgo-plat:last-child { border-bottom: 0; }
+.lgo-plat-main { display: flex; flex-direction: column; gap: 3px; }
+/* The "i" list only informs: its examples are shown, not pressed. */
+.lgo-pop .lgo-try { cursor: default; }
+.lgo-pop .lgo-try:hover { border-color: var(--ds-hairline, var(--border)); color: var(--text-secondary); background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent); }
+.lgo-plat-site { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 650; color: var(--text-primary); }
+.lgo-plat.is-later .lgo-plat-site { color: var(--text-secondary); }
+.lgo-plat-about { font-size: 11px; line-height: 1.45; color: var(--text-secondary); }
+.lgo-plat-pill {
+  --pill-tone: var(--text-muted);
+  display: inline-flex; align-items: center; height: var(--ds-pill-h, 20px); box-sizing: border-box; padding: 0 var(--ds-pill-pad, 9px);
+  border: 1px solid color-mix(in srgb, var(--pill-tone) var(--ds-pill-ring, 45%), transparent); border-radius: var(--ds-pill-radius, 999px);
+  background: color-mix(in srgb, var(--pill-tone) var(--ds-pill-tint, 14%), transparent);
+  color: var(--pill-tone); font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 650); letter-spacing: var(--ds-tag-tracking, 0.01em);
+}
+.lgo-plat-pill.is-live { --pill-tone: var(--success); }
+.lgo-plat-tries { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.lgo-plat-trylabel { font-size: var(--ds-label-size, 9.6px); font-weight: 700; letter-spacing: var(--ds-label-tracking, 0.07em); text-transform: uppercase; color: var(--text-muted); margin-right: 2px; }
+
+/* An example search in the "i" list — a chip, run on a press. */
+.lgo-try {
+  display: inline-flex; align-items: center; height: var(--ds-pill-h, 20px); box-sizing: border-box; padding: 0 var(--ds-pill-pad, 9px);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-pill-radius, 999px);
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+  color: var(--text-secondary); font: inherit; font-size: 10.4px; white-space: nowrap; cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.lgo-try:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
+
+/* On the start screen: the search under the title, larger. */
+.lg-start-search { width: 100%; max-width: 620px; margin-top: 14px; display: flex; justify-content: center; }
+.lgo.is-large { flex: 1 1 auto; max-width: none; }
+.lgo.is-large .lgo-dice,
+.lgo.is-large .lgo-field { height: 36px; }
+.lgo.is-large .lgo-dice { padding: 0 12px; }
+.lgo.is-large .lgo-dice svg { width: 16px; height: 16px; }
+.lgo.is-large .lgo-field { font-size: 13.6px; padding: 0 10px 0 11px; gap: 8px; }
+.lgo.is-large .lgo-route { height: 24px; font-size: 10.4px; }

@@ -118,11 +118,9 @@ export function glyphForFile(mime, name) {
 // File-type → category for the colored ext-label glyph (from the design).
 export function extCategory(ext) {
   const e = (ext || '').toLowerCase();
-  // DocVex's own record format (`<Name>.dvx`) — a party to the case. The
-  // Files tab refines this to 'identity-org' once it has read the record's
-  // kind, so a company wears a facade instead of a bust. See lib/identities.js.
-  if (e === 'dvx' || e === 'identity') return 'identity';
-  if (e === 'identity-org') return e;
+  // A Data collection (`.dvc`) — what the Files tab's AI scan gathered about
+  // one subject across the files (lib/dataCollections).
+  if (e === 'dvc') return 'collection';
   if (e === 'pdf') return 'pdf';
   // Word and everything it can save/export to (incl. templates, macro-enabled,
   // RTF and the OpenDocument / Pages equivalents).
@@ -175,24 +173,18 @@ export function ExtGlyph({ ext }) {
       </span>
     );
   }
-  // Identity records read as WHO they describe, not as a file: a person's bust
-  // for an individual, a building for an organisation.
-  if (cat === 'identity' || cat === 'identity-org') {
+  // A Data collection reads as a web of sources: three linked nodes.
+  if (cat === 'collection') {
     return (
-      <span className="fx-glyph fx-glyph-icon fx-glyph-identity">
+      <span className="fx-glyph fx-glyph-icon fx-glyph-identity fx-glyph-collection">
         <svg className="fx-type-icon" viewBox="0 0 24 24" aria-hidden="true">
           <rect className="fx-type-base" x="4.4" y="3.6" width="15.2" height="16.8" rx="2.4" />
-          {cat === 'identity' ? (
-            <g className="fx-idn-mark">
-              <circle cx="12" cy="10" r="2.6" />
-              <path d="M7.4 17.4a4.9 4.9 0 0 1 9.2 0" />
-            </g>
-          ) : (
-            <g className="fx-idn-mark">
-              <path d="M8.4 17.6V8.2h7.2v9.4" />
-              <path d="M10.4 10.6h1.2M13.4 10.6h1.2M10.4 13.2h1.2M13.4 13.2h1.2" />
-            </g>
-          )}
+          <g className="fx-idn-mark">
+            <path d="M9.4 9.6l5 1.6M9.2 11.2l2.4 4.2M14.8 12.6l-2.2 3" />
+            <circle cx="8.6" cy="9.2" r="1.5" />
+            <circle cx="15.6" cy="11.6" r="1.5" />
+            <circle cx="12" cy="16.4" r="1.5" />
+          </g>
         </svg>
       </span>
     );

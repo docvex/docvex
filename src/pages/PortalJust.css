@@ -1,10 +1,8 @@
 /* Court files — portal.just.ro, in DocVex's own typography. Semantic tokens
    only; a sibling of the Legislation page, laid out the same way. */
 
-.pj-page { --lgt-page-gap: 20px; display: flex; flex-direction: column; gap: var(--lgt-page-gap); padding-bottom: 64px; }
-@media (min-width: 1024px) { /* 1280px pre-scale */
-  .pj-page { width: min(100%, var(--content-max-width, 1280px)); }
-}
+/* The page frame (gap, width, bottom space) is the workspace's —
+   components/LegalWorkspace.css (.lws). */
 
 .pj-mast-meta {
   display: flex; align-items: center; gap: 16px;
@@ -32,41 +30,46 @@
 .pj-btn {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 6px 12px;
-  border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg-card); color: var(--text-primary);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  background: var(--ds-card-fill, transparent); color: var(--text-primary);
   font: inherit; font-size: 11.2px; font-weight: 600; cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
 }
-.pj-btn:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
+.pj-btn:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); border-color: var(--border-strong); }
 
 /* ── Results ──────────────────────────────────────────────────────────── */
 .pj-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .pj-row {
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  background: var(--ds-card-fill, transparent); border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  transition: border-color 120ms ease, background 120ms ease;
 }
-.pj-row:hover { border-color: var(--border-strong); box-shadow: var(--shadow-card); }
+.pj-row:hover { border-color: var(--border-strong); background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent); }
 .pj-row-main {
   width: 100%; display: flex; flex-direction: column; gap: 4px;
-  padding: 12px 14px; border: 0; border-radius: 12px;
+  padding: calc(12px * var(--ds-row-density, 1)) 14px; border: 0; border-radius: var(--ds-row-radius, 8px);
   background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .pj-row-top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.pj-row-nr { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.pj-row-nr { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .pj-row-court { font-size: 11.2px; color: var(--text-secondary); }
 .pj-row-obj { font-size: 12.8px; color: var(--text-primary); line-height: 1.4; overflow-wrap: anywhere; }
 .pj-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 11.2px; color: var(--text-muted); }
 .pj-next { color: var(--success); font-weight: 600; }
 .pj-tag {
-  padding: 0 7px; border-radius: 999px;
-  background: var(--info-soft); color: var(--info);
-  font-size: 9.6px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  --pill-tone: var(--info);
+  display: inline-flex; align-items: center; height: var(--ds-pill-h, 20px); box-sizing: border-box;
+  padding: 0 var(--ds-pill-pad, 9px);
+  border: 1px solid color-mix(in srgb, var(--pill-tone) var(--ds-pill-ring, 45%), transparent);
+  border-radius: var(--ds-pill-radius, 999px);
+  background: color-mix(in srgb, var(--pill-tone) var(--ds-pill-tint, 14%), transparent);
+  color: var(--pill-tone);
+  font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 650); letter-spacing: var(--ds-tag-tracking, 0.01em); line-height: 1; white-space: nowrap;
 }
-.pj-tag.is-stage { background: var(--accent-soft); color: var(--accent); }
+.pj-tag.is-stage { --pill-tone: var(--accent); }
 
 /* ── A court's day ────────────────────────────────────────────────────── */
 .pj-docket { display: flex; flex-direction: column; gap: 10px; }
-.pj-sitting { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.pj-sitting { background: var(--ds-card-fill, transparent); border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px); overflow: hidden; }
 .pj-sitting-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .pj-sitting-dept { font-family: var(--font-display); font-size: 13px; font-weight: 650; color: var(--text-primary); }
 .pj-sitting-meta { font-size: 11.2px; color: var(--text-muted); }
@@ -77,22 +80,22 @@
   background: transparent; color: var(--text-secondary);
   font: inherit; font-size: 12px; text-align: left; cursor: pointer;
 }
-.pj-sitting-row:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.pj-sitting-row:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); color: var(--text-primary); }
 .pj-sitting-hour { flex: none; min-width: 40px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
 .pj-sitting-nr { flex: none; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
 .pj-sitting-kind { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── The file ─────────────────────────────────────────────────────────── */
-.pj-reader-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .pj-file {
   display: flex; flex-direction: column; gap: 20px;
-  max-width: 82ch; padding: 26px 30px 30px;
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
-  box-shadow: var(--shadow-card);
+  /* On the page ground: no frame, no corners, no inset of its own. */
+  max-width: none; padding: 0;
+  background: transparent; border: 0; border-radius: 0;
+  box-shadow: var(--ds-card-shadow, none);
 }
 .pj-file-head { padding-bottom: 16px; border-bottom: 1px solid var(--border); }
 .pj-file-kind { font-size: 10.4px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--accent); }
-.pj-file-nr { margin: 6px 0 6px; font-family: var(--font-display); font-size: 28px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.pj-file-nr { margin: 6px 0 6px; font-family: var(--font-display); font-size: 28px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; color: var(--text-primary); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .pj-file-obj { margin: 0 0 10px; font-size: 14.4px; line-height: 1.45; color: var(--text-primary); }
 .pj-file-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 11.2px; color: var(--text-muted); }
 
@@ -125,6 +128,7 @@
 
 .pj-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
 .pj-note.is-bad { color: var(--danger-text); }
+.pj-note.is-warn { color: var(--warning); }
 .pj-empty { padding: 48px 0; text-align: center; }
 .pj-empty-title { margin: 0; font-family: var(--font-display); font-size: 17.6px; font-weight: 650; color: var(--text-primary); }
 .pj-empty-sub { margin: 6px auto 0; max-width: 46ch; font-size: 12.8px; line-height: 1.6; color: var(--text-muted); }

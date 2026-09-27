@@ -111,3 +111,5 @@ landing/dist/
 
 # OCR engine runtime files, copied from node_modules by scripts/copy-ocr-assets.mjs (postinstall)
 /public/ocr/
+# Face-recognition models, copied from node_modules by scripts/copy-face-assets.mjs (postinstall)
+/public/faces/

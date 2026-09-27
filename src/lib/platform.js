@@ -347,6 +347,19 @@ export function setDocViewerAiStatus(busy) {
 export function onDocViewerTabs(cb) {
   return electronAPI?.onDocViewerTabs ? electronAPI.onDocViewerTabs(cb) : (() => {});
 }
+// A tab in a SEPARATE WINDOW (desktop only): open one at a route, list the
+// ones open, follow them, focus one, and DOCK one — close it and bring what it
+// showed back into the main window. This window's own route is reported with
+// `reportTabWindowRoute` (only a tab window reports).
+export const isTabWindow = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tabWindow') === '1';
+export function openTabWindow(route, title = '') { electronAPI?.openTabWindow?.(route, title); }
+export function listTabWindows() { return electronAPI?.listTabWindows ? electronAPI.listTabWindows() : Promise.resolve([]); }
+export function onTabWindows(cb) { return electronAPI?.onTabWindows ? electronAPI.onTabWindows(cb) : (() => {}); }
+export function reportTabWindowRoute(route, title) { if (isTabWindow) electronAPI?.reportTabWindowRoute?.(route, title); }
+export function focusTabWindow(id) { electronAPI?.focusTabWindow?.(id); }
+export function dockTabWindow(id) { electronAPI?.dockTabWindow?.(id); }
+export const canOpenTabWindow = !!electronAPI?.openTabWindow;
+
 export function focusDocViewerTab(id) {
   electronAPI?.focusDocViewerTab?.(id);
 }
@@ -474,8 +487,48 @@ export function courtsSearch(query) {
 export function courtsHearings(query) {
   return legisCall('courtsHearings', query, LEGIS_DOWN);
 }
+export function anafBilant(payload) {
+  return legisCall('anafBilant', payload, LEGIS_DOWN);
+}
 export function anafLookup(payload) {
   return legisCall('anafLookup', payload, LEGIS_DOWN);
+}
+
+// Upload from a phone over the local network — desktop only. A main process
+// started before this existed answers `stale_app` (restart npm start).
+export async function phoneUploadStart(payload) {
+  if (!electronAPI?.phoneUploadStart) return { ok: false, error: isElectron ? 'stale_app' : 'unsupported' };
+  try { return await electronAPI.phoneUploadStart(payload); } catch (err) {
+    return { ok: false, error: /No handler registered/i.test(String(err?.message)) ? 'stale_app' : 'failed' };
+  }
+}
+export function phoneUploadStop(token) {
+  try { return electronAPI?.phoneUploadStop?.(token); } catch { return null; }
+}
+export function phoneUploadHold(payload) {
+  try { return electronAPI?.phoneUploadHold?.(payload) || null; } catch { return null; }
+}
+export async function phoneUploadPending(payload) {
+  try { return (await electronAPI?.phoneUploadPending?.(payload)) || []; } catch { return []; }
+}
+// Windows Firewall: does it let phones in? `{ allow: true }` asks Windows to.
+export async function phoneUploadFirewall(payload) {
+  try { return (await electronAPI?.phoneUploadFirewall?.(payload)) || { ok: false }; } catch { return { ok: false }; }
+}
+export async function phoneUploadHoldFile(payload) {
+  try { return (await electronAPI?.phoneUploadHoldFile?.(payload)) || { ok: false }; } catch { return { ok: false }; }
+}
+export async function phoneUploadRelease(payload) {
+  try { return (await electronAPI?.phoneUploadRelease?.(payload)) || { ok: false }; } catch { return { ok: false }; }
+}
+export async function phoneUploadAccept(id) {
+  try { return (await electronAPI?.phoneUploadAccept?.(id)) || { ok: false }; } catch { return { ok: false }; }
+}
+export async function phoneUploadReject(id) {
+  try { return (await electronAPI?.phoneUploadReject?.(id)) || { ok: false }; } catch { return { ok: false }; }
+}
+export function onPhoneUploadEvent(cb) {
+  return electronAPI?.onPhoneUploadEvent ? electronAPI.onPhoneUploadEvent(cb) : () => {};
 }
 
 export function extractDocText(filePath) {

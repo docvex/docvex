@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import Tooltip from './Tooltip';
 import { toLayoutPx, createWheelZoom, zoomFactorOf, ZOOM_SETTLE_MS } from '../lib/appZoom';
+import { detectPageQuad, enhanceScan, scanToPdf } from '../lib/docScan';
 import './PhotoEditor.css';
 
 // The Doc Viewer's photo editor — what a phone photograph of a document needs
@@ -15,8 +16,17 @@ import './PhotoEditor.css';
 // Nothing here touches the file until Save: the editor works on a downscaled
 // PREVIEW of the rotated image, and the crop is kept in coordinates normalised
 // to it (0…1), so the same geometry is replayed on the full-resolution pixels
-// when saving. `onSave({ blob, ext, replace })` does the writing — this
+// when saving. `onSave({ blob, ext, replace, suffix })` does the writing — this
 // component knows nothing about folders.
+//
+// SCAN mode (`scan`, the "Scan" quick action — a phone's document scanner):
+// opens on the four-point crop with the page's corners ALREADY FOUND
+// (lib/docScan detectPageQuad; the whole picture when nothing page-like stands
+// out), every corner still draggable with the loupe; the result is flattened AND
+// cleaned (enhanceScan: shadows and colour casts divided out, ink deepened) in
+// one of four looks — Auto, Greyscale, Black & white, Original — shown live in
+// the Result preview; saved as a PDF (the default, as a scanner does) or a
+// picture, beside the original as "<name> (scan)".
 
 const PREVIEW_EDGE = 1600;   // longest side of the on-screen working copy
 const OUTPUT_EDGE = 5000;    // longest side written out (a 12 MP photo fits whole)
@@ -36,6 +46,13 @@ function snapAngle(v) {
 }
 const HIST_MAX = 40;        // undo steps kept; a crop editor needs no more
 const PREVIEW_OUT = 520;    // longest side of the flattened four-point preview
+const SCAN_EDGE = 3508;     // a scan's longest side: A4 at 300 dpi
+const SCAN_FILTERS = [
+  { id: 'auto', label: 'Auto', tip: 'Shadows and colour casts removed, colours kept' },
+  { id: 'grey', label: 'Greyscale', tip: 'Evened out, in shades of grey' },
+  { id: 'bw', label: 'Black & white', tip: 'Crisp black text on white — the smallest file' },
+  { id: 'original', label: 'Original', tip: 'Flattened only, the light as photographed' },
+];
 const LOUPE_SIZE = 132;     // the loupe's own pixels
 const LOUPE_SCALE = 3.4;    // how much bigger than the working canvas it shows
 const LOUPE_LIFT = 108;     // how far above the cursor it rides (below, near the top)
@@ -196,6 +213,7 @@ const ICONS = {
   right: ['M21 12a9 9 0 1 1-3-6.7', 'M21 4v5h-5'],
   rect: ['M4 5h16v14H4z'],
   points: ['M4 4h3', 'M4 4v3', 'M20 4h-3', 'M20 4v3', 'M4 20h3', 'M4 20v-3', 'M20 20h-3', 'M20 20v-3'],
+  detect: ['M4 7V4h3', 'M17 4h3v3', 'M20 17v3h-3', 'M7 20H4v-3', 'M8 9h8', 'M8 12h8', 'M8 15h5'],
 };
 
 // `fromRect` — where the PREVIEW's picture was on screen (a viewport rect) the
@@ -205,13 +223,17 @@ const ICONS = {
 // the side panel), so the placing is MEASURED rather than derived. Deriving it
 // from matching CSS was tried twice and is too brittle — an 8px inset on one
 // side is enough to shift and rescale the picture.
-export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSave }) {
+export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSave, scan = false }) {
   const format = outputFormat(name);
   const [img, setImg] = useState(null);
   const [loadError, setLoadError] = useState(false);
   const [turns, setTurns] = useState(0);              // quarter-turns committed
   const [angle, setAngle] = useState(0);              // straighten, degrees
-  const [mode, setMode] = useState('rect');           // 'rect' | 'points'
+  const [mode, setMode] = useState(scan ? 'points' : 'rect');   // 'rect' | 'points'
+  const [scanFilter, setScanFilter] = useState('auto');
+  const scanFilterRef = useRef(scanFilter);
+  scanFilterRef.current = scanFilter;
+  const [detected, setDetected] = useState(null);   // scan: true | false once looked for
   const [rect, setRect] = useState(FULL_FRAME);
   const [quad, setQuad] = useState(EDGE_QUAD);
   const quadRef = useRef(quad);
@@ -366,8 +388,11 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
   // Drag the picture about, at ANY zoom — except on the crop's own outline and
   // handles, which have their own drags.
   const onStagePointerDown = (e) => {
-    if (e.button !== 0) return;
-    if (e.target.closest('.phe-shape, .phe-knob, .phe-point, .phe-zoom')) return;
+    // Left or MIDDLE (the wheel press); the middle one pans even from the
+    // crop's outline and handles.
+    const middle = e.button === 1;
+    if (!middle && e.button !== 0) return;
+    if (!middle && e.target.closest('.phe-shape, .phe-knob, .phe-point, .phe-zoom')) return;
     e.preventDefault();
     const x0 = e.clientX; const y0 = e.clientY;
     const from = panRef.current;
@@ -478,12 +503,15 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
       PREVIEW_OUT,
       format.opaque,
     );
-    setPreview(out ? out.toDataURL('image/png') : null);
-  }, [format.opaque]);
+    const shown = out && scan ? enhanceScan(out, scanFilterRef.current) : out;
+    setPreview(shown ? shown.toDataURL(scan ? 'image/jpeg' : 'image/png', 0.9) : null);
+  }, [format.opaque, scan]);
   // Leaving the mode, turning the picture or starting over drops it — it would
   // be a picture of a shape that no longer exists.
   useEffect(() => { if (mode !== 'points') setPreview(null); }, [mode]);
   useEffect(() => { setPreview(null); }, [turns, angle, url]);
+  // Scan: a new look is shown at once.
+  useEffect(() => { if (scan && mode === 'points') makePreview(); }, [scanFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── The loupe ───────────────────────────────────────────────────────────
   // A corner is put on a corner of the PAGE, and a finger or a cursor covers
@@ -639,6 +667,23 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
     h.past.push(h.last);
     applyStep(h.future.pop());
   }, [applyStep]);
+  // Scan: find the page's corners on the working copy — once it is painted,
+  // and again after a quarter-turn (the corners are relative to the turned
+  // picture). Not an undo step on its own: it is where the editor STARTS.
+  const findCorners = useCallback(() => {
+    const src = canvasRef.current;
+    if (!src?.width || src.width < 2) return;
+    let q = null;
+    try { q = detectPageQuad(src); } catch { q = null; }
+    setQuad(q || EDGE_QUAD);
+    setDetected(!!q);
+    window.setTimeout(makePreview, 0);
+  }, [makePreview]);
+  useEffect(() => {
+    if (!scan || !img || base.w < 2) return undefined;
+    const t = window.setTimeout(() => { histRef.current.applying = true; findCorners(); }, 0);
+    return () => window.clearTimeout(t);
+  }, [scan, img, base.w, base.h, turns]); // eslint-disable-line react-hooks/exhaustive-deps
   const canUndo = histRef.current.past.length > 0;
   const canRedo = histRef.current.future.length > 0;
 
@@ -657,15 +702,30 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
   }, [busy, onCancel, undo, redo]);
 
   // ── Save ────────────────────────────────────────────────────────────────
-  const save = useCallback(async (replace) => {
+  const save = useCallback(async (replace, as = null) => {
     if (!img || busy) return;
-    setBusy(replace ? 'replace' : 'copy');
+    setBusy(as === 'pdf' ? 'pdf' : as === 'image' ? 'image' : replace ? 'replace' : 'copy');
     setError(null);
     // Let "Saving…" paint before the pixel loop takes the thread.
     await new Promise((resolve) => { window.setTimeout(resolve, 30); });
     try {
       const full = renderBase(img, turns, angle, OUTPUT_EDGE, format.opaque);
       let out;
+      if (scan) {
+        const flat = warpQuad(full, quad.map(([x, y]) => [x * (full.width - 1), y * (full.height - 1)]), SCAN_EDGE, true);
+        if (!flat) throw new Error('Those four points don’t make a shape that can be flattened — spread them out.');
+        await new Promise((resolve) => { window.setTimeout(resolve, 0); });
+        const clean = enhanceScan(flat, scanFilter);
+        if (as === 'pdf') {
+          await onSave?.({ blob: await scanToPdf(clean), ext: 'pdf', replace: false, suffix: 'scan' });
+          return;
+        }
+        const png = scanFilter === 'bw';   // black & white compresses far better losslessly
+        const blob = await new Promise((resolve) => { clean.toBlob(resolve, png ? 'image/png' : 'image/jpeg', 0.9); });
+        if (!blob) throw new Error('The scan couldn’t be encoded.');
+        await onSave?.({ blob, ext: png ? 'png' : 'jpg', replace: false, suffix: 'scan' });
+        return;
+      }
       if (mode === 'points') {
         out = warpQuad(full, quad.map(([x, y]) => [x * (full.width - 1), y * (full.height - 1)]), OUTPUT_EDGE, format.opaque);
         if (!out) throw new Error('Those four points don’t make a shape that can be flattened — spread them out.');
@@ -693,7 +753,7 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
       setBusy(null);
       setConfirmReplace(false);
     }
-  }, [img, busy, turns, angle, mode, rect, quad, format, onSave]);
+  }, [img, busy, turns, angle, mode, rect, quad, format, onSave, scan, scanFilter]);
 
   // ── Overlay geometry (in the working canvas's pixel space) ──────────────
   const W = base.w;
@@ -762,7 +822,7 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
           size it was outside the editor. */}
       <div className="phe-chrome">
         <div className={`phe-bar${barIn ? ' is-in' : ''}`} ref={barRef}>
-          <h3 className="phe-bartitle">Edit controls</h3>
+          <h3 className="phe-bartitle">{scan ? 'Scan document' : 'Edit controls'}</h3>
           <div className="phe-barrow">
             <div className="phe-group">
               <Tooltip content="Step back (Ctrl+Z)">
@@ -792,7 +852,23 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
                 <output>{angle > 0 ? '+' : ''}{angle.toFixed(1)}°</output>
               </label>
             </div>
-            <div className="phe-group" role="radiogroup" aria-label="Crop">
+            {scan && (
+              <div className="phe-group" role="radiogroup" aria-label="Look">
+                {SCAN_FILTERS.map((f) => (
+                  <Tooltip key={f.id} content={f.tip}>
+                    <button type="button" role="radio" aria-checked={scanFilter === f.id} className={`phe-btn is-wide${scanFilter === f.id ? ' is-on' : ''}`} onClick={() => setScanFilter(f.id)} disabled={!!busy}>
+                      <span>{f.label}</span>
+                    </button>
+                  </Tooltip>
+                ))}
+                <Tooltip content="Find the page’s edges again">
+                  <button type="button" className="phe-btn is-wide" onClick={() => { markStep(); findCorners(); }} disabled={!img || !!busy}>
+                    <Icon d={ICONS.detect} /><span>Detect edges</span>
+                  </button>
+                </Tooltip>
+              </div>
+            )}
+            <div className="phe-group" role="radiogroup" aria-label="Crop" hidden={scan}>
               <Tooltip content="An ordinary crop: a box you resize">
                 <button type="button" role="radio" aria-checked={mode === 'rect'} className={`phe-btn is-wide${mode === 'rect' ? ' is-on' : ''}`} onClick={() => { markStep(); setMode('rect'); }} disabled={!!busy}>
                   <Icon d={ICONS.rect} /><span>Rectangle</span>
@@ -815,6 +891,22 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
                 </button>
               </Tooltip>
             </div>
+            {scan ? (
+              <div className="phe-group is-end">
+                <Tooltip content={showResult ? 'Hide the result' : 'Show the scan as it will be saved'}>
+                  <button type="button" className={`phe-btn is-wide${showResult ? ' is-on' : ''}`} aria-pressed={showResult} onClick={() => setShowResult((on) => !on)} disabled={!!busy}>
+                    <Icon d={ICONS.rect} /><span>Result</span>
+                  </button>
+                </Tooltip>
+                <button type="button" className="phe-btn is-wide" onClick={() => onCancel?.()} disabled={!!busy}>Cancel</button>
+                <button type="button" className="phe-btn is-wide" disabled={!img || !!busy} onClick={() => save(false, 'image')}>
+                  {busy === 'image' ? 'Saving…' : 'Save as image'}
+                </button>
+                <button type="button" className="phe-btn is-wide is-primary" disabled={!img || !!busy} onClick={() => save(false, 'pdf')}>
+                  {busy === 'pdf' ? 'Saving…' : 'Save as PDF'}
+                </button>
+              </div>
+            ) : (
             <div className="phe-group is-end">
               <button type="button" className="phe-btn is-wide" onClick={() => onCancel?.()} disabled={!!busy}>Cancel</button>
               {format.canReplace && (
@@ -831,6 +923,7 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
                 {busy === 'copy' ? 'Saving…' : 'Save a copy'}
               </button>
             </div>
+            )}
           </div>
         </div>
         {/* Under the sleeve: the zoom pill at the left, the flattened result at
@@ -882,6 +975,7 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
           className={`phe-view${panning ? ' is-panning' : ''}`}
           ref={viewRef}
           onPointerDown={onStagePointerDown}
+          onPointerDownCapture={(e) => { if (e.button === 1) { e.stopPropagation(); onStagePointerDown(e); } }}
         >
           {loadError ? (
             <p className="phe-error">This picture couldn’t be opened for editing.</p>
@@ -984,10 +1078,15 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
       {error && <p className="phe-error" role="alert">{error}</p>}
 
       <p className="phe-hint">
-        {mode === 'points'
+        {scan
+          ? (detected === false
+            ? 'No page edges stood out — drag each corner onto a corner of the page. '
+            : 'The page’s edges were found — drag any corner that is off. ')
+            + 'Saving flattens the page and evens out its light.'
+          : mode === 'points'
           ? 'Drag each corner onto a corner of the page. Saving flattens that shape into a straight-on rectangle.'
           : 'Drag the handles to crop, or the box to move it. Double-click the Straighten slider to zero it.'}
-        {!format.canReplace && ' This format can’t be written back, so the result is saved as a JPEG copy.'}
+        {!scan && !format.canReplace && ' This format can’t be written back, so the result is saved as a JPEG copy.'}
       </p>
     </div>
   );

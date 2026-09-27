@@ -23,12 +23,24 @@
 let dataPromise = null;
 let notesPromise = null;
 const oldPromise = { 1: null, 2: null };
+// What has LOADED, readable synchronously: a page mounting after the first
+// load starts with its trees and notes in hand instead of a "Loading…" frame.
+const loaded = { 1: null, 2: null, 3: null };
+let loadedNotes = null;
+export const peekCaenRev = (rev) => loaded[Number(rev)] || null;
+export const peekCaenNotes = () => loadedNotes;
+/** Every tree whose load has finished, by revision. */
+export const peekCaenTrees = () => {
+  const out = {};
+  for (const r of [1, 2, 3]) if (loaded[r]) out[r] = loaded[r];
+  return out;
+};
 
 /** The structure: `{ rev: 3, sections, items: { code: { l, n, p } }, rev2: { code: { n, to } } }`. */
 export function loadCaen() {
   if (!dataPromise) {
     dataPromise = import('./caenRev3.json')
-      .then((m) => ({ rev: 3, ...(m.default || m) }))
+      .then((m) => (loaded[3] = { rev: 3, ...(m.default || m) }))
       .catch((err) => { dataPromise = null; throw err; });
   }
   return dataPromise;
@@ -46,7 +58,7 @@ export function loadCaenRev(rev) {
   if (r === 3 || !REV_INFO[r]) return loadCaen();
   if (!oldPromise[r]) {
     oldPromise[r] = (r === 2 ? import('./caenRev2.json') : import('./caenRev1.json'))
-      .then((m) => m.default || m)
+      .then((m) => (loaded[r] = m.default || m))
       .catch((err) => { oldPromise[r] = null; throw err; });
   }
   return oldPromise[r];
@@ -94,7 +106,7 @@ export function caenPrev(trees, rev, code) {
 export function loadCaenNotes() {
   if (!notesPromise) {
     notesPromise = import('./caenRev3Notes.json')
-      .then((m) => m.default || m)
+      .then((m) => (loadedNotes = m.default || m))
       .catch((err) => { notesPromise = null; throw err; });
   }
   return notesPromise;
@@ -194,8 +206,8 @@ export function resolveCaen(data, code, rev) {
 export function searchCaen(data, query, { limit = 80 } = {}) {
   const q = String(query || '').trim();
   if (!q || !data) return [];
-  const digits = /^d{1,4}$/.test(q.replace(/[s.]/g, '')) ? q.replace(/[s.]/g, '') : '';
-  const words = digits ? [] : fold(q).split(/s+/).filter(Boolean);
+  const digits = /^\d{1,4}$/.test(q.replace(/[\s.]/g, '')) ? q.replace(/[\s.]/g, '') : '';
+  const words = digits ? [] : fold(q).split(/\s+/).filter(Boolean);
   const matches = (code, name) => (digits
     ? code.startsWith(digits)
     : (words.every((w) => fold(name).includes(w)) || (words.length === 1 && fold(code) === words[0])));

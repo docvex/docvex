@@ -14,6 +14,8 @@ import { aiSearchFiles } from '../lib/aiFileSearch';
 import { FOLDER_COLOR_PRESETS, loadFolderColors, persistFolderColors } from '../lib/folderColors';
 import { miniHeaderSpot } from '../lib/miniHeaderSpot';
 import MiniHeaderFade from './MiniHeaderFade';
+import { BarPicker } from './LegalBar';
+import './LegalBar.css';
 import './FilesWorkspace.css';
 
 // Platform hint for the search shortcut chip (⌘F on macOS, Ctrl F elsewhere).
@@ -290,9 +292,8 @@ const FX_LIST_THRESHOLD = 100;
 const FX_GROUPS = [
   { key: 'trash', label: 'Trash', icon: 'trash' },
   { key: 'folders', label: 'Folders & compressed folders', icon: 'folder' },
-  // The parties to the case. Records are ordinary files sitting among the
-  // documents — this section is what gathers them, instead of a folder.
-  { key: 'identities', label: 'Identities', icon: 'identity' },
+  // What the AI scan made of the files — one per subject.
+  { key: 'collections', label: 'Data collections', icon: 'sparkles' },
   { key: 'media', label: 'Media', icon: 'image' },
   { key: 'office', label: 'Office documents', icon: 'file-doc' },
   { key: 'other', label: 'Other files', icon: 'inbox' },
@@ -456,7 +457,30 @@ function trashHoverContent(item) {
 // offer Restore + Delete forever; in drafts, the usual Open / Rename /
 // Properties / Open-file-location / Delete. Falsy entries collapse via
 // useMorphPill's filter.
-function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onCreateIdentityFrom }) {
+function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onToggleScanTag, onIncoming, incomingCount = 0 }) {
+  // A file a phone sent that is WAITING to be let in (ProjectFiles
+  // incomingItems): its own decisions, and nothing that would treat it as a
+  // project file before it is one.
+  if (item.incoming) {
+    return [
+      { key: 'accept', label: 'Accept — add to this folder', onClick: () => onIncoming?.(item, 'accept') },
+      {
+        key: 'reject',
+        label: 'Reject',
+        danger: true,
+        onClick: () => onIncoming?.(item, 'reject'),
+        confirm: {
+          count: 1,
+          subtitle: 'Not added to the project',
+          title: 'Reject this file?',
+          message: `“${item.name}” will be deleted from this computer. Your phone still has it.`,
+          confirmLabel: 'Reject',
+          cancelLabel: 'Cancel',
+        },
+      },
+      { key: 'props', label: 'Properties', onClick: () => onProperties?.(item) },
+    ];
+  }
   // The Recycle bin entry opens the bin; when it holds files it can also be
   // emptied (permanent delete of everything inside).
   if (item.binEntry) {
@@ -544,14 +568,14 @@ function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onPropertie
     !bulk && canEdit && { key: 'rename', label: 'Rename',  onClick: () => onRename?.(item) },
     canEdit && onCopy && { key: 'copy', label: bulk ? `Copy ${bulkCount} items` : 'Copy', onClick: () => onCopy?.(item) },
     canEdit && onCut && { key: 'cut', label: bulk ? `Cut ${bulkCount} items` : 'Cut', onClick: () => onCut?.(item) },
-    // Scan the document(s) and write an identity record for each party found —
-    // an ID card, a certificate, a contract. With several files selected they
-    // are read together, so the two sides of one card make one record. Not
-    // offered on a record itself: it already is one.
-    canEdit && onCreateIdentityFrom && !String(item.ext || '').startsWith('identity') && {
-      key: 'create-identity',
-      label: bulk ? `Create identity from ${bulkCount} files` : 'Create identity',
-      onClick: () => onCreateIdentityFrom?.(item),
+    // The AI scan reads only what is tagged (lib/scanTags); a folder is tagged
+    // with everything under it.
+    onToggleScanTag && !item.binEntry && {
+      key: 'scan-tag',
+      label: item.scanTagged
+        ? (bulk ? `Remove ${bulkCount} from AI scan` : 'Remove from AI scan')
+        : (bulk ? `Tag ${bulkCount} for AI scan` : isFolder ? 'Tag folder for AI scan' : 'Tag for AI scan'),
+      onClick: () => onToggleScanTag(item, !item.scanTagged),
     },
     { key: 'props',  label: 'Properties',         onClick: () => onProperties?.(item) },
     localPath && { key: 'loc', label: 'Open file location', onClick: () => onOpenLocation?.(item) },
@@ -637,8 +661,44 @@ function InlineNameInput({ initial = '', placeholder, onCommit, onCancel, classN
   );
 }
 
+// The download mark on a waiting phone file — a click lets it in.
+function IncomingMark() {
+  return (
+    <span className="fx-incoming-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11" /><path d="m7 10 5 5 5-5" /><path d="M5 20h14" /></svg>
+    </span>
+  );
+}
+
+// A file tile to the letter of the Files tab's, for other surfaces (the Import
+// window's arrivals): the same markup and classes, the thumbnail and the name,
+// without the menus, selection or drag. `children` rides in the thumb (a
+// progress ring, a mark). Put it in an `.fx-grid` for the Files tab's layout.
+export function FileTile({ item, className = '', onClick, onDoubleClick, children }) {
+  return (
+    <button type="button" className={`fx-tile${className ? ` ${className}` : ''}`} onClick={onClick} onDoubleClick={onDoubleClick}>
+      <span className="fx-tile-thumb" data-office={officeStripe(item) ? '' : undefined} style={officeStripe(item)}>
+        <ItemThumbnail item={item} />
+        {children}
+      </span>
+      <span>
+        <span className="fx-tile-name"><DisplayName item={item} /></span>
+      </span>
+    </button>
+  );
+}
+
 // ── Tile ──────────────────────────────────────────────────────────────
-function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onCreateIdentityFrom, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
+// The AI mark on a file or folder tagged for the AI scan (lib/scanTags).
+function ScanMark() {
+  return (
+    <span className="fx-scan-mark" aria-label="Tagged for AI scan">
+      <Icon name="sparkles" size={10} filled />
+    </span>
+  );
+}
+
+function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onToggleScanTag, onIncoming, incomingCount, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
   const isDropTarget = isFolder && dropFolderId === item.id;
@@ -648,8 +708,8 @@ function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, 
   const morph = useMorphPill({
     // WhatsApp files use the SAME plain name pill as every other file (the
     // old rich "recognised as WhatsApp convo" hover pill was removed).
-    hoverContent: tab === 'trash' && !item.binEntry ? trashHoverContent(item) : item.name,
-    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut, onCreateIdentityFrom }),
+    hoverContent: item.incoming ? `${item.name} — from your phone. Click to add it` : tab === 'trash' && !item.binEntry ? trashHoverContent(item) : item.name,
+    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut, onToggleScanTag, onIncoming, incomingCount }),
     // WhatsApp exports get a "recognised as WhatsApp convo" header; folders get
     // a colour-swatch row atop their menu (both shown if it's a WhatsApp folder).
     menuHeader: whatsappMenuHeader(item, isFolder, canEdit, folderColor, onSetColor),
@@ -671,14 +731,14 @@ function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, 
       <button
         type="button"
         data-fx-id={item.id}
-        className={`fx-tile${isFolder ? ' is-folder' : ''}${selected ? ' is-selected' : ''}${status === 'deleted' ? ' is-deleted' : ''}${isDropTarget ? ' is-droptarget' : ''}${isBinDrop ? ' is-bindrop' : ''}${isCut ? ' is-cut' : ''}`}
-        onClick={(e) => onSelect(item, e)}
-        onDoubleClick={(e) => onOpen(item, e)}
+        className={`fx-tile${isFolder ? ' is-folder' : ''}${selected ? ' is-selected' : ''}${status === 'deleted' ? ' is-deleted' : ''}${isDropTarget ? ' is-droptarget' : ''}${isBinDrop ? ' is-bindrop' : ''}${isCut ? ' is-cut' : ''}${item.incoming ? ' is-incoming' : ''}`}
+        onClick={(e) => (item.incoming ? onIncoming?.(item, 'accept') : onSelect(item, e))}
+        onDoubleClick={(e) => { if (!item.incoming) onOpen(item, e); }}
         onMouseMove={morph.handleMouseMove}
         onMouseLeave={morph.handleMouseLeave}
         onContextMenu={(e) => { e.stopPropagation(); morph.handleContextMenu(e); }}
-        draggable={draggable && !item.binEntry ? true : undefined}
-        onDragStart={draggable && !item.binEntry ? (e) => beginItemDrag?.(item, e) : undefined}
+        draggable={draggable && !item.binEntry && !item.incoming ? true : undefined}
+        onDragStart={draggable && !item.binEntry && !item.incoming ? (e) => beginItemDrag?.(item, e) : undefined}
         onDragEnd={draggable && !item.binEntry ? () => endItemDrag?.() : undefined}
         onDragOver={isFolder ? (e) => onFolderDragOver?.(item, e) : undefined}
         onDragLeave={isFolder ? () => onFolderDragLeave?.(item) : undefined}
@@ -688,6 +748,8 @@ function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, 
         {tab === 'trash' && <CountdownRing days={item.deletesInDays} size={20} className="fx-tile-countdown" />}
         <span className="fx-tile-thumb" data-office={officeStripe(item) ? "" : undefined} style={officeStripe(item)}>
           {isFolder ? <FolderOrBinGlyph item={item} color={folderColor} /> : <ItemThumbnail item={item} />}
+          {item.scanTagged && <ScanMark />}
+          {item.incoming && <IncomingMark />}
         </span>
         <span>
           <span className="fx-tile-name">
@@ -730,7 +792,7 @@ function NewFileTile({ onCommit, onCancel }) {
 }
 
 // ── List row ──────────────────────────────────────────────────────────
-function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onCreateIdentityFrom, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
+function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onToggleScanTag, onIncoming, incomingCount, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
   const isBin = tab === 'trash';
@@ -740,8 +802,8 @@ function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, o
   const folderColor = isFolder && !item.binEntry ? folderColors?.[item.id] : undefined;
   const morph = useMorphPill({
     // WhatsApp files use the SAME plain name pill as every other file.
-    hoverContent: isBin && !item.binEntry ? trashHoverContent(item) : item.name,
-    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut, onCreateIdentityFrom }),
+    hoverContent: item.incoming ? `${item.name} — from your phone. Click to add it` : isBin && !item.binEntry ? trashHoverContent(item) : item.name,
+    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut, onToggleScanTag, onIncoming, incomingCount }),
     menuHeader: whatsappMenuHeader(item, isFolder, canEdit, folderColor, onSetColor),
   });
   if (renaming) {
@@ -762,14 +824,14 @@ function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, o
       <button
         type="button"
         data-fx-id={item.id}
-        className={`fx-list-row${isBin ? ' is-bin' : ''}${selected ? ' is-selected' : ''}${status === 'deleted' ? ' is-deleted' : ''}${isDropTarget ? ' is-droptarget' : ''}${isBinDrop ? ' is-bindrop' : ''}${isCut ? ' is-cut' : ''}`}
-        onClick={(e) => onSelect(item, e)}
-        onDoubleClick={(e) => onOpen(item, e)}
+        className={`fx-list-row${isBin ? ' is-bin' : ''}${selected ? ' is-selected' : ''}${status === 'deleted' ? ' is-deleted' : ''}${isDropTarget ? ' is-droptarget' : ''}${isBinDrop ? ' is-bindrop' : ''}${isCut ? ' is-cut' : ''}${item.incoming ? ' is-incoming' : ''}`}
+        onClick={(e) => (item.incoming ? onIncoming?.(item, 'accept') : onSelect(item, e))}
+        onDoubleClick={(e) => { if (!item.incoming) onOpen(item, e); }}
         onMouseMove={morph.handleMouseMove}
         onMouseLeave={morph.handleMouseLeave}
         onContextMenu={(e) => { e.stopPropagation(); morph.handleContextMenu(e); }}
-        draggable={draggable && !item.binEntry ? true : undefined}
-        onDragStart={draggable && !item.binEntry ? (e) => beginItemDrag?.(item, e) : undefined}
+        draggable={draggable && !item.binEntry && !item.incoming ? true : undefined}
+        onDragStart={draggable && !item.binEntry && !item.incoming ? (e) => beginItemDrag?.(item, e) : undefined}
         onDragEnd={draggable && !item.binEntry ? () => endItemDrag?.() : undefined}
         onDragOver={isFolder ? (e) => onFolderDragOver?.(item, e) : undefined}
         onDragLeave={isFolder ? () => onFolderDragLeave?.(item) : undefined}
@@ -779,6 +841,8 @@ function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, o
           {isBin && <CountdownRing days={item.deletesInDays} size={18} className="fx-row-countdown" />}
           <span className="fx-list-thumb" data-office={officeStripe(item) ? "" : undefined} style={officeStripe(item)}>
             {isFolder ? <FolderOrBinGlyph item={item} size={20} color={folderColor} /> : <ItemThumbnail item={item} />}
+            {item.scanTagged && <ScanMark />}
+            {item.incoming && <IncomingMark />}
           </span>
           <span className="fx-name">
             <DisplayName item={item} />
@@ -829,6 +893,17 @@ function NewFileRow({ onCommit, onCancel }) {
 // (the footer's — the mini header keeps its own).
 const FILES_TAB_BUTTONS = '.fx-tb-btn';
 
+// The header's Sort dropdown.
+const FX_SORTS = [
+  { id: 'name', label: 'Name A – Z' },
+  { id: 'name-desc', label: 'Name Z – A' },
+  { id: 'newest', label: 'Newest first' },
+  { id: 'oldest', label: 'Oldest first' },
+  { id: 'largest', label: 'Largest first' },
+  { id: 'smallest', label: 'Smallest first' },
+  { id: 'type', label: 'Type' },
+];
+
 export default function FilesWorkspace({
   projectId,
   // Versions-style hero for the top of the canvas: { eyebrow, access, title,
@@ -858,7 +933,15 @@ export default function FilesWorkspace({
   selectTargetPath,       // path of a just-created file/FOLDER to auto-select (no rename)
   onSelectTargetConsumed, // () => void — clear the request once it's applied
   // actions
-  onOpen, onOpenContent, onRename, onDelete, onRestore, onNewFolder, onNewFile, onCreateTypedFile, onAddIdentity, onCreateIdentityFromFiles, onUpload, onUploadFolder, onOpenLocation,
+  onOpen, onOpenContent, onRename, onDelete, onRestore, onNewFolder, onNewFile, onCreateTypedFile, onUpload, onUploadFolder, onOpenLocation,
+  // The AI scan (lib/dataCollections): read + understand every file, connect
+  // them into Data collections. `scanState` = { stage, index, total } while it
+  // runs; pressing the button again stops it.
+  onScanFiles, scanState,
+  // Tag / untag items for the scan: (items, on) => void; how many are tagged.
+  onToggleScanTag, scanTaggedCount = 0,
+  // A waiting phone file (item.incoming): (item, 'accept' | 'reject').
+  onIncoming,
   onEmptyBin,
   onRefresh,         // () => void — re-list the folder (toolbar refresh button)
   onDebugSeedTrash,  // DEV-only — seed the bin with staggered-expiry dummy items
@@ -929,12 +1012,14 @@ export default function FilesWorkspace({
   // videos, Office docs, the Recycle bin, then everything else) stacked
   // vertically. Off → one flat list (the default).
   const [grouped, setGrouped] = useState(() => savedViewPrefs.grouped === true);
+  // The header's Sort dropdown (FX_SORTS) — kept with the other view controls.
+  const [sortBy, setSortBy] = useState(() => (FX_SORTS.some((o) => o.id === savedViewPrefs.sortBy) ? savedViewPrefs.sortBy : 'name'));
   // Persist the view controls whenever they change (debounced naturally by React
   // batching) so the next visit to Files restores the same size + categorize state.
   useEffect(() => {
-    try { localStorage.setItem(viewPrefsKey, JSON.stringify({ tileSize, grouped })); }
+    try { localStorage.setItem(viewPrefsKey, JSON.stringify({ tileSize, grouped, sortBy })); }
     catch { /* storage full / blocked — non-critical */ }
-  }, [viewPrefsKey, tileSize, grouped]);
+  }, [viewPrefsKey, tileSize, grouped, sortBy]);
   const [propsItem, setPropsItem] = useState(null);
   // Pointer-anchored "this is a compressed file" prompt — { item, x, y } in
   // viewport px (null coords = no pointer, e.g. opened with Enter → centred).
@@ -1222,9 +1307,8 @@ export default function FilesWorkspace({
   const itemCat = (f) => {
     if (f.binEntry) return 'trash';
     if (f.kind === 'folder') return 'folders';
-    // ProjectFiles gives a record the synthetic ext 'identity' / 'identity-org'.
-    if (String(f.ext || '').startsWith('identity')) return 'identities';
     const c = extCategory(f.ext);
+    if (c === 'collection') return 'collections';
     if (c === 'zip') return 'folders';
     if (c === 'img' || c === 'vid' || c === 'aud' || c === 'psd' || c === 'ai') return 'media';
     if (c === 'doc' || c === 'xls' || c === 'ppt' || c === 'pdf') return 'office';
@@ -1236,9 +1320,26 @@ export default function FilesWorkspace({
     () => (folders || []).filter((f) => f.binEntry && matches(f.name)),
     [folders, q], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  // The header's Sort: folders are ordered among themselves and files among
+  // themselves (folders still come first, as in Explorer); anything equal
+  // falls back to the name. Waiting phone files always lead the files.
+  const sortCmp = useMemo(() => {
+    const t = (x) => Number(x.sortTime) || 0;
+    const z = (x) => Number(x.sortSize) || 0;
+    const ext = (x) => String(x.ext || '').toLowerCase();
+    switch (sortBy) {
+      case 'name-desc': return (a, b) => byName(b, a);
+      case 'newest': return (a, b) => t(b) - t(a) || byName(a, b);
+      case 'oldest': return (a, b) => t(a) - t(b) || byName(a, b);
+      case 'largest': return (a, b) => z(b) - z(a) || byName(a, b);
+      case 'smallest': return (a, b) => z(a) - z(b) || byName(a, b);
+      case 'type': return (a, b) => ext(a).localeCompare(ext(b)) || byName(a, b);
+      default: return byName;
+    }
+  }, [sortBy]); // eslint-disable-line react-hooks/exhaustive-deps
   const shownFolders = useMemo(
-    () => (folders || []).filter((f) => !f.binEntry && matches(f.name)).sort(byName),
-    [folders, q], // eslint-disable-line react-hooks/exhaustive-deps
+    () => (folders || []).filter((f) => !f.binEntry && matches(f.name)).sort(sortBy === 'type' ? byName : sortCmp),
+    [folders, q, sortCmp], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // Compressed archives (zip / rar / 7z / tar / gz) are "compressed folders" —
   // arrange them with the folders: they sort to the FRONT of the file list so,
@@ -1247,11 +1348,19 @@ export default function FilesWorkspace({
   const isArchiveItem = (f) => extCategory(f.ext) === 'zip';
   const shownItems = useMemo(
     () => (items || []).filter((f) => matches(f.name)).sort((a, b) => {
-      const aa = isArchiveItem(a) ? 0 : 1;
-      const bb = isArchiveItem(b) ? 0 : 1;
-      return aa !== bb ? aa - bb : byName(a, b);
+      const ia = a.incoming ? 0 : 1;
+      const ib = b.incoming ? 0 : 1;
+      if (ia !== ib) return ia - ib;
+      // By name, archives stand next to the folders; any other order is the
+      // order asked for.
+      if (sortBy === 'name') {
+        const aa = isArchiveItem(a) ? 0 : 1;
+        const bb = isArchiveItem(b) ? 0 : 1;
+        if (aa !== bb) return aa - bb;
+      }
+      return sortCmp(a, b);
     }),
-    [items, q], // eslint-disable-line react-hooks/exhaustive-deps
+    [items, q, sortCmp], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // Bin → folders → files, in render order. Drives both the grid/list and the
   // Shift-range selection axis.
@@ -1537,6 +1646,180 @@ export default function FilesWorkspace({
   };
   const selectAll = () => { if (orderedIds.length) setMultiSel(new Set(orderedIds)); };
 
+  // The press is heard DOCUMENT-wide (the latest handler through a ref, so it
+  // sees the current selection and listing).
+  const marqueeDownRef = useRef(null);
+  useEffect(() => {
+    const onDown = (e) => marqueeDownRef.current?.(e);
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, []);
+
+  // ── Rubber-band selection (Windows Explorer / macOS Finder) ──────────────
+  // A press ANYWHERE on the screen that is not something to press (a file, a
+  // button, a field, a menu, the app sidebar, the title bar) and a drag draws
+  // a translucent rectangle; every
+  // tile / row it touches is selected as it grows. Ctrl/Cmd toggles what it
+  // touches against the selection there was; Shift adds to it; plain replaces
+  // it. Near the scroller's top or bottom edge the page scrolls on its own and
+  // the rectangle follows (its corners are kept in CANVAS coordinates, which
+  // move with the content). A press that never moves is an ordinary click —
+  // the window-wide click-away still clears — while the click that ENDS a drag
+  // is swallowed, so letting go keeps what was selected.
+  // PERFORMANCE — the drag costs nothing React-side: no state is set until the
+  // mouse is let go. The rectangle is ONE element made for the drag and moved
+  // by transform (fixed, contained); every item's box is measured ONCE when
+  // the drag starts, in canvas coordinates (they only move with the scroll,
+  // which is read once a frame, before anything is written); what the
+  // rectangle touches is painted by toggling `is-selected` on the items
+  // themselves, only where it changes; and the selection is handed to React
+  // on release (setMultiSel), which then renders exactly what is on screen.
+  // (Setting state every frame re-rendered the whole Files page and every tile
+  // per mouse move, then forced a layout to measure them all again.)
+  const onCanvasMouseDown = (e) => {
+    if (e.button !== 0 || bgMorph.isMenuOpen) return;
+    const t = e.target;
+    if (!t || typeof t.closest !== 'function') return;
+    if (t.closest('.fx-tile, .fx-list-row, .fx-list-head, button, a, input, textarea, select, label, [role="menuitem"], [role="menu"], [role="dialog"], [contenteditable="true"], .fx-drop-overlay, .sidebar, .tb-bar, .tooltip, .lg-menu')) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const scroller = pageScroller();
+    const cr0 = canvas.getBoundingClientRect();
+    const st0 = scroller ? scroller.scrollTop : 0;
+    const x0 = e.clientX; const y0 = e.clientY;
+    const start = { x: toLayoutPx(x0 - cr0.left), y: toLayoutPx(y0 - cr0.top) };
+    const mode = (e.ctrlKey || e.metaKey) ? 'toggle' : e.shiftKey ? 'add' : 'replace';
+    const base = mode === 'replace' ? new Set() : new Set(multiSel);
+    const idOf = new Map(orderedIds.map((id) => [String(id), id]));
+    let last = { x: x0, y: y0 };
+    let active = false;
+    let frame = 0;
+    let scrollFrame = 0;
+    let items = null;      // [{ el, id, x, y, w, h, on }] — boxes in canvas px
+    let side = null;       // the app sidebar's rect (it doesn't scroll)
+    let box = null;        // the marquee element
+    // Where the canvas is now: it only moves with the page's scroll.
+    const canvasTop = () => cr0.top - ((scroller ? scroller.scrollTop : 0) - st0);
+    const begin = () => {
+      items = [];
+      canvas.querySelectorAll('[data-fx-id]').forEach((el) => {
+        const id = idOf.get(el.getAttribute('data-fx-id'));
+        if (id == null) return;
+        const r = el.getBoundingClientRect();
+        items.push({
+          el, id,
+          x: toLayoutPx(r.left - cr0.left), y: toLayoutPx(r.top - cr0.top),
+          w: toLayoutPx(r.width), h: toLayoutPx(r.height),
+          on: el.classList.contains('is-selected'),
+        });
+      });
+      const sr = document.querySelector('.sidebar')?.getBoundingClientRect();
+      if (sr && sr.width) side = { x: toLayoutPx(sr.left), y: toLayoutPx(sr.top), w: toLayoutPx(sr.width), h: toLayoutPx(sr.height) };
+      box = document.createElement('div');
+      box.className = 'fx-marquee';
+      box.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(box);
+      document.body.classList.add('fx-marqueeing');
+    };
+    // The selection the rectangle makes: `base` with what it touches.
+    const selectionFor = (rect) => {
+      const next = new Set(base);
+      items.forEach((it) => {
+        if (it.x < rect.x + rect.w && it.x + it.w > rect.x && it.y < rect.y + rect.h && it.y + it.h > rect.y) {
+          if (mode === 'toggle' && base.has(it.id)) next.delete(it.id); else next.add(it.id);
+        }
+      });
+      return next;
+    };
+    let lastSel = null;
+    const update = () => {
+      frame = 0;
+      // READ (layout is clean at the start of a frame)…
+      const top = canvasTop();
+      // …then only write.
+      const cur = { x: toLayoutPx(last.x - cr0.left), y: toLayoutPx(last.y - top) };
+      const rect = {
+        x: Math.min(start.x, cur.x), y: Math.min(start.y, cur.y),
+        w: Math.abs(cur.x - start.x), h: Math.abs(cur.y - start.y),
+      };
+      const m = { x: toLayoutPx(cr0.left) + rect.x, y: toLayoutPx(top) + rect.y, w: rect.w, h: rect.h };
+      box.style.transform = `translate(${m.x}px, ${m.y}px)`;
+      box.style.width = `${m.w}px`;
+      box.style.height = `${m.h}px`;
+      // The app sidebar stays ON TOP of the rectangle: its rounded shape is
+      // cut out of it (an even-odd clip path in the rectangle's coordinates).
+      let clip = '';
+      if (side) {
+        const sx = side.x - m.x; const sy = side.y - m.y; const sw = side.w; const sh = side.h;
+        if (sx < m.w && sx + sw > 0 && sy < m.h && sy + sh > 0) {
+          const r = Math.min(9.6, sw / 2, sh / 2);
+          clip = `path(evenodd, 'M0 0 H${m.w} V${m.h} H0 Z `
+            + `M${sx + r} ${sy} H${sx + sw - r} A${r} ${r} 0 0 1 ${sx + sw} ${sy + r} V${sy + sh - r} A${r} ${r} 0 0 1 ${sx + sw - r} ${sy + sh} `
+            + `H${sx + r} A${r} ${r} 0 0 1 ${sx} ${sy + sh - r} V${sy + r} A${r} ${r} 0 0 1 ${sx + r} ${sy} Z')`;
+        }
+      }
+      if (box.style.clipPath !== clip) box.style.clipPath = clip;
+      const next = selectionFor(rect);
+      items.forEach((it) => {
+        const on = next.has(it.id);
+        if (on !== it.on) { it.on = on; it.el.classList.toggle('is-selected', on); }
+      });
+      lastSel = next;
+    };
+    // Auto-scroll while the pointer is near (or past) the scroller's edge.
+    const autoScroll = () => {
+      scrollFrame = 0;
+      if (!active || !scroller) return;
+      const r = scroller.getBoundingClientRect();
+      const EDGE = 36;
+      let dy = 0;
+      if (last.y < r.top + EDGE) dy = -Math.ceil((r.top + EDGE - last.y) / 3);
+      else if (last.y > r.bottom - EDGE) dy = Math.ceil((last.y - (r.bottom - EDGE)) / 3);
+      if (dy) {
+        scroller.scrollTop += Math.max(-40, Math.min(40, dy));
+        if (!frame) frame = requestAnimationFrame(update);
+        scrollFrame = requestAnimationFrame(autoScroll);
+      }
+    };
+    // A wheel scroll mid-drag moves the canvas under the rectangle too.
+    const onScroll = () => { if (active && !frame) frame = requestAnimationFrame(update); };
+    const move = (ev) => {
+      last = { x: ev.clientX, y: ev.clientY };
+      if (!active) {
+        if (Math.abs(ev.clientX - x0) < 4 && Math.abs(ev.clientY - y0) < 4) return;
+        active = true;
+        begin();
+      }
+      ev.preventDefault();
+      if (!frame) frame = requestAnimationFrame(update);
+      if (!scrollFrame) scrollFrame = requestAnimationFrame(autoScroll);
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      scroller?.removeEventListener('scroll', onScroll);
+      if (frame) cancelAnimationFrame(frame);
+      if (scrollFrame) cancelAnimationFrame(scrollFrame);
+      if (!active) return;
+      update();
+      box?.remove();
+      document.body.classList.remove('fx-marqueeing');
+      // Now React: the selection on screen becomes the state.
+      const sel = lastSel || new Set(base);
+      setMultiSel(sel);
+      const firstHit = items.find((it) => sel.has(it.id) && !base.has(it.id));
+      if (firstHit) setAnchorId(firstHit.id);
+      // The click this release produces must not reach the click-away.
+      const swallow = (ce) => { ce.stopPropagation(); };
+      window.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    scroller?.addEventListener('scroll', onScroll, { passive: true });
+  };
+  marqueeDownRef.current = onCanvasMouseDown;
+
   // Grid column count (1 in list view) — read from the live CSS grid so arrow
   // Up/Down move by a true row.
   const getColumns = () => {
@@ -1665,7 +1948,6 @@ export default function FilesWorkspace({
         label: 'Create',
         submenu: [
           { key: 'newfolder', label: <><Icon name="folder-plus" className="fx-icon" /> New folder</>, onClick: () => requestNewFolder() },
-          onAddIdentity && { key: 'identity', label: <><Icon name="identity" className="fx-icon" /> Add identity</>, onClick: () => onAddIdentity() },
           // One entry, no type: the file is created without an extension and
           // becomes Word / PowerPoint / Excel / PDF from what the user asks for.
           onCreateTypedFile && { key: 'document', label: <><Icon name="file-doc" className="fx-icon" /> Document</>, onClick: () => onCreateTypedFile('auto') },
@@ -1837,6 +2119,8 @@ export default function FilesWorkspace({
   // Common props every Tile/Row needs.
   const itemCommon = {
     tab,
+    onIncoming,
+    incomingCount: (items || []).filter((i) => i.incoming).length,
     onSelect, onOpen: openItem, onOpenContent,
     onRename: requestRename,
     onProperties: setPropsItem,
@@ -1849,8 +2133,12 @@ export default function FilesWorkspace({
     onCut: onMoveItems ? cutItem : null,
     // Acts on the right-clicked file — or the whole selection when that file is
     // part of it, the same rule Copy and Cut follow.
-    onCreateIdentityFrom: onCreateIdentityFromFiles
-      ? (item) => { const picked = itemsForContext(item); if (picked.length) onCreateIdentityFromFiles(picked); }
+    // Folders included (a folder is tagged with everything under it).
+    onToggleScanTag: onToggleScanTag
+      ? (item, on) => {
+        const picked = multiSel.has(item.id) && multiSelItems.length > 1 ? multiSelItems : [item];
+        onToggleScanTag(picked.filter((i) => !i.binEntry), on);
+      }
       : null,
     // Drag-to-move: file items are draggable; non-bin folders accept drops.
     draggable: menuEditable,
@@ -1965,6 +2253,11 @@ export default function FilesWorkspace({
             <Icon name={view === 'list' ? 'list' : 'grid'} size={14} filled />
           </button>
         </Tooltip>
+        {/* Sort — the order of folders and files (FX_SORTS); the app's own
+            dropdown (LegalBar's BarPicker, standing on its own). */}
+        <div className="fx-sort">
+          <BarPicker solo label="Sort" options={FX_SORTS} value={sortBy} onChange={setSortBy} />
+        </div>
         {/* Categorize — split the listing into labelled category sections
             (folders & archives, media, Office docs, the Recycle bin, then
             other files) stacked vertically. Toggle. Available in the Recycle
@@ -2009,6 +2302,24 @@ export default function FilesWorkspace({
             </span>
           )}
         </div>
+        {onScanFiles && (
+          <Tooltip content={scanState
+            ? 'Scanning the files — press to stop'
+            : scanTaggedCount
+              ? 'Scan the files tagged for AI scan and connect them into Data collections. Pictures: their text; audio and video: their captions (a video’s pictures aren’t looked at); faces on identity documents are matched on this computer. Only new or changed files are read again.'
+              : 'Tag files for the AI scan first — right-click a file or folder → Tag for AI scan.'}
+          >
+            <button
+              type="button"
+              className={`fx-cat-btn fx-scan-btn${scanState ? ' is-active is-busy' : ''}`}
+              aria-label={scanState ? 'Stop the AI scan' : 'Scan the files with AI'}
+              aria-pressed={!!scanState}
+              onClick={() => onScanFiles()}
+            >
+              <Icon name="sparkles" size={14} filled={!!scanState} />
+            </button>
+          </Tooltip>
+        )}
       </div>
       {showListHead && (
         <div className="fx-list-head fx-list-head--chrome">
@@ -2330,13 +2641,6 @@ export default function FilesWorkspace({
                       <button onClick={() => { setCreateMenuOpen(false); requestNewFolder(); }}>
                         <Icon name="folder-plus" className="fx-icon" /> New folder
                       </button>
-                      {/* A party to the case rather than a document — it lands
-                          in the project's Identities folder. */}
-                      {onAddIdentity && (
-                        <button onClick={() => { setCreateMenuOpen(false); onAddIdentity(); }}>
-                          <Icon name="identity" className="fx-icon" /> Identity
-                        </button>
-                      )}
                       {onCreateTypedFile && (
                         // One entry, no type: the file is created without an
                         // extension and becomes Word / PowerPoint / Excel / PDF

@@ -330,9 +330,11 @@ export default function Newsletter() {
         AI-summarised with its impact level and the areas it affects, so you can
         scan what changed and mark what matters.
       </PageMasthead>
-      {/* The Legislation tab bar — shared with the portal and the CAEN page;
-          the briefing search sits in it. */}
+      {/* The Legislation bar's second line on its own (`standalone`) — the
+          Newsletter is a sidebar entry of its own now, not a Legislation tab;
+          the briefing search and History sit in it. */}
       <LegalTabs
+        standalone
         search={{ value: query, onChange: setQuery, placeholder: 'Search briefings' }}
         // History — this tab's log (components/HistoryMenu): every briefing
         // opened; picking one opens its act, or finds the briefing again.

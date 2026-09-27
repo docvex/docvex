@@ -59,10 +59,14 @@ const defaultRender = (e) => (e.kind === 'search' ? (
   </>
 ));
 
-export function HistoryMenu({ tab, anchor, onClose, onPick, renderEntry = defaultRender, extra = null, emptyText }) {
+// `inline`: drawn in place as a page's own view (the Legislation tab's History
+// tab) — no portal, no anchor, nothing that closes it; `title` for its head.
+export function HistoryMenu({ tab, anchor, onClose, onPick, renderEntry = defaultRender, extra = null, emptyText, inline = false, title = 'History' }) {
   const [entries, setEntries] = useState(() => listHistory(tab));
+  useEffect(() => { setEntries(listHistory(tab)); }, [tab]);
   const menuRef = useRef(null);
   useEffect(() => {
+    if (inline) return undefined;
     const key = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
     const away = (e) => { if (menuRef.current?.contains(e.target) || anchor?.contains(e.target)) return; onClose(); };
     const gone = (e) => { if (menuRef.current?.contains(e.target)) return; onClose(); };
@@ -79,25 +83,25 @@ export function HistoryMenu({ tab, anchor, onClose, onPick, renderEntry = defaul
   }, [onClose, anchor]);
   const rows = entries;
   const listRef = useRef(null);
-  useLayoutEffect(() => { const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }, []);
+  useLayoutEffect(() => { const el = listRef.current; if (el && !inline) el.scrollTop = el.scrollHeight; }, []);
   const rect = anchor?.getBoundingClientRect?.() || { bottom: 48, right: window.innerWidth - 16 };
-  return createPortal(
+  const panel = (
     <div
       ref={menuRef}
-      className="lg-hist"
-      role="dialog"
+      className={`lg-hist${inline ? ' is-inline' : ''}`}
+      role={inline ? 'region' : 'dialog'}
       aria-labelledby="lg-hist-title"
-      style={{ top: toLayoutPx(rect.bottom + 4), right: toLayoutPx(Math.max(8, window.innerWidth - rect.right)) }}
+      style={inline ? undefined : { top: toLayoutPx(rect.bottom + 4), right: toLayoutPx(Math.max(8, window.innerWidth - rect.right)) }}
     >
       <header className="lg-hist-head">
-        <p className="lg-hist-title" id="lg-hist-title">History{entries.length ? <small>{entries.length}</small> : null}</p>
+        <p className="lg-hist-title" id="lg-hist-title">{title}{entries.length ? <small>{entries.length}</small> : null}</p>
         <Tooltip content={entries.length ? 'Forget everything listed here' : 'Nothing listed yet'}>
           <button type="button" className="lgt-tool-btn is-danger" disabled={!entries.length} onClick={() => { clearHistory(tab); setEntries([]); }}>
             <span className="lgt-tool-ico">{BinIcon}</span><span>Clear</span>
           </button>
         </Tooltip>
         {extra}
-        <button type="button" className="lgt-tool-btn" aria-label="Close" onClick={onClose}><span className="lgt-tool-ico">{CrossIcon}</span></button>
+        {inline ? null : <button type="button" className="lgt-tool-btn" aria-label="Close" onClick={onClose}><span className="lgt-tool-ico">{CrossIcon}</span></button>}
       </header>
       <div className="lg-hist-list" ref={listRef}>
         {!rows.length ? <p className="lg-hist-empty">{emptyText || 'Nothing yet. Every search you run and everything you open is listed here.'}</p> : null}
@@ -117,9 +121,9 @@ export function HistoryMenu({ tab, anchor, onClose, onPick, renderEntry = defaul
           );
         })}
       </div>
-    </div>,
-    document.body,
+    </div>
   );
+  return inline ? panel : createPortal(panel, document.body);
 }
 
 /** The tool button that owns the dropdown — drop it in LegalTabs' `trailing`. */

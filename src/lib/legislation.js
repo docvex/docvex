@@ -24,6 +24,24 @@ import {
   isElectron,
 } from './platform';
 
+// THE ARCHIVE'S LISTING, kept until something changes it. Every platform
+// page lists the archive when it mounts (the masthead's figures), and the
+// listing is the whole index — thousands of entries once a few hundred
+// searches have been run — so it is asked of main once and handed out again
+// until a put, a forget or a clear makes it stale.
+let archiveMemo = null;
+const archiveChanged = () => { archiveMemo = null; };
+const archivePut = (payload) => { archiveChanged(); return legislationArchivePut(payload).finally(archiveChanged); };
+export function listArchive() {
+  if (!archiveMemo) {
+    archiveMemo = legislationArchiveList().then(
+      (r) => { if (!r?.ok) archiveMemo = null; return r; },
+      (e) => { archiveMemo = null; throw e; },
+    );
+  }
+  return archiveMemo;
+}
+
 // ── Matching, the way Romanian is actually typed ──────────────────────────
 // Documents in the wild carry both the correct comma-below ș/ț and the old
 // cedilla ş/ţ, and people search without diacritics at all. So everything is
@@ -159,7 +177,24 @@ export function actLabel(rec) {
 // The live service first; the archive when it cannot be reached. The two are
 // NEVER silently mixed: the answer says which one it came from, because "no
 // results" means something very different offline.
+// LIVE ANSWERS ARE KEPT FOR THE SESSION (10 minutes): the same search asked
+// again — a tab shown again, the results page and the page both asking, the
+// background "matches the portal" check — costs no round trip to the
+// ministry's server. A failure is never kept.
+const SEARCH_TTL_MS = 10 * 60 * 1000;
+const searchMemo = new Map();   // JSON of the query → { at, promise }
 export async function searchLegislation(query) {
+  if (!isElectron || query?.offlineOnly) return searchLegislationNow(query);
+  const key = JSON.stringify([query?.numar || '', query?.an || '', query?.titlu || '', query?.text || '', query?.tip || '', query?.page || 1, query?.perPage || 25].map((v) => String(v).trim()));
+  const hit = searchMemo.get(key);
+  if (hit && Date.now() - hit.at < SEARCH_TTL_MS) return hit.promise;
+  const promise = searchLegislationNow(query);
+  searchMemo.set(key, { at: Date.now(), promise });
+  if (searchMemo.size > 150) searchMemo.delete(searchMemo.keys().next().value);
+  promise.then((r) => { if (!r?.ok || r.source !== 'live') searchMemo.delete(key); }, () => searchMemo.delete(key));
+  return promise;
+}
+async function searchLegislationNow(query) {
   const q = {
     numar: (query?.numar || '').trim(),
     an: (query?.an || '').trim(),
@@ -206,7 +241,7 @@ export async function searchLegislation(query) {
       // run once can be run again with the portal down, and an act can be
       // recognised in the list without paying for its text.
       if (records.length) {
-        legislationArchivePut({ records: records.map(stripText), withText: false }).catch(() => {});
+        archivePut({ records: records.map(stripText), withText: false }).catch(() => {});
       }
       return { ok: true, source: 'live', records, total: records.length };
     }
@@ -258,7 +293,7 @@ export async function searchLegislationPlain(q, { ai = null } = {}) {
 
 // The same question, asked of what this machine already has.
 export async function searchArchive(q) {
-  const res = await legislationArchiveList();
+  const res = await listArchive();
   if (!res?.ok) return { ok: false, records: [], total: 0, error: res?.error || 'unavailable' };
   const numar = (q.numar || '').trim();
   const an = (q.an || '').trim();
@@ -286,16 +321,33 @@ export async function searchArchive(q) {
 // carries its text came from a live search a moment ago and is the portal's.
 // What the portal sends is kept whole, so the fallback is always there for
 // the next time.
-export async function loadAct(rec) {
-  if (rec?.text) return { ok: true, act: normalizeRecord(rec), source: 'live' };
-  const live = await fetchActLive(rec);
-  if (live.ok) {
-    await legislationArchivePut({ records: [live.act], withText: true });
-    return { ok: true, act: live.act, source: 'live' };
+//
+// FAST PATH: an act already opened this session is answered from memory, and
+// one kept on this machine is answered from that copy AT ONCE — the page then
+// checks it against the portal in the background ("Live from the portal"
+// when it matches, "Differs from the portal - click to sync" when not), so
+// nothing waits on the ministry's server to show an act that is here.
+const actMemo = new Map();   // id → { act, source }
+const rememberAct = (res) => {
+  if (res?.ok && res.act?.id) {
+    actMemo.set(res.act.id, { act: res.act, source: res.source });
+    if (actMemo.size > 40) actMemo.delete(actMemo.keys().next().value);
   }
+  return res;
+};
+export function forgetActMemo(id) { if (id) actMemo.delete(id); else actMemo.clear(); }
+export async function loadAct(rec) {
+  if (rec?.text) return rememberAct({ ok: true, act: normalizeRecord(rec), source: 'live' });
+  const mem = rec?.id ? actMemo.get(rec.id) : null;
+  if (mem) return { ok: true, act: mem.act, source: mem.source };
   if (rec?.id) {
     const kept = await legislationArchiveGet(rec.id);
-    if (kept?.ok && kept.act?.text) return { ok: true, act: normalizeRecord(kept.act), source: 'archive', portalError: live.error || '' };
+    if (kept?.ok && kept.act?.text) return rememberAct({ ok: true, act: normalizeRecord(kept.act), source: 'archive' });
+  }
+  const live = await fetchActLive(rec);
+  if (live.ok) {
+    await archivePut({ records: [live.act], withText: true });
+    return rememberAct({ ok: true, act: live.act, source: 'live' });
   }
   return live;
 }
@@ -348,13 +400,25 @@ export const sameAct = (a, b) => !!a && !!b && a.text === b.text && (a.dataVigoa
 // The portal's page first, this machine's copy of it when the portal cannot
 // answer (main falls back itself; the second call here covers an app whose
 // main process predates that and only knows `fresh` as "never the copy").
-export async function loadActPage(rec, { fresh = true } = {}) {
+// A page already fetched this session is answered from memory (unless
+// `fresh` is FORCED — a sync); a page not asked `fresh` is the copy on disk.
+const pageMemo = new Map();   // id → html
+export async function loadActPage(rec, { fresh = true, force = false } = {}) {
   if (!rec?.id || !isElectron) return { ok: false, error: 'unsupported' };
-  const res = await legislationPage({ id: rec.id, fresh });
-  if (res?.ok || !fresh) return res;
-  const kept = await legislationPage({ id: rec.id, fresh: false });
-  return kept?.ok ? kept : res;
+  if (!force && pageMemo.has(rec.id)) return { ok: true, html: pageMemo.get(rec.id), source: 'memory' };
+  let res = await legislationPage({ id: rec.id, fresh });
+  if (!res?.ok && fresh) {
+    const kept = await legislationPage({ id: rec.id, fresh: false });
+    if (kept?.ok) res = kept;
+  }
+  if (res?.ok && res.html) {
+    pageMemo.set(rec.id, res.html);
+    if (pageMemo.size > 20) pageMemo.delete(pageMemo.keys().next().value);
+  }
+  return res;
 }
+/** The page, if this session has it — for a first frame with no wait. */
+export const peekActPage = (id) => pageMemo.get(id) || '';
 
 // A LIST the portal writes as plain paragraphs. Not every list in an act is
 // marked up as one (S_LIT / S_PCT): an annex, a form's instructions or an
@@ -394,7 +458,19 @@ function asListItem(node, el) {
 }
 
 const UNIT_KINDS = new Set(['art', 'aln', 'lit', 'pct', 'anx', 'cap', 'ttl', 'sec', 'prt', 'crt', 'sbs', 'nta', 'par']);
+// Parsing a long act's page is the heaviest thing the tab does on the main
+// thread; the last few trees are kept, so showing an act again (a tab switch,
+// a return to the page) is a lookup.
+const treeMemo = new Map();   // html → tree
 export function parseActHtml(html) {
+  const hit = treeMemo.get(html);
+  if (hit) return hit;
+  const tree = parseActHtmlNow(html);
+  treeMemo.set(html, tree);
+  if (treeMemo.size > 8) treeMemo.delete(treeMemo.keys().next().value);
+  return tree;
+}
+function parseActHtmlNow(html) {
   if (typeof DOMParser === 'undefined') return null;
   const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
   const root = doc.querySelector('#div_Formaconsolidata, .content_forma_act[data-state="loaded"], .content_forma_act');
@@ -530,11 +606,17 @@ export function actTreeStrings(tree, drawn = () => false) {
 
 export async function keepAct(act) {
   if (!act?.id || !act?.text) return { ok: false, error: 'nothing_to_keep' };
-  return legislationArchivePut({ records: [act], withText: true });
+  rememberAct({ ok: true, act, source: 'live' });
+  return archivePut({ records: [act], withText: true });
 }
-export const listArchive = () => legislationArchiveList();
-export const forgetAct = (id) => legislationArchiveRemove(id);
-export const clearArchive = () => legislationArchiveClear();
+export const forgetAct = (id) => { forgetActMemo(id); pageMemo.delete(id); archiveChanged(); return legislationArchiveRemove(id).finally(archiveChanged); };
+export const clearArchive = () => { forgetActMemo(); pageMemo.clear(); searchMemo.clear(); archiveChanged(); return legislationArchiveClear().finally(archiveChanged); };
+/** A REFRESH: the session's answers are dropped, so the next search, act and
+ *  page are asked of the portal again. */
+export function forgetLegislationSession({ id } = {}) {
+  searchMemo.clear();
+  if (id) { forgetActMemo(id); pageMemo.delete(id); }
+}
 
 // ── From a citation in a document to this tab ──────────────────────────
 // The Word preview finds citations in a paragraph (`lib/lawRefs`) and lists

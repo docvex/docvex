@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import './Legislation.css';
 import PageMasthead from '../components/PageMasthead';
@@ -11,10 +11,12 @@ import { isElectron, openExternal } from '../lib/platform';
 import { askProjectAi } from '../lib/projectAi';
 import { recallPage, usePageMemory } from '../lib/pageMemory';
 import { logSearch, logOpen } from '../lib/legislationHistory';
-import HistoryButton, { BinIcon } from '../components/HistoryMenu';
+import { BinIcon } from '../components/HistoryMenu';
+import LegalWorkspace, { WorkspaceSearch } from '../components/LegalWorkspace';
+import { takeRecord } from '../lib/legalBrowser';
 import {
-  LEGIS_TYPES, searchLegislation, searchLegislationPlain, loadAct, keepAct, listArchive, clearArchive, fetchActLive, sameAct,
-  loadActPage, parseActHtml, actTreeStrings, legislationQueryFor,
+  LEGIS_TYPES, searchLegislation, searchLegislationPlain, loadAct, keepAct, listArchive, clearArchive, fetchActLive, sameAct, forgetLegislationSession,
+  loadActPage, peekActPage, parseActHtml, actTreeStrings, legislationQueryFor,
   parseActText, parseBoxTable, parseBoxDiagram, diagramStrings, actHeading, actLabel, formatBytes, fold,
 } from '../lib/legislation';
 
@@ -63,41 +65,10 @@ const KeptGlyph = (
     <path d="M20 6L9 17l-5-5" />
   </svg>
 );
-const SyncGlyph = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M20 12a8 8 0 0 1-14.2 5" /><path d="M4 12a8 8 0 0 1 14.2-5" /><path d="M18 3v4h-4" /><path d="M6 21v-4h4" />
-  </svg>
-);
-// The Search item's empty state: a book with a magnifier, thin-stroked
-// like the other empty states' marks.
-const StartMark = (
-  <svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M4 19.5V5a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v8" /><path d="M4 19.5A1.5 1.5 0 0 1 5.5 18H12" /><path d="M4 19.5A1.5 1.5 0 0 0 5.5 21H12" />
-    <path d="M8 7h6M8 10h4" /><circle cx="17" cy="17" r="3" /><path d="M19.2 19.2L21 21" />
-  </svg>
-);
-
 // The search row's Clear: an eraser.
 const ClearIcon = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M7 21h10" /><path d="M5.6 15.4l8.5-8.5a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L12 19H8.8l-3.2-3.2a1 1 0 0 1 0-1.4z" /><path d="M9.5 11.5l5 5" />
-  </svg>
-);
-
-// The rail's glyphs: an act, the search, close.
-const RailActIcon = (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" /><path d="M14 3v5h5" /><path d="M9 13h6M9 17h6" />
-  </svg>
-);
-const RailSearchIcon = (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-    <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.6-3.6" />
-  </svg>
-);
-const RailCloseIcon = (
-  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-    <path d="M6 6l12 12M18 6L6 18" />
   </svg>
 );
 
@@ -201,13 +172,6 @@ function ActRow({ r, kept, onOpen, onForget }) {
           {r.republished ? <span className="lg-tag">republicată</span> : null}
         </span>
       </button>
-      {r.link ? (
-        <Tooltip content="Open on the ministry’s portal">
-          <button type="button" className="lg-icobtn" aria-label="Open on the portal" onClick={() => openExternal(r.link)}>
-            {ExternalIcon}
-          </button>
-        </Tooltip>
-      ) : null}
       {onForget ? (
         <Tooltip content="Forget this act on this machine">
           <button type="button" className="lg-icobtn" aria-label={`Forget ${actLabel(r)}`} onClick={() => onForget(r.id)}>
@@ -216,6 +180,328 @@ function ActRow({ r, kept, onOpen, onForget }) {
         </Tooltip>
       ) : null}
     </li>
+  );
+}
+
+// ── The act's body, drawn without stopping the app ──
+// A consolidated act runs to thousands of articles, paragraphs and letters,
+// and every string is read for citations. Drawn in one pass that froze the
+// window for as long as it took (on every visit to the tab). Now:
+//  · every node is a component of its own, MEMOISED — a find step, a table
+//    switch, anything the page re-renders for, redraws only the nodes it
+//    touches (a node compares its string, the find, whether the current
+//    match is inside it and the table switches);
+//  · the act is revealed in SLICES in pre-order — the first FIRST_NODES at
+//    once, then STEP_NODES more at a time in a transition, so React yields
+//    to the reader between nodes and the app never pauses; a spinner at the
+//    foot says the rest is on its way;
+//  · the find's matches are numbered the way `actTreeStrings` lists the
+//    strings (title → den → text → lines / segs → children), so the count in
+//    the field and the marks agree.
+const FIRST_NODES = 70;
+const STEP_NODES = 180;
+const UNIT_LEVEL_OF = { prt: 1, crt: 1, ttl: 2, cap: 2, sec: 3, sbs: 3, anx: 2 };
+
+const refTipOf = (h) => (h.kind === 'cui' ? `CUI ${h.cui} — look the company up at ANAF`
+  : h.kind === 'caen' ? `${lawRefLabel(h)} — open in the CAEN nomenclature`
+    : h.kind === 'case' ? `Court file ${h.number} — open in Court files`
+      : `Search ${LEGIS_TYPES.find((t) => t.id === h.fixed.tip)?.label || h.fixed.tip} nr. ${h.fixed.numar}/${h.fixed.an} and open it here`);
+
+const countHits = (s, needle) => {
+  if (!needle || !s) return 0;
+  const f = fold(s); let n = 0; let i = f.indexOf(needle);
+  while (i >= 0) { n++; i = f.indexOf(needle, i + needle.length); }
+  return n;
+};
+
+// A string with its references as controls and its find matches marked;
+// `c` = { n: the global number of the next match, needle, at: the current }.
+function markFindIn(s, c) {
+  if (!c.needle || !s) return s;
+  const f = fold(s); const out = []; let last = 0; let i = f.indexOf(c.needle);
+  while (i >= 0) {
+    if (i > last) out.push(s.slice(last, i));
+    const k = c.n++;
+    out.push(<mark key={`${k}`} className={`lg-hit${k === c.at ? ' is-current' : ''}`}>{s.slice(i, i + c.needle.length)}</mark>);
+    last = i + c.needle.length;
+    i = f.indexOf(c.needle, last);
+  }
+  if (last < s.length) out.push(s.slice(last));
+  return out;
+}
+function markString(s, c, refsOf, onRef) {
+  if (!s) return s;
+  const refs = refsOf(s);
+  if (!refs.length) return markFindIn(s, c);
+  const out = []; let last = 0;
+  refs.forEach((h, i) => {
+    if (h.start > last) out.push(<React.Fragment key={`t${i}`}>{markFindIn(s.slice(last, h.start), c)}</React.Fragment>);
+    out.push(
+      <Tooltip key={`r${i}`} content={refTipOf(h)}>
+        <button type="button" className={`lg-ref is-${h.kind}`} onClick={() => onRef(h)}>{markFindIn(s.slice(h.start, h.end), c)}</button>
+      </Tooltip>,
+    );
+    last = h.end;
+  });
+  if (last < s.length) out.push(<React.Fragment key="tail">{markFindIn(s.slice(last), c)}</React.Fragment>);
+  return out;
+}
+
+// A box-drawn table with its DocVex / Source switch (see the page's notes).
+function ActTable({ tkey, rows, grid, diagram, drawnTables, setDrawnTables, mk, c }) {
+  const readable = !!(grid || diagram);
+  const drawn = !readable || drawnTables.has(tkey);
+  const setDrawn = (on) => setDrawnTables((s) => { const next = new Set(s); if (on) next.add(tkey); else next.delete(tkey); return next; });
+  return (
+    <div className="lg-tblwrap">
+      <div className="lg-tblbar">
+        <div className="lgt-toggle" role="tablist" aria-label={diagram ? 'How the diagram is drawn' : 'How the table is drawn'}>
+          <button type="button" role="tab" aria-selected={!drawn} className={`lgt-toggle-btn${!drawn ? ' is-on' : ''}${readable ? '' : ' is-off'}`} aria-disabled={!readable} onClick={() => { if (readable) setDrawn(false); }}>DocVex</button>
+          <button type="button" role="tab" aria-selected={drawn} className={`lgt-toggle-btn${drawn ? ' is-on' : ''}`} onClick={() => setDrawn(true)}>Source</button>
+        </div>
+      </div>
+      {drawn ? (
+        <pre className="lg-table">
+          {rows.map((r, j) => <React.Fragment key={j}>{mk(r)}{j < rows.length - 1 ? '\n' : ''}</React.Fragment>)}
+        </pre>
+      ) : diagram ? (
+        <BoxDiagram d={diagram} marked={(s) => mk(s)} counter={c} />
+      ) : (
+        <div className="lg-tblbox">
+          <table className="lg-tbl">
+            <tbody>
+              {grid.rows.map((row, j) => (
+                <tr key={j}>
+                  {row.map((cell) => (
+                    <td key={cell.c} colSpan={cell.colSpan > 1 ? cell.colSpan : undefined} rowSpan={cell.rowSpan > 1 ? cell.rowSpan : undefined} className={cell.text ? '' : 'is-empty'}>
+                      {(cell.lines || [cell.text]).map((l, k) => <span className="lg-tbl-line" key={k}>{mk(l)}</span>)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One node of the portal's tree. `meta` (Map node → { i, end, h0, hEnd })
+// is read, not compared: it only changes with the find or the tables, and
+// those are compared.
+const sameNode = (a, b) => a.b === b.b && a.needle === b.needle && a.cur === b.cur && a.cut === b.cut
+  && a.drawnTables === b.drawnTables && a.refsOf === b.refsOf;
+const ActNode = React.memo(function ActNode({ b, meta, needle, cur, cut, drawnTables, setDrawnTables, refsOf, onRef }) {
+  const m = meta.get(b);
+  const c = { n: m.h0, needle, at: cur };
+  const mk = (s) => markString(s, c, refsOf, onRef);
+  // Own strings first (they number the matches before the children's).
+  const title = b.title ? mk(b.title) : null;
+  const den = b.den ? mk(b.den) : null;
+  const text = b.text ? mk(b.text) : null;
+  const lines = b.lines ? b.lines.map((l, i) => <span key={i}>{mk(l)}</span>) : null;
+  const segs = b.segs ? b.segs.map((s, i) => (s.type === 'table'
+    ? <ActTable key={i} tkey={`t:${s.id}`} rows={s.rows} grid={s.grid} diagram={s.diagram} drawnTables={drawnTables} setDrawnTables={setDrawnTables} mk={mk} c={c} />
+    : <pre className="lg-preline" key={i}>{s.rows.map((r, j) => <React.Fragment key={j}>{mk(r)}{j < s.rows.length - 1 ? '\n' : ''}</React.Fragment>)}</pre>)) : null;
+  const kids = (b.children || []).map((k, i) => {
+    const km = meta.get(k);
+    if (!km || km.i >= cut) return null;
+    return (
+      <ActNode
+        key={i} b={k} meta={meta} needle={needle}
+        cur={cur >= km.h0 && cur < km.hEnd ? cur : -1}
+        cut={km.end > cut ? cut : Infinity}
+        drawnTables={drawnTables} setDrawnTables={setDrawnTables} refsOf={refsOf} onRef={onRef}
+      />
+    );
+  });
+  switch (b.kind) {
+    case 'par': {
+      const amend = /^\(la \d/.test(b.text || '');
+      if (b.list) {
+        return (
+          <div className={`lg-li is-${b.list}`} style={b.indent ? { '--li-indent': b.indent } : undefined}>
+            {title ? <span className="lg-para-num">{title}</span> : null}
+            <div className="lg-inner">
+              {text ? <p className="lg-para">{text}</p> : null}
+              {kids}
+            </div>
+          </div>
+        );
+      }
+      return <>{text ? <p className={`lg-para${amend ? ' lg-amend' : ''}`}>{text}</p> : null}{kids}</>;
+    }
+    case 'art':
+      return (
+        <section className="lg-art">
+          <h3 className="lg-art-label">{title}{den ? <span className="lg-art-den"> {den}</span> : null}</h3>
+          {text ? <p className="lg-para">{text}</p> : null}
+          {kids}
+        </section>
+      );
+    case 'aln':
+    case 'lit':
+    case 'pct':
+      return (
+        <div className={`lg-${b.kind}`}>
+          <span className="lg-para-num">{title}</span>
+          <div className="lg-inner">
+            {text ? <p className="lg-para">{text}</p> : null}
+            {kids}
+          </div>
+        </div>
+      );
+    case 'cit':
+      return <blockquote className="lg-cit">{kids}</blockquote>;
+    case 'nta':
+      return <p className="lg-actnote">{title ? <b>{title} </b> : null}{text}{kids}</p>;
+    case 'smn':
+      return <div className="lg-smn">{lines}</div>;
+    case 'pre':
+      return <div className="lg-pre">{segs}</div>;
+    default: {
+      const level = UNIT_LEVEL_OF[b.tag] || 3;
+      return (
+        <section className={`lg-unitsec is-${b.tag || 'unit'}`}>
+          {title || den ? <h2 className={`lg-unit is-l${level}`}>{title}{den ? <span className="lg-unit-den"> {den}</span> : null}</h2> : null}
+          {text ? <p className="lg-para">{text}</p> : null}
+          {kids}
+        </section>
+      );
+    }
+  }
+}, sameNode);
+
+// One block of the plain text's shape (while the page is not in, or cannot be had).
+const samePlain = (a, b) => a.b === b.b && a.needle === b.needle && a.cur === b.cur && a.h0 === b.h0
+  && a.drawnTables === b.drawnTables && a.refsOf === b.refsOf && a.grid === b.grid && a.diagram === b.diagram;
+const PlainBlock = React.memo(function PlainBlock({ b, i, h0, needle, cur, grid, diagram, drawnTables, setDrawnTables, refsOf, onRef }) {
+  const c = { n: h0, needle, at: cur };
+  const mk = (s) => markString(s, c, refsOf, onRef);
+  if (b.kind === 'unit') return <h2 className={`lg-unit is-l${b.level}`}>{mk(b.text)}</h2>;
+  if (b.kind === 'note') return <p className="lg-actnote">{mk(b.text)}</p>;
+  if (b.kind === 'table') return <ActTable tkey={i} rows={b.rows} grid={grid} diagram={diagram} drawnTables={drawnTables} setDrawnTables={setDrawnTables} mk={mk} c={c} />;
+  if (b.kind === 'article') {
+    const label = mk(b.label);
+    return (
+      <section className="lg-art">
+        <h3 className="lg-art-label">{label}</h3>
+        {b.body.map((p, j) => (
+          <p className="lg-para" key={j}>
+            {p.num ? <span className="lg-para-num">({p.num})</span> : null}
+            {mk(p.text)}
+          </p>
+        ))}
+      </section>
+    );
+  }
+  return <>{b.body.map((p, j) => <p className="lg-para" key={j}>{mk(p.text)}</p>)}</>;
+}, samePlain);
+
+// A spinner with a line of text, shown only once something has taken longer
+// than `delay` (a quick answer shows no spinner at all).
+export function LoadingNote({ children, delay = 180, className = '' }) {
+  const [on, setOn] = useState(delay <= 0);
+  useEffect(() => {
+    if (delay <= 0) return undefined;
+    const id = setTimeout(() => setOn(true), delay);
+    return () => clearTimeout(id);
+  }, [delay]);
+  if (!on) return null;
+  return (
+    <p className={`lg-loading${className ? ` ${className}` : ''}`} role="status">
+      <span className="lg-spinner" aria-hidden="true" />
+      <span>{children}</span>
+    </p>
+  );
+}
+
+function ActBody({ tree, blocks, grids, diagrams, needle, at, drawnTables, setDrawnTables, refsOf, onRef, skipScrollRef, contentKey }) {
+  const bodyRef = useRef(null);
+  // The strings each node holds, numbered as the find counts them.
+  const plainText = (b, i) => (b.kind === 'table'
+    ? (drawnTables.has(i) || (!grids[i] && !diagrams[i]) ? b.rows : diagrams[i] ? diagramStrings(diagrams[i]) : grids[i].rows.flat().flatMap((c) => c.lines || [c.text]))
+    : [b.text || b.label || '', ...(b.body || []).map((p) => p.text)]);
+  const layout = useMemo(() => {
+    if (tree) {
+      const meta = new Map(); let i = 0; let h = 0;
+      const drawn = (id) => drawnTables.has(`t:${id}`);
+      const visit = (b) => {
+        const m = { i: i++, h0: h, end: 0, hEnd: 0 };
+        meta.set(b, m);
+        const own = [b.title, b.den, b.text, ...(b.lines || [])];
+        for (const s of b.segs || []) {
+          if (s.type !== 'table' || drawn(s.id) || (!s.grid && !s.diagram)) own.push(...s.rows);
+          else if (s.diagram) own.push(...diagramStrings(s.diagram));
+          else own.push(...s.grid.rows.flat().flatMap((c) => c.lines || [c.text]));
+        }
+        for (const s of own) h += countHits(s, needle);
+        (b.children || []).forEach(visit);
+        m.end = i; m.hEnd = h;
+      };
+      tree.blocks.forEach(visit);
+      return { meta, count: i };
+    }
+    const starts = []; let h = 0;
+    blocks.forEach((b, i) => { starts.push(h); for (const s of plainText(b, i)) h += countHits(s, needle); starts.push(h); });
+    return { starts, count: blocks.length };
+  }, [tree, blocks, grids, diagrams, needle, drawnTables]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // THE REVEAL: a slice at once, the rest in transitions.
+  const [prog, setProg] = useState({ key: contentKey, n: FIRST_NODES });
+  const limit = prog.key === contentKey ? prog.n : FIRST_NODES;
+  const done = limit >= layout.count;
+  useEffect(() => {
+    if (done) return undefined;
+    const step = needle ? STEP_NODES * 4 : STEP_NODES;
+    const id = setTimeout(() => startTransition(() => setProg({ key: contentKey, n: limit + step })), 16);
+    return () => clearTimeout(id);
+  }, [contentKey, limit, done, needle]);
+
+  // The current match to the middle of the window — once it is drawn (the
+  // reveal may still be on its way to it). After a switch between the rail's
+  // items the page stays at the top until the find is used again.
+  useEffect(() => {
+    if (!needle || at < 0 || skipScrollRef.current) return;
+    const el = bodyRef.current?.querySelector('.lg-hit.is-current');
+    el?.scrollIntoView?.({ block: 'center', behavior: document.documentElement.dataset.reduceMotion === 'true' ? 'auto' : 'smooth' });
+  }, [needle, at, done]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  let nodes;
+  if (tree) {
+    const { meta } = layout;
+    nodes = tree.blocks.map((b, i) => {
+      const m = meta.get(b);
+      if (m.i >= limit) return null;
+      return (
+        <ActNode
+          key={i} b={b} meta={meta} needle={needle}
+          cur={at >= m.h0 && at < m.hEnd ? at : -1}
+          cut={m.end > limit ? limit : Infinity}
+          drawnTables={drawnTables} setDrawnTables={setDrawnTables} refsOf={refsOf} onRef={onRef}
+        />
+      );
+    });
+  } else {
+    const { starts } = layout;
+    nodes = blocks.slice(0, limit).map((b, i) => {
+      const h0 = starts[i * 2]; const hEnd = starts[i * 2 + 1];
+      return (
+        <PlainBlock
+          key={i} b={b} i={i} h0={h0} needle={needle}
+          cur={at >= h0 && at < hEnd ? at : -1}
+          grid={grids[i]} diagram={diagrams[i]}
+          drawnTables={drawnTables} setDrawnTables={setDrawnTables} refsOf={refsOf} onRef={onRef}
+        />
+      );
+    });
+  }
+  return (
+    <div className={`lg-body${tree ? ' is-tree' : ''}`} ref={bodyRef}>
+      {nodes}
+      {!done ? <LoadingNote delay={120} className="is-foot">Laying out the rest of the act…</LoadingNote> : null}
+    </div>
   );
 }
 
@@ -243,10 +529,31 @@ export default function Legislation() {
   // laid out instead (`parseActText`) until then or when it cannot be had.
   const [actHtml, setActHtml] = useState(saved?.actHtml || '');
   const pageSeq = useRef(0);
-  const fetchPage = useCallback((rec, fresh) => {
+  // `fresh`: the portal's page first (an act just read live); otherwise the
+  // copy on disk first. `force` skips the session's memory (a sync). A page
+  // this session already has is put up in the same frame.
+  // The page arrives in a TRANSITION, parsed first while the window is idle
+  // (parseActHtml keeps the tree), so laying a long act out never cuts into
+  // typing or scrolling; the plain text is on screen meanwhile.
+  const [pageLoading, setPageLoading] = useState(false);
+  const fetchPage = useCallback((rec, fresh, force = false) => {
     const mine = ++pageSeq.current;
-    setActHtml('');
-    loadActPage(rec, { fresh }).then((p) => { if (mine === pageSeq.current && p?.ok) setActHtml(p.html); }).catch(() => {});
+    const now = !force && peekActPage(rec?.id);
+    setActHtml(now || '');
+    setPageLoading(!now);
+    if (now) return;
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1));
+    loadActPage(rec, { fresh, force })
+      .then((p) => {
+        if (mine !== pageSeq.current) return;
+        if (!p?.ok) { setPageLoading(false); return; }
+        idle(() => {
+          if (mine !== pageSeq.current) return;
+          try { parseActHtml(p.html); } catch { /* drawn from the text instead */ }
+          startTransition(() => { setActHtml(p.html); setPageLoading(false); });
+        }, { timeout: 300 });
+      })
+      .catch(() => { if (mine === pageSeq.current) setPageLoading(false); });
   }, []);
   const [actBusy, setActBusy] = useState(false);
   const [actError, setActError] = useState('');
@@ -382,6 +689,14 @@ export default function Legislation() {
     const sig = params.toString();
     if (!sig || arrived.current === sig) return;
     arrived.current = sig;
+    // A row of the tabs' results page hands the record itself over
+    // (lib/legalBrowser's handRecord): opened as it is, no search run.
+    const handed = params.get('rid') ? takeRecord(params.get('rid')) : null;
+    if (handed) {
+      setParams({}, { replace: true });
+      openRef.current?.(handed);
+      return;
+    }
     const q = {
       tip: params.get('tip') || '',
       numar: params.get('nr') || '',
@@ -459,10 +774,11 @@ export default function Legislation() {
   // for it again).
   const applyReader = (s) => {
     ++pageSeq.current;
+    setPageLoading(false);
     setActBusy(false); setActError('');
     setAct(s.act); setActSource(s.actSource); setActSync(s.actSync); setActHtml(s.actHtml);
     setFind(s.find); setFindAt(s.findAt); setDrawnTables(new Set(s.drawn || []));
-    if (s.act?.text && !s.actHtml) fetchPage(s.act, true);
+    if (s.act?.text && !s.actHtml) fetchPage(s.act, false);
     // To the top, at once and again once the new content has laid out; the
     // restored find must not pull the page down to its match.
     skipFindScroll.current = true;
@@ -528,7 +844,7 @@ export default function Legislation() {
     setActSource(res.source || '');
     setActSync({ state: res.source === 'live' ? 'same' : '', live: null });
     // The page too — the portal's, this machine's copy when it cannot answer.
-    fetchPage(res.act, true);
+    fetchPage(res.act, res.source === 'live');
     logOpen(res.act);
     if (res.source === 'live') { await keepAct(res.act); refreshLibrary(); }
     { const el = scroller(); if (el) el.scrollTop = 0; }
@@ -553,8 +869,27 @@ export default function Legislation() {
     const live = actSync.live;
     if (!live) return;
     setAct(live); setActSource('live'); setActSync({ state: 'same', live: null });
-    fetchPage(live, true);
+    fetchPage(live, true, true);
     await keepAct(live); refreshLibrary();
+  };
+
+  // RELOAD (the tab's button, F5): the open act — and its page — asked of
+  // the portal again, whatever this session or the copy has; with no act
+  // open, the last search run again.
+  const reload = async () => {
+    if (act?.id) {
+      const tabId = activeTabRef.current;
+      const was = act;
+      forgetLegislationSession({ id: was.id });
+      const res = await fetchActLive(was);
+      if (activeTabRef.current !== tabId) return;
+      if (!res?.ok) { setActSync({ state: '', live: null }); return; }
+      setAct(res.act); setActSource('live'); setActSync({ state: 'same', live: null });
+      fetchPage(res.act, true, true);
+      await keepAct(res.act); refreshLibrary();
+      return;
+    }
+    if (results && hasQuery(query)) { forgetLegislationSession(); await runNow(query); }
   };
 
   const blocks = useMemo(() => (act?.text ? parseActText(act.text) : []), [act?.text]);
@@ -594,83 +929,44 @@ export default function Legislation() {
   ), [blocks, needle, grids, drawnTables, treeStrings]); // eslint-disable-line react-hooks/exhaustive-deps
   const at = total ? ((findAt % total) + total) % total : 0;
   const step = (d) => { skipFindScroll.current = false; if (total) setFindAt((k) => (((k + d) % total) + total) % total); };
-  useEffect(() => {
-    // After a switch between the rail's items the page stays at the top
-    // until the reader uses the find again (types, or steps a match).
-    if (!needle || !total || skipFindScroll.current) return;
-    const el = readerRef.current?.querySelector('.lg-hit.is-current');
-    el?.scrollIntoView?.({ block: 'center', behavior: document.documentElement.dataset.reduceMotion === 'true' ? 'auto' : 'smooth' });
-  }, [needle, at, total]);
-  // The text of one block with its occurrences marked; `counter` runs across
-  // the whole act so each mark knows whether it is the current one.
-  const markFind = (s, counter) => {
-    if (!needle || !s) return s;
-    const f = fold(s); const out = []; let last = 0; let i = f.indexOf(needle);
-    while (i >= 0) {
-      if (i > last) out.push(s.slice(last, i));
-      const k = counter.n++;
-      out.push(<mark key={`${k}`} className={`lg-hit${k === at ? ' is-current' : ''}`}>{s.slice(i, i + needle.length)}</mark>);
-      last = i + needle.length;
-      i = f.indexOf(needle, last);
-    }
-    if (last < s.length) out.push(s.slice(last));
-    return out;
-  };
   // ── The references in the act, as controls ──
   // The tabs answer each other: what an act CITES is made pressable where it
   // stands — another act or a code (→ opened here, `followCitation`), a CAEN
   // code (→ the nomenclature in a modal, on that code), a court file number
   // (→ the Court files tab, on that file). The same detector as the Doc
-  // Viewer's (lib/lawRefs), so the two read a citation the same way. Found
-  // once per string and remembered for the act — the find re-renders on
-  // every keystroke, and an act is thousands of strings.
+  // Viewer's (lib/lawRefs). Found once per string and remembered for the act;
+  // `refsOf` and `onRef` are STABLE, so the act's memoised nodes (ActBody)
+  // are not redrawn for them.
   const refCache = useMemo(() => new Map(), [act?.id, actHtml]); // eslint-disable-line react-hooks/exhaustive-deps
-  const refsOf = (s) => {
-    let r = refCache.get(s);
+  const refsOf = useCallback((str) => {
+    let r = refCache.get(str);
     if (!r) {
       // An act is a control only when it fills the form whole (kind,
       // number, year — `fixedQueryOf`); the query is kept on the hit.
-      r = findFollowableRefs(s).flatMap((h) => {
+      r = findFollowableRefs(str).flatMap((h) => {
         if (h.kind !== 'act' && h.kind !== 'code') return [h];
-        const fixed = fixedQueryOf(h);
-        return fixed ? [{ ...h, fixed }] : [];
+        const q = legislationQueryFor(lawRefDetails(h));
+        return q?.tip && q.numar && q.an ? [{ ...h, fixed: { tip: q.tip, numar: q.numar, an: q.an } }] : [];
       });
-      refCache.set(s, r);
+      refCache.set(str, r);
     }
     return r;
+  }, [refCache]);
+  const refActRef = useRef(null);
+  refActRef.current = (h) => {
+    if (h.kind === 'cui') navigate(`/anaf?cui=${encodeURIComponent(h.cui)}&_=${Date.now()}`);
+    else if (h.kind === 'caen') setCaenModal({ code: h.codes[0], codes: h.codes, rev: h.rev || 0 });
+    else if (h.kind === 'case') navigate(`/portal-just?nr=${encodeURIComponent(h.number)}`);
+    else followCitation(h);
   };
-  const kindLabelOf = (tip) => LEGIS_TYPES.find((t) => t.id === tip)?.label || tip;
-  const refTip = (h) => (h.kind === 'caen' ? `${lawRefLabel(h)} — open in the CAEN nomenclature`
-    : h.kind === 'case' ? `Court file ${h.number} — open in Court files`
-      : `Search ${kindLabelOf(h.fixed.tip)} nr. ${h.fixed.numar}/${h.fixed.an} and open it here`);
-  const marked = (s, counter) => {
-    if (!s) return s;
-    const refs = refsOf(s);
-    if (!refs.length) return markFind(s, counter);
-    const out = []; let last = 0;
-    refs.forEach((h, i) => {
-      if (h.start > last) out.push(<React.Fragment key={`t${i}`}>{markFind(s.slice(last, h.start), counter)}</React.Fragment>);
-      const inner = markFind(s.slice(h.start, h.end), counter);
-      const go = h.kind === 'caen' ? () => setCaenModal({ code: h.codes[0], codes: h.codes, rev: h.rev || 0 })
-        : h.kind === 'case' ? () => navigate(`/portal-just?nr=${encodeURIComponent(h.number)}`)
-          : () => followCitation(h);
-      out.push(
-        <Tooltip key={`r${i}`} content={refTip(h)}>
-          <button type="button" className={`lg-ref is-${h.kind}`} onClick={go}>{inner}</button>
-        </Tooltip>,
-      );
-      last = h.end;
-    });
-    if (last < s.length) out.push(<React.Fragment key="tail">{markFind(s.slice(last), counter)}</React.Fragment>);
-    return out;
-  };
+  const onRef = useCallback((h) => refActRef.current?.(h), []);
 
   const head = act ? actHeading(act) : null;
 
   // ── The browser build has neither the service nor the archive ──────────
   if (!isElectron) {
     return (
-      <div className="lg-page" ref={pageRef}>
+      <div className="lws lg-page" ref={pageRef}>
         <PageMasthead eyebrow="Portalul legislativ" eyebrowMuted="source: legislatie.just.ro" title="Legislation" compact={false} />
         <LegalTabs />
         <div className="lg-empty">
@@ -685,47 +981,60 @@ export default function Legislation() {
   }
 
   return (
-    <div className="lg-page" ref={pageRef}>
-      <PageMasthead
-        eyebrow="Portalul legislativ"
-        eyebrowMuted="source: legislatie.just.ro"
-        title="Legislation"
-        compact={false}
-        actions={(
-          <div className="lg-mast-meta">
-            <div>
-              <div className="lg-mast-num">{library.acts.length}</div>
-              <div>Kept here</div>
+    <LegalWorkspace
+      className="lg-page"
+      rootRef={pageRef}
+      // The rail — one item per reading session, the active one lit;
+      // Search (the mini header's, at the far left of its second line) is
+      // the way back to the search and its results.
+      items={tabs.map((t) => {
+        const a = tabAct(t);
+        const label = a ? actLabel(a) : 'Opening…';
+        return {
+          id: t.id,
+          kind: a ? (a.tipAct || 'Act') : 'Opening…',
+          title: a?.numar ? `nr. ${a.numar}${a.year ? `/${a.year}` : ''}` : '',
+          tip: a?.title ? `${label} — ${a.title}` : label,
+        };
+      })}
+      activeId={activeTab}
+      onSelect={showTab}
+      onClose={closeTab}
+      onSearch={leaveToResults}
+      onReload={reload}
+      railLabel="Acts open in this tab"
+      masthead={(
+        <PageMasthead
+          eyebrow="Portalul legislativ"
+          eyebrowMuted="source: legislatie.just.ro"
+          title="Legislation"
+          compact={false}
+          actions={(
+            <div className="lg-mast-meta">
+              <div>
+                <div className="lg-mast-num">{library.acts.length}</div>
+                <div>Kept here</div>
+              </div>
+              <span className="lg-mast-sep" />
+              <div>
+                <div className="lg-mast-num">{formatBytes(library.bytes)}</div>
+                <div>On this machine</div>
+              </div>
             </div>
-            <span className="lg-mast-sep" />
-            <div>
-              <div className="lg-mast-num">{formatBytes(library.bytes)}</div>
-              <div>On this machine</div>
-            </div>
-          </div>
-        )}
-      >
-        Romanian legislation, searched through the Ministry of Justice’s own web service and read
-        here as a laid-out document — every act you open is kept on this machine, so it is still
-        there when the portal is not.
-      </PageMasthead>
-      {/* The Legislation tab bar — shared with the Newsletter and the CAEN
-          page; the title search sits in it (Enter searches). */}
-      {/* The mini header's second line holds the whole search: at the left
-          the act's identity — the dice, Kind, Number, Year, Search — as one
-          row drawn like the search box beside it (no labels: placeholders,
-          as the search box has), and at the right the words box. WITH AN ACT
-          OPEN the line is the act's: the words box finds inside its text
-          (the only find there is — the act has no box of its own), and at
-          the left stand the way back and the match count with its arrows. */}
-      <LegalTabs
-        // Where the last answer came from — at the tabs row's right end,
-        // above the hairline, as a filled pill.
-        // ONE pill for both: where what is on show came from (the open
-        // act's own source, else the last search's) AND the way out to the
-        // portal — a button: with an act open it opens THAT act on the
-        // portal, otherwise the portal itself.
-        status={(act ? actSource : results && source) ? (() => {
+          )}
+        >
+          Romanian legislation, searched through the Ministry of Justice’s own web service and read
+          here as a laid-out document — every act you open is kept on this machine, so it is still
+          there when the portal is not.
+        </PageMasthead>
+      )}
+      // WITH AN ACT OPEN the mini header's second line is the act's: the
+      // words box finds inside its text. The search itself — the bar and the
+      // words box — is the Search item's (drawn at the head of the search
+      // view, below). The status pill: where what is on show came from AND
+      // the way out to the portal.
+      bar={{
+        status: (act ? actSource : results && source) ? (() => {
           // A kept copy that IS what the portal has is as good as live, and
           // says so with the one pill; only a copy that differs (or one not
           // yet checked) is called "your copy", with Sync beside it.
@@ -736,7 +1045,7 @@ export default function Legislation() {
               <Tooltip content={act?.link ? 'Open this act on the ministry’s portal' : 'Open the ministry’s portal'}>
                 <button type="button" className={`lgt-status-pill is-${src}`} onClick={() => openExternal(href)}>
                   {act && actSync.state === 'same' ? <span className="lgt-status-ico">{KeptGlyph}</span> : null}
-                  <span>{src === 'live' ? 'Live from the portal' : 'From your copy on this machine'}</span>
+                  <span>{src === 'live' ? 'Live from legislatie.just.ro' : 'From your copy on this machine'}</span>
                   <span className="lgt-status-ico">{ExternalIcon}</span>
                 </button>
               </Tooltip>
@@ -745,19 +1054,19 @@ export default function Legislation() {
               {act && actSync.state === 'differs' ? (
                 <Tooltip content="The portal's text has changed since this copy was kept — take the portal's">
                   <button type="button" className="lgt-status-pill is-differs" onClick={syncAct}>
-                    <span>Differs from the portal</span><span className="lgt-status-ico">{SyncGlyph}</span><span>Sync</span>
+                    <span>Differs from the portal - click to sync</span>
                   </button>
                 </Tooltip>
               ) : null}
             </>
           );
-        })() : null}
+        })() : null,
         // The act's FIND, Windows-style — the Doc Viewer's find bar: every
         // match lit as the words are typed, the position ("3/17", or "No
         // results") and the previous / next / clear buttons INSIDE the
         // field, Enter the next match, Shift+Enter the one before (Tab /
         // Shift+Tab too), Escape clears and leaves the field.
-        search={act ? {
+        search: act ? {
           value: find,
           placeholder: 'Find in this act',
           onChange: (v) => { skipFindScroll.current = false; setFind(v); setFindAt(0); },
@@ -765,96 +1074,46 @@ export default function Legislation() {
             if (e.key === 'Tab' && needle) { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
           },
           find: { current: total ? at + 1 : 0, total, prev: () => step(-1), next: () => step(1) },
-        } : null}
-        // The search itself — the bar and the words box — is the Search
-        // item's (drawn at the head of the search view, below); the tab bar
-        // carries only the open act's find. There is no Back: the rail's
-        // Search item is the way back to the search.
-        noSearch={!act}
-      />
-
-      <div className="lg-shell has-rail">
-      {/* The rail — the Advisor's list of chats, for acts: one item per
-          reading session, the active one lit; "Search" above them is the
-          search itself and its results. Always there, empty but for Search
-          until an act is opened. */}
-      {(
-        <aside className="lg-rail" aria-label="Acts open in this tab">
-          <div className="lg-rail-head">
-            <button type="button" className={`lg-rail-item is-head${activeTab == null ? ' is-active' : ''}`} onClick={leaveToResults}>
-              <span className="lg-rail-ico">{RailSearchIcon}</span>
-              <span className="lg-rail-title">Search</span>
+        } : null,
+        noSearch: !act,
+      }}
+      // History — the shared button over this tab's log; a search entry
+      // runs again, an act entry opens again; "Kept acts" in its head
+      // forgets the archive's acts.
+      history={{
+        tab: 'legislation',
+        tip: 'Every search run and every act opened, with the time',
+        emptyText: 'Nothing yet. Every search you run and every act you open is listed here.',
+        renderEntry: (e) => (e.kind === 'search' ? (
+          <>
+            {kindLabel(e.tip) ? <span className="lg-hist-kind">{kindLabel(e.tip)} </span> : null}
+            {e.numar ? `nr. ${e.numar}` : ''}{e.an ? `${e.numar ? '/' : 'din '}${e.an}` : ''}
+            {e.words ? `${e.numar || e.an || kindLabel(e.tip) ? ' · ' : ''}“${e.words}”` : ''}
+            {!e.numar && !e.an && !e.words && !kindLabel(e.tip) ? 'Everything' : ''}
+            <span className="lg-hist-dim"> · {e.count} {e.count === 1 ? 'result' : 'results'}{e.source === 'archive' ? ' · from this machine' : ''}</span>
+          </>
+        ) : (
+          <>
+            <span className="lg-hist-kind">{actLabel(e.rec)}</span>
+            {e.rec?.title ? <span className="lg-hist-dim"> — {e.rec.title}</span> : null}
+          </>
+        )),
+        onPick: (e) => {
+          if (e.kind === 'search') {
+            const q = { tip: e.tip || '', numar: e.numar || '', an: e.an || '', titlu: e.words || '', text: '' };
+            setQuery(q); leaveToResults();
+            run(q);
+          } else if (e.rec) open(e.rec);
+        },
+        extra: (
+          <Tooltip content={library.acts.length ? 'Forget every act kept whole on this machine' : 'No act is kept on this machine'}>
+            <button type="button" className="lgt-tool-btn is-danger" disabled={!library.acts.length} onClick={async () => { await clearArchive(); refreshLibrary(); }}>
+              <span className="lgt-tool-ico">{BinIcon}</span><span>Kept acts</span>
             </button>
-            {/* History — the clock alone, at the Search item's right: the
-                shared button (components/HistoryMenu) over this tab's log;
-                a search entry runs again, an act entry opens again; "Kept
-                acts" in its head forgets the archive's whole acts. */}
-            <HistoryButton
-              iconOnly
-              className="lg-rail-hist"
-              tab="legislation"
-              tip="Every search run and every act opened, with the time"
-              emptyText="Nothing yet. Every search you run and every act you open is listed here."
-              renderEntry={(e) => (e.kind === 'search' ? (
-                <>
-                  {kindLabel(e.tip) ? <span className="lg-hist-kind">{kindLabel(e.tip)} </span> : null}
-                  {e.numar ? `nr. ${e.numar}` : ''}{e.an ? `${e.numar ? '/' : 'din '}${e.an}` : ''}
-                  {e.words ? `${e.numar || e.an || kindLabel(e.tip) ? ' · ' : ''}“${e.words}”` : ''}
-                  {!e.numar && !e.an && !e.words && !kindLabel(e.tip) ? 'Everything' : ''}
-                  <span className="lg-hist-dim"> · {e.count} {e.count === 1 ? 'result' : 'results'}{e.source === 'archive' ? ' · from this machine' : ''}</span>
-                </>
-              ) : (
-                <>
-                  <span className="lg-hist-kind">{actLabel(e.rec)}</span>
-                  {e.rec?.title ? <span className="lg-hist-dim"> — {e.rec.title}</span> : null}
-                </>
-              ))}
-              onPick={(e) => {
-                if (e.kind === 'search') {
-                  const q = { tip: e.tip || '', numar: e.numar || '', an: e.an || '', titlu: e.words || '', text: '' };
-                  setQuery(q); leaveToResults();
-                  run(q);
-                } else if (e.rec) open(e.rec);
-              }}
-              extra={(
-                <Tooltip content={library.acts.length ? 'Forget every act kept whole on this machine' : 'No act is kept on this machine'}>
-                  <button type="button" className="lgt-tool-btn is-danger" disabled={!library.acts.length} onClick={async () => { await clearArchive(); refreshLibrary(); }}>
-                    <span className="lgt-tool-ico">{BinIcon}</span><span>Kept acts</span>
-                  </button>
-                </Tooltip>
-              )}
-            />
-          </div>
-          <div className="lg-rail-list">
-            {tabs.map((t) => {
-              const a = tabAct(t);
-              const label = a ? actLabel(a) : 'Opening…';
-              return (
-                <div
-                  key={t.id}
-                  className={`lg-rail-item${t.id === activeTab ? ' is-active' : ''}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => showTab(t.id)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') showTab(t.id); }}
-                >
-                  <span className="lg-rail-ico">{RailActIcon}</span>
-                  <Tooltip content={a?.title ? `${label} — ${a.title}` : label}>
-                    {/* The act's kind and number only; its title is in the tooltip. */}
-                    <span className="lg-rail-title">{label}</span>
-                  </Tooltip>
-                  <span className="lg-rail-actions">
-                    <Tooltip content="Close">
-                      <button type="button" aria-label={`Close ${label}`} onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}>{RailCloseIcon}</button>
-                    </Tooltip>
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </aside>
-      )}
-      <div className="lg-shell-main">
+          </Tooltip>
+        ),
+      }}
+    >
       {act ? (
         // ── Reading one act ────────────────────────────────────────────
         <div className="lg-reader" ref={readerRef}>
@@ -864,9 +1123,12 @@ export default function Legislation() {
                   same line, at the right: Save offline (an act already kept
                   says nothing — the "Saved here" pill was removed) and On
                   the portal. */}
-              <div className="lg-act-kindrow">
+              <div className={`lg-act-kindrow${actTree?.head?.den ? ' is-float' : ''}`}>
                 {/* The source head below names the act itself; the kind
-                    line is only the record's, until the page arrives. */}
+                    line is only the record's, until the page arrives. Once
+                    it has, the row takes no height of its own — Save offline
+                    floats at the head's top right — so the act's name starts
+                    right under the tab bar. */}
                 {actTree?.head?.den ? <span /> : <div className="lg-act-kind">{head.label}</div>}
                 <div className="lg-reader-tools">
                   {kept.has(act.id) ? null : act.text ? (
@@ -931,176 +1193,23 @@ export default function Legislation() {
               </div>
             </header>
 
-            {actBusy ? <p className="lg-note">Reading…</p> : null}
+            {actBusy ? <LoadingNote>Reading the act…</LoadingNote> : null}
+            {!actBusy && act.text && !actHtml && pageLoading ? <LoadingNote delay={400}>Getting the portal’s layout — the text is below meanwhile…</LoadingNote> : null}
             {actError ? <p className="lg-note is-bad">{actError}</p> : null}
             {!actBusy && !actError && !act.text ? <p className="lg-note">This act has no text.</p> : null}
             {needle && act.text && !total ? (
               <p className="lg-note">Nothing in this act matches “{find.trim()}”.</p>
             ) : null}
 
-            <div className={`lg-body${actTree ? ' is-tree' : ''}`}>
-              {(() => {
-                const counter = { n: 0 };
-                // A box-drawn table (a form, a schedule), with a switch above
-                // it: DocVex's table (the drawing read as a grid, merged cells
-                // and all) or the portal's drawing as it is, in a monospace
-                // block where the boxes line up. A drawing that could not be
-                // read as a grid has only the drawing. The find marks inside
-                // either like anywhere else.
-                const renderTable = (key, rows, grid, diagram = null) => {
-                  const readable = !!(grid || diagram);
-                  const drawn = !readable || drawnTables.has(key);
-                  const setDrawn = (on) => setDrawnTables((s) => { const next = new Set(s); if (on) next.add(key); else next.delete(key); return next; });
-                  return (
-                    <div className="lg-tblwrap" key={key}>
-                      {/* The view switch over the table. */}
-                      <div className="lg-tblbar">
-                        <div className="lgt-toggle" role="tablist" aria-label={diagram ? 'How the diagram is drawn' : 'How the table is drawn'}>
-                          <button type="button" role="tab" aria-selected={!drawn} className={`lgt-toggle-btn${!drawn ? ' is-on' : ''}${readable ? '' : ' is-off'}`} aria-disabled={!readable} onClick={() => { if (readable) setDrawn(false); }}>DocVex</button>
-                          <button type="button" role="tab" aria-selected={drawn} className={`lgt-toggle-btn${drawn ? ' is-on' : ''}`} onClick={() => setDrawn(true)}>Source</button>
-                        </div>
-                      </div>
-                      {drawn ? (
-                        <pre className="lg-table">
-                          {rows.map((r, j) => <React.Fragment key={j}>{marked(r, counter)}{j < rows.length - 1 ? '\n' : ''}</React.Fragment>)}
-                        </pre>
-                      ) : diagram ? (
-                        <BoxDiagram d={diagram} marked={marked} counter={counter} />
-                      ) : (
-                        <div className="lg-tblbox">
-                        <table className="lg-tbl">
-                          <tbody>
-                            {grid.rows.map((row, j) => (
-                              <tr key={j}>
-                                {row.map((c) => (
-                                  <td key={c.c} colSpan={c.colSpan > 1 ? c.colSpan : undefined} rowSpan={c.rowSpan > 1 ? c.rowSpan : undefined} className={c.text ? '' : 'is-empty'}>
-                                    {/* The cell's lines — one per item the drawing set
-                                        on its own row (a bullet, a number, a letter),
-                                        each on a line of its own. */}
-                                    {(c.lines || [c.text]).map((l, k) => <span className="lg-tbl-line" key={k}>{marked(l, counter)}</span>)}
-                                  </td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        </div>
-                      )}
-                    </div>
-                  );
-                };
-                // ── The act as the portal lays it out (the tree) ──
-                // Each node drawn in DocVex's own type by the portal's rule:
-                // an article with its number as a heading, a paragraph with
-                // its "(1)", a letter with its "a)" indented under it, a point
-                // with its "1.", quoted text (an amendment's new wording) as a
-                // rule-marked block, a note, an annex as a section, the
-                // signatures right-aligned, a preformatted block as its rows
-                // with each table it draws switchable.
-                const UNIT_LEVEL_OF = { prt: 1, crt: 1, ttl: 2, cap: 2, sec: 3, sbs: 3, anx: 2 };
-                const renderNode = (b, key) => {
-                  const kids = (b.children || []).map((c, i) => renderNode(c, `${key}.${i}`));
-                  switch (b.kind) {
-                    case 'par': {
-                      const amend = /^\(la \d/.test(b.text || '');
-                      // A list the portal writes as plain paragraphs (lib:
-                      // `asListItem`): its marker in the number column, the
-                      // text beside it; a nested kind — a letter, a roman
-                      // numeral, a bullet, or text the portal pushed in with
-                      // spaces — hangs on a guide line.
-                      if (b.list) {
-                        return (
-                          <div className={`lg-li is-${b.list}`} key={key} style={b.indent ? { '--li-indent': b.indent } : undefined}>
-                            {b.title ? <span className="lg-para-num">{marked(b.title, counter)}</span> : null}
-                            <div className="lg-inner">
-                              {b.text ? <p className="lg-para">{marked(b.text, counter)}</p> : null}
-                              {kids}
-                            </div>
-                          </div>
-                        );
-                      }
-                      return (
-                        <React.Fragment key={key}>
-                          {b.text ? <p className={`lg-para${amend ? ' lg-amend' : ''}`}>{marked(b.text, counter)}</p> : null}
-                          {kids}
-                        </React.Fragment>
-                      );
-                    }
-                    case 'art':
-                      return (
-                        <section className="lg-art" key={key}>
-                          <h3 className="lg-art-label">{marked(b.title, counter)}{b.den ? <span className="lg-art-den"> {marked(b.den, counter)}</span> : null}</h3>
-                          {b.text ? <p className="lg-para">{marked(b.text, counter)}</p> : null}
-                          {kids}
-                        </section>
-                      );
-                    case 'aln':
-                    case 'lit':
-                    case 'pct':
-                      return (
-                        <div className={`lg-${b.kind}`} key={key}>
-                          <span className="lg-para-num">{marked(b.title, counter)}</span>
-                          <div className="lg-inner">
-                            {b.text ? <p className="lg-para">{marked(b.text, counter)}</p> : null}
-                            {kids}
-                          </div>
-                        </div>
-                      );
-                    case 'cit':
-                      return <blockquote className="lg-cit" key={key}>{kids}</blockquote>;
-                    case 'nta':
-                      return (
-                        <p className="lg-actnote" key={key}>
-                          {b.title ? <b>{marked(b.title, counter)} </b> : null}{marked(b.text, counter)}
-                          {kids}
-                        </p>
-                      );
-                    case 'smn':
-                      return <div className="lg-smn" key={key}>{b.lines.map((l, i) => <span key={i}>{marked(l, counter)}</span>)}</div>;
-                    case 'pre':
-                      return (
-                        <div className="lg-pre" key={key}>
-                          {b.segs.map((s, i) => (s.type === 'table'
-                            ? renderTable(`t:${s.id}`, s.rows, s.grid, s.diagram)
-                            : <pre className="lg-preline" key={i}>{s.rows.map((r, j) => <React.Fragment key={j}>{marked(r, counter)}{j < s.rows.length - 1 ? '\n' : ''}</React.Fragment>)}</pre>))}
-                        </div>
-                      );
-                    default: {
-                      // A unit: annex, chapter, title, section… — a heading, then what it holds.
-                      const level = UNIT_LEVEL_OF[b.tag] || 3;
-                      return (
-                        <section className={`lg-unitsec is-${b.tag || 'unit'}`} key={key}>
-                          {b.title || b.den ? <h2 className={`lg-unit is-l${level}`}>{marked(b.title, counter)}{b.den ? <span className="lg-unit-den"> {marked(b.den, counter)}</span> : null}</h2> : null}
-                          {b.text ? <p className="lg-para">{marked(b.text, counter)}</p> : null}
-                          {kids}
-                        </section>
-                      );
-                    }
-                  }
-                };
-                if (actTree) return actTree.blocks.map((b, i) => renderNode(b, String(i)));
-                // ── Without the page: the plain text's shape ──
-                return blocks.map((b, i) => {
-                  if (b.kind === 'unit') return <h2 className={`lg-unit is-l${b.level}`} key={i}>{marked(b.text, counter)}</h2>;
-                  if (b.kind === 'note') return <p className="lg-actnote" key={i}>{marked(b.text, counter)}</p>;
-                  if (b.kind === 'table') return renderTable(i, b.rows, grids[i], diagrams[i]);
-                  if (b.kind === 'article') {
-                    return (
-                      <section className="lg-art" key={i}>
-                        <h3 className="lg-art-label">{marked(b.label, counter)}</h3>
-                        {b.body.map((p, j) => (
-                          <p className="lg-para" key={j}>
-                            {p.num ? <span className="lg-para-num">({p.num})</span> : null}
-                            {marked(p.text, counter)}
-                          </p>
-                        ))}
-                      </section>
-                    );
-                  }
-                  return b.body.map((p, j) => <p className="lg-para" key={`${i}-${j}`}>{marked(p.text, counter)}</p>);
-                });
-              })()}
-            </div>
+            {act.text ? (
+              <ActBody
+                tree={actTree} blocks={blocks} grids={grids} diagrams={diagrams}
+                needle={needle} at={total ? at : -1}
+                drawnTables={drawnTables} setDrawnTables={setDrawnTables}
+                refsOf={refsOf} onRef={onRef} skipScrollRef={skipFindScroll}
+                contentKey={`${act.id}|${actTree ? 'tree' : 'text'}|${act.text.length}`}
+              />
+            ) : null}
           </article>
         </div>
       ) : (
@@ -1157,32 +1266,17 @@ export default function Legislation() {
               </Tooltip>
             );
             const note = error ? <span className="lg-warn lg-barnote">{error}</span> : null;
-            if (results) {
-              return <div className="lg-searchrow">{formBar}{wordsBox}{clearBtn}{note}</div>;
-            }
             return (
-              <section className="lg-start">
-                <span className="lg-start-mark" aria-hidden="true">{StartMark}</span>
-                <h2 className="lg-start-title">Search Romanian legislation</h2>
-                <p className="lg-start-sub">
-                  Look an act up by its kind, number and year, or find it by words from its title or text.
-                  Every act you open stays in the list on the left.
-                </p>
-                <div className="lg-start-modes">
-                  <div className="lg-start-mode">
-                    <p className="lg-start-label">By number</p>
-                    {formBar}
-                    <p className="lg-start-hint">Kind, number and year open the act straight away.</p>
-                  </div>
-                  <span className="lg-start-or" aria-hidden="true">or</span>
-                  <div className="lg-start-mode">
-                    <p className="lg-start-label">By words</p>
-                    {wordsBox}
-                    <p className="lg-start-hint">Title words first, then the text of the acts. Press Enter to search.</p>
-                  </div>
-                </div>
-                <div className="lg-start-foot">{clearBtn}{note}</div>
-              </section>
+              <WorkspaceSearch
+                asked={!!results}
+                title="Search Romanian legislation"
+                sub="Look an act up by its kind, number and year, or find it by words from its title or text. Every act you open stays in the list on the left."
+                modes={[
+                  { id: 'number', label: 'By number', hint: 'Kind, number and year open the act straight away.', node: formBar },
+                  { id: 'words', label: 'By words', hint: 'Title words first, then the text of the acts. Press Enter to search.', node: wordsBox },
+                ]}
+                foot={<>{clearBtn}{note}</>}
+              />
             );
           })()}
           {/* The portal has no act-type filter, so a number and a year answer
@@ -1242,9 +1336,7 @@ export default function Legislation() {
           ) : null}
         </div>
       )}
-      </div>
-      </div>
       <CaenModal open={caenModal} onClose={closeCaen} />
-    </div>
+    </LegalWorkspace>
   );
 }

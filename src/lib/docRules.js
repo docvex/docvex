@@ -170,15 +170,6 @@ export const RULE_GROUPS = [
           { id: 'off', label: 'Plain', example: 'informații confidențiale', rule: 'Do not capitalise defined terms.' },
         ],
       },
-      {
-        key: 'language',
-        label: 'Language',
-        options: [
-          { id: 'ro', label: 'Romanian', example: 'Contract de prestări servicii', rule: 'Write every document in Romanian, with correct diacritics (ș, ț, ă, î, â).' },
-          { id: 'en', label: 'English', example: 'Services Agreement', rule: 'Write every document in English.' },
-          { id: 'auto', label: 'Match the request', example: '', rule: 'Write in whichever language the request is written in.' },
-        ],
-      },
     ],
   },
 ];
@@ -197,7 +188,6 @@ export const DEFAULT_RULES = {
   amounts: 'figuresWords',
   parties: 'shortForm',
   definedTerms: 'on',
-  language: 'ro',
   extra: '',
   enabled: true,
 };
@@ -241,13 +231,122 @@ export function saveDocRules(rules) {
   return next;
 }
 
+// ── Presets ────────────────────────────────────────────────────────────────
+// Named sets of these rules the user keeps — one office drafting for two kinds
+// of client, a court filing laid out differently from a contract — so moving
+// between them is one press instead of fifteen. A preset is a SNAPSHOT: saved
+// from the rules as they stand, applied by writing it back over them (the
+// in-use switch is left as it is — a preset says how to write, not whether).
+// Kept on this device beside the rules (`docvex.docRules.presets.v1`).
+const PRESETS_KEY = 'docvex.docRules.presets.v1';
+const PRESET_MAX = 40;
+
+const presetRules = (r) => {
+  const { enabled, ...rest } = normalizeRules(r);
+  void enabled;
+  return rest;
+};
+
+// DEFAULT — the built-in preset: always there, always first, never deleted
+// or renamed. Its rules START as the app's default rules and can be changed
+// like any preset's (kept under its id); Reset puts them back. (It was the
+// read-only "DocVex" preset; the id is unchanged so an older store still maps.)
+export const BUILTIN_PRESET_ID = 'docvex';
+const builtinPreset = (stored) => ({
+  id: BUILTIN_PRESET_ID,
+  name: 'Default',
+  builtin: true,
+  at: stored?.at || null,
+  rules: stored ? stored.rules : presetRules(DEFAULT_RULES),
+});
+
+export function loadRulePresets() {
+  let raw = [];
+  try {
+    const v = JSON.parse(localStorage.getItem(PRESETS_KEY) || '[]');
+    if (Array.isArray(v)) raw = v;
+  } catch { /* unreadable: the built-in alone */ }
+  const clean = raw
+    .filter((p) => p && typeof p === 'object' && p.id && String(p.name || '').trim())
+    .map((p) => ({ id: String(p.id), name: String(p.name).trim().slice(0, 60), at: p.at || null, rules: presetRules(p.rules) }));
+  const stored = clean.find((p) => p.id === BUILTIN_PRESET_ID);
+  return [builtinPreset(stored), ...clean.filter((p) => p.id !== BUILTIN_PRESET_ID)];
+}
+function writePresets(list) {
+  try { localStorage.setItem(PRESETS_KEY, JSON.stringify(list)); } catch { /* full or blocked */ }
+  return list;
+}
+/** Save the rules as a preset under `name` — a preset of the same name is replaced. */
+export function addRulePreset(name, rules) {
+  const clean = String(name || '').trim().slice(0, 60);
+  if (!clean) return loadRulePresets();
+  const list = loadRulePresets();
+  // A name the built-in holds is never taken over by a new preset.
+  const same = list.find((p) => !p.builtin && p.name.toLowerCase() === clean.toLowerCase());
+  const entry = {
+    id: same?.id || `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    name: clean,
+    at: new Date().toISOString(),
+    rules: presetRules(rules),
+  };
+  // Over the cap the oldest go — never the built-in, which leads the list.
+  const next = same
+    ? list.map((p) => (p.id === same.id ? entry : p))
+    : [list[0], ...[...list.slice(1), entry].slice(-(PRESET_MAX - 1))];
+  return writePresets(next);
+}
+/** Rename a preset and/or change its rules. A blank name keeps the old one. */
+export function updateRulePreset(id, { name, rules } = {}) {
+  return writePresets(loadRulePresets().map((p) => {
+    if (p.id !== id) return p;   // (the built-in keeps its name, below)
+    const n = p.builtin || name == null ? p.name : (String(name).trim().slice(0, 60) || p.name);
+    return { ...p, name: n, at: new Date().toISOString(), rules: rules ? presetRules(rules) : p.rules };
+  }));
+}
+/** A free default name — "Custom rules", then "Custom rules 2", "Custom rules 3"… */
+export function nextPresetName(list = loadRulePresets()) {
+  const taken = new Set(list.map((p) => p.name.toLowerCase()));
+  if (!taken.has('custom rules')) return 'Custom rules';
+  let n = 2;
+  while (taken.has(`custom rules ${n}`)) n += 1;
+  return `Custom rules ${n}`;
+}
+export function removeRulePreset(id) {
+  if (id === BUILTIN_PRESET_ID) return loadRulePresets();   // Default stays
+  return writePresets(loadRulePresets().filter((p) => p.id !== id));
+}
+// WHICH preset is in use — remembered, not worked out: a new preset starts as
+// a copy of the rules in use, so matching alone would mark two (or more) at
+// once. The one kept here wins while it still says what the rules say.
+const ACTIVE_KEY = 'docvex.docRules.activePreset.v1';
+export function loadActivePresetId() {
+  try { return localStorage.getItem(ACTIVE_KEY) || BUILTIN_PRESET_ID; } catch { return BUILTIN_PRESET_ID; }
+}
+export function saveActivePresetId(id) {
+  try { localStorage.setItem(ACTIVE_KEY, id || ''); } catch { /* full or blocked */ }
+  return id || null;
+}
+/** The ONE preset in use: the remembered one if it matches the rules, else the first that does. */
+export function presetInUse(list, rules, activeId) {
+  return list.find((p) => p.id === activeId && presetMatches(p, rules))
+    || list.find((p) => presetMatches(p, rules))
+    || null;
+}
+/** Does the preset say exactly what the rules say (the in-use switch aside)? */
+export function presetMatches(preset, rules) {
+  const a = presetRules(rules);
+  return Object.keys(a).every((k) => a[k] === preset.rules[k]);
+}
+
 // ── The example document the page draws ─────────────────────────────────────
 // Rules about numbering are unreadable as prose and obvious as a skeleton, so
 // the page shows the settings applied to one.
 const ROMAN = ['I', 'II', 'III', 'IV', 'V'];
 const sectionLabel = (rules, n, name) => {
   const title = rules.headingCase === 'upper' ? name.toUpperCase()
-    : rules.headingCase === 'title' ? name.replace(/\b\p{Ll}/gu, (c) => c.toUpperCase())
+    // Each WORD's first letter (words split on whitespace: \b is ASCII-only
+    // even under /u, so a diacritic counted as a word break — "PreȚUl").
+    : rules.headingCase === 'title' ? name.replace(/(^|\s)(\p{Ll})/gu, (m, sp, c) => sp + c.toUpperCase())
       : name;
   switch (rules.sectionHeading) {
     case 'capitol': return `CAPITOLUL ${ROMAN[n - 1] || n} — ${title.toUpperCase()}`;
@@ -294,6 +393,10 @@ const markerFor = (id, i) => {
   }
 };
 
+// The labels the rules put on a document, for the sample documents
+// (lib/rulesSample) — the same ones the preview draws.
+export { sectionLabel, clauseLabel, markerFor };
+
 // [{ level, text }] — the preview's lines, ready to render.
 export function rulesOutline(rules) {
   const r = normalizeRules(rules);
@@ -302,7 +405,7 @@ export function rulesOutline(rules) {
     s1: 'Obiectul contractului', s2: 'Prețul și modalitatea de plată',
     c11: 'Prestatorul se obligă să presteze serviciile descrise în Anexa 1',
     c12: 'Beneficiarul se obligă să pună la dispoziție documentele necesare',
-    c21: 'Prețul serviciilor este de 1.000 lei (una mie lei)',
+    c21: `Prețul serviciilor este de ${r.amounts === 'figures' ? '1.000 lei' : '1.000 lei (una mie lei)'}`,
     subs: ['să predea documentele în original', 'să comunice orice modificare'],
     deep: 'în termen de 5 zile lucrătoare de la solicitare',
     name1: 'Obligațiile prestatorului', name2: 'Obligațiile beneficiarului', name3: 'Prețul',
@@ -315,7 +418,7 @@ export function rulesOutline(rules) {
     s1: 'Subject of the agreement', s2: 'Price and payment',
     c11: 'The provider shall supply the services described in Schedule 1',
     c12: 'The client shall make the necessary documents available',
-    c21: 'The price for the services is 1,000 lei (one thousand lei)',
+    c21: `The price for the services is ${r.amounts === 'figures' ? '1,000 lei' : '1,000 lei (one thousand lei)'}`,
     subs: ['deliver the original documents', 'notify any change'],
     deep: 'within 5 working days of the request',
     name1: 'Provider’s obligations', name2: 'Client’s obligations', name3: 'Price',
@@ -333,26 +436,27 @@ export function rulesOutline(rules) {
     return `${label ? `${label} ` : ''}${lead}${text}${stop}`;
   };
   const out = [
-    { level: 0, text: sectionLabel(r, 1, T.s1) },
-    { level: 1, text: named(clauseLabel(r, 1, 1, 1), T.name1, T.c11) },
+    { id: 's1', level: 0, text: sectionLabel(r, 1, T.s1) },
+    { id: 'c11', level: 1, text: named(clauseLabel(r, 1, 1, 1), T.name1, T.c11) },
   ];
   if (r.subPoint) {
-    T.subs.forEach((t, i) => out.push({ level: 2, text: `${markerFor(r.subPoint, i)} ${t};` }));
+    T.subs.forEach((t, i) => out.push({ id: `sub${i}`, level: 2, text: `${markerFor(r.subPoint, i)} ${t};` }));
     if (r.deepPoint !== 'none') {
-      out.push({ level: 3, text: `${markerFor(r.deepPoint, 0)} ${T.deep}.` });
+      out.push({ id: 'deep', level: 3, text: `${markerFor(r.deepPoint, 0)} ${T.deep}.` });
     }
   }
-  out.push({ level: 1, text: named(clauseLabel(r, 1, 2, 2), T.name2, T.c12) });
-  out.push({ level: 0, text: sectionLabel(r, 2, T.s2) });
-  out.push({ level: 1, text: named(clauseLabel(r, 2, 1, 3), T.name3, T.c21) });
+  out.push({ id: 'c12', level: 1, text: named(clauseLabel(r, 1, 2, 2), T.name2, T.c12) });
+  out.push({ id: 's2', level: 0, text: sectionLabel(r, 2, T.s2) });
+  out.push({ id: 'c21', level: 1, text: named(clauseLabel(r, 2, 1, 3), T.name3, T.c21) });
   // A plain list — one whose order and lettering carry no meaning — so that
   // choice is on screen too rather than being set blind.
-  out.push({ level: 1, text: named(clauseLabel(r, 2, 2, 4), T.name3, `${T.listLead}:`) });
-  T.docs.forEach((t, i) => out.push({ level: 2, text: `${markerFor(r.bullet, i)} ${t};` }));
+  out.push({ id: 'c22', level: 1, text: named(clauseLabel(r, 2, 2, 4), T.name3, `${T.listLead}:`) });
+  T.docs.forEach((t, i) => out.push({ id: `doc${i}`, level: 2, text: `${markerFor(r.bullet, i)} ${t};` }));
   // A clause with facts nobody has given yet, so the shape of a blank is on
   // screen beside the numbering it will be written among.
-  out.push({ level: 0, text: sectionLabel(r, 3, T.s3) });
+  out.push({ id: 's3', level: 0, text: sectionLabel(r, 3, T.s3) });
   out.push({
+    id: 'c31',
     level: 1,
     text: named(clauseLabel(r, 3, 1, 5), T.name4,
       T.c31(blankFor(r.blanks, T.blankWords[0]), blankFor(r.blanks, T.blankWords[1]))),
@@ -360,7 +464,52 @@ export function rulesOutline(rules) {
   return out;
 }
 
+// ── The conventions, shown ──────────────────────────────────────────────────
+// The half the outline cannot show — how dates, amounts, parties and defined
+// terms are written, the language, and the user's own extra rules — as the
+// lines of a contract that uses them. Each line names the rule it shows.
+export function conventionsPreview(rules) {
+  const r = normalizeRules(rules);
+  const ro = r.language !== 'en';
+  const date = ro
+    ? (r.dates === 'long' ? '1 februarie 2026' : '01.02.2026')
+    : (r.dates === 'long' ? '1 February 2026' : '01.02.2026');
+  const amount = ro
+    ? (r.amounts === 'figures' ? '1.000 lei' : '1.000 lei (una mie lei)')
+    : (r.amounts === 'figures' ? '1,000 lei' : '1,000 lei (one thousand lei)');
+  const short = r.parties === 'shortForm';
+  const out = [];
+  out.push({
+    id: 'parties',
+    rule: 'Parties',
+    text: ro
+      ? `SC EXEMPLU SRL, cu sediul în București${short ? ', denumită în continuare „Prestatorul”' : ''}, și ION POPESCU${short ? ', denumit în continuare „Beneficiarul”' : ''}, au convenit următoarele.`
+      : `EXEMPLU SRL, with its registered office in Bucharest${short ? ' (the “Provider”)' : ''}, and ION POPESCU${short ? ' (the “Client”)' : ''} have agreed as follows.`,
+  });
+  out.push({
+    id: 'partiesLater',
+    rule: 'Parties, later',
+    text: ro
+      ? `${short ? 'Prestatorul' : 'SC EXEMPLU SRL'} se obligă să predea lucrarea până la data stabilită.`
+      : `${short ? 'The Provider' : 'EXEMPLU SRL'} shall deliver the work by the agreed date.`,
+  });
+  out.push({ id: 'dates', rule: 'Dates', text: ro ? `Încheiat astăzi, ${date}.` : `Signed on ${date}.` });
+  out.push({ id: 'amounts', rule: 'Amounts', text: ro ? `Prețul este de ${amount}.` : `The price is ${amount}.` });
+  out.push({
+    id: 'terms',
+    rule: 'Defined terms',
+    text: ro
+      ? `Părțile vor păstra confidențialitatea ${r.definedTerms === 'on' ? 'Informațiilor Confidențiale' : 'informațiilor confidențiale'}.`
+      : `The parties shall keep the ${r.definedTerms === 'on' ? 'Confidential Information' : 'confidential information'} confidential.`,
+  });
+  const extra = String(r.extra || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  extra.forEach((line, i) => out.push({ id: `extra${i}`, rule: i ? '' : 'Anything else', text: line, extra: true }));
+  return out;
+}
+
+
 // ── What the model is told ──────────────────────────────────────────────────
+const LANGUAGE_RULE = 'Write in whichever language the request is written in; Romanian always with correct diacritics (ș, ț, ă, î, â).';
 // One block, in the same shape as the writing-style block it travels beside:
 // bracketed, addressed to the model, and explicit that the request outranks it.
 export function buildDocRulesSteer(rules) {
@@ -369,8 +518,11 @@ export function buildDocRulesSteer(rules) {
   const say = (key) => optionFor(key, r[key])?.rule || '';
   const structure = ['sectionHeading', 'headingCase', 'clauseNumber', 'subPoint', 'deepPoint', 'blanks', 'bullet', 'restart', 'clauseNames']
     .map(say).filter(Boolean);
-  const conventions = ['dates', 'amounts', 'parties', 'definedTerms', 'language']
-    .map(say).filter(Boolean);
+  // There is no language rule: a document is always written in the language
+  // the request is written in (the choice was removed at the user's request).
+  const conventions = ['dates', 'amounts', 'parties', 'definedTerms']
+    .map(say).filter(Boolean)
+    .concat(LANGUAGE_RULE);
   const extra = String(r.extra || '').trim();
   if (!structure.length && !conventions.length && !extra) return '';
   const lines = [

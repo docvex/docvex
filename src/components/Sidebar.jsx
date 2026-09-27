@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
@@ -7,14 +7,16 @@ import { useUpdates } from '../context/UpdatesContext';
 import { accountIdentity } from '../lib/account';
 import { AiUsageBar } from './AiUsageMeter';
 import { useAccountMenu } from './AccountMenu';
-import { isElectron, isLocalhostWeb, openExternal, listDocViewerTabs, onDocViewerTabs, focusDocViewerTab, closeDocViewerTab } from '../lib/platform';
+import { isElectron, isLocalhostWeb, openExternal, listDocViewerTabs, onDocViewerTabs, focusDocViewerTab, closeDocViewerTab, openTabWindow, canOpenTabWindow, isTabWindow, listTabWindows, onTabWindows, focusTabWindow, dockTabWindow } from '../lib/platform';
 import { supabase } from '../lib/supabaseClient';
 import { toLayoutPx } from '../lib/appZoom';
 import { hasNewBrief, onNewsletterChanged } from '../lib/legalFeed';
-import { LEGAL_TAB_PATHS } from './LegalTabs';
+import { LEGAL_TAB_PATHS, LEGAL_TABS } from './LegalTabs';
+import { subscribeBrowser, browserState, curPage, pageMeta, selectTab, closeTab, openSearch, isSearchTab, moveTab, flushBrowser } from '../lib/legalBrowser';
 import { prefetchProjects } from '../lib/projectListPrefetch';
 import { preloadProjectList } from '../AppRoutes';
 import Tooltip from './Tooltip';
+import { useMorphPill } from './useMorphPill';
 import FileThumbnail from './FileThumbnail';
 import { glyphForFile } from './fileGlyph';
 import './Sidebar.css';
@@ -70,7 +72,16 @@ const ActivityIcon = (
   </svg>
 );
 
-// Legislation — the portal, the CAEN nomenclature and the Newsletter, one
+// A folded newspaper — the Newsletter destination.
+const NewsletterIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h11A1.5 1.5 0 0 1 18 5.5V19a1 1 0 0 0 1 1H6a2 2 0 0 1-2-2z" />
+    <path d="M18 9h1.5A1.5 1.5 0 0 1 21 10.5V18a2 2 0 0 1-2 2" />
+    <path d="M8 8h6M8 12h6M8 16h3" />
+  </svg>
+);
+
+// Legislation — the portal, the CAEN nomenclature and the other sources, one
 // entry (components/LegalTabs is the bar between them): a book standing open,
 // a shape of our own, drawn to the same 20px stroke grid as every other rail
 // icon rather than borrowed from anywhere.
@@ -85,6 +96,8 @@ const LegislationIcon = (
 // Whether the System section is unfolded. Rail-wide, not per-user: it is a
 // preference about the shape of the sidebar, like its width.
 const SYSTEM_OPEN_KEY = 'docvex.sidebar.systemOpen';
+// Whether the Legislation entry's dropdown (what its tabs have open) is open.
+const LEGAL_OPEN_KEY = 'docvex.sidebar.legislationOpen';
 
 // The System section's fold chevron. Points down when open, right when folded
 // — the same reading as the rail's own collapse control.
@@ -199,6 +212,46 @@ const WhatsAppTabGlyph = (
   </svg>
 );
 
+// "Open in a new window" — a window with an arrow leaving it.
+const PopOutGlyph = (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 4h6v6" /><path d="M20 4l-8 8" /><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
+  </svg>
+);
+// A window — a row of the "Separate windows" section.
+const WindowGlyph = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 9h18" />
+  </svg>
+);
+// Offered in the MAIN window only (a tab window is one tab already).
+const canPopOut = canOpenTabWindow && !isTabWindow;
+
+// A SIDEBAR TAB'S MORPH PILL (components/useMorphPill — the Files tiles'):
+// hovering shows its name as the custom tooltip; a RIGHT-CLICK morphs that
+// tooltip into a menu — Open, and Pop out (the tab in a window of its own,
+// main window only). The host is display: contents, so it adds no box.
+function TabMenuPill({ hover, onOpen, popRoute, popTitle, onBeforePop, children }) {
+  const morph = useMorphPill({
+    hoverContent: hover,
+    menuItems: [
+      { key: 'open', label: 'Open', onClick: onOpen },
+      !isTabWindow && {
+        key: 'pop',
+        label: canOpenTabWindow ? 'Pop out' : 'Pop out — restart DocVex to enable',
+        disabled: !canOpenTabWindow,
+        onClick: () => { onBeforePop?.(); openTabWindow(popRoute, popTitle); },
+      },
+    ],
+  });
+  return (
+    <span className="tab-pill-host" onMouseMove={morph.handleMouseMove} onMouseLeave={morph.handleMouseLeave} onContextMenu={morph.handleContextMenu}>
+      {children}
+      {morph.node}
+    </span>
+  );
+}
+
 // × glyph — the per-row close button on an open-file entry.
 const CloseGlyph = (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -256,6 +309,23 @@ const AiIcon = (
     <path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z"/>
   </svg>
 );
+
+// A line of text that shows ALL of itself, and only when the row is too
+// narrow for it (the rail's width) FADES OUT at the row's edge — measured,
+// so a line that fits is never faded (`.is-clipped`).
+function FadeText({ className, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const check = () => el.classList.toggle('is-clipped', el.scrollWidth > el.clientWidth + 1);
+    check();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(check) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [children]);
+  return <span ref={ref} className={className}>{children}</span>;
+}
 
 export default function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   const { session, signOut } = useAuth();
@@ -349,6 +419,17 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
   // opens its own dedicated viewer window (one file = one window). Main keeps a
   // registry and pushes the current list here so the "Open files" section can
   // list them and refocus / close one. Empty on web (no extra windows).
+  // Tabs opened in SEPARATE WINDOWS (main.js tabWindows) — listed like the
+  // open files; a row brings its window forward, its × closes the window and
+  // brings what it showed back into this one.
+  const [tabWins, setTabWins] = useState([]);
+  useEffect(() => {
+    if (isTabWindow) return undefined;
+    let alive = true;
+    listTabWindows().then((list) => { if (alive) setTabWins(Array.isArray(list) ? list : []); });
+    const off = onTabWindows((list) => setTabWins(Array.isArray(list) ? list : []));
+    return () => { alive = false; off(); };
+  }, []);
   const [docTabs, setDocTabs] = useState([]);
   useEffect(() => {
     let alive = true;
@@ -361,15 +442,15 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
   // navigation that used to live in the in-content rail). These routes read
   // the active project from SelectedProjectContext.
   const projectItems = selectedProjectId ? [
-    // Project settings/overview — the project name chip that used to live in
-    // the window title bar now leads the Project section, opening /projects/:id
+    // The project's Dashboard — its overview — leads the section (which is
+    // headed by the project's own name), opening /projects/:id
     // (Overview + Members/Roles/AI/Settings tabs). `end` so it's only active on
     // the exact overview route, not the deeper project surfaces below.
     // Electron only — the web demo has no members/roles/settings to manage,
     // so its Project section starts straight at Files.
     ...(isElectron ? [{
       to: `/projects/${selectedProjectId}`,
-      label: selectedProject?.name || 'Project settings',
+      label: 'Dashboard',
       icon: ProjectSettingsIcon,
       end: true,
     }] : []),
@@ -392,16 +473,21 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
       to: '/', label: 'Activity', icon: ActivityIcon, end: true,
       badge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : String(unreadCount)) : null,
     },
+    // The Newsletter (pages/Newsletter) — what has just changed in the law,
+    // DocVex's own briefing. An entry of its own (it used to be the first of
+    // the Legislation tabs).
+    {
+      to: '/newsletter', label: 'Newsletter', icon: NewsletterIcon, end: true,
+      // "New brief" pill — cleared when the user opens the Newsletter.
+      pill: newBrief ? { kind: 'brief', text: 'new' } : null,
+    },
     // Legislation: the national legislative portal (pages/Legislation), the
-    // CAEN nomenclature (pages/Caen) and the Newsletter (pages/Newsletter),
-    // three tabs of one entry — what the law says, the list a company's object
-    // of activity is written in, and what has just changed. Each keeps its own
-    // route, so the entry is active on all three.
+    // CAEN nomenclature (pages/Caen) and the other sources, tabs of one entry.
+    // Each keeps its own route, so the entry is active on all of them.
     {
       to: '/legislation', label: 'Legislation', icon: LegislationIcon, end: true,
       activeOn: LEGAL_TAB_PATHS,
-      // "New brief" pill — cleared when the user opens the Newsletter tab.
-      pill: newBrief ? { kind: 'brief', text: 'new' } : null,
+      fold: 'legal',
     },
     ...(session ? [{ to: '/mail', label: 'Mail', icon: MailIcon, end: true }] : []),
     { to: '/playbook', label: 'Playbook', icon: PlaybookIcon, end: true },
@@ -438,6 +524,110 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
       return next;
     });
   };
+  // LEGISLATION's dropdown — the Legislation tab's own TABS (lib/legalBrowser:
+  // what each one shows — an act, a court file, a company, a CAEN class, a
+  // search's results), pinned ones first under a labelled divider. A click
+  // puts that tab on screen, going to the Legislation tab first when needed.
+  const browser = useSyncExternalStore(subscribeBrowser, browserState);
+  // The blank search tab is not listed (the Legislation row opens it).
+  const listedTabs = browser.tabs.filter((t) => !isSearchTab(t));
+  const pinnedTabs = listedTabs.filter((t) => t.pinned);
+  const openTabs = listedTabs.filter((t) => !t.pinned);
+  const legalGroups = [
+    { key: 'pinned', label: 'Pinned', tabs: pinnedTabs },
+    { key: 'open', label: pinnedTabs.length ? 'Open' : 'Open tabs', tabs: openTabs },
+  ].filter((g) => g.tabs.length);
+  // A lone blank tab is not worth a list.
+  const legalCount = listedTabs.length;
+  const [legalOpen, setLegalOpen] = useState(() => {
+    try { return localStorage.getItem(LEGAL_OPEN_KEY) !== '0'; } catch { return true; }
+  });
+  const toggleLegal = () => {
+    setLegalOpen((v) => {
+      const next = !v;
+      try { localStorage.setItem(LEGAL_OPEN_KEY, next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const legalGo = { navigate, pathname };
+  // REARRANGING the Legislation tabs here, by dragging (the same move as the
+  // tab's own rail — lib/legalBrowser moveTab): a tab dropped on another goes
+  // BEFORE it, taking that place's pinned state; dropped on the list's foot
+  // it goes to the end. `{ id, over }` — `over` a tab id or 'end'.
+  const [tabDrag, setTabDrag] = useState(null);
+  // WHERE A DROP LANDS is read off the pointer's height, over the whole
+  // list: before the first tab whose middle is below it, else the end. (A
+  // handler per row left the gaps between rows and the group headings to
+  // the list's own handler, which read every one of them as "the end".)
+  const tabListRef = useRef(null);
+  const dropAt = (y) => {
+    const rows = tabListRef.current ? [...tabListRef.current.querySelectorAll('.nav-cat-row[data-tab-id]')] : [];
+    for (const r of rows) { const b = r.getBoundingClientRect(); if (y < b.top + b.height / 2) return r.dataset.tabId; }
+    return 'end';
+  };
+  // THE REARRANGEMENT IS ANIMATED (FLIP): every row's place is taken just
+  // before the move, and once the list is drawn in its new order each row
+  // starts where it was and glides to where it is.
+  const flipFrom = useRef(null);
+  const dropTab = (over) => {
+    const d = tabDrag;
+    setTabDrag(null);
+    if (!d || !over || over === d.id) return;
+    const rows = tabListRef.current ? [...tabListRef.current.querySelectorAll('.nav-cat-row[data-tab-id]')] : [];
+    const from = new Map(rows.map((r) => [r.dataset.tabId, r.getBoundingClientRect().top]));
+    // Dropping just before the tab that already follows it moves nothing.
+    const ids = rows.map((r) => r.dataset.tabId);
+    if (over !== 'end' && ids[ids.indexOf(d.id) + 1] === over) return;
+    if (over === 'end' && ids[ids.length - 1] === d.id) return;
+    flipFrom.current = from;
+    moveTab(d.id, over === 'end' ? null : over);
+  };
+  const tabOrder = browser.tabs.map((t) => t.id).join('|');
+  useLayoutEffect(() => {
+    const from = flipFrom.current;
+    flipFrom.current = null;
+    const list = tabListRef.current;
+    if (!from || !list) return;
+    if (document.documentElement.dataset.reduceMotion === 'true') return;
+    const rows = [...list.querySelectorAll('.nav-cat-row[data-tab-id]')];
+    const moved = [];
+    for (const r of rows) {
+      const was = from.get(r.dataset.tabId);
+      if (was == null) continue;
+      const dy = toLayoutPx(was - r.getBoundingClientRect().top);
+      if (Math.abs(dy) < 0.5) continue;
+      r.style.transition = 'none';
+      r.style.transform = `translateY(${dy}px)`;
+      moved.push(r);
+    }
+    if (!moved.length) return;
+    void list.offsetHeight;   // commit the start positions
+    for (const r of moved) {
+      r.style.transition = 'transform 260ms cubic-bezier(0.16, 1, 0.3, 1)';
+      r.style.transform = '';
+      const done = () => { r.style.transition = ''; r.removeEventListener('transitionend', done); };
+      r.addEventListener('transitionend', done);
+    }
+  }, [tabOrder]);
+  // The Legislation tab's rail can hand its list over to this dropdown
+  // (`docvex:legal-list-set`): the dropdown opens and the rail goes.
+  useEffect(() => {
+    const onSet = (e) => {
+      const next = !!e.detail?.open;
+      setLegalOpen(next);
+      try { localStorage.setItem(LEGAL_OPEN_KEY, next ? '1' : '0'); } catch { /* ignore */ }
+    };
+    window.addEventListener('docvex:legal-list-set', onSet);
+    return () => window.removeEventListener('docvex:legal-list-set', onSet);
+  }, []);
+  // Whether the dropdown is LISTING the tabs — announced so the Legislation
+  // tab can drop its own rail of the same tabs (LegalWorkspace).
+  const legalListed = legalOpen && legalCount > 0;
+  useEffect(() => {
+    window.__docvexLegalListed = legalListed;
+    window.dispatchEvent(new CustomEvent('docvex:legal-listed', { detail: { listed: legalListed } }));
+  }, [legalListed]);
+
   // What survives the fold: Settings alone. Not "the first item" — if Settings
   // is missing (signed out) the section folds to nothing, which is correct.
   const shownSystemItems = systemOpen ? systemItems : systemItems.filter((i) => i.to === '/settings');
@@ -453,9 +643,14 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
 
   // Render a single NavLink nav-item from a descriptor (shared by every
   // category group).
-  const renderNavItem = ({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn }) => (
+  const renderNavItem = ({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn, fold }) => (
+    fold === 'legal' ? renderLegalEntry({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn }) : renderNavItemRow({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn }, null)
+  );
+  function renderNavItemRow({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn, notActive }, chev) {
+    const name = typeof label === 'string' ? label : '';
+    return (
+    <TabMenuPill key={to} hover={name} onOpen={() => navigate(to)} popRoute={to} popTitle={name}>
     <NavLink
-      key={to}
       to={to}
       end={end}
       onClick={onClick}
@@ -466,7 +661,9 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
       onFocus={onWarm}
       // `activeOn`: other routes this entry stands for (an entry with tabs of
       // its own, each on a route of its own).
-      className={({ isActive }) => `nav-item${isActive || activeOn?.includes(pathname) ? ' active' : ''}`}
+      // `notActive`: the selection is one of the entry's own rows (a
+      // Legislation tab), not the entry.
+      className={({ isActive }) => `nav-item${(isActive || activeOn?.includes(pathname)) && !notActive ? ' active' : ''}`}
     >
       <span className="icon">
         {icon}
@@ -482,8 +679,143 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
             a result is waiting. */}
         {dot && <span className={`nav-dot is-${dot}`} aria-hidden="true" />}
       </span>
+      {chev}
     </NavLink>
-  );
+    </TabMenuPill>
+    );
+  }
+
+  // The Legislation entry: the row itself (with a chevron at its right end
+  // that folds the dropdown — a span, since a button can't sit in a link),
+  // then the dropdown of every tab's open items.
+  const renderLegalEntry = (item) => {
+    const chev = legalCount ? (
+      <Tooltip content={legalOpen ? 'Hide the open tabs' : `Show the open tabs (${legalCount})`}>
+        <span
+          className={`nav-fold-chev${legalOpen ? ' is-open' : ''}`}
+          role="button"
+          tabIndex={0}
+          aria-expanded={legalOpen}
+          aria-label={legalOpen ? 'Hide open items' : 'Show open items'}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleLegal(); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleLegal(); } }}
+        >
+          {FoldChevron}
+        </span>
+      </Tooltip>
+    ) : null;
+    // Open and selected, the row's selected ground wraps the dropdown too:
+    // the row and what it has open read as ONE entry (`.nav-fold.is-wrapped`).
+    const shown = legalOpen && legalCount > 0;   // a lone search tab: just the Legislation row
+    const selected = pathname === item.to || !!item.activeOn?.includes(pathname);
+    // ON LEGISLATION, the row OPENS A SEARCH TAB — the blank one if there is
+    // one (no pile of empty tabs), else a new one — with the caret in the
+    // search; the fold chevron is what collapses the list. From elsewhere it
+    // goes to Legislation as ever and opens the list.
+    const onRowClick = (e) => {
+      item.onClick?.(e);
+      if (selected) {
+        e.preventDefault();
+        openSearch(legalGo);
+        requestAnimationFrame(() => window.dispatchEvent(new Event('docvex:legal-omni-focus')));
+        return;
+      }
+      if (legalCount && !legalOpen) toggleLegal();
+    };
+    // WITH TABS OPEN the entry is drawn as the System section is: no box
+    // around it, the tabs as ORDINARY sidebar rows under the Legislation row
+    // (full size, the platform's dot in the icon slot), headed by the System
+    // header's small capitals and hairline. The selection is ONE row — the
+    // tab on show, else the Legislation row itself.
+    const tabOnShow = selected && listedTabs.some((t) => t.id === browser.active);
+    return (
+      <div key={item.to} className={`nav-fold${shown ? ' is-cat' : ''}`}>
+        {renderNavItemRow({ ...item, onClick: onRowClick, notActive: tabOnShow }, chev)}
+        {/* Kept mounted while there are tabs, so folding and unfolding
+            ANIMATE (the list's height, its fade, the ground around it); a
+            folded list is inert. */}
+        {legalCount > 0 && (
+          <div className={`nav-cat-fold${shown ? ' is-open' : ''}`} inert={!shown} aria-hidden={!shown}>
+          <div className="nav-cat-fold-inner">
+          <div
+            ref={tabListRef}
+            className={`sidebar-cat-items nav-cat-list${tabDrag ? ' is-dragging' : ''}${tabDrag?.over === 'end' ? ' is-drop-end' : ''}`}
+            role="group"
+            aria-label="The Legislation tab's tabs"
+            onDragOver={(e) => {
+              if (!tabDrag) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              const over = dropAt(e.clientY);
+              if (over !== tabDrag.over) setTabDrag((d) => (d ? { ...d, over } : d));
+            }}
+            onDrop={(e) => { if (!tabDrag) return; e.preventDefault(); dropTab(dropAt(e.clientY)); }}
+          >
+            {legalGroups.map((g) => (
+              <React.Fragment key={g.key}>
+                <div className="sidebar-cat-label nav-cat-div"><span className="sidebar-cat-text">{g.label}</span></div>
+                {g.tabs.map((t) => {
+                  const m = pageMeta(curPage(t));
+                  const active = selected && browser.active === t.id;
+                  const name = [m.kind, m.title].filter(Boolean).join(' ');
+                  return (
+                    <div
+                      key={t.id}
+                      data-tab-id={t.id}
+                      className={`doc-tab-row nav-sub-row nav-cat-row${tabDrag?.id === t.id ? ' is-dragged' : ''}${tabDrag?.over === t.id && tabDrag.id !== t.id ? ' is-drop' : ''}`}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'move';
+                        try { e.dataTransfer.setData('text/plain', t.id); } catch { /* some hosts refuse */ }
+                        setTabDrag({ id: t.id, over: null });
+                      }}
+                      onDragEnd={() => setTabDrag(null)}
+                    >
+                      {/* The label is the tab's own; what the page LOADED for it (kept
+                          for good) is its tooltip. */}
+                      <TabMenuPill
+                        hover={m.loadedTip || m.tip || name}
+                        onOpen={() => selectTab(t.id, legalGo)}
+                        popRoute={`${curPage(t).type === 'item' && curPage(t).route ? curPage(t).route : '/legislation'}?ltab=${encodeURIComponent(t.id)}`}
+                        popTitle={name}
+                        // The tabs are written first: the new window reads them.
+                        onBeforePop={flushBrowser}
+                      >
+                        <button
+                          type="button"
+                          className={`nav-item nav-cat-item${active ? ' active' : ''}`}
+                          onClick={() => selectTab(t.id, legalGo)}
+                        >
+                          <span className="label nav-sub-text">
+                            {m.kind ? <span className="nav-sub-kind"><FadeText className="nav-cat-kindtext">{m.siteName
+                              ? <><span className="nav-cat-site" style={{ '--tone': m.tone }}>{m.siteName}</span>{m.ownKind ? ` · ${m.ownKind}` : ''}</>
+                              : m.kind}</FadeText></span> : null}
+                            {m.title ? <FadeText className="nav-sub-title">{m.title}</FadeText> : null}
+                          </span>
+                        </button>
+                      </TabMenuPill>
+                      {!t.pinned ? (
+                        <button
+                          type="button"
+                          className="doc-tab-close"
+                          onClick={() => closeTab(t.id, legalGo)}
+                          aria-label={`Close ${name}`}
+                        >
+                          {CloseGlyph}
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </div>
+          </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // Cursor-following spotlight: write the pointer position (sidebar-relative,
   // layout px) into CSS vars on this node so the `.sidebar::before` radial glow
@@ -570,6 +902,14 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
       item.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - ir.left)}px`);
       item.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - ir.top)}px`);
     }
+    // An entry whose list is open wears its row's hover over the whole of it
+    // (`.nav-fold.is-open`), so it takes the coords too, relative to itself.
+    const fold = e.target.closest('.nav-fold.is-open');
+    if (fold) {
+      const fr = fold.getBoundingClientRect();
+      fold.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - fr.left)}px`);
+      fold.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - fr.top)}px`);
+    }
     // The SELECTED tab also reacts to the spotlight even when the cursor is over
     // a different row: project the cursor onto the active item's box so its
     // gradient brightens toward the pointer. Runs after the hovered-item block
@@ -623,10 +963,10 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
           </li>
         ) : null}
 
-        {/* ── Personal — the user's own feeds. ── */}
+        {/* ── DocVex — the user's own feeds (formerly "Personal"). ── */}
         <li className="sidebar-cat">
           <span className="sidebar-cat-label">
-            <span className="sidebar-cat-text">Personal</span>
+            <span className="sidebar-cat-text">DocVex</span>
           </span>
           <div className="sidebar-cat-items">
             {/* Projects (the Hub launcher) leads the Personal section — it used
@@ -650,13 +990,43 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
           </div>
         </li>
 
-        {/* ── Project — the selected project's surfaces (only when one is
-            picked); replaces the old in-content navigation rail. ── */}
+        {/* ── The selected project's surfaces (only when one is picked),
+            headed by the project's own name; replaces the old in-content
+            navigation rail. ── */}
         {projectItems.length > 0 && (
           <li className="sidebar-cat">
-            <span className="sidebar-cat-label"><span className="sidebar-cat-text">Project</span></span>
+            <span className="sidebar-cat-label"><span className="sidebar-cat-text">{selectedProject?.name || 'Project'}</span></span>
             <div className="sidebar-cat-items">
               {projectItems.map(renderNavItem)}
+            </div>
+          </li>
+        )}
+
+        {/* ── Separate windows — every tab opened in a window of its own.
+            A row brings that window forward; the × closes it and brings
+            what it showed back into this window. ── */}
+        {tabWins.length > 0 && (
+          <li className="sidebar-cat">
+            <span className="sidebar-cat-label"><span className="sidebar-cat-text">Separate windows</span></span>
+            <div className="sidebar-cat-items">
+              {tabWins.map((w) => {
+                const title = String(w.title || '').replace(/^DocVex\s*[—–-]\s*/, '') || w.route;
+                return (
+                  <div key={w.id} className="doc-tab-row">
+                    <Tooltip content={`${title} — in its own window`}>
+                      <button type="button" className="nav-item doc-tab-main" onClick={() => focusTabWindow(w.id)}>
+                        <span className="icon">{WindowGlyph}</span>
+                        <span className="label doc-tab-name">{title}</span>
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Close the window and bring it back here">
+                      <button type="button" className="doc-tab-close" onClick={() => dockTabWindow(w.id)} aria-label={`Bring ${title} back into this window`}>
+                        {CloseGlyph}
+                      </button>
+                    </Tooltip>
+                  </div>
+                );
+              })}
             </div>
           </li>
         )}

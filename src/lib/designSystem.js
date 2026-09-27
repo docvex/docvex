@@ -6,8 +6,9 @@
 // app's current value, declared in designSystem.css; an OVERRIDE is a value
 // this device keeps instead (`docvex:design-system:v1`), written onto <html>
 // at boot and on every change, so the whole app follows it at once. Family
-// tokens (the personal / project / viewer differences) are written as a
-// stylesheet rule per family instead, since they live on `[data-ds]`.
+// tokens (card fill, shadow, section gap, row density — one family now, for
+// the whole app) are written as a stylesheet rule instead, since they live
+// on `[data-ds]`.
 //
 // The Design system tab (pages/DesignSystem) shows every element built from
 // these and edits them — by hand, or by asking the AI (`askDesign`): the
@@ -19,33 +20,22 @@ import { askProjectAi } from './projectAi';
 
 export const DS_KEY = 'docvex:design-system:v1';
 
-/** The three families and what they follow. */
+/** The ONE family every section follows (Project and Viewer were folded into
+ *  it: the whole app renders by the Legislation tab's rules). */
 export const DS_FAMILIES = {
   personal: {
-    label: 'Personal',
+    label: 'DocVex',
     follows: 'the Legislation tab (legislatie.just.ro) and the Newsletter',
     rule: 'Editorial masthead, no card fills — rows and sections stand on the page ground with a hairline; the search and the tools in the tab bar; generous gaps.',
-    tabs: 'Activity, Newsletter and every Legislation source, Versions, Playbook, Mail, Settings, Admin, Debug, this tab',
-  },
-  project: {
-    label: 'Project',
-    follows: 'the Files tab',
-    rule: 'Filled cards with the card shadow, denser lists and tiles, the tools in the path bar, actions in a bottom bar.',
-    tabs: 'the project Hub and every project tab: Overview, Files, Chat, Events, Advisor',
-  },
-  viewer: {
-    label: 'Viewer',
-    follows: 'the Doc Viewer with a Word document open',
-    rule: 'Floating panels over the paper with the elevated shadow, the side panel’s tab strip and title bands, quick-action tiles.',
-    tabs: 'the Doc Viewer window',
+    tabs: 'every tab — Activity, Newsletter and the Legislation sources, the project Hub and every project tab, Versions, Playbook, Mail, Settings, Admin, Debug, this tab — and the Doc Viewer window',
   },
 };
 
 /** Which family a route belongs to. */
 export function familyOf(pathname) {
-  const p = String(pathname || '/');
-  if (p.startsWith('/doc-viewer')) return 'viewer';
-  if (p === '/projects' || p.startsWith('/projects/') || ['/files', '/chat', '/events', '/ai', '/clients', '/todos', '/generate', '/automate'].includes(p)) return 'project';
+  // One family for every route — kept as a function so the frame's
+  // `data-ds` stamp stays where it is should a second family ever return.
+  void pathname;
   return 'personal';
 }
 
@@ -79,27 +69,49 @@ export const DS_TOKENS = [
   { name: '--ds-label-tracking', label: 'Label tracking', group: 'Type', kind: 'length', value: '0.07em', drives: 'Their letter-spacing.' },
   // Pills and tags
   { name: '--ds-pill-radius', label: 'Pill radius', group: 'Pills and tags', kind: 'length', value: '999px', drives: 'Tags, the tooltip pill, status pills.' },
-  { name: '--ds-tag-size', label: 'Tag type size', group: 'Pills and tags', kind: 'length', value: '9.6px', drives: 'The text in a tag (“Rev. 2”, “republicată”).' },
-  { name: '--ds-tag-tracking', label: 'Tag tracking', group: 'Pills and tags', kind: 'length', value: '0.04em', drives: 'Its letter-spacing.' },
+  { name: '--ds-pill-h', label: 'Pill height', group: 'Pills and tags', kind: 'length', value: '20px', drives: 'Every pill — tags, statuses, the source pill.' },
+  { name: '--ds-pill-pad', label: 'Pill padding', group: 'Pills and tags', kind: 'length', value: '9px', drives: 'The space either side of a pill’s text.' },
+  { name: '--ds-pill-weight', label: 'Pill weight', group: 'Pills and tags', kind: 'number', value: '650', drives: 'The weight of a pill’s text.' },
+  { name: '--ds-pill-tint', label: 'Soft pill tint', group: 'Pills and tags', kind: 'length', value: '14%', drives: 'How much of its tone a soft pill’s ground takes.' },
+  { name: '--ds-pill-ring', label: 'Soft pill ring', group: 'Pills and tags', kind: 'length', value: '45%', drives: 'How strong a soft pill’s ring is.' },
+  { name: '--ds-tag-size', label: 'Tag type size', group: 'Pills and tags', kind: 'length', value: '10.4px', drives: 'The text in every pill (“Rev. 2”, “republicată”, “Live from legislatie.just.ro”).' },
+  { name: '--ds-tag-tracking', label: 'Tag tracking', group: 'Pills and tags', kind: 'length', value: '0.01em', drives: 'Its letter-spacing.' },
   // Surfaces
   { name: '--ds-card-radius', label: 'Card corner radius', group: 'Surfaces', kind: 'length', value: '14px', drives: 'Cards and sections (an act, the Recently viewed section, the CAEN card).' },
   { name: '--ds-row-radius', label: 'Row corner radius', group: 'Surfaces', kind: 'length', value: '8px', drives: 'List rows (a search result, a kept act).' },
   { name: '--ds-menu-radius', label: 'Menu corner radius', group: 'Surfaces', kind: 'length', value: '8px', drives: 'The foot of a dropdown list.' },
   { name: '--ds-hairline', label: 'Hairline', group: 'Surfaces', kind: 'color', value: 'var(--border)', drives: 'The line cards, rows and controls are edged with.' },
   { name: '--ds-content-max', label: 'Content width', group: 'Surfaces', kind: 'length', value: 'var(--content-max-width, 1280px)', drives: 'The cap a page’s content stops at on a wide window.' },
+  // ── Page layout: the rules a page is laid out by, read off the Playbook
+  // and the Legislation tab.
+  { name: '--ds-page-inset', label: 'Window-edge inset', group: 'Page layout', kind: 'length', value: 'var(--chrome-inset, 6.4px)', drives: 'The gap the app sidebar keeps from the window’s edges — and so where a sticky header or side list sticks under the top, and how far above the window’s bottom a side list ends.' },
+  { name: '--ds-rail-gap', label: 'Gap from the sidebar', group: 'Page layout', kind: 'length', value: 'var(--rail-gap, 6.4px)', drives: 'How far from the app sidebar a mini header, a footer, the header’s divider and a side list start.' },
+  { name: '--ds-content-gap', label: 'Content gap', group: 'Page layout', kind: 'length', value: 'var(--content-left-gap, 17.6px)', drives: 'How far from the app sidebar a page’s CONTENT starts — its text, headings and fields (and the same on its right).' },
+  { name: '--ds-divider-pull', label: 'Divider pull', group: 'Page layout', kind: 'length', value: 'calc(var(--ds-content-gap) - var(--ds-rail-gap))', drives: 'How far the header’s divider (and a side list’s left edge) run out past the content edge toward the sidebar — the content gap less the gap from the sidebar, so they start one --ds-rail-gap from it while the text stays on the content edge.' },
+  { name: '--ds-head-gap', label: 'Under the header', group: 'Page layout', kind: 'length', value: '8px', drives: 'The space between the header’s divider (or a tab bar’s hairline) and what stands under it — the side list and the content.' },
+  { name: '--ds-list-w', label: 'Side list width', group: 'Page layout', kind: 'length', value: '236px', drives: 'The width of a page’s side list (the Legislation workspace rail, the Playbook presets).' },
+  { name: '--ds-list-gap', label: 'Side list gap', group: 'Page layout', kind: 'length', value: '20px', drives: 'The space between a side list and the content beside it — and the content’s own right padding, so both sides match.' },
+  { name: '--ds-page-foot', label: 'Page foot', group: 'Page layout', kind: 'length', value: '64px', drives: 'The air at the end of a page’s content — inside its last section, so nothing stands below it to push a sticky list.' },
   // Families
-  { name: '--ds-card-fill', label: 'Card fill', group: 'Families', kind: 'color', family: 'personal', value: 'transparent', drives: 'Whether a card or section is filled (project, viewer) or stands on the page ground (personal).' },
-  { name: '--ds-card-fill', label: 'Card fill', group: 'Families', kind: 'color', family: 'project', value: 'var(--bg-card)', drives: 'Whether a card or section is filled (project, viewer) or stands on the page ground (personal).' },
-  { name: '--ds-card-fill', label: 'Card fill', group: 'Families', kind: 'color', family: 'viewer', value: 'var(--bg-card)', drives: 'Whether a card or section is filled (project, viewer) or stands on the page ground (personal).' },
+  // ── Doc Viewer: the viewer window's chrome, read off the Word document's
+  // layout (the reference — every other kind of file now renders by it).
+  { name: '--ds-dv-panel-w', label: 'Side panel width', group: 'Doc Viewer', kind: 'length', value: '360px', drives: 'The floating side panel and the Quick actions card above it, until the gutter is dragged (a device keeps its own width after that).' },
+  { name: '--ds-dv-inset', label: 'Card inset', group: 'Doc Viewer', kind: 'length', value: '8px', drives: 'How far the floating cards — the side panel, Quick actions, the page list — stand from the window’s edges; the gap between the two side cards; the document’s edge when the panel is hidden.' },
+  { name: '--ds-dv-card-radius', label: 'Card corner radius', group: 'Doc Viewer', kind: 'length', value: '11.2px', drives: 'The floating cards’ corners (and the blanks panel’s, the paragraph dock’s).' },
+  { name: '--ds-dv-card-frost', label: 'Card frost', group: 'Doc Viewer', kind: 'percent', value: '90%', drives: 'How opaque the page colour is on a floating card; the document shows through the rest, blurred.' },
+  { name: '--ds-dv-card-blur', label: 'Card blur', group: 'Doc Viewer', kind: 'length', value: '32px', drives: 'The backdrop blur of a floating card.' },
+  { name: '--ds-dv-doc-gap', label: 'Document gap', group: 'Doc Viewer', kind: 'length', value: '16px', drives: 'Added to the panel’s width to place the document’s left edge — the pages, the page list, the pills — for every kind of file (the panel’s own inset plus 8px of air).' },
+  { name: '--ds-dv-rail-w', label: 'Page list width', group: 'Doc Viewer', kind: 'length', value: '126px', drives: 'The page list card beside a Word document or a PDF.' },
+  { name: '--ds-dv-pill-btn', label: 'Floating pill button', group: 'Doc Viewer', kind: 'length', value: '25.6px', drives: 'The round button inside the pills that float over the document (find, zoom); a pill is that plus its border.' },
+  { name: '--ds-dv-pill-top', label: 'Floating pill top', group: 'Doc Viewer', kind: 'length', value: '6.4px', drives: 'How far under the top of the document area the find bar sits.' },
+  { name: '--ds-dv-pill-glass', label: 'Floating pill glass', group: 'Doc Viewer', kind: 'color', value: 'rgba(10, 12, 14, 0.92)', drives: 'The dark glass of every pill floating over the document — find, zoom, the counters, the paragraph’s Close button — in both themes.' },
+  { name: '--ds-dv-pill-blur', label: 'Floating pill blur', group: 'Doc Viewer', kind: 'length', value: '17.6px', drives: 'Their backdrop blur.' },
+  { name: '--ds-dv-find-w', label: 'Find bar width', group: 'Doc Viewer', kind: 'length', value: '288px', drives: 'The find pill once it is open.' },
+  { name: '--ds-dv-counter-size', label: 'Counter type size', group: 'Doc Viewer', kind: 'length', value: '11px', drives: 'The page counter and the word count at the foot of the document.' },
+  { name: '--ds-card-fill', label: 'Card fill', group: 'Families', kind: 'color', family: 'personal', value: 'transparent', drives: 'Whether a card or section is filled or stands on the page ground.' },
   { name: '--ds-card-shadow', label: 'Card shadow', group: 'Families', kind: 'shadow', family: 'personal', value: 'none', drives: 'The shadow under a card.' },
-  { name: '--ds-card-shadow', label: 'Card shadow', group: 'Families', kind: 'shadow', family: 'project', value: 'var(--shadow-card)', drives: 'The shadow under a card.' },
-  { name: '--ds-card-shadow', label: 'Card shadow', group: 'Families', kind: 'shadow', family: 'viewer', value: 'var(--shadow-elev)', drives: 'The shadow under a card.' },
   { name: '--ds-section-gap', label: 'Section gap', group: 'Families', kind: 'length', family: 'personal', value: '20px', drives: 'The air between a page’s sections.' },
-  { name: '--ds-section-gap', label: 'Section gap', group: 'Families', kind: 'length', family: 'project', value: '12px', drives: 'The air between a page’s sections.' },
-  { name: '--ds-section-gap', label: 'Section gap', group: 'Families', kind: 'length', family: 'viewer', value: '12px', drives: 'The air between a page’s sections.' },
   { name: '--ds-row-density', label: 'Row density', group: 'Families', kind: 'number', family: 'personal', value: '1', drives: 'A factor on list row padding (1 = the Legislation rows; less = tighter).' },
-  { name: '--ds-row-density', label: 'Row density', group: 'Families', kind: 'number', family: 'project', value: '0.85', drives: 'A factor on list row padding.' },
-  { name: '--ds-row-density', label: 'Row density', group: 'Families', kind: 'number', family: 'viewer', value: '0.9', drives: 'A factor on list row padding.' },
 ];
 
 /** The key an override is kept under: the token name, or `family:name`. */
@@ -129,7 +141,7 @@ export function saveOverrides(next) {
 export function applyOverrides(over) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  const fam = { personal: [], project: [], viewer: [] };
+  const fam = { personal: [] };
   for (const t of DS_TOKENS) {
     const v = over?.[tokenKey(t)];
     if (t.family) {
@@ -153,7 +165,7 @@ export function initDesignSystem() {
 /** The overrides as a stylesheet — what a release would carry into designSystem.css. */
 export function overridesToCss(over) {
   const base = [];
-  const fam = { personal: [], project: [], viewer: [] };
+  const fam = { personal: [] };
   for (const t of DS_TOKENS) {
     const v = over?.[tokenKey(t)];
     if (!v) continue;
@@ -177,7 +189,7 @@ export async function askDesign(prompt, over) {
   const families = Object.entries(DS_FAMILIES).map(([k, f]) => `${f.label} (${k}): follows ${f.follows}. ${f.rule} Tabs: ${f.tabs}.`).join('\n');
   const text = [
     'You are editing the DESIGN SYSTEM of Docvex, a desktop app for Romanian law firms. It is a set of CSS custom properties (tokens) that every element of the app\'s chrome is built from; changing a token changes every instance at once.',
-    'Rules: keep one design language across the app — every section builds from the same elements, and the three FAMILIES below only differ in the family tokens. Never touch colours except through the tokens listed (colour lives elsewhere). Keep values plausible for a desktop UI at 1x (px, em, %, unitless factors; `var(--x)` expressions are allowed). Change as few tokens as the request needs.',
+    'Rules: keep one design language across the app — every section builds from the same elements, and there is ONE family (below) whose tokens apply everywhere. Never touch colours except through the tokens listed (colour lives elsewhere). Keep values plausible for a desktop UI at 1x (px, em, %, unitless factors; `var(--x)` expressions are allowed). Change as few tokens as the request needs.',
     'FAMILIES:\n' + families,
     'TOKENS (key | label | group | kind | now | default | drives):\n' + catalogue,
     'REQUEST: «' + String(prompt || '').trim() + '»',

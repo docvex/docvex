@@ -29,7 +29,7 @@
 // data per facet, OCR snippets and chats per item.
 import { supabase } from './supabaseClient';
 import { localFolderApi } from './localFolder';
-import { AI_DATA_PREFIX } from './aiData';
+import { AI_DATA_PREFIX, AI_FACETS } from './aiData';
 import { METADATA_PREFIX } from './metadataHistory';
 import { CAPTIONS_PREFIX } from './captionsHistory';
 import { OCR_HISTORY_PREFIX } from './extractionHistory';
@@ -152,7 +152,9 @@ const FILE_STORES = [
       if (!rec?.facets || typeof rec.facets !== 'object') return null;
       const facets = {};
       for (const [k, f] of Object.entries(rec.facets)) {
-        if (f && f.data != null) facets[k] = { ...f, stamp: ctx.toCanonical(f.stamp, rel) };
+        // `local` facets stay on this machine — the face descriptions
+        // (lib/faceMatch) are biometric data and never go to the account.
+        if (f && f.data != null && !AI_FACETS[k]?.local) facets[k] = { ...f, stamp: ctx.toCanonical(f.stamp, rel) };
       }
       if (!Object.keys(facets).length) return null;
       return { at: maxAt(Object.values(facets).map((f) => f.at)), value: { name: rec.name || '', facets } };

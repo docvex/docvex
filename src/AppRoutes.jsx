@@ -1,4 +1,4 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import ProjectVersionGate from './components/ProjectVersionGate';
 import { useAuth } from './context/AuthContext';
@@ -9,44 +9,90 @@ import { LEGAL_STUB_TABS } from './components/LegalTabs';
 // `ProjectShell` wrapper are passed in as props by App.jsx (the main window
 // shell, with the sidebar) so the route definitions live in one place.
 
+// EVERY PAGE CAN BE WARMED AHEAD. `page(factory)` is React.lazy with a
+// memory: once its chunk has loaded (on a visit, or warmed by
+// `preloadRoutes`), the page renders straight away — no Suspense, no
+// spinner — so moving between tabs never waits on a chunk twice. A mount
+// keeps whichever of the two it started with (`useState`), so a page that
+// did suspend is not remounted when its chunk arrives.
+const warmers = [];
+function page(factory, { warm = 2 } = {}) {
+  let Loaded = null;
+  let pending = null;
+  const load = () => {
+    if (!pending) {
+      pending = factory().then(
+        (m) => { Loaded = m.default; return m; },
+        (e) => { pending = null; throw e; },
+      );
+    }
+    return pending;
+  };
+  const Lazy = lazy(load);
+  function Page(props) {
+    const [C] = useState(() => Loaded || Lazy);
+    return <C {...props} />;
+  }
+  Page.preload = () => load().catch(() => { /* the route retries on render */ });
+  if (warm) warmers.push({ warm, run: Page.preload });
+  return Page;
+}
+
+// Warm every page of the main window, one chunk at a time while the window
+// is idle — the Legislation platforms first (warm 1), then the rest. Called
+// once by AppShell after sign-in.
+let warmed = false;
+export function preloadRoutes() {
+  if (warmed) return;
+  warmed = true;
+  const queue = [...warmers].sort((a, b) => a.warm - b.warm);
+  const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 60));
+  const next = () => {
+    const w = queue.shift();
+    if (!w) return;
+    w.run().finally(() => idle(next, { timeout: 1500 }));
+  };
+  idle(next, { timeout: 1500 });
+}
+
 const AuthPage = lazy(() => import('./components/AuthPage'));
-const Activity = lazy(() => import('./pages/Activity'));
-const Account = lazy(() => import('./pages/Account'));
-const Settings = lazy(() => import('./pages/Settings'));
-const DesignSystem = lazy(() => import('./pages/DesignSystem'));
-const Updates = lazy(() => import('./pages/Updates'));
-const Newsletter = lazy(() => import('./pages/Newsletter'));
-const Legislation = lazy(() => import('./pages/Legislation'));
-const Caen = lazy(() => import('./pages/Caen'));
-const PortalJust = lazy(() => import('./pages/PortalJust'));
-const Anaf = lazy(() => import('./pages/Anaf'));
-const LegalSourceStub = lazy(() => import('./pages/LegalSourceStub'));
-const Roadmap = lazy(() => import('./pages/Roadmap'));
-const Playbook = lazy(() => import('./pages/Playbook'));
-const Admin = lazy(() => import('./pages/Admin'));
-const Debug = lazy(() => import('./pages/Debug'));
+const Activity = page(() => import('./pages/Activity'));
+const Account = page(() => import('./pages/Account'));
+const Settings = page(() => import('./pages/Settings'));
+const DesignSystem = page(() => import('./pages/DesignSystem'));
+const Updates = page(() => import('./pages/Updates'));
+const Newsletter = page(() => import('./pages/Newsletter'), { warm: 1 });
+const Legislation = page(() => import('./pages/Legislation'), { warm: 1 });
+const Caen = page(() => import('./pages/Caen'), { warm: 1 });
+const PortalJust = page(() => import('./pages/PortalJust'), { warm: 1 });
+const Anaf = page(() => import('./pages/Anaf'), { warm: 1 });
+const LegalSourceStub = page(() => import('./pages/LegalSourceStub'), { warm: 1 });
+const Roadmap = page(() => import('./pages/Roadmap'));
+const Playbook = page(() => import('./pages/Playbook'));
+const Admin = page(() => import('./pages/Admin'));
+const Debug = page(() => import('./pages/Debug'));
 // The Hub is the one lazy route we deliberately pre-warm: it's reached by a
 // single sidebar click that also plays a rail-slide animation, and a Suspense
 // fallback mid-slide blanks the whole shell and restarts the transition. The
 // import factory is hoisted so `preloadProjectList()` can start (and the
 // bundler can de-dupe) the exact same chunk request React would make.
 const importProjectList = () => import('./pages/Projects/ProjectList');
-const ProjectList = lazy(importProjectList);
+const ProjectList = page(importProjectList);
 export function preloadProjectList() {
-  return importProjectList().catch(() => { /* the route will retry on render */ });
+  return ProjectList.preload();
 }
-const ProjectCreate = lazy(() => import('./pages/Projects/ProjectCreate'));
-const ProjectOverview = lazy(() => import('./pages/Projects/ProjectOverview'));
-const ProjectDashboard = lazy(() => import('./pages/Projects/ProjectDashboard'));
-const ProjectFiles = lazy(() => import('./pages/Projects/ProjectFiles'));
-const ProjectClients = lazy(() => import('./pages/Projects/ProjectClients'));
-const ProjectTodos = lazy(() => import('./pages/Projects/ProjectTodos'));
-const ProjectChat = lazy(() => import('./pages/Projects/ProjectChat'));
-const ProjectEvents = lazy(() => import('./pages/Projects/ProjectEvents'));
-const ProjectGenerate = lazy(() => import('./pages/Projects/ProjectGenerate'));
-const ProjectAutomate = lazy(() => import('./pages/Projects/ProjectAutomate'));
-const ProjectAI = lazy(() => import('./pages/Projects/ProjectAI'));
-const Mail = lazy(() => import('./pages/Mail'));
+const ProjectCreate = page(() => import('./pages/Projects/ProjectCreate'));
+const ProjectOverview = page(() => import('./pages/Projects/ProjectOverview'));
+const ProjectDashboard = page(() => import('./pages/Projects/ProjectDashboard'));
+const ProjectFiles = page(() => import('./pages/Projects/ProjectFiles'));
+const ProjectClients = page(() => import('./pages/Projects/ProjectClients'));
+const ProjectTodos = page(() => import('./pages/Projects/ProjectTodos'));
+const ProjectChat = page(() => import('./pages/Projects/ProjectChat'));
+const ProjectEvents = page(() => import('./pages/Projects/ProjectEvents'));
+const ProjectGenerate = page(() => import('./pages/Projects/ProjectGenerate'));
+const ProjectAutomate = page(() => import('./pages/Projects/ProjectAutomate'));
+const ProjectAI = page(() => import('./pages/Projects/ProjectAI'));
+const Mail = page(() => import('./pages/Mail'));
 const InviteAccept = lazy(() => import('./pages/Projects/InviteAccept'));
 const DocViewer = lazy(() => import('./pages/DocViewer'));
 const SnipOverlay = lazy(() => import('./pages/SnipOverlay'));

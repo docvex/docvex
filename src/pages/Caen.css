@@ -2,12 +2,8 @@
    sibling of the Legislation page: the list on the left, the entry on the
    right, the entry set like a reference card rather than a table row. */
 
-.cn-page { --lgt-page-gap: 20px; display: flex; flex-direction: column; gap: var(--lgt-page-gap); padding-bottom: 64px; }
-/* Capped at the shared content ceiling on wide screens, left-aligned — the
-   same rule as Versions and the Newsletter. */
-@media (min-width: 1024px) { /* 1280px pre-scale */
-  .cn-page { width: min(100%, var(--content-max-width, 1280px)); }
-}
+/* The page frame (gap, width, bottom space, the rail of codes opened) is
+   the Legislation tabs' workspace — components/LegalWorkspace.css (.lws). */
 
 .cn-mast-meta {
   display: flex; align-items: center; gap: 16px;
@@ -41,25 +37,26 @@
 /* Sticky, and scrolled on its own: the entry beside it can be long, and the
    list is where the reader goes back to. */
 .cn-side {
-  /* Under the Legislation tab bar (40px, pinned at --chrome-inset). */
-  position: sticky; top: calc(var(--chrome-inset, 6.4px) + 40px + 16px);
+  /* Under the Legislation tab bar (its measured height, --lg-bar-h, set by
+     the workspace; pinned at --chrome-inset). */
+  position: sticky; top: calc(var(--chrome-inset, 6.4px) + var(--lg-bar-h, 40px) + 16px);
   display: flex; flex-direction: column; gap: 10px;
   max-height: calc(100vh - var(--titlebar-h, 0px) - 48px);
   padding: 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: var(--shadow-card);
+  background: var(--ds-card-fill, transparent);
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-card-radius, 14px);
+  box-shadow: var(--ds-card-shadow, none);
   min-width: 0;
 }
 .cn-search {
   display: flex; align-items: center; gap: 8px;
   padding: 0 10px;
-  border: 1px solid var(--border); border-radius: 9px;
-  background: var(--bg-input); color: var(--text-muted);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-control-radius, 4.8px);
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent); color: var(--text-muted);
   transition: border-color 120ms ease, background 120ms ease;
 }
-.cn-search:focus-within { border-color: var(--accent); background: var(--bg-elevated); }
+.cn-search:focus-within { border-color: var(--accent); background: var(--accent-tint); }
 .cn-search-input {
   flex: 1 1 auto; min-width: 0;
   padding: 9px 0;
@@ -82,7 +79,7 @@
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
 }
-.cn-row:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.cn-row:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); color: var(--text-primary); }
 .cn-row.is-on { background: var(--accent-tint); color: var(--text-primary); }
 .cn-row.is-on .cn-row-code { color: var(--accent); }
 .cn-chev, .cn-chev-pad { display: inline-flex; width: 11px; height: 11px; flex: none; align-self: flex-start; margin-top: 3px; color: var(--text-muted); }
@@ -95,25 +92,33 @@
 }
 .cn-row-code.is-s { min-width: 16px; color: var(--accent); }
 .cn-row-name { min-width: 0; overflow-wrap: anywhere; }
+/* A SOFT pill (the Design system's one pill recipe, styles/designSystem.css). */
 .cn-tag {
+  --pill-tone: var(--info);
   flex: none; align-self: center;
-  padding: 0 7px; border-radius: 999px;
-  background: var(--info-soft); color: var(--info);
-  font-size: 9.6px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  display: inline-flex; align-items: center;
+  height: var(--ds-pill-h, 20px); box-sizing: border-box;
+  padding: 0 var(--ds-pill-pad, 9px);
+  border: 1px solid color-mix(in srgb, var(--pill-tone) var(--ds-pill-ring, 45%), transparent);
+  border-radius: var(--ds-pill-radius, 999px);
+  background: color-mix(in srgb, var(--pill-tone) var(--ds-pill-tint, 14%), transparent);
+  color: var(--pill-tone);
+  font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 650);
+  letter-spacing: var(--ds-tag-tracking, 0.01em); line-height: 1;
   white-space: nowrap;
 }
-.cn-tag.is-old { background: var(--warning-soft); color: var(--warning); }
+.cn-tag.is-old { --pill-tone: var(--warning); }
 
 /* ── The entry ────────────────────────────────────────────────────────── */
 .cn-detail { min-width: 0; scroll-margin-top: 16px; }
 .cn-card {
-  display: flex; flex-direction: column; gap: 18px;
-  max-width: 82ch;
-  padding: 24px 28px 28px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: var(--shadow-card);
+  display: flex; flex-direction: column; gap: 18px; max-width: none;
+  /* On the page ground: no frame, no corners, no inset of its own. */
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: var(--ds-card-shadow, none);
 }
 .cn-crumbs { display: flex; flex-direction: column; gap: 2px; }
 .cn-crumb {
@@ -123,7 +128,7 @@
   background: transparent; color: var(--text-muted);
   font: inherit; font-size: 11.2px; text-align: left; cursor: pointer;
 }
-.cn-crumb:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.cn-crumb:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); color: var(--text-primary); }
 .cn-crumb-code { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
 .cn-crumb-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -150,26 +155,37 @@
 .cn-btn {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 6px 12px;
-  border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg-card); color: var(--text-primary);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  background: var(--ds-card-fill, transparent); color: var(--text-primary);
   font: inherit; font-size: 11.2px; font-weight: 600;
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
 }
-.cn-btn:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
+.cn-btn:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); border-color: var(--border-strong); }
 
 /* A code whose meaning depends on the revision. The one thing on this page a
    reader can get wrong without noticing, so it stands out. */
+/* Drawn by the app's one design family: no fill and no coloured rule — it
+   stands on the page ground inside a hairline, and a dot in its tone before
+   the title says what it is (accent = a note, warning = no longer in force). */
 .cn-callout {
-  display: flex; flex-direction: column; gap: 8px;
+  --callout-tone: var(--accent);
+  display: flex; flex-direction: column; gap: 6px;
   padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-left: 2.4px solid var(--info);
-  border-radius: 0 10px 10px 0;
-  background: var(--bg-elevated);
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-card-radius, 14px);
+  background: transparent;
 }
-.cn-callout.is-old { border-left-color: var(--warning); }
-.cn-callout-title { margin: 0; font-size: 12.8px; font-weight: 700; color: var(--text-primary); }
+.cn-callout.is-old { --callout-tone: var(--warning); }
+.cn-callout-title {
+  margin: 0; display: flex; align-items: center; gap: 8px;
+  font-size: 12.8px; font-weight: 700; color: var(--text-primary);
+}
+.cn-callout-title::before {
+  content: ''; flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--callout-tone);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--callout-tone) 22%, transparent);
+}
 .cn-callout-body { margin: 0; font-size: 12px; line-height: 1.55; color: var(--text-secondary); }
 .cn-callout .cn-sub-title { margin-top: 2px; }
 .cn-link {
@@ -198,7 +214,7 @@
   font: inherit; font-size: 12.8px; line-height: 1.45; text-align: left;
   cursor: pointer;
 }
-.cn-coderow:hover { background: var(--bg-elevated); }
+.cn-coderow:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); }
 .cn-coderow-code { flex: none; min-width: 36px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent); }
 .cn-coderow-name { flex: 1 1 auto; min-width: 0; }
 
@@ -247,14 +263,14 @@
   align-items: baseline; column-gap: 8px; row-gap: 3px;
   max-width: 100%;
   padding: 7px 14px 8px;
-  border: 1px solid var(--border); border-radius: 12px;
-  background: var(--bg-card); color: var(--text-secondary);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  background: var(--ds-card-fill, transparent); color: var(--text-secondary);
   font: inherit; font-size: 11.2px; text-align: left; cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
-.cn-pill:hover { background: var(--bg-elevated); border-color: var(--border-strong); color: var(--text-primary); }
+.cn-pill:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); border-color: var(--border-strong); color: var(--text-primary); }
 .cn-pill.is-live { background: var(--accent-tint); border-color: var(--accent); color: var(--text-primary); }
-.cn-pill-kind { font-size: 9.6px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-muted); }
+.cn-pill-kind { font-size: var(--ds-label-size, 9.6px); font-weight: 700; letter-spacing: var(--ds-label-tracking, 0.07em); color: var(--text-muted); }
 .cn-pill-code { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent); }
 .cn-pill-name { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; font-size: 15.2px; font-weight: 400; line-height: 1.3; color: var(--text-primary); }
 .cn-trail-sep { color: var(--text-muted); }
@@ -277,7 +293,12 @@
   min-height: 100%;
   padding-bottom: 0;
 }
-.cn-page.is-picker > .cp-root { flex: 1 0 auto; }
+/* In the workspace the picker and its bar live in the main column: the
+   shell and the column fill the height, the picker takes the room, and the
+   column keeps no bottom padding, so the bar docks where Files' does. */
+.cn-page.is-picker > .lg-shell { flex: 1 0 auto; }
+.cn-page.is-picker .lg-shell-main { align-self: stretch; padding-bottom: 0; }
+.cn-page.is-picker .lg-shell-main > .cp-root { flex: 1 0 auto; }
 /* The scroller keeps no bottom padding under this page, as it keeps none
    at all under Files: the bar's sticky gap is then the same 6.4px above
    the window's bottom edge. */
@@ -316,6 +337,9 @@
   box-sizing: border-box;
   padding-left: max(8px, calc(17.6px - 9.6px - var(--rail-gap, 6.4px)));
 }
+/* Beside the rail the bar starts at the main column's own edge — the rail
+   already stands between it and the sidebar. */
+.main-content--flush .cn-page .lg-shell.has-rail .cn-bottombar { margin-left: 0; width: 100%; padding-left: 8px; }
 
 /* The picker's keys (in the bottom bar): each one the size and set of a
    Files bar button (.fx-tb-btn — 10.4px / 500, 5.6px 8.8px), so the bar
@@ -337,7 +361,7 @@
 .cn-hints kbd {
   display: inline-block; padding: 1px 5px;
   border: 1px solid var(--border); border-radius: 4px;
-  background: var(--bg-elevated); color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); color: var(--text-secondary);
   font: inherit; font-size: 9.6px;
 }
 
@@ -351,6 +375,190 @@
 @media (max-width: 860px) {
   .cn-body { grid-template-columns: minmax(0, 1fr); }
   .cn-side { position: static; max-height: 420px; }
-  .cn-card { padding: 18px 16px 22px; }
+  .cn-card { padding: 0; }
   .cn-title-row { flex-direction: column; gap: 6px; }
+}
+
+/* ── Outline (pages/CaenViews) ──────────────────────────────────────────
+   The sections as a rail, the chosen one as a table of contents — the
+   hierarchy told by type size, not indentation — and the entry beside it.
+   The rail and the card are sticky under the tab bar; the outline scrolls
+   with the page. */
+.cn-ol {
+  display: grid;
+  grid-template-columns: 256px minmax(0, 1fr) 400px;
+  align-items: start;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-card-radius, 14px);
+  background: var(--ds-card-fill, transparent);
+}
+.cn-ol-rail,
+.cn-ol-side {
+  position: sticky; top: calc(var(--chrome-inset, 6.4px) + var(--lg-bar-h, 40px) + 16px);
+  max-height: calc(100vh - var(--titlebar-h, 0px) - 80px);
+  overflow-y: auto; scrollbar-width: thin;
+}
+.cn-ol-rail {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 14px 10px;
+  border-right: 1px solid var(--border);
+}
+.cn-ol-sec {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center; gap: 8px;
+  padding: 6px 8px;
+  border: 0; border-radius: 8px;
+  background: transparent; text-align: left; cursor: pointer;
+  font: inherit;
+  transition: background 120ms ease;
+}
+.cn-ol-sec:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); }
+.cn-ol-sec:disabled { cursor: default; opacity: 0.55; }
+.cn-ol-sec.is-on { background: var(--accent-tint); }
+.cn-ol-sec-code { font-family: var(--font-display); font-size: 13px; font-weight: 800; color: var(--text-muted); }
+.cn-ol-sec.is-on .cn-ol-sec-code { color: var(--accent); }
+.cn-ol-sec-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-secondary); }
+.cn-ol-sec.is-on .cn-ol-sec-name { font-weight: 600; }
+.cn-ol-sec-n { font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.cn-ol-main { min-width: 0; padding: 24px 32px 40px; }
+.cn-ol-head { display: flex; flex-direction: column; gap: 6px; padding-bottom: 6px; }
+.cn-ol-eyebrow { font-size: 10.4px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--accent); }
+.cn-ol-title {
+  margin: 0;
+  font-family: var(--font-display); font-size: 22px; font-weight: 700;
+  letter-spacing: -0.02em; line-height: 1.25; text-wrap: pretty;
+  color: var(--text-primary);
+}
+.cn-ol-meta { font-size: 11.2px; color: var(--text-muted); }
+.cn-ol-div { margin-top: 26px; }
+.cn-ol-divhead {
+  display: flex; align-items: baseline; gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.cn-ol-divcode { font-family: var(--font-display); font-size: 16px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.cn-ol-divname { flex: 1; font-family: var(--font-display); font-size: 15px; font-weight: 650; line-height: 1.35; color: var(--text-primary); }
+.cn-ol-divmeta { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+.cn-ol-group { padding-top: 10px; }
+.cn-ol-grouplabel { padding: 4px 8px 2px; font-size: 10.4px; font-weight: 600; letter-spacing: 0.01em; color: var(--text-muted); }
+.cn-ol-class {
+  width: 100%;
+  display: grid; grid-template-columns: 48px minmax(0, 1fr);
+  align-items: baseline; gap: 10px;
+  padding: 6px 8px;
+  border: 0; border-radius: 8px;
+  background: transparent; color: var(--text-primary);
+  font: inherit; font-size: 12.8px; line-height: 1.45; text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.cn-ol-class:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); }
+.cn-ol-class.is-on { background: var(--accent-tint); }
+.cn-ol-classcode { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.cn-ol-class.is-on .cn-ol-classcode { color: var(--accent); }
+
+.cn-ol-side { padding: 20px 20px 32px 0; scroll-margin-top: 16px; }
+.cn-ol-side > .cn-card { max-width: none; padding: 22px 24px 24px; }
+.cn-ol-empty { text-align: center; }
+
+@media (max-width: 1100px) {
+  .cn-ol { grid-template-columns: 220px minmax(0, 1fr); }
+  .cn-ol-side { grid-column: 1 / -1; position: static; max-height: none; padding: 0 20px 20px; }
+}
+
+/* ── Atlas (pages/CaenViews) ────────────────────────────────────────────
+   The whole economy on one screen: the section tiles, a weight bar each,
+   then the section's divisions as cards in a masonry of columns. The entry
+   floats in over the right side, sticky while the atlas scrolls. */
+.cn-at { position: relative; display: flex; flex-direction: column; gap: 24px; }
+.cn-at-tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.cn-at-tile {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 11px 12px 12px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  background: transparent; text-align: left; cursor: pointer;
+  font: inherit;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.cn-at-tile:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); }
+.cn-at-tile:disabled { cursor: default; opacity: 0.55; }
+.cn-at-tile.is-on { background: var(--accent-tint); border-color: var(--accent); box-shadow: none; }
+.cn-at-tilehead { display: flex; align-items: baseline; justify-content: space-between; }
+.cn-at-tilecode { font-family: var(--font-display); font-size: 20px; font-weight: 800; line-height: 1; color: var(--accent); }
+.cn-at-tilen { font-size: 9.6px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.cn-at-tilename {
+  height: 30px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 11.2px; line-height: 1.35; color: var(--text-primary);
+}
+.cn-at-bar { display: block; height: 3px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.cn-at-bar > span { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+
+.cn-at-head {
+  display: flex; flex-direction: column; gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.cn-at-cards { column-count: 3; column-gap: 14px; }
+.cn-at-card {
+  break-inside: avoid;
+  margin-bottom: 14px;
+  padding: 14px 12px 10px;
+  background: var(--ds-card-fill, transparent);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-card-radius, 14px);
+  box-shadow: var(--ds-card-shadow, none);
+}
+.cn-at-cardhead { display: flex; align-items: baseline; gap: 8px; padding: 0 6px 10px; }
+.cn-at-cardcode { font-family: var(--font-display); font-size: 14px; font-weight: 800; color: var(--accent); }
+.cn-at-cardname { font-family: var(--font-display); font-size: 13px; font-weight: 650; line-height: 1.35; color: var(--text-primary); }
+.cn-at-class {
+  width: 100%;
+  display: grid; grid-template-columns: 40px minmax(0, 1fr);
+  align-items: baseline; gap: 8px;
+  padding: 5px 6px;
+  border: 0; border-radius: 8px;
+  background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: 12px; line-height: 1.4; text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.cn-at-class:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); }
+.cn-at-class.is-on { background: var(--accent-tint); color: var(--text-primary); }
+.cn-at-classcode { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent); }
+
+/* The floating entry: an absolute column over the right side, the height of
+   the atlas, with the card sticky inside it — it stays in view as the atlas
+   scrolls under it, without a fixed position (an ancestor here makes its
+   own frame, so "fixed" would be measured from the wrong box). */
+.cn-at-float {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  width: min(430px, 100%);
+  pointer-events: none;
+  z-index: 3;
+}
+.cn-at-entry {
+  position: sticky; top: calc(var(--chrome-inset, 6.4px) + var(--lg-bar-h, 40px) + 16px);
+  max-height: calc(100vh - var(--titlebar-h, 0px) - 80px);
+  overflow-y: auto; scrollbar-width: thin;
+  pointer-events: auto;
+  /* Floating over the atlas: the bar's surface (frosted page ground, the
+     flat hairline, no shadow), so the tiles under it don't read through. */
+  border: var(--ds-bar-border, 1.5px) solid var(--border-flat, var(--border));
+  border-radius: var(--ds-card-radius, 14px);
+  background: color-mix(in srgb, var(--bg-page) var(--ds-bar-frost, 66%), transparent);
+  backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  box-shadow: var(--ds-card-shadow, none);
+  animation: cn-at-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cn-at-entry > .cn-card { max-width: none; padding: 22px 24px 24px; box-shadow: none; }
+.cn-at-entrybar { position: absolute; top: 16px; right: 18px; z-index: 1; }
+@keyframes cn-at-in { from { opacity: 0; transform: translateX(16px); } }
+@media (prefers-reduced-motion: reduce) { .cn-at-entry { animation: none; } }
+:root[data-reduce-motion="true"] .cn-at-entry { animation: none; }
+
+@media (max-width: 1100px) {
+  .cn-at-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .cn-at-cards { column-count: 2; }
 }
