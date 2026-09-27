@@ -31,6 +31,7 @@ export const DEFAULT_PREFS = {
   fileView: 'grid',
   language: 'en',
   showTokenUsage: false, // show the per-chat token-usage indicator in AI chats
+  fpsCounter: 'simple', // the title bar's FPS counter: 'off' | 'simple' | 'complex' | 'graph' (components/FpsMeter)
 };
 
 const PREF_KEY_PREFIX = 'docvex.appPrefs.';
@@ -54,7 +55,7 @@ function applyGlobals(prefs) {
   applyAppScale(prefs.textSize);
 }
 
-const AppPrefsContext = createContext(null);
+export const AppPrefsContext = createContext(null);
 
 export function AppPrefsProvider({ children }) {
   const { session, loading } = useAuth();

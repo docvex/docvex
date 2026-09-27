@@ -253,8 +253,6 @@ export function phoneUploadPage(cfg = {}) {
   }
   /* A label holding its file input, kept in the layout (iOS opens no picker
      for an input that is display: none). */
-  .act-live { position: relative; overflow: hidden; display: inline-flex; align-items: center; }
-  .act-live input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; }
   .cam-live.is-on { background: rgba(255, 204, 0, 0.92); border-color: transparent; color: #000; }
   .cam-live[hidden] { display: none; }
   .act {
@@ -507,10 +505,7 @@ export function phoneUploadPage(cfg = {}) {
   // "<the picture's name>.live.<ext>", sent once the picture is up (on the
   // Wi-Fi route with the picture's id) — DocVex keeps the two together and
   // puts the video in beside the picture when it is accepted. It comes from
-  // the camera below (every photo taken there keeps ~1.5 s either side), or
-  // from "Add movement" on a photo's row: an iPhone gives web pages only the
-  // STILL of a Live Photo from the library, so its movement is saved as a
-  // video first (Photos → ⋯ → Save as Video) and picked here.
+  // the camera below (every photo taken there keeps ~1.5 s either side).
   var isPicture = function (f) { return /^image\//.test(f.type || '') || /\.(heic|heif|jpe?g|png)$/i.test(f.name || ''); };
   var stemOf = function (n) { return String(n || 'Photo').replace(/\.[^.]+$/, ''); };
   function videoExt(v) {
@@ -523,7 +518,6 @@ export function phoneUploadPage(cfg = {}) {
     var tag = document.createElement('span');
     tag.className = 'live-tag'; tag.textContent = 'LIVE';
     li.querySelector('.row').insertBefore(tag, li.querySelector('.state'));
-    var add = li.querySelector('.act-live'); if (add) add.parentNode.remove();
   }
   function sendMovement(li, video) {
     var photo = li._photo;
@@ -539,28 +533,10 @@ export function phoneUploadPage(cfg = {}) {
       .then(function () { markLive(li); state.textContent = before; })
       .catch(function (e) {
         state.textContent = e && e.message === 'rejected' ? 'Rejected' : before;
-        $('note').textContent = e && e.message === 'rejected' ? 'That photo was rejected on the computer, so its movement was not sent.' : 'The movement could not be sent — try Add movement again.';
+        $('note').textContent = e && e.message === 'rejected' ? 'That photo was rejected on the computer, so its movement was not sent.' : 'The movement could not be sent.';
       })
       .then(function () { busy -= 1; note(); });
   }
-  function offerMovement(li) {
-    if (li.querySelector('.act-live') || li.querySelector('.live-tag')) return;
-    var acts = document.createElement('div');
-    acts.className = 'acts';
-    var add = document.createElement('label');
-    add.className = 'act act-live';
-    add.textContent = 'Add movement';
-    var input = document.createElement('input');
-    input.type = 'file'; input.accept = 'video/*';
-    input.addEventListener('change', function () {
-      var v = input.files && input.files[0]; input.value = '';
-      if (v) sendMovement(li, v);
-    });
-    add.appendChild(input);
-    acts.appendChild(add);
-    li.appendChild(acts);
-  }
-
   function addFiles(files) {
     Array.prototype.forEach.call(files, function (file) {
       total += 1;
@@ -587,14 +563,10 @@ export function phoneUploadPage(cfg = {}) {
             state.textContent = held ? 'Waiting for approval' : 'Sent';
             sent += 1;
             if (held && r.id) follow(r.id, li, state, file);
-            // A picture: its movement follows it — the camera's, or one
-            // picked with Add movement.
-            if (isPicture(file)) {
+            // A picture taken with the camera: its movement follows it.
+            if (isPicture(file) && file.__movement) {
               li._photo = { file: file, id: (r && r.id) || '' };
-              if (file.__movement) {
-                var m = file.__movement;
-                m.then(function (v) { if (v) return sendMovement(li, v); offerMovement(li); });
-              } else offerMovement(li);
+              file.__movement.then(function (v) { if (v) return sendMovement(li, v); });
             }
           })
           .catch(function (e) { li.className = 'item is-bad'; state.textContent = e && e.message === 'network' ? 'Connection lost' : 'Failed'; })
@@ -682,7 +654,7 @@ export function phoneUploadPage(cfg = {}) {
   if (/iPhone|iPad|iPod/.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
     var live = document.createElement('p');
     live.className = 'note';
-    live.textContent = 'Live Photos from your library arrive as stills — iPhone gives web pages only the picture. To keep the movement: in Photos, open the Live Photo, tap ⋯ → Save as Video, then press Add movement on that photo here.' + (window.isSecureContext ? ' Photos taken with Take photos keep their movement.' : '');
+    live.textContent = 'Live Photos from your library arrive as stills — iPhone gives web pages only the picture. ' + (window.isSecureContext ? ' Photos taken with Take photos keep their movement.' : '');
     $('actions').appendChild(live);
     // Every Live Photo at once, with its movement: the Shortcut (Wi-Fi only —
     // it posts straight to this computer).

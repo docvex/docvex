@@ -336,6 +336,8 @@ export default function DesignSystem() {
             </ul>
           </Sample>
 
+          <LegalHighlightsSample />
+
           <Sample name="Section" of="pages/Legislation .lg-lib — a titled section with its sub-line and a control at the right">
             <section className="lg-lib">
               <header className="lg-lib-head">
@@ -887,6 +889,106 @@ function SegmentedSample() {
   return (
     <Sample name="Segmented choice" of="components/RuleOptions .pbk-rule-opts — the Playbook's Word settings, the Import window's route switch" row>
       <RuleOptions field={ROUTE_SAMPLE} value={route} onPick={setRoute} />
+    </Sample>
+  );
+}
+
+// Every way text read as Romanian law is highlighted, stood side by side:
+// the Word preview's marks (pages/DocViewer — act, CAEN, CUI, the internal
+// cross-reference and where it lands), the same marks on a picture's
+// extracted text, and the Legislation tab's pressable references + its find.
+// The Doc Viewer's stylesheet is bound to its window, so its marks are
+// mirrored in DesignSystem.css (.dsg-refdoc / .dsg-refs-photo) — keep them in
+// step with DocViewer.css. The Legislation ones are the live .lg-ref / .lg-hit.
+const REF_DOC_ROWS = [
+  {
+    name: 'Act or code',
+    of: '.dv-lawref — AI gradient wash + rule, shimmering; toggled by the Laws action',
+    body: <>potrivit <span className="dv-ref dv-lawref is-head is-tail">Legii nr. 31/1990 privind societățile</span>, republicată</>,
+  },
+  {
+    name: 'Act split across Word runs',
+    of: '.dv-ref.is-head / .is-tail — only the outer ends rounded',
+    body: <>conform <span className="dv-ref dv-lawref is-head">art. 5 din </span><span className="dv-ref dv-lawref"><b>O.U.G.</b></span><span className="dv-ref dv-lawref is-tail"> nr. 195/2002</span></>,
+  },
+  {
+    name: 'CAEN code',
+    of: '.dv-caenref — flat amber stamp, solid rule, no motion; always on',
+    body: <>având ca obiect principal <span className="dv-ref dv-caenref is-head is-tail">cod CAEN 6210</span></>,
+  },
+  {
+    name: 'Fiscal code (CUI)',
+    of: '.dv-cuiref — info colour, rule, hand cursor; opens ANAF',
+    body: <>înregistrată sub <span className="dv-ref dv-cuiref is-head is-tail">CUI RO 14399840</span></>,
+  },
+  {
+    name: 'Cross-reference · rest / hover / pressed',
+    of: '.dv-xref · .is-hot · .is-press — a teal button, ringed edge by edge',
+    body: (
+      <>
+        indicată la <span className="dv-ref dv-xref is-head is-tail">pct. 6.1. lit. d)</span>
+        {' · '}<span className="dv-ref dv-xref is-head is-tail is-hot">clauza 4.3</span>
+        {' · '}<span className="dv-ref dv-xref is-head is-tail is-press">art. 7</span>
+      </>
+    ),
+  },
+  {
+    name: 'Where a cross-reference lands',
+    of: '.is-xref-target (the clause, pulsing) · .is-xref-exact (the item named, brighter)',
+    body: (
+      <span className="dsg-refdoc-land">
+        <span className="is-xref-target">6.1. Datele de contact ale părților sunt următoarele:</span>
+        <span className="is-xref-target is-xref-exact">d) adresa de e-mail pentru notificări.</span>
+      </span>
+    ),
+  },
+];
+
+function LegalHighlightsSample() {
+  return (
+    <Sample name="Legal highlights" of="lib/lawRefs — every mark drawn on text read as Romanian law" wide>
+      <div className="dsg-refs">
+        <p className="dsg-refs-label">Word preview · pages/DocViewer (mirrored)</p>
+        <div className="dsg-refdoc">
+          {REF_DOC_ROWS.map((r) => (
+            <div key={r.name} className="dsg-refs-row">
+              <div className="dsg-refs-meta"><span className="dsg-refs-name">{r.name}</span><code>{r.of}</code></div>
+              <p className="dsg-refs-text">{r.body}</p>
+            </div>
+          ))}
+        </div>
+
+        <p className="dsg-refs-label">A picture's extracted text · TextRegionsLayer .dv-textword, over the photograph</p>
+        <div className="dsg-refs-photo">
+          <span className="dv-textword dv-lawref">Legea 31/1990</span>{' '}
+          <span className="dv-textword dv-caenref">CAEN 4711</span>{' '}
+          <span className="dv-textword dv-cuiref">CUI 2408422</span>
+        </div>
+
+        <p className="dsg-refs-label">Legislation tab · pages/Legislation .lg-ref and the find .lg-hit (live)</p>
+        <div className="dsg-refs-row">
+          <div className="dsg-refs-meta"><span className="dsg-refs-name">Act · rest / hover</span><code>.lg-ref — accent; opens the act here</code></div>
+          <p className="dsg-refs-text">
+            modificată prin <button type="button" className="lg-ref">Legea nr. 287/2009</button>
+            {' · '}<button type="button" className="lg-ref dsg-ref-hover">O.U.G. nr. 195/2002</button>
+          </p>
+        </div>
+        <div className="dsg-refs-row">
+          <div className="dsg-refs-meta"><span className="dsg-refs-name">CAEN · court file · CUI</span><code>.lg-ref.is-caen · .is-case · .is-cui</code></div>
+          <p className="dsg-refs-text">
+            <button type="button" className="lg-ref is-caen">cod CAEN 6201</button>
+            {' · '}<button type="button" className="lg-ref is-case">Dosarul nr. 1234/3/2022</button>
+            {' · '}<button type="button" className="lg-ref is-cui">CUI 14399840</button>
+          </p>
+        </div>
+        <div className="dsg-refs-row">
+          <div className="dsg-refs-meta"><span className="dsg-refs-name">Find · match / current / inside a reference</span><code>.lg-hit · .is-current · .lg-ref .lg-hit</code></div>
+          <p className="dsg-refs-text">
+            <mark className="lg-hit">societate</mark> comercială, <mark className="lg-hit is-current">societate</mark> pe acțiuni,{' '}
+            <button type="button" className="lg-ref">Legea <mark className="lg-hit">societăților</mark> nr. 31/1990</button>
+          </p>
+        </div>
+      </div>
     </Sample>
   );
 }

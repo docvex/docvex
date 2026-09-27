@@ -33,6 +33,7 @@ const isCollectionFile = (name) => /\.dvc$/i.test(String(name || '').trim());
 import { loadScanTags, setScanTags, isScanTagged, subscribeScanTags, relInProject as scanRel } from '../../lib/scanTags';
 import { getPrefetchedProjectFiles } from '../../lib/projectFilesPrefetch';
 import { prefetchMetadata } from '../../lib/metadataPrefetch';
+import { extractTextOnImport } from '../../lib/autoExtract';
 import PhoneUploadModal from '../../components/PhoneUploadModal';
 import { subscribeIncoming, decideIncoming, fmtBytes as fmtIncomingBytes } from '../../lib/phoneUploadIncoming';
 import './ProjectScoped.css';
@@ -893,6 +894,8 @@ export default function ProjectFiles({ embedded = false } = {}) {
     const okCount = (results || []).filter((r) => r.ok).length;
     const failCount = (results || []).length - okCount;
     const importedNames = (results || []).filter((r) => r.ok && r.filename).map((r) => r.filename);
+    // Pictures have their text read in the background (lib/autoExtract).
+    extractTextOnImport((results || []).filter((r) => r.ok && r.path).map((r) => ({ path: r.path, name: r.filename })), projectId);
     notify({
       category: 'file',
       variant: failCount > 0 ? 'error' : 'success',
@@ -947,7 +950,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
         },
       });
     }
-  }, [localFolder, currentDir, notify, actMeta, refetchLocalFiles, pushAction, primTrash, primRestore]);
+  }, [localFolder, currentDir, notify, actMeta, refetchLocalFiles, pushAction, primTrash, primRestore, projectId]);
 
   // "Import" button → hidden <input type=file>.
   const handleLocalFilesPicked = useCallback(async (e) => {
@@ -989,6 +992,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
       if (error) { fail += groupFiles.length; continue; }
       ok += (results || []).filter((r) => r.ok).length;
       fail += (results || []).filter((r) => !r.ok).length;
+      extractTextOnImport((results || []).filter((r) => r.ok && r.path).map((r) => ({ path: r.path, name: r.filename })), projectId);
     }
     notify({
       category: 'file',
@@ -1002,7 +1006,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
     });
     setBrowseTick((t) => t + 1);
     await refetchLocalFiles();
-  }, [localFolder, currentDir, notify, actMeta, refetchLocalFiles]);
+  }, [localFolder, currentDir, notify, actMeta, refetchLocalFiles, projectId]);
 
   // Drag-and-drop from the OS file manager → copy the dropped files into the
   // current folder. Each entry is { file, relPath }; loose files (no folder in

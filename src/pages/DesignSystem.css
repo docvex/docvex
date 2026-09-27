@@ -484,3 +484,125 @@
 .dsg-pbtn.is-primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); -webkit-backdrop-filter: none; backdrop-filter: none; }
 .dsg-pbtn.is-primary:active { background: var(--accent-hover); }
 .dsg-pbtn svg { width: 19px; height: 19px; flex: none; }
+
+/* ── Legal highlights (LegalHighlightsSample) ────────────────────────────
+   The Doc Viewer's marks, MIRRORED from pages/DocViewer.css (its stylesheet
+   is bound to the viewer window) — same class names, scoped to .dsg-refdoc /
+   .dsg-refs-photo. Keep in step with DocViewer.css's .dv-lawref, .dv-caenref,
+   .dv-cuiref, .dv-xref, .is-xref-target and .dv-textword.* rules. */
+.dsg-refs { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.dsg-refs-label { margin: 8px 0 0; font-size: var(--ds-label-size, 10.4px); letter-spacing: var(--ds-label-tracking, 0.06em); text-transform: uppercase; font-weight: 650; color: var(--text-muted); }
+.dsg-refs-label:first-child { margin-top: 0; }
+.dsg-refdoc { display: flex; flex-direction: column; gap: 10px; }
+.dsg-refs-row { display: grid; grid-template-columns: minmax(200px, 300px) 1fr; gap: 16px; align-items: baseline; padding-bottom: 10px; border-bottom: 1px solid var(--ds-hairline, var(--border)); }
+.dsg-refs-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dsg-refs-name { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.dsg-refs-meta code { font-size: 10.4px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: normal; }
+.dsg-refs-text { margin: 0; font-family: 'Times New Roman', Times, serif; font-size: 15px; line-height: 1.6; color: var(--text-primary); }
+.dsg-refdoc-land { display: flex; flex-direction: column; gap: 8px; padding: 6px; }
+.dsg-ref-hover { --ref-wash: 24%; }
+@media (max-width: 720px) { .dsg-refs-row { grid-template-columns: 1fr; gap: 6px; } }
+
+.dsg-refdoc .dv-lawref,
+.dsg-refs-photo .dv-textword.dv-lawref {
+  --lawref-1: 59, 130, 246; --lawref-2: 139, 92, 246; --lawref-3: 168, 85, 247;
+  --lawref-wash: 0.2;
+  background-image:
+    linear-gradient(115deg, rgba(var(--lawref-1), var(--lawref-wash)) 0%, rgba(var(--lawref-2), var(--lawref-wash)) 32%, rgba(var(--lawref-3), var(--lawref-wash)) 58%, rgba(var(--lawref-2), var(--lawref-wash)) 80%, rgba(var(--lawref-1), var(--lawref-wash)) 100%),
+    linear-gradient(115deg, rgb(var(--lawref-1)) 0%, rgb(var(--lawref-2)) 32%, rgb(var(--lawref-3)) 58%, rgb(var(--lawref-2)) 80%, rgb(var(--lawref-1)) 100%);
+  background-size: 300% 100%, 300% 1.6px;
+  background-position: 0 0, 0 100%;
+  background-repeat: repeat, repeat-x;
+  animation: dsg-lawref-shimmer 5.5s linear infinite;
+}
+:root[data-theme='ink'] .dsg-refdoc .dv-lawref { --lawref-wash: 0.3; }
+@keyframes dsg-lawref-shimmer { to { background-position: -300% 0, -300% 100%; } }
+.dsg-refdoc .dv-ref.is-head { border-top-left-radius: 3px; border-bottom-left-radius: 3px; }
+.dsg-refdoc .dv-ref.is-tail { border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
+
+.dsg-refdoc .dv-caenref {
+  --caenref: 217, 119, 6; --caenref-wash: 0.18;
+  background-image: linear-gradient(rgb(var(--caenref)), rgb(var(--caenref)));
+  background-size: 100% 1.6px; background-position: 0 100%; background-repeat: no-repeat;
+  background-color: rgba(var(--caenref), var(--caenref-wash));
+}
+:root[data-theme='ink'] .dsg-refdoc .dv-caenref { --caenref: 251, 191, 36; --caenref-wash: 0.24; }
+
+.dsg-refdoc .dv-cuiref {
+  --cuiref: var(--info);
+  cursor: pointer;
+  background-image: linear-gradient(var(--cuiref), var(--cuiref));
+  background-size: 100% 1.6px; background-position: 0 100%; background-repeat: no-repeat;
+  background-color: color-mix(in srgb, var(--cuiref) 16%, transparent);
+}
+.dsg-refdoc .dv-cuiref:hover { background-color: color-mix(in srgb, var(--cuiref) 28%, transparent); }
+
+.dsg-refdoc { --xref: 13, 148, 136; }
+:root[data-theme='ink'] .dsg-refdoc { --xref: 45, 212, 191; }
+.dsg-refdoc .dv-xref {
+  --xref-wash: 0.18;
+  --xref-ring: rgba(var(--xref), 0.55);
+  --xref-ring-l: transparent; --xref-ring-r: transparent;
+  --xref-inner: 0 0 0 0 transparent;
+  background-color: rgba(var(--xref), var(--xref-wash));
+  border-radius: 5.6px;
+  box-shadow:
+    inset 0 1px 0 0 var(--xref-ring), inset 0 -1px 0 0 var(--xref-ring),
+    inset 1px 0 0 0 var(--xref-ring-l), inset -1px 0 0 0 var(--xref-ring-r),
+    var(--xref-inner);
+  cursor: pointer;
+  transition: background-color 120ms ease-out, box-shadow 120ms ease-out;
+}
+.dsg-refdoc .dv-xref.is-head { --xref-ring-l: var(--xref-ring); }
+.dsg-refdoc .dv-xref.is-tail { --xref-ring-r: var(--xref-ring); }
+:root[data-theme='ink'] .dsg-refdoc .dv-xref { --xref-wash: 0.22; }
+.dsg-refdoc .dv-xref:hover,
+.dsg-refdoc .dv-xref.is-hot { --xref-wash: 0.32; --xref-ring: rgba(var(--xref), 0.85); }
+.dsg-refdoc .dv-xref.is-press {
+  --xref-wash: 0.5; --xref-ring: rgba(var(--xref), 0.95);
+  --xref-inner: inset 0 2px 3px -1px rgba(var(--xref), 0.6);
+}
+.dsg-refdoc .is-xref-target {
+  --lit-lo: rgba(var(--xref), 0.12); --lit-hi: rgba(var(--xref), 0.46);
+  --lit-ring-lo: rgba(var(--xref), 0.1); --lit-ring-hi: rgba(var(--xref), 0.32);
+  border-radius: 4px;
+  background-color: var(--lit-hi);
+  box-shadow: 0 0 0 4px var(--lit-ring-hi);
+  animation: dsg-xref-pulse 1.4s ease-in-out infinite;
+}
+.dsg-refdoc .is-xref-exact {
+  --lit-lo: rgba(var(--xref), 0.2); --lit-hi: rgba(var(--xref), 0.66);
+  --lit-ring-lo: rgba(var(--xref), 0.16); --lit-ring-hi: rgba(var(--xref), 0.46);
+}
+.dsg-refdoc .is-xref-target:hover { animation: none; }
+@keyframes dsg-xref-pulse {
+  0%, 100% { background-color: var(--lit-lo); box-shadow: 0 0 0 1px var(--lit-ring-lo); }
+  50% { background-color: var(--lit-hi); box-shadow: 0 0 0 7px var(--lit-ring-hi); }
+}
+
+/* A picture's extracted text: in the viewer the words are transparent over
+   the photograph; here a dark photo-like ground with the words shown so the
+   marks read against what they normally sit on. */
+.dsg-refs-photo {
+  padding: 18px 16px; border-radius: var(--ds-row-radius, 8px);
+  background: linear-gradient(135deg, #3a3f47, #1f2328);
+  font-size: 15px; color: rgba(255, 255, 255, 0.85);
+}
+.dsg-refs-photo .dv-textword { display: inline-block; padding: 1px 2px; }
+.dsg-refs-photo .dv-textword.dv-lawref { --lawref-wash: 0.3; background-size: 300% 100%, 300% 2px; }
+.dsg-refs-photo .dv-textword.dv-caenref {
+  background-image: linear-gradient(rgb(251, 191, 36), rgb(251, 191, 36));
+  background-size: 100% 2px; background-position: 0 100%; background-repeat: no-repeat;
+  background-color: rgba(251, 191, 36, 0.28);
+}
+.dsg-refs-photo .dv-textword.dv-cuiref {
+  background-image: linear-gradient(var(--info), var(--info));
+  background-size: 100% 2px; background-position: 0 100%; background-repeat: no-repeat;
+  background-color: color-mix(in srgb, var(--info) 26%, transparent);
+}
+
+:root[data-reduce-motion='true'] .dsg-refs .dv-lawref,
+:root[data-reduce-motion='true'] .dsg-refs .is-xref-target { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .dsg-refs .dv-lawref, .dsg-refs .is-xref-target { animation: none; }
+}

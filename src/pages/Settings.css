@@ -307,3 +307,7 @@
 
 /* Token-usage setting demo */
 .set-demo-tokens { display: flex; justify-content: center; padding: 8px 0; }
+
+/* FPS counter preview: the meter drawn in place, in the mode chosen. */
+.set-demo-fps { display: flex; justify-content: center; align-items: center; min-height: 40px; padding: 8px 0; }
+.set-demo-fps-off { font-size: 12px; color: var(--text-muted); }

@@ -7,6 +7,7 @@ import { localFolderApi, isElectronBranch } from '../lib/localFolder';
 import { readProjectsDir, writeProjectsDir } from '../lib/projectsDir';
 import PageMasthead from '../components/PageMasthead';
 import TokenUsagePill from '../components/TokenUsagePill';
+import FpsMeter from '../components/FpsMeter';
 import './Settings.css';
 
 // App Settings tab (Claude Design handoff "app settings tab", Direction A —
@@ -438,6 +439,21 @@ function buildSettings(prefs, set) {
       title: 'Show token usage', desc: 'Display a running total of the AI tokens used in each chat, shown next to the message box.',
       Control: () => <Toggle checked={prefs.showTokenUsage} onChange={(v) => set('showTokenUsage', v)} label="Show token usage" />,
       Mini: () => <div className="set-demo-tokens"><TokenUsagePill tokens={1240} /></div>,
+    },
+    {
+      key: 'fpsCounter', group: 'Behavior',
+      icon: <Ico><path d="M3 17l5-6 4 3 5-7 4 4" /><path d="M3 21h18" /></Ico>,
+      title: 'FPS counter',
+      desc: 'Show how smoothly the app is drawing, at the top of the window. Simple shows the frame rate; Complex adds frame time, 1% low, the worst frame and stutters; Graph draws the last frames as bars.',
+      Control: () => <Segmented value={prefs.fpsCounter || 'simple'} onChange={(v) => set('fpsCounter', v)}
+        options={[{ value: 'off', label: 'Hidden' }, { value: 'simple', label: 'Simple' }, { value: 'complex', label: 'Complex' }, { value: 'graph', label: 'Graph' }]} />,
+      Mini: () => (
+        <div className="set-demo-fps">
+          {(prefs.fpsCounter || 'simple') === 'off'
+            ? <span className="set-demo-fps-off">Hidden</span>
+            : <FpsMeter key={prefs.fpsCounter} mode={prefs.fpsCounter || 'simple'} inline />}
+        </div>
+      ),
     },
     {
       key: 'language', group: 'Language & region', icon: <GlobeIcon />,

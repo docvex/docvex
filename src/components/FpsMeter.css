@@ -1,6 +1,7 @@
 /* FPS indicator — fixed at the top-centre of the window, just below the very
    top edge so it reads within the title bar. Non-interactive (clicks/drag pass
-   through to the title bar behind it). */
+   through to the title bar behind it). Three looks (FpsMeter's `mode`):
+   simple (one number), complex (a row of stats), graph (a number + bars). */
 .fps-meter {
   position: fixed;
   top: 0;
@@ -27,3 +28,47 @@
 .fps-meter.is-good { color: var(--success); }
 .fps-meter.is-ok   { color: var(--warning); }
 .fps-meter.is-bad  { color: var(--danger); }
+
+/* Drawn in place (the Settings preview): a whole pill, not hung off the top. */
+.fps-meter.is-inline {
+  position: relative;
+  top: auto;
+  left: auto;
+  transform: none;
+  z-index: auto;
+  border-top: 1px solid var(--border);
+  border-radius: 6.4px;
+}
+
+/* Complex and graph: the rate as a larger figure beside the detail. */
+.fps-meter.is-complex,
+.fps-meter.is-graph {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3.2px 8px;
+}
+.fps-meter-big { font-size: 12px; font-weight: 750; white-space: nowrap; }
+.fps-meter-big small { font-size: 8px; font-weight: 700; opacity: 0.8; }
+
+.fps-meter-stats {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.fps-meter-stats > div { display: flex; flex-direction: column; gap: 0; }
+.fps-meter-stats dt { font-size: 7.2px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.fps-meter-stats dd { margin: 0; font-size: 9.6px; font-weight: 700; white-space: nowrap; color: var(--text-primary); }
+.fps-meter-stats dd small { font-size: 7.2px; font-weight: 600; color: var(--text-muted); }
+.fps-meter-stats dd.is-good { color: var(--success); }
+.fps-meter-stats dd.is-ok   { color: var(--warning); }
+.fps-meter-stats dd.is-bad  { color: var(--danger); }
+
+.fps-meter-graph {
+  display: block;
+  width: 120px;
+  height: 26px;
+}

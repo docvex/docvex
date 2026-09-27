@@ -10,6 +10,7 @@ import {
   isElectron, onPhoneUploadEvent, phoneUploadPending, phoneUploadAccept, phoneUploadReject, phoneUploadRelease, notifyFilesChanged,
 } from './platform';
 import { reportCloudDecision } from './phoneUploadCloud';
+import { extractTextOnImport } from './autoExtract';
 
 const pending = new Map();   // id → { id, name, size, path, dir, at }
 const arrivedSubs = new Set();
@@ -80,7 +81,11 @@ export async function decideIncoming(id, accept) {
   // A failed decision offers the file again: its toast closed as the button
   // was pressed, and `retry` tells the notifier it was not put away for later.
   else if (it) { pending.set(id, { ...it, retry: Date.now() }); emit(); }
-  if (accept && res?.ok) notifyFilesChanged();
+  if (accept && res?.ok) {
+    notifyFilesChanged();
+    // An accepted picture has its text read in the background (lib/autoExtract).
+    if (res.path) extractTextOnImport([{ path: res.path, name: res.name }]);
+  }
   return { ...res, item: it };
 }
 
