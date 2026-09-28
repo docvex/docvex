@@ -840,6 +840,9 @@ function revealMainWindow() {
   clearTimeout(mainRevealTimer);
   mainRevealTimer = null;
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  // Already revealed (the early reveal beat the renderer's own report): don't
+  // pull focus back from wherever the user has gone since.
+  if (pendingMainReveal === null && mainWindow.isVisible()) return;
   const mode = pendingMainReveal;
   pendingMainReveal = null;
   // Order matters: maximize() shows the window on Windows, so it goes first;
@@ -865,6 +868,12 @@ const createWindow = () => {
   pendingMainReveal = saved;
   clearTimeout(mainRevealTimer);
   mainRevealTimer = setTimeout(revealMainWindow, MAIN_REVEAL_FALLBACK_MS);
+  mainShellPainted = false;
+  earlyRevealWanted = false;
+  mainWindow.once('ready-to-show', () => {
+    mainShellPainted = true;
+    if (earlyRevealWanted) revealMainWindow();
+  });
   // Persist size + position (i.e. which monitor) for next launch.
   trackWindowState(mainWindow, 'main');
   // Once the app itself is up and idle, pre-boot the doc-viewer window so the
@@ -952,6 +961,19 @@ function closeAuthWindow() {
 // The app window's renderer resolved its session.
 //   'app-ready' → signed in: reveal the app window, dismiss any sign-in window.
 //   'required'  → signed out: hide the app window and put the sign-in window up.
+// A session is saved on this machine (preload.js): show the window as soon as
+// its shell has painted — the startup indicator is on it — rather than after
+// the app has loaded. If the session turns out to be revoked, 'auth:required'
+// hides it again and raises the sign-in window, as before.
+let mainShellPainted = false;
+let earlyRevealWanted = false;
+ipcMain.on('auth:early-reveal', (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (w !== mainWindow || pendingMainReveal === null) return;
+  earlyRevealWanted = true;
+  if (mainShellPainted) revealMainWindow();
+});
+
 ipcMain.on('auth:app-ready', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (w !== mainWindow) return;

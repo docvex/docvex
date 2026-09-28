@@ -1,5 +1,21 @@
 const { contextBridge, ipcRenderer, webFrame, webUtils } = require('electron');
 
+// STARTUP: with a session saved on this machine the app window can be shown
+// as soon as its page shell paints, instead of after the whole app bundle has
+// loaded and React has mounted (AuthWindowGate still confirms or overrides it
+// once auth resolves). Only the main window acts on this (main.js checks the
+// sender). Same test as AuthWindowGate's hasStoredSession.
+try {
+  let saved = false;
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const k = localStorage.key(i);
+    if (!/^sb-.+-auth-token$/.test(k || '')) continue;
+    const v = JSON.parse(localStorage.getItem(k) || 'null');
+    if (v?.refresh_token && !v?.user?.is_anonymous) { saved = true; break; }
+  }
+  if (saved) ipcRenderer.send('auth:early-reveal');
+} catch { /* storage unreadable — the renderer's gate decides, as before */ }
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // On-disk path for a picked/dropped File object. Electron 32 removed the
   // old `File.path` property — webUtils.getPathForFile is its replacement,
