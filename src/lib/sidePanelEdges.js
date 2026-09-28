@@ -49,8 +49,12 @@ export function alignWithSidePanel(el) {
   const until = performance.now() + 2000;
   const settle = () => { measure(); raf = performance.now() < until ? requestAnimationFrame(settle) : 0; };
   raf = requestAnimationFrame(settle);
-  document.addEventListener('transitionend', measure, true);
-  document.addEventListener('animationend', measure, true);
+  // Coalesced to one measure a frame: every hover transition anywhere in the
+  // window ends here, often several at once.
+  let endRaf = 0;
+  const onEnd = () => { if (!endRaf) endRaf = requestAnimationFrame(() => { endRaf = 0; measure(); }); };
+  document.addEventListener('transitionend', onEnd, true);
+  document.addEventListener('animationend', onEnd, true);
   const mo = typeof MutationObserver === 'undefined' ? null : new MutationObserver(measure);
   document.querySelectorAll('.dv-quick-card').forEach((c) => mo?.observe(c, { childList: true, subtree: true }));
   return () => {
@@ -58,8 +62,9 @@ export function alignWithSidePanel(el) {
     mo?.disconnect();
     if (raf) cancelAnimationFrame(raf);
     window.removeEventListener('resize', measure);
-    document.removeEventListener('transitionend', measure, true);
-    document.removeEventListener('animationend', measure, true);
+    if (endRaf) cancelAnimationFrame(endRaf);
+    document.removeEventListener('transitionend', onEnd, true);
+    document.removeEventListener('animationend', onEnd, true);
   };
 }
 

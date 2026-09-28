@@ -6810,13 +6810,31 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       return regionToStageShape(entry.region, toStage, scale);
     };
 
-    // rAF loop keeps the outline glued through zoom/pan/resize.
+    // rAF loop keeps the outline glued through zoom/pan/resize. It STOPS once
+    // the outline has held still for a few frames (it used to measure two
+    // rects and stringify the shape every frame for as long as a highlight
+    // was shown); anything that can move the picture wakes it again.
+    let still = 0;
     const tick = () => {
+      raf = 0;
       if (dead) return;
       const shape = computeShape();
       const key = JSON.stringify(shape);
-      if (key !== prevKey) { prevKey = key; setHighlightShape(shape); }
-      raf = requestAnimationFrame(tick);
+      if (key !== prevKey) { prevKey = key; setHighlightShape(shape); still = 0; } else still += 1;
+      if (still < 20) raf = requestAnimationFrame(tick);
+    };
+    const wake = () => { still = 0; if (!raf && !dead) raf = requestAnimationFrame(tick); };
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(wake) : null;
+    ro?.observe(stage); ro?.observe(el);
+    // Zoom and pan are written as style/class changes inside the stage.
+    const mo = new MutationObserver(wake);
+    mo.observe(stage, { attributes: true, attributeFilter: ['style', 'class'], subtree: true });
+    stage.addEventListener('transitionrun', wake, true);
+    window.addEventListener('resize', wake);
+    const stopWatching = () => {
+      ro?.disconnect(); mo.disconnect();
+      stage.removeEventListener('transitionrun', wake, true);
+      window.removeEventListener('resize', wake);
     };
 
     if (kind === 'video' && typeof entry.videoTime === 'number') {
@@ -6856,7 +6874,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
           const shape = computeShape();
           prevKey = JSON.stringify(shape);
           setHighlightShape(shape);
-          raf = requestAnimationFrame(tick);
+          wake();
         };
         snapSeekListener = onSeeked;
         el.addEventListener('seeked', snapSeekListener, { once: true });
@@ -6869,11 +6887,12 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
           setSeekLoading(false);
           setFrameSnapOverlay(null);
           setHighlightShape(computeShape());
-          raf = requestAnimationFrame(tick);
+          wake();
         }
         return () => {
           dead = true;
           cancelAnimationFrame(raf);
+          stopWatching();
           if (snapSeekListener) el.removeEventListener('seeked', snapSeekListener);
         };
       }
@@ -6885,11 +6904,12 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
 
     // Start the rAF loop after the initial sync set.
     prevKey = JSON.stringify(computeShape());
-    raf = requestAnimationFrame(tick);
+    wake();
 
     return () => {
       dead = true;
       cancelAnimationFrame(raf);
+      stopWatching();
       if (snapSeekListener) el.removeEventListener('seeked', snapSeekListener);
     };
   }, [highlightId, history, kind]);
@@ -7330,10 +7350,14 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       moved = true;
       if (!middle) return;
       document.body.classList.add('dv-media-panning');
-      setPanX(startPanX + dx);
-      setPanY(startPanY + dy);
+      panTo = [startPanX + dx, startPanY + dy];
+      // One pane re-render per frame, not per mouse event.
+      if (!panRaf) panRaf = requestAnimationFrame(() => { panRaf = 0; setPanX(panTo[0]); setPanY(panTo[1]); });
     };
+    let panRaf = 0;
+    let panTo = null;
     const onUp = (ev) => {
+      if (panRaf) { cancelAnimationFrame(panRaf); panRaf = 0; setPanX(panTo[0]); setPanY(panTo[1]); }
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       document.body.classList.remove('dv-media-panning');
@@ -10616,10 +10640,14 @@ function usePageScrollCounter(scrollRef, pageSelector, deps = []) {
     const sc = scrollRef.current;
     if (!sc) return undefined;
     recompute();
-    sc.addEventListener('scroll', recompute, { passive: true });
+    // Once a frame at most: every scroll event queried every slide and read
+    // its rect.
+    let raf = 0;
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; recompute(); }); };
+    sc.addEventListener('scroll', onScroll, { passive: true });
     let ro;
-    if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(recompute); ro.observe(sc); }
-    return () => { sc.removeEventListener('scroll', recompute); ro?.disconnect(); };
+    if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(onScroll); ro.observe(sc); }
+    return () => { sc.removeEventListener('scroll', onScroll); ro?.disconnect(); cancelAnimationFrame(raf); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recompute, ...deps]);
   return info;
@@ -11255,11 +11283,14 @@ function DocParaPill({ hostRef, onOpen, onToggleFold }) {
     // document is zoomed in on a paragraph (the veil makes that state modal),
     // not the picked paragraph's own preview copy, not the
     // picked paragraph itself, and not text-less blocks (spacers).
+    // A LIVE collection: checking it is a length read, where querySelector
+    // searched the whole document on every mouse move.
+    const picked = host.getElementsByClassName('dv-docx-para is-selected');
     const blockUnder = (e) => {
       if (host.parentElement?.classList.contains('is-zoom-live')) return null;
       // While a paragraph is PICKED no other paragraph is detected: no hover
       // pill, no hover dim, no menu — a click outside it only dismisses it.
-      if (host.querySelector('.dv-docx-para.is-selected')) return null;
+      if (picked.length) return null;
       if (e.target.closest?.('.dv-docx-livecard')) return null;
       const el = e.target.closest?.(PARA_BLOCKS);
       if (!el || !host.contains(el) || el.classList.contains('is-selected')) return null;
@@ -17220,7 +17251,9 @@ function SidebarScrollbar({ scrollRef, refreshKey }) {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return undefined;
-    el.addEventListener('scroll', recompute, { passive: true });
+    let raf = 0;
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; recompute(); }); };
+    el.addEventListener('scroll', onScroll, { passive: true });
     let ro;
     if (typeof ResizeObserver !== 'undefined') {
       ro = new ResizeObserver(recompute);
@@ -17230,7 +17263,7 @@ function SidebarScrollbar({ scrollRef, refreshKey }) {
       // the scroller's own box size doesn't change.
       if (el.firstElementChild) ro.observe(el.firstElementChild);
     }
-    return () => { el.removeEventListener('scroll', recompute); ro?.disconnect(); };
+    return () => { el.removeEventListener('scroll', onScroll); ro?.disconnect(); cancelAnimationFrame(raf); };
   }, [recompute, scrollRef]);
 
   // Drag the thumb → scroll proportionally (thumb travel maps to scroll range).
@@ -18222,12 +18255,16 @@ export default function DocViewer() {
     const startW = advisorW;
     let lastW = startW;
     document.body.classList.add('dv-ocr-resizing');
+    // One re-render of the whole viewer per FRAME, not per mouse event.
+    let raf = 0;
     const onMove = (ev) => {
       // Panel sits on the LEFT — dragging the gutter rightward widens it.
       lastW = Math.min(ADVISOR_MAX, Math.max(ADVISOR_MIN, startW + toLayoutPx(ev.clientX - startX)));
-      setAdvisorW(lastW);
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; setAdvisorW(lastW); });
     };
     const onUp = () => {
+      cancelAnimationFrame(raf);
+      setAdvisorW(lastW);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       document.body.classList.remove('dv-ocr-resizing');

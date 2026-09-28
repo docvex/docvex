@@ -165,7 +165,9 @@ export function useElementSpot(selector, { gated = false, shine = true } = {}) {
 /** The `.mini-glow` bars (styles/miniHeader.css): their spotlight and border
  *  shine. Call it in any component that renders one. */
 export function useMiniGlowSpot() {
-  useElementSpot('.mini-glow');
+  // Gated: below High the bars' light stays still (it followed the pointer on
+  // every preset).
+  useElementSpot('.mini-glow', { gated: true });
 }
 
 // ── A rail's spotlight, CHASING the pointer ─────────────────────────────────

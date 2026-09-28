@@ -30,7 +30,11 @@ const MAYBE = /\d|\bcod/i;
 let refs = null;              // lib/lawRefs, once loaded
 let started = false;
 let observer = null;
-const nodes = new Map();      // Text → { value, items: [{ start, end, hit, range }] }
+const nodes = new Map();      // Text → { value, items: [{ start, end, hit, range }], host }
+// Elements that directly hold a text with a reference, counted. The hover
+// test asks this first: a pointer over an element with no reference in it
+// (almost always) costs a Map lookup instead of a caret hit-test + rect reads.
+const hosts = new Map();      // Element → number of its texts with references
 const highlights = {};        // kind → Highlight
 let hot = null;               // the Highlight of the hovered reference
 const pendingRoots = new Set();
@@ -52,10 +56,18 @@ function skipped(node) {
   return !el || !!el.closest(SKIP);
 }
 
+function addHost(el) { if (el) hosts.set(el, (hosts.get(el) || 0) + 1); }
+function removeHost(el) {
+  if (!el) return;
+  const n = (hosts.get(el) || 0) - 1;
+  if (n > 0) hosts.set(el, n); else hosts.delete(el);
+}
+
 function drop(node) {
   const e = nodes.get(node);
   if (!e) return;
   for (const it of e.items) highlights[it.hit.kind]?.delete(it.range);
+  if (e.items.length) removeHost(e.host);
   nodes.delete(node);
 }
 
@@ -76,7 +88,9 @@ function read(node) {
     highlights[h.kind].add(range);
     items.push({ start: h.start, end: h.end, hit: h, range });
   }
-  nodes.set(node, { value, items });
+  const host = items.length ? node.parentElement : null;
+  if (host) addHost(host);
+  nodes.set(node, { value, items, host });
 }
 
 function collect(root) {
@@ -134,9 +148,12 @@ export async function startLawDetection() {
   schedule();
 }
 
-/** The reference under a viewport point → { hit, range } or null. */
-export function hitAt(x, y) {
-  if (!started || !nodes.size) return null;
+/** The reference under a viewport point → { hit, range } or null. `target`
+ *  (the element under the pointer, when known) lets the common case — no
+ *  reference there — answer without a hit-test. */
+export function hitAt(x, y, target) {
+  if (!started || !hosts.size) return null;
+  if (target && !hosts.has(target)) return null;
   let node = null;
   let offset = 0;
   if (document.caretPositionFromPoint) {

@@ -47,7 +47,7 @@ export default function LawDetect({ startAfterMs = 1500 }) {
       morphRef.current.handleMouseLeave();
     };
     const off = subscribePointer({
-      read: (p) => (p.moved || !p.inWindow ? (p.inWindow ? hitAt(p.x, p.y) : null) : undefined),
+      read: (p) => (p.moved || !p.inWindow ? (p.inWindow ? hitAt(p.x, p.y, p.target) : null) : undefined),
       write: (p, it) => {
         if (it === undefined) return;
         if (!it) { clear(); return; }
@@ -67,7 +67,7 @@ export default function LawDetect({ startAfterMs = 1500 }) {
       if (e.button !== 0 || e.defaultPrevented) return;
       const sel = window.getSelection?.();
       if (sel && !sel.isCollapsed) return; // ending a text selection
-      const it = hitAt(e.clientX, e.clientY);
+      const it = hitAt(e.clientX, e.clientY, e.target);
       if (!it) return;
       e.preventDefault();
       e.stopPropagation();
